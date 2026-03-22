@@ -26,6 +26,7 @@ import { useTimer } from '@/hooks/use-timer'
 import { getStatusColor, getStatusLabel, getDisplayStatus } from '@/lib/status'
 import { getBlockers } from '@/lib/dag'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
+import { MarkdownRenderer } from '@/components/markdown-renderer'
 import type { Task, TaskStatus } from '@/types'
 
 // ---------- Dagre layout ----------
@@ -217,8 +218,8 @@ function TaskDetailPanel({
             <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
               Description
             </div>
-            <div className="text-xs text-muted-foreground leading-relaxed line-clamp-4">
-              {task.description}
+            <div className="text-xs text-muted-foreground leading-relaxed prose prose-sm prose-invert max-w-none">
+              <MarkdownRenderer content={task.description} />
             </div>
           </div>
         )}
