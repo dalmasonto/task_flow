@@ -8,7 +8,6 @@ import {
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
@@ -28,20 +27,17 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild>
-        <NavLink
-          to={to}
-          className={`flex items-center gap-4 py-4 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
-            match
-              ? "text-secondary border-secondary"
-              : "text-gray-500 border-transparent hover:text-secondary/80"
-          }`}
-        >
-
-          <span className="material-symbols-outlined text-lg">{icon}</span>
-          <span>{label}</span>
-        </NavLink>
-      </SidebarMenuButton>
+      <NavLink
+        to={to}
+        className={`flex items-center gap-4 py-4 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
+          match
+            ? "text-secondary border-secondary"
+            : "text-gray-500 border-transparent hover:text-secondary/80"
+        }`}
+      >
+        <span className="material-symbols-outlined text-lg">{icon}</span>
+        <span>{label}</span>
+      </NavLink>
     </SidebarMenuItem>
   )
 }
