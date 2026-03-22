@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
 import type { TaskStatus } from '@/types'
 import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS } from '@/lib/constants'
 import { getStatusLabel } from '@/lib/status'
+import { useTasks } from '@/hooks/use-tasks'
 import { seedDatabase } from '@/lib/seed'
 import { playSuccess, playDelete, playClick } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
@@ -107,8 +108,40 @@ export default function Settings() {
     window.location.href = '/dashboard'
   }
 
-  const previewColor = colors['in_progress']
-  const pausedColor = colors['paused']
+  // Rotate through active tasks for preview cards
+  const allTasks = useTasks()
+  const activeTasks = useMemo(() => {
+    if (!allTasks) return []
+    return allTasks.filter(t =>
+      t.status === 'in_progress' || t.status === 'paused' || t.status === 'partial_done' || t.status === 'blocked'
+    )
+  }, [allTasks])
+
+  const [previewIndex, setPreviewIndex] = useState(0)
+
+  useEffect(() => {
+    if (activeTasks.length <= 1) return
+    const timer = setInterval(() => {
+      setPreviewIndex(i => (i + 1) % activeTasks.length)
+    }, 60000)
+    return () => clearInterval(timer)
+  }, [activeTasks.length])
+
+  const safeIndex = activeTasks.length > 0 ? previewIndex % activeTasks.length : 0
+  const secondIndex = activeTasks.length > 1 ? (safeIndex + 1) % activeTasks.length : -1
+
+  const nextPreview = useCallback(() => {
+    if (activeTasks.length <= 1) return
+    setPreviewIndex(i => (i + 1) % activeTasks.length)
+  }, [activeTasks.length])
+
+  const primaryTask = activeTasks[safeIndex]
+  const secondaryTask = secondIndex >= 0 ? activeTasks[secondIndex] : null
+
+  const primaryStatus = primaryTask?.status ?? 'in_progress'
+  const secondaryStatus = secondaryTask?.status ?? 'paused'
+  const previewColor = colors[primaryStatus] ?? colors['in_progress']
+  const pausedColor = colors[secondaryStatus] ?? colors['paused']
 
   return (
     <div className="max-w-6xl mx-auto py-4">
@@ -298,9 +331,20 @@ export default function Settings() {
         <div className="lg:col-span-5 space-y-8">
           <section className="sticky top-24">
             <div className="bg-accent/30 border-t border-tertiary/20 p-8">
-              <h3 className="font-bold text-lg mb-8 flex items-center gap-2">
-                <span className="w-2 h-2 bg-tertiary" /> LIVE COMPONENT PREVIEW
-              </h3>
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <span className="w-2 h-2 bg-tertiary" /> LIVE COMPONENT PREVIEW
+                </h3>
+                {activeTasks.length > 1 && (
+                  <button
+                    onClick={nextPreview}
+                    className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground font-bold flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-sm">skip_next</span>
+                    Next
+                  </button>
+                )}
+              </div>
 
               {/* Preview Card - In Progress */}
               <div
@@ -320,11 +364,11 @@ export default function Settings() {
                       border: `1px solid ${previewColor}66`,
                     }}
                   >
-                    {getStatusLabel('in_progress')}
+                    {getStatusLabel(primaryStatus)}
                   </div>
                 </div>
                 <h4 className="text-2xl font-black tracking-tight leading-none mb-4 uppercase">
-                  Initialize Neural Link protocols
+                  {primaryTask?.title ?? 'Initialize Neural Link protocols'}
                 </h4>
                 <div className="flex items-center gap-4 mb-6">
                   <div className="flex -space-x-2">
@@ -373,11 +417,11 @@ export default function Settings() {
                       border: `1px solid ${pausedColor}66`,
                     }}
                   >
-                    {getStatusLabel('paused')}
+                    {getStatusLabel(secondaryStatus)}
                   </div>
                 </div>
                 <h4 className="text-2xl font-black tracking-tight leading-none uppercase">
-                  Database Sharding Stage 4
+                  {secondaryTask?.title ?? 'Database Sharding Stage 4'}
                 </h4>
               </div>
 

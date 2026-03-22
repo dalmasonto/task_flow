@@ -553,23 +553,43 @@ export default function TaskDetail() {
           </div>
 
           {/* Tags */}
-          {task.tags && task.tags.length > 0 && (
-            <div className="flex flex-col gap-4">
-              <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground">
-                Metadata Tags
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {task.tags.map((tag, i) => (
-                  <span
-                    key={i}
-                    className="px-3 py-1 bg-surface-container-high border border-outline-variant text-[10px] uppercase tracking-tighter"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+          <div className="flex flex-col gap-4">
+            <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground">
+              Metadata Tags
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {(task.tags ?? []).map((tag, i) => (
+                <button
+                  key={i}
+                  onClick={async () => {
+                    const updated = (task.tags ?? []).filter((_, idx) => idx !== i)
+                    await db.tasks.update(task.id!, { tags: updated, updatedAt: new Date() })
+                  }}
+                  className="group px-3 py-1 bg-surface-container-high border border-outline-variant text-[10px] uppercase tracking-tighter flex items-center gap-1 hover:border-destructive/50 transition-colors"
+                >
+                  {tag}
+                  <span className="material-symbols-outlined text-[10px] text-muted-foreground group-hover:text-destructive">close</span>
+                </button>
+              ))}
             </div>
-          )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Add tag..."
+                className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-xs py-2 px-2 uppercase tracking-widest placeholder:text-muted-foreground/30 placeholder:text-xs"
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter') {
+                    const val = e.currentTarget.value.trim()
+                    if (!val) return
+                    const current = task.tags ?? []
+                    if (current.includes(val)) return
+                    await db.tasks.update(task.id!, { tags: [...current, val], updatedAt: new Date() })
+                    e.currentTarget.value = ''
+                  }
+                }}
+              />
+            </div>
+          </div>
 
           {/* Total Time */}
           <div className="bg-surface-container-high p-6 border-t border-tertiary/20">
