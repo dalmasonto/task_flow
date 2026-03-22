@@ -46,9 +46,17 @@ export function useSync() {
       console.log('[useSync] SSE connected to', SSE_URL)
     })
 
-    // Log ALL incoming SSE events for debugging
-    source.onmessage = (e) => {
-      console.log('[useSync] generic message:', e.data?.slice(0, 100))
+    // Intercept the raw EventSource to log ALL events (named and unnamed)
+    const origAddEventListener = source.addEventListener.bind(source)
+    source.addEventListener = (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+      const wrappedListener = (e: Event) => {
+        if (type !== 'error' && type !== 'open') {
+          console.log(`[useSync] SSE event "${type}":`, (e as MessageEvent).data?.slice(0, 120))
+        }
+        if (typeof listener === 'function') listener(e)
+        else listener.handleEvent(e)
+      }
+      origAddEventListener(type, wrappedListener, options)
     }
 
     source.addEventListener('task_created', (e) => {
