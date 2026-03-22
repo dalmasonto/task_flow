@@ -1,12 +1,14 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { useActiveSessions } from '@/hooks/use-sessions'
+import { useActiveSessions, useTaskTotalTime } from '@/hooks/use-sessions'
+import { useTasks } from '@/hooks/use-tasks'
 import { useTask } from '@/hooks/use-tasks'
 import { useTimer } from '@/hooks/use-timer'
 import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { formatDuration } from '@/lib/time'
 import type { Session, Task } from '@/types'
 
-function SessionRow({
+// Row for an active (running) session — shows live elapsed time + pause button
+function ActiveRow({
   session,
   tick,
   pauseTask,
@@ -17,29 +19,28 @@ function SessionRow({
 }) {
   const task = useTask(session.taskId)
 
-  // Recalculate on each tick: Date.now() is intentionally impure here (driven by tick)
   // eslint-disable-next-line react-hooks/purity
   const elapsed = useMemo(() => Date.now() - session.start.getTime(), [tick, session.start])
 
   return (
     <div className="flex items-center gap-3 px-4 py-2 min-w-0">
-      <span className="material-symbols-outlined text-tertiary text-lg shrink-0">
+      <span className="material-symbols-outlined text-tertiary text-lg shrink-0 pulse-active">
         play_arrow
       </span>
       <div className="flex items-center gap-3 min-w-0 flex-1">
-        <span className="text-[10px] uppercase tracking-widest text-on-surface-variant truncate max-w-[200px]">
+        <span className="text-[10px] uppercase tracking-widest text-foreground truncate max-w-[200px]">
           {task?.title ?? 'Loading…'}
         </span>
-        <span className="text-tertiary font-bold text-2xl tracking-tighter drop-shadow-[0_0_8px_rgba(105,253,93,0.5)] tabular-nums shrink-0">
+        <span className="text-tertiary font-bold text-xl tracking-tighter drop-shadow-[0_0_8px_rgba(105,253,93,0.5)] tabular-nums shrink-0">
           {formatDuration(elapsed)}
         </span>
       </div>
       <button
         onClick={() => task && pauseTask(task)}
-        className="shrink-0 p-1.5 rounded hover:bg-surface-variant/50 transition-colors"
+        className="shrink-0 p-1.5 hover:bg-muted transition-colors"
         aria-label={`Pause ${task?.title ?? 'task'}`}
       >
-        <span className="material-symbols-outlined text-on-surface-variant text-lg">
+        <span className="material-symbols-outlined text-muted-foreground text-lg">
           pause
         </span>
       </button>
@@ -47,13 +48,81 @@ function SessionRow({
   )
 }
 
+// Row for a paused task — shows accumulated time + play button
+function PausedRow({
+  task,
+  tick,
+  startTask,
+}: {
+  task: Task
+  tick: number
+  startTask: (task: Task) => Promise<void>
+}) {
+  const totalTime = useTaskTotalTime(task.id, tick)
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 min-w-0 opacity-60 hover:opacity-100 transition-opacity">
+      <span className="material-symbols-outlined text-primary text-lg shrink-0">
+        pause
+      </span>
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground truncate max-w-[200px]">
+          {task.title}
+        </span>
+        <span className="text-muted-foreground font-bold text-xl tracking-tighter tabular-nums shrink-0">
+          {formatDuration(totalTime)}
+        </span>
+      </div>
+      <button
+        onClick={() => startTask(task)}
+        className="shrink-0 p-1.5 hover:bg-muted transition-colors"
+        aria-label={`Resume ${task.title}`}
+      >
+        <span className="material-symbols-outlined text-tertiary text-lg">
+          play_arrow
+        </span>
+      </button>
+    </div>
+  )
+}
+
+// Union type for items displayed in the timer bar
+type TimerItem =
+  | { kind: 'active'; session: Session }
+  | { kind: 'paused'; task: Task }
+
 export function FloatingTimerBar() {
   const activeSessions = useActiveSessions()
+  const allTasks = useTasks()
   const hasActive = !!activeSessions && activeSessions.length > 0
-  const { tick, pauseTask } = useTimer(hasActive)
+  const { tick, pauseTask, startTask } = useTimer(hasActive)
   const displayMode = useSetting('timerBarDisplayMode')
   const [currentIndex, setCurrentIndex] = useState(0)
   const barRef = useRef<HTMLDivElement>(null)
+
+  // Build combined list: active sessions + paused tasks
+  const items: TimerItem[] = useMemo(() => {
+    const result: TimerItem[] = []
+
+    // Active sessions first
+    if (activeSessions) {
+      for (const session of activeSessions) {
+        result.push({ kind: 'active', session })
+      }
+    }
+
+    // Paused tasks (exclude any that somehow have an active session)
+    if (allTasks) {
+      const activeTaskIds = new Set(activeSessions?.map(s => s.taskId) ?? [])
+      for (const task of allTasks) {
+        if (task.status === 'paused' && task.id !== undefined && !activeTaskIds.has(task.id)) {
+          result.push({ kind: 'paused', task })
+        }
+      }
+    }
+
+    return result
+  }, [activeSessions, allTasks])
 
   // Set CSS variable so layout can account for timer bar height
   useEffect(() => {
@@ -68,26 +137,43 @@ export function FloatingTimerBar() {
       observer.disconnect()
       document.documentElement.style.setProperty('--timer-bar-height', '0px')
     }
-  }, [activeSessions?.length, displayMode])
+  }, [items.length, displayMode])
 
-  if (!activeSessions || activeSessions.length === 0) return null
+  if (items.length === 0) return null
 
-  const total = activeSessions.length
-
-  // Clamp currentIndex if sessions changed
+  const total = items.length
   const safeIndex = currentIndex >= total ? 0 : currentIndex
 
-  const cycleLeft = () => {
-    setCurrentIndex((safeIndex - 1 + total) % total)
-  }
-
-  const cycleRight = () => {
-    setCurrentIndex((safeIndex + 1) % total)
-  }
+  const cycleLeft = () => setCurrentIndex((safeIndex - 1 + total) % total)
+  const cycleRight = () => setCurrentIndex((safeIndex + 1) % total)
 
   const toggleMode = () => {
     const newMode = displayMode === 'carousel' ? 'expanded' : 'carousel'
     void updateSetting('timerBarDisplayMode', newMode)
+  }
+
+  const activeCount = items.filter(i => i.kind === 'active').length
+  const pausedCount = items.filter(i => i.kind === 'paused').length
+
+  function renderItem(item: TimerItem) {
+    if (item.kind === 'active') {
+      return (
+        <ActiveRow
+          key={`active-${item.session.id}`}
+          session={item.session}
+          tick={tick}
+          pauseTask={pauseTask}
+        />
+      )
+    }
+    return (
+      <PausedRow
+        key={`paused-${item.task.id}`}
+        task={item.task}
+        tick={tick}
+        startTask={startTask}
+      />
+    )
   }
 
   return (
@@ -100,45 +186,41 @@ export function FloatingTimerBar() {
           {total > 1 && (
             <button
               onClick={cycleLeft}
-              className="p-1.5 rounded hover:bg-surface-variant/50 transition-colors"
-              aria-label="Previous session"
+              className="p-1.5 hover:bg-muted transition-colors"
+              aria-label="Previous item"
             >
-              <span className="material-symbols-outlined text-on-surface-variant text-lg">
+              <span className="material-symbols-outlined text-muted-foreground text-lg">
                 chevron_left
               </span>
             </button>
           )}
 
-          <SessionRow
-            session={activeSessions[safeIndex]}
-            tick={tick}
-            pauseTask={pauseTask}
-          />
+          {renderItem(items[safeIndex])}
 
           {total > 1 && (
             <button
               onClick={cycleRight}
-              className="p-1.5 rounded hover:bg-surface-variant/50 transition-colors"
-              aria-label="Next session"
+              className="p-1.5 hover:bg-muted transition-colors"
+              aria-label="Next item"
             >
-              <span className="material-symbols-outlined text-on-surface-variant text-lg">
+              <span className="material-symbols-outlined text-muted-foreground text-lg">
                 chevron_right
               </span>
             </button>
           )}
 
           {total > 1 && (
-            <span className="text-[10px] text-on-surface-variant tracking-widest tabular-nums">
+            <span className="text-[10px] text-muted-foreground tracking-widest tabular-nums">
               ({safeIndex + 1}/{total})
             </span>
           )}
 
           <button
             onClick={toggleMode}
-            className="p-1.5 rounded hover:bg-surface-variant/50 transition-colors ml-2"
+            className="p-1.5 hover:bg-muted transition-colors ml-2"
             aria-label="Switch to expanded mode"
           >
-            <span className="material-symbols-outlined text-on-surface-variant text-lg">
+            <span className="material-symbols-outlined text-muted-foreground text-lg">
               unfold_more
             </span>
           </button>
@@ -146,27 +228,22 @@ export function FloatingTimerBar() {
       ) : (
         <div className="py-1">
           <div className="flex items-center justify-between px-4 pb-1">
-            <span className="text-[10px] uppercase tracking-widest text-on-surface-variant">
-              Active Sessions ({total})
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              {activeCount > 0 && `${activeCount} active`}
+              {activeCount > 0 && pausedCount > 0 && ' · '}
+              {pausedCount > 0 && `${pausedCount} paused`}
             </span>
             <button
               onClick={toggleMode}
-              className="p-1.5 rounded hover:bg-surface-variant/50 transition-colors"
+              className="p-1.5 hover:bg-muted transition-colors"
               aria-label="Switch to carousel mode"
             >
-              <span className="material-symbols-outlined text-on-surface-variant text-lg">
+              <span className="material-symbols-outlined text-muted-foreground text-lg">
                 unfold_less
               </span>
             </button>
           </div>
-          {activeSessions.map((session) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              tick={tick}
-              pauseTask={pauseTask}
-            />
-          ))}
+          {items.map(renderItem)}
         </div>
       )}
     </div>
