@@ -42,6 +42,10 @@ export function useSync() {
     const source = new EventSource(SSE_URL)
     sourceRef.current = source
 
+    source.addEventListener('connected', () => {
+      console.log('[useSync] SSE connected to', SSE_URL)
+    })
+
     source.addEventListener('task_created', (e) => {
       const { payload } = JSON.parse(e.data)
       if (payload) {
@@ -155,9 +159,9 @@ export function useSync() {
       db.activityLogs.clear()
     })
 
-    // Silently handle errors (MCP server may not be running)
-    source.onerror = () => {
-      // EventSource auto-reconnects — no action needed
+    source.onerror = (event) => {
+      const state = (event.target as EventSource)?.readyState
+      console.warn('[useSync] SSE error — readyState:', state === 0 ? 'CONNECTING' : state === 1 ? 'OPEN' : 'CLOSED')
     }
 
     return () => {
