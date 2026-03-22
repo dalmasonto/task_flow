@@ -604,11 +604,12 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     fitRef.current = fit
 
     // Clickable nav commands — clicking writes the command to the input line
+    // provideLinks bufferLineNumber is 1-based, getLine() is 0-based
     term.registerLinkProvider({
       provideLinks(bufferLineNumber, callback) {
-        const line = term.buffer.active.getLine(bufferLineNumber)
+        const line = term.buffer.active.getLine(bufferLineNumber - 1)
         if (!line) { callback(undefined); return }
-        const text = line.translateToString(true)
+        const text = line.translateToString()
         const match = text.match(/nav \/\S+/)
         if (match && match.index !== undefined) {
           callback([{
@@ -618,10 +619,8 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
               end: { x: match.index + match[0].length, y: bufferLineNumber },
             },
             activate(_event: MouseEvent, linkText: string) {
-              // Clear any existing input on the current prompt line
               const clearLen = inputBuffer.current.length
               if (clearLen > 0) term.write('\b \b'.repeat(clearLen))
-              // Write the nav command to the input buffer and display it
               inputBuffer.current = linkText
               term.write(linkText)
             },
