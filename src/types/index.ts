@@ -76,6 +76,7 @@ export type ActivityAction =
   | 'link_added'
   | 'tag_added'
   | 'tag_removed'
+  | 'debug_log'
 
 export interface ActivityLog {
   id?: number

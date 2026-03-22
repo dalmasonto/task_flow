@@ -48,6 +48,7 @@ export async function getAgentInstructions() {
       'When you create new work items (files, features, fixes), create corresponding tasks in TaskFlow to keep the tracker in sync.',
       'Proactively create tasks on the fly for any work you are doing — bug fixes, improvements, feature implementations, refactors. Create the task, start a timer, do the work, then stop the timer with the final status. Every meaningful unit of work should be tracked, even if the user did not explicitly ask you to create a task for it.',
       'Use Markdown in description fields — headings, bullet lists, code blocks, bold/italic. Task and project descriptions render Markdown in the UI, so well-formatted descriptions are more readable for the user.',
+      'When debugging, use the log_debug tool to record your process — what you are investigating, what you tried, error messages, hypotheses, and findings. Link it to the relevant task with task_id. This creates a visible breadcrumb trail in the Activity Pulse that helps the user understand your reasoning.',
     ],
 
     task_workflow: {

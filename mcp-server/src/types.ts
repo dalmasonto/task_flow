@@ -20,7 +20,7 @@ export const ActivityAction = z.enum([
   'project_created', 'project_deleted', 'project_updated',
   'tasks_bulk_created', 'settings_saved', 'data_seeded', 'data_cleared',
   'task_linked', 'task_unlinked', 'dependency_added', 'dependency_removed',
-  'link_added', 'tag_added', 'tag_removed',
+  'link_added', 'tag_added', 'tag_removed', 'debug_log',
 ]);
 export type ActivityAction = z.infer<typeof ActivityAction>;
 

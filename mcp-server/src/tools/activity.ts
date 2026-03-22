@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { successResponse, broadcastChange } from '../helpers.js';
+import { logActivity, successResponse, broadcastChange } from '../helpers.js';
 
 // ─── interfaces ───────────────────────────────────────────────────────
 
@@ -55,6 +55,23 @@ export async function clearActivityLog() {
   return successResponse({ deleted: countRow.count, message: 'Activity log cleared' });
 }
 
+export async function logDebug(params: {
+  message: string;
+  task_id?: number;
+  detail?: string;
+}) {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    `INSERT INTO activity_logs (action, title, detail, entity_type, entity_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run('debug_log', params.message, params.detail ?? null, params.task_id ? 'task' : null, params.task_id ?? null, now);
+
+  const entry = db.prepare('SELECT * FROM activity_logs WHERE id = ?').get(result.lastInsertRowid);
+  broadcastChange('activity', 'activity_logged', entry);
+  return successResponse({ id: result.lastInsertRowid, message: params.message });
+}
+
 // ─── MCP registration ─────────────────────────────────────────────────
 
 export function registerActivityTools(server: McpServer) {
@@ -74,5 +91,16 @@ export function registerActivityTools(server: McpServer) {
     'Delete all activity log entries. Use with caution — this is irreversible.',
     {},
     async () => clearActivityLog(),
+  );
+
+  server.tool(
+    'log_debug',
+    'Log a debug entry to the activity log. Use this while debugging to record what you are investigating, what you tried, what you found, and your reasoning. Optionally link to a task. These entries appear in the Activity Pulse in the UI.',
+    {
+      message: z.string().describe('Short summary of what you are doing or found'),
+      detail: z.string().optional().describe('Longer explanation — stack traces, error messages, hypotheses, what you tried'),
+      task_id: z.number().optional().describe('Link this debug log to a specific task'),
+    },
+    async (params) => logDebug(params),
   );
 }

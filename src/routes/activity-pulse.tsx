@@ -24,6 +24,7 @@ const ACTION_CONFIG: Record<ActivityAction, { icon: string; color: string }> = {
   link_added: { icon: 'add_link', color: '#00fbfb' },
   tag_added: { icon: 'label', color: '#69fd5d' },
   tag_removed: { icon: 'label_off', color: '#484847' },
+  debug_log: { icon: 'bug_report', color: '#ffeb3b' },
 }
 
 function formatTimeAgo(date: Date): string {
