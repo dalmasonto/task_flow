@@ -22,4 +22,5 @@ export const DEFAULT_SETTINGS = {
   operatorName: 'Operator-01',
   systemName: 'TASKFLOW_OS',
   terminalHistory: [] as string[],
+  serverPort: 3456,
 }

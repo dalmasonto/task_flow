@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { db } from '@/db/database'
+import { useSetting } from '@/hooks/use-settings'
 
-const BASE_URL = 'http://localhost:3456'
-const SSE_URL = `${BASE_URL}/events`
-const SYNC_URL = `${BASE_URL}/sync`
+function baseUrl(port: number) { return `http://localhost:${port}` }
 
-async function initialSync(retries = 5, delay = 1500): Promise<void> {
+async function initialSync(port: number, retries = 5, delay = 1500): Promise<void> {
+  const syncUrl = `${baseUrl(port)}/sync`
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(SYNC_URL)
+      const res = await fetch(syncUrl)
       if (!res.ok) continue
       const data = await res.json()
 
@@ -29,16 +29,19 @@ async function initialSync(retries = 5, delay = 1500): Promise<void> {
 
 export function useSync() {
   const sourceRef = useRef<EventSource | null>(null)
+  const port = useSetting('serverPort')
 
   useEffect(() => {
-    // Load existing MCP data into Dexie on first connect
-    initialSync()
+    const sseUrl = `${baseUrl(port)}/events`
 
-    const source = new EventSource(SSE_URL)
+    // Load existing MCP data into Dexie on first connect
+    initialSync(port)
+
+    const source = new EventSource(sseUrl)
     sourceRef.current = source
 
     source.addEventListener('connected', () => {
-      console.log('[useSync] SSE connected to', SSE_URL)
+      console.log('[useSync] SSE connected to', sseUrl)
     })
 
     // Intercept the raw EventSource to log ALL events (named and unnamed)

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useSetting } from '@/hooks/use-settings'
 
 const RESTART_DELAY = 2000
 const SERVER_SCRIPT = '/home/dalmas/E/projects/local_task_tracker/task_flow/mcp-server/dist/index.js'
@@ -6,6 +7,7 @@ const SERVER_SCRIPT = '/home/dalmas/E/projects/local_task_tracker/task_flow/mcp-
 export function useServer() {
   const childRef = useRef<unknown>(null)
   const mountedRef = useRef(true)
+  const port = useSetting('serverPort')
 
   useEffect(() => {
     mountedRef.current = true
@@ -21,9 +23,9 @@ export function useServer() {
       try {
         const { Command } = await import('@tauri-apps/plugin-shell')
 
-        console.log('[useServer] spawning: node', SERVER_SCRIPT, '--http-only')
+        console.log('[useServer] spawning: node', SERVER_SCRIPT, '--http-only --port', port)
 
-        const command = Command.create('taskflow-server', [SERVER_SCRIPT, '--http-only'])
+        const command = Command.create('taskflow-server', [SERVER_SCRIPT, '--http-only', '--port', String(port)])
 
         command.on('close', (data) => {
           console.log(`[useServer] server exited code=${data.code}`)
@@ -66,5 +68,5 @@ export function useServer() {
         childRef.current = null
       }
     }
-  }, [])
+  }, [port])
 }

@@ -98,6 +98,7 @@ export interface SettingsMap {
   operatorName: string
   systemName: string
   terminalHistory: string[]
+  serverPort: number
 }
 
 export interface Setting {

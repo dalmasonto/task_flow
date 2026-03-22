@@ -3,7 +3,21 @@ import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 
 const clients = new Set<ServerResponse>();
-const PORT = parseInt(process.env.TASKFLOW_SSE_PORT || '3456', 10);
+
+function resolvePort(): number {
+  // CLI arg takes priority: --port 4000
+  const portArgIdx = process.argv.indexOf('--port');
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    return parseInt(process.argv[portArgIdx + 1], 10);
+  }
+  // Then env var
+  if (process.env.TASKFLOW_SSE_PORT) {
+    return parseInt(process.env.TASKFLOW_SSE_PORT, 10);
+  }
+  return 3456;
+}
+
+const PORT = resolvePort();
 
 function jsonResponse(res: ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -259,7 +273,7 @@ export function startSSEServer(): void {
     // Unexpected error — still don't crash the MCP process
   });
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     markSSEActive();
   });
 }

@@ -42,6 +42,7 @@ export default function Settings() {
   const savedSystemName = useSetting('systemName')
   const savedNotificationInterval = useSetting('notificationInterval')
   const savedBrowserNotifications = useSetting('browserNotificationsEnabled')
+  const savedServerPort = useSetting('serverPort')
 
   const [colors, setColors] = useState<Record<TaskStatus, string>>(savedColors)
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
@@ -51,6 +52,7 @@ export default function Settings() {
   const [systemName, setSystemName] = useState(savedSystemName)
   const [notificationInterval, setNotificationInterval] = useState(savedNotificationInterval)
   const [browserNotifications, setBrowserNotifications] = useState(savedBrowserNotifications)
+  const [serverPort, setServerPort] = useState(savedServerPort)
 
   // Sync local state when saved values load from DB
   useEffect(() => { setColors(savedColors) }, [savedColors])
@@ -61,6 +63,7 @@ export default function Settings() {
   useEffect(() => { setSystemName(savedSystemName) }, [savedSystemName])
   useEffect(() => { setNotificationInterval(savedNotificationInterval) }, [savedNotificationInterval])
   useEffect(() => { setBrowserNotifications(savedBrowserNotifications) }, [savedBrowserNotifications])
+  useEffect(() => { setServerPort(savedServerPort) }, [savedServerPort])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -75,6 +78,7 @@ export default function Settings() {
     await updateSetting('systemName', systemName)
     await updateSetting('notificationInterval', notificationInterval)
     await updateSetting('browserNotificationsEnabled', browserNotifications)
+    await updateSetting('serverPort', serverPort)
     playSuccess()
     toast.success('Configuration committed to core')
     addNotification('Settings Saved', 'Configuration committed to core', 'success')
@@ -90,6 +94,7 @@ export default function Settings() {
     setSystemName(DEFAULT_SETTINGS.systemName)
     setNotificationInterval(DEFAULT_SETTINGS.notificationInterval)
     setBrowserNotifications(DEFAULT_SETTINGS.browserNotificationsEnabled)
+    setServerPort(DEFAULT_SETTINGS.serverPort)
     playClick()
     toast.info('Settings reset to defaults — commit to apply')
   }
@@ -237,6 +242,33 @@ export default function Settings() {
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
                   How often to send reminders during active sessions. Internal bell notifications are always sent regardless of the toggle above.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Server Settings */}
+          <section className="bg-accent/30 p-8 border-t border-secondary/20">
+            <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-secondary" /> SERVER CONFIG
+            </h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                  HTTP/SSE_Port
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={serverPort}
+                    onChange={(e) => setServerPort(Number(e.target.value) || 3456)}
+                    className="w-28 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 tabular-nums"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
+                  Port for the HTTP/SSE server. Used by the Tauri sidecar and MCP sync. Restart required after change.
                 </p>
               </div>
             </div>
