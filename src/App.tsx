@@ -5,6 +5,7 @@ import CreateProject from '@/routes/create-project'
 import CreateTask from '@/routes/create-task'
 import Projects from '@/routes/projects'
 import TaskDetail from '@/routes/task-detail'
+import ProjectDetail from '@/routes/project-detail'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="projects" element={<Projects />} />
         <Route path="projects/new" element={<CreateProject />} />
+        <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="tasks/new" element={<CreateTask />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
       </Route>
