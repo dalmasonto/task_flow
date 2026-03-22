@@ -42,6 +42,17 @@ export interface Session {
   end?: Date
 }
 
+export type NotificationType = 'info' | 'success' | 'warning' | 'error'
+
+export interface AppNotification {
+  id?: number
+  title: string
+  message: string
+  type: NotificationType
+  read: boolean
+  createdAt: Date
+}
+
 export interface SettingsMap {
   timerBarDisplayMode: 'carousel' | 'expanded'
   notificationInterval: number

@@ -24,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { toast } from 'sonner'
 import { db } from '@/db/database'
 import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick } from '@/lib/sounds'
+import { addNotification } from '@/hooks/use-app-notifications'
 import type { Task, TaskStatus } from '@/types'
 
 const ALL_STATUSES: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked', 'partial_done', 'done']
@@ -100,12 +101,14 @@ export default function TaskDetail() {
     await startTask(task)
     playTimerStart()
     toast.success('Timer started')
+    addNotification('Timer Started', `Started working on: ${task.title}`, 'info')
   }
 
   const handlePause = async () => {
     await pauseTask(task)
     playTimerPause()
     toast.info('Timer paused')
+    addNotification('Timer Paused', `Paused: ${task.title}`, 'info')
   }
 
   const handleStop = async (finalStatus: 'done' | 'partial_done') => {
@@ -114,9 +117,11 @@ export default function TaskDetail() {
     if (finalStatus === 'done') {
       playTaskDone()
       toast.success('Task completed!')
+      addNotification('Task Completed', `Finished: ${task.title}`, 'success')
     } else {
       playSuccess()
       toast.info('Task marked as partial done')
+      addNotification('Partial Completion', `Progress on: ${task.title}`, 'info')
     }
   }
 
@@ -140,12 +145,15 @@ export default function TaskDetail() {
     if (newStatus === 'done') {
       playTaskDone()
       toast.success('Task completed!')
+      addNotification('Task Completed', `Finished: ${task.title}`, 'success')
     } else if (newStatus === 'partial_done') {
       playSuccess()
       toast.info('Task marked as partial done')
+      addNotification('Partial Completion', `Progress on: ${task.title}`, 'info')
     } else {
       playClick()
       toast(`Status updated to ${newStatus.replace(/_/g, ' ')}`)
+      addNotification('Status Changed', `${task.title} → ${newStatus.replace(/_/g, ' ')}`, 'info')
     }
   }
 

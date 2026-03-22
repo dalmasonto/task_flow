@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { playSuccess } from '@/lib/sounds'
+import { addNotification } from '@/hooks/use-app-notifications'
 import type { ProjectType } from '@/types'
 
 const PRESET_COLORS = [
@@ -44,6 +45,7 @@ export default function CreateProject() {
     })
     playSuccess()
     toast.success(`Project "${name.trim()}" deployed`)
+    addNotification('Project Created', `New project: ${name.trim()}`, 'success')
     navigate('/projects')
   }
 

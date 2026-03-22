@@ -6,6 +6,7 @@ import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS } from '@/lib/constants'
 import { getStatusLabel } from '@/lib/status'
 import { seedDatabase } from '@/lib/seed'
 import { playSuccess, playDelete, playClick } from '@/lib/sounds'
+import { addNotification } from '@/hooks/use-app-notifications'
 import { db } from '@/db/database'
 import {
   AlertDialog,
@@ -68,6 +69,7 @@ export default function Settings() {
     await updateSetting('notificationInterval', notificationInterval)
     playSuccess()
     toast.success('Configuration committed to core')
+    addNotification('Settings Saved', 'Configuration committed to core', 'success')
   }
 
   function handleReset() {
@@ -86,6 +88,7 @@ export default function Settings() {
     await db.tasks.clear()
     await db.projects.clear()
     await db.sessions.clear()
+    await db.notifications.clear()
     playDelete()
     toast.success('All data cleared')
     window.location.href = '/dashboard'

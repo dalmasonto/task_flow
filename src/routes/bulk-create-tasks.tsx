@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { db } from '@/db/database'
 import { playSuccess } from '@/lib/sounds'
+import { addNotification } from '@/hooks/use-app-notifications'
 import { useProjects } from '@/hooks/use-projects'
 import {
   Select,
@@ -48,6 +49,7 @@ export default function BulkCreateTasks() {
     await db.tasks.bulkAdd(tasks)
     playSuccess()
     toast.success(`${tasks.length} tasks injected`)
+    addNotification('Bulk Import', `${tasks.length} tasks created`, 'success')
     navigate('/dashboard')
   }
 

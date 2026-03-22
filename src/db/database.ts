@@ -1,11 +1,12 @@
 import Dexie, { type Table } from 'dexie'
-import type { Task, Project, Session, Setting } from '@/types'
+import type { Task, Project, Session, Setting, AppNotification } from '@/types'
 
 export class TaskFlowDB extends Dexie {
   tasks!: Table<Task>
   projects!: Table<Project>
   sessions!: Table<Session>
   settings!: Table<Setting>
+  notifications!: Table<AppNotification>
 
   constructor() {
     super('TaskFlowDB')
@@ -23,6 +24,9 @@ export class TaskFlowDB extends Dexie {
           project.type = 'active_project'
         }
       })
+    })
+    this.version(3).stores({
+      notifications: '++id, type, read, createdAt',
     })
   }
 }

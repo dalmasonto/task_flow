@@ -2,9 +2,18 @@ import { useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { db } from '@/db/database'
-import type { Task, Project } from '@/types'
+import { useAppNotifications, useUnreadCount, markAsRead, markAllAsRead, clearAllNotifications } from '@/hooks/use-app-notifications'
+import type { Task, Project, NotificationType } from '@/types'
 import { getStatusColor } from '@/lib/status'
+
+const TYPE_ICONS: Record<NotificationType, { icon: string; color: string }> = {
+  info: { icon: 'info', color: '#00fbfb' },
+  success: { icon: 'check_circle', color: '#69fd5d' },
+  warning: { icon: 'warning', color: '#de8eff' },
+  error: { icon: 'error', color: '#ff6e84' },
+}
 
 export function AppHeader() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -12,6 +21,9 @@ export function AppHeader() {
   const [isOpen, setIsOpen] = useState(false)
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const notifications = useAppNotifications(30)
+  const unreadCount = useUnreadCount()
 
   const runSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -38,7 +50,6 @@ export function AppHeader() {
   }
 
   const handleBlur = () => {
-    // Small delay so clicks on results fire first
     setTimeout(() => setIsOpen(false), 150)
   }
 
@@ -50,6 +61,17 @@ export function AppHeader() {
   }
 
   const hasResults = results.tasks.length > 0 || results.projects.length > 0
+
+  const formatTimeAgo = (date: Date) => {
+    const diff = Date.now() - new Date(date).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'Just now'
+    if (mins < 60) return `${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-6 bg-background/80 backdrop-blur-md border-b border-border">
@@ -122,9 +144,94 @@ export function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <button className="p-2 text-muted-foreground hover:text-primary hover:bg-accent transition-colors">
-          <span className="material-symbols-outlined">notifications</span>
-        </button>
+        {/* Notifications Bell */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="p-2 text-muted-foreground hover:text-primary hover:bg-accent transition-colors relative">
+              <span className="material-symbols-outlined">notifications</span>
+              {(unreadCount ?? 0) > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-destructive text-[8px] font-bold text-white flex items-center justify-center">
+                  {unreadCount! > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-96 p-0 max-h-[500px] flex flex-col" align="end">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="text-xs font-bold uppercase tracking-widest">Notifications</span>
+              <div className="flex gap-2">
+                {(unreadCount ?? 0) > 0 && (
+                  <button
+                    onClick={() => markAllAsRead()}
+                    className="text-[10px] uppercase tracking-widest text-secondary hover:text-secondary/80 font-bold"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                {(notifications?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => clearAllNotifications()}
+                    className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive font-bold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="overflow-y-auto flex-1">
+              {!notifications || notifications.length === 0 ? (
+                <div className="py-12 text-center">
+                  <span className="material-symbols-outlined text-3xl text-muted-foreground/30 mb-2 block">
+                    notifications_off
+                  </span>
+                  <p className="text-xs text-muted-foreground uppercase tracking-widest">
+                    No notifications
+                  </p>
+                </div>
+              ) : (
+                notifications.map(n => {
+                  const config = TYPE_ICONS[n.type]
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => n.id && !n.read && markAsRead(n.id)}
+                      className={`w-full flex items-start gap-3 px-4 py-3 text-left border-b border-border/50 hover:bg-accent transition-colors ${
+                        n.read ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <span
+                        className="material-symbols-outlined text-sm mt-0.5 shrink-0"
+                        style={{ color: config.color }}
+                      >
+                        {config.icon}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold uppercase tracking-tight truncate">
+                            {n.title}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground tracking-widest shrink-0">
+                            {formatTimeAgo(n.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          {n.message}
+                        </p>
+                      </div>
+                      {!n.read && (
+                        <span className="w-1.5 h-1.5 bg-secondary rounded-full mt-1.5 shrink-0" />
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+
         <Link
           to="/settings"
           className="p-2 text-muted-foreground hover:text-primary hover:bg-accent transition-colors"

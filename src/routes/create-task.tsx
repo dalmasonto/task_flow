@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { playSuccess } from '@/lib/sounds'
+import { addNotification } from '@/hooks/use-app-notifications'
 import type { TaskStatus, TaskPriority } from '@/types'
 
 const STATUS_OPTIONS: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked']
@@ -77,6 +78,7 @@ export default function CreateTask() {
 
     playSuccess()
     toast.success(`Task "${title.trim()}" initialized`)
+    addNotification('Task Created', `New task: ${title.trim()}`, 'success')
     navigate('/dashboard')
   }
 
