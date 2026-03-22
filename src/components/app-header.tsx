@@ -273,7 +273,7 @@ export function AppHeader() {
 
       {/* Terminal Dialog */}
       <Dialog open={terminalOpen} onOpenChange={setTerminalOpen}>
-        <DialogContent className="max-w-5xl w-[90vw] h-[75vh] p-0 gap-0 bg-background border-secondary/30">
+        <DialogContent className="w-[90vw] max-w-[90vw] sm:max-w-[90vw] h-[75vh] p-0 gap-0 bg-background border-secondary/30">
           <DialogTitle className="sr-only">TaskFlow Terminal</DialogTitle>
           <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50">
             <div className="flex items-center gap-2">
