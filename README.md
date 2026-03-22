@@ -64,6 +64,29 @@ npm run tauri:build
 
 The first run compiles Rust dependencies and takes a few minutes. Subsequent runs are fast.
 
+### MCP Server (AI Agent Tools)
+
+The MCP server exposes TaskFlow as 27 tools for Claude Code and other AI agents.
+
+```bash
+cd mcp-server && npm install && npm run build
+```
+
+Add to your Claude Code settings (`.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "node",
+      "args": ["<path-to-repo>/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+Data stored at `~/.taskflow/taskflow.db`. Override with `TASKFLOW_DB_PATH` env var.
+
 ## Terminal Commands
 
 Open with `Ctrl+K` or backtick `` ` ``.
