@@ -52,6 +52,14 @@ export function startSSEServer(): void {
     res.end('Not Found');
   });
 
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      // Another MCP instance already owns this port — skip SSE, MCP tools still work
+      return;
+    }
+    // Unexpected error — still don't crash the MCP process
+  });
+
   server.listen(PORT, () => {
     // Server started silently — don't write to stdout (MCP uses stdio)
   });
