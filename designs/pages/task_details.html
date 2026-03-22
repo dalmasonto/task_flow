@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "tertiary-dim": "#49e043",
+              "tertiary-container": "#59ee50",
+              "on-surface-variant": "#adaaaa",
+              "surface-container-low": "#131313",
+              "on-tertiary-fixed-variant": "#005f07",
+              "on-secondary-container": "#d9fffe",
+              "secondary-container": "#006a6a",
+              "surface-container": "#1a1a1a",
+              "on-error-container": "#ffb2b9",
+              "on-error": "#490013",
+              "on-tertiary-container": "#005406",
+              "primary-container": "#d779ff",
+              "on-primary-fixed-variant": "#4b0069",
+              "primary-fixed": "#d779ff",
+              "on-secondary": "#005c5c",
+              "background": "#0e0e0e",
+              "tertiary-fixed-dim": "#49e043",
+              "surface-tint": "#de8eff",
+              "secondary-fixed": "#00fbfb",
+              "outline": "#767575",
+              "error-container": "#a70138",
+              "tertiary": "#69fd5d",
+              "primary-fixed-dim": "#cf62ff",
+              "surface-variant": "#262626",
+              "secondary": "#00fbfb",
+              "primary-dim": "#b90afc",
+              "on-surface": "#ffffff",
+              "surface-container-lowest": "#000000",
+              "error-dim": "#d73357",
+              "inverse-primary": "#9900d1",
+              "outline-variant": "#484847",
+              "surface-container-high": "#20201f",
+              "inverse-surface": "#fcf9f8",
+              "inverse-on-surface": "#565555",
+              "on-background": "#ffffff",
+              "on-primary-fixed": "#000000",
+              "on-tertiary-fixed": "#003e03",
+              "surface-dim": "#0e0e0e",
+              "on-primary-container": "#3d0056",
+              "surface-container-highest": "#262626",
+              "secondary-fixed-dim": "#00ecec",
+              "on-tertiary": "#005e07",
+              "surface-bright": "#2c2c2c",
+              "on-secondary-fixed": "#004747",
+              "on-primary": "#4f006e",
+              "secondary-dim": "#00ecec",
+              "error": "#ff6e84",
+              "surface": "#0e0e0e",
+              "on-secondary-fixed-variant": "#006666",
+              "primary": "#de8eff",
+              "tertiary-fixed": "#59ee50"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Space Grotesk"],
+              "label": ["Space Grotesk"]
+            },
+            borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glow-border-primary { border-top: 1px solid rgba(222, 142, 255, 0.2); }
+        .glow-border-secondary { border-left: 1px solid rgba(0, 251, 251, 0.2); }
+        .neon-text-shadow-primary { text-shadow: 0 0 10px rgba(222, 142, 255, 0.5); }
+        .pulse-indicator { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary selection:text-on-primary">
+<!-- TopAppBar -->
+<header class="bg-[#0e0e0e] text-[#de8eff] font-['Space_Grotesk'] tracking-tight border-b border-[#de8eff]/20 flex justify-between items-center px-6 h-16 w-full fixed top-0 z-50">
+<div class="flex items-center gap-4">
+<span class="text-xl font-bold tracking-tighter text-[#de8eff]">TaskFlow</span>
+<div class="hidden md:flex gap-6 ml-8">
+<button class="text-[#de8eff] font-bold transition-colors">Terminal</button>
+<button class="text-gray-400 hover:bg-[#1a1a1a] transition-colors px-2">Projects</button>
+<button class="text-gray-400 hover:bg-[#1a1a1a] transition-colors px-2">Analytics</button>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="material-symbols-outlined cursor-pointer hover:bg-[#1a1a1a] p-2 transition-colors">settings</div>
+<div class="material-symbols-outlined cursor-pointer hover:bg-[#1a1a1a] p-2 transition-colors relative">
+                notifications
+                <span class="absolute top-2 right-2 w-1.5 h-1.5 bg-secondary rounded-full"></span>
+</div>
+<img alt="User profile" class="w-8 h-8 bg-surface-container-highest border border-primary/20" data-alt="User profile avatar placeholder" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCMaVEWSe5UQ8FzoU3DPPF99CxZwWGORpso80RKRFOX31oZXMuYQNQx1RFP0-FnM35kolLzBK0pdku_6Kw41IlUbXV5WBhdzg8Vghv4Q5NuOT8f948NPpxpO_7w2M6EwG-a4DnDCt6pueVreKweUnePu4qmr7dBBASEIbqiC3uLesM162a6LCUU3X-_I_Aa8a8QSX1GZUB0EQyH2YmKKS1SEChMCGSv2l62o7mq7x_0zJyTFx7cL6KcITzmHDVl7sk58ON9SJvokig"/>
+</div>
+</header>
+<main class="pt-24 pb-32 px-6 max-w-7xl mx-auto grid grid-cols-12 gap-8">
+<!-- Hero Section: Task Header -->
+<section class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+<div class="flex flex-wrap items-center gap-3">
+<div class="flex items-center gap-2 bg-secondary/10 px-3 py-1 border-l-2 border-secondary">
+<span class="w-2 h-2 bg-secondary pulse-indicator"></span>
+<span class="text-[10px] uppercase tracking-widest font-bold text-secondary">In Progress</span>
+</div>
+<div class="flex items-center gap-2 bg-error/10 px-3 py-1 border-l-2 border-error">
+<span class="text-[10px] uppercase tracking-widest font-bold text-error">High Priority</span>
+</div>
+<span class="text-on-surface-variant font-label text-[10px] tracking-widest uppercase ml-auto">REF-2049-X</span>
+</div>
+<h1 class="text-5xl md:text-6xl font-headline font-bold tracking-tighter leading-none max-w-3xl">
+                Refactor <span class="text-primary italic">Reactive</span> State Engine
+            </h1>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+<div class="bg-surface-container-low p-4 border-t border-primary/20">
+<span class="block text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Assignee</span>
+<div class="flex items-center gap-2">
+<img alt="Assignee" class="w-6 h-6 bg-primary/20" data-alt="Assignee profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPq2QucClsoLuL6EpXZ4uuoM1zITRlqN7_bEDj29vo0Y4PPopJp0eR5IiSJKz05xxbhTLaUhu9kCFKkEbq77A8ToU61X-6dRK3g0XICVs__YDrKZj8sD3kZ30-7OrEvAK9rB2ZfcJqA6m3r4h_YL4UpD9oI8hoAEHevaDCMHWu4Or52ZwUJrLL0-qI3eOF03CNtc4gORJweYHr8Fm60zoDoV2G8Z0d74nEy5Jm3omDK6Ab213Ze5kDLI3eHPy--mSXy47Vmji6Cko"/>
+<span class="text-sm font-medium">Alex Chen</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 border-t border-secondary/20">
+<span class="block text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Due Date</span>
+<span class="text-sm font-medium">OCT 24, 2024</span>
+</div>
+<div class="bg-surface-container-low p-4 border-t border-tertiary/20">
+<span class="block text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Estimation</span>
+<span class="text-sm font-medium">32 Story Points</span>
+</div>
+<div class="bg-surface-container-low p-4 border-t border-outline-variant">
+<span class="block text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Squad</span>
+<span class="text-sm font-medium">CORE-INFRA</span>
+</div>
+</div>
+<!-- Rich Description -->
+<div class="mt-8">
+<div class="flex items-center gap-4 mb-4">
+<h2 class="text-lg font-bold tracking-tight uppercase">Technical Specifications</h2>
+<div class="h-px flex-1 bg-outline-variant"></div>
+</div>
+<div class="bg-surface-container p-8 glow-border-secondary">
+<p class="text-on-surface-variant leading-relaxed mb-6">
+                        The current state management architecture suffers from redundant re-renders in deep component trees. We need to implement a selective subscription model utilizing a Proxy-based observation layer. This refactor will target the <span class="text-secondary">@taskflow/core-state</span> package.
+                    </p>
+<ul class="space-y-4">
+<li class="flex gap-4">
+<span class="material-symbols-outlined text-primary text-sm mt-1">check_circle</span>
+<span class="text-sm">Implement <code class="bg-surface-variant px-2 py-0.5 text-secondary">useSelector</code> hook with shallow equality checks.</span>
+</li>
+<li class="flex gap-4">
+<span class="material-symbols-outlined text-primary text-sm mt-1">check_circle</span>
+<span class="text-sm">Migrate all existing stores to the new <code class="bg-surface-variant px-2 py-0.5 text-secondary">defineState</code> API.</span>
+</li>
+<li class="flex gap-4">
+<span class="material-symbols-outlined text-primary text-sm mt-1">radio_button_unchecked</span>
+<span class="text-sm">Achieve <span class="text-tertiary">95% unit test coverage</span> on the observation engine.</span>
+</li>
+</ul>
+</div>
+</div>
+<!-- Dependencies Section -->
+<div class="mt-8">
+<div class="flex items-center gap-4 mb-4">
+<h2 class="text-lg font-bold tracking-tight uppercase">Graph Dependencies</h2>
+<div class="h-px flex-1 bg-outline-variant"></div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-4 flex items-center justify-between border-l-2 border-error">
+<div>
+<span class="block text-[9px] uppercase tracking-widest text-error font-bold">Blocking</span>
+<span class="text-sm">API Middleware Upgrade</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">arrow_forward</span>
+</div>
+<div class="bg-surface-container-low p-4 flex items-center justify-between border-l-2 border-secondary">
+<div>
+<span class="block text-[9px] uppercase tracking-widest text-secondary font-bold">Blocked By</span>
+<span class="text-sm">Schema Validation Fix</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">lock</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Sidebar Section: Activity & Log -->
+<aside class="col-span-12 lg:col-span-4 flex flex-col gap-8">
+<div class="bg-surface-container p-6 border-t border-primary/20 h-fit">
+<h3 class="text-xs font-bold tracking-widest uppercase mb-6 text-primary">Session Timeline</h3>
+<div class="space-y-8 relative before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-outline-variant">
+<div class="relative pl-8">
+<div class="absolute left-0 top-1 w-4 h-4 bg-background border-2 border-tertiary"></div>
+<span class="block text-[10px] uppercase tracking-widest text-tertiary mb-1">Today 14:20</span>
+<p class="text-sm font-medium">Sprint meeting finalized requirements</p>
+<p class="text-xs text-on-surface-variant">by Sarah Jenkins</p>
+</div>
+<div class="relative pl-8">
+<div class="absolute left-0 top-1 w-4 h-4 bg-background border-2 border-secondary"></div>
+<span class="block text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Yesterday 09:12</span>
+<p class="text-sm font-medium">Task status shifted to IN PROGRESS</p>
+<p class="text-xs text-on-surface-variant">System Automated</p>
+</div>
+<div class="relative pl-8">
+<div class="absolute left-0 top-1 w-4 h-4 bg-background border-2 border-outline"></div>
+<span class="block text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">OCT 18 16:45</span>
+<p class="text-sm font-medium">Initial architecture brief attached</p>
+<div class="mt-2 flex items-center gap-2 bg-surface-variant p-2 cursor-pointer hover:bg-surface-bright transition-colors">
+<span class="material-symbols-outlined text-sm">description</span>
+<span class="text-xs">spec_v2_final.pdf</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Tags & Metadata -->
+<div class="flex flex-col gap-4">
+<h3 class="text-xs font-bold tracking-widest uppercase text-on-surface-variant">Metadata Tags</h3>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1 bg-surface-container border border-outline-variant text-[10px] uppercase tracking-tighter">TypeScript</span>
+<span class="px-3 py-1 bg-surface-container border border-outline-variant text-[10px] uppercase tracking-tighter">Performance</span>
+<span class="px-3 py-1 bg-surface-container border border-outline-variant text-[10px] uppercase tracking-tighter">Refactor</span>
+<span class="px-3 py-1 bg-surface-container border border-outline-variant text-[10px] uppercase tracking-tighter">Core</span>
+</div>
+</div>
+</aside>
+</main>
+<!-- Floating Action Bar (BottomNavBar Variant) -->
+<div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-2xl bg-[#1a1a1a]/80 backdrop-blur-xl border border-[#69fd5d]/30 shadow-[0_0_20px_rgba(105,253,93,0.1)] py-4 px-8 flex justify-around items-center">
+<button class="flex flex-col items-center gap-1 group">
+<span class="material-symbols-outlined text-gray-400 group-hover:text-tertiary transition-transform active:scale-90">play_arrow</span>
+<span class="font-['Space_Grotesk'] text-[10px] uppercase tracking-widest text-gray-400 group-hover:text-tertiary">Play</span>
+</button>
+<div class="h-8 w-px bg-outline-variant/30"></div>
+<button class="flex flex-col items-center gap-1 text-[#69fd5d] scale-110">
+<span class="material-symbols-outlined">stop</span>
+<span class="font-['Space_Grotesk'] text-[10px] uppercase tracking-widest">Stop</span>
+</button>
+<div class="h-8 w-px bg-outline-variant/30"></div>
+<button class="flex flex-col items-center gap-1 group">
+<span class="material-symbols-outlined text-gray-400 group-hover:text-tertiary transition-transform active:scale-90">timer</span>
+<span class="font-['Space_Grotesk'] text-[10px] uppercase tracking-widest text-gray-400 group-hover:text-tertiary">Lap</span>
+</button>
+<button class="ml-4 bg-primary text-on-primary px-6 py-2 font-bold text-xs uppercase tracking-widest active:scale-95 transition-transform">
+            Submit Review
+        </button>
+</div>
+</body></html>

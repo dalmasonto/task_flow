@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TaskFlow | Terminal Status Config</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "tertiary-dim": "#49e043",
+              "tertiary-container": "#59ee50",
+              "on-surface-variant": "#adaaaa",
+              "surface-container-low": "#131313",
+              "on-tertiary-fixed-variant": "#005f07",
+              "on-secondary-container": "#d9fffe",
+              "secondary-container": "#006a6a",
+              "surface-container": "#1a1a1a",
+              "on-error-container": "#ffb2b9",
+              "on-error": "#490013",
+              "on-tertiary-container": "#005406",
+              "primary-container": "#d779ff",
+              "on-primary-fixed-variant": "#4b0069",
+              "primary-fixed": "#d779ff",
+              "on-secondary": "#005c5c",
+              "background": "#0e0e0e",
+              "tertiary-fixed-dim": "#49e043",
+              "surface-tint": "#de8eff",
+              "secondary-fixed": "#00fbfb",
+              "outline": "#767575",
+              "error-container": "#a70138",
+              "tertiary": "#69fd5d",
+              "primary-fixed-dim": "#cf62ff",
+              "surface-variant": "#262626",
+              "secondary": "#00fbfb",
+              "primary-dim": "#b90afc",
+              "on-surface": "#ffffff",
+              "surface-container-lowest": "#000000",
+              "error-dim": "#d73357",
+              "inverse-primary": "#9900d1",
+              "outline-variant": "#484847",
+              "surface-container-high": "#20201f",
+              "inverse-surface": "#fcf9f8",
+              "inverse-on-surface": "#565555",
+              "on-background": "#ffffff",
+              "on-primary-fixed": "#000000",
+              "on-tertiary-fixed": "#003e03",
+              "surface-dim": "#0e0e0e",
+              "on-primary-container": "#3d0056",
+              "surface-container-highest": "#262626",
+              "secondary-fixed-dim": "#00ecec",
+              "on-tertiary": "#005e07",
+              "surface-bright": "#2c2c2c",
+              "on-secondary-fixed": "#004747",
+              "on-primary": "#4f006e",
+              "secondary-dim": "#00ecec",
+              "error": "#ff6e84",
+              "surface": "#0e0e0e",
+              "on-secondary-fixed-variant": "#006666",
+              "primary": "#de8eff",
+              "tertiary-fixed": "#59ee50"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Space Grotesk"],
+              "label": ["Space Grotesk"]
+            },
+            borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glow-primary { box-shadow: 0 0 15px rgba(222, 142, 255, 0.3); }
+        .glow-secondary { box-shadow: 0 0 15px rgba(0, 251, 251, 0.3); }
+        .glow-tertiary { box-shadow: 0 0 15px rgba(105, 253, 93, 0.3); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary selection:text-on-primary">
+<!-- Top Navigation -->
+<header class="flex justify-between items-center px-6 h-16 w-full bg-[#0e0e0e] border-b border-[#de8eff]/20 fixed top-0 z-50">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-[#de8eff] font-['Space_Grotesk']">TaskFlow</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-[#de8eff] font-bold font-['Space_Grotesk'] tracking-tight hover:bg-[#1a1a1a] transition-colors px-3 py-1 scale-95 active:duration-100" href="#">DASHBOARD</a>
+<a class="text-gray-400 font-['Space_Grotesk'] tracking-tight hover:bg-[#1a1a1a] transition-colors px-3 py-1 scale-95 active:duration-100" href="#">PROJECTS</a>
+<a class="text-gray-400 font-['Space_Grotesk'] tracking-tight hover:bg-[#1a1a1a] transition-colors px-3 py-1 scale-95 active:duration-100" href="#">SYSTEM</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-gray-400 hover:text-primary transition-colors">notifications</button>
+<button class="material-symbols-outlined text-[#de8eff] hover:text-white transition-colors">settings</button>
+<div class="w-8 h-8 bg-surface-container-high border border-primary/20 flex items-center justify-center">
+<span class="text-[10px] font-bold text-primary">USR</span>
+</div>
+</div>
+</header>
+<div class="flex pt-16 h-screen overflow-hidden">
+<!-- Sidebar Navigation -->
+<aside class="hidden md:flex flex-col h-full w-64 bg-[#131313] border-r border-[#de8eff]/20 p-4 shrink-0">
+<div class="mb-8 px-2">
+<h2 class="text-[#de8eff] font-black font-['Space_Grotesk'] uppercase text-xs tracking-widest">COMMAND</h2>
+<p class="text-gray-500 text-[10px] tracking-[0.2em]">V2.0.4</p>
+</div>
+<nav class="flex flex-col gap-2 flex-grow">
+<a class="flex items-center gap-3 p-3 font-['Space_Grotesk'] uppercase text-xs tracking-widest text-gray-500 hover:text-white hover:bg-[#1a1a1a] transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">terminal</span> Terminal
+                </a>
+<a class="flex items-center gap-3 p-3 font-['Space_Grotesk'] uppercase text-xs tracking-widest text-gray-500 hover:text-white hover:bg-[#1a1a1a] transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">grid_view</span> Projects
+                </a>
+<a class="flex items-center gap-3 p-3 font-['Space_Grotesk'] uppercase text-xs tracking-widest text-[#00fbfb] border-l-2 border-[#00fbfb] bg-[#1a1a1a] transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">palette</span> Theme
+                </a>
+<a class="flex items-center gap-3 p-3 font-['Space_Grotesk'] uppercase text-xs tracking-widest text-gray-500 hover:text-white hover:bg-[#1a1a1a] transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">insights</span> Analytics
+                </a>
+<a class="flex items-center gap-3 p-3 font-['Space_Grotesk'] uppercase text-xs tracking-widest text-gray-500 hover:text-white hover:bg-[#1a1a1a] transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">archive</span> Archive
+                </a>
+</nav>
+<button class="mt-auto bg-primary text-on-primary font-bold py-3 text-xs tracking-widest hover:glow-primary transition-all active:scale-95">
+                NEW TASK
+            </button>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-grow overflow-y-auto no-scrollbar bg-background p-8 lg:p-12">
+<div class="max-w-6xl mx-auto">
+<!-- Header Section -->
+<header class="mb-12 border-l-4 border-primary pl-6">
+<h1 class="text-5xl font-black uppercase tracking-tighter mb-2 text-on-surface">NEON FLUX <span class="text-primary">CORE</span></h1>
+<p class="text-on-surface-variant font-label uppercase tracking-widest text-xs">System Configuration / Visual Status Mapping</p>
+</header>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Left Column: Status Mappings -->
+<div class="lg:col-span-7 space-y-8">
+<section class="bg-surface-container-low p-8 border-t border-primary/20">
+<h3 class="font-bold text-lg mb-6 flex items-center gap-2">
+<span class="w-2 h-2 bg-primary"></span> STATUS COLOR CHANNELS
+                            </h3>
+<div class="space-y-4">
+<!-- Not Started -->
+<div class="flex items-center justify-between p-4 bg-surface-container-highest/50 group hover:bg-surface-container-highest transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-outline-variant border border-white/10"></div>
+<div>
+<p class="text-xs font-black uppercase tracking-widest">Not Started</p>
+<p class="text-[10px] text-on-surface-variant">HEX: #484847</p>
+</div>
+</div>
+<input class="w-8 h-8 bg-transparent border-none cursor-pointer" type="color" value="#484847"/>
+</div>
+<!-- In Progress -->
+<div class="flex items-center justify-between p-4 bg-surface-container-highest/50 group hover:bg-surface-container-highest transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-secondary border border-secondary/40 shadow-[0_0_10px_rgba(0,251,251,0.2)]"></div>
+<div>
+<p class="text-xs font-black uppercase tracking-widest">In Progress</p>
+<p class="text-[10px] text-on-surface-variant">HEX: #00FBFB</p>
+</div>
+</div>
+<input class="w-8 h-8 bg-transparent border-none cursor-pointer" type="color" value="#00fbfb"/>
+</div>
+<!-- Paused -->
+<div class="flex items-center justify-between p-4 bg-surface-container-highest/50 group hover:bg-surface-container-highest transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-primary border border-primary/40 shadow-[0_0_10px_rgba(222,142,255,0.2)]"></div>
+<div>
+<p class="text-xs font-black uppercase tracking-widest">Paused</p>
+<p class="text-[10px] text-on-surface-variant">HEX: #DE8EFF</p>
+</div>
+</div>
+<input class="w-8 h-8 bg-transparent border-none cursor-pointer" type="color" value="#de8eff"/>
+</div>
+<!-- Blocked -->
+<div class="flex items-center justify-between p-4 bg-surface-container-highest/50 group hover:bg-surface-container-highest transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-error border border-error/40 shadow-[0_0_10px_rgba(255,110,132,0.2)]"></div>
+<div>
+<p class="text-xs font-black uppercase tracking-widest">Blocked</p>
+<p class="text-[10px] text-on-surface-variant">HEX: #FF6E84</p>
+</div>
+</div>
+<input class="w-8 h-8 bg-transparent border-none cursor-pointer" type="color" value="#ff6e84"/>
+</div>
+<!-- Done -->
+<div class="flex items-center justify-between p-4 bg-surface-container-highest/50 group hover:bg-surface-container-highest transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-tertiary border border-tertiary/40 shadow-[0_0_10px_rgba(105,253,93,0.2)]"></div>
+<div>
+<p class="text-xs font-black uppercase tracking-widest">Done</p>
+<p class="text-[10px] text-on-surface-variant">HEX: #69FD5D</p>
+</div>
+</div>
+<input class="w-8 h-8 bg-transparent border-none cursor-pointer" type="color" value="#69fd5d"/>
+</div>
+</div>
+</section>
+<section class="bg-surface-container-low p-8 border-t border-secondary/20">
+<h3 class="font-bold text-lg mb-6 flex items-center gap-2">
+<span class="w-2 h-2 bg-secondary"></span> PHOTON EMISSION (GLOW)
+                            </h3>
+<div class="space-y-6">
+<div>
+<div class="flex justify-between mb-4">
+<span class="text-[10px] uppercase tracking-widest font-black">Intensity Scale</span>
+<span class="text-[10px] uppercase tracking-widest text-secondary font-black">84%</span>
+</div>
+<div class="relative h-1 bg-surface-variant w-full">
+<div class="absolute h-full bg-secondary w-[84%] shadow-[0_0_10px_#00fbfb]"></div>
+<div class="absolute h-4 w-4 bg-secondary -top-1.5 left-[84%] cursor-pointer"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="p-4 bg-surface-container border border-white/5">
+<p class="text-[10px] text-on-surface-variant uppercase mb-2">Backdrop Blur</p>
+<p class="text-xl font-black">24PX</p>
+</div>
+<div class="p-4 bg-surface-container border border-white/5">
+<p class="text-[10px] text-on-surface-variant uppercase mb-2">Shadow Spread</p>
+<p class="text-xl font-black">12PX</p>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Column: Live Preview -->
+<div class="lg:col-span-5 space-y-8">
+<section class="sticky top-24">
+<div class="bg-surface-container-low border-t border-tertiary/20 p-8">
+<h3 class="font-bold text-lg mb-8 flex items-center gap-2">
+<span class="w-2 h-2 bg-tertiary"></span> LIVE COMPONENT PREVIEW
+                                </h3>
+<!-- Preview Card -->
+<div class="bg-surface-container-high border-l-4 border-secondary p-6 glow-secondary mb-8">
+<div class="flex justify-between items-start mb-4">
+<div class="px-2 py-0.5 bg-secondary/10 border border-secondary/40">
+<span class="text-[10px] font-black text-secondary uppercase tracking-widest">In Progress</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">more_vert</span>
+</div>
+<h4 class="text-2xl font-black tracking-tight leading-none mb-4 uppercase">Initialize Neural Link protocols</h4>
+<div class="flex items-center gap-4 mb-6">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 bg-surface-variant border border-white/10 flex items-center justify-center text-[8px]">JD</div>
+<div class="w-6 h-6 bg-surface-variant border border-white/10 flex items-center justify-center text-[8px]">AM</div>
+</div>
+<div class="h-px bg-white/10 flex-grow"></div>
+<div class="text-[10px] font-black text-on-surface-variant tracking-widest uppercase">Aug 24</div>
+</div>
+<div class="flex justify-between items-center pt-4 border-t border-white/5">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 bg-secondary animate-pulse"></span>
+<span class="text-[10px] uppercase tracking-widest font-black text-secondary">Kinetic Active</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">attach_file</span>
+<span class="text-[10px]">04</span>
+</div>
+</div>
+</div>
+<!-- Card with Paused state -->
+<div class="bg-surface-container-high border-l-4 border-primary p-6 glow-primary/20 opacity-60">
+<div class="flex justify-between items-start mb-4">
+<div class="px-2 py-0.5 bg-primary/10 border border-primary/40">
+<span class="text-[10px] font-black text-primary uppercase tracking-widest">Paused</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">more_vert</span>
+</div>
+<h4 class="text-2xl font-black tracking-tight leading-none uppercase">Database Sharding Stage 4</h4>
+</div>
+<div class="mt-8">
+<button class="w-full bg-secondary text-on-secondary font-black py-4 tracking-widest hover:glow-secondary transition-all active:scale-95 uppercase text-xs">
+                                        COMMIT TO CORE
+                                    </button>
+<button class="w-full mt-4 border border-outline-variant text-on-surface-variant font-black py-4 tracking-widest hover:bg-surface-container-highest transition-all uppercase text-xs">
+                                        RESET TO DEFAULTS
+                                    </button>
+</div>
+</div>
+<!-- Decorative Graphic -->
+<div class="mt-8 p-6 bg-surface-container border border-white/5 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-2">
+<span class="material-symbols-outlined text-secondary opacity-20 text-4xl">memory</span>
+</div>
+<p class="text-[10px] text-on-surface-variant font-black uppercase tracking-widest mb-2">Visual Engine Status</p>
+<div class="flex gap-1">
+<div class="w-1 h-4 bg-tertiary"></div>
+<div class="w-1 h-4 bg-tertiary"></div>
+<div class="w-1 h-4 bg-tertiary"></div>
+<div class="w-1 h-4 bg-tertiary"></div>
+<div class="w-1 h-4 bg-surface-variant"></div>
+<div class="w-1 h-4 bg-surface-variant"></div>
+</div>
+<p class="mt-4 text-[10px] text-on-surface-variant leading-relaxed uppercase">Neural rendering active. Visual feedback loop synchronized with terminal status core.</p>
+</div>
+</section>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Bottom Nav for Mobile -->
+<nav class="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-2xl bg-[#1a1a1a]/80 backdrop-blur-xl border border-[#69fd5d]/30 z-50 flex justify-around items-center py-4 px-8">
+<button class="flex flex-col items-center gap-1 text-gray-400 hover:text-[#69fd5d] active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-xl">play_arrow</span>
+<span class="font-['Space_Grotesk'] text-[10px] uppercase tracking-widest">Play</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-[#69fd5d] scale-110 active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-xl">timer</span>
+<span class="font-['Space_Grotesk'] text-[10px] uppercase tracking-widest">Lap</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-gray-400 hover:text-[#69fd5d] active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-xl">stop</span>
+<span class="font-['Space_Grotesk'] text-[10px] uppercase tracking-widest">Stop</span>
+</button>
+</nav>
+</body></html>
