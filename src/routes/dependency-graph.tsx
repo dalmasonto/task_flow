@@ -223,7 +223,7 @@ export default function DependencyGraph() {
   // Empty state
   if (!hasTasks) {
     return (
-      <div className="p-8 flex flex-col items-center justify-center h-[calc(100vh-4rem)]">
+      <div className="p-8 flex flex-col items-center justify-center h-[calc(100vh-4rem-var(--timer-bar-height,0px))]">
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold tracking-tighter uppercase">
             Dependency <span className="text-primary">Flux_Graph</span>
@@ -243,7 +243,7 @@ export default function DependencyGraph() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100vh-4rem-var(--timer-bar-height,0px))]">
       {/* Header */}
       <header className="flex items-end justify-between p-6 pb-2 flex-shrink-0">
         <div>
