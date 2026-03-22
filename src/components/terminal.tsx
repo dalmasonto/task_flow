@@ -100,7 +100,9 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
   }, [])
 
   const prompt = useCallback(() => {
-    termRef.current?.write(`\r\n${C.cyan}${C.bold}> ${C.reset}`)
+    const sys = systemRef.current
+    const op = operatorRef.current
+    termRef.current?.write(`\r\n${C.cyan}${C.bold}${sys}${C.reset}${C.gray}@${C.reset}${C.green}${op}${C.reset}${C.white}$ ${C.reset}`)
   }, [])
 
   const executeCommand = useCallback(async (cmd: string) => {
@@ -582,7 +584,8 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     term.writeln('')
     term.writeln(`  ${C.white}${C.bold}${op}${C.reset} ${C.gray}@${C.reset} ${C.cyan}${C.bold}${sys}${C.reset}  ${C.gray}•  ${new Date().toLocaleString()}${C.reset}`)
     term.writeln(`  ${C.gray}Type${C.reset} ${C.green}help${C.reset} ${C.gray}for commands${C.reset}  ${C.dim}•${C.reset}  ${C.green}Tab${C.reset} ${C.gray}autocomplete${C.reset}  ${C.dim}•${C.reset}  ${C.green}↑↓${C.reset} ${C.gray}history${C.reset}  ${C.dim}•${C.reset}  ${C.green}Esc${C.reset} ${C.gray}close${C.reset}`)
-    term.write(`\r\n${C.cyan}${C.bold}> ${C.reset}`)
+    term.writeln('')
+    term.write(`${C.cyan}${C.bold}${sys}${C.reset}${C.gray}@${C.reset}${C.green}${op}${C.reset}${C.white}$ ${C.reset}`)
 
     // Input handling
     term.onData((data) => {
@@ -590,7 +593,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
 
       if (data === '\r') {
         // Enter
-        term.writeln('')
+        term.write('\r\n')
         const cmd = inputBuffer.current
         inputBuffer.current = ''
         executeCommand(cmd)
