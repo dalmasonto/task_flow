@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router'
+import { useServer } from '@/hooks/use-server'
 import { useSync } from '@/hooks/use-sync'
 import { RootLayout } from '@/components/root-layout'
 import Dashboard from '@/routes/dashboard'
@@ -17,6 +18,7 @@ import BulkCreateTasks from '@/routes/bulk-create-tasks'
 import NotFound from '@/routes/not-found'
 
 export default function App() {
+  useServer()
   useSync()
 
   return (
