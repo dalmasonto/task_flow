@@ -1,5 +1,5 @@
 import * as React from "react"
-import { NavLink } from "react-router"
+import { NavLink, useMatch, useResolvedPath } from "react-router"
 
 import {
   Sidebar,
@@ -21,12 +21,27 @@ const navItems = [
   { label: "Archive", to: "/archive", icon: "archive" },
 ]
 
-function navLinkClass({ isActive }: { isActive: boolean }) {
-  return `flex items-center gap-4 py-3 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
-    isActive
-      ? "text-secondary border-secondary"
-      : "text-gray-500 border-transparent hover:text-secondary/80"
-  }`
+function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: string }) {
+  const resolved = useResolvedPath(to)
+  const match = useMatch({ path: resolved.pathname, end: true })
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild>
+        <NavLink
+          to={to}
+          className={`flex items-center gap-4 py-3 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
+            match
+              ? "text-secondary border-secondary"
+              : "text-gray-500 border-transparent hover:text-secondary/80"
+          }`}
+        >
+          <span className="material-symbols-outlined text-lg">{icon}</span>
+          <span>{label}</span>
+        </NavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -50,16 +65,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarMenu className="gap-2">
             {navItems.map((item) => (
-              <SidebarMenuItem key={item.to}>
-                <SidebarMenuButton asChild>
-                  <NavLink to={item.to} className={navLinkClass}>
-                    <span className="material-symbols-outlined text-lg">
-                      {item.icon}
-                    </span>
-                    <span>{item.label}</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <SidebarNavLink key={item.to} {...item} />
             ))}
           </SidebarMenu>
         </SidebarGroup>
@@ -67,16 +73,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       <SidebarFooter className="px-2 pb-4">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <NavLink to="/settings" className={navLinkClass}>
-                <span className="material-symbols-outlined text-lg">
-                  settings
-                </span>
-                <span>Settings</span>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          <SidebarNavLink to="/settings" icon="settings" label="Settings" />
         </SidebarMenu>
 
         <NavLink
