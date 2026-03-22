@@ -11,9 +11,16 @@ import { EmptyState } from '@/components/empty-state'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { MarkdownEditor } from '@/components/markdown-editor'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { formatDuration, computeTotalTime } from '@/lib/time'
-import type { TaskStatus } from '@/types'
+import type { TaskStatus, ProjectType } from '@/types'
 
 const PRESET_COLORS = [
   { name: 'Primary', value: '#de8eff' },
@@ -78,6 +85,7 @@ export default function ProjectDetail() {
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editColor, setEditColor] = useState('#de8eff')
+  const [editType, setEditType] = useState<ProjectType>('active_project')
   const [showCustom, setShowCustom] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const customColorRef = useRef<HTMLInputElement>(null)
@@ -127,6 +135,7 @@ export default function ProjectDetail() {
       setEditName(project.name)
       setEditDescription(project.description ?? '')
       setEditColor(project.color)
+      setEditType(project.type)
       setShowCustom(false)
     }
     setEditing(!editing)
@@ -138,6 +147,7 @@ export default function ProjectDetail() {
       name: editName.trim(),
       description: editDescription.trim() || undefined,
       color: editColor,
+      type: editType,
     })
     setEditing(false)
   }
@@ -190,6 +200,16 @@ export default function ProjectDetail() {
             {project.name}
           </h1>
         )}
+        <div className="mt-2">
+          <span className={cn(
+            'inline-flex items-center gap-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest',
+            project.type === 'active_project'
+              ? 'bg-secondary/10 text-secondary border-l-2 border-secondary'
+              : 'bg-primary/10 text-primary border-l-2 border-primary'
+          )}>
+            {project.type === 'active_project' ? 'Active Project' : 'Project Idea'}
+          </span>
+        </div>
       </div>
 
       {/* Two-column layout */}
@@ -233,6 +253,28 @@ export default function ProjectDetail() {
               </div>
             )}
           </section>
+
+          {/* Type selector — edit mode only */}
+          {editing && (
+            <section>
+              <label className="text-xs font-bold text-muted-foreground tracking-widest uppercase block mb-3">
+                Project_Classification
+              </label>
+              <Select value={editType} onValueChange={(v) => setEditType(v as ProjectType)}>
+                <SelectTrigger className="w-full bg-card border border-border text-xs tracking-widest uppercase">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active_project" className="text-xs uppercase tracking-widest">
+                    Active Project
+                  </SelectItem>
+                  <SelectItem value="project_idea" className="text-xs uppercase tracking-widest">
+                    Project Idea
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </section>
+          )}
 
           {/* Color picker — edit mode only */}
           {editing && (

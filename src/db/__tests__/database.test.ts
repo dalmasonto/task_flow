@@ -24,10 +24,24 @@ describe('TaskFlowDB', () => {
     const id = await db.projects.add({
       name: 'Test project',
       color: '#de8eff',
+      type: 'active_project',
       createdAt: new Date(),
     })
     const project = await db.projects.get(id)
     expect(project?.name).toBe('Test project')
+    expect(project?.type).toBe('active_project')
+  })
+
+  it('should query projects by type', async () => {
+    await db.projects.bulkAdd([
+      { name: 'Active', color: '#de8eff', type: 'active_project', createdAt: new Date() },
+      { name: 'Idea', color: '#00fbfb', type: 'project_idea', createdAt: new Date() },
+      { name: 'Active 2', color: '#69fd5d', type: 'active_project', createdAt: new Date() },
+    ])
+    const active = await db.projects.where('type').equals('active_project').toArray()
+    expect(active).toHaveLength(2)
+    const ideas = await db.projects.where('type').equals('project_idea').toArray()
+    expect(ideas).toHaveLength(1)
   })
 
   it('should create a session', async () => {

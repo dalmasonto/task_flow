@@ -24,10 +24,13 @@ export interface Task {
   updatedAt: Date
 }
 
+export type ProjectType = 'active_project' | 'project_idea'
+
 export interface Project {
   id?: number
   name: string
   color: string
+  type: ProjectType
   description?: string
   createdAt: Date
 }

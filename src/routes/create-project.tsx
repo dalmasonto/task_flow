@@ -2,7 +2,15 @@ import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import { db } from '@/db/database'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import type { ProjectType } from '@/types'
 
 const PRESET_COLORS = [
   { name: 'Primary', value: '#de8eff' },
@@ -18,6 +26,7 @@ export default function CreateProject() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState('#de8eff')
+  const [projectType, setProjectType] = useState<ProjectType>('active_project')
   const [showCustom, setShowCustom] = useState(false)
   const customColorRef = useRef<HTMLInputElement>(null)
 
@@ -27,6 +36,7 @@ export default function CreateProject() {
     await db.projects.add({
       name: name.trim(),
       color,
+      type: projectType,
       description: description.trim() || undefined,
       createdAt: new Date(),
     })
@@ -80,6 +90,26 @@ export default function CreateProject() {
               rows={3}
               className="w-full bg-transparent border-0 border-b border-border text-sm placeholder:text-muted-foreground/40 focus:border-secondary focus:ring-0 focus:outline-none py-3 resize-none transition-colors"
             />
+          </div>
+
+          {/* Project Type */}
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-muted-foreground tracking-widest uppercase block">
+              Project_Classification
+            </label>
+            <Select value={projectType} onValueChange={(v) => setProjectType(v as ProjectType)}>
+              <SelectTrigger className="w-full bg-card border border-border text-xs tracking-widest uppercase">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active_project" className="text-xs uppercase tracking-widest">
+                  Active Project
+                </SelectItem>
+                <SelectItem value="project_idea" className="text-xs uppercase tracking-widest">
+                  Project Idea
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Color Picker */}

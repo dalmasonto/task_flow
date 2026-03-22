@@ -15,6 +15,15 @@ export class TaskFlowDB extends Dexie {
       sessions: '++id, taskId, start, end',
       settings: '++id, key',
     })
+    this.version(2).stores({
+      projects: '++id, name, type',
+    }).upgrade(tx => {
+      return tx.table('projects').toCollection().modify(project => {
+        if (!project.type) {
+          project.type = 'active_project'
+        }
+      })
+    })
   }
 }
 
