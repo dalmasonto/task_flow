@@ -32,6 +32,7 @@ Data stays on your machine via IndexedDB. No accounts, no servers, no sync.
 - **xterm.js** — Terminal emulator
 - **react-markdown** + remark-gfm — Markdown rendering
 - **Sonner** — Toast notifications
+- **Tauri v2** — Desktop app wrapper
 
 ## Getting Started
 
@@ -39,7 +40,7 @@ Data stays on your machine via IndexedDB. No accounts, no servers, no sync.
 # Install dependencies
 npm install
 
-# Start dev server
+# Start dev server (browser)
 npm run dev
 
 # Build for production
@@ -48,6 +49,20 @@ npm run build
 # Preview production build
 npm run preview
 ```
+
+### Desktop App (Tauri)
+
+Requires [Rust](https://rustup.rs/) installed.
+
+```bash
+# Development — opens native window with hot reload
+npm run tauri:dev
+
+# Production build — generates installable binary
+npm run tauri:build
+```
+
+The first run compiles Rust dependencies and takes a few minutes. Subsequent runs are fast.
 
 ## Terminal Commands
 
