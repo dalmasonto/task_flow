@@ -68,7 +68,7 @@ export default function CreateTask() {
       priority,
       projectId,
       dependencies,
-      estimatedTime: estimatedTime ? parseFloat(estimatedTime) * 3600000 : undefined, // hours to ms
+      estimatedTime: estimatedTime ? Number(estimatedTime) * 60000 : undefined, // minutes to ms
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -205,13 +205,13 @@ export default function CreateTask() {
               <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Time_Weight</span>
               <input
                 type="number"
+                min="0"
                 value={estimatedTime}
                 onChange={(e) => setEstimatedTime(e.target.value)}
                 placeholder="0"
-                step="0.5"
                 className="w-full bg-transparent border-0 focus:ring-0 text-lg font-headline tracking-tight p-0"
               />
-              <span className="text-[10px] text-muted-foreground">hours</span>
+              <span className="text-[10px] text-muted-foreground">minutes</span>
             </div>
           </div>
 

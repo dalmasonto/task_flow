@@ -6,7 +6,7 @@ import { useSessions, useTaskTotalTime, useActiveSessions } from '@/hooks/use-se
 import { useTimer } from '@/hooks/use-timer'
 import { getBlockers, getDependents } from '@/lib/dag'
 import { canTransition } from '@/lib/status'
-import { formatDuration, computeSessionDuration } from '@/lib/time'
+import { formatDuration, computeSessionDuration, formatHumanDuration, msToMinutes, minutesToMs } from '@/lib/time'
 import { StatusBadge } from '@/components/status-badge'
 import { PriorityBadge } from '@/components/priority-badge'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
@@ -18,6 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { db } from '@/db/database'
 import type { Task, TaskStatus } from '@/types'
 
@@ -192,45 +195,89 @@ export default function TaskDetail() {
           </div>
 
           {/* Metadata Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-            <div className="bg-card p-4 border-t-2 border-primary/20">
-              <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
-                Project
-              </span>
-              <div className="flex items-center gap-2">
-                {project && (
-                  <span
-                    className="w-2 h-2 inline-block"
-                    style={{ backgroundColor: project.color }}
-                  />
-                )}
-                <span className="text-sm font-medium">
-                  {project?.name ?? 'Unassigned'}
+          <div className="space-y-4 mt-4">
+            {/* Row 1: Project & Priority */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-card p-4 border-t-2 border-primary/20">
+                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                  Project
                 </span>
+                <div className="flex items-center gap-2">
+                  {project && (
+                    <span
+                      className="w-2 h-2 inline-block"
+                      style={{ backgroundColor: project.color }}
+                    />
+                  )}
+                  <span className="text-sm font-medium">
+                    {project?.name ?? 'Unassigned'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-card p-4 border-t-2 border-outline-variant">
+                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                  Priority
+                </span>
+                <span className="text-sm font-medium capitalize">{task.priority}</span>
               </div>
             </div>
 
-            <div className="bg-card p-4 border-t-2 border-secondary/20">
-              <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
-                Due Date
-              </span>
-              <span className="text-sm font-medium">{formatDate(task.dueDate)}</span>
-            </div>
+            {/* Row 2: Due Date & Estimation */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-card p-4 border-t-2 border-secondary/20">
+                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                  Due Date
+                </span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-left font-medium text-sm p-0 h-auto hover:bg-transparent hover:text-secondary"
+                    >
+                      <span className="material-symbols-outlined text-sm mr-2 text-muted-foreground">calendar_today</span>
+                      {task.dueDate ? formatDate(task.dueDate) : 'Set due date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={task.dueDate ? new Date(task.dueDate) : undefined}
+                      onSelect={async (date) => {
+                        await db.tasks.update(task.id!, { dueDate: date ?? undefined, updatedAt: new Date() })
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-            <div className="bg-card p-4 border-t-2 border-tertiary/20">
-              <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
-                Estimation
-              </span>
-              <span className="text-sm font-medium">
-                {task.estimatedTime ? `${task.estimatedTime}h` : 'Not set'}
-              </span>
-            </div>
-
-            <div className="bg-card p-4 border-t-2 border-outline-variant">
-              <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
-                Priority
-              </span>
-              <span className="text-sm font-medium capitalize">{task.priority}</span>
+              <div className="bg-card p-4 border-t-2 border-tertiary/20">
+                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                  Estimation
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    value={task.estimatedTime ? msToMinutes(task.estimatedTime) : ''}
+                    onChange={async (e) => {
+                      const mins = e.target.value ? Number(e.target.value) : 0
+                      await db.tasks.update(task.id!, {
+                        estimatedTime: mins > 0 ? minutesToMs(mins) : undefined,
+                        updatedAt: new Date(),
+                      })
+                    }}
+                    placeholder="0"
+                    className="w-20 bg-transparent border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-1 px-2 tabular-nums"
+                  />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-widest">mins</span>
+                  {task.estimatedTime && task.estimatedTime > 0 && (
+                    <span className="text-xs text-secondary font-bold ml-auto">
+                      {formatHumanDuration(task.estimatedTime)}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
