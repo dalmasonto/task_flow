@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { db } from '@/db/database'
 import { useSetting } from '@/hooks/use-settings'
+import type { TaskStatus, TaskPriority, ProjectType, ActivityAction } from '@/types'
 
 function baseUrl(port: number) { return `http://localhost:${port}` }
 
@@ -44,21 +45,7 @@ export function useSync() {
       console.log('[useSync] SSE connected to', sseUrl)
     })
 
-    // Intercept the raw EventSource to log ALL events (named and unnamed)
-    const origAddEventListener = source.addEventListener.bind(source)
-    source.addEventListener = (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
-      const wrappedListener = (e: Event) => {
-        if (type !== 'error' && type !== 'open') {
-          console.log(`[useSync] SSE event "${type}":`, (e as MessageEvent).data?.slice(0, 120))
-        }
-        if (typeof listener === 'function') listener(e)
-        else listener.handleEvent(e)
-      }
-      origAddEventListener(type, wrappedListener, options)
-    }
-
     source.addEventListener('task_created', (e) => {
-      console.log('[useSync] task_created event received')
       const { payload } = JSON.parse(e.data)
       if (payload) {
         const task = parseTask(payload)
@@ -207,8 +194,8 @@ function parseTask(raw: Record<string, unknown>) {
     id: raw.id as number,
     title: raw.title as string,
     description: raw.description != null ? (raw.description as string) : undefined,
-    status: raw.status as string,
-    priority: raw.priority as string,
+    status: raw.status as TaskStatus,
+    priority: raw.priority as TaskPriority,
     projectId: raw.project_id != null ? (raw.project_id as number) : undefined,
     dependencies: parseJsonField(raw.dependencies, []),
     links: parseJsonField(raw.links, []),
@@ -225,7 +212,7 @@ function parseProject(raw: Record<string, unknown>) {
     id: raw.id as number,
     name: raw.name as string,
     color: raw.color as string,
-    type: raw.type as string,
+    type: raw.type as ProjectType,
     description: raw.description != null ? (raw.description as string) : undefined,
     createdAt: new Date(raw.created_at as string),
   }
@@ -243,11 +230,11 @@ function parseSession(raw: Record<string, unknown>) {
 function parseActivityLog(raw: Record<string, unknown>) {
   return {
     id: raw.id as number,
-    action: raw.action as string,
+    action: raw.action as ActivityAction,
     title: raw.title as string,
-    detail: raw.detail as string | undefined,
-    entityType: raw.entity_type as string | undefined,
-    entityId: raw.entity_id as number | undefined,
+    detail: raw.detail != null ? (raw.detail as string) : undefined,
+    entityType: raw.entity_type != null ? (raw.entity_type as 'task' | 'project' | 'session' | 'system') : undefined,
+    entityId: raw.entity_id != null ? (raw.entity_id as number) : undefined,
     createdAt: new Date(raw.created_at as string),
   }
 }

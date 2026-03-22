@@ -68,7 +68,25 @@ The first run compiles Rust dependencies and takes a few minutes. Subsequent run
 
 The MCP server exposes TaskFlow as 28 tools for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Code, Cursor, Windsurf, etc.) can manage projects, tasks, timers, analytics, and notifications.
 
-#### 1. Install and build
+#### Option A: Install from npm (recommended)
+
+```bash
+npm install -g taskflow-mcp
+```
+
+Then register in your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp"
+    }
+  }
+}
+```
+
+#### Option B: Build from source
 
 ```bash
 cd mcp-server
@@ -76,9 +94,7 @@ npm install
 npm run build
 ```
 
-#### 2. Register the server
-
-Create a `.mcp.json` file in your project root:
+Register with the absolute path in `.mcp.json`:
 
 ```json
 {
@@ -90,8 +106,6 @@ Create a `.mcp.json` file in your project root:
   }
 }
 ```
-
-> **Important:** Use the absolute path to `dist/index.js`. Relative paths may not resolve correctly depending on your MCP client's working directory.
 
 For **Claude Code** specifically, you can also register the server in `.claude/settings.local.json` under `mcpServers`, but `.mcp.json` is the standard cross-client approach.
 
