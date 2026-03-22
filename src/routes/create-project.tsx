@@ -10,6 +10,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { playSuccess } from '@/lib/sounds'
 import type { ProjectType } from '@/types'
 
 const PRESET_COLORS = [
@@ -40,6 +42,8 @@ export default function CreateProject() {
       description: description.trim() || undefined,
       createdAt: new Date(),
     })
+    playSuccess()
+    toast.success(`Project "${name.trim()}" deployed`)
     navigate('/projects')
   }
 

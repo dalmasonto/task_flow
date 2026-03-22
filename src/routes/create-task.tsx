@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { toast } from 'sonner'
+import { playSuccess } from '@/lib/sounds'
 import type { TaskStatus, TaskPriority } from '@/types'
 
 const STATUS_OPTIONS: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked']
@@ -73,6 +75,8 @@ export default function CreateTask() {
       updatedAt: new Date(),
     })
 
+    playSuccess()
+    toast.success(`Task "${title.trim()}" initialized`)
     navigate('/dashboard')
   }
 

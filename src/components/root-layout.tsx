@@ -3,6 +3,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
 import { FloatingTimerBar } from '@/components/floating-timer-bar'
+import { Toaster } from '@/components/ui/sonner'
 import { useNotifications } from '@/hooks/use-notifications'
 
 export function RootLayout() {
@@ -18,6 +19,7 @@ export function RootLayout() {
         </main>
         <FloatingTimerBar />
       </SidebarInset>
+      <Toaster position="bottom-right" />
     </SidebarProvider>
   )
 }

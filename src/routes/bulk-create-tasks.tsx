@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
+import { toast } from 'sonner'
 import { db } from '@/db/database'
+import { playSuccess } from '@/lib/sounds'
 import { useProjects } from '@/hooks/use-projects'
 import {
   Select,
@@ -44,6 +46,8 @@ export default function BulkCreateTasks() {
     }))
 
     await db.tasks.bulkAdd(tasks)
+    playSuccess()
+    toast.success(`${tasks.length} tasks injected`)
     navigate('/dashboard')
   }
 

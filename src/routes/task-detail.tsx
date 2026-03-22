@@ -21,7 +21,9 @@ import {
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { toast } from 'sonner'
 import { db } from '@/db/database'
+import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick } from '@/lib/sounds'
 import type { Task, TaskStatus } from '@/types'
 
 const ALL_STATUSES: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked', 'partial_done', 'done']
@@ -89,20 +91,33 @@ export default function TaskDetail() {
   const handleSaveDescription = async () => {
     await db.tasks.update(task.id!, { description, updatedAt: new Date() })
     setEditing(false)
+    playClick()
+    toast.success('Description updated')
   }
 
   const handleStart = async () => {
     if (hasUnresolvedBlockers) return
     await startTask(task)
+    playTimerStart()
+    toast.success('Timer started')
   }
 
   const handlePause = async () => {
     await pauseTask(task)
+    playTimerPause()
+    toast.info('Timer paused')
   }
 
   const handleStop = async (finalStatus: 'done' | 'partial_done') => {
     await stopTask(task, finalStatus)
     setShowStopOptions(false)
+    if (finalStatus === 'done') {
+      playTaskDone()
+      toast.success('Task completed!')
+    } else {
+      playSuccess()
+      toast.info('Task marked as partial done')
+    }
   }
 
   const handleStatusChange = async (newStatus: TaskStatus) => {
@@ -121,6 +136,17 @@ export default function TaskDetail() {
     }
 
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
+
+    if (newStatus === 'done') {
+      playTaskDone()
+      toast.success('Task completed!')
+    } else if (newStatus === 'partial_done') {
+      playSuccess()
+      toast.info('Task marked as partial done')
+    } else {
+      playClick()
+      toast(`Status updated to ${newStatus.replace(/_/g, ' ')}`)
+    }
   }
 
   const handleAddLink = async () => {

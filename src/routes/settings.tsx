@@ -1,10 +1,23 @@
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import type { TaskStatus } from '@/types'
 import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS } from '@/lib/constants'
 import { getStatusLabel } from '@/lib/status'
 import { seedDatabase } from '@/lib/seed'
+import { playSuccess, playDelete, playClick } from '@/lib/sounds'
 import { db } from '@/db/database'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
 const ALL_STATUSES: TaskStatus[] = [
   'not_started',
@@ -53,6 +66,8 @@ export default function Settings() {
     await updateSetting('operatorName', operatorName)
     await updateSetting('systemName', systemName)
     await updateSetting('notificationInterval', notificationInterval)
+    playSuccess()
+    toast.success('Configuration committed to core')
   }
 
   function handleReset() {
@@ -63,12 +78,23 @@ export default function Settings() {
     setOperatorName(DEFAULT_SETTINGS.operatorName)
     setSystemName(DEFAULT_SETTINGS.systemName)
     setNotificationInterval(DEFAULT_SETTINGS.notificationInterval)
+    playClick()
+    toast.info('Settings reset to defaults — commit to apply')
   }
 
   async function handleClearData() {
     await db.tasks.clear()
     await db.projects.clear()
     await db.sessions.clear()
+    playDelete()
+    toast.success('All data cleared')
+    window.location.href = '/dashboard'
+  }
+
+  async function handleSeed() {
+    await seedDatabase()
+    playSuccess()
+    toast.success('Database seeded with sample data')
     window.location.href = '/dashboard'
   }
 
@@ -76,7 +102,7 @@ export default function Settings() {
   const pausedColor = colors['paused']
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto py-4">
       {/* Header */}
       <header className="mb-12 border-l-4 border-primary pl-6">
         <h1 className="text-5xl font-black uppercase tracking-tighter mb-2 text-on-surface">
@@ -355,21 +381,49 @@ export default function Settings() {
                   This will clear all existing data.
                 </p>
                 <div className="flex gap-4">
-                  <button
-                    onClick={async () => {
-                      await seedDatabase()
-                      window.location.href = '/dashboard'
-                    }}
-                    className="flex-1 border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs"
-                  >
-                    SEED_DATABASE
-                  </button>
-                  <button
-                    onClick={handleClearData}
-                    className="flex-1 border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs"
-                  >
-                    CLEAR_DATA
-                  </button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button className="flex-1 border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs">
+                        SEED_DATABASE
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="uppercase tracking-widest">Seed Database?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will clear all existing tasks, projects, and sessions, then populate with sample data. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleSeed} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                          Confirm Seed
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button className="flex-1 border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs">
+                        CLEAR_DATA
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="uppercase tracking-widest">Clear All Data?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete all tasks, projects, and sessions. Your settings will be preserved. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleClearData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                          Confirm Clear
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mt-2">
                   Clear removes all tasks, projects, and sessions. Settings are preserved.
