@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
@@ -30,10 +30,6 @@ export function AppHeader() {
     setIsOpen(tasks.length > 0 || projects.length > 0)
   }, [])
 
-  useEffect(() => {
-    runSearch(searchQuery)
-  }, [searchQuery, runSearch])
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       setIsOpen(false)
@@ -49,6 +45,7 @@ export function AppHeader() {
   const handleSelect = (path: string) => {
     setIsOpen(false)
     setSearchQuery('')
+    setResults({ tasks: [], projects: [] })
     navigate(path)
   }
 
@@ -68,7 +65,7 @@ export function AppHeader() {
             type="text"
             placeholder="QUERY_SYSTEM..."
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => { setSearchQuery(e.target.value); void runSearch(e.target.value) }}
             onKeyDown={handleKeyDown}
             onBlur={handleBlur}
             className="bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-xs font-headline uppercase tracking-widest pl-10 pr-4 py-2 w-64 text-foreground placeholder:text-muted-foreground/50"

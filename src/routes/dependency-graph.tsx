@@ -17,6 +17,7 @@ import type {
   NodeTypes,
   NodeProps,
 } from '@xyflow/react'
+import { MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from 'dagre'
 import { useTasks } from '@/hooks/use-tasks'
@@ -181,7 +182,7 @@ export default function DependencyGraph() {
             animated: sourceTask.status === 'in_progress',
             style: { stroke: sourceColor, strokeWidth: 2 },
             markerEnd: {
-              type: 'arrowclosed' as any,
+              type: MarkerType.ArrowClosed,
               color: sourceColor,
             },
           })

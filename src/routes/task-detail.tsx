@@ -260,43 +260,41 @@ export default function TaskDetail() {
           )}
 
           {/* External Links */}
-          {(task.links && task.links.length > 0 || true) && (
-            <div className="mt-8">
-              <div className="flex items-center gap-4 mb-4">
-                <h2 className="text-lg font-bold tracking-tight uppercase">External Links</h2>
-                <div className="h-px flex-1 bg-outline-variant" />
-              </div>
-              <div className="space-y-2">
-                {task.links?.map((link, i) => (
-                  <a
-                    key={i}
-                    href={link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-sm text-secondary hover:text-secondary/80 underline truncate"
-                  >
-                    {link}
-                  </a>
-                ))}
-                <div className="flex gap-2 mt-3">
-                  <input
-                    type="url"
-                    value={linkInput}
-                    onChange={(e) => setLinkInput(e.target.value)}
-                    placeholder="https://..."
-                    className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 placeholder:text-muted-foreground/30"
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddLink()}
-                  />
-                  <button
-                    onClick={handleAddLink}
-                    className="text-[10px] uppercase tracking-widest font-bold px-3 py-1 bg-surface-variant text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
+          <div className="mt-8">
+            <div className="flex items-center gap-4 mb-4">
+              <h2 className="text-lg font-bold tracking-tight uppercase">External Links</h2>
+              <div className="h-px flex-1 bg-outline-variant" />
+            </div>
+            <div className="space-y-2">
+              {task.links?.map((link, i) => (
+                <a
+                  key={i}
+                  href={link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm text-secondary hover:text-secondary/80 underline truncate"
+                >
+                  {link}
+                </a>
+              ))}
+              <div className="flex gap-2 mt-3">
+                <input
+                  type="url"
+                  value={linkInput}
+                  onChange={(e) => setLinkInput(e.target.value)}
+                  placeholder="https://..."
+                  className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 placeholder:text-muted-foreground/30"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddLink()}
+                />
+                <button
+                  onClick={handleAddLink}
+                  className="text-[10px] uppercase tracking-widest font-bold px-3 py-1 bg-surface-variant text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Add
+                </button>
               </div>
             </div>
-          )}
+          </div>
         </section>
 
         {/* Right Sidebar */}

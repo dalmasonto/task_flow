@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useActiveSessions } from '@/hooks/use-sessions'
 import { useTask } from '@/hooks/use-tasks'
 import { useTimer } from '@/hooks/use-timer'
@@ -17,9 +17,9 @@ function SessionRow({
 }) {
   const task = useTask(session.taskId)
 
-  // Recalculate on each tick
-  void tick
-  const elapsed = Date.now() - session.start.getTime()
+  // Recalculate on each tick: Date.now() is intentionally impure here (driven by tick)
+  // eslint-disable-next-line react-hooks/purity
+  const elapsed = useMemo(() => Date.now() - session.start.getTime(), [tick, session.start])
 
   return (
     <div className="flex items-center gap-3 px-4 py-2 min-w-0">

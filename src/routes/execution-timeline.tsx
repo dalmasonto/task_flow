@@ -150,6 +150,7 @@ export default function ExecutionTimeline() {
       (min, s) => (s.start < min ? s.start : min),
       sessions[0].start
     )
+    // eslint-disable-next-line react-hooks/purity
     return formatDuration(Date.now() - earliest.getTime())
   }, [sessions])
 
