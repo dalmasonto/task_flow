@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { useTask, useTasks } from '@/hooks/use-tasks'
-import { useProject } from '@/hooks/use-projects'
+import { useProject, useProjects } from '@/hooks/use-projects'
 import { useSessions, useTaskTotalTime, useActiveSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
 import { getBlockers, getDependents } from '@/lib/dag'
@@ -26,15 +26,17 @@ import { db } from '@/db/database'
 import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
 import { logActivity } from '@/hooks/use-activity-log'
-import type { Task, TaskStatus } from '@/types'
+import type { Task, TaskStatus, TaskPriority } from '@/types'
 
 const ALL_STATUSES: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked', 'partial_done', 'done']
+const ALL_PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'critical']
 
 export default function TaskDetail() {
   const { id } = useParams()
   const taskId = id ? Number(id) : undefined
   const task = useTask(taskId)
   const project = useProject(task?.projectId)
+  const allProjects = useProjects()
   const sessions = useSessions(taskId)
   const allTasks = useTasks()
   const activeSessions = useActiveSessions()
@@ -272,27 +274,62 @@ export default function TaskDetail() {
             {/* Row 1: Project & Priority */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-card p-4 border-t-2 border-primary/20">
-                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
                   Project
                 </span>
-                <div className="flex items-center gap-2">
-                  {project && (
-                    <span
-                      className="w-2 h-2 inline-block"
-                      style={{ backgroundColor: project.color }}
-                    />
-                  )}
-                  <span className="text-sm font-medium">
-                    {project?.name ?? 'Unassigned'}
-                  </span>
-                </div>
+                <Select
+                  value={task.projectId !== undefined ? String(task.projectId) : 'none'}
+                  onValueChange={async (v) => {
+                    const newProjectId = v === 'none' ? undefined : Number(v)
+                    await db.tasks.update(task.id!, { projectId: newProjectId, updatedAt: new Date() })
+                    playClick()
+                    toast(`Project updated`)
+                    logActivity('task_linked', `${task.title} → ${v === 'none' ? 'Unassigned' : 'project #' + v}`, { entityType: 'task', entityId: task.id })
+                  }}
+                >
+                  <SelectTrigger className="w-full bg-transparent border-0 p-0 h-auto text-sm font-medium shadow-none">
+                    <div className="flex items-center gap-2">
+                      {project && (
+                        <span className="w-2 h-2 inline-block" style={{ backgroundColor: project.color }} />
+                      )}
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-xs uppercase tracking-widest">Unassigned</SelectItem>
+                    {(allProjects ?? []).map(p => (
+                      <SelectItem key={p.id} value={String(p.id)} className="text-xs uppercase tracking-widest">
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="bg-card p-4 border-t-2 border-outline-variant">
-                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
                   Priority
                 </span>
-                <span className="text-sm font-medium capitalize">{task.priority}</span>
+                <Select
+                  value={task.priority}
+                  onValueChange={async (v) => {
+                    await db.tasks.update(task.id!, { priority: v as TaskPriority, updatedAt: new Date() })
+                    playClick()
+                    toast(`Priority → ${v}`)
+                    logActivity('task_status_changed', `${task.title} priority → ${v}`, { entityType: 'task', entityId: task.id })
+                  }}
+                >
+                  <SelectTrigger className="w-full bg-transparent border-0 p-0 h-auto text-sm font-medium capitalize shadow-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ALL_PRIORITIES.map(p => (
+                      <SelectItem key={p} value={p} className="text-xs uppercase tracking-widest">
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
