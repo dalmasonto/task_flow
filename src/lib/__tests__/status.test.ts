@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canTransition, getStatusLabel, getStatusColor } from '../status'
+import { canTransition, getStatusLabel } from '../status'
 
 describe('canTransition', () => {
   it('allows not_started -> in_progress', () => {

@@ -1,12 +1,14 @@
-import { Button } from "./components/ui/button"
-import "./index.css"
+import { Routes, Route, Navigate } from 'react-router'
+import { RootLayout } from '@/components/root-layout'
+import Dashboard from '@/routes/dashboard'
 
-const App = () => {
+export default function App() {
   return (
-    <div>
-      <Button>Button</Button>
-    </div>
+    <Routes>
+      <Route element={<RootLayout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
+      </Route>
+    </Routes>
   )
 }
-
-export default App
