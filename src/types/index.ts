@@ -97,6 +97,7 @@ export interface SettingsMap {
   shadowSpread: number
   operatorName: string
   systemName: string
+  terminalHistory: string[]
 }
 
 export interface Setting {

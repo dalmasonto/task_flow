@@ -12,7 +12,7 @@ import { addNotification } from '@/hooks/use-app-notifications'
 import { getStatusLabel } from '@/lib/status'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
 import { playSuccess, playClick, playError, playTimerStart, playTimerPause, playTaskDone } from '@/lib/sounds'
-import { useSetting } from '@/hooks/use-settings'
+import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { toast } from 'sonner'
 import type { TaskStatus, TaskPriority } from '@/types'
 
@@ -70,12 +70,22 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
   const inputBuffer = useRef('')
   const historyRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1)
+  const historyLoaded = useRef(false)
   const navigate = useNavigate()
 
   const tasks = useTasks()
   const projects = useProjects()
   const operatorName = useSetting('operatorName')
   const systemName = useSetting('systemName')
+  const savedHistory = useSetting('terminalHistory')
+
+  // Load saved history once
+  useEffect(() => {
+    if (!historyLoaded.current && savedHistory.length > 0) {
+      historyRef.current = [...savedHistory]
+      historyLoaded.current = true
+    }
+  }, [savedHistory])
   const operatorRef = useRef(operatorName)
   const systemRef = useRef(systemName)
   useEffect(() => { operatorRef.current = operatorName }, [operatorName])
@@ -97,8 +107,16 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     const trimmed = cmd.trim()
     if (!trimmed) { prompt(); return }
 
+    // Deduplicate: remove existing occurrence, push to end
+    historyRef.current = historyRef.current.filter(h => h !== trimmed)
     historyRef.current.push(trimmed)
+    // Cap at 100 entries
+    if (historyRef.current.length > 100) {
+      historyRef.current = historyRef.current.slice(-100)
+    }
     historyIndexRef.current = -1
+    // Persist to settings
+    updateSetting('terminalHistory', [...historyRef.current])
 
     const { quoted, rest } = parseQuoted(trimmed)
     const parts = rest.split(/\s+/).filter(Boolean)

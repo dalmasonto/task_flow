@@ -21,4 +21,5 @@ export const DEFAULT_SETTINGS = {
   shadowSpread: 12,
   operatorName: 'Operator-01',
   systemName: 'TASKFLOW_OS',
+  terminalHistory: [] as string[],
 }
