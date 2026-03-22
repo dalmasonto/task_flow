@@ -13,7 +13,7 @@ export function RootLayout() {
       <AppSidebar />
       <SidebarInset>
         <AppHeader />
-        <main className="flex-1 overflow-y-auto py-4" style={{ paddingBottom: 'calc(1rem + var(--timer-bar-height, 0px))' }}>
+        <main className="flex-1 overflow-y-auto pt-4" style={{ paddingBottom: 'max(1rem, var(--timer-bar-height, 0px))' }}>
           <Outlet />
         </main>
         <FloatingTimerBar />
