@@ -3,6 +3,7 @@ import type { TaskStatus } from '@/types'
 import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS } from '@/lib/constants'
 import { getStatusLabel } from '@/lib/status'
+import { seedDatabase } from '@/lib/seed'
 
 const ALL_STATUSES: TaskStatus[] = [
   'not_started',
@@ -300,6 +301,26 @@ export default function Settings() {
                   className="w-full mt-4 border border-muted-foreground/30 text-muted-foreground font-bold py-4 tracking-widest hover:bg-accent transition-all uppercase text-xs"
                 >
                   RESET TO DEFAULTS
+                </button>
+              </div>
+
+              {/* Seed Data (Dev) */}
+              <div className="mt-8 pt-8 border-t border-destructive/20">
+                <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-destructive" /> DEV_TOOLS
+                </h3>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-4">
+                  Populate database with sample projects, tasks, dependencies, and sessions for UI testing.
+                  This will clear all existing data.
+                </p>
+                <button
+                  onClick={async () => {
+                    await seedDatabase()
+                    window.location.href = '/dashboard'
+                  }}
+                  className="w-full border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs"
+                >
+                  SEED_DATABASE
                 </button>
               </div>
             </div>
