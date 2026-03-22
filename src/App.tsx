@@ -8,6 +8,7 @@ import TaskDetail from '@/routes/task-detail'
 import ProjectDetail from '@/routes/project-detail'
 import Analytics from '@/routes/analytics'
 import ExecutionTimeline from '@/routes/execution-timeline'
+import DependencyGraph from '@/routes/dependency-graph'
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="analytics/timeline" element={<ExecutionTimeline />} />
+        <Route path="dependencies" element={<DependencyGraph />} />
       </Route>
     </Routes>
   )
