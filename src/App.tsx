@@ -6,6 +6,7 @@ import CreateTask from '@/routes/create-task'
 import Projects from '@/routes/projects'
 import TaskDetail from '@/routes/task-detail'
 import ProjectDetail from '@/routes/project-detail'
+import Analytics from '@/routes/analytics'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="tasks/new" element={<CreateTask />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
+        <Route path="analytics" element={<Analytics />} />
       </Route>
     </Routes>
   )
