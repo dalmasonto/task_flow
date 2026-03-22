@@ -6,6 +6,12 @@ import { useTasks } from '@/hooks/use-tasks'
 import { formatDuration } from '@/lib/time'
 import { getStatusColor, getStatusLabel } from '@/lib/status'
 import { EmptyState } from '@/components/empty-state'
+import { TaskTimeBreakdown } from '@/components/charts/task-time-breakdown'
+import { DailyActivity } from '@/components/charts/daily-activity'
+import { FocusByDayOfWeek } from '@/components/charts/focus-by-day-of-week'
+import { SessionLengthDistribution } from '@/components/charts/session-length-distribution'
+import { ProjectBurndown } from '@/components/charts/project-burndown'
+import { StatusFlow } from '@/components/charts/status-flow'
 import type { TaskStatus } from '@/types'
 
 const NEON_COLORS = ['#de8eff', '#00fbfb', '#69fd5d', '#ff6e84', '#b90afc', '#484847']
@@ -361,6 +367,25 @@ export default function Analytics() {
           </p>
         )}
       </section>
+
+      {/* Charts Grid */}
+      <div className="space-y-8">
+        {/* Row 1: Task Time Breakdown + Daily Activity */}
+        <TaskTimeBreakdown />
+        <DailyActivity />
+
+        {/* Row 2: Focus by Day + Session Distribution */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <FocusByDayOfWeek />
+          <SessionLengthDistribution />
+        </div>
+
+        {/* Row 3: Project Burndown + Status Flow */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <ProjectBurndown />
+          <StatusFlow />
+        </div>
+      </div>
     </div>
   )
 }
