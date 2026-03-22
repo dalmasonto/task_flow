@@ -1,14 +1,22 @@
 import { cn } from '@/lib/utils'
-import type { TaskStatus } from '@/types'
-import { getStatusColor, getStatusLabel } from '@/lib/status'
+import type { Task, TaskStatus } from '@/types'
+import { getStatusColor, getStatusLabel, getDisplayStatus } from '@/lib/status'
 
 interface StatusBadgeProps {
   status: TaskStatus
+  /** Pass task + allTasks to show "Unblocked" when blocked task's dependencies are done */
+  task?: Task
+  allTasks?: Task[]
   className?: string
 }
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const color = getStatusColor(status)
+export function StatusBadge({ status, task, allTasks, className }: StatusBadgeProps) {
+  const display = task && allTasks
+    ? getDisplayStatus(task, allTasks)
+    : { label: getStatusLabel(status), status }
+
+  const isUnblocked = display.label === 'Unblocked'
+  const color = isUnblocked ? '#69fd5d' : getStatusColor(status)
 
   return (
     <div
@@ -28,7 +36,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
           style={{ backgroundColor: color }}
         />
       )}
-      {getStatusLabel(status)}
+      {display.label}
     </div>
   )
 }

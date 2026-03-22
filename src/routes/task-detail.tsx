@@ -207,7 +207,7 @@ export default function TaskDetail() {
         {/* Hero Section */}
         <section className="col-span-12 lg:col-span-8 flex flex-col gap-6">
           <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge status={task.status} />
+            <StatusBadge status={task.status} task={task} allTasks={allTasks ?? []} />
             <PriorityBadge priority={task.priority} />
             <span className="text-muted-foreground text-[10px] tracking-widest uppercase ml-auto">
               TASK-{task.id}

@@ -12,6 +12,10 @@ export function useNotifications() {
   const browserEnabled = useSetting('browserNotificationsEnabled')
   const permissionAsked = useRef(false)
 
+  // Keep a ref to browserEnabled so the interval callback always reads the latest value
+  const browserEnabledRef = useRef(browserEnabled)
+  useEffect(() => { browserEnabledRef.current = browserEnabled }, [browserEnabled])
+
   // Request browser permission when enabled and there are active sessions
   useEffect(() => {
     if (!browserEnabled || !activeSessions?.length || permissionAsked.current) return
@@ -29,7 +33,7 @@ export function useNotifications() {
     }
   }, [activeSessions?.length, browserEnabled])
 
-  // Fire reminders on interval — always internal, optionally browser
+  // Fire reminders on interval — always internal bell, browser only if enabled
   useEffect(() => {
     if (!activeSessions?.length) return
 
@@ -46,8 +50,8 @@ export function useNotifications() {
         addNotification('Task Reminder', message, 'info')
         playNotification()
 
-        // Browser notification only if enabled and granted
-        if (browserEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        // Browser notification only if enabled (read from ref for latest value)
+        if (browserEnabledRef.current && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           new Notification('TaskFlow', {
             body: message,
             icon: '/favicon.ico',
@@ -58,5 +62,5 @@ export function useNotifications() {
 
     const timer = setInterval(fire, interval * 60 * 1000)
     return () => clearInterval(timer)
-  }, [activeSessions?.length, interval, browserEnabled])
+  }, [activeSessions?.length, interval])
 }

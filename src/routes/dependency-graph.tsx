@@ -23,7 +23,7 @@ import dagre from 'dagre'
 import { useTasks } from '@/hooks/use-tasks'
 import { useActiveSessions, useSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
-import { getStatusColor, getStatusLabel } from '@/lib/status'
+import { getStatusColor, getStatusLabel, getDisplayStatus } from '@/lib/status'
 import { getBlockers } from '@/lib/dag'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
 import type { Task, TaskStatus } from '@/types'
@@ -71,12 +71,15 @@ function getProgress(status: TaskStatus): number {
 
 type TaskNodeData = {
   task: Task
+  allTasks: Task[]
   selected: boolean
 }
 
 function TaskNode({ data, id }: NodeProps<Node<TaskNodeData>>) {
   const task = data.task as Task
-  const statusColor = getStatusColor(task.status)
+  const allTasks = data.allTasks as Task[]
+  const display = getDisplayStatus(task, allTasks)
+  const statusColor = display.label === 'Unblocked' ? '#69fd5d' : getStatusColor(task.status)
   const progress = getProgress(task.status)
 
   return (
@@ -111,7 +114,7 @@ function TaskNode({ data, id }: NodeProps<Node<TaskNodeData>>) {
               className="text-[8px] uppercase tracking-widest font-bold"
               style={{ color: statusColor }}
             >
-              {getStatusLabel(task.status)}
+              {display.label}
             </span>
             <span className="text-[8px] text-muted-foreground">{progress}%</span>
           </div>
@@ -225,21 +228,24 @@ function TaskDetailPanel({
           <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
             Status
           </div>
-          <div className="flex items-center gap-2">
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{
-                backgroundColor: getStatusColor(task.status),
-                boxShadow: `0 0 6px ${getStatusColor(task.status)}`,
-              }}
-            />
-            <span
-              className="text-xs uppercase tracking-widest font-bold"
-              style={{ color: getStatusColor(task.status) }}
-            >
-              {getStatusLabel(task.status)}
-            </span>
-          </div>
+          {(() => {
+            const display = getDisplayStatus(task, allTasks)
+            const color = display.label === 'Unblocked' ? '#69fd5d' : getStatusColor(task.status)
+            return (
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+                />
+                <span
+                  className="text-xs uppercase tracking-widest font-bold"
+                  style={{ color }}
+                >
+                  {display.label}
+                </span>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Priority */}
@@ -404,7 +410,7 @@ export default function DependencyGraph() {
         id: String(t.id),
         type: 'taskNode',
         position: { x: 0, y: 0 },
-        data: { task: t, selected: false },
+        data: { task: t, allTasks: tasks, selected: false },
       }))
 
     const edges: Edge[] = []
