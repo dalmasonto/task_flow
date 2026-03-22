@@ -11,6 +11,8 @@ import { StatusBadge } from '@/components/status-badge'
 import { PriorityBadge } from '@/components/priority-badge'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { MarkdownEditor } from '@/components/markdown-editor'
+import { DependencyPicker } from '@/components/dependency-picker'
+import { hasCycle } from '@/lib/dag'
 import {
   Select,
   SelectContent,
@@ -23,7 +25,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from 'sonner'
 import { db } from '@/db/database'
-import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick } from '@/lib/sounds'
+import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick, playError } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
 import { logActivity } from '@/hooks/use-activity-log'
 import type { Task, TaskStatus, TaskPriority } from '@/types'
@@ -48,6 +50,8 @@ export default function TaskDetail() {
   const [editing, setEditing] = useState(false)
   const [description, setDescription] = useState('')
   const [showStopOptions, setShowStopOptions] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
   const [linkLabel, setLinkLabel] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
   const [tagInput, setTagInput] = useState('')
@@ -238,9 +242,32 @@ export default function TaskDetail() {
             </span>
           </div>
 
-          <h1 className="text-5xl md:text-6xl font-bold tracking-tighter leading-none max-w-3xl">
-            {task.title}
-          </h1>
+          {editingTitle ? (
+            <input
+              type="text"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={async () => {
+                if (titleDraft.trim() && titleDraft.trim() !== task.title) {
+                  await db.tasks.update(task.id!, { title: titleDraft.trim(), updatedAt: new Date() })
+                  playClick()
+                  toast.success('Title updated')
+                }
+                setEditingTitle(false)
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditingTitle(false) }}
+              autoFocus
+              className="text-5xl md:text-6xl font-bold tracking-tighter leading-none max-w-3xl w-full bg-transparent border-0 border-b border-border focus:border-secondary focus:ring-0 p-0"
+            />
+          ) : (
+            <h1
+              className="text-5xl md:text-6xl font-bold tracking-tighter leading-none max-w-3xl cursor-pointer hover:text-secondary/80 transition-colors"
+              onClick={() => { setTitleDraft(task.title); setEditingTitle(true) }}
+              title="Click to edit title"
+            >
+              {task.title}
+            </h1>
+          )}
 
           {/* Status Selector */}
           <div className="flex items-center gap-4">
@@ -469,13 +496,13 @@ export default function TaskDetail() {
           </div>
 
           {/* Dependencies Section */}
-          {(blockers.length > 0 || dependents.length > 0) && (
-            <div className="mt-8">
-              <div className="flex items-center gap-4 mb-4">
-                <h2 className="text-lg font-bold tracking-tight uppercase">Graph Dependencies</h2>
-                <div className="h-px flex-1 bg-outline-variant" />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="mt-8">
+            <div className="flex items-center gap-4 mb-4">
+              <h2 className="text-lg font-bold tracking-tight uppercase">Graph Dependencies</h2>
+              <div className="h-px flex-1 bg-outline-variant" />
+            </div>
+            {(blockers.length > 0 || dependents.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 {dependents.map((dep: Task) => (
                   <Link
                     key={dep.id}
@@ -483,9 +510,7 @@ export default function TaskDetail() {
                     className="bg-card p-4 flex items-center justify-between border-l-2 border-destructive hover:bg-surface-variant transition-colors"
                   >
                     <div>
-                      <span className="block text-[9px] uppercase tracking-widest text-destructive font-bold">
-                        Blocking
-                      </span>
+                      <span className="block text-[9px] uppercase tracking-widest text-destructive font-bold">Blocking</span>
                       <span className="text-sm">{dep.title}</span>
                     </div>
                     <span className="text-muted-foreground">&#8594;</span>
@@ -498,17 +523,37 @@ export default function TaskDetail() {
                     className="bg-card p-4 flex items-center justify-between border-l-2 border-secondary hover:bg-surface-variant transition-colors"
                   >
                     <div>
-                      <span className="block text-[9px] uppercase tracking-widest text-secondary font-bold">
-                        Blocked By
-                      </span>
+                      <span className="block text-[9px] uppercase tracking-widest text-secondary font-bold">Blocked By</span>
                       <span className="text-sm">{blocker.title}</span>
                     </div>
                     <span className="text-muted-foreground">&#128274;</span>
                   </Link>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+            <DependencyPicker
+              selectedIds={task.dependencies}
+              excludeTaskId={task.id}
+              onChange={async (newDeps) => {
+                if (allTasks) {
+                  for (const depId of newDeps) {
+                    if (!task.dependencies.includes(depId)) {
+                      const tempTask = { ...task, dependencies: newDeps }
+                      if (hasCycle([...allTasks.filter(t => t.id !== task.id), tempTask], task.id!, depId)) {
+                        playError()
+                        toast.error('Adding this dependency would create a cycle')
+                        return
+                      }
+                    }
+                  }
+                }
+                await db.tasks.update(task.id!, { dependencies: newDeps, updatedAt: new Date() })
+                playClick()
+                toast.success('Dependencies updated')
+                logActivity('dependency_added', `Dependencies updated for: ${task.title}`, { entityType: 'task', entityId: task.id })
+              }}
+            />
+          </div>
 
           {/* External Links */}
           <div className="mt-8">

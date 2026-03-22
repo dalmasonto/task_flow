@@ -49,7 +49,7 @@ export default function ActivityPulse() {
             <span className="w-2 h-2 bg-secondary pulse-active" />
             <span className="text-xs tracking-widest uppercase text-secondary font-bold">System Log</span>
           </div>
-          <h1 className="text-5xl font-bold tracking-tighter uppercase leading-none">
+          <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase leading-none">
             Activity <span className="text-secondary">Pulse</span>
           </h1>
           <p className="text-xs text-muted-foreground uppercase tracking-widest mt-2">

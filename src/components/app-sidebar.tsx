@@ -10,6 +10,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { useSetting } from "@/hooks/use-settings"
 
@@ -17,6 +18,7 @@ const navItems = [
   { label: "Dashboard", to: "/dashboard", icon: "dashboard" },
   { label: "Projects", to: "/projects", icon: "grid_view" },
   { label: "Analytics", to: "/analytics", icon: "insights" },
+  { label: "Timeline", to: "/analytics/timeline", icon: "timeline" },
   { label: "Activity Pulse", to: "/activity", icon: "monitoring" },
   { label: "Dependencies", to: "/dependencies", icon: "account_tree" },
   { label: "Archive", to: "/archive", icon: "archive" },
@@ -25,11 +27,13 @@ const navItems = [
 function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: string }) {
   const resolved = useResolvedPath(to)
   const match = useMatch({ path: resolved.pathname, end: true })
+  const { isMobile, setOpenMobile } = useSidebar()
 
   return (
     <SidebarMenuItem>
       <NavLink
         to={to}
+        onClick={() => { if (isMobile) setOpenMobile(false) }}
         className={`flex items-center gap-4 px-3 py-2 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
           match
             ? "text-secondary border-secondary"
@@ -46,6 +50,8 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const operatorName = useSetting('operatorName')
   const systemName = useSetting('systemName')
+  const { isMobile, setOpenMobile } = useSidebar()
+  const closeMobile = () => { if (isMobile) setOpenMobile(false) }
 
   return (
     <Sidebar variant="sidebar" {...props}>
@@ -81,6 +87,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <div className="flex gap-2">
           <NavLink
             to="/tasks/new"
+            onClick={closeMobile}
             className="flex-1 flex items-center justify-center bg-primary text-primary-foreground font-bold text-xs uppercase tracking-widest py-3 transition-all duration-200 hover:shadow-[0_0_20px_rgba(222,142,255,0.4)]"
           >
             <span className="material-symbols-outlined text-lg mr-2">add</span>
@@ -88,6 +95,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </NavLink>
           <NavLink
             to="/tasks/bulk"
+            onClick={closeMobile}
             className="flex items-center justify-center bg-secondary/10 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-3 border border-secondary/30 transition-all duration-200 hover:bg-secondary/20"
             title="Bulk add tasks"
           >

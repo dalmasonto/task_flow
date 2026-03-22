@@ -60,7 +60,7 @@ export default function Projects() {
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-5xl font-bold tracking-tighter uppercase">Projects</h1>
+        <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase">Projects</h1>
         <Button asChild>
           <Link to="/projects/new">New Project</Link>
         </Button>

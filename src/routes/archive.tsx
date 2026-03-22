@@ -41,7 +41,7 @@ export default function Archive() {
     <div className="p-8 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-5xl font-bold tracking-tighter uppercase">
+        <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase">
           Archived_Success
         </h1>
         <p className="text-muted-foreground text-xs tracking-widest uppercase mt-2">

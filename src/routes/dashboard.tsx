@@ -78,7 +78,7 @@ export default function Dashboard() {
   if (tasks.length === 0) {
     return (
       <div className="p-8">
-        <h1 className="text-5xl font-bold tracking-tighter uppercase">
+        <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase">
           Command_Center
         </h1>
         <EmptyState
@@ -106,7 +106,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
         <div>
-          <h1 className="text-5xl font-bold tracking-tighter uppercase">
+          <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase">
             Command_Center
           </h1>
           <div className="flex items-center gap-2 mt-2">

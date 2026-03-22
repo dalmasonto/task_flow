@@ -21,6 +21,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { formatDuration, computeTotalTime } from '@/lib/time'
 import type { TaskStatus, ProjectType } from '@/types'
 
@@ -89,7 +93,7 @@ export default function ProjectDetail() {
   const [editColor, setEditColor] = useState('#de8eff')
   const [editType, setEditType] = useState<ProjectType>('active_project')
   const [showCustom, setShowCustom] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  // confirmDelete state removed — using AlertDialog instead
   const customColorRef = useRef<HTMLInputElement>(null)
 
   // Loading — query still in flight
@@ -116,7 +120,7 @@ export default function ProjectDetail() {
         <p className="text-xs font-bold text-destructive tracking-widest uppercase">
           Error_404
         </p>
-        <h1 className="text-5xl font-bold tracking-tighter uppercase mt-1">
+        <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase mt-1">
           Project_Not_Found
         </h1>
         <p className="text-muted-foreground text-sm mt-4">
@@ -200,7 +204,7 @@ export default function ProjectDetail() {
             autoFocus
           />
         ) : (
-          <h1 className="text-5xl font-bold tracking-tighter uppercase">
+          <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase">
             {project.name}
           </h1>
         )}
@@ -523,34 +527,27 @@ export default function ProjectDetail() {
             <h3 className="text-[10px] font-bold tracking-widest uppercase text-destructive mb-4">
               Danger_Zone
             </h3>
-            {confirmDelete ? (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  This will permanently delete the project. Tasks will remain but lose their project association.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleDelete}
-                    className="text-[10px] uppercase tracking-widest font-bold px-3 py-2 bg-destructive text-destructive-foreground hover:opacity-80 transition-opacity"
-                  >
-                    Confirm_Delete
-                  </button>
-                  <button
-                    onClick={() => setConfirmDelete(false)}
-                    className="text-[10px] uppercase tracking-widest font-bold px-3 py-2 border border-border text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="text-[10px] uppercase tracking-widest font-bold px-4 py-2 border border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
-              >
-                Delete_Project
-              </button>
-            )}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className="text-[10px] uppercase tracking-widest font-bold px-4 py-2 border border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors">
+                  Delete_Project
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="uppercase tracking-widest">Delete Project?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete "{project.name}". Tasks will remain but lose their project association.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Confirm Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </aside>
       </div>

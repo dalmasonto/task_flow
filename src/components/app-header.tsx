@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Terminal } from '@/components/terminal'
 import { db } from '@/db/database'
+import { playClick } from '@/lib/sounds'
 import { useAppNotifications, useUnreadCount, markAsRead, markAllAsRead, clearAllNotifications } from '@/hooks/use-app-notifications'
 import type { Task, Project, NotificationType } from '@/types'
 import { getStatusColor } from '@/lib/status'
@@ -163,6 +164,19 @@ export function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-4">
+        {/* Theme Toggle */}
+        <button
+          onClick={() => {
+            document.documentElement.classList.toggle('dark')
+            playClick()
+          }}
+          className="p-2 text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
+          title="Toggle light/dark mode"
+        >
+          <span className="material-symbols-outlined dark:hidden">dark_mode</span>
+          <span className="material-symbols-outlined hidden dark:inline">light_mode</span>
+        </button>
+
         {/* Terminal */}
         <button
           onClick={() => setTerminalOpen(true)}

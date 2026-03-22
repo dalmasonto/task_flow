@@ -63,7 +63,7 @@ export default function CreateProject() {
       <p className="text-xs font-bold text-primary tracking-widest uppercase">
         Initialize Module
       </p>
-      <h1 className="text-5xl font-bold tracking-tighter uppercase mt-1">
+      <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase mt-1">
         Create_Project
       </h1>
 

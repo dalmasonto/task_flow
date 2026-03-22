@@ -56,7 +56,7 @@ export default function Analytics() {
   if (analytics.totalTasks === 0 && sessions.length === 0) {
     return (
       <div className="p-8">
-        <h1 className="text-5xl font-bold tracking-tighter uppercase">
+        <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase">
           System Performance
         </h1>
         <EmptyState
