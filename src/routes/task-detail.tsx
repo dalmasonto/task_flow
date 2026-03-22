@@ -103,6 +103,19 @@ export default function TaskDetail() {
 
   const handleStatusChange = async (newStatus: TaskStatus) => {
     if (!canTransition(task.status, newStatus)) return
+
+    // Close any active session when moving to done or partial_done
+    if (newStatus === 'done' || newStatus === 'partial_done') {
+      const activeSession = await db.sessions
+        .where('taskId')
+        .equals(task.id!)
+        .filter(s => s.end === undefined)
+        .first()
+      if (activeSession) {
+        await db.sessions.update(activeSession.id!, { end: new Date() })
+      }
+    }
+
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
   }
 
