@@ -262,7 +262,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (t.tags?.length) writeln(`  ${C.gray}Tags:${C.reset}       ${t.tags.join(', ')}`)
           if (t.dependencies.length) writeln(`  ${C.gray}Deps:${C.reset}       ${t.dependencies.map(d => `#${d}`).join(', ')}`)
           writeln('')
-          writeln(`  ${C.gray}Edit task → ${C.white}nav /tasks/${t.id}${C.reset}`)
+          writeln(`  ${C.dim}click to edit ─▸${C.reset} ${C.cyan}${C.bold}nav /tasks/${t.id}${C.reset}`)
           break
         }
 
@@ -283,7 +283,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (p.description) writeln(`  ${C.gray}Desc:${C.reset}       ${p.description.slice(0, 80)}${p.description.length > 80 ? '...' : ''}`)
           writeln(`  ${C.gray}Tasks:${C.reset}      ${projectTasks.length} total, ${C.green}${doneTasks} done${C.reset}, ${C.cyan}${inProgress} active${C.reset}`)
           writeln('')
-          writeln(`  ${C.gray}Edit project → ${C.white}nav /projects/${p.id}${C.reset}`)
+          writeln(`  ${C.dim}click to edit ─▸${C.reset} ${C.cyan}${C.bold}nav /projects/${p.id}${C.reset}`)
           break
         }
 
@@ -602,6 +602,35 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
 
     termRef.current = term
     fitRef.current = fit
+
+    // Clickable nav commands — clicking writes the command to the input line
+    term.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const line = term.buffer.active.getLine(lineNumber)
+        if (!line) { callback(undefined); return }
+        const text = line.translateToString()
+        const match = text.match(/nav \/\S+/)
+        if (match && match.index !== undefined) {
+          callback([{
+            text: match[0],
+            range: {
+              start: { x: match.index + 1, y: lineNumber },
+              end: { x: match.index + match[0].length + 1, y: lineNumber },
+            },
+            activate() {
+              // Clear any existing input on the current prompt line
+              const clearLen = inputBuffer.current.length
+              if (clearLen > 0) term.write('\b \b'.repeat(clearLen))
+              // Write the nav command to the input buffer and display it
+              inputBuffer.current = match[0]
+              term.write(match[0])
+            },
+          }])
+        } else {
+          callback(undefined)
+        }
+      },
+    })
 
     // Welcome
     const op = operatorRef.current
