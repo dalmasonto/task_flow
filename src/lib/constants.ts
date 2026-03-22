@@ -14,6 +14,7 @@ export const DEFAULT_NOTIFICATION_INTERVAL = 30
 export const DEFAULT_SETTINGS = {
   timerBarDisplayMode: 'carousel' as const,
   notificationInterval: DEFAULT_NOTIFICATION_INTERVAL,
+  browserNotificationsEnabled: true,
   statusColors: DEFAULT_STATUS_COLORS,
   glowIntensity: 84,
   backdropBlur: 24,

@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Switch } from '@/components/ui/switch'
 
 const ALL_STATUSES: TaskStatus[] = [
   'not_started',
@@ -37,6 +38,7 @@ export default function Settings() {
   const savedOperatorName = useSetting('operatorName')
   const savedSystemName = useSetting('systemName')
   const savedNotificationInterval = useSetting('notificationInterval')
+  const savedBrowserNotifications = useSetting('browserNotificationsEnabled')
 
   const [colors, setColors] = useState<Record<TaskStatus, string>>(savedColors)
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
@@ -45,6 +47,7 @@ export default function Settings() {
   const [operatorName, setOperatorName] = useState(savedOperatorName)
   const [systemName, setSystemName] = useState(savedSystemName)
   const [notificationInterval, setNotificationInterval] = useState(savedNotificationInterval)
+  const [browserNotifications, setBrowserNotifications] = useState(savedBrowserNotifications)
 
   // Sync local state when saved values load from DB
   useEffect(() => { setColors(savedColors) }, [savedColors])
@@ -54,6 +57,7 @@ export default function Settings() {
   useEffect(() => { setOperatorName(savedOperatorName) }, [savedOperatorName])
   useEffect(() => { setSystemName(savedSystemName) }, [savedSystemName])
   useEffect(() => { setNotificationInterval(savedNotificationInterval) }, [savedNotificationInterval])
+  useEffect(() => { setBrowserNotifications(savedBrowserNotifications) }, [savedBrowserNotifications])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -67,6 +71,7 @@ export default function Settings() {
     await updateSetting('operatorName', operatorName)
     await updateSetting('systemName', systemName)
     await updateSetting('notificationInterval', notificationInterval)
+    await updateSetting('browserNotificationsEnabled', browserNotifications)
     playSuccess()
     toast.success('Configuration committed to core')
     addNotification('Settings Saved', 'Configuration committed to core', 'success')
@@ -80,6 +85,7 @@ export default function Settings() {
     setOperatorName(DEFAULT_SETTINGS.operatorName)
     setSystemName(DEFAULT_SETTINGS.systemName)
     setNotificationInterval(DEFAULT_SETTINGS.notificationInterval)
+    setBrowserNotifications(DEFAULT_SETTINGS.browserNotificationsEnabled)
     playClick()
     toast.info('Settings reset to defaults — commit to apply')
   }
@@ -155,7 +161,24 @@ export default function Settings() {
             <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
               <span className="w-2 h-2 bg-tertiary" /> NOTIFICATION ENGINE
             </h3>
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Browser notifications toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold block">
+                    Browser_Notifications
+                  </label>
+                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mt-1">
+                    Send system-level browser notifications while tasks are active
+                  </p>
+                </div>
+                <Switch
+                  checked={browserNotifications}
+                  onCheckedChange={setBrowserNotifications}
+                />
+              </div>
+
+              {/* Interval */}
               <div className="space-y-2">
                 <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
                   Reminder_Interval
@@ -172,7 +195,7 @@ export default function Settings() {
                   <span className="text-[10px] text-muted-foreground uppercase tracking-widest">minutes</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
-                  How often to send "You are working on..." browser notifications during active sessions
+                  How often to send reminders during active sessions. Internal bell notifications are always sent regardless of the toggle above.
                 </p>
               </div>
             </div>

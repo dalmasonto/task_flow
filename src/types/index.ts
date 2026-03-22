@@ -56,6 +56,7 @@ export interface AppNotification {
 export interface SettingsMap {
   timerBarDisplayMode: 'carousel' | 'expanded'
   notificationInterval: number
+  browserNotificationsEnabled: boolean
   statusColors: Record<TaskStatus, string>
   glowIntensity: number
   backdropBlur: number
