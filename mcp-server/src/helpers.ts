@@ -8,10 +8,14 @@ export function logActivity(
   options?: { detail?: string; entityType?: string; entityId?: number }
 ): void {
   const db = getDb();
-  db.prepare(
+  const ts = new Date().toISOString();
+  const result = db.prepare(
     `INSERT INTO activity_logs (action, title, detail, entity_type, entity_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(action, title, options?.detail ?? null, options?.entityType ?? null, options?.entityId ?? null, new Date().toISOString());
+  ).run(action, title, options?.detail ?? null, options?.entityType ?? null, options?.entityId ?? null, ts);
+
+  const entry = db.prepare('SELECT * FROM activity_logs WHERE id = ?').get(result.lastInsertRowid);
+  broadcast('activity_logged', { entity: 'activity', action: 'activity_logged', payload: entry });
 }
 
 export function errorResponse(error: string, code: ErrorCode) {

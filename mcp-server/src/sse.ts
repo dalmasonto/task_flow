@@ -41,9 +41,10 @@ export function startSSEServer(): void {
       const projects = db.prepare('SELECT * FROM projects').all();
       const sessions = db.prepare('SELECT * FROM sessions').all();
       const settings = db.prepare('SELECT * FROM settings').all();
+      const activityLogs = db.prepare('SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 200').all();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ tasks, projects, sessions, settings }));
+      res.end(JSON.stringify({ tasks, projects, sessions, settings, activityLogs }));
       return;
     }
 

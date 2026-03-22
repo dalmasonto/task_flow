@@ -23,6 +23,10 @@ async function initialSync() {
       const sessions = data.sessions.map((s: Record<string, unknown>) => parseSession(s))
       await db.sessions.bulkPut(sessions)
     }
+    if (data.activityLogs?.length) {
+      const logs = data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a))
+      await db.activityLogs.bulkPut(logs)
+    }
   } catch {
     // MCP server not running — skip initial sync
   }
@@ -134,6 +138,11 @@ export function useSync() {
       db.notifications.toCollection().modify({ read: true })
     })
 
+    source.addEventListener('activity_logged', (e) => {
+      const { payload } = JSON.parse(e.data)
+      if (payload) db.activityLogs.put(parseActivityLog(payload))
+    })
+
     source.addEventListener('activity_cleared', () => {
       db.activityLogs.clear()
     })
@@ -186,6 +195,18 @@ function parseSession(raw: Record<string, unknown>) {
     taskId: raw.task_id as number,
     start: new Date(raw.start as string),
     end: raw.end ? new Date(raw.end as string) : undefined,
+  }
+}
+
+function parseActivityLog(raw: Record<string, unknown>) {
+  return {
+    id: raw.id as number,
+    action: raw.action as string,
+    title: raw.title as string,
+    detail: raw.detail as string | undefined,
+    entityType: raw.entity_type as string | undefined,
+    entityId: raw.entity_id as number | undefined,
+    createdAt: new Date(raw.created_at as string),
   }
 }
 
