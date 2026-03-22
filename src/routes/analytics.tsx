@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 import { useAnalytics } from '@/hooks/use-analytics'
 import { useSessions } from '@/hooks/use-sessions'
+import { useTasks } from '@/hooks/use-tasks'
 import { formatDuration } from '@/lib/time'
 import { getStatusColor, getStatusLabel } from '@/lib/status'
 import { EmptyState } from '@/components/empty-state'
@@ -44,12 +45,48 @@ export default function Analytics() {
     return Math.max(...analytics.timePerProject.map(p => p.totalTime))
   }, [analytics])
 
-  const recentSessions = useMemo(() => {
-    if (!sessions) return []
-    return [...sessions]
-      .sort((a, b) => b.start.getTime() - a.start.getTime())
-      .slice(0, 15)
-  }, [sessions])
+  const allTasks = useTasks()
+
+  type ActivityItem =
+    | { kind: 'session'; id: number; taskId: number; start: Date; end?: Date; timestamp: Date }
+    | { kind: 'status'; taskId: number; taskTitle: string; status: TaskStatus; timestamp: Date }
+
+  const activityFeed = useMemo(() => {
+    const items: ActivityItem[] = []
+
+    // Session events
+    if (sessions) {
+      for (const s of sessions) {
+        items.push({
+          kind: 'session',
+          id: s.id!,
+          taskId: s.taskId,
+          start: s.start,
+          end: s.end,
+          timestamp: s.start,
+        })
+      }
+    }
+
+    // Task completion events (done, partial_done)
+    if (allTasks) {
+      for (const t of allTasks) {
+        if (t.status === 'done' || t.status === 'partial_done') {
+          items.push({
+            kind: 'status',
+            taskId: t.id!,
+            taskTitle: t.title,
+            status: t.status,
+            timestamp: new Date(t.updatedAt),
+          })
+        }
+      }
+    }
+
+    return items
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, 20)
+  }, [sessions, allTasks])
 
   if (!analytics || !sessions) return null
 
@@ -237,64 +274,78 @@ export default function Analytics() {
             Live Stream
           </div>
         </div>
-        {recentSessions.length > 0 ? (
+        {activityFeed.length > 0 ? (
           <div className="relative">
             <div className="absolute left-4 top-0 bottom-0 w-[1px] bg-muted-foreground/20" />
             <div className="space-y-8 relative">
-              {recentSessions.map((session, i) => {
-                const isActive = !session.end
-                const borderColor = isActive ? '#00fbfb' : i % 3 === 0 ? '#de8eff' : i % 3 === 1 ? '#00fbfb' : '#69fd5d'
-                const iconName = isActive ? 'play_circle' : 'check_circle'
-                const timeStr = session.start.toLocaleTimeString('en-US', {
-                  hour12: false,
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
+              {activityFeed.map((item, i) => {
+                const timeStr = item.timestamp.toLocaleTimeString('en-US', {
+                  hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
                 })
-                const dateStr = session.start.toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
+                const dateStr = item.timestamp.toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric',
                 })
-                const duration = session.end
-                  ? formatDuration(session.end.getTime() - session.start.getTime())
+
+                if (item.kind === 'status') {
+                  const color = getStatusColor(item.status)
+                  const icon = item.status === 'done' ? 'task_alt' : 'pending'
+                  const label = item.status === 'done' ? 'Task Completed' : 'Partial Completion'
+                  return (
+                    <div key={`status-${item.taskId}-${i}`} className="flex gap-8 items-start">
+                      <div className="relative z-10">
+                        <div
+                          className="w-8 h-8 bg-background flex items-center justify-center"
+                          style={{ border: `1px solid ${color}`, boxShadow: `0 0 10px ${color}1A` }}
+                        >
+                          <span className="material-symbols-outlined text-sm" style={{ color }}>{icon}</span>
+                        </div>
+                      </div>
+                      <div className={`flex-1 ${i < activityFeed.length - 1 ? 'pb-4 border-b border-muted-foreground/10' : ''}`}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold tracking-tight uppercase text-sm">{label}</span>
+                          <span className="text-[10px] text-muted-foreground font-mono uppercase">{dateStr} {timeStr}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">{item.taskTitle}</p>
+                        <div
+                          className="inline-block px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest"
+                          style={{ backgroundColor: `${color}1A`, color }}
+                        >
+                          {getStatusLabel(item.status)}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                // Session event
+                const isActive = !item.end
+                const borderColor = isActive ? '#00fbfb' : '#de8eff'
+                const iconName = isActive ? 'play_circle' : 'timer'
+                const duration = item.end
+                  ? formatDuration(item.end.getTime() - item.start.getTime())
                   : 'Active'
 
                 return (
-                  <div key={session.id ?? i} className="flex gap-8 items-start">
+                  <div key={`session-${item.id}`} className="flex gap-8 items-start">
                     <div className="relative z-10">
                       <div
                         className="w-8 h-8 bg-background flex items-center justify-center"
-                        style={{
-                          border: `1px solid ${borderColor}`,
-                          boxShadow: `0 0 10px ${borderColor}1A`,
-                        }}
+                        style={{ border: `1px solid ${borderColor}`, boxShadow: `0 0 10px ${borderColor}1A` }}
                       >
-                        <span
-                          className="material-symbols-outlined text-sm"
-                          style={{ color: borderColor }}
-                        >
-                          {iconName}
-                        </span>
+                        <span className="material-symbols-outlined text-sm" style={{ color: borderColor }}>{iconName}</span>
                       </div>
                     </div>
-                    <div className={`flex-1 ${i < recentSessions.length - 1 ? 'pb-4 border-b border-muted-foreground/10' : ''}`}>
+                    <div className={`flex-1 ${i < activityFeed.length - 1 ? 'pb-4 border-b border-muted-foreground/10' : ''}`}>
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-bold tracking-tight uppercase text-sm">
-                          Task #{session.taskId} {isActive ? 'In Progress' : 'Completed'}
+                          Task #{item.taskId} {isActive ? 'In Progress' : 'Session Ended'}
                         </span>
-                        <span className="text-[10px] text-muted-foreground font-mono uppercase">
-                          {dateStr} {timeStr}
-                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono uppercase">{dateStr} {timeStr}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Session duration: {duration}
-                      </p>
+                      <p className="text-xs text-muted-foreground mb-3">Session duration: {duration}</p>
                       <div
                         className="inline-block px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest"
-                        style={{
-                          backgroundColor: `${borderColor}1A`,
-                          color: borderColor,
-                        }}
+                        style={{ backgroundColor: `${borderColor}1A`, color: borderColor }}
                       >
                         {isActive ? 'Active Session' : 'Completed Session'}
                       </div>
@@ -306,7 +357,7 @@ export default function Analytics() {
           </div>
         ) : (
           <p className="text-muted-foreground text-xs uppercase tracking-widest text-center py-8">
-            No session activity recorded
+            No activity recorded
           </p>
         )}
       </section>

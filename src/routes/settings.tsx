@@ -4,6 +4,7 @@ import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS } from '@/lib/constants'
 import { getStatusLabel } from '@/lib/status'
 import { seedDatabase } from '@/lib/seed'
+import { db } from '@/db/database'
 
 const ALL_STATUSES: TaskStatus[] = [
   'not_started',
@@ -21,6 +22,7 @@ export default function Settings() {
   const savedSpread = useSetting('shadowSpread')
   const savedOperatorName = useSetting('operatorName')
   const savedSystemName = useSetting('systemName')
+  const savedNotificationInterval = useSetting('notificationInterval')
 
   const [colors, setColors] = useState<Record<TaskStatus, string>>(savedColors)
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
@@ -28,6 +30,7 @@ export default function Settings() {
   const [shadowSpread, setShadowSpread] = useState(savedSpread)
   const [operatorName, setOperatorName] = useState(savedOperatorName)
   const [systemName, setSystemName] = useState(savedSystemName)
+  const [notificationInterval, setNotificationInterval] = useState(savedNotificationInterval)
 
   // Sync local state when saved values load from DB
   useEffect(() => { setColors(savedColors) }, [savedColors])
@@ -36,6 +39,7 @@ export default function Settings() {
   useEffect(() => { setShadowSpread(savedSpread) }, [savedSpread])
   useEffect(() => { setOperatorName(savedOperatorName) }, [savedOperatorName])
   useEffect(() => { setSystemName(savedSystemName) }, [savedSystemName])
+  useEffect(() => { setNotificationInterval(savedNotificationInterval) }, [savedNotificationInterval])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -48,6 +52,7 @@ export default function Settings() {
     await updateSetting('shadowSpread', shadowSpread)
     await updateSetting('operatorName', operatorName)
     await updateSetting('systemName', systemName)
+    await updateSetting('notificationInterval', notificationInterval)
   }
 
   function handleReset() {
@@ -57,6 +62,14 @@ export default function Settings() {
     setShadowSpread(DEFAULT_SETTINGS.shadowSpread)
     setOperatorName(DEFAULT_SETTINGS.operatorName)
     setSystemName(DEFAULT_SETTINGS.systemName)
+    setNotificationInterval(DEFAULT_SETTINGS.notificationInterval)
+  }
+
+  async function handleClearData() {
+    await db.tasks.clear()
+    await db.projects.clear()
+    await db.sessions.clear()
+    window.location.href = '/dashboard'
   }
 
   const previewColor = colors['in_progress']
@@ -104,6 +117,34 @@ export default function Settings() {
                   onChange={(e) => setSystemName(e.target.value)}
                   className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 uppercase tracking-widest"
                 />
+              </div>
+            </div>
+          </section>
+
+          {/* Notification Settings */}
+          <section className="bg-accent/30 p-8 border-t border-tertiary/20">
+            <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-tertiary" /> NOTIFICATION ENGINE
+            </h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                  Reminder_Interval
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="480"
+                    value={notificationInterval}
+                    onChange={(e) => setNotificationInterval(Number(e.target.value) || 1)}
+                    className="w-20 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 tabular-nums"
+                  />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-widest">minutes</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
+                  How often to send "You are working on..." browser notifications during active sessions
+                </p>
               </div>
             </div>
           </section>
@@ -313,15 +354,26 @@ export default function Settings() {
                   Populate database with sample projects, tasks, dependencies, and sessions for UI testing.
                   This will clear all existing data.
                 </p>
-                <button
-                  onClick={async () => {
-                    await seedDatabase()
-                    window.location.href = '/dashboard'
-                  }}
-                  className="w-full border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs"
-                >
-                  SEED_DATABASE
-                </button>
+                <div className="flex gap-4">
+                  <button
+                    onClick={async () => {
+                      await seedDatabase()
+                      window.location.href = '/dashboard'
+                    }}
+                    className="flex-1 border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs"
+                  >
+                    SEED_DATABASE
+                  </button>
+                  <button
+                    onClick={handleClearData}
+                    className="flex-1 border border-destructive/40 text-destructive font-bold py-4 tracking-widest hover:bg-destructive/10 transition-all active:scale-95 uppercase text-xs"
+                  >
+                    CLEAR_DATA
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mt-2">
+                  Clear removes all tasks, projects, and sessions. Settings are preserved.
+                </p>
               </div>
             </div>
           </section>
