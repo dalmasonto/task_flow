@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router'
+import { useSync } from '@/hooks/use-sync'
 import { RootLayout } from '@/components/root-layout'
 import Dashboard from '@/routes/dashboard'
 import CreateProject from '@/routes/create-project'
@@ -16,6 +17,8 @@ import BulkCreateTasks from '@/routes/bulk-create-tasks'
 import NotFound from '@/routes/not-found'
 
 export default function App() {
+  useSync()
+
   return (
     <Routes>
       <Route element={<RootLayout />}>
