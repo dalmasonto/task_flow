@@ -12,6 +12,7 @@ import { addNotification } from '@/hooks/use-app-notifications'
 import { getStatusLabel } from '@/lib/status'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
 import { playSuccess, playClick, playError, playTimerStart, playTimerPause, playTaskDone } from '@/lib/sounds'
+import { useSetting } from '@/hooks/use-settings'
 import { toast } from 'sonner'
 import type { TaskStatus, TaskPriority } from '@/types'
 
@@ -73,6 +74,12 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
 
   const tasks = useTasks()
   const projects = useProjects()
+  const operatorName = useSetting('operatorName')
+  const systemName = useSetting('systemName')
+  const operatorRef = useRef(operatorName)
+  const systemRef = useRef(systemName)
+  useEffect(() => { operatorRef.current = operatorName }, [operatorName])
+  useEffect(() => { systemRef.current = systemName }, [systemName])
   const tasksRef = useRef(tasks)
   const projectsRef = useRef(projects)
   useEffect(() => { tasksRef.current = tasks }, [tasks])
@@ -551,8 +558,28 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     termRef.current = term
     fitRef.current = fit
 
-    // Welcome
-    term.writeln(`${C.cyan}${C.bold}TaskFlow Terminal v2.0${C.reset} ${C.gray}— Type "help" for commands, Tab for autocomplete${C.reset}`)
+    // Welcome banner
+    const op = operatorRef.current
+    const sys = systemRef.current
+    term.writeln('')
+    term.writeln(`${C.magenta}  ╔════════════════════════════════════════════════════╗${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}                                                    ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.cyan}${C.bold}████████╗ █████╗ ███████╗██╗  ██╗${C.reset}              ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.cyan}╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝${C.reset}              ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.cyan}   ██║   ███████║███████╗█████╔╝${C.reset}               ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.cyan}   ██║   ██╔══██║╚════██║██╔═██╗${C.reset}               ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.cyan}   ██║   ██║  ██║███████║██║  ██╗${C.reset}              ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.cyan}   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${C.reset}              ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}   ${C.green}${C.bold}F L O W${C.reset}  ${C.gray}Terminal v2.0${C.reset}                       ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}                                                    ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ╠════════════════════════════════════════════════════╣${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}  ${C.gray}Operator:${C.reset}  ${C.white}${C.bold}${op}${C.reset}${' '.repeat(Math.max(0, 38 - op.length))}${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}  ${C.gray}System:${C.reset}    ${C.cyan}${C.bold}${sys}${C.reset}${' '.repeat(Math.max(0, 38 - sys.length))}${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}  ${C.gray}Session:${C.reset}   ${new Date().toLocaleString()}${' '.repeat(Math.max(0, 27))}${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ╠════════════════════════════════════════════════════╣${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}  ${C.gray}Type${C.reset} ${C.green}help${C.reset} ${C.gray}for commands${C.reset}  ${C.gray}•${C.reset}  ${C.green}Tab${C.reset} ${C.gray}to autocomplete${C.reset}   ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ║${C.reset}  ${C.gray}Press${C.reset} ${C.green}↑↓${C.reset} ${C.gray}for history${C.reset}   ${C.gray}•${C.reset}  ${C.green}Esc${C.reset} ${C.gray}to close${C.reset}          ${C.magenta}║${C.reset}`)
+    term.writeln(`${C.magenta}  ╚════════════════════════════════════════════════════╝${C.reset}`)
     term.write(`\r\n${C.cyan}${C.bold}> ${C.reset}`)
 
     // Input handling
