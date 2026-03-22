@@ -134,14 +134,14 @@ export default function CreateTask() {
               </label>
               <div className="relative">
                 <Select
-                  value={projectId !== undefined ? String(projectId) : ''}
-                  onValueChange={(v) => setProjectId(v ? Number(v) : undefined)}
+                  value={projectId !== undefined ? String(projectId) : 'none'}
+                  onValueChange={(v) => setProjectId(v === 'none' ? undefined : Number(v))}
                 >
                   <SelectTrigger className="w-full bg-card border border-border text-xs tracking-widest uppercase">
                     <SelectValue placeholder="UNASSIGNED" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">UNASSIGNED</SelectItem>
+                    <SelectItem value="none" className="text-xs uppercase tracking-widest">UNASSIGNED</SelectItem>
                     {(projects ?? []).map(p => (
                       <SelectItem key={p.id} value={String(p.id)} className="text-xs uppercase tracking-widest">
                         {p.name}

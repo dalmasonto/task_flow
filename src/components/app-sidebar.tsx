@@ -22,10 +22,10 @@ const navItems = [
 ]
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
-  return `flex items-center gap-4 p-3 uppercase text-xs tracking-widest font-headline transition-all duration-200 border-l-2 ${
+  return `flex items-center gap-4 py-3 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
     isActive
-      ? "text-secondary border-secondary bg-sidebar-accent hover:text-secondary/80 hover:bg-sidebar-accent"
-      : "text-gray-500 border-transparent hover:text-secondary/80 hover:bg-sidebar-accent"
+      ? "text-secondary border-secondary"
+      : "text-gray-500 border-transparent hover:text-secondary/80"
   }`
 }
 
@@ -48,7 +48,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarMenu>
+          <SidebarMenu className="gap-2">
             {navItems.map((item) => (
               <SidebarMenuItem key={item.to}>
                 <SidebarMenuButton asChild>
