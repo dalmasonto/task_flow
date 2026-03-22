@@ -5,13 +5,23 @@ import { useProject } from '@/hooks/use-projects'
 import { useSessions, useTaskTotalTime, useActiveSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
 import { getBlockers, getDependents } from '@/lib/dag'
+import { canTransition } from '@/lib/status'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
 import { StatusBadge } from '@/components/status-badge'
 import { PriorityBadge } from '@/components/priority-badge'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { MarkdownEditor } from '@/components/markdown-editor'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { db } from '@/db/database'
-import type { Task } from '@/types'
+import type { Task, TaskStatus } from '@/types'
+
+const ALL_STATUSES: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked', 'partial_done', 'done']
 
 export default function TaskDetail() {
   const { id } = useParams()
@@ -91,6 +101,11 @@ export default function TaskDetail() {
     setShowStopOptions(false)
   }
 
+  const handleStatusChange = async (newStatus: TaskStatus) => {
+    if (!canTransition(task.status, newStatus)) return
+    await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
+  }
+
   const handleAddLink = async () => {
     if (!linkInput.trim()) return
     const currentLinks = task.links ?? []
@@ -135,6 +150,33 @@ export default function TaskDetail() {
           <h1 className="text-5xl md:text-6xl font-bold tracking-tighter leading-none max-w-3xl">
             {task.title}
           </h1>
+
+          {/* Status Selector */}
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+              Update_Status
+            </span>
+            <Select value={task.status} onValueChange={(v) => handleStatusChange(v as TaskStatus)}>
+              <SelectTrigger className="w-48 bg-card border border-border text-xs tracking-widest uppercase">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ALL_STATUSES.map(s => {
+                  const allowed = s === task.status || canTransition(task.status, s)
+                  return (
+                    <SelectItem
+                      key={s}
+                      value={s}
+                      disabled={!allowed}
+                      className="text-xs uppercase tracking-widest"
+                    >
+                      {s.replace(/_/g, ' ')}
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Metadata Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
@@ -372,7 +414,10 @@ export default function TaskDetail() {
       </main>
 
       {/* Bottom Action Bar */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-2xl bg-card/80 backdrop-blur-xl border border-tertiary/30 shadow-[0_0_20px_rgba(105,253,93,0.1)] py-4 px-8 flex justify-around items-center">
+      <div
+        className="fixed left-1/2 -translate-x-1/2 z-40 w-[90%] max-w-2xl bg-card/80 backdrop-blur-xl border border-tertiary/30 shadow-[0_0_20px_rgba(105,253,93,0.1)] py-4 px-8 flex justify-around items-center"
+        style={{ bottom: 'calc(0.5rem + var(--timer-bar-height, 0px))' }}
+      >
         {hasUnresolvedBlockers && (
           <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-destructive font-bold bg-card/90 px-3 py-1 border border-destructive/30">
             Blocked by {blockers.length} task{blockers.length > 1 ? 's' : ''}
