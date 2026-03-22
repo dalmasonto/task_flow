@@ -36,13 +36,20 @@ The MCP server lives inside the existing repo at `mcp-server/`. The browser/Taur
 
 **Database:** SQLite via better-sqlite3.
 
-**Location:** `~/.taskflow/taskflow.db` by default, overridable via `TASKFLOW_DB_PATH` env var. The directory is created automatically on first run.
+**Location:** `~/.taskflow/taskflow.db` by default, overridable via `TASKFLOW_DB_PATH` env var. The code expands `~` to `os.homedir()` at startup. The directory is created automatically on first run.
 
 **Why better-sqlite3:** Synchronous API (no async overhead in tool handlers), single file, zero config, handles developer-scale data (thousands of tasks, tens of thousands of sessions) with no performance concerns.
 
 ## Database Schema
 
 All tables use auto-incrementing integer IDs. Dates stored as ISO 8601 strings. JSON arrays stored as TEXT.
+
+### JSON Column Shapes
+
+- `dependencies` — `number[]` (array of task IDs)
+- `links` — `Array<{ label: string; url: string }>` (array of objects)
+- `tags` — `string[]` (array of strings)
+- `settings.value` — JSON-serialized value matching the `SettingsMap` type for the given key
 
 ```sql
 CREATE TABLE IF NOT EXISTS tasks (
@@ -67,7 +74,8 @@ CREATE TABLE IF NOT EXISTS projects (
   color TEXT NOT NULL DEFAULT '#de8eff',
   type TEXT NOT NULL DEFAULT 'active_project',
   description TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -100,6 +108,16 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
+CREATE INDEX IF NOT EXISTS idx_sessions_task_id ON sessions(task_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_action ON activity_logs(action);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
 ```
 
 ## MCP Tools
@@ -108,14 +126,14 @@ CREATE TABLE IF NOT EXISTS settings (
 
 | Tool | Parameters | Returns | Side Effects |
 |------|-----------|---------|-------------|
-| `create_task` | title (required), description, status, priority, project_id, dependencies, tags, links, due_date, estimated_time | Created task with ID | Logs `task_created` |
+| `create_task` | title (required), description, status, priority, project_id, dependencies (number[]), tags (string[]), links (Array<{label, url}>), due_date, estimated_time | Created task with ID | Logs `task_created` |
 | `list_tasks` | status, project_id, priority, tag (all optional filters) | Array of tasks | None |
 | `get_task` | id (required) | Task with computed total_time and session_count | None |
-| `update_task` | id (required), any writable field | Updated task | Logs relevant action |
-| `update_task_status` | id (required), status (required) | Updated task | Validates transition, logs `task_status_changed` or `task_completed` |
-| `delete_task` | id (required) | Confirmation | Cascade-deletes sessions, logs `task_deleted` |
-| `bulk_create_tasks` | tasks array of {title, priority?, project_id?, status?} | Array of created tasks with IDs | Logs `tasks_bulk_created` |
-| `search_tasks` | query (required) | Matching tasks | None |
+| `update_task` | id (required), any writable field | Updated task | Logs granular actions: `dependency_added`, `dependency_removed`, `link_added`, `tag_added`, `tag_removed`, or generic `task_status_changed` as appropriate |
+| `update_task_status` | id (required), status (required) | Updated task | Validates transition via VALID_TRANSITIONS map, logs `task_status_changed`, `task_completed`, or `task_partial_done` |
+| `delete_task` | id (required) | Confirmation | Cascade-deletes sessions (via FK), logs `task_deleted` |
+| `bulk_create_tasks` | tasks array of {title, description?, priority?, project_id?, status?, dependencies?, tags?} | Array of created tasks with IDs | Logs `tasks_bulk_created` |
+| `search_tasks` | query (required) | Matching tasks | None. Case-insensitive substring match on `title` and `description` via SQLite `LIKE '%query%'` |
 
 ### Projects (5 tools)
 
@@ -125,15 +143,21 @@ CREATE TABLE IF NOT EXISTS settings (
 | `list_projects` | None | Projects with task_count per project | None |
 | `get_project` | id (required) | Project with its tasks | None |
 | `update_project` | id (required), name, color, type, description | Updated project | Logs `project_updated` |
-| `delete_project` | id (required) | Confirmation | Unlinks tasks, logs `project_deleted` |
+| `delete_project` | id (required) | Confirmation | Tasks unlinked via `ON DELETE SET NULL` FK constraint, logs `project_deleted` |
 
 ### Timer (3 tools)
 
 | Tool | Parameters | Returns | Side Effects |
 |------|-----------|---------|-------------|
-| `start_timer` | task_id (required) | Created session | Sets task to `in_progress`, logs `timer_started` |
+| `start_timer` | task_id (required) | Created session | Errors if task already has an open session. Sets task to `in_progress`, logs `timer_started` |
 | `pause_timer` | task_id (required) | Closed session with duration | Sets task to `paused`, logs `timer_paused` |
-| `stop_timer` | task_id (required), final_status (done or partial_done, default done) | Closed session with duration | Sets task status, logs `timer_stopped` + status change |
+| `stop_timer` | task_id (required), final_status (done, partial_done, or blocked; default done) | Closed session with duration | Sets task status, logs `timer_stopped` + status change |
+
+### Sessions (1 tool)
+
+| Tool | Parameters | Returns | Side Effects |
+|------|-----------|---------|-------------|
+| `list_sessions` | task_id (optional), start_date, end_date (optional date range) | Array of sessions with computed durations | None |
 
 ### Analytics (2 tools)
 
@@ -158,11 +182,14 @@ CREATE TABLE IF NOT EXISTS settings (
 | `mark_all_notifications_read` | None | Count of updated | None |
 | `clear_notifications` | None | Confirmation | Deletes all |
 
-### Settings (1 tool)
+### Settings (2 tools)
 
 | Tool | Parameters | Returns | Side Effects |
 |------|-----------|---------|-------------|
-| `update_settings` | key (required), value (optional — omit to read) | Current value | Logs `settings_saved` if writing |
+| `get_setting` | key (required) | Current value for the key, or default if unset | None |
+| `update_setting` | key (required), value (required) | Updated value | Logs `settings_saved` |
+
+**Total: 27 tools**
 
 ## Validation
 
@@ -170,6 +197,23 @@ CREATE TABLE IF NOT EXISTS settings (
 - **Input validation** via Zod schemas on every tool. Invalid params return structured error messages.
 - **Dependency cycles** checked on `create_task` and `update_task` when dependencies are provided.
 - **Referential integrity** — project_id validated against existing projects, task dependencies validated against existing tasks.
+- **Open session checks** — `start_timer` errors if the task already has an open session (end is NULL).
+
+## Error Responses
+
+All errors return `isError: true` with a structured JSON content block:
+
+```json
+{
+  "isError": true,
+  "content": [{
+    "type": "text",
+    "text": "{\"error\": \"Cannot transition from not_started to done\", \"code\": \"INVALID_TRANSITION\"}"
+  }]
+}
+```
+
+Error codes: `NOT_FOUND`, `INVALID_TRANSITION`, `VALIDATION_ERROR`, `CYCLE_DETECTED`, `SESSION_ALREADY_ACTIVE`, `NO_ACTIVE_SESSION`.
 
 ## Tech Stack
 
@@ -187,16 +231,29 @@ Users add to their Claude Code settings (`.claude/settings.json` or project-leve
   "mcpServers": {
     "taskflow": {
       "command": "node",
+      "args": ["<path-to-repo>/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+Optionally override the database path:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "node",
       "args": ["<path-to-repo>/mcp-server/dist/index.js"],
       "env": {
-        "TASKFLOW_DB_PATH": "~/.taskflow/taskflow.db"
+        "TASKFLOW_DB_PATH": "/custom/path/taskflow.db"
       }
     }
   }
 }
 ```
 
-The `env` block is optional — defaults to `~/.taskflow/taskflow.db`.
+Default path: `~/.taskflow/taskflow.db` (tilde expanded via `os.homedir()` in code).
 
 ## Setup Steps
 
