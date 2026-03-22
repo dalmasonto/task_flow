@@ -309,6 +309,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!id) { writeln(`${C.red}Usage: start <task_id>${C.reset}`); break }
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
+          if (t.status === 'done') { playError(); writeln(`${C.red}Task #${id} is marked as done. Use ${C.bold}status ${id} in_progress${C.reset}${C.red} to reopen it first.${C.reset}`); break }
           const existing = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
           if (existing) { writeln(`${C.yellow}Task #${id} already has an active session${C.reset}`); break }
           await db.sessions.add({ taskId: id, start: new Date() })
