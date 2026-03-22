@@ -19,6 +19,7 @@ export async function getAgentInstructions() {
 
     startup_checklist: [
       'Call list_projects to see all projects and their task counts.',
+      'Identify which project is relevant to the current work. Use search_projects by name if unsure. If multiple projects match, ask the user to confirm which one before proceeding.',
       'Call list_tasks with status "in_progress" to see what is actively being worked on.',
       'Call list_tasks with status "blocked" to see what is stuck and might need your help.',
       'Call list_notifications with unread_only=true to check for pending notifications.',
@@ -33,6 +34,7 @@ export async function getAgentInstructions() {
     },
 
     behavioral_rules: [
+      'At the start of a conversation, search for the current project by name using search_projects. Try multiple name variants if needed. If multiple projects match or you are unsure, ask the user to confirm which project to work on before creating or updating tasks. Always link new tasks to the confirmed project.',
       'Before starting any coding work, check if a matching task exists in TaskFlow. If one exists, call start_timer on it to track time.',
       'When you finish a piece of work, call stop_timer with the appropriate final_status: "done" if complete, "partial_done" if more work remains, "blocked" if you hit a blocker.',
       'If you pause to wait for user input or switch context, call pause_timer on the active task.',
@@ -41,6 +43,7 @@ export async function getAgentInstructions() {
       'After completing a task, check if any blocked tasks had a dependency on it and might now be unblocked.',
       'Periodically check list_notifications with unread_only=true and surface important ones to the user.',
       'When you create new work items (files, features, fixes), create corresponding tasks in TaskFlow to keep the tracker in sync.',
+      'Use Markdown in description fields — headings, bullet lists, code blocks, bold/italic. Task and project descriptions render Markdown in the UI, so well-formatted descriptions are more readable for the user.',
     ],
 
     task_workflow: {
@@ -61,7 +64,10 @@ export async function getAgentInstructions() {
       'Tasks can have dependencies — check the dependencies array to understand task ordering.',
       'Use get_analytics for a high-level overview of time spent and task completion rates.',
       'Use search_tasks to find tasks by keyword when you are not sure of the exact task ID.',
+      'Use search_projects to find a project by name. Try the repo name, directory name, or common abbreviations.',
       'Read task descriptions carefully — they often contain implementation details, acceptance criteria, or context that will help you do better work.',
+      'Write task descriptions in Markdown: use ## headings for sections, - bullet lists for steps, ```code blocks``` for snippets, and **bold** for emphasis. The UI renders Markdown natively.',
+      'When creating tasks that depend on others, set dependencies and use the "blocked" status to indicate the blocking relationship. This shows up in the dependency graph.',
     ],
   };
 
