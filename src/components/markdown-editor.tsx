@@ -39,7 +39,7 @@ export function MarkdownEditor({ value, onChange, placeholder, rows = 5, classNa
         </button>
       </div>
       {preview ? (
-        <div className="prose prose-invert prose-sm min-h-[120px] p-4 bg-input border-b border-border">
+        <div className="prose prose-sm dark:prose-invert max-w-none min-h-[120px] p-4 bg-input border-b border-border prose-headings:font-bold prose-headings:tracking-tight prose-a:text-secondary prose-code:text-secondary prose-code:bg-accent prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-accent prose-pre:border prose-pre:border-border prose-blockquote:border-l-primary">
           {value ? (
             <Markdown remarkPlugins={[remarkGfm]}>{value}</Markdown>
           ) : (
