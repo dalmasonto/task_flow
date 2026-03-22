@@ -1,12 +1,40 @@
 import { useEffect, useRef } from 'react'
 import { db } from '@/db/database'
 
-const SSE_URL = 'http://localhost:3456/events'
+const BASE_URL = 'http://localhost:3456'
+const SSE_URL = `${BASE_URL}/events`
+const SYNC_URL = `${BASE_URL}/sync`
+
+async function initialSync() {
+  try {
+    const res = await fetch(SYNC_URL)
+    if (!res.ok) return
+    const data = await res.json()
+
+    if (data.tasks?.length) {
+      const tasks = data.tasks.map((t: Record<string, unknown>) => parseTask(t))
+      await db.tasks.bulkPut(tasks)
+    }
+    if (data.projects?.length) {
+      const projects = data.projects.map((p: Record<string, unknown>) => parseProject(p))
+      await db.projects.bulkPut(projects)
+    }
+    if (data.sessions?.length) {
+      const sessions = data.sessions.map((s: Record<string, unknown>) => parseSession(s))
+      await db.sessions.bulkPut(sessions)
+    }
+  } catch {
+    // MCP server not running — skip initial sync
+  }
+}
 
 export function useSync() {
   const sourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
+    // Load existing MCP data into Dexie on first connect
+    initialSync()
+
     const source = new EventSource(SSE_URL)
     sourceRef.current = source
 

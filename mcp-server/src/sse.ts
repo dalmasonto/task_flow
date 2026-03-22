@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { getDb } from './db.js';
 
 const clients = new Set<ServerResponse>();
 const PORT = parseInt(process.env.TASKFLOW_SSE_PORT || '3456', 10);
@@ -31,6 +32,18 @@ export function startSSEServer(): void {
       req.on('close', () => {
         clients.delete(res);
       });
+      return;
+    }
+
+    if (req.url === '/sync' && req.method === 'GET') {
+      const db = getDb();
+      const tasks = db.prepare('SELECT * FROM tasks').all();
+      const projects = db.prepare('SELECT * FROM projects').all();
+      const sessions = db.prepare('SELECT * FROM sessions').all();
+      const settings = db.prepare('SELECT * FROM settings').all();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ tasks, projects, sessions, settings }));
       return;
     }
 
