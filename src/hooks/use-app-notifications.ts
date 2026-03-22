@@ -10,7 +10,7 @@ export function useAppNotifications(limit: number = 50) {
 
 export function useUnreadCount() {
   return useLiveQuery(
-    () => db.notifications.where('read').equals(0).count()
+    () => db.notifications.filter(n => !n.read).count()
   )
 }
 
@@ -33,7 +33,7 @@ export async function markAsRead(id: number) {
 }
 
 export async function markAllAsRead() {
-  await db.notifications.where('read').equals(0).modify({ read: true })
+  await db.notifications.filter(n => !n.read).modify({ read: true })
 }
 
 export async function clearAllNotifications() {
