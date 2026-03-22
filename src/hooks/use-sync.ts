@@ -46,16 +46,23 @@ export function useSync() {
       console.log('[useSync] SSE connected to', SSE_URL)
     })
 
+    // Log ALL incoming SSE events for debugging
+    source.onmessage = (e) => {
+      console.log('[useSync] generic message:', e.data?.slice(0, 100))
+    }
+
     source.addEventListener('task_created', (e) => {
+      console.log('[useSync] task_created event received')
       const { payload } = JSON.parse(e.data)
       if (payload) {
-        // Parse JSON string fields back to arrays/objects
         const task = parseTask(payload)
+        console.log('[useSync] putting task:', task.id, task.title)
         db.tasks.put(task)
       }
     })
 
     source.addEventListener('task_updated', (e) => {
+      console.log('[useSync] task_updated event received')
       const { payload } = JSON.parse(e.data)
       if (payload) db.tasks.put(parseTask(payload))
     })
@@ -86,11 +93,16 @@ export function useSync() {
     })
 
     source.addEventListener('project_created', (e) => {
+      console.log('[useSync] project_created event received')
       const { payload } = JSON.parse(e.data)
-      if (payload) db.projects.put(parseProject(payload))
+      if (payload) {
+        console.log('[useSync] putting project:', payload.id, payload.name)
+        db.projects.put(parseProject(payload))
+      }
     })
 
     source.addEventListener('project_updated', (e) => {
+      console.log('[useSync] project_updated event received')
       const { payload } = JSON.parse(e.data)
       if (payload) db.projects.put(parseProject(payload))
     })
