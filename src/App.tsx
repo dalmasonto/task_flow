@@ -11,6 +11,7 @@ import ExecutionTimeline from '@/routes/execution-timeline'
 import DependencyGraph from '@/routes/dependency-graph'
 import Settings from '@/routes/settings'
 import Archive from '@/routes/archive'
+import ActivityPulse from '@/routes/activity-pulse'
 import BulkCreateTasks from '@/routes/bulk-create-tasks'
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="analytics/timeline" element={<ExecutionTimeline />} />
+        <Route path="activity" element={<ActivityPulse />} />
         <Route path="dependencies" element={<DependencyGraph />} />
         <Route path="settings" element={<Settings />} />
         <Route path="archive" element={<Archive />} />

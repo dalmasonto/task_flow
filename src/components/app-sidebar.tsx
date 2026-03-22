@@ -17,6 +17,7 @@ const navItems = [
   { label: "Terminal", to: "/dashboard", icon: "terminal" },
   { label: "Projects", to: "/projects", icon: "grid_view" },
   { label: "Analytics", to: "/analytics", icon: "insights" },
+  { label: "Activity Pulse", to: "/activity", icon: "monitoring" },
   { label: "Dependencies", to: "/dependencies", icon: "account_tree" },
   { label: "Archive", to: "/archive", icon: "archive" },
 ]
