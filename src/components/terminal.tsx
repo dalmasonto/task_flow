@@ -117,27 +117,43 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           writeln(`${C.cyan}${C.bold}  Available Commands${C.reset}`)
           writeln(`  ${C.gray}${'─'.repeat(58)}${C.reset}`)
           writeln('')
+          // visible char counts:
+          // "tasks [--status <s>] [--project <id>]" = 38
+          // "projects"                              = 8
+          // "task <id>"                             = 9
+          // "create task "<title>" [flags]"         = 29
+          // "create project "<name>" [flags]"       = 31
+          // "start <id>"                            = 10
+          // "pause <id>"                            = 10
+          // "stop <id> [--done|--partial]"          = 28
+          // "status <id> <new_status>"              = 23
+          // "delete task|project <id>"              = 23
+          // "link <task_id> --project <id>"         = 28
+          // "unlink <task_id>"                      = 15
+          // "nav <path>"                            = 10
+          // "clear"                                 = 5
+          // "help"                                  = 4
           writeln(`  ${C.cyan}${C.bold}Querying${C.reset}`)
           writeln(row(`${C.green}tasks${C.reset} ${C.gray}[--status <s>] [--project <id>]${C.reset}`, 38, 'List tasks'))
           writeln(row(`${C.green}projects${C.reset}`, 8, 'List projects'))
-          writeln(row(`${C.green}task${C.reset} ${C.white}<id>${C.reset}`, 8, 'Show task details'))
+          writeln(row(`${C.green}task${C.reset} ${C.white}<id>${C.reset}`, 9, 'Show task details'))
           writeln('')
           writeln(`  ${C.cyan}${C.bold}Creating${C.reset}`)
-          writeln(row(`${C.green}create task${C.reset} ${C.white}"<title>"${C.reset} ${C.gray}[flags]${C.reset}`, 30, 'Create a task'))
+          writeln(row(`${C.green}create task${C.reset} ${C.white}"<title>"${C.reset} ${C.gray}[flags]${C.reset}`, 29, 'Create a task'))
           writeln(`    ${C.gray}Flags: --project <id>  --priority <lvl>  --status <s>  --desc "<text>"${C.reset}`)
-          writeln(row(`${C.green}create project${C.reset} ${C.white}"<name>"${C.reset} ${C.gray}[flags]${C.reset}`, 32, 'Create a project'))
+          writeln(row(`${C.green}create project${C.reset} ${C.white}"<name>"${C.reset} ${C.gray}[flags]${C.reset}`, 31, 'Create a project'))
           writeln(`    ${C.gray}Flags: --color <hex>  --type <t>  --desc "<text>"${C.reset}`)
           writeln('')
           writeln(`  ${C.cyan}${C.bold}Timer${C.reset}`)
           writeln(row(`${C.green}start${C.reset} ${C.white}<id>${C.reset}`, 10, 'Start timer on task'))
           writeln(row(`${C.green}pause${C.reset} ${C.white}<id>${C.reset}`, 10, 'Pause timer on task'))
-          writeln(row(`${C.green}stop${C.reset} ${C.white}<id>${C.reset} ${C.gray}[--done|--partial]${C.reset}`, 27, 'Stop timer & set final status'))
+          writeln(row(`${C.green}stop${C.reset} ${C.white}<id>${C.reset} ${C.gray}[--done|--partial]${C.reset}`, 28, 'Stop timer & set final status'))
           writeln('')
           writeln(`  ${C.cyan}${C.bold}Managing${C.reset}`)
-          writeln(row(`${C.green}status${C.reset} ${C.white}<id> <new_status>${C.reset}`, 24, 'Change task status'))
-          writeln(row(`${C.green}delete${C.reset} ${C.white}task|project <id>${C.reset}`, 24, 'Delete entity'))
-          writeln(row(`${C.green}link${C.reset} ${C.white}<task_id>${C.reset} ${C.gray}--project <id>${C.reset}`, 27, 'Link task to project'))
-          writeln(row(`${C.green}unlink${C.reset} ${C.white}<task_id>${C.reset}`, 16, 'Unlink from project'))
+          writeln(row(`${C.green}status${C.reset} ${C.white}<id> <new_status>${C.reset}`, 23, 'Change task status'))
+          writeln(row(`${C.green}delete${C.reset} ${C.white}task|project <id>${C.reset}`, 23, 'Delete entity'))
+          writeln(row(`${C.green}link${C.reset} ${C.white}<task_id>${C.reset} ${C.gray}--project <id>${C.reset}`, 28, 'Link task to project'))
+          writeln(row(`${C.green}unlink${C.reset} ${C.white}<task_id>${C.reset}`, 15, 'Unlink from project'))
           writeln('')
           writeln(`  ${C.cyan}${C.bold}System${C.reset}`)
           writeln(row(`${C.green}nav${C.reset} ${C.white}<path>${C.reset}`, 10, 'Navigate (Tab for routes)'))
