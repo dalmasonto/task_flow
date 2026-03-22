@@ -66,26 +66,78 @@ The first run compiles Rust dependencies and takes a few minutes. Subsequent run
 
 ### MCP Server (AI Agent Tools)
 
-The MCP server exposes TaskFlow as 27 tools for Claude Code and other AI agents.
+The MCP server exposes TaskFlow as 28 tools for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Code, Cursor, Windsurf, etc.) can manage projects, tasks, timers, analytics, and notifications.
+
+#### 1. Install and build
 
 ```bash
-cd mcp-server && npm install && npm run build
+cd mcp-server
+npm install
+npm run build
 ```
 
-Add to your Claude Code settings (`.claude/settings.json`):
+#### 2. Register the server
+
+Create a `.mcp.json` file in your project root:
 
 ```json
 {
   "mcpServers": {
     "taskflow": {
       "command": "node",
-      "args": ["<path-to-repo>/mcp-server/dist/index.js"]
+      "args": ["/absolute/path/to/mcp-server/dist/index.js"]
     }
   }
 }
 ```
 
-Data stored at `~/.taskflow/taskflow.db`. Override with `TASKFLOW_DB_PATH` env var.
+> **Important:** Use the absolute path to `dist/index.js`. Relative paths may not resolve correctly depending on your MCP client's working directory.
+
+For **Claude Code** specifically, you can also register the server in `.claude/settings.local.json` under `mcpServers`, but `.mcp.json` is the standard cross-client approach.
+
+#### 3. Auto-allow permissions (Claude Code)
+
+By default, Claude Code prompts you to approve each MCP tool call. To allow all TaskFlow tools without prompts, add this to `.claude/settings.local.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__taskflow__*"
+    ]
+  },
+  "enableAllProjectMcpServers": true
+}
+```
+
+The `mcp__taskflow__*` wildcard matches every tool exposed by the server. For other MCP clients, check their docs for auto-approve configuration.
+
+#### 4. Agent auto-discovery
+
+TaskFlow includes a `get_agent_instructions` tool that returns behavioral rules, a startup checklist, and live project context. Its description tells agents to **call it at the start of every conversation**, so most agents will self-trigger without any user intervention.
+
+For guaranteed auto-discovery, add this to your `CLAUDE.md` (or equivalent agent instructions file):
+
+```markdown
+## MCP Integration
+At the start of each conversation, call the `get_agent_instructions` tool from the taskflow MCP server to understand your task management workflow.
+```
+
+This one line makes the agent:
+- Check for in-progress and blocked tasks on startup
+- Start/stop timers automatically as it works
+- Surface high-priority tasks when you ask "what should I work on?"
+- Create tasks for new work to keep the tracker in sync
+- Read task descriptions for implementation details and acceptance criteria
+
+See [`mcp-server/README.md`](mcp-server/README.md) for the full agent integration guide and tool reference.
+
+#### Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `TASKFLOW_DB_PATH` | `~/.taskflow/taskflow.db` | SQLite database location |
+| `TASKFLOW_SSE_PORT` | `3456` | SSE broadcast server port |
 
 ## Terminal Commands
 
