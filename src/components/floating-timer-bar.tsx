@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useActiveSessions } from '@/hooks/use-sessions'
 import { useTask } from '@/hooks/use-tasks'
 import { useTimer } from '@/hooks/use-timer'
@@ -53,6 +53,22 @@ export function FloatingTimerBar() {
   const { tick, pauseTask } = useTimer(hasActive)
   const displayMode = useSetting('timerBarDisplayMode')
   const [currentIndex, setCurrentIndex] = useState(0)
+  const barRef = useRef<HTMLDivElement>(null)
+
+  // Set CSS variable so layout can account for timer bar height
+  useEffect(() => {
+    const updateHeight = () => {
+      const h = barRef.current?.offsetHeight ?? 0
+      document.documentElement.style.setProperty('--timer-bar-height', `${h}px`)
+    }
+    updateHeight()
+    const observer = new ResizeObserver(updateHeight)
+    if (barRef.current) observer.observe(barRef.current)
+    return () => {
+      observer.disconnect()
+      document.documentElement.style.setProperty('--timer-bar-height', '0px')
+    }
+  }, [activeSessions?.length, displayMode])
 
   if (!activeSessions || activeSessions.length === 0) return null
 
@@ -76,6 +92,7 @@ export function FloatingTimerBar() {
 
   return (
     <div
+      ref={barRef}
       className="fixed bottom-0 left-0 w-full z-50 bg-background/80 backdrop-blur-xl border-t border-tertiary/30 shadow-[0_-4px_20px_rgba(105,253,93,0.08)]"
     >
       {displayMode === 'carousel' ? (

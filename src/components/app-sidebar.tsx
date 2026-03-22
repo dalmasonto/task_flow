@@ -72,7 +72,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-2 pb-4">
+      <SidebarFooter className="px-2" style={{ paddingBottom: 'calc(1rem + var(--timer-bar-height, 0px))' }}>
         <SidebarMenu>
           <SidebarNavLink to="/settings" icon="settings" label="Settings" />
         </SidebarMenu>
