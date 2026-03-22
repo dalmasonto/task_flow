@@ -273,16 +273,18 @@ export function AppHeader() {
 
       {/* Terminal Dialog */}
       <Dialog open={terminalOpen} onOpenChange={setTerminalOpen}>
-        <DialogContent className="w-[90vw] max-w-4xl sm:max-w-4xl h-[75vh] p-0 gap-0 bg-background border-secondary/30">
+        <DialogContent className="w-[90vw] max-w-4xl sm:max-w-4xl h-[75vh] p-0 gap-0 bg-background border-secondary/30 flex flex-col overflow-hidden">
           <DialogTitle className="sr-only">TaskFlow Terminal</DialogTitle>
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50">
+          <div className="flex items-center justify-between px-4 h-10 shrink-0 border-b border-border bg-card/50">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-secondary text-sm">terminal</span>
               <span className="text-[10px] uppercase tracking-widest font-bold text-secondary">TaskFlow Terminal</span>
             </div>
             <span className="text-[9px] text-muted-foreground tracking-widest">ESC to close · Ctrl+K to toggle</span>
           </div>
-          <Terminal onClose={() => setTerminalOpen(false)} />
+          <div className="flex-1 min-h-0">
+            <Terminal onClose={() => setTerminalOpen(false)} />
+          </div>
         </DialogContent>
       </Dialog>
     </header>
