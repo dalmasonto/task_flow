@@ -11,6 +11,7 @@ import { db } from '@/db/database'
 import { playTimerStart, playTimerPause, playTaskDone, playClick, playDelete } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
 import { logActivity } from '@/hooks/use-activity-log'
+import { syncTaskUpdate, syncTaskDelete } from '@/lib/sync-api'
 import { StatusBadge } from './status-badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -64,6 +65,7 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
     }
 
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
+    syncTaskUpdate(task.id!, { status: newStatus })
 
     if (newStatus === 'done') {
       playTaskDone()
@@ -78,7 +80,7 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
   }
 
   const handleDelete = async () => {
-    fetch(`http://localhost:3456/api/tasks/${task.id}`, { method: 'DELETE' }).catch(() => {})
+    syncTaskDelete(task.id!)
     await db.sessions.where('taskId').equals(task.id!).delete()
     await db.tasks.delete(task.id!)
     playDelete()

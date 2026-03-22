@@ -13,6 +13,7 @@ import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { MarkdownEditor } from '@/components/markdown-editor'
 import { DependencyPicker } from '@/components/dependency-picker'
 import { hasCycle } from '@/lib/dag'
+import { syncTaskUpdate } from '@/lib/sync-api'
 import {
   Select,
   SelectContent,
@@ -99,6 +100,7 @@ export default function TaskDetail() {
 
   const handleSaveDescription = async () => {
     await db.tasks.update(task.id!, { description, updatedAt: new Date() })
+    syncTaskUpdate(task.id!, { description })
     setEditing(false)
     playClick()
     toast.success('Description updated')
@@ -165,6 +167,7 @@ export default function TaskDetail() {
     }
 
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
+    syncTaskUpdate(task.id!, { status: newStatus })
 
     if (newStatus === 'done') {
       playTaskDone()
@@ -187,10 +190,9 @@ export default function TaskDetail() {
   const handleAddLink = async () => {
     if (!linkUrl.trim()) return
     const currentLinks = task.links ?? []
-    await db.tasks.update(task.id!, {
-      links: [...currentLinks, { label: linkLabel.trim() || linkUrl.trim(), url: linkUrl.trim() }],
-      updatedAt: new Date(),
-    })
+    const newLinks = [...currentLinks, { label: linkLabel.trim() || linkUrl.trim(), url: linkUrl.trim() }]
+    await db.tasks.update(task.id!, { links: newLinks, updatedAt: new Date() })
+    syncTaskUpdate(task.id!, { links: newLinks })
     logActivity('link_added', `Link added to: ${task.title}`, { entityType: 'task', entityId: task.id, detail: linkUrl.trim() })
     setLinkLabel('')
     setLinkUrl('')
@@ -198,10 +200,9 @@ export default function TaskDetail() {
 
   const handleRemoveLink = async (index: number) => {
     const currentLinks = task.links ?? []
-    await db.tasks.update(task.id!, {
-      links: currentLinks.filter((_, i) => i !== index),
-      updatedAt: new Date(),
-    })
+    const newLinks = currentLinks.filter((_, i) => i !== index)
+    await db.tasks.update(task.id!, { links: newLinks, updatedAt: new Date() })
+    syncTaskUpdate(task.id!, { links: newLinks })
   }
 
   const formatDate = (date?: Date) => {
@@ -250,6 +251,7 @@ export default function TaskDetail() {
               onBlur={async () => {
                 if (titleDraft.trim() && titleDraft.trim() !== task.title) {
                   await db.tasks.update(task.id!, { title: titleDraft.trim(), updatedAt: new Date() })
+                  syncTaskUpdate(task.id!, { title: titleDraft.trim() })
                   playClick()
                   toast.success('Title updated')
                 }
@@ -309,6 +311,7 @@ export default function TaskDetail() {
                   onValueChange={async (v) => {
                     const newProjectId = v === 'none' ? undefined : Number(v)
                     await db.tasks.update(task.id!, { projectId: newProjectId, updatedAt: new Date() })
+                    syncTaskUpdate(task.id!, { projectId: newProjectId ?? null })
                     playClick()
                     toast(`Project updated`)
                     logActivity('task_linked', `${task.title} → ${v === 'none' ? 'Unassigned' : 'project #' + v}`, { entityType: 'task', entityId: task.id })
@@ -341,6 +344,7 @@ export default function TaskDetail() {
                   value={task.priority}
                   onValueChange={async (v) => {
                     await db.tasks.update(task.id!, { priority: v as TaskPriority, updatedAt: new Date() })
+                    syncTaskUpdate(task.id!, { priority: v })
                     playClick()
                     toast(`Priority → ${v}`)
                     logActivity('task_status_changed', `${task.title} priority → ${v}`, { entityType: 'task', entityId: task.id })
@@ -383,6 +387,7 @@ export default function TaskDetail() {
                       onSelect={async (date) => {
                         if (!date) {
                           await db.tasks.update(task.id!, { dueDate: undefined, updatedAt: new Date() })
+                          syncTaskUpdate(task.id!, { dueDate: null })
                           return
                         }
                         // Preserve existing time if due date already set
@@ -391,6 +396,7 @@ export default function TaskDetail() {
                           date.setHours(existing.getHours(), existing.getMinutes())
                         }
                         await db.tasks.update(task.id!, { dueDate: date, updatedAt: new Date() })
+                        syncTaskUpdate(task.id!, { dueDate: date })
                       }}
                     />
                     <div className="border-t border-border px-4 py-3 flex items-center gap-3">
@@ -404,6 +410,7 @@ export default function TaskDetail() {
                           const d = task.dueDate ? new Date(task.dueDate) : new Date()
                           d.setHours(Number(e.target.value))
                           await db.tasks.update(task.id!, { dueDate: d, updatedAt: new Date() })
+                          syncTaskUpdate(task.id!, { dueDate: d })
                         }}
                         className="w-14 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-1 px-2 text-center tabular-nums"
                       />
@@ -418,6 +425,7 @@ export default function TaskDetail() {
                           const d = task.dueDate ? new Date(task.dueDate) : new Date()
                           d.setMinutes(Number(e.target.value))
                           await db.tasks.update(task.id!, { dueDate: d, updatedAt: new Date() })
+                          syncTaskUpdate(task.id!, { dueDate: d })
                         }}
                         className="w-14 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-1 px-2 text-center tabular-nums"
                       />
@@ -438,10 +446,12 @@ export default function TaskDetail() {
                     value={task.estimatedTime ? msToMinutes(task.estimatedTime) : ''}
                     onChange={async (e) => {
                       const mins = e.target.value ? Number(e.target.value) : 0
+                      const est = mins > 0 ? minutesToMs(mins) : undefined
                       await db.tasks.update(task.id!, {
-                        estimatedTime: mins > 0 ? minutesToMs(mins) : undefined,
+                        estimatedTime: est,
                         updatedAt: new Date(),
                       })
+                      syncTaskUpdate(task.id!, { estimatedTime: est ?? null })
                     }}
                     placeholder="0"
                     className="w-20 bg-transparent border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-1 px-2 tabular-nums"
@@ -548,6 +558,7 @@ export default function TaskDetail() {
                   }
                 }
                 await db.tasks.update(task.id!, { dependencies: newDeps, updatedAt: new Date() })
+                syncTaskUpdate(task.id!, { dependencies: newDeps })
                 playClick()
                 toast.success('Dependencies updated')
                 logActivity('dependency_added', `Dependencies updated for: ${task.title}`, { entityType: 'task', entityId: task.id })
@@ -668,6 +679,7 @@ export default function TaskDetail() {
                   onClick={async () => {
                     const updated = (task.tags ?? []).filter((_, idx) => idx !== i)
                     await db.tasks.update(task.id!, { tags: updated, updatedAt: new Date() })
+                    syncTaskUpdate(task.id!, { tags: updated })
                   }}
                   className="group px-3 py-1 bg-surface-container-high border border-outline-variant text-[10px] uppercase tracking-tighter flex items-center gap-1 hover:border-destructive/50 transition-colors"
                 >
@@ -689,7 +701,9 @@ export default function TaskDetail() {
                     if (!val) return
                     const current = task.tags ?? []
                     if (current.includes(val)) return
-                    await db.tasks.update(task.id!, { tags: [...current, val], updatedAt: new Date() })
+                    const newTags = [...current, val]
+                    await db.tasks.update(task.id!, { tags: newTags, updatedAt: new Date() })
+                    syncTaskUpdate(task.id!, { tags: newTags })
                     setTagInput('')
                   }
                 }}

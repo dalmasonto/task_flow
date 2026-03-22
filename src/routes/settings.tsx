@@ -10,6 +10,7 @@ import { playSuccess, playDelete, playClick } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
 import { logActivity } from '@/hooks/use-activity-log'
 import { db } from '@/db/database'
+import { syncClearData } from '@/lib/sync-api'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,8 +95,7 @@ export default function Settings() {
   }
 
   async function handleClearData() {
-    // Clear MCP backend (SQLite) — fire and forget if server is not running
-    fetch('http://localhost:3456/api/clear-data', { method: 'POST' }).catch(() => {})
+    syncClearData()
     // Clear local IndexedDB
     await db.tasks.clear()
     await db.projects.clear()

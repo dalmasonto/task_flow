@@ -8,6 +8,7 @@ import { db } from '@/db/database'
 import { useTasks } from '@/hooks/use-tasks'
 import { useProjects } from '@/hooks/use-projects'
 import { logActivity } from '@/hooks/use-activity-log'
+import { syncTaskUpdate, syncTaskDelete, syncProjectDelete, syncSessionCreate, syncSessionUpdate } from '@/lib/sync-api'
 import { addNotification } from '@/hooks/use-app-notifications'
 import { getStatusLabel } from '@/lib/status'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
@@ -336,8 +337,13 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (t.status === 'done') { playError(); writeln(`${C.red}Task #${id} is marked as done. Use ${C.bold}status ${id} in_progress${C.reset}${C.red} to reopen it first.${C.reset}`); break }
           const existing = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
           if (existing) { writeln(`${C.yellow}Task #${id} already has an active session${C.reset}`); break }
-          await db.sessions.add({ taskId: id, start: new Date() })
-          if (t.status !== 'in_progress') await db.tasks.update(id, { status: 'in_progress', updatedAt: new Date() })
+          const now = new Date()
+          await db.sessions.add({ taskId: id, start: now })
+          syncSessionCreate({ taskId: id, start: now })
+          if (t.status !== 'in_progress') {
+            await db.tasks.update(id, { status: 'in_progress', updatedAt: now })
+            syncTaskUpdate(id, { status: 'in_progress' })
+          }
           playTimerStart()
           toast.success(`Timer started: ${t.title}`)
           logActivity('timer_started', `Started: ${t.title}`, { entityType: 'task', entityId: id })
@@ -352,8 +358,11 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
           const session = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
           if (!session) { writeln(`${C.yellow}Task #${id} has no active session${C.reset}`); break }
-          await db.sessions.update(session.id!, { end: new Date() })
-          await db.tasks.update(id, { status: 'paused', updatedAt: new Date() })
+          const now = new Date()
+          await db.sessions.update(session.id!, { end: now })
+          syncSessionUpdate(session.id!, { end: now })
+          await db.tasks.update(id, { status: 'paused', updatedAt: now })
+          syncTaskUpdate(id, { status: 'paused' })
           playTimerPause()
           toast.info(`Timer paused: ${t.title}`)
           logActivity('timer_paused', `Paused: ${t.title}`, { entityType: 'task', entityId: id })
@@ -366,10 +375,15 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!id) { writeln(`${C.red}Usage: stop <task_id> [--done|--partial]${C.reset}`); break }
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
+          const now = new Date()
           const session = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-          if (session) await db.sessions.update(session.id!, { end: new Date() })
+          if (session) {
+            await db.sessions.update(session.id!, { end: now })
+            syncSessionUpdate(session.id!, { end: now })
+          }
           const finalStatus = flags.partial ? 'partial_done' : 'done'
-          await db.tasks.update(id, { status: finalStatus as TaskStatus, updatedAt: new Date() })
+          await db.tasks.update(id, { status: finalStatus as TaskStatus, updatedAt: now })
+          syncTaskUpdate(id, { status: finalStatus })
           playTaskDone()
           toast.success(`Task ${finalStatus === 'done' ? 'completed' : 'partial done'}: ${t.title}`)
           logActivity(finalStatus === 'done' ? 'task_completed' : 'task_partial_done', t.title, { entityType: 'task', entityId: id })
@@ -384,14 +398,22 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!STATUSES.includes(newStatus)) { writeln(`${C.red}Invalid status. Options: ${STATUSES.join(', ')}${C.reset}`); break }
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
+          const now = new Date()
           if (newStatus === 'in_progress') {
             const existing = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-            if (!existing) await db.sessions.add({ taskId: id, start: new Date() })
+            if (!existing) {
+              await db.sessions.add({ taskId: id, start: now })
+              syncSessionCreate({ taskId: id, start: now })
+            }
           } else if (newStatus === 'done' || newStatus === 'partial_done') {
             const active = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-            if (active) await db.sessions.update(active.id!, { end: new Date() })
+            if (active) {
+              await db.sessions.update(active.id!, { end: now })
+              syncSessionUpdate(active.id!, { end: now })
+            }
           }
-          await db.tasks.update(id, { status: newStatus, updatedAt: new Date() })
+          await db.tasks.update(id, { status: newStatus, updatedAt: now })
+          syncTaskUpdate(id, { status: newStatus })
           playClick()
           toast(`Task #${id} → ${newStatus.replace(/_/g, ' ')}`)
           logActivity('task_status_changed', `${t.title} → ${newStatus.replace(/_/g, ' ')}`, { entityType: 'task', entityId: id })
@@ -406,8 +428,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (entity === 'task') {
             const t = await db.tasks.get(id)
             if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
-            // Delete from MCP backend (SQLite)
-            fetch(`http://localhost:3456/api/tasks/${id}`, { method: 'DELETE' }).catch(() => {})
+            syncTaskDelete(id)
             // Delete from local IndexedDB
             await db.sessions.where('taskId').equals(id).delete()
             await db.tasks.delete(id)
@@ -418,8 +439,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           } else if (entity === 'project') {
             const p = await db.projects.get(id)
             if (!p) { writeln(`${C.red}Project #${id} not found${C.reset}`); break }
-            // Delete from MCP backend (SQLite)
-            fetch(`http://localhost:3456/api/projects/${id}`, { method: 'DELETE' }).catch(() => {})
+            syncProjectDelete(id)
             // Delete from local IndexedDB
             await db.projects.delete(id)
             playClick()
@@ -439,6 +459,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           const proj = findProject(flags.project)
           if (!proj) { writeln(`${C.red}Project "${flags.project}" not found${C.reset}`); break }
           await db.tasks.update(taskId, { projectId: proj.id, updatedAt: new Date() })
+          syncTaskUpdate(taskId, { projectId: proj.id })
           logActivity('task_linked', `Linked #${taskId} to ${proj.name}`, { entityType: 'task', entityId: taskId })
           writeln(`${C.green}✓ Task #${taskId} linked to ${proj.name}${C.reset}`)
           break
@@ -450,6 +471,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           const t = await db.tasks.get(taskId)
           if (!t) { writeln(`${C.red}Task #${taskId} not found${C.reset}`); break }
           await db.tasks.update(taskId, { projectId: undefined, updatedAt: new Date() })
+          syncTaskUpdate(taskId, { projectId: null })
           logActivity('task_unlinked', `Unlinked #${taskId}`, { entityType: 'task', entityId: taskId })
           writeln(`${C.green}✓ Task #${taskId} unlinked${C.reset}`)
           break

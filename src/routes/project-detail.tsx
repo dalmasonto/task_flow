@@ -8,6 +8,7 @@ import { useTasks } from '@/hooks/use-tasks'
 import { useActiveSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
 import { db } from '@/db/database'
+import { syncTaskUpdate, syncProjectUpdate, syncProjectDelete } from '@/lib/sync-api'
 import { TaskCard } from '@/components/task-card'
 import { EmptyState } from '@/components/empty-state'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
@@ -149,19 +150,21 @@ export default function ProjectDetail() {
 
   const handleSave = async () => {
     if (!editName.trim()) return
-    await db.projects.update(project.id!, {
+    const updates = {
       name: editName.trim(),
       description: editDescription.trim() || undefined,
       color: editColor,
       type: editType,
-    })
+    }
+    await db.projects.update(project.id!, updates)
+    syncProjectUpdate(project.id!, updates)
     logActivity('project_updated', `Updated project: ${editName.trim()}`, { entityType: 'project', entityId: project.id })
     setEditing(false)
   }
 
   const handleDelete = async () => {
     logActivity('project_deleted', `Deleted project: ${project.name}`, { entityType: 'project' })
-    fetch(`http://localhost:3456/api/projects/${project.id}`, { method: 'DELETE' }).catch(() => {})
+    syncProjectDelete(project.id!)
     await db.projects.delete(project.id!)
     navigate('/projects')
   }
@@ -571,12 +574,14 @@ function TaskLinker({ projectId }: { projectId: number }) {
 
   const handleLink = async (taskId: number) => {
     await db.tasks.update(taskId, { projectId, updatedAt: new Date() })
+    syncTaskUpdate(taskId, { projectId })
     toast.success('Task linked to project')
     logActivity('task_linked', `Task linked to project`, { entityType: 'task', entityId: taskId })
   }
 
   const handleUnlink = async (taskId: number) => {
     await db.tasks.update(taskId, { projectId: undefined, updatedAt: new Date() })
+    syncTaskUpdate(taskId, { projectId: null })
     toast.info('Task unlinked from project')
     logActivity('task_unlinked', `Task unlinked from project`, { entityType: 'task', entityId: taskId })
   }
