@@ -582,7 +582,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     const op = operatorRef.current
     const sys = systemRef.current
     term.writeln('')
-    term.writeln(`  ${C.white}${C.bold}${op}${C.reset} ${C.gray}@${C.reset} ${C.cyan}${C.bold}${sys}${C.reset}  ${C.gray}•  ${new Date().toLocaleString()}${C.reset}`)
+    term.writeln(`  ${C.cyan}${C.bold}${sys}${C.reset}${C.gray}@${C.reset}${C.green}${op}${C.reset}  ${C.gray}•  ${new Date().toLocaleString()}${C.reset}`)
     term.writeln(`  ${C.gray}Type${C.reset} ${C.green}help${C.reset} ${C.gray}for commands${C.reset}  ${C.dim}•${C.reset}  ${C.green}Tab${C.reset} ${C.gray}autocomplete${C.reset}  ${C.dim}•${C.reset}  ${C.green}↑↓${C.reset} ${C.gray}history${C.reset}  ${C.dim}•${C.reset}  ${C.green}Esc${C.reset} ${C.gray}close${C.reset}`)
     term.writeln('')
     term.write(`${C.cyan}${C.bold}${sys}${C.reset}${C.gray}@${C.reset}${C.green}${op}${C.reset}${C.white}$ ${C.reset}`)
