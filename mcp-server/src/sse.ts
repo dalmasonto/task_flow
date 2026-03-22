@@ -237,6 +237,16 @@ export function startSSEServer(): void {
       return;
     }
 
+    // POST /api/broadcast — relay SSE events from other processes (e.g. MCP)
+    if (req.url === '/api/broadcast' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      if (body.event && body.data) {
+        broadcastLocal(body.event, body.data);
+      }
+      jsonResponse(res, 200, { relayed: true });
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not Found');
   });
@@ -250,13 +260,41 @@ export function startSSEServer(): void {
   });
 
   server.listen(PORT, () => {
-    // Server started silently — don't write to stdout (MCP uses stdio)
+    markSSEActive();
   });
 }
 
-export function broadcast(event: string, data: object): void {
+/** Broadcast directly to connected SSE clients in this process */
+function broadcastLocal(event: string, data: object): void {
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of clients) {
     client.write(message);
+  }
+}
+
+/** Track whether this process owns the SSE server */
+let sseServerActive = false;
+
+export function markSSEActive(): void {
+  sseServerActive = true;
+}
+
+/**
+ * Broadcast an SSE event. If this process owns the SSE server, send directly.
+ * Otherwise, relay via HTTP to the process that does (sidecar on port 3456).
+ */
+export function broadcast(event: string, data: object): void {
+  if (sseServerActive && clients.size > 0) {
+    broadcastLocal(event, data);
+  } else {
+    // Relay to the SSE server owner via HTTP
+    const body = JSON.stringify({ event, data });
+    fetch(`http://localhost:${PORT}/api/broadcast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).catch(() => {
+      // SSE server not running — silently skip
+    });
   }
 }
