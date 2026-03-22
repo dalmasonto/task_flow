@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { Link } from 'react-router'
 import { useActiveSessions, useTaskTotalTime } from '@/hooks/use-sessions'
 import { useTasks } from '@/hooks/use-tasks'
 import { useTask } from '@/hooks/use-tasks'
@@ -27,14 +28,15 @@ function ActiveRow({
       <span className="material-symbols-outlined text-tertiary text-lg shrink-0 pulse-active">
         play_arrow
       </span>
-      <div className="flex items-center gap-3 min-w-0 flex-1">
-        <span className="text-[10px] uppercase tracking-widest text-foreground truncate max-w-[200px]">
-          {task?.title ?? 'Loading…'}
-        </span>
-        <span className="text-tertiary font-bold text-xl tracking-tighter drop-shadow-[0_0_8px_rgba(105,253,93,0.5)] tabular-nums shrink-0">
-          {formatDuration(elapsed)}
-        </span>
-      </div>
+      <Link
+        to={`/tasks/${session.taskId}`}
+        className="text-[10px] uppercase tracking-widest text-foreground truncate min-w-0 flex-1 hover:text-secondary transition-colors"
+      >
+        {task?.title ?? 'Loading…'}
+      </Link>
+      <span className="text-tertiary font-bold text-xl tracking-tighter drop-shadow-[0_0_8px_rgba(105,253,93,0.5)] tabular-nums shrink-0">
+        {formatDuration(elapsed)}
+      </span>
       <button
         onClick={() => task && pauseTask(task)}
         className="shrink-0 p-1.5 hover:bg-muted transition-colors"
@@ -65,14 +67,15 @@ function PausedRow({
       <span className="material-symbols-outlined text-primary text-lg shrink-0">
         pause
       </span>
-      <div className="flex items-center gap-3 min-w-0 flex-1">
-        <span className="text-[10px] uppercase tracking-widest text-muted-foreground truncate max-w-[200px]">
-          {task.title}
-        </span>
-        <span className="text-muted-foreground font-bold text-xl tracking-tighter tabular-nums shrink-0">
-          {formatDuration(totalTime)}
-        </span>
-      </div>
+      <Link
+        to={`/tasks/${task.id}`}
+        className="text-[10px] uppercase tracking-widest text-muted-foreground truncate min-w-0 flex-1 hover:text-secondary transition-colors"
+      >
+        {task.title}
+      </Link>
+      <span className="text-muted-foreground font-bold text-xl tracking-tighter tabular-nums shrink-0">
+        {formatDuration(totalTime)}
+      </span>
       <button
         onClick={() => startTask(task)}
         className="shrink-0 p-1.5 hover:bg-muted transition-colors"
