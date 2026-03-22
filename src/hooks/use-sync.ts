@@ -5,31 +5,26 @@ const BASE_URL = 'http://localhost:3456'
 const SSE_URL = `${BASE_URL}/events`
 const SYNC_URL = `${BASE_URL}/sync`
 
-async function initialSync() {
-  try {
-    const res = await fetch(SYNC_URL)
-    if (!res.ok) return
-    const data = await res.json()
+async function initialSync(retries = 5, delay = 1500): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(SYNC_URL)
+      if (!res.ok) continue
+      const data = await res.json()
 
-    if (data.tasks?.length) {
-      const tasks = data.tasks.map((t: Record<string, unknown>) => parseTask(t))
-      await db.tasks.bulkPut(tasks)
+      if (data.tasks?.length) await db.tasks.bulkPut(data.tasks.map((t: Record<string, unknown>) => parseTask(t)))
+      if (data.projects?.length) await db.projects.bulkPut(data.projects.map((p: Record<string, unknown>) => parseProject(p)))
+      if (data.sessions?.length) await db.sessions.bulkPut(data.sessions.map((s: Record<string, unknown>) => parseSession(s)))
+      if (data.activityLogs?.length) await db.activityLogs.bulkPut(data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a)))
+
+      console.log('[useSync] initial sync complete')
+      return
+    } catch {
+      // Server not ready yet — wait and retry
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delay))
     }
-    if (data.projects?.length) {
-      const projects = data.projects.map((p: Record<string, unknown>) => parseProject(p))
-      await db.projects.bulkPut(projects)
-    }
-    if (data.sessions?.length) {
-      const sessions = data.sessions.map((s: Record<string, unknown>) => parseSession(s))
-      await db.sessions.bulkPut(sessions)
-    }
-    if (data.activityLogs?.length) {
-      const logs = data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a))
-      await db.activityLogs.bulkPut(logs)
-    }
-  } catch {
-    // MCP server not running — skip initial sync
   }
+  console.log('[useSync] initial sync skipped — server not available')
 }
 
 export function useSync() {
@@ -100,12 +95,19 @@ export function useSync() {
       if (payload?.tasks) db.tasks.bulkPut(payload.tasks.map(parseTask))
     })
 
-    source.addEventListener('project_created', (e) => {
+    source.addEventListener('project_created', async (e) => {
       console.log('[useSync] project_created event received')
       const { payload } = JSON.parse(e.data)
       if (payload) {
-        console.log('[useSync] putting project:', payload.id, payload.name)
-        db.projects.put(parseProject(payload))
+        const project = parseProject(payload)
+        console.log('[useSync] putting project:', project.id, project.name)
+        try {
+          await db.projects.put(project)
+          const count = await db.projects.count()
+          console.log('[useSync] project put success, total projects in Dexie:', count)
+        } catch (err) {
+          console.error('[useSync] project put FAILED:', err)
+        }
       }
     })
 
@@ -171,12 +173,17 @@ export function useSync() {
       db.activityLogs.clear()
     })
 
-    source.addEventListener('data_cleared', () => {
-      db.tasks.clear()
-      db.projects.clear()
-      db.sessions.clear()
-      db.notifications.clear()
-      db.activityLogs.clear()
+    source.addEventListener('data_cleared', async () => {
+      try {
+        await db.tasks.clear()
+        await db.projects.clear()
+        await db.sessions.clear()
+        await db.notifications.clear()
+        await db.activityLogs.clear()
+        console.log('[useSync] data_cleared: all Dexie tables cleared')
+      } catch (err) {
+        console.error('[useSync] data_cleared failed:', err)
+      }
     })
 
     source.onerror = (event) => {
