@@ -35,7 +35,7 @@ const C = {
 }
 
 const COMMANDS = [
-  'tasks', 'projects', 'task', 'create', 'start', 'pause', 'stop',
+  'tasks', 'projects', 'task', 'project', 'create', 'start', 'pause', 'stop',
   'status', 'delete', 'link', 'unlink', 'clear', 'help', 'nav',
 ]
 
@@ -164,6 +164,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           writeln(row(`${C.green}tasks${C.reset} ${C.gray}[--status <s>] [--project <id>]${C.reset}`, 38, 'List tasks'))
           writeln(row(`${C.green}projects${C.reset}`, 8, 'List projects'))
           writeln(row(`${C.green}task${C.reset} ${C.white}<id>${C.reset}`, 9, 'Show task details'))
+          writeln(row(`${C.green}project${C.reset} ${C.white}<id>${C.reset}`, 12, 'Show project details'))
           writeln('')
           writeln(`  ${C.cyan}${C.bold}Creating${C.reset}`)
           writeln(row(`${C.green}create task${C.reset} ${C.white}"<title>"${C.reset} ${C.gray}[flags]${C.reset}`, 29, 'Create a task'))
@@ -260,6 +261,29 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (t.description) writeln(`  ${C.gray}Desc:${C.reset}       ${t.description.slice(0, 80)}${t.description.length > 80 ? '...' : ''}`)
           if (t.tags?.length) writeln(`  ${C.gray}Tags:${C.reset}       ${t.tags.join(', ')}`)
           if (t.dependencies.length) writeln(`  ${C.gray}Deps:${C.reset}       ${t.dependencies.map(d => `#${d}`).join(', ')}`)
+          writeln('')
+          writeln(`  ${C.gray}Edit task → ${C.white}nav /tasks/${t.id}${C.reset}`)
+          break
+        }
+
+        case 'project': {
+          const id = Number(args[0])
+          if (!id) { writeln(`${C.red}Usage: project <id>${C.reset}`); break }
+          const p = await db.projects.get(id)
+          if (!p) { writeln(`${C.red}Project #${id} not found${C.reset}`); break }
+          const projectTasks = tasks?.filter(t => t.projectId === id) || []
+          const doneTasks = projectTasks.filter(t => t.status === 'done').length
+          const inProgress = projectTasks.filter(t => t.status === 'in_progress').length
+          writeln('')
+          writeln(`  ${C.bold}${C.cyan}Project #${p.id}${C.reset} ${C.bold}${p.name}${C.reset}`)
+          writeln(`  ${C.gray}${'─'.repeat(50)}${C.reset}`)
+          const typeColor = p.type === 'active_project' ? C.cyan : C.magenta
+          writeln(`  ${C.gray}Type:${C.reset}       ${typeColor}${p.type.replace('_', ' ')}${C.reset}`)
+          writeln(`  ${C.gray}Color:${C.reset}      ${p.color || 'none'}`)
+          if (p.description) writeln(`  ${C.gray}Desc:${C.reset}       ${p.description.slice(0, 80)}${p.description.length > 80 ? '...' : ''}`)
+          writeln(`  ${C.gray}Tasks:${C.reset}      ${projectTasks.length} total, ${C.green}${doneTasks} done${C.reset}, ${C.cyan}${inProgress} active${C.reset}`)
+          writeln('')
+          writeln(`  ${C.gray}Edit project → ${C.white}nav /projects/${p.id}${C.reset}`)
           break
         }
 
