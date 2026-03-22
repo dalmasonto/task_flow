@@ -26,6 +26,8 @@ Ctrl+K opens an xterm.js console — autocomplete, command history, ANSI colors.
 
 Clickable output too — task/project details show a nav command you can click to jump straight to editing.
 
+Try it yourself: task-flow-command.vercel.app
+
 [Screenshot: terminal open, showing task detail output with clickable nav link]
 
 ---
