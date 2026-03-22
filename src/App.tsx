@@ -13,6 +13,7 @@ import Settings from '@/routes/settings'
 import Archive from '@/routes/archive'
 import ActivityPulse from '@/routes/activity-pulse'
 import BulkCreateTasks from '@/routes/bulk-create-tasks'
+import NotFound from '@/routes/not-found'
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="dependencies" element={<DependencyGraph />} />
         <Route path="settings" element={<Settings />} />
         <Route path="archive" element={<Archive />} />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   )
