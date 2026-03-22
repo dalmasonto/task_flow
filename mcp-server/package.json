@@ -1,13 +1,37 @@
 {
-  "name": "taskflow-mcp-server",
+  "name": "taskflow-mcp",
   "version": "1.0.0",
-  "description": "MCP server for TaskFlow — exposes task management as AI agent tools",
+  "description": "MCP server for TaskFlow — manage projects, tasks, timers, analytics via AI agents",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "taskflow-mcp": "dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "task-manager",
+    "ai-agent",
+    "claude",
+    "cursor",
+    "windsurf",
+    "productivity",
+    "time-tracking",
+    "sqlite"
+  ],
+  "author": "dalmasonto",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dalmasonto/task_flow",
+    "directory": "mcp-server"
+  },
+  "homepage": "https://github.com/dalmasonto/task_flow#mcp-server-ai-agent-tools",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
+    "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -21,5 +45,12 @@
     "@types/node": "latest",
     "typescript": "latest",
     "vitest": "latest"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
   }
 }
