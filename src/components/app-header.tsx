@@ -22,6 +22,7 @@ export function AppHeader() {
   const [searchQuery, setSearchQuery] = useState('')
   const [results, setResults] = useState<{ tasks: Task[]; projects: Project[] }>({ tasks: [], projects: [] })
   const [isOpen, setIsOpen] = useState(false)
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -167,14 +168,18 @@ export function AppHeader() {
         {/* Theme Toggle */}
         <button
           onClick={() => {
-            document.documentElement.classList.toggle('dark')
+            const next = !isDark
+            document.documentElement.classList.toggle('dark', next)
+            localStorage.setItem('theme', next ? 'dark' : 'light')
+            setIsDark(next)
             playClick()
           }}
           className="p-2 text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
           title="Toggle light/dark mode"
         >
-          <span className="material-symbols-outlined dark:hidden">dark_mode</span>
-          <span className="material-symbols-outlined hidden dark:inline">light_mode</span>
+          <span className="material-symbols-outlined">
+            {isDark ? 'light_mode' : 'dark_mode'}
+          </span>
         </button>
 
         {/* Terminal */}
