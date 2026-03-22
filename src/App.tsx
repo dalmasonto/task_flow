@@ -10,6 +10,7 @@ import Analytics from '@/routes/analytics'
 import ExecutionTimeline from '@/routes/execution-timeline'
 import DependencyGraph from '@/routes/dependency-graph'
 import Settings from '@/routes/settings'
+import Archive from '@/routes/archive'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="analytics/timeline" element={<ExecutionTimeline />} />
         <Route path="dependencies" element={<DependencyGraph />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="archive" element={<Archive />} />
       </Route>
     </Routes>
   )
