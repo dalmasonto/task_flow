@@ -558,37 +558,12 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     termRef.current = term
     fitRef.current = fit
 
-    // Welcome banner — centered, no vertical borders
+    // Welcome
     const op = operatorRef.current
     const sys = systemRef.current
-    const cols = term.cols
-    const center = (text: string, vis: number) => {
-      const pad = Math.max(0, Math.floor((cols - vis) / 2))
-      return ' '.repeat(pad) + text
-    }
     term.writeln('')
-    term.writeln(center(`${C.magenta}═══════════════════════════════════════════════${C.reset}`, 47))
-    term.writeln('')
-    term.writeln(center(`${C.cyan}${C.bold}████████╗ █████╗ ███████╗██╗  ██╗${C.reset}`, 34))
-    term.writeln(center(`${C.cyan}╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝${C.reset}`, 34))
-    term.writeln(center(`${C.cyan}   ██║   ███████║███████╗█████╔╝${C.reset}`, 32))
-    term.writeln(center(`${C.cyan}   ██║   ██╔══██║╚════██║██╔═██╗${C.reset}`, 32))
-    term.writeln(center(`${C.cyan}   ██║   ██║  ██║███████║██║  ██╗${C.reset}`, 33))
-    term.writeln(center(`${C.cyan}   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${C.reset}`, 35))
-    term.writeln('')
-    term.writeln(center(`${C.green}${C.bold}F L O W${C.reset}  ${C.gray}Terminal v2.0${C.reset}`, 21))
-    term.writeln('')
-    term.writeln(center(`${C.magenta}───────────────────────────────────────────────${C.reset}`, 47))
-    term.writeln('')
-    term.writeln(center(`${C.gray}Operator${C.reset}  ${C.white}${C.bold}${op}${C.reset}    ${C.gray}System${C.reset}  ${C.cyan}${C.bold}${sys}${C.reset}`, 22 + op.length + sys.length))
-    term.writeln(center(`${C.gray}Session${C.reset}   ${new Date().toLocaleString()}`, 10 + new Date().toLocaleString().length))
-    term.writeln('')
-    term.writeln(center(`${C.magenta}───────────────────────────────────────────────${C.reset}`, 47))
-    term.writeln('')
-    term.writeln(center(`${C.gray}Type${C.reset} ${C.green}help${C.reset} ${C.gray}for commands${C.reset}  ${C.dim}•${C.reset}  ${C.green}Tab${C.reset} ${C.gray}to autocomplete${C.reset}`, 44))
-    term.writeln(center(`${C.green}↑↓${C.reset} ${C.gray}history${C.reset}  ${C.dim}•${C.reset}  ${C.green}Esc${C.reset} ${C.gray}close${C.reset}  ${C.dim}•${C.reset}  ${C.green}Ctrl+K${C.reset} ${C.gray}toggle${C.reset}`, 38))
-    term.writeln('')
-    term.writeln(center(`${C.magenta}═══════════════════════════════════════════════${C.reset}`, 47))
+    term.writeln(`  ${C.white}${C.bold}${op}${C.reset} ${C.gray}@${C.reset} ${C.cyan}${C.bold}${sys}${C.reset}  ${C.gray}•  ${new Date().toLocaleString()}${C.reset}`)
+    term.writeln(`  ${C.gray}Type${C.reset} ${C.green}help${C.reset} ${C.gray}for commands${C.reset}  ${C.dim}•${C.reset}  ${C.green}Tab${C.reset} ${C.gray}autocomplete${C.reset}  ${C.dim}•${C.reset}  ${C.green}↑↓${C.reset} ${C.gray}history${C.reset}  ${C.dim}•${C.reset}  ${C.green}Esc${C.reset} ${C.gray}close${C.reset}`)
     term.write(`\r\n${C.cyan}${C.bold}> ${C.reset}`)
 
     // Input handling
