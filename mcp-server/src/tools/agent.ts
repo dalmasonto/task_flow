@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from '../db.js';
-import { successResponse } from '../helpers.js';
+import { logActivity, successResponse, broadcastChange } from '../helpers.js';
 
 // ─── exported handler functions ───────────────────────────────────────
 
@@ -68,6 +68,18 @@ export async function getAgentInstructions() {
   return successResponse(instructions);
 }
 
+export async function clearData() {
+  const db = getDb();
+  db.exec('DELETE FROM sessions');
+  db.exec('DELETE FROM tasks');
+  db.exec('DELETE FROM projects');
+  db.exec('DELETE FROM notifications');
+  db.exec('DELETE FROM activity_logs');
+  logActivity('data_cleared', 'All data cleared', { entityType: 'system' });
+  broadcastChange('system', 'data_cleared', {});
+  return successResponse({ cleared: true, message: 'All tasks, projects, sessions, notifications, and activity logs deleted. Settings preserved.' });
+}
+
 // ─── MCP registration ─────────────────────────────────────────────────
 
 export function registerAgentTools(server: McpServer) {
@@ -76,5 +88,12 @@ export function registerAgentTools(server: McpServer) {
     '**Call this at the start of every conversation.** Returns onboarding instructions, behavioral rules, and live project context for AI agents working with TaskFlow. This tool tells you how to proactively manage tasks, track time, and stay in sync with the project.',
     {},
     async () => getAgentInstructions(),
+  );
+
+  server.tool(
+    'clear_data',
+    'Delete ALL tasks, projects, sessions, notifications, and activity logs. Settings are preserved. Use with extreme caution — this is irreversible.',
+    {},
+    async () => clearData(),
   );
 }

@@ -147,6 +147,14 @@ export function useSync() {
       db.activityLogs.clear()
     })
 
+    source.addEventListener('data_cleared', () => {
+      db.tasks.clear()
+      db.projects.clear()
+      db.sessions.clear()
+      db.notifications.clear()
+      db.activityLogs.clear()
+    })
+
     // Silently handle errors (MCP server may not be running)
     source.onerror = () => {
       // EventSource auto-reconnects — no action needed

@@ -161,6 +161,7 @@ export default function ProjectDetail() {
 
   const handleDelete = async () => {
     logActivity('project_deleted', `Deleted project: ${project.name}`, { entityType: 'project' })
+    fetch(`http://localhost:3456/api/projects/${project.id}`, { method: 'DELETE' }).catch(() => {})
     await db.projects.delete(project.id!)
     navigate('/projects')
   }

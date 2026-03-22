@@ -406,6 +406,9 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (entity === 'task') {
             const t = await db.tasks.get(id)
             if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
+            // Delete from MCP backend (SQLite)
+            fetch(`http://localhost:3456/api/tasks/${id}`, { method: 'DELETE' }).catch(() => {})
+            // Delete from local IndexedDB
             await db.sessions.where('taskId').equals(id).delete()
             await db.tasks.delete(id)
             playClick()
@@ -415,6 +418,9 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           } else if (entity === 'project') {
             const p = await db.projects.get(id)
             if (!p) { writeln(`${C.red}Project #${id} not found${C.reset}`); break }
+            // Delete from MCP backend (SQLite)
+            fetch(`http://localhost:3456/api/projects/${id}`, { method: 'DELETE' }).catch(() => {})
+            // Delete from local IndexedDB
             await db.projects.delete(id)
             playClick()
             logActivity('project_deleted', `Deleted: ${p.name}`, { entityType: 'project' })

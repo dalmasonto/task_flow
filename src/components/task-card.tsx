@@ -78,6 +78,7 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
   }
 
   const handleDelete = async () => {
+    fetch(`http://localhost:3456/api/tasks/${task.id}`, { method: 'DELETE' }).catch(() => {})
     await db.sessions.where('taskId').equals(task.id!).delete()
     await db.tasks.delete(task.id!)
     playDelete()

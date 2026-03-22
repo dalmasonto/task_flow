@@ -94,6 +94,9 @@ export default function Settings() {
   }
 
   async function handleClearData() {
+    // Clear MCP backend (SQLite) — fire and forget if server is not running
+    fetch('http://localhost:3456/api/clear-data', { method: 'POST' }).catch(() => {})
+    // Clear local IndexedDB
     await db.tasks.clear()
     await db.projects.clear()
     await db.sessions.clear()
