@@ -134,11 +134,18 @@ export default function TaskDetail() {
 
   const formatDate = (date?: Date) => {
     if (!date) return 'Not set'
-    return new Date(date).toLocaleDateString('en-US', {
+    const d = new Date(date)
+    const datePart = d.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     }).toUpperCase()
+    const timePart = d.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    return `${datePart} ${timePart}`
   }
 
   const formatSessionTime = (date: Date) => {
@@ -244,9 +251,48 @@ export default function TaskDetail() {
                       mode="single"
                       selected={task.dueDate ? new Date(task.dueDate) : undefined}
                       onSelect={async (date) => {
-                        await db.tasks.update(task.id!, { dueDate: date ?? undefined, updatedAt: new Date() })
+                        if (!date) {
+                          await db.tasks.update(task.id!, { dueDate: undefined, updatedAt: new Date() })
+                          return
+                        }
+                        // Preserve existing time if due date already set
+                        const existing = task.dueDate ? new Date(task.dueDate) : null
+                        if (existing) {
+                          date.setHours(existing.getHours(), existing.getMinutes())
+                        }
+                        await db.tasks.update(task.id!, { dueDate: date, updatedAt: new Date() })
                       }}
                     />
+                    <div className="border-t border-border px-4 py-3 flex items-center gap-3">
+                      <span className="material-symbols-outlined text-sm text-muted-foreground">schedule</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={task.dueDate ? new Date(task.dueDate).getHours() : 0}
+                        onChange={async (e) => {
+                          const d = task.dueDate ? new Date(task.dueDate) : new Date()
+                          d.setHours(Number(e.target.value))
+                          await db.tasks.update(task.id!, { dueDate: d, updatedAt: new Date() })
+                        }}
+                        className="w-14 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-1 px-2 text-center tabular-nums"
+                      />
+                      <span className="text-muted-foreground text-sm">:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        step="5"
+                        value={task.dueDate ? new Date(task.dueDate).getMinutes() : 0}
+                        onChange={async (e) => {
+                          const d = task.dueDate ? new Date(task.dueDate) : new Date()
+                          d.setMinutes(Number(e.target.value))
+                          await db.tasks.update(task.id!, { dueDate: d, updatedAt: new Date() })
+                        }}
+                        className="w-14 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-1 px-2 text-center tabular-nums"
+                      />
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-widest ml-auto">HH:MM</span>
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
