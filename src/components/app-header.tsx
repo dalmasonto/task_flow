@@ -1,8 +1,10 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Terminal } from '@/components/terminal'
 import { db } from '@/db/database'
 import { useAppNotifications, useUnreadCount, markAsRead, markAllAsRead, clearAllNotifications } from '@/hooks/use-app-notifications'
 import type { Task, Project, NotificationType } from '@/types'
@@ -24,6 +26,23 @@ export function AppHeader() {
 
   const notifications = useAppNotifications(30)
   const unreadCount = useUnreadCount()
+  const [terminalOpen, setTerminalOpen] = useState(false)
+
+  // Ctrl+K or backtick to open terminal
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setTerminalOpen(prev => !prev)
+      }
+      if (e.key === '`' && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        setTerminalOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const runSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -144,6 +163,15 @@ export function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-4">
+        {/* Terminal */}
+        <button
+          onClick={() => setTerminalOpen(true)}
+          className="p-2 text-muted-foreground hover:text-secondary hover:bg-accent transition-colors"
+          title="Open Terminal (Ctrl+K)"
+        >
+          <span className="material-symbols-outlined">terminal</span>
+        </button>
+
         {/* Notifications Bell */}
         <Popover>
           <PopoverTrigger asChild>
@@ -242,6 +270,21 @@ export function AppHeader() {
           <span className="text-[10px] font-bold text-primary">USR</span>
         </div>
       </div>
+
+      {/* Terminal Dialog */}
+      <Dialog open={terminalOpen} onOpenChange={setTerminalOpen}>
+        <DialogContent className="max-w-3xl h-[70vh] p-0 gap-0 bg-background border-secondary/30">
+          <DialogTitle className="sr-only">TaskFlow Terminal</DialogTitle>
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-secondary text-sm">terminal</span>
+              <span className="text-[10px] uppercase tracking-widest font-bold text-secondary">TaskFlow Terminal</span>
+            </div>
+            <span className="text-[9px] text-muted-foreground tracking-widest">ESC to close · Ctrl+K to toggle</span>
+          </div>
+          <Terminal onClose={() => setTerminalOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </header>
   )
 }

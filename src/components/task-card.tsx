@@ -54,6 +54,15 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
       }
     }
 
+    if (newStatus === 'in_progress') {
+      const alreadyActive = await db.sessions
+        .where('taskId').equals(task.id!)
+        .filter(s => s.end === undefined).first()
+      if (!alreadyActive) {
+        await db.sessions.add({ taskId: task.id!, start: new Date() })
+      }
+    }
+
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
 
     if (newStatus === 'done') {

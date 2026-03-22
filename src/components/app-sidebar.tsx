@@ -14,7 +14,7 @@ import {
 import { useSetting } from "@/hooks/use-settings"
 
 const navItems = [
-  { label: "Terminal", to: "/dashboard", icon: "terminal" },
+  { label: "Dashboard", to: "/dashboard", icon: "dashboard" },
   { label: "Projects", to: "/projects", icon: "grid_view" },
   { label: "Analytics", to: "/analytics", icon: "insights" },
   { label: "Activity Pulse", to: "/activity", icon: "monitoring" },
