@@ -1,206 +1,92 @@
 import * as React from "react"
+import { NavLink } from "react-router"
 
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
+  SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { GalleryVerticalEndIcon } from "lucide-react"
 
-// This is sample data.
-const data = {
-  navMain: [
-    {
-      title: "Getting Started",
-      url: "#",
-      items: [
-        {
-          title: "Installation",
-          url: "#",
-        },
-        {
-          title: "Project Structure",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Build Your Application",
-      url: "#",
-      items: [
-        {
-          title: "Routing",
-          url: "#",
-        },
-        {
-          title: "Data Fetching",
-          url: "#",
-          isActive: true,
-        },
-        {
-          title: "Rendering",
-          url: "#",
-        },
-        {
-          title: "Caching",
-          url: "#",
-        },
-        {
-          title: "Styling",
-          url: "#",
-        },
-        {
-          title: "Optimizing",
-          url: "#",
-        },
-        {
-          title: "Configuring",
-          url: "#",
-        },
-        {
-          title: "Testing",
-          url: "#",
-        },
-        {
-          title: "Authentication",
-          url: "#",
-        },
-        {
-          title: "Deploying",
-          url: "#",
-        },
-        {
-          title: "Upgrading",
-          url: "#",
-        },
-        {
-          title: "Examples",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "API Reference",
-      url: "#",
-      items: [
-        {
-          title: "Components",
-          url: "#",
-        },
-        {
-          title: "File Conventions",
-          url: "#",
-        },
-        {
-          title: "Functions",
-          url: "#",
-        },
-        {
-          title: "next.config.js Options",
-          url: "#",
-        },
-        {
-          title: "CLI",
-          url: "#",
-        },
-        {
-          title: "Edge Runtime",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Architecture",
-      url: "#",
-      items: [
-        {
-          title: "Accessibility",
-          url: "#",
-        },
-        {
-          title: "Fast Refresh",
-          url: "#",
-        },
-        {
-          title: "Next.js Compiler",
-          url: "#",
-        },
-        {
-          title: "Supported Browsers",
-          url: "#",
-        },
-        {
-          title: "Turbopack",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Community",
-      url: "#",
-      items: [
-        {
-          title: "Contribution Guide",
-          url: "#",
-        },
-      ],
-    },
-  ],
+const navItems = [
+  { label: "Terminal", to: "/dashboard", icon: "terminal" },
+  { label: "Projects", to: "/projects", icon: "grid_view" },
+  { label: "Analytics", to: "/analytics", icon: "insights" },
+  { label: "Dependencies", to: "/dependencies", icon: "account_tree" },
+  { label: "Archive", to: "/archive", icon: "archive" },
+]
+
+function navLinkClass({ isActive }: { isActive: boolean }) {
+  return `flex items-center gap-4 p-3 uppercase text-xs tracking-widest font-headline transition-all duration-200 ${
+    isActive
+      ? "text-secondary border-l-2 border-secondary bg-sidebar-accent"
+      : "text-gray-500 hover:text-secondary/80 hover:bg-sidebar-accent"
+  }`
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
-    <Sidebar variant="floating" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <a href="#">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <GalleryVerticalEndIcon className="size-4" />
-                </div>
-                <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-medium">Documentation</span>
-                  <span className="">v1.0.0</span>
-                </div>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <Sidebar variant="sidebar" {...props}>
+      <SidebarHeader className="px-4 pt-6 pb-2">
+        <p className="text-xs uppercase tracking-widest text-on-surface-variant">
+          Operator-01
+        </p>
+        <p className="text-xl font-extrabold tracking-tighter italic text-primary font-headline">
+          TASKFLOW_OS
+        </p>
+        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant">
+          V2.0.4
+        </p>
       </SidebarHeader>
+
+      <SidebarSeparator />
+
       <SidebarContent>
         <SidebarGroup>
-          <SidebarMenu className="gap-2">
-            {data.navMain.map((item) => (
-              <SidebarMenuItem key={item.title}>
+          <SidebarMenu>
+            {navItems.map((item) => (
+              <SidebarMenuItem key={item.to}>
                 <SidebarMenuButton asChild>
-                  <a href={item.url} className="font-medium">
-                    {item.title}
-                  </a>
+                  <NavLink to={item.to} className={navLinkClass}>
+                    <span className="material-symbols-outlined text-lg">
+                      {item.icon}
+                    </span>
+                    <span>{item.label}</span>
+                  </NavLink>
                 </SidebarMenuButton>
-                {item.items?.length ? (
-                  <SidebarMenuSub className="ml-0 border-l-0 px-1.5">
-                    {item.items.map((item) => (
-                      <SidebarMenuSubItem key={item.title}>
-                        <SidebarMenuSubButton asChild isActive={item.isActive}>
-                          <a href={item.url}>{item.title}</a>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    ))}
-                  </SidebarMenuSub>
-                ) : null}
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter className="px-2 pb-4">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <NavLink to="/settings" className={navLinkClass}>
+                <span className="material-symbols-outlined text-lg">
+                  settings
+                </span>
+                <span>Settings</span>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+
+        <NavLink
+          to="/tasks/new"
+          className="flex items-center justify-center w-full bg-primary text-on-primary font-bold text-xs uppercase tracking-widest py-3 transition-all duration-200 hover:shadow-[0_0_20px_rgba(222,142,255,0.4)]"
+        >
+          <span className="material-symbols-outlined text-lg mr-2">add</span>
+          New Task
+        </NavLink>
+      </SidebarFooter>
     </Sidebar>
   )
 }
