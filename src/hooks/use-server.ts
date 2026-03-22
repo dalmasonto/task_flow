@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 
-const SERVER_SCRIPT = 'mcp-server/dist/index.js'
 const RESTART_DELAY = 2000
 
 export function useServer() {
@@ -19,12 +18,26 @@ export function useServer() {
       try {
         const { Command } = await import('@tauri-apps/plugin-shell')
 
-        const command = Command.create('node', [SERVER_SCRIPT, '--http-only'])
+        // Resolve the absolute path to the server script.
+        // In dev, Tauri CWD is the project root. In prod, use the resource dir.
+        let scriptPath: string
+        try {
+          const { resourceDir } = await import('@tauri-apps/api/path')
+          const base = await resourceDir()
+          scriptPath = base + 'mcp-server/dist/index.js'
+        } catch {
+          // Dev fallback: relative to project root (Tauri CWD in dev mode)
+          scriptPath = 'mcp-server/dist/index.js'
+        }
+
+        console.log('[useServer] spawning: node', scriptPath, '--http-only')
+
+        // "taskflow-server" matches the name in capabilities/default.json scope
+        const command = Command.create('taskflow-server', [scriptPath, '--http-only'])
 
         command.on('close', (data) => {
           console.log(`[useServer] server exited with code ${data.code}`)
           childRef.current = null
-          // Auto-restart unless we intentionally killed it
           if (!killed && mountedRef.current) {
             console.log(`[useServer] restarting in ${RESTART_DELAY}ms...`)
             setTimeout(spawn, RESTART_DELAY)
@@ -48,7 +61,6 @@ export function useServer() {
         console.log('[useServer] HTTP server started (pid:', child.pid, ')')
       } catch (err) {
         console.error('[useServer] failed to spawn server:', err)
-        // Retry after delay
         if (!killed && mountedRef.current) {
           setTimeout(spawn, RESTART_DELAY)
         }
