@@ -29,7 +29,7 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
     <SidebarMenuItem>
       <NavLink
         to={to}
-        className={`flex items-center gap-4 py-4 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
+        className={`flex items-center gap-4 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
           match
             ? "text-secondary border-secondary"
             : "text-gray-500 border-transparent hover:text-secondary/80"
