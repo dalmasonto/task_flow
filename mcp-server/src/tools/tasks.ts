@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { logActivity, errorResponse, successResponse, now } from '../helpers.js';
+import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
 import { TaskStatus, TaskPriority, LinkSchema, VALID_TRANSITIONS } from '../types.js';
 import type { ErrorCode } from '../types.js';
 
@@ -151,7 +151,9 @@ export async function createTask(params: {
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(result.lastInsertRowid) as TaskRow;
   logActivity('task_created', title, { entityType: 'task', entityId: task.id });
 
-  return successResponse(parseTask(task));
+  const createdTask = parseTask(task);
+  broadcastChange('task', 'task_created', createdTask);
+  return successResponse(createdTask);
 }
 
 export async function listTasks(params: {
@@ -310,7 +312,9 @@ export async function updateTask(params: {
   }
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id) as TaskRow;
-  return successResponse(parseTask(updated));
+  const updatedTask = parseTask(updated);
+  broadcastChange('task', 'task_updated', updatedTask);
+  return successResponse(updatedTask);
 }
 
 export async function updateTaskStatus(params: { id: number; status: string }) {
@@ -331,20 +335,26 @@ export async function updateTaskStatus(params: { id: number; status: string }) {
   db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(params.status, ts, params.id);
 
   // Log appropriate action
+  let statusAction: string;
   if (params.status === 'done') {
     logActivity('task_completed', row.title, { entityType: 'task', entityId: params.id });
+    statusAction = 'task_completed';
   } else if (params.status === 'partial_done') {
     logActivity('task_partial_done', row.title, { entityType: 'task', entityId: params.id });
+    statusAction = 'task_partial_done';
   } else {
     logActivity('task_status_changed', row.title, {
       detail: `${currentStatus} -> ${params.status}`,
       entityType: 'task',
       entityId: params.id,
     });
+    statusAction = 'task_status_changed';
   }
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id) as TaskRow;
-  return successResponse(parseTask(updated));
+  const updatedTask = parseTask(updated);
+  broadcastChange('task', statusAction, updatedTask);
+  return successResponse(updatedTask);
 }
 
 export async function deleteTask(params: { id: number }) {
@@ -355,6 +365,7 @@ export async function deleteTask(params: { id: number }) {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(params.id);
   logActivity('task_deleted', row.title, { entityType: 'task', entityId: params.id });
 
+  broadcastChange('task', 'task_deleted', { id: params.id });
   return successResponse({ deleted: true, id: params.id });
 }
 
@@ -405,7 +416,9 @@ export async function bulkCreateTasks(params: {
     detail: created.map(t => t.title).join(', '),
   });
 
-  return successResponse(created);
+  const createdTasks = created;
+  broadcastChange('task', 'tasks_bulk_created', { tasks: createdTasks });
+  return successResponse(createdTasks);
 }
 
 export async function searchTasks(params: { query: string }) {

@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { successResponse } from '../helpers.js';
+import { successResponse, broadcastChange } from '../helpers.js';
 
 // ─── interfaces ───────────────────────────────────────────────────────
 
@@ -51,6 +51,7 @@ export async function clearActivityLog() {
   const db = getDb();
   const countRow = db.prepare('SELECT COUNT(*) AS count FROM activity_logs').get() as { count: number };
   db.prepare('DELETE FROM activity_logs').run();
+  broadcastChange('activity', 'activity_cleared', {});
   return successResponse({ deleted: countRow.count, message: 'Activity log cleared' });
 }
 

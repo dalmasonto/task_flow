@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { logActivity, successResponse } from '../helpers.js';
+import { logActivity, successResponse, broadcastChange } from '../helpers.js';
 
 // ─── defaults ─────────────────────────────────────────────────────────
 
@@ -60,6 +60,7 @@ export async function updateSetting(params: { key: string; value: unknown }) {
 
   logActivity('settings_saved', params.key, { detail: `Setting "${params.key}" updated` });
 
+  broadcastChange('setting', 'settings_saved', { key: params.key, value: params.value });
   return successResponse({ key: params.key, value: params.value });
 }
 

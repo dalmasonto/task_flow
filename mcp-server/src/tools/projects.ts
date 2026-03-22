@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { logActivity, errorResponse, successResponse, now } from '../helpers.js';
+import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
 import { ProjectType } from '../types.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────
@@ -66,7 +66,9 @@ export async function createProject(params: {
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(result.lastInsertRowid) as ProjectRow;
   logActivity('project_created', name, { entityType: 'project', entityId: project.id });
 
-  return successResponse(project);
+  const createdProject = project;
+  broadcastChange('project', 'project_created', createdProject);
+  return successResponse(createdProject);
 }
 
 export async function listProjects() {
@@ -123,7 +125,9 @@ export async function updateProject(params: {
   logActivity('project_updated', params.name ?? existing.name, { entityType: 'project', entityId: params.id });
 
   const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(params.id) as ProjectRow;
-  return successResponse(updated);
+  const updatedProject = updated;
+  broadcastChange('project', 'project_updated', updatedProject);
+  return successResponse(updatedProject);
 }
 
 export async function deleteProject(params: { id: number }) {
@@ -135,6 +139,7 @@ export async function deleteProject(params: { id: number }) {
   db.prepare('DELETE FROM projects WHERE id = ?').run(params.id);
   logActivity('project_deleted', project.name, { entityType: 'project', entityId: params.id });
 
+  broadcastChange('project', 'project_deleted', { id: params.id });
   return successResponse({ deleted: true, id: params.id });
 }
 

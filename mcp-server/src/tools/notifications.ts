@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { errorResponse, successResponse } from '../helpers.js';
+import { errorResponse, successResponse, broadcastChange } from '../helpers.js';
 
 // ─── interfaces ───────────────────────────────────────────────────────
 
@@ -49,7 +49,9 @@ export async function markNotificationRead(params: { id: number }) {
   const row = db
     .prepare('SELECT * FROM notifications WHERE id = ?')
     .get(params.id) as NotificationRow;
-  return successResponse(row);
+  const notification = row;
+  broadcastChange('notification', 'notification_updated', notification);
+  return successResponse(notification);
 }
 
 export async function markAllNotificationsRead() {
@@ -57,6 +59,7 @@ export async function markAllNotificationsRead() {
   const result = db
     .prepare('UPDATE notifications SET read = 1 WHERE read = 0')
     .run();
+  broadcastChange('notification', 'notifications_all_read', {});
   return successResponse({ updated: result.changes });
 }
 
@@ -66,6 +69,7 @@ export async function clearNotifications() {
     .prepare('SELECT COUNT(*) AS count FROM notifications')
     .get() as { count: number };
   db.prepare('DELETE FROM notifications').run();
+  broadcastChange('notification', 'notifications_cleared', {});
   return successResponse({ deleted: countRow.count, message: 'Notifications cleared' });
 }
 

@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { logActivity, errorResponse, successResponse, now } from '../helpers.js';
+import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
 import { VALID_TRANSITIONS } from '../types.js';
 
 // ─── types ────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ export async function startTimer(params: { task_id: number }) {
   logActivity('timer_started', task.title, { entityType: 'task', entityId: params.task_id });
 
   const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(result.lastInsertRowid) as SessionRow;
+  broadcastChange('timer', 'timer_started', { task_id: params.task_id, session, task_status: 'in_progress' });
   return successResponse(session);
 }
 
@@ -78,7 +79,9 @@ export async function pauseTimer(params: { task_id: number }) {
     entityId: params.task_id,
   });
 
-  return successResponse({ ...session, end: endTime, duration });
+  const pausedSession = { ...session, end: endTime, duration };
+  broadcastChange('timer', 'timer_paused', { task_id: params.task_id, session: pausedSession, task_status: 'paused' });
+  return successResponse(pausedSession);
 }
 
 export async function stopTimer(params: { task_id: number; final_status?: string }) {
@@ -113,7 +116,9 @@ export async function stopTimer(params: { task_id: number; final_status?: string
     logActivity('task_partial_done', task.title, { entityType: 'task', entityId: params.task_id });
   }
 
-  return successResponse({ ...session, end: endTime, duration });
+  const stoppedSession = { ...session, end: endTime, duration };
+  broadcastChange('timer', 'timer_stopped', { task_id: params.task_id, session: stoppedSession, task_status: finalStatus });
+  return successResponse(stoppedSession);
 }
 
 export async function listSessions(params: {

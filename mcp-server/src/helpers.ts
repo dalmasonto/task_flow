@@ -1,5 +1,6 @@
 import { getDb } from './db.js';
 import type { ActivityAction, ErrorCode } from './types.js';
+import { broadcast } from './sse.js';
 
 export function logActivity(
   action: ActivityAction,
@@ -28,4 +29,8 @@ export function successResponse(data: unknown) {
 
 export function now(): string {
   return new Date().toISOString();
+}
+
+export function broadcastChange(entity: string, action: string, payload: unknown): void {
+  broadcast(action, { entity, action, payload });
 }
