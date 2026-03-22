@@ -203,15 +203,15 @@ function parseTask(raw: Record<string, unknown>) {
   return {
     id: raw.id as number,
     title: raw.title as string,
-    description: raw.description as string | undefined,
+    description: raw.description != null ? (raw.description as string) : undefined,
     status: raw.status as string,
     priority: raw.priority as string,
-    projectId: raw.project_id as number | undefined,
+    projectId: raw.project_id != null ? (raw.project_id as number) : undefined,
     dependencies: parseJsonField(raw.dependencies, []),
     links: parseJsonField(raw.links, []),
     tags: parseJsonField(raw.tags, []),
-    dueDate: raw.due_date ? new Date(raw.due_date as string) : undefined,
-    estimatedTime: raw.estimated_time as number | undefined,
+    dueDate: raw.due_date != null ? new Date(raw.due_date as string) : undefined,
+    estimatedTime: raw.estimated_time != null ? (raw.estimated_time as number) : undefined,
     createdAt: new Date(raw.created_at as string),
     updatedAt: new Date(raw.updated_at as string),
   }
@@ -223,7 +223,7 @@ function parseProject(raw: Record<string, unknown>) {
     name: raw.name as string,
     color: raw.color as string,
     type: raw.type as string,
-    description: raw.description as string | undefined,
+    description: raw.description != null ? (raw.description as string) : undefined,
     createdAt: new Date(raw.created_at as string),
   }
 }
