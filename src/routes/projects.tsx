@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { useProjects } from '@/hooks/use-projects'
 import { EmptyState } from '@/components/empty-state'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 function ProjectCard({ project }: { project: { id?: number; name: string; color: string; type: string; description?: string; createdAt: Date } }) {
   return (
@@ -25,6 +26,23 @@ function ProjectCard({ project }: { project: { id?: number; name: string; color:
         })}
       </p>
     </Link>
+  )
+}
+
+function ProjectGrid({ projects, emptyMessage }: { projects: Array<{ id?: number; name: string; color: string; type: string; description?: string; createdAt: Date }>; emptyMessage: string }) {
+  if (projects.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground uppercase tracking-widest py-8 text-center">
+        {emptyMessage}
+      </p>
+    )
+  }
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {projects.map(project => (
+        <ProjectCard key={project.id} project={project} />
+      ))}
+    </div>
   )
 }
 
@@ -60,55 +78,36 @@ export default function Projects() {
           }
         />
       ) : (
-        <div className="space-y-12">
-          {/* Active Projects */}
-          <section>
-            <div className="flex items-center gap-3 border-b border-secondary/20 pb-4 mb-6">
-              <span className="w-1.5 h-6 bg-secondary" />
-              <h2 className="text-xs font-bold tracking-widest uppercase text-secondary">
-                Active Projects
-              </h2>
-              <span className="text-[10px] text-secondary/60 bg-secondary/10 px-2 py-0.5">
+        <Tabs defaultValue="active" className="w-full">
+          <TabsList className="bg-accent/30 border border-border">
+            <TabsTrigger
+              value="active"
+              className="text-xs uppercase tracking-widest data-[state=active]:bg-secondary/10 data-[state=active]:text-secondary"
+            >
+              Active Projects
+              <span className="ml-2 text-[10px] bg-secondary/10 px-1.5 py-0.5">
                 {activeProjects.length.toString().padStart(2, '0')}
               </span>
-            </div>
-            {activeProjects.length === 0 ? (
-              <p className="text-xs text-muted-foreground uppercase tracking-widest py-8 text-center">
-                No active projects
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {activeProjects.map(project => (
-                  <ProjectCard key={project.id} project={project} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Project Ideas */}
-          <section>
-            <div className="flex items-center gap-3 border-b border-primary/20 pb-4 mb-6">
-              <span className="w-1.5 h-6 bg-primary" />
-              <h2 className="text-xs font-bold tracking-widest uppercase text-primary">
-                Project Ideas
-              </h2>
-              <span className="text-[10px] text-primary/60 bg-primary/10 px-2 py-0.5">
+            </TabsTrigger>
+            <TabsTrigger
+              value="ideas"
+              className="text-xs uppercase tracking-widest data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+            >
+              Project Ideas
+              <span className="ml-2 text-[10px] bg-primary/10 px-1.5 py-0.5">
                 {projectIdeas.length.toString().padStart(2, '0')}
               </span>
-            </div>
-            {projectIdeas.length === 0 ? (
-              <p className="text-xs text-muted-foreground uppercase tracking-widest py-8 text-center">
-                No project ideas yet
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {projectIdeas.map(project => (
-                  <ProjectCard key={project.id} project={project} />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="active" className="mt-6">
+            <ProjectGrid projects={activeProjects} emptyMessage="No active projects" />
+          </TabsContent>
+
+          <TabsContent value="ideas" className="mt-6">
+            <ProjectGrid projects={projectIdeas} emptyMessage="No project ideas yet" />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   )

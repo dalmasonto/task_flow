@@ -13,7 +13,7 @@ export function RootLayout() {
       <AppSidebar />
       <SidebarInset>
         <AppHeader />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto py-4">
           <Outlet />
         </main>
         <FloatingTimerBar />

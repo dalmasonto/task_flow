@@ -29,7 +29,7 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
     <SidebarMenuItem>
       <NavLink
         to={to}
-        className={`flex items-center gap-4 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
+        className={`flex items-center gap-4 px-3 py-2 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
           match
             ? "text-secondary border-secondary"
             : "text-gray-500 border-transparent hover:text-secondary/80"
@@ -77,13 +77,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarNavLink to="/settings" icon="settings" label="Settings" />
         </SidebarMenu>
 
-        <NavLink
-          to="/tasks/new"
-          className="flex items-center justify-center w-full bg-primary text-primary-foreground font-bold text-xs uppercase tracking-widest py-3 transition-all duration-200 hover:shadow-[0_0_20px_rgba(222,142,255,0.4)]"
-        >
-          <span className="material-symbols-outlined text-lg mr-2">add</span>
-          New Task
-        </NavLink>
+        <div className="flex gap-2">
+          <NavLink
+            to="/tasks/new"
+            className="flex-1 flex items-center justify-center bg-primary text-primary-foreground font-bold text-xs uppercase tracking-widest py-3 transition-all duration-200 hover:shadow-[0_0_20px_rgba(222,142,255,0.4)]"
+          >
+            <span className="material-symbols-outlined text-lg mr-2">add</span>
+            New Task
+          </NavLink>
+          <NavLink
+            to="/tasks/bulk"
+            className="flex items-center justify-center bg-secondary/10 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-3 border border-secondary/30 transition-all duration-200 hover:bg-secondary/20"
+            title="Bulk add tasks"
+          >
+            <span className="material-symbols-outlined text-lg">playlist_add</span>
+          </NavLink>
+        </div>
       </SidebarFooter>
     </Sidebar>
   )

@@ -127,7 +127,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-none;
     }
   body {
     @apply bg-background text-foreground;
@@ -156,4 +156,9 @@
 /* Material Symbols */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+
+button {
+  cursor: pointer;
 }
