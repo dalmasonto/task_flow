@@ -21,7 +21,11 @@ import { MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from 'dagre'
 import { useTasks } from '@/hooks/use-tasks'
+import { useActiveSessions, useSessions } from '@/hooks/use-sessions'
+import { useTimer } from '@/hooks/use-timer'
 import { getStatusColor, getStatusLabel } from '@/lib/status'
+import { getBlockers } from '@/lib/dag'
+import { formatDuration, computeSessionDuration } from '@/lib/time'
 import type { Task, TaskStatus } from '@/types'
 
 // ---------- Dagre layout ----------
@@ -141,6 +145,241 @@ const ALL_STATUSES: TaskStatus[] = [
   'partial_done',
   'done',
 ]
+
+// ---------- Detail Panel (separate component so hooks work) ----------
+
+function TaskDetailPanel({
+  task,
+  allTasks,
+  taskMap,
+  onClose,
+}: {
+  task: Task
+  allTasks: Task[]
+  taskMap: Map<number, Task>
+  onClose: () => void
+}) {
+  const sessions = useSessions(task.id)
+  const activeSessions = useActiveSessions()
+  const hasActiveSession = activeSessions?.some(s => s.taskId === task.id) ?? false
+  const { startTask, pauseTask } = useTimer(hasActiveSession)
+  const blockers = getBlockers(allTasks, task.id!)
+  const isBlocked = blockers.length > 0
+  const canPlay = !hasActiveSession && !isBlocked && task.status !== 'done'
+  const canPause = hasActiveSession
+
+  const dependents = allTasks.filter(
+    t => t.id !== undefined && task.id !== undefined && t.dependencies.includes(task.id)
+  )
+
+  return (
+    <div className="absolute top-0 right-0 h-full w-80 bg-card/95 backdrop-blur-md border-l border-muted-foreground/20 z-20 overflow-y-auto">
+      <div className="p-6 space-y-6">
+        {/* Close */}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground tracking-[0.2em] uppercase">
+            Node Details
+          </span>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors text-sm"
+          >
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        </div>
+
+        {/* Task ID */}
+        <div>
+          <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
+            Identifier
+          </div>
+          <div className="font-mono text-sm text-primary">
+            TASK-{task.id}
+          </div>
+        </div>
+
+        {/* Title */}
+        <div>
+          <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
+            Title
+          </div>
+          <div className="text-sm font-bold uppercase tracking-tight">
+            {task.title}
+          </div>
+        </div>
+
+        {/* Description */}
+        {task.description && (
+          <div>
+            <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
+              Description
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed line-clamp-4">
+              {task.description}
+            </div>
+          </div>
+        )}
+
+        {/* Status */}
+        <div>
+          <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
+            Status
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{
+                backgroundColor: getStatusColor(task.status),
+                boxShadow: `0 0 6px ${getStatusColor(task.status)}`,
+              }}
+            />
+            <span
+              className="text-xs uppercase tracking-widest font-bold"
+              style={{ color: getStatusColor(task.status) }}
+            >
+              {getStatusLabel(task.status)}
+            </span>
+          </div>
+        </div>
+
+        {/* Priority */}
+        <div>
+          <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
+            Priority
+          </div>
+          <span className="text-xs uppercase tracking-widest font-bold">
+            {task.priority}
+          </span>
+        </div>
+
+        {/* Timer Controls */}
+        <div>
+          <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
+            Timer Controls
+          </div>
+          {isBlocked && (
+            <p className="text-[10px] text-destructive uppercase tracking-widest mb-2">
+              Blocked by {blockers.map(b => b.title).join(', ')}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => canPlay && startTask(task)}
+              disabled={!canPlay}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-tertiary/10 text-tertiary text-[10px] uppercase tracking-widest font-bold border border-tertiary/30 hover:bg-tertiary/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-sm">play_arrow</span>
+              {task.status === 'paused' ? 'Resume' : 'Start'}
+            </button>
+            <button
+              onClick={() => canPause && pauseTask(task)}
+              disabled={!canPause}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-primary/10 text-primary text-[10px] uppercase tracking-widest font-bold border border-primary/30 hover:bg-primary/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-sm">pause</span>
+              Pause
+            </button>
+          </div>
+        </div>
+
+        {/* Dependencies */}
+        {task.dependencies.length > 0 && (
+          <div>
+            <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
+              Depends On
+            </div>
+            <div className="space-y-1.5">
+              {task.dependencies.map((depId) => {
+                const dep = taskMap.get(depId)
+                if (!dep) return null
+                const depColor = getStatusColor(dep.status)
+                return (
+                  <div key={depId} className="flex items-center gap-2 text-xs">
+                    <div
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: depColor }}
+                    />
+                    <span className="font-mono text-muted-foreground">#{depId}</span>
+                    <span className="uppercase tracking-tight truncate">{dep.title}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Dependents */}
+        {dependents.length > 0 && (
+          <div>
+            <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
+              Depended By
+            </div>
+            <div className="space-y-1.5">
+              {dependents.map((dep) => {
+                const depColor = getStatusColor(dep.status)
+                return (
+                  <div key={dep.id} className="flex items-center gap-2 text-xs">
+                    <div
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: depColor }}
+                    />
+                    <span className="font-mono text-muted-foreground">#{dep.id}</span>
+                    <span className="uppercase tracking-tight truncate">{dep.title}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Edit Button */}
+        <Link
+          to={`/tasks/${task.id}`}
+          className="block w-full text-center px-4 py-2.5 bg-primary text-primary-foreground text-[10px] tracking-widest uppercase font-bold hover:opacity-90 transition-opacity"
+        >
+          Edit Task Details
+        </Link>
+
+        {/* Session History */}
+        {sessions && sessions.length > 0 && (
+          <div>
+            <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
+              Session History ({sessions.length})
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {[...sessions].reverse().map((session) => {
+                const isActive = !session.end
+                const duration = computeSessionDuration(session)
+                return (
+                  <div
+                    key={session.id}
+                    className="flex items-center gap-2 text-xs p-2 bg-accent/30"
+                  >
+                    <div
+                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'pulse-active' : ''}`}
+                      style={{
+                        backgroundColor: isActive ? '#69fd5d' : '#484847',
+                        boxShadow: isActive ? '0 0 6px #69fd5d' : 'none',
+                      }}
+                    />
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {session.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {' '}
+                      {session.start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span className="ml-auto font-bold tabular-nums" style={{ color: isActive ? '#69fd5d' : undefined }}>
+                      {isActive ? 'LIVE' : formatDuration(duration)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ---------- Main Component ----------
 
@@ -338,167 +577,12 @@ export default function DependencyGraph() {
 
         {/* Detail Panel */}
         {selectedTask && (
-          <div className="absolute top-0 right-0 h-full w-80 bg-card/95 backdrop-blur-md border-l border-muted-foreground/20 z-20 overflow-y-auto">
-            <div className="p-6 space-y-6">
-              {/* Close */}
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground tracking-[0.2em] uppercase">
-                  Node Details
-                </span>
-                <button
-                  onClick={() => setSelectedTaskId(null)}
-                  className="text-muted-foreground hover:text-foreground transition-colors text-sm"
-                >
-                  <span className="material-symbols-outlined text-lg">close</span>
-                </button>
-              </div>
-
-              {/* Task ID */}
-              <div>
-                <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
-                  Identifier
-                </div>
-                <div className="font-mono text-sm text-primary">
-                  TASK-{selectedTask.id}
-                </div>
-              </div>
-
-              {/* Title */}
-              <div>
-                <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
-                  Title
-                </div>
-                <div className="text-sm font-bold uppercase tracking-tight">
-                  {selectedTask.title}
-                </div>
-              </div>
-
-              {/* Description */}
-              {selectedTask.description && (
-                <div>
-                  <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
-                    Description
-                  </div>
-                  <div className="text-xs text-muted-foreground leading-relaxed line-clamp-4">
-                    {selectedTask.description}
-                  </div>
-                </div>
-              )}
-
-              {/* Status */}
-              <div>
-                <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
-                  Status
-                </div>
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-2 h-2 rounded-full"
-                    style={{
-                      backgroundColor: getStatusColor(selectedTask.status),
-                      boxShadow: `0 0 6px ${getStatusColor(selectedTask.status)}`,
-                    }}
-                  />
-                  <span
-                    className="text-xs uppercase tracking-widest font-bold"
-                    style={{ color: getStatusColor(selectedTask.status) }}
-                  >
-                    {getStatusLabel(selectedTask.status)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Priority */}
-              <div>
-                <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
-                  Priority
-                </div>
-                <span className="text-xs uppercase tracking-widest font-bold">
-                  {selectedTask.priority}
-                </span>
-              </div>
-
-              {/* Dependencies */}
-              {selectedTask.dependencies.length > 0 && (
-                <div>
-                  <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
-                    Depends On
-                  </div>
-                  <div className="space-y-1.5">
-                    {selectedTask.dependencies.map((depId) => {
-                      const dep = taskMap.get(depId)
-                      if (!dep) return null
-                      const depColor = getStatusColor(dep.status)
-                      return (
-                        <div
-                          key={depId}
-                          className="flex items-center gap-2 text-xs"
-                        >
-                          <div
-                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: depColor }}
-                          />
-                          <span className="font-mono text-muted-foreground">
-                            #{depId}
-                          </span>
-                          <span className="uppercase tracking-tight truncate">
-                            {dep.title}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Dependents */}
-              {(() => {
-                const dependents = tasks?.filter(
-                  (t) =>
-                    t.id !== undefined &&
-                    selectedTask.id !== undefined &&
-                    t.dependencies.includes(selectedTask.id)
-                )
-                if (!dependents || dependents.length === 0) return null
-                return (
-                  <div>
-                    <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
-                      Depended By
-                    </div>
-                    <div className="space-y-1.5">
-                      {dependents.map((dep) => {
-                        const depColor = getStatusColor(dep.status)
-                        return (
-                          <div
-                            key={dep.id}
-                            className="flex items-center gap-2 text-xs"
-                          >
-                            <div
-                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: depColor }}
-                            />
-                            <span className="font-mono text-muted-foreground">
-                              #{dep.id}
-                            </span>
-                            <span className="uppercase tracking-tight truncate">
-                              {dep.title}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* Edit Button */}
-              <Link
-                to={`/tasks/${selectedTask.id}`}
-                className="block w-full text-center px-4 py-2.5 bg-primary text-primary-foreground text-[10px] tracking-widest uppercase font-bold hover:opacity-90 transition-opacity"
-              >
-                Edit Task Details
-              </Link>
-            </div>
-          </div>
+          <TaskDetailPanel
+            task={selectedTask}
+            allTasks={tasks ?? []}
+            taskMap={taskMap}
+            onClose={() => setSelectedTaskId(null)}
+          />
         )}
       </div>
     </div>
