@@ -17,6 +17,9 @@ src-tauri/target
 src-tauri/gen
 src-tauri/Cargo.lock
 
+# MCP config (contains absolute paths)
+.mcp.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
