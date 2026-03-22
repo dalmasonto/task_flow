@@ -22,10 +22,10 @@ const navItems = [
 ]
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
-  return `flex items-center gap-4 p-3 uppercase text-xs tracking-widest font-headline transition-all duration-200 ${
+  return `flex items-center gap-4 p-3 uppercase text-xs tracking-widest font-headline transition-all duration-200 border-l-2 ${
     isActive
-      ? "text-secondary border-l-2 border-secondary bg-sidebar-accent"
-      : "text-gray-500 hover:text-secondary/80 hover:bg-sidebar-accent"
+      ? "text-secondary border-secondary bg-sidebar-accent hover:text-secondary/80 hover:bg-sidebar-accent"
+      : "text-gray-500 border-transparent hover:text-secondary/80 hover:bg-sidebar-accent"
   }`
 }
 
@@ -81,7 +81,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
         <NavLink
           to="/tasks/new"
-          className="flex items-center justify-center w-full bg-primary text-on-primary font-bold text-xs uppercase tracking-widest py-3 transition-all duration-200 hover:shadow-[0_0_20px_rgba(222,142,255,0.4)]"
+          className="flex items-center justify-center w-full bg-primary text-primary-foreground font-bold text-xs uppercase tracking-widest py-3 transition-all duration-200 hover:shadow-[0_0_20px_rgba(222,142,255,0.4)]"
         >
           <span className="material-symbols-outlined text-lg mr-2">add</span>
           New Task

@@ -6,6 +6,13 @@ import { useTasks } from '@/hooks/use-tasks'
 import { hasCycle } from '@/lib/dag'
 import { MarkdownEditor } from '@/components/markdown-editor'
 import { DependencyPicker } from '@/components/dependency-picker'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { TaskStatus, TaskPriority } from '@/types'
 
 const STATUS_OPTIONS: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked']
@@ -126,17 +133,23 @@ export default function CreateTask() {
                 Assigned_Project
               </label>
               <div className="relative">
-                <select
-                  value={projectId ?? ''}
-                  onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : undefined)}
-                  className="w-full bg-card border border-border focus:border-secondary appearance-none py-3 px-4 text-xs tracking-widest uppercase focus:ring-0"
+                <Select
+                  value={projectId !== undefined ? String(projectId) : ''}
+                  onValueChange={(v) => setProjectId(v ? Number(v) : undefined)}
                 >
-                  <option value="">UNASSIGNED</option>
-                  {(projects ?? []).map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+                  <SelectTrigger className="w-full bg-card border border-border text-xs tracking-widest uppercase">
+                    <SelectValue placeholder="UNASSIGNED" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">UNASSIGNED</SelectItem>
+                    {(projects ?? []).map(p => (
+                      <SelectItem key={p.id} value={String(p.id)} className="text-xs uppercase tracking-widest">
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary pointer-events-none" />
               </div>
             </div>
 
@@ -145,16 +158,19 @@ export default function CreateTask() {
                 Current_State
               </label>
               <div className="relative">
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                  className="w-full bg-card border border-border focus:border-secondary appearance-none py-3 px-4 text-xs tracking-widest uppercase focus:ring-0"
-                >
-                  {STATUS_OPTIONS.map(s => (
-                    <option key={s} value={s}>{s.toUpperCase()}</option>
-                  ))}
-                </select>
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-secondary animate-pulse" />
+                <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
+                  <SelectTrigger className="w-full bg-card border border-border text-xs tracking-widest uppercase">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map(s => (
+                      <SelectItem key={s} value={s} className="text-xs uppercase tracking-widest">
+                        {s.toUpperCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-secondary animate-pulse pointer-events-none" />
               </div>
             </div>
           </div>
@@ -172,15 +188,18 @@ export default function CreateTask() {
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-card p-4 border-l-2 border-secondary/40">
               <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Priority</span>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                className="w-full bg-transparent border-0 focus:ring-0 text-xs uppercase tracking-widest p-0 text-secondary"
-              >
-                {PRIORITY_OPTIONS.map(p => (
-                  <option key={p} value={p}>{p.toUpperCase()}</option>
-                ))}
-              </select>
+              <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
+                <SelectTrigger className="w-full bg-transparent border-0 text-xs uppercase tracking-widest p-0 h-auto text-secondary shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map(p => (
+                    <SelectItem key={p} value={p} className="text-xs uppercase tracking-widest">
+                      {p.toUpperCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="bg-card p-4 border-l-2 border-tertiary/40">
               <span className="block text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Time_Weight</span>

@@ -5,6 +5,13 @@ import { useTimer } from '@/hooks/use-timer'
 import { db } from '@/db/database'
 import { TaskCard } from '@/components/task-card'
 import { EmptyState } from '@/components/empty-state'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export default function Archive() {
   const tasks = useTasks({ status: 'done' })
@@ -47,19 +54,20 @@ export default function Archive() {
         <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
           Filter by project
         </span>
-        <select
-          value={selectedProjectId}
-          onChange={e => setSelectedProjectId(e.target.value)}
-          className="bg-card text-foreground text-xs uppercase tracking-widest font-bold px-4 py-2 border-none outline-none cursor-pointer hover:bg-accent transition-colors"
-        >
-          <option value="all">All Projects</option>
-          {projects?.map(p => (
-            <option key={p.id} value={String(p.id)}>
-              {p.name}
-            </option>
-          ))}
-          <option value="unassigned">Unassigned</option>
-        </select>
+        <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+          <SelectTrigger className="w-48 bg-card text-xs uppercase tracking-widest font-bold border-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs uppercase tracking-widest">All Projects</SelectItem>
+            {projects?.map(p => (
+              <SelectItem key={p.id} value={String(p.id)} className="text-xs uppercase tracking-widest">
+                {p.name}
+              </SelectItem>
+            ))}
+            <SelectItem value="unassigned" className="text-xs uppercase tracking-widest">Unassigned</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Task list */}
