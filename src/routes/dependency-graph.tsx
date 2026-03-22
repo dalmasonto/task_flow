@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router'
 import {
   ReactFlow,
@@ -198,7 +198,7 @@ export default function DependencyGraph() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
   // Sync when tasks change
-  useMemo(() => {
+  useEffect(() => {
     setNodes(initialNodes)
     setEdges(initialEdges)
   }, [initialNodes, initialEdges, setNodes, setEdges])
