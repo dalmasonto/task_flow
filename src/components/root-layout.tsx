@@ -2,6 +2,7 @@ import { Outlet } from 'react-router'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
+import { FloatingTimerBar } from '@/components/floating-timer-bar'
 
 export function RootLayout() {
   return (
@@ -12,7 +13,7 @@ export function RootLayout() {
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
-        {/* FloatingTimerBar will be added in Phase 3 */}
+        <FloatingTimerBar />
       </SidebarInset>
     </SidebarProvider>
   )
