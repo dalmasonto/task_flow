@@ -395,6 +395,23 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
       }
     }
 
+    // Second word after 'nav' — route paths
+    if (parts.length === 2 && parts[0] === 'nav') {
+      const routes = [
+        '/dashboard', '/projects', '/projects/new',
+        '/tasks/new', '/tasks/bulk',
+        '/analytics', '/analytics/timeline',
+        '/activity', '/dependencies', '/archive', '/settings',
+      ]
+      const matches = routes.filter(r => r.startsWith(current.toLowerCase()))
+      if (matches.length === 1) return partial.slice(0, partial.length - current.length) + matches[0]
+      if (matches.length > 1) {
+        writeln('')
+        writeln(`${C.gray}${matches.join('  ')}${C.reset}`)
+        return null
+      }
+    }
+
     // Second word after 'create' — entity type
     if (parts.length === 2 && parts[0] === 'create') {
       const opts = ['task', 'project']
