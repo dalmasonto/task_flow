@@ -60,7 +60,7 @@ export async function clearActivityLog() {
 export function registerActivityTools(server: McpServer) {
   server.tool(
     'get_activity_log',
-    'Retrieve activity log entries with optional filters',
+    'Retrieve recent activity log entries. Shows what has changed — task completions, timer events, status transitions. Filter by action or entity type.',
     {
       limit: z.number().optional(),
       action: z.string().optional(),
@@ -71,7 +71,7 @@ export function registerActivityTools(server: McpServer) {
 
   server.tool(
     'clear_activity_log',
-    'Delete all activity log entries',
+    'Delete all activity log entries. Use with caution — this is irreversible.',
     {},
     async () => clearActivityLog(),
   );

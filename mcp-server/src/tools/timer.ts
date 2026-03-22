@@ -167,21 +167,21 @@ export async function listSessions(params: {
 export function registerTimerTools(server: McpServer) {
   server.tool(
     'start_timer',
-    'Start a timer session for a task',
+    'Start a timer session for a task. Call this before beginning work on any task to track focused time. Automatically transitions the task to "in_progress".',
     { task_id: z.number() },
     async (params) => startTimer(params),
   );
 
   server.tool(
     'pause_timer',
-    'Pause the active timer session for a task',
+    'Pause the active timer session for a task. Call when switching context or waiting for user input. The task transitions to "paused".',
     { task_id: z.number() },
     async (params) => pauseTimer(params),
   );
 
   server.tool(
     'stop_timer',
-    'Stop the active timer session for a task and set its final status',
+    'Stop the active timer and set a final status. Call when finishing work — use "done" if complete, "partial_done" if more remains, "blocked" if stuck.',
     {
       task_id: z.number(),
       final_status: z.enum(['done', 'partial_done', 'blocked']).optional(),
@@ -191,7 +191,7 @@ export function registerTimerTools(server: McpServer) {
 
   server.tool(
     'list_sessions',
-    'List timer sessions with optional filters',
+    'List timer sessions with optional filters. Use to review time spent on a task or across a date range.',
     {
       task_id: z.number().optional(),
       start_date: z.string().optional(),

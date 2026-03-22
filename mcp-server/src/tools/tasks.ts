@@ -436,7 +436,7 @@ export async function searchTasks(params: { query: string }) {
 export function registerTaskTools(server: McpServer) {
   server.tool(
     'create_task',
-    'Create a new task',
+    'Create a new task. Use this when starting new work to keep TaskFlow in sync. Supports dependencies, tags, links, and time estimates.',
     {
       title: z.string(),
       description: z.string().optional(),
@@ -454,7 +454,7 @@ export function registerTaskTools(server: McpServer) {
 
   server.tool(
     'list_tasks',
-    'List tasks with optional filters',
+    'List tasks with optional filters. Use at conversation start to see what is in progress or blocked. Filter by status, project, priority, or tag.',
     {
       status: TaskStatus.optional(),
       project_id: z.number().optional(),
@@ -466,14 +466,14 @@ export function registerTaskTools(server: McpServer) {
 
   server.tool(
     'get_task',
-    'Get a task by ID with time tracking info',
+    'Get a task by ID with time tracking info. Read the description carefully — it often contains implementation details and acceptance criteria.',
     { id: z.number() },
     async (params) => getTask(params),
   );
 
   server.tool(
     'update_task',
-    'Update task fields',
+    'Update task fields. Use this to add details, update descriptions with progress notes, or adjust priority as you learn more.',
     {
       id: z.number(),
       title: z.string().optional(),
@@ -492,7 +492,7 @@ export function registerTaskTools(server: McpServer) {
 
   server.tool(
     'update_task_status',
-    'Update task status with transition validation',
+    'Update task status with transition validation. Use when a task becomes blocked, is partially done, or needs to be reopened.',
     {
       id: z.number(),
       status: TaskStatus,
@@ -502,14 +502,14 @@ export function registerTaskTools(server: McpServer) {
 
   server.tool(
     'delete_task',
-    'Delete a task by ID',
+    'Delete a task by ID. Use sparingly — prefer updating status to "done" instead of deleting.',
     { id: z.number() },
     async (params) => deleteTask(params),
   );
 
   server.tool(
     'bulk_create_tasks',
-    'Create multiple tasks in a single transaction',
+    'Create multiple tasks in a single transaction. Useful when breaking down a feature into subtasks.',
     {
       tasks: z.array(z.object({
         title: z.string(),
@@ -526,7 +526,7 @@ export function registerTaskTools(server: McpServer) {
 
   server.tool(
     'search_tasks',
-    'Search tasks by title or description',
+    'Search tasks by title or description. Use this to find tasks related to your current work before creating duplicates.',
     { query: z.string() },
     async (params) => searchTasks(params),
   );

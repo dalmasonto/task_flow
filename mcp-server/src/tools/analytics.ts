@@ -141,7 +141,7 @@ export async function getTimeline(params: {
 export function registerAnalyticsTools(server: McpServer) {
   server.tool(
     'get_analytics',
-    'Get analytics summary: total focused time, task counts, status distribution, and time per project',
+    'Get a high-level analytics summary: total focused time, task completion rates, status distribution, and time per project. Useful for standup reports or understanding workload.',
     {
       start_date: z.string().optional(),
       end_date: z.string().optional(),
@@ -151,7 +151,7 @@ export function registerAnalyticsTools(server: McpServer) {
 
   server.tool(
     'get_timeline',
-    'Get focused time grouped by day or week',
+    'Get focused time grouped by day or week. Use for visualizing work patterns over time.',
     {
       start_date: z.string().optional(),
       end_date: z.string().optional(),

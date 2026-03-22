@@ -78,7 +78,7 @@ export async function clearNotifications() {
 export function registerNotificationTools(server: McpServer) {
   server.tool(
     'list_notifications',
-    'List notifications with optional filters',
+    'List notifications. Check with unread_only=true at conversation start to surface important updates for the user.',
     {
       limit: z.number().optional(),
       unread_only: z.boolean().optional(),
@@ -88,21 +88,21 @@ export function registerNotificationTools(server: McpServer) {
 
   server.tool(
     'mark_notification_read',
-    'Mark a notification as read by ID',
+    'Mark a notification as read after surfacing it to the user.',
     { id: z.number() },
     async (params) => markNotificationRead(params),
   );
 
   server.tool(
     'mark_all_notifications_read',
-    'Mark all unread notifications as read',
+    'Mark all unread notifications as read. Call after the user has been briefed on pending notifications.',
     {},
     async () => markAllNotificationsRead(),
   );
 
   server.tool(
     'clear_notifications',
-    'Delete all notifications',
+    'Delete all notifications. Use with caution — this is irreversible.',
     {},
     async () => clearNotifications(),
   );

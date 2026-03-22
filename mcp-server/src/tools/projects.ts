@@ -148,7 +148,7 @@ export async function deleteProject(params: { id: number }) {
 export function registerProjectTools(server: McpServer) {
   server.tool(
     'create_project',
-    'Create a new project',
+    'Create a new project. Projects group related tasks and track time across them.',
     {
       name: z.string(),
       color: z.string().optional(),
@@ -160,21 +160,21 @@ export function registerProjectTools(server: McpServer) {
 
   server.tool(
     'list_projects',
-    'List all projects with task count',
+    'List all projects with task count. Call this at conversation start to understand the workspace.',
     {},
     async () => listProjects(),
   );
 
   server.tool(
     'get_project',
-    'Get a project by ID with its tasks',
+    'Get a project by ID with all its tasks. Use this to understand the full scope of a project before starting work.',
     { id: z.number() },
     async (params) => getProject(params),
   );
 
   server.tool(
     'update_project',
-    'Update project fields',
+    'Update project fields such as name, color, type, or description.',
     {
       id: z.number(),
       name: z.string().optional(),
@@ -187,7 +187,7 @@ export function registerProjectTools(server: McpServer) {
 
   server.tool(
     'delete_project',
-    'Delete a project by ID (tasks will have project_id set to NULL)',
+    'Delete a project by ID. Tasks under this project will be unlinked (project_id set to NULL), not deleted.',
     { id: z.number() },
     async (params) => deleteProject(params),
   );

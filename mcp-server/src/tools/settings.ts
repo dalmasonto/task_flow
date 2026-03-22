@@ -69,14 +69,14 @@ export async function updateSetting(params: { key: string; value: unknown }) {
 export function registerSettingsTools(server: McpServer) {
   server.tool(
     'get_setting',
-    'Get a setting value by key, returning default if not set',
+    'Get a setting value by key, returning the default if not set. Available keys: timerBarDisplayMode, notificationInterval, statusColors, operatorName, systemName, and more.',
     { key: z.string() },
     async (params) => getSetting(params),
   );
 
   server.tool(
     'update_setting',
-    'Update or create a setting value',
+    'Update or create a setting value. Settings persist across sessions in the local SQLite database.',
     {
       key: z.string(),
       value: z.unknown(),
