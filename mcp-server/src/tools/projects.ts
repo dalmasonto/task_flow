@@ -143,6 +143,20 @@ export async function deleteProject(params: { id: number }) {
   return successResponse({ deleted: true, id: params.id });
 }
 
+export async function searchProjects(params: { query: string }) {
+  const db = getDb();
+  const like = `%${params.query}%`;
+  const rows = db.prepare(
+    `SELECT projects.*, COUNT(tasks.id) AS task_count
+     FROM projects
+     LEFT JOIN tasks ON tasks.project_id = projects.id
+     WHERE projects.name LIKE ? COLLATE NOCASE OR projects.description LIKE ? COLLATE NOCASE
+     GROUP BY projects.id`
+  ).all(like, like) as Array<ProjectRow & { task_count: number }>;
+
+  return successResponse(rows);
+}
+
 // ─── MCP registration ─────────────────────────────────────────────────
 
 export function registerProjectTools(server: McpServer) {
@@ -190,5 +204,12 @@ export function registerProjectTools(server: McpServer) {
     'Delete a project by ID. Tasks under this project will be unlinked (project_id set to NULL), not deleted.',
     { id: z.number() },
     async (params) => deleteProject(params),
+  );
+
+  server.tool(
+    'search_projects',
+    'Search projects by name or description. Use this to find projects related to your current work.',
+    { query: z.string() },
+    async (params) => searchProjects(params),
   );
 }
