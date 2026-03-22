@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { db } from '@/db/database'
 import { playSuccess } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
+import { logActivity } from '@/hooks/use-activity-log'
 import { useProjects } from '@/hooks/use-projects'
 import {
   Select,
@@ -50,6 +51,7 @@ export default function BulkCreateTasks() {
     playSuccess()
     toast.success(`${tasks.length} tasks injected`)
     addNotification('Bulk Import', `${tasks.length} tasks created`, 'success')
+    logActivity('tasks_bulk_created', `Bulk created ${tasks.length} tasks`, { entityType: 'task' })
     navigate('/dashboard')
   }
 

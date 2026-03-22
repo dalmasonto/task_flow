@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner'
 import { playSuccess } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
+import { logActivity } from '@/hooks/use-activity-log'
 import type { TaskStatus, TaskPriority } from '@/types'
 
 const STATUS_OPTIONS: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked']
@@ -79,6 +80,7 @@ export default function CreateTask() {
     playSuccess()
     toast.success(`Task "${title.trim()}" initialized`)
     addNotification('Task Created', `New task: ${title.trim()}`, 'success')
+    logActivity('task_created', `Created: ${title.trim()}`, { entityType: 'task' })
     navigate('/dashboard')
   }
 

@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import { db } from '@/db/database'
 import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
+import { logActivity } from '@/hooks/use-activity-log'
 import type { Task, TaskStatus } from '@/types'
 
 const ALL_STATUSES: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked', 'partial_done', 'done']
@@ -103,6 +104,7 @@ export default function TaskDetail() {
     playTimerStart()
     toast.success('Timer started')
     addNotification('Timer Started', `Started working on: ${task.title}`, 'info')
+    logActivity('timer_started', `Started: ${task.title}`, { entityType: 'task', entityId: task.id })
   }
 
   const handlePause = async () => {
@@ -110,6 +112,7 @@ export default function TaskDetail() {
     playTimerPause()
     toast.info('Timer paused')
     addNotification('Timer Paused', `Paused: ${task.title}`, 'info')
+    logActivity('timer_paused', `Paused: ${task.title}`, { entityType: 'task', entityId: task.id })
   }
 
   const handleStop = async (finalStatus: 'done' | 'partial_done') => {
@@ -119,10 +122,12 @@ export default function TaskDetail() {
       playTaskDone()
       toast.success('Task completed!')
       addNotification('Task Completed', `Finished: ${task.title}`, 'success')
+      logActivity('task_completed', `Completed: ${task.title}`, { entityType: 'task', entityId: task.id })
     } else {
       playSuccess()
       toast.info('Task marked as partial done')
       addNotification('Partial Completion', `Progress on: ${task.title}`, 'info')
+      logActivity('task_partial_done', `Partial done: ${task.title}`, { entityType: 'task', entityId: task.id })
     }
   }
 
@@ -147,14 +152,17 @@ export default function TaskDetail() {
       playTaskDone()
       toast.success('Task completed!')
       addNotification('Task Completed', `Finished: ${task.title}`, 'success')
+      logActivity('task_completed', `Completed: ${task.title}`, { entityType: 'task', entityId: task.id })
     } else if (newStatus === 'partial_done') {
       playSuccess()
       toast.info('Task marked as partial done')
       addNotification('Partial Completion', `Progress on: ${task.title}`, 'info')
+      logActivity('task_partial_done', `Partial done: ${task.title}`, { entityType: 'task', entityId: task.id })
     } else {
       playClick()
       toast(`Status updated to ${newStatus.replace(/_/g, ' ')}`)
       addNotification('Status Changed', `${task.title} → ${newStatus.replace(/_/g, ' ')}`, 'info')
+      logActivity('task_status_changed', `${task.title} → ${newStatus.replace(/_/g, ' ')}`, { entityType: 'task', entityId: task.id, detail: `${task.status} → ${newStatus}` })
     }
   }
 
@@ -165,6 +173,7 @@ export default function TaskDetail() {
       links: [...currentLinks, { label: linkLabel.trim() || linkUrl.trim(), url: linkUrl.trim() }],
       updatedAt: new Date(),
     })
+    logActivity('link_added', `Link added to: ${task.title}`, { entityType: 'task', entityId: task.id, detail: linkUrl.trim() })
     setLinkLabel('')
     setLinkUrl('')
   }

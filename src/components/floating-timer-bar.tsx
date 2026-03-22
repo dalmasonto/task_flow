@@ -8,6 +8,7 @@ import { useSetting, updateSetting } from '@/hooks/use-settings'
 import { formatDuration } from '@/lib/time'
 import { playTimerStart, playTimerPause } from '@/lib/sounds'
 import { toast } from 'sonner'
+import { logActivity } from '@/hooks/use-activity-log'
 import type { Session, Task } from '@/types'
 
 // Row for an active (running) session — shows live elapsed time + pause button
@@ -40,7 +41,7 @@ function ActiveRow({
         {formatDuration(elapsed)}
       </span>
       <button
-        onClick={() => { if (task) { pauseTask(task); playTimerPause(); toast.info(`Paused: ${task.title}`) } }}
+        onClick={() => { if (task) { pauseTask(task); playTimerPause(); toast.info(`Paused: ${task.title}`); logActivity('timer_paused', `Paused: ${task.title}`, { entityType: 'task', entityId: task.id }) } }}
         className="shrink-0 p-1.5 hover:bg-muted transition-colors"
         aria-label={`Pause ${task?.title ?? 'task'}`}
       >
@@ -79,7 +80,7 @@ function PausedRow({
         {formatDuration(totalTime)}
       </span>
       <button
-        onClick={() => { startTask(task); playTimerStart(); toast.success(`Resumed: ${task.title}`) }}
+        onClick={() => { startTask(task); playTimerStart(); toast.success(`Resumed: ${task.title}`); logActivity('timer_started', `Resumed: ${task.title}`, { entityType: 'task', entityId: task.id }) }}
         className="shrink-0 p-1.5 hover:bg-muted transition-colors"
         aria-label={`Resume ${task.title}`}
       >

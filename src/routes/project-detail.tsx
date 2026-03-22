@@ -2,6 +2,7 @@ import { useState, useRef, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { toast } from 'sonner'
+import { logActivity } from '@/hooks/use-activity-log'
 import { useProject } from '@/hooks/use-projects'
 import { useTasks } from '@/hooks/use-tasks'
 import { useActiveSessions } from '@/hooks/use-sessions'
@@ -150,10 +151,12 @@ export default function ProjectDetail() {
       color: editColor,
       type: editType,
     })
+    logActivity('project_updated', `Updated project: ${editName.trim()}`, { entityType: 'project', entityId: project.id })
     setEditing(false)
   }
 
   const handleDelete = async () => {
+    logActivity('project_deleted', `Deleted project: ${project.name}`, { entityType: 'project' })
     await db.projects.delete(project.id!)
     navigate('/projects')
   }
@@ -571,11 +574,13 @@ function TaskLinker({ projectId }: { projectId: number }) {
   const handleLink = async (taskId: number) => {
     await db.tasks.update(taskId, { projectId, updatedAt: new Date() })
     toast.success('Task linked to project')
+    logActivity('task_linked', `Task linked to project`, { entityType: 'task', entityId: taskId })
   }
 
   const handleUnlink = async (taskId: number) => {
     await db.tasks.update(taskId, { projectId: undefined, updatedAt: new Date() })
     toast.info('Task unlinked from project')
+    logActivity('task_unlinked', `Task unlinked from project`, { entityType: 'task', entityId: taskId })
   }
 
   const projectTasks = useMemo(() => {

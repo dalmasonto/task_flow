@@ -53,6 +53,40 @@ export interface AppNotification {
   createdAt: Date
 }
 
+export type ActivityAction =
+  | 'task_created'
+  | 'task_deleted'
+  | 'task_status_changed'
+  | 'task_completed'
+  | 'task_partial_done'
+  | 'timer_started'
+  | 'timer_paused'
+  | 'timer_stopped'
+  | 'project_created'
+  | 'project_deleted'
+  | 'project_updated'
+  | 'tasks_bulk_created'
+  | 'settings_saved'
+  | 'data_seeded'
+  | 'data_cleared'
+  | 'task_linked'
+  | 'task_unlinked'
+  | 'dependency_added'
+  | 'dependency_removed'
+  | 'link_added'
+  | 'tag_added'
+  | 'tag_removed'
+
+export interface ActivityLog {
+  id?: number
+  action: ActivityAction
+  title: string
+  detail?: string
+  entityType?: 'task' | 'project' | 'session' | 'system'
+  entityId?: number
+  createdAt: Date
+}
+
 export interface SettingsMap {
   timerBarDisplayMode: 'carousel' | 'expanded'
   notificationInterval: number

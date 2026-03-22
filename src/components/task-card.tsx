@@ -10,6 +10,7 @@ import { useTimer } from '@/hooks/use-timer'
 import { db } from '@/db/database'
 import { playTimerStart, playTimerPause, playTaskDone, playClick, playDelete } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
+import { logActivity } from '@/hooks/use-activity-log'
 import { StatusBadge } from './status-badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -59,9 +60,11 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
       playTaskDone()
       toast.success(`Task completed: ${task.title}`)
       addNotification('Task Completed', task.title, 'success')
+      logActivity('task_completed', `Completed: ${task.title}`, { entityType: 'task', entityId: task.id })
     } else {
       playClick()
       toast(`Status → ${newStatus.replace(/_/g, ' ')}`)
+      logActivity('task_status_changed', `${task.title} → ${newStatus.replace(/_/g, ' ')}`, { entityType: 'task', entityId: task.id })
     }
   }
 
@@ -71,6 +74,7 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
     playDelete()
     toast.success('Task deleted')
     addNotification('Task Deleted', task.title, 'warning')
+    logActivity('task_deleted', `Deleted: ${task.title}`, { entityType: 'task' })
   }
 
   return (

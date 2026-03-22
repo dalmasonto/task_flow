@@ -8,6 +8,7 @@ import { useTasks } from '@/hooks/use-tasks'
 import { seedDatabase } from '@/lib/seed'
 import { playSuccess, playDelete, playClick } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
+import { logActivity } from '@/hooks/use-activity-log'
 import { db } from '@/db/database'
 import {
   AlertDialog,
@@ -76,6 +77,7 @@ export default function Settings() {
     playSuccess()
     toast.success('Configuration committed to core')
     addNotification('Settings Saved', 'Configuration committed to core', 'success')
+    logActivity('settings_saved', 'Configuration committed to core', { entityType: 'system' })
   }
 
   function handleReset() {
@@ -96,8 +98,10 @@ export default function Settings() {
     await db.projects.clear()
     await db.sessions.clear()
     await db.notifications.clear()
+    await db.activityLogs.clear()
     playDelete()
     toast.success('All data cleared')
+    logActivity('data_cleared', 'All data cleared', { entityType: 'system' })
     window.location.href = '/dashboard'
   }
 
@@ -105,6 +109,7 @@ export default function Settings() {
     await seedDatabase()
     playSuccess()
     toast.success('Database seeded with sample data')
+    logActivity('data_seeded', 'Database seeded with sample data', { entityType: 'system' })
     window.location.href = '/dashboard'
   }
 
