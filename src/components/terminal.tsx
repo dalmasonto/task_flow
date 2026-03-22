@@ -24,7 +24,7 @@ const HELP_TEXT = `Available commands:
   task <id>                                       Show task details
 
   create task "<title>" [flags]                   Create a task
-    --project <name>    Assign to project
+    --project <id>      Assign to project (use ID from "projects" command)
     --priority <level>  low|medium|high|critical
     --status <status>   not_started|in_progress|paused|blocked
     --desc "<text>"     Description
@@ -80,6 +80,10 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
   const navigate = useNavigate()
   const tasks = useTasks()
   const projects = useProjects()
+  const tasksRef = useRef(tasks)
+  const projectsRef = useRef(projects)
+  useEffect(() => { tasksRef.current = tasks }, [tasks])
+  useEffect(() => { projectsRef.current = projects }, [projects])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -128,13 +132,13 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
         }
 
         case 'tasks': {
-          if (!tasks?.length) { addLine('info', 'No tasks found'); break }
-          let filtered = [...tasks]
+          if (!tasksRef.current?.length) { addLine('info', 'No tasks found'); break }
+          let filtered = [...tasksRef.current]
           if (flags.status) {
             filtered = filtered.filter(t => t.status === flags.status)
           }
           if (flags.project) {
-            const proj = projects?.find(p => p.name.toLowerCase() === flags.project.toLowerCase() || String(p.id) === flags.project)
+            const proj = projectsRef.current?.find(p => String(p.id) === flags.project || p.name.toLowerCase() === flags.project.toLowerCase())
             if (proj) filtered = filtered.filter(t => t.projectId === proj.id)
             else { addLine('error', `Project "${flags.project}" not found`); break }
           }
@@ -149,11 +153,11 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
         }
 
         case 'projects': {
-          if (!projects?.length) { addLine('info', 'No projects found'); break }
+          if (!projectsRef.current?.length) { addLine('info', 'No projects found'); break }
           const header = `  ${'ID'.padEnd(6)} ${'Type'.padEnd(18)} Name`
           addLine('info', header)
           addLine('info', '  ' + '─'.repeat(50))
-          projects.forEach(p => {
+          projectsRef.current.forEach(p => {
             addLine('output', `  #${String(p.id).padEnd(5)} ${p.type.padEnd(18)} ${p.name}`)
           })
           break
@@ -186,7 +190,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
             const status = (flags.status as TaskStatus) || 'not_started'
             let projectId: number | undefined
             if (flags.project) {
-              const proj = projects?.find(p => p.name.toLowerCase() === flags.project.toLowerCase() || String(p.id) === flags.project)
+              const proj = projectsRef.current?.find(p => String(p.id) === flags.project || p.name.toLowerCase() === flags.project.toLowerCase())
               if (proj) projectId = proj.id
               else { addLine('error', `Project "${flags.project}" not found`); break }
             }
@@ -330,7 +334,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!taskId || !flags.project) { addLine('error', 'Usage: link <task_id> --project <name|id>'); break }
           const t = await db.tasks.get(taskId)
           if (!t) { addLine('error', `Task #${taskId} not found`); break }
-          const proj = projects?.find(p => p.name.toLowerCase() === flags.project.toLowerCase() || String(p.id) === flags.project)
+          const proj = projectsRef.current?.find(p => String(p.id) === flags.project || p.name.toLowerCase() === flags.project.toLowerCase())
           if (!proj) { addLine('error', `Project "${flags.project}" not found`); break }
           await db.tasks.update(taskId, { projectId: proj.id, updatedAt: new Date() })
           logActivity('task_linked', `Linked task #${taskId} to ${proj.name}`, { entityType: 'task', entityId: taskId })
@@ -359,7 +363,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
     }
 
     setInput('')
-  }, [tasks, projects, addLine, navigate, onClose])
+  }, [addLine, navigate, onClose])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -398,8 +402,13 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
 
   return (
     <div
-      className="flex flex-col h-full bg-background font-mono text-sm"
-      onClick={() => inputRef.current?.focus()}
+      className="flex flex-col h-full bg-background font-mono text-sm select-text"
+      onClick={() => {
+        // Only focus input if user isn't selecting text
+        if (!window.getSelection()?.toString()) {
+          inputRef.current?.focus()
+        }
+      }}
     >
       {/* Output */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1">
