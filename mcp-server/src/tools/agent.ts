@@ -42,6 +42,7 @@ export async function getAgentInstructions() {
       'When the user asks "what should I work on?" or seems unsure what to do next, call list_tasks filtered by priority "critical" or "high" and status "not_started" to surface the most important unblocked work.',
       'After completing a task, check if any blocked tasks had a dependency on it and might now be unblocked.',
       'Periodically check list_notifications with unread_only=true and surface important ones to the user.',
+      'Before creating a new task, call list_tasks (or search_tasks) to check if a similar task already exists. Avoid creating duplicates — if a matching task exists, update it or start working on it instead of creating a new one.',
       'When you create new work items (files, features, fixes), create corresponding tasks in TaskFlow to keep the tracker in sync.',
       'Use Markdown in description fields — headings, bullet lists, code blocks, bold/italic. Task and project descriptions render Markdown in the UI, so well-formatted descriptions are more readable for the user.',
     ],
