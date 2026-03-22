@@ -47,6 +47,7 @@ export default function TaskDetail() {
   const [showStopOptions, setShowStopOptions] = useState(false)
   const [linkLabel, setLinkLabel] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
+  const [tagInput, setTagInput] = useState('')
 
   const blockers = allTasks && taskId ? getBlockers(allTasks, taskId) : []
   const dependents = allTasks && taskId ? getDependents(allTasks, taskId) : []
@@ -575,16 +576,18 @@ export default function TaskDetail() {
             <div className="flex gap-2">
               <input
                 type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
                 placeholder="Add tag..."
                 className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-xs py-2 px-2 uppercase tracking-widest placeholder:text-muted-foreground/30 placeholder:text-xs"
                 onKeyDown={async (e) => {
                   if (e.key === 'Enter') {
-                    const val = e.currentTarget.value.trim()
+                    const val = tagInput.trim()
                     if (!val) return
                     const current = task.tags ?? []
                     if (current.includes(val)) return
                     await db.tasks.update(task.id!, { tags: [...current, val], updatedAt: new Date() })
-                    e.currentTarget.value = ''
+                    setTagInput('')
                   }
                 }}
               />

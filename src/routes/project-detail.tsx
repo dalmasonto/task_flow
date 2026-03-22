@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { toast } from 'sonner'
 import { useProject } from '@/hooks/use-projects'
 import { useTasks } from '@/hooks/use-tasks'
 import { useActiveSessions } from '@/hooks/use-sessions'
@@ -392,6 +393,9 @@ export default function ProjectDetail() {
               </Link>
             </div>
 
+            {/* Link existing tasks */}
+            <TaskLinker projectId={projectId!} />
+
             {tasks === undefined ? (
               <div className="space-y-3">
                 {[...Array(3)].map((_, i) => (
@@ -547,6 +551,106 @@ export default function ProjectDetail() {
           </div>
         </aside>
       </div>
+    </div>
+  )
+}
+
+function TaskLinker({ projectId }: { projectId: number }) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const allTasks = useTasks()
+
+  const linkableTasks = useMemo(() => {
+    if (!allTasks) return []
+    return allTasks.filter(t =>
+      t.projectId !== projectId &&
+      t.title.toLowerCase().includes(search.toLowerCase())
+    )
+  }, [allTasks, projectId, search])
+
+  const handleLink = async (taskId: number) => {
+    await db.tasks.update(taskId, { projectId, updatedAt: new Date() })
+    toast.success('Task linked to project')
+  }
+
+  const handleUnlink = async (taskId: number) => {
+    await db.tasks.update(taskId, { projectId: undefined, updatedAt: new Date() })
+    toast.info('Task unlinked from project')
+  }
+
+  const projectTasks = useMemo(() => {
+    if (!allTasks) return []
+    return allTasks.filter(t => t.projectId === projectId)
+  }, [allTasks, projectId])
+
+  return (
+    <div className="mb-6">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-secondary hover:text-secondary/80 transition-colors mb-3"
+      >
+        <span className="material-symbols-outlined text-sm">
+          {open ? 'expand_less' : 'link'}
+        </span>
+        {open ? 'Close Linker' : 'Link Existing Tasks'}
+      </button>
+
+      {open && (
+        <div className="bg-card p-4 border-t border-secondary/20 space-y-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tasks to link..."
+            className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-xs py-2 px-2 uppercase tracking-widest placeholder:text-muted-foreground/30 placeholder:text-xs"
+          />
+
+          {/* Linkable tasks */}
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {linkableTasks.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest text-center py-4">
+                {search ? 'No matching tasks' : 'All tasks are already linked'}
+              </p>
+            ) : (
+              linkableTasks.map(task => (
+                <button
+                  key={task.id}
+                  onClick={() => handleLink(task.id!)}
+                  className="w-full flex items-center justify-between p-2 bg-accent/30 hover:bg-accent transition-colors text-left"
+                >
+                  <span className="text-xs uppercase tracking-tight truncate">{task.title}</span>
+                  <span className="material-symbols-outlined text-sm text-secondary shrink-0">add</span>
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Currently linked — option to unlink */}
+          {projectTasks.length > 0 && (
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2 mt-3">
+                Linked ({projectTasks.length})
+              </p>
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {projectTasks.map(task => (
+                  <div
+                    key={task.id}
+                    className="flex items-center justify-between p-2 bg-accent/30"
+                  >
+                    <span className="text-xs uppercase tracking-tight truncate">{task.title}</span>
+                    <button
+                      onClick={() => handleUnlink(task.id!)}
+                      className="material-symbols-outlined text-sm text-muted-foreground hover:text-destructive shrink-0"
+                    >
+                      link_off
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -52,7 +52,7 @@ export function MarkdownEditor({ value, onChange, placeholder, rows = 5, classNa
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
-          className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-4 px-2 placeholder:text-muted-foreground/30 placeholder:text-sm resize-none"
+          className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-4 px-2 placeholder:text-muted-foreground/30 placeholder:text-sm resize-y"
         />
       )}
     </div>
