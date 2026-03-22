@@ -16,7 +16,7 @@ export interface Task {
   priority: TaskPriority
   projectId?: number
   dependencies: number[]
-  links?: string[]
+  links?: Array<{ label: string; url: string }>
   tags?: string[]
   dueDate?: Date
   estimatedTime?: number

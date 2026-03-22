@@ -42,7 +42,8 @@ export default function TaskDetail() {
   const [editing, setEditing] = useState(false)
   const [description, setDescription] = useState('')
   const [showStopOptions, setShowStopOptions] = useState(false)
-  const [linkInput, setLinkInput] = useState('')
+  const [linkLabel, setLinkLabel] = useState('')
+  const [linkUrl, setLinkUrl] = useState('')
 
   const blockers = allTasks && taskId ? getBlockers(allTasks, taskId) : []
   const dependents = allTasks && taskId ? getDependents(allTasks, taskId) : []
@@ -123,13 +124,22 @@ export default function TaskDetail() {
   }
 
   const handleAddLink = async () => {
-    if (!linkInput.trim()) return
+    if (!linkUrl.trim()) return
     const currentLinks = task.links ?? []
     await db.tasks.update(task.id!, {
-      links: [...currentLinks, linkInput.trim()],
+      links: [...currentLinks, { label: linkLabel.trim() || linkUrl.trim(), url: linkUrl.trim() }],
       updatedAt: new Date(),
     })
-    setLinkInput('')
+    setLinkLabel('')
+    setLinkUrl('')
+  }
+
+  const handleRemoveLink = async (index: number) => {
+    const currentLinks = task.links ?? []
+    await db.tasks.update(task.id!, {
+      links: currentLinks.filter((_, i) => i !== index),
+      updatedAt: new Date(),
+    })
   }
 
   const formatDate = (date?: Date) => {
@@ -415,21 +425,41 @@ export default function TaskDetail() {
             </div>
             <div className="space-y-2">
               {task.links?.map((link, i) => (
-                <a
-                  key={i}
-                  href={link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-sm text-secondary hover:text-secondary/80 underline truncate"
-                >
-                  {link}
-                </a>
+                <div key={i} className="flex items-center gap-3 p-2 bg-accent/30 group">
+                  <span className="material-symbols-outlined text-sm text-muted-foreground">link</span>
+                  <div className="flex-1 min-w-0">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-secondary hover:text-secondary/80 underline truncate block"
+                    >
+                      {link.label}
+                    </a>
+                    {link.label !== link.url && (
+                      <span className="text-[10px] text-muted-foreground truncate block">{link.url}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleRemoveLink(i)}
+                    className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                  >
+                    <span className="material-symbols-outlined text-sm">close</span>
+                  </button>
+                </div>
               ))}
               <div className="flex gap-2 mt-3">
                 <input
+                  type="text"
+                  value={linkLabel}
+                  onChange={(e) => setLinkLabel(e.target.value)}
+                  placeholder="Label..."
+                  className="w-32 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-xs py-2 px-2 placeholder:text-muted-foreground/30 placeholder:text-xs"
+                />
+                <input
                   type="url"
-                  value={linkInput}
-                  onChange={(e) => setLinkInput(e.target.value)}
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
                   placeholder="https://..."
                   className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 placeholder:text-muted-foreground/30 placeholder:text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && handleAddLink()}
