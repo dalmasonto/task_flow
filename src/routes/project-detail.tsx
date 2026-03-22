@@ -191,7 +191,7 @@ export default function ProjectDetail() {
             type="text"
             value={editName}
             onChange={e => setEditName(e.target.value)}
-            className="w-full bg-transparent border-0 border-b border-border text-4xl font-bold tracking-tighter uppercase placeholder:text-muted-foreground/40 focus:border-secondary focus:ring-0 focus:outline-none py-2 transition-colors"
+            className="w-full bg-transparent border-0 border-b border-border text-4xl font-bold tracking-tighter uppercase placeholder:text-muted-foreground/40 placeholder:text-4xl focus:border-secondary focus:ring-0 focus:outline-none py-2 px-2 transition-colors"
             placeholder="Project name..."
             autoFocus
           />

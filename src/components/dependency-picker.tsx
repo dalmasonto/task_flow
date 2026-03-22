@@ -61,7 +61,7 @@ export function DependencyPicker({ selectedIds, onChange, excludeTaskId }: Depen
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="FILTER_TASKS..."
-        className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-[10px] uppercase tracking-widest py-2 px-0 mb-4 placeholder:text-muted-foreground/30"
+        className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-[10px] uppercase tracking-widest py-2 px-2 mb-4 placeholder:text-muted-foreground/30 placeholder:text-[10px]"
       />
 
       {/* Task list */}

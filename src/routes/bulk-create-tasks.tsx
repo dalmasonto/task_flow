@@ -74,7 +74,7 @@ export default function BulkCreateTasks() {
             onChange={(e) => setLines(e.target.value)}
             placeholder={"Set up database schema\nDesign landing page\nWrite API endpoints\nConfigure CI/CD pipeline"}
             rows={10}
-            className="w-full bg-input border-0 border-b-2 border-border focus:border-secondary focus:ring-0 text-sm py-4 px-0 placeholder:text-muted-foreground/20 resize-none font-mono"
+            className="w-full bg-input border-0 border-b-2 border-border focus:border-secondary focus:ring-0 text-sm py-4 px-2 placeholder:text-muted-foreground/20 placeholder:text-sm resize-none font-mono"
           />
           <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
             {taskTitles.length} task{taskTitles.length !== 1 ? 's' : ''} detected

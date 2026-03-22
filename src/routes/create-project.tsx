@@ -73,7 +73,7 @@ export default function CreateProject() {
               placeholder="Enter project designation..."
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-transparent border-0 border-b border-border text-2xl font-bold tracking-tight placeholder:text-muted-foreground/40 focus:border-secondary focus:ring-0 focus:outline-none py-3 transition-colors"
+              className="w-full bg-transparent border-0 border-b border-border text-2xl font-bold tracking-tight placeholder:text-muted-foreground/40 placeholder:text-2xl placeholder:font-bold focus:border-secondary focus:ring-0 focus:outline-none py-3 px-2 transition-colors"
               required
             />
           </div>
@@ -88,7 +88,7 @@ export default function CreateProject() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full bg-transparent border-0 border-b border-border text-sm placeholder:text-muted-foreground/40 focus:border-secondary focus:ring-0 focus:outline-none py-3 resize-none transition-colors"
+              className="w-full bg-transparent border-0 border-b border-border text-sm placeholder:text-muted-foreground/40 placeholder:text-sm focus:border-secondary focus:ring-0 focus:outline-none py-3 px-2 resize-none transition-colors"
             />
           </div>
 

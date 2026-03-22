@@ -110,7 +110,7 @@ export default function CreateTask() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="ENTER_TASK_NAME..."
-              className="w-full bg-input border-0 border-b-2 border-border focus:border-secondary focus:ring-0 text-xl font-headline tracking-tight py-4 px-0 placeholder:text-muted-foreground/20"
+              className="w-full bg-input border-0 border-b-2 border-border focus:border-secondary focus:ring-0 text-xl font-headline tracking-tight py-4 px-2 placeholder:text-muted-foreground/20 placeholder:text-xl"
             />
           </div>
 

@@ -90,7 +90,7 @@ export default function Settings() {
                   type="text"
                   value={operatorName}
                   onChange={(e) => setOperatorName(e.target.value)}
-                  className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 uppercase tracking-widest"
+                  className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 uppercase tracking-widest"
                 />
               </div>
               <div className="space-y-2">
@@ -101,7 +101,7 @@ export default function Settings() {
                   type="text"
                   value={systemName}
                   onChange={(e) => setSystemName(e.target.value)}
-                  className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 uppercase tracking-widest"
+                  className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 uppercase tracking-widest"
                 />
               </div>
             </div>

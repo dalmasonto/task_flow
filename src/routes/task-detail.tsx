@@ -283,7 +283,7 @@ export default function TaskDetail() {
                   value={linkInput}
                   onChange={(e) => setLinkInput(e.target.value)}
                   placeholder="https://..."
-                  className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 placeholder:text-muted-foreground/30"
+                  className="flex-1 bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 placeholder:text-muted-foreground/30 placeholder:text-sm"
                   onKeyDown={(e) => e.key === 'Enter' && handleAddLink()}
                 />
                 <button
