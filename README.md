@@ -137,7 +137,31 @@ See [`mcp-server/README.md`](mcp-server/README.md) for the full agent integratio
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `TASKFLOW_DB_PATH` | `~/.taskflow/taskflow.db` | SQLite database location |
-| `TASKFLOW_SSE_PORT` | `3456` | SSE broadcast server port |
+| `TASKFLOW_SSE_PORT` | `3456` | SSE broadcast server port (env var) |
+| `--port <number>` | `3456` | SSE port (CLI arg, takes priority over env var) |
+| `--http-only` | — | Run HTTP/SSE server only, no MCP stdio transport |
+
+The server port can also be changed from the **Settings** page in the UI (requires restart).
+
+#### Live Sync (SSE)
+
+The MCP server broadcasts changes via Server-Sent Events on `http://0.0.0.0:<port>/events`. The Tauri app connects automatically and mirrors all changes into the UI in real-time.
+
+Available HTTP endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/events` | GET | SSE event stream |
+| `/sync` | GET | Full data dump (tasks, projects, sessions, settings) |
+| `/api/tasks` | POST | Create a task |
+| `/api/tasks/:id` | PATCH | Update a task |
+| `/api/tasks/:id` | DELETE | Delete a task |
+| `/api/projects/:id` | PATCH | Update a project |
+| `/api/projects/:id` | DELETE | Delete a project |
+| `/api/sessions` | POST | Create a timer session |
+| `/api/sessions/:id` | PATCH | Update a session |
+| `/api/clear-data` | POST | Delete all data |
+| `/api/broadcast` | POST | Relay an SSE event |
 
 ## Terminal Commands
 
