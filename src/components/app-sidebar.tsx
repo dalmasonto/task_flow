@@ -12,6 +12,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
+import { useSetting } from "@/hooks/use-settings"
 
 const navItems = [
   { label: "Terminal", to: "/dashboard", icon: "terminal" },
@@ -30,12 +31,13 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
       <SidebarMenuButton asChild>
         <NavLink
           to={to}
-          className={`flex items-center gap-4 py-3 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
+          className={`flex items-center gap-4 py-4 px-3 uppercase text-sm tracking-widest font-headline transition-all duration-200 border-l-2 ${
             match
               ? "text-secondary border-secondary"
               : "text-gray-500 border-transparent hover:text-secondary/80"
           }`}
         >
+
           <span className="material-symbols-outlined text-lg">{icon}</span>
           <span>{label}</span>
         </NavLink>
@@ -45,14 +47,17 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const operatorName = useSetting('operatorName')
+  const systemName = useSetting('systemName')
+
   return (
     <Sidebar variant="sidebar" {...props}>
       <SidebarHeader className="px-4 pt-6 pb-2">
         <p className="text-xs uppercase tracking-widest text-on-surface-variant">
-          Operator-01
+          {operatorName}
         </p>
         <p className="text-xl font-extrabold tracking-tighter italic text-primary font-headline">
-          TASKFLOW_OS
+          {systemName}
         </p>
         <p className="text-[10px] uppercase tracking-widest text-on-surface-variant">
           V2.0.4

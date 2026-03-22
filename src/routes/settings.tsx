@@ -18,17 +18,23 @@ export default function Settings() {
   const savedGlow = useSetting('glowIntensity')
   const savedBlur = useSetting('backdropBlur')
   const savedSpread = useSetting('shadowSpread')
+  const savedOperatorName = useSetting('operatorName')
+  const savedSystemName = useSetting('systemName')
 
   const [colors, setColors] = useState<Record<TaskStatus, string>>(savedColors)
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
   const [backdropBlur, setBackdropBlur] = useState(savedBlur)
   const [shadowSpread, setShadowSpread] = useState(savedSpread)
+  const [operatorName, setOperatorName] = useState(savedOperatorName)
+  const [systemName, setSystemName] = useState(savedSystemName)
 
   // Sync local state when saved values load from DB
   useEffect(() => { setColors(savedColors) }, [savedColors])
   useEffect(() => { setGlowIntensity(savedGlow) }, [savedGlow])
   useEffect(() => { setBackdropBlur(savedBlur) }, [savedBlur])
   useEffect(() => { setShadowSpread(savedSpread) }, [savedSpread])
+  useEffect(() => { setOperatorName(savedOperatorName) }, [savedOperatorName])
+  useEffect(() => { setSystemName(savedSystemName) }, [savedSystemName])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -39,6 +45,8 @@ export default function Settings() {
     await updateSetting('glowIntensity', glowIntensity)
     await updateSetting('backdropBlur', backdropBlur)
     await updateSetting('shadowSpread', shadowSpread)
+    await updateSetting('operatorName', operatorName)
+    await updateSetting('systemName', systemName)
   }
 
   function handleReset() {
@@ -46,6 +54,8 @@ export default function Settings() {
     setGlowIntensity(DEFAULT_SETTINGS.glowIntensity)
     setBackdropBlur(DEFAULT_SETTINGS.backdropBlur)
     setShadowSpread(DEFAULT_SETTINGS.shadowSpread)
+    setOperatorName(DEFAULT_SETTINGS.operatorName)
+    setSystemName(DEFAULT_SETTINGS.systemName)
   }
 
   const previewColor = colors['in_progress']
@@ -66,6 +76,37 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Settings */}
         <div className="lg:col-span-7 space-y-8">
+          {/* System Identity */}
+          <section className="bg-accent/30 p-8 border-t border-secondary/20">
+            <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-secondary" /> SYSTEM IDENTITY
+            </h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                  Operator_Name
+                </label>
+                <input
+                  type="text"
+                  value={operatorName}
+                  onChange={(e) => setOperatorName(e.target.value)}
+                  className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 uppercase tracking-widest"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                  System_Designation
+                </label>
+                <input
+                  type="text"
+                  value={systemName}
+                  onChange={(e) => setSystemName(e.target.value)}
+                  className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-0 uppercase tracking-widest"
+                />
+              </div>
+            </div>
+          </section>
+
           {/* Status Color Channels */}
           <section className="bg-accent/30 p-8 border-t border-primary/20">
             <h3 className="font-bold text-lg mb-6 flex items-center gap-2">

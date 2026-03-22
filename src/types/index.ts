@@ -49,6 +49,8 @@ export interface SettingsMap {
   glowIntensity: number
   backdropBlur: number
   shadowSpread: number
+  operatorName: string
+  systemName: string
 }
 
 export interface Setting {

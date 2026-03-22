@@ -18,4 +18,6 @@ export const DEFAULT_SETTINGS = {
   glowIntensity: 84,
   backdropBlur: 24,
   shadowSpread: 12,
+  operatorName: 'Operator-01',
+  systemName: 'TASKFLOW_OS',
 }
