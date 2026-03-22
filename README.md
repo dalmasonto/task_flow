@@ -1,75 +1,77 @@
-# React + TypeScript + Vite
+# TaskFlow
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A local-first task execution system built for developers who want to track what they're working on, how long it takes, and how tasks relate to each other — all without leaving the browser.
 
-Currently, two official plugins are available:
+Data stays on your machine via IndexedDB. No accounts, no servers, no sync.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- **Task Management** — Create, prioritize, and track tasks through a full status lifecycle (not started, in progress, paused, blocked, partial done, done)
+- **Timer Sessions** — Start/pause/stop timers on tasks with multiple concurrent sessions supported
+- **Projects** — Group tasks under color-coded projects (active projects and project ideas)
+- **Dependency Graph** — Visual DAG of task dependencies using ReactFlow + Dagre layout with cycle detection
+- **Terminal Interface** — xterm.js-powered command terminal with autocomplete, history, and clickable nav links (Ctrl+K or backtick to open)
+- **Analytics** — Daily activity heatmap, focus by day of week, status distribution, time per project, deep work ratio, burndown charts
+- **Execution Timeline** — Weekly/monthly session breakdown
+- **Activity Pulse** — Real-time audit log of every action taken in the app
+- **Bulk Task Creation** — Line-by-line batch import
+- **Desktop Notifications** — In-app notification center with configurable alerts
+- **Archive** — View completed tasks and reopen them
+- **Search** — Global search across tasks and projects from the header
+- **Dark/Light Theme** — Persisted toggle with no-flash restore
+- **Markdown Descriptions** — Full markdown support for task and project descriptions
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+## Tech Stack
 
-Note: This will impact Vite dev & build performances.
+- **React 19** + TypeScript
+- **Vite 8** with React Compiler
+- **Dexie.js** — Reactive IndexedDB wrapper (no Redux/Zustand)
+- **shadcn/ui** + Tailwind CSS 4 — "Neon Flux" dark theme, Space Grotesk font
+- **Recharts** — Analytics charts
+- **@xyflow/react** + Dagre — Dependency graph visualization
+- **xterm.js** — Terminal emulator
+- **react-markdown** + remark-gfm — Markdown rendering
+- **Sonner** — Toast notifications
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+```bash
+# Install dependencies
+npm install
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+# Start dev server
+npm run dev
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+# Build for production
+npm run build
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Preview production build
+npm run preview
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Terminal Commands
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Open with `Ctrl+K` or backtick `` ` ``.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+| Command | Description |
+|---------|-------------|
+| `tasks [--status <s>] [--project <id>]` | List tasks |
+| `projects` | List projects |
+| `task <id>` | Show task details |
+| `project <id>` | Show project details |
+| `create task "title" [--project id] [--priority level]` | Create a task |
+| `create project "name" [--color #hex] [--type active_project\|project_idea]` | Create a project |
+| `start <id>` | Start timer on task |
+| `pause <id>` | Pause timer |
+| `stop <id> [--done\|--partial]` | Stop timer and set status |
+| `status <id> <new_status>` | Change task status |
+| `delete task\|project <id>` | Delete entity |
+| `link <task_id> --project <id>` | Link task to project |
+| `unlink <task_id>` | Unlink from project |
+| `nav <path>` | Navigate to a page |
+| `clear` | Clear terminal |
+| `help` | Show all commands |
+
+## License
+
+MIT
