@@ -1,5 +1,5 @@
 {
-  "name": "taskflow-mcp",
+  "name": "@dalmasonto/taskflow-mcp",
   "version": "1.0.0",
   "description": "MCP server for TaskFlow — manage projects, tasks, timers, analytics via AI agents",
   "type": "module",

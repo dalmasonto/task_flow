@@ -71,7 +71,7 @@ The MCP server exposes TaskFlow as 28 tools for AI agents via the [Model Context
 #### Option A: Install from npm (recommended)
 
 ```bash
-npm install -g taskflow-mcp
+npm install -g @dalmasonto/taskflow-mcp
 ```
 
 Then register in your `.mcp.json`:
