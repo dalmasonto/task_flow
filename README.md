@@ -52,17 +52,71 @@ npm run preview
 
 ### Desktop App (Tauri)
 
-Requires [Rust](https://rustup.rs/) installed.
+#### Prerequisites
+
+- [Rust](https://rustup.rs/) — install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- [Node.js](https://nodejs.org/) >= 18
+- System dependencies (Linux): `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
+- TaskFlow MCP server (for live sync): `npm install -g @dalmasonto/taskflow-mcp`
+
+#### Development
 
 ```bash
-# Development — opens native window with hot reload
 npm run tauri:dev
+```
 
-# Production build — generates installable binary
+Opens a native window with hot reload. The first run compiles Rust dependencies and takes a few minutes — subsequent runs are fast.
+
+#### Production Build
+
+```bash
 npm run tauri:build
 ```
 
-The first run compiles Rust dependencies and takes a few minutes. Subsequent runs are fast.
+Build artifacts are generated at:
+
+| Format | Path |
+|--------|------|
+| `.deb` (Debian/Ubuntu) | `src-tauri/target/release/bundle/deb/TaskFlow_1.0.0_amd64.deb` |
+| `.rpm` (Fedora/RHEL) | `src-tauri/target/release/bundle/rpm/TaskFlow-1.0.0-1.x86_64.rpm` |
+| `.AppImage` (portable) | `src-tauri/target/release/bundle/appimage/TaskFlow_1.0.0_amd64.AppImage` |
+
+#### Install
+
+**Debian/Ubuntu:**
+```bash
+sudo dpkg -i src-tauri/target/release/bundle/deb/TaskFlow_1.0.0_amd64.deb
+```
+
+**Fedora/RHEL:**
+```bash
+sudo rpm -i src-tauri/target/release/bundle/rpm/TaskFlow-1.0.0-1.x86_64.rpm
+```
+
+**AppImage (no install needed):**
+```bash
+chmod +x src-tauri/target/release/bundle/appimage/TaskFlow_1.0.0_amd64.AppImage
+./TaskFlow_1.0.0_amd64.AppImage
+```
+
+#### Update
+
+Rebuild and reinstall over the existing version:
+
+```bash
+npm run tauri:build
+sudo dpkg -i src-tauri/target/release/bundle/deb/TaskFlow_1.0.0_amd64.deb
+```
+
+#### Uninstall
+
+```bash
+# Debian/Ubuntu
+sudo dpkg -r task-flow
+
+# Fedora/RHEL
+sudo rpm -e TaskFlow
+```
 
 ### MCP Server (AI Agent Tools)
 
