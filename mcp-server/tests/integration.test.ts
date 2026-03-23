@@ -34,7 +34,7 @@ describe('Integration: Server Entry Point', () => {
     const registeredTools = (server as any)._registeredTools as Record<string, unknown>;
     const toolNames = Object.keys(registeredTools);
 
-    expect(toolNames.length).toBe(27);
+    expect(toolNames.length).toBe(29);
 
     // Spot-check a tool from each module
     expect(toolNames).toContain('create_task');
