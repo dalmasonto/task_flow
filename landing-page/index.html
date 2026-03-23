@@ -868,43 +868,42 @@
                     class="p-4 text-xs font-mono text-neutral-300 overflow-x-auto whitespace-nowrap"
                   >
                     <span class="text-neutral-500">
-                      # When Claude Code prompts for MCP tool access,
-                    </span>
-                    <br />
-                    <span class="text-neutral-500">
-                      # select "Allow all" for taskflow tools.
-                    </span>
-                    <br />
-                    <span class="text-neutral-500">
-                      # Or add to ~/.claude/settings.json:
+                      // ~/.claude/settings.json
                     </span>
                     <br /><br />
+                    {
+                    <br />
+                    &nbsp;&nbsp;
                     <span class="text-blue-400">"permissions"</span>
                     : {
                     <br />
-                    &nbsp;&nbsp;
+                    &nbsp;&nbsp;&nbsp;&nbsp;
                     <span class="text-blue-400">"allow"</span>
                     : [
                     <br />
-                    &nbsp;&nbsp;&nbsp;&nbsp;
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
                     <span class="text-green-400">"mcp__taskflow__*"</span>
                     <br />
-                    &nbsp;&nbsp;]
+                    &nbsp;&nbsp;&nbsp;&nbsp;]
                     <br />
-                    },
+                    &nbsp;&nbsp;},
                     <br />
+                    &nbsp;&nbsp;
                     <span class="text-blue-400">"enableAllProjectMcpServers"</span>
                     :
                     <span class="text-orange-300">true</span>
                     ,
                     <br />
+                    &nbsp;&nbsp;
                     <span class="text-blue-400">"enabledMcpjsonServers"</span>
                     : [
                     <br />
-                    &nbsp;&nbsp;
+                    &nbsp;&nbsp;&nbsp;&nbsp;
                     <span class="text-green-400">"taskflow"</span>
                     <br />
-                    ]
+                    &nbsp;&nbsp;]
+                    <br />
+                    }
                   </div>
                 </div>
               </div>
