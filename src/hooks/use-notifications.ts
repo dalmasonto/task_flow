@@ -6,6 +6,26 @@ import { addNotification } from './use-app-notifications'
 import { useActiveSessions } from './use-sessions'
 import { useSetting } from './use-settings'
 
+const isTauri = '__TAURI_INTERNALS__' in window || '__TAURI__' in window
+
+async function sendDesktopNotification(title: string, body: string) {
+  if (isTauri) {
+    try {
+      const { sendNotification, isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
+      let permitted = await isPermissionGranted()
+      if (!permitted) {
+        const result = await requestPermission()
+        permitted = result === 'granted'
+      }
+      if (permitted) sendNotification({ title, body })
+    } catch {
+      // Plugin not available — skip
+    }
+  } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '/favicon.ico' })
+  }
+}
+
 export function useNotifications() {
   const activeSessions = useActiveSessions()
   const interval = useSetting('notificationInterval')
@@ -50,12 +70,9 @@ export function useNotifications() {
         addNotification('Task Reminder', message, 'info')
         playNotification()
 
-        // Browser notification only if enabled (read from ref for latest value)
-        if (browserEnabledRef.current && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          new Notification('TaskFlow', {
-            body: message,
-            icon: '/favicon.ico',
-          })
+        // Desktop/browser notification if enabled
+        if (browserEnabledRef.current) {
+          sendDesktopNotification('TaskFlow', message)
         }
       }
     }
