@@ -351,6 +351,17 @@ export async function updateTaskStatus(params: { id: number; status: string }) {
 
   const ts = now();
 
+  // Auto-start a timer session when entering in_progress
+  if (params.status === 'in_progress') {
+    const existingOpen = db.prepare('SELECT id FROM sessions WHERE task_id = ? AND end IS NULL').get(params.id);
+    if (!existingOpen) {
+      const result = db.prepare('INSERT INTO sessions (task_id, start, end) VALUES (?, ?, ?)').run(params.id, ts, null);
+      const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(result.lastInsertRowid);
+      logActivity('timer_started', row.title, { entityType: 'task', entityId: params.id });
+      broadcastChange('timer', 'timer_started', { task_id: params.id, session, task_status: 'in_progress' });
+    }
+  }
+
   // Auto-close any active timer session when leaving an active state
   const terminalStatuses = ['done', 'partial_done', 'blocked', 'paused'];
   if (terminalStatuses.includes(params.status)) {
