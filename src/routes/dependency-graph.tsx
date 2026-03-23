@@ -21,29 +21,40 @@ import { MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from 'dagre'
 import { useTasks } from '@/hooks/use-tasks'
+import { useProjects } from '@/hooks/use-projects'
 import { useActiveSessions, useSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
 import { getStatusColor, getStatusLabel, getDisplayStatus } from '@/lib/status'
 import { getBlockers } from '@/lib/dag'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
-import type { Task, TaskStatus } from '@/types'
+import { useTaskActivityLog } from '@/hooks/use-activity-log'
+import type { Task, TaskStatus, Project } from '@/types'
 
 // ---------- Dagre layout ----------
+
+const NODE_SIZES: Record<string, { width: number; height: number }> = {
+  taskNode: { width: 220, height: 120 },
+  projectNode: { width: 200, height: 80 },
+}
 
 function getLayoutedElements(nodes: Node[], edges: Edge[]) {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 150 })
+  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 200, marginx: 40, marginy: 40 })
 
-  nodes.forEach((node) => g.setNode(node.id, { width: 220, height: 120 }))
+  nodes.forEach((node) => {
+    const size = NODE_SIZES[node.type ?? 'taskNode'] ?? NODE_SIZES.taskNode
+    g.setNode(node.id, { ...size })
+  })
   edges.forEach((edge) => g.setEdge(edge.source, edge.target))
 
   dagre.layout(g)
 
   const layoutedNodes = nodes.map((node) => {
     const pos = g.node(node.id)
-    return { ...node, position: { x: pos.x - 110, y: pos.y - 60 } }
+    const size = NODE_SIZES[node.type ?? 'taskNode'] ?? NODE_SIZES.taskNode
+    return { ...node, position: { x: pos.x - size.width / 2, y: pos.y - size.height / 2 } }
   })
 
   return { nodes: layoutedNodes, edges }
@@ -74,11 +85,13 @@ type TaskNodeData = {
   task: Task
   allTasks: Task[]
   selected: boolean
+  projectColor?: string
 }
 
 function TaskNode({ data, id }: NodeProps<Node<TaskNodeData>>) {
   const task = data.task as Task
   const allTasks = data.allTasks as Task[]
+  const projectColor = data.projectColor as string | undefined
   const display = getDisplayStatus(task, allTasks)
   const statusColor = display.label === 'Unblocked' ? '#69fd5d' : getStatusColor(task.status)
   const progress = getProgress(task.status)
@@ -86,7 +99,7 @@ function TaskNode({ data, id }: NodeProps<Node<TaskNodeData>>) {
   return (
     <div
       className="group bg-card/90 backdrop-blur-sm border border-muted-foreground/20 w-[220px] h-[120px] relative transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50"
-      style={{ borderLeft: `3px solid ${statusColor}` }}
+      style={{ borderLeft: `3px solid ${statusColor}`, borderTop: projectColor ? `2px solid ${projectColor}` : undefined }}
     >
       <Handle
         type="target"
@@ -135,8 +148,55 @@ function TaskNode({ data, id }: NodeProps<Node<TaskNodeData>>) {
   )
 }
 
+// ---------- Project Node ----------
+
+type ProjectNodeData = {
+  name: string
+  color: string
+  taskCount: number
+}
+
+function ProjectNode({ data, id }: NodeProps<Node<ProjectNodeData>>) {
+  const name = data.name as string
+  const color = data.color as string
+  const taskCount = data.taskCount as number
+  const isUnassigned = id === `proj-${UNASSIGNED_KEY}`
+
+  return (
+    <div
+      className="bg-card/90 backdrop-blur-sm border-2 w-[200px] h-[80px] relative transition-all duration-200 hover:-translate-y-0.5"
+      style={{ borderColor: color, boxShadow: `0 0 12px ${color}30` }}
+    >
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!w-2 !h-2 !border-none"
+        style={{ backgroundColor: color }}
+      />
+
+      <div className="p-3 h-full flex flex-col justify-between">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-sm" style={{ color }}>{isUnassigned ? 'folder_off' : 'folder'}</span>
+          <span className="text-xs font-bold uppercase tracking-tight leading-tight line-clamp-1">
+            {name}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color }}>
+            Project
+          </span>
+          <span className="text-[8px] text-muted-foreground">
+            {taskCount} task{taskCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const nodeTypes: NodeTypes = {
   taskNode: TaskNode,
+  projectNode: ProjectNode,
 }
 
 // ---------- All statuses for legend ----------
@@ -164,6 +224,7 @@ function TaskDetailPanel({
   onClose: () => void
 }) {
   const sessions = useSessions(task.id)
+  const taskLogs = useTaskActivityLog(task.id)
   const activeSessions = useActiveSessions()
   const hasActiveSession = activeSessions?.some(s => s.taskId === task.id) ?? false
   const { startTask, pauseTask } = useTimer(hasActiveSession)
@@ -339,6 +400,47 @@ function TaskDetailPanel({
           </div>
         )}
 
+        {/* Activity Log */}
+        {taskLogs && taskLogs.length > 0 && (
+          <div>
+            <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-2">
+              Activity Log ({taskLogs.length})
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {taskLogs.map((log, i) => {
+                const iconMap: Record<string, { icon: string; color: string }> = {
+                  debug_log: { icon: 'bug_report', color: '#ffeb3b' },
+                  timer_started: { icon: 'play_circle', color: '#00fbfb' },
+                  timer_paused: { icon: 'pause_circle', color: '#de8eff' },
+                  timer_stopped: { icon: 'stop_circle', color: '#ff6e84' },
+                  task_completed: { icon: 'task_alt', color: '#69fd5d' },
+                  task_status_changed: { icon: 'sync', color: '#00fbfb' },
+                  task_created: { icon: 'add_task', color: '#69fd5d' },
+                }
+                const config = iconMap[log.action] ?? { icon: 'info', color: '#484847' }
+                const time = new Date(log.createdAt).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+
+                return (
+                  <div key={log.id ?? i} className="flex items-start gap-2 text-xs p-2 bg-accent/30">
+                    <span className="material-symbols-outlined text-xs mt-0.5" style={{ color: config.color }}>{config.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="uppercase tracking-tight truncate text-[10px] font-bold">{log.title}</span>
+                        <span className="text-[9px] text-muted-foreground font-mono shrink-0 ml-1">{time}</span>
+                      </div>
+                      {log.detail && (
+                        <div className="text-muted-foreground mt-0.5">
+                          <MarkdownRenderer content={log.detail} compact />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Edit Button */}
         <Link
           to={`/tasks/${task.id}`}
@@ -390,11 +492,62 @@ function TaskDetailPanel({
 
 // ---------- Main Component ----------
 
+const UNASSIGNED_KEY = 'unassigned'
+const UNASSIGNED_COLOR = '#484847'
+
 export default function DependencyGraph() {
   const tasks = useTasks()
+  const projects = useProjects()
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+  const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null) // null = all
 
-  // Build nodes & edges from tasks
+  // Derive filter options from data
+  const filterOptions = useMemo(() => {
+    if (!tasks || tasks.length === 0) return []
+    const opts: { key: string; label: string; color: string; count: number }[] = []
+    const projectTaskCounts = new Map<number, number>()
+    let unassignedCount = 0
+    for (const t of tasks) {
+      if (t.id === undefined) continue
+      if (t.projectId !== undefined) {
+        projectTaskCounts.set(t.projectId, (projectTaskCounts.get(t.projectId) ?? 0) + 1)
+      } else {
+        unassignedCount++
+      }
+    }
+    for (const p of projects ?? []) {
+      const count = projectTaskCounts.get(p.id!) ?? 0
+      if (count > 0) opts.push({ key: String(p.id), label: p.name, color: p.color, count })
+    }
+    if (unassignedCount > 0) {
+      opts.push({ key: UNASSIGNED_KEY, label: 'Unassigned', color: UNASSIGNED_COLOR, count: unassignedCount })
+    }
+    return opts
+  }, [tasks, projects])
+
+  const toggleFilter = useCallback((key: string) => {
+    setActiveFilters((prev) => {
+      if (prev === null) {
+        // Currently showing all — switch to only this one
+        return new Set([key])
+      }
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+        // If nothing selected, go back to "all"
+        if (next.size === 0) return null
+      } else {
+        next.add(key)
+        // If all selected, go back to null (show all)
+        if (next.size === filterOptions.length) return null
+      }
+      return next
+    })
+  }, [filterOptions.length])
+
+  const showAll = activeFilters === null
+
+  // Build nodes & edges from tasks + projects
   const { initialNodes, initialEdges, taskMap } = useMemo(() => {
     if (!tasks || tasks.length === 0) {
       return { initialNodes: [], initialEdges: [], taskMap: new Map<number, Task>() }
@@ -405,20 +558,111 @@ export default function DependencyGraph() {
       if (t.id !== undefined) tMap.set(t.id, t)
     }
 
-    const nodes: Node[] = tasks
-      .filter((t) => t.id !== undefined)
-      .map((t) => ({
+    // Determine which tasks pass the filter
+    const isTaskVisible = (t: Task) => {
+      if (showAll) return true
+      if (t.projectId !== undefined) return activeFilters!.has(String(t.projectId))
+      return activeFilters!.has(UNASSIGNED_KEY)
+    }
+
+    const visibleTasks = tasks.filter(t => t.id !== undefined && isTaskVisible(t))
+    const visibleTaskIds = new Set(visibleTasks.map(t => t.id!))
+
+    // Group visible tasks by projectId
+    const tasksByProject = new Map<number, Task[]>()
+    const unassignedTasks: Task[] = []
+    for (const t of visibleTasks) {
+      if (t.projectId !== undefined) {
+        if (!tasksByProject.has(t.projectId)) tasksByProject.set(t.projectId, [])
+        tasksByProject.get(t.projectId)!.push(t)
+      } else {
+        unassignedTasks.push(t)
+      }
+    }
+
+    const pMap = new Map<number, Project>()
+    for (const p of projects ?? []) {
+      if (p.id !== undefined && tasksByProject.has(p.id)) pMap.set(p.id, p)
+    }
+
+    // Project nodes
+    const projectNodes: Node[] = [...pMap.values()].map((p) => ({
+      id: `proj-${p.id}`,
+      type: 'projectNode',
+      position: { x: 0, y: 0 },
+      data: { name: p.name, color: p.color, taskCount: tasksByProject.get(p.id!)!.length },
+    }))
+
+    // Unassigned group node
+    if (unassignedTasks.length > 0) {
+      projectNodes.push({
+        id: `proj-${UNASSIGNED_KEY}`,
+        type: 'projectNode',
+        position: { x: 0, y: 0 },
+        data: { name: 'Unassigned', color: UNASSIGNED_COLOR, taskCount: unassignedTasks.length } as any,
+      })
+    }
+
+    // Task nodes
+    const taskNodes: Node[] = visibleTasks.map((t) => {
+      const proj = t.projectId !== undefined ? pMap.get(t.projectId) : undefined
+      return {
         id: String(t.id),
         type: 'taskNode',
         position: { x: 0, y: 0 },
-        data: { task: t, allTasks: tasks, selected: false },
-      }))
+        data: { task: t, allTasks: tasks, selected: false, projectColor: proj?.color ?? (t.projectId === undefined ? UNASSIGNED_COLOR : undefined) },
+      }
+    })
+
+    const nodes: Node[] = [...projectNodes, ...taskNodes]
 
     const edges: Edge[] = []
-    for (const t of tasks) {
+
+    // Project → root task edges (only tasks with no parent in the same project)
+    for (const [projectId, projectTasks] of tasksByProject) {
+      const project = pMap.get(projectId)
+      if (!project) continue
+      const projectTaskIds = new Set(projectTasks.map(t => t.id!))
+      for (const t of projectTasks) {
+        const hasParentInProject = t.dependencies.some(depId => projectTaskIds.has(depId))
+        if (hasParentInProject) continue
+        edges.push({
+          id: `proj-${projectId}-t-${t.id}`,
+          source: `proj-${projectId}`,
+          target: String(t.id),
+          style: { stroke: project.color, strokeWidth: 1.5, strokeDasharray: '6 3' },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: project.color,
+          },
+        })
+      }
+    }
+
+    // Unassigned → root task edges
+    if (unassignedTasks.length > 0) {
+      const unassignedTaskIds = new Set(unassignedTasks.map(t => t.id!))
+      for (const t of unassignedTasks) {
+        const hasParentInGroup = t.dependencies.some(depId => unassignedTaskIds.has(depId))
+        if (hasParentInGroup) continue
+        edges.push({
+          id: `proj-${UNASSIGNED_KEY}-t-${t.id}`,
+          source: `proj-${UNASSIGNED_KEY}`,
+          target: String(t.id),
+          style: { stroke: UNASSIGNED_COLOR, strokeWidth: 1.5, strokeDasharray: '6 3' },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: UNASSIGNED_COLOR,
+          },
+        })
+      }
+    }
+
+    // Task → task dependency edges (only between visible tasks)
+    for (const t of visibleTasks) {
       if (t.id === undefined) continue
       for (const depId of t.dependencies) {
-        if (tMap.has(depId)) {
+        if (visibleTaskIds.has(depId) && tMap.has(depId)) {
           const sourceTask = tMap.get(depId)!
           const sourceColor = getStatusColor(sourceTask.status)
           edges.push({
@@ -438,7 +682,7 @@ export default function DependencyGraph() {
 
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(nodes, edges)
     return { initialNodes: layoutedNodes, initialEdges: layoutedEdges, taskMap: tMap }
-  }, [tasks])
+  }, [tasks, projects, activeFilters, showAll])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -451,6 +695,7 @@ export default function DependencyGraph() {
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
+      if (node.id.startsWith('proj-')) return
       setSelectedTaskId(Number(node.id))
     },
     []
@@ -460,8 +705,8 @@ export default function DependencyGraph() {
 
   // Stats
   const activeNodes = tasks?.filter((t) => t.status === 'in_progress').length ?? 0
-  const totalEdges = initialEdges.length
-  const hasDependencies = initialEdges.length > 0
+  const totalEdges = initialEdges.filter(e => !e.id.startsWith('proj-')).length
+  const hasAnyEdges = initialEdges.length > 0
   const hasTasks = (tasks?.length ?? 0) > 0
 
   if (!tasks) return null
@@ -518,9 +763,49 @@ export default function DependencyGraph() {
         </div>
       </header>
 
+      {/* Project Filter Bar */}
+      {filterOptions.length > 0 && (
+        <div className="flex items-center gap-2 px-6 py-2 flex-shrink-0">
+          <span className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mr-1">Filter</span>
+          <button
+            onClick={() => setActiveFilters(null)}
+            className="px-3 py-1 text-[10px] uppercase tracking-widest font-bold border transition-colors"
+            style={{
+              backgroundColor: showAll ? 'rgba(0, 251, 251, 0.1)' : 'transparent',
+              borderColor: showAll ? '#00fbfb' : 'rgba(255,255,255,0.1)',
+              color: showAll ? '#00fbfb' : 'rgba(255,255,255,0.4)',
+            }}
+          >
+            All
+          </button>
+          {filterOptions.map((opt) => {
+            const isActive = showAll || (activeFilters !== null && activeFilters.has(opt.key))
+            return (
+              <button
+                key={opt.key}
+                onClick={() => toggleFilter(opt.key)}
+                className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-widest font-bold border transition-colors"
+                style={{
+                  backgroundColor: isActive ? `${opt.color}15` : 'transparent',
+                  borderColor: isActive ? opt.color : 'rgba(255,255,255,0.1)',
+                  color: isActive ? opt.color : 'rgba(255,255,255,0.4)',
+                }}
+              >
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: opt.color, opacity: isActive ? 1 : 0.3 }}
+                />
+                {opt.label}
+                <span className="text-[8px] opacity-60">{opt.count}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Graph Area */}
       <div className="flex-1 relative">
-        {!hasDependencies && (
+        {!hasAnyEdges && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-card/90 backdrop-blur-md border border-muted-foreground/20 p-8 text-center pointer-events-auto">
               <p className="text-muted-foreground text-xs tracking-widest uppercase mb-2">
@@ -536,6 +821,7 @@ export default function DependencyGraph() {
         )}
 
         <ReactFlow
+          key={activeFilters === null ? 'all' : [...activeFilters].sort().join(',')}
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}

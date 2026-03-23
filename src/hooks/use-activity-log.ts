@@ -34,6 +34,25 @@ export function useActivityLog(limit: number = 100) {
 }
 
 /**
+ * Read activity logs for a specific task, most recent first.
+ */
+export function useTaskActivityLog(taskId: number | undefined, limit: number = 50) {
+  return useLiveQuery(
+    () => {
+      if (taskId === undefined) return []
+      return db.activityLogs
+        .where('entityType')
+        .equals('task')
+        .filter((log) => log.entityId === taskId)
+        .reverse()
+        .sortBy('createdAt')
+        .then((logs) => logs.slice(0, limit))
+    },
+    [taskId, limit]
+  )
+}
+
+/**
  * Clear all activity logs.
  */
 export async function clearActivityLog() {

@@ -1,5 +1,9 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useActivityLog, clearActivityLog } from '@/hooks/use-activity-log'
+import { MarkdownRenderer } from '@/components/markdown-renderer'
 import type { ActivityAction } from '@/types'
+
+const PAGE_SIZE = 50
 
 const ACTION_CONFIG: Record<ActivityAction, { icon: string; color: string }> = {
   task_created: { icon: 'add_task', color: '#69fd5d' },
@@ -39,7 +43,37 @@ function formatTimeAgo(date: Date): string {
 }
 
 export default function ActivityPulse() {
-  const logs = useActivityLog(200)
+  const logs = useActivityLog()
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  const totalCount = logs?.length ?? 0
+  const visibleLogs = logs?.slice(0, visibleCount)
+  const hasMore = visibleCount < totalCount
+
+  // Reset visible count when logs are cleared
+  useEffect(() => {
+    if (totalCount === 0) setVisibleCount(PAGE_SIZE)
+  }, [totalCount])
+
+  // IntersectionObserver to load more on scroll
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, totalCount))
+  }, [totalCount])
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore()
+      },
+      { rootMargin: '200px' }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [loadMore])
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -54,7 +88,7 @@ export default function ActivityPulse() {
             Activity <span className="text-secondary">Pulse</span>
           </h1>
           <p className="text-xs text-muted-foreground uppercase tracking-widest mt-2">
-            {logs?.length ?? 0} events recorded
+            {totalCount} events recorded{hasMore && ` · showing ${visibleCount}`}
           </p>
         </div>
         {(logs?.length ?? 0) > 0 && (
@@ -68,11 +102,11 @@ export default function ActivityPulse() {
       </div>
 
       {/* Feed */}
-      {logs && logs.length > 0 ? (
+      {visibleLogs && visibleLogs.length > 0 ? (
         <div className="relative">
           <div className="absolute left-4 top-0 bottom-0 w-[1px] bg-muted-foreground/20" />
           <div className="space-y-6 relative">
-            {logs.map((log, i) => {
+            {visibleLogs.map((log, i) => {
               const config = ACTION_CONFIG[log.action] ?? { icon: 'info', color: '#484847' }
               const dateStr = new Date(log.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
               const timeStr = new Date(log.createdAt).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -87,7 +121,7 @@ export default function ActivityPulse() {
                       <span className="material-symbols-outlined text-sm" style={{ color: config.color }}>{config.icon}</span>
                     </div>
                   </div>
-                  <div className={`flex-1 ${i < logs.length - 1 ? 'pb-4 border-b border-muted-foreground/10' : ''}`}>
+                  <div className={`flex-1 ${i < visibleLogs.length - 1 ? 'pb-4 border-b border-muted-foreground/10' : ''}`}>
                     <div className="flex justify-between items-center mb-1">
                       <span className="font-bold tracking-tight uppercase text-sm">{log.title}</span>
                       <div className="flex items-center gap-3 shrink-0">
@@ -96,7 +130,9 @@ export default function ActivityPulse() {
                       </div>
                     </div>
                     {log.detail && (
-                      <p className="text-xs text-muted-foreground mb-2">{log.detail}</p>
+                      <div className="text-muted-foreground mb-2">
+                        <MarkdownRenderer content={log.detail} compact />
+                      </div>
                     )}
                     <div className="flex items-center gap-2">
                       <span
@@ -116,6 +152,17 @@ export default function ActivityPulse() {
               )
             })}
           </div>
+
+          {/* Sentinel for infinite scroll */}
+          <div ref={sentinelRef} className="h-1" />
+          {hasMore && (
+            <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+              <span className="material-symbols-outlined text-sm animate-pulse">more_horiz</span>
+              <span className="text-[10px] uppercase tracking-widest font-bold">
+                Loading more · {totalCount - visibleCount} remaining
+              </span>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-center py-16">
