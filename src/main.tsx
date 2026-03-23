@@ -5,7 +5,7 @@ import './index.css'
 import App from './App.tsx'
 
 // Enable Ctrl+R / Cmd+R to reload in Tauri (WebView blocks it by default)
-if ('__TAURI__' in window) {
+if ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) {
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
       e.preventDefault()
