@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useSetting } from '@/hooks/use-settings'
 
 const RESTART_DELAY = 2000
-const SERVER_SCRIPT = '/home/dalmas/E/projects/local_task_tracker/task_flow/mcp-server/dist/index.js'
+// Uses the globally installed npm package
+const SERVER_COMMAND = 'taskflow-mcp'
 
 export function useServer() {
   const childRef = useRef<unknown>(null)
@@ -23,9 +24,9 @@ export function useServer() {
       try {
         const { Command } = await import('@tauri-apps/plugin-shell')
 
-        console.log('[useServer] spawning: node', SERVER_SCRIPT, '--http-only --port', port)
+        console.log('[useServer] spawning:', SERVER_COMMAND, '--http-only --port', port)
 
-        const command = Command.create('taskflow-server', [SERVER_SCRIPT, '--http-only', '--port', String(port)])
+        const command = Command.create('taskflow-server', ['--http-only', '--port', String(port)])
 
         command.on('close', (data) => {
           console.log(`[useServer] server exited code=${data.code}`)

@@ -9,7 +9,7 @@
       "allow": [
         {
           "name": "taskflow-server",
-          "cmd": "node",
+          "cmd": "taskflow-mcp",
           "args": true
         }
       ]
