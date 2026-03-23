@@ -400,9 +400,8 @@ export async function updateTaskStatus(params: { id: number; status: string }) {
   }
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id) as TaskRow;
-  const updatedTask = parseTask(updated);
-  broadcastChange('task', statusAction, updatedTask);
-  return successResponse(updatedTask);
+  broadcastChange('task', statusAction, parseTask(updated));
+  return successResponse(parseTaskCompact(updated));
 }
 
 export async function deleteTask(params: { id: number }) {
