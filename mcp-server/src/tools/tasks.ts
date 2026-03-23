@@ -32,6 +32,24 @@ function parseTask(row: TaskRow) {
   };
 }
 
+/** Compact task for list/search responses — omits description, null fields, and empty arrays */
+function parseTaskCompact(row: TaskRow) {
+  const tags = JSON.parse(row.tags) as string[];
+  const deps = JSON.parse(row.dependencies) as number[];
+  const result: Record<string, unknown> = {
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    priority: row.priority,
+  };
+  if (row.project_id != null) result.project_id = row.project_id;
+  if (tags.length > 0) result.tags = tags;
+  if (deps.length > 0) result.dependencies = deps;
+  if (row.due_date != null) result.due_date = row.due_date;
+  if (row.estimated_time != null) result.estimated_time = row.estimated_time;
+  return result;
+}
+
 function detectCycle(taskId: number, proposedDeps: number[]): boolean {
   const db = getDb();
   const allTasks = db.prepare('SELECT id, dependencies FROM tasks').all() as { id: number; dependencies: string }[];
@@ -194,7 +212,7 @@ export async function listTasks(params: {
     });
   }
 
-  return successResponse(rows.map(parseTask));
+  return successResponse(rows.map(parseTaskCompact));
 }
 
 export async function getTask(params: { id: number }) {
@@ -332,6 +350,25 @@ export async function updateTaskStatus(params: { id: number; status: string }) {
   }
 
   const ts = now();
+
+  // Auto-close any active timer session when leaving an active state
+  const terminalStatuses = ['done', 'partial_done', 'blocked', 'paused'];
+  if (terminalStatuses.includes(params.status)) {
+    const openSession = db.prepare('SELECT * FROM sessions WHERE task_id = ? AND end IS NULL').get(params.id) as
+      | { id: number; start: string }
+      | undefined;
+    if (openSession) {
+      db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(ts, openSession.id);
+      const duration = new Date(ts).getTime() - new Date(openSession.start).getTime();
+      logActivity('timer_stopped', row.title, {
+        detail: `Auto-stopped: duration ${duration}ms, status → ${params.status}`,
+        entityType: 'task',
+        entityId: params.id,
+      });
+      broadcastChange('timer', 'timer_stopped', { task_id: params.id, session: { ...openSession, end: ts, duration }, task_status: params.status });
+    }
+  }
+
   db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(params.status, ts, params.id);
 
   // Log appropriate action
@@ -428,7 +465,7 @@ export async function searchTasks(params: { query: string }) {
     `SELECT * FROM tasks WHERE title LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE`
   ).all(like, like) as TaskRow[];
 
-  return successResponse(rows.map(parseTask));
+  return successResponse(rows.map(parseTaskCompact));
 }
 
 // ─── MCP registration ─────────────────────────────────────────────────

@@ -91,14 +91,26 @@ export async function stopTimer(params: { task_id: number; final_status?: string
 
   // Find open session
   const session = db.prepare('SELECT * FROM sessions WHERE task_id = ? AND end IS NULL').get(params.task_id) as SessionRow | undefined;
-  if (!session) return errorResponse('No active timer session for this task', 'NO_ACTIVE_SESSION');
 
   const finalStatus = params.final_status ?? 'done';
   const endTime = now();
-  const duration = new Date(endTime).getTime() - new Date(session.start).getTime();
 
-  // Close session
-  db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(endTime, session.id);
+  let duration: number;
+  let closedSession: SessionRow;
+
+  if (session) {
+    // Normal path — close the active session
+    duration = new Date(endTime).getTime() - new Date(session.start).getTime();
+    db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(endTime, session.id);
+    closedSession = { ...session, end: endTime };
+  } else {
+    // Fallback — session was already closed (e.g. by orphan cleanup or update_task_status)
+    // Still update the task status so the caller's intent is honored
+    const lastSession = db.prepare('SELECT * FROM sessions WHERE task_id = ? ORDER BY start DESC LIMIT 1').get(params.task_id) as SessionRow | undefined;
+    if (!lastSession) return errorResponse('No timer sessions found for this task', 'NO_ACTIVE_SESSION');
+    duration = new Date(lastSession.end!).getTime() - new Date(lastSession.start).getTime();
+    closedSession = lastSession;
+  }
 
   // Update task to final_status
   db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run(finalStatus, endTime, params.task_id);
@@ -116,7 +128,7 @@ export async function stopTimer(params: { task_id: number; final_status?: string
     logActivity('task_partial_done', task.title, { entityType: 'task', entityId: params.task_id });
   }
 
-  const stoppedSession = { ...session, end: endTime, duration };
+  const stoppedSession = { ...closedSession, duration };
   broadcastChange('timer', 'timer_stopped', { task_id: params.task_id, session: stoppedSession, task_status: finalStatus });
   return successResponse(stoppedSession);
 }
