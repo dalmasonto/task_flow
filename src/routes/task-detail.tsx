@@ -6,7 +6,7 @@ import { useSessions, useTaskTotalTime, useActiveSessions } from '@/hooks/use-se
 import { useTimer } from '@/hooks/use-timer'
 import { getBlockers, getDependents } from '@/lib/dag'
 import { canTransition } from '@/lib/status'
-import { formatDuration, computeSessionDuration, formatHumanDuration, msToMinutes, minutesToMs } from '@/lib/time'
+import { formatDuration, formatSmartDuration, computeSessionDuration, formatHumanDuration, msToMinutes, minutesToMs } from '@/lib/time'
 import { StatusBadge } from '@/components/status-badge'
 import { PriorityBadge } from '@/components/priority-badge'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
@@ -28,7 +28,7 @@ import { toast } from 'sonner'
 import { db } from '@/db/database'
 import { playSuccess, playTimerStart, playTimerPause, playTaskDone, playClick, playError } from '@/lib/sounds'
 import { addNotification } from '@/hooks/use-app-notifications'
-import { logActivity } from '@/hooks/use-activity-log'
+import { logActivity, useTaskActivityLog } from '@/hooks/use-activity-log'
 import type { Task, TaskStatus, TaskPriority } from '@/types'
 
 const ALL_STATUSES: TaskStatus[] = ['not_started', 'in_progress', 'paused', 'blocked', 'partial_done', 'done']
@@ -57,6 +57,7 @@ export default function TaskDetail() {
   const [linkUrl, setLinkUrl] = useState('')
   const [tagInput, setTagInput] = useState('')
 
+  const taskLogs = useTaskActivityLog(taskId)
   const blockers = allTasks && taskId ? getBlockers(allTasks, taskId) : []
   const dependents = allTasks && taskId ? getDependents(allTasks, taskId) : []
   const hasUnresolvedBlockers = blockers.length > 0
@@ -622,6 +623,62 @@ export default function TaskDetail() {
               </div>
             </div>
           </div>
+
+          {/* Task Activity Log */}
+          {taskLogs && taskLogs.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center gap-4 mb-4">
+                <h2 className="text-lg font-bold tracking-tight uppercase">Activity Log</h2>
+                <div className="h-px flex-1 bg-outline-variant" />
+                <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                  {taskLogs.length} events
+                </span>
+              </div>
+              <div className="space-y-3">
+                {taskLogs.map((log, i) => {
+                  const iconMap: Record<string, { icon: string; color: string }> = {
+                    debug_log: { icon: 'bug_report', color: '#ffeb3b' },
+                    timer_started: { icon: 'play_circle', color: '#00fbfb' },
+                    timer_paused: { icon: 'pause_circle', color: '#de8eff' },
+                    timer_stopped: { icon: 'stop_circle', color: '#ff6e84' },
+                    task_completed: { icon: 'task_alt', color: '#69fd5d' },
+                    task_partial_done: { icon: 'pending', color: '#b90afc' },
+                    task_status_changed: { icon: 'sync', color: '#00fbfb' },
+                    task_created: { icon: 'add_task', color: '#69fd5d' },
+                    dependency_added: { icon: 'account_tree', color: '#00fbfb' },
+                    task_linked: { icon: 'link', color: '#00fbfb' },
+                    link_added: { icon: 'add_link', color: '#00fbfb' },
+                  }
+                  const config = iconMap[log.action] ?? { icon: 'info', color: '#484847' }
+                  const time = new Date(log.createdAt).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                  const date = new Date(log.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+                  return (
+                    <div key={log.id ?? i} className="flex gap-3 items-start p-3 bg-card border-l-2" style={{ borderColor: config.color }}>
+                      <span className="material-symbols-outlined text-sm mt-0.5" style={{ color: config.color }}>{config.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <span className="text-xs font-bold tracking-tight uppercase truncate">{log.title}</span>
+                          <span className="text-[9px] text-muted-foreground font-mono shrink-0">{date} {time}</span>
+                        </div>
+                        {log.detail && (
+                          <div className="text-muted-foreground">
+                            <MarkdownRenderer content={log.detail} compact />
+                          </div>
+                        )}
+                        <span
+                          className="inline-block mt-1 px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest"
+                          style={{ backgroundColor: `${config.color}1A`, color: config.color }}
+                        >
+                          {log.action.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Right Sidebar */}
@@ -717,7 +774,7 @@ export default function TaskDetail() {
               Total Time
             </h3>
             <span className="text-3xl font-bold tracking-tighter font-mono">
-              {formatDuration(totalTime)}
+              {formatSmartDuration(totalTime)}
             </span>
           </div>
         </aside>

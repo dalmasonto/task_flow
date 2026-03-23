@@ -5,23 +5,33 @@ import { broadcast } from './sse.js';
 
 const httpOnly = process.argv.includes('--http-only');
 
-// Close any orphaned sessions left from a previous crash
-// If the server died while sessions were active, they'll have no `end` timestamp
+// Close orphaned sessions left from a previous crash.
+// Uses a grace period so that sessions from the current conversation
+// (stdio transport restarts the server on each tool call) are preserved.
+const ORPHAN_GRACE_MS = 5 * 60 * 1000; // 5 minutes
+
 function cleanupOrphanedSessions() {
   const db = getDb();
-  const now = new Date().toISOString();
-  const orphaned = db.prepare('SELECT * FROM sessions WHERE end IS NULL').all() as Array<{ id: number; task_id: number }>;
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const cutoff = new Date(nowMs - ORPHAN_GRACE_MS).toISOString();
+
+  // Only close sessions that started more than ORPHAN_GRACE_MS ago
+  const orphaned = db.prepare('SELECT * FROM sessions WHERE end IS NULL AND start < ?').all(cutoff) as Array<{ id: number; task_id: number; start: string }>;
 
   if (orphaned.length === 0) return;
 
-  db.prepare('UPDATE sessions SET end = ? WHERE end IS NULL').run(now);
+  // Close each orphaned session with end = now (preserves the real elapsed time)
+  for (const session of orphaned) {
+    db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(nowIso, session.id);
+  }
 
   // Set orphaned in_progress tasks back to paused
   const taskIds = [...new Set(orphaned.map(s => s.task_id))];
   for (const taskId of taskIds) {
     const task = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId) as { status: string } | undefined;
     if (task?.status === 'in_progress') {
-      db.prepare("UPDATE tasks SET status = 'paused', updated_at = ? WHERE id = ?").run(now, taskId);
+      db.prepare("UPDATE tasks SET status = 'paused', updated_at = ? WHERE id = ?").run(nowIso, taskId);
       broadcast('task_updated', { entity: 'task', action: 'task_status_changed', payload: db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) });
     }
   }

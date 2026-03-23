@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Task, TaskStatus } from '@/types'
 import { getStatusColor, getStatusLabel, canTransition } from '@/lib/status'
-import { formatDuration } from '@/lib/time'
+import { formatSmartDuration } from '@/lib/time'
 import { useTaskTotalTime, useActiveSessions } from '@/hooks/use-sessions'
 import { useProject } from '@/hooks/use-projects'
 import { useTimer } from '@/hooks/use-timer'
@@ -211,9 +211,9 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
             </div>
           )}
         </div>
-        {totalTime > 0 && (
+        {totalTime > 1000 && (
           <span className="text-[10px] font-bold text-muted-foreground tracking-widest font-mono">
-            {formatDuration(totalTime)}
+            {formatSmartDuration(totalTime)}
           </span>
         )}
       </div>

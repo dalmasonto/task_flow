@@ -62,13 +62,23 @@ export async function pauseTimer(params: { task_id: number }) {
 
   // Find open session
   const session = db.prepare('SELECT * FROM sessions WHERE task_id = ? AND end IS NULL').get(params.task_id) as SessionRow | undefined;
-  if (!session) return errorResponse('No active timer session for this task', 'NO_ACTIVE_SESSION');
 
   const endTime = now();
-  const duration = new Date(endTime).getTime() - new Date(session.start).getTime();
+  let duration: number;
+  let closedSession: SessionRow;
 
-  // Close session
-  db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(endTime, session.id);
+  if (session) {
+    // Normal path — close the active session
+    duration = new Date(endTime).getTime() - new Date(session.start).getTime();
+    db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(endTime, session.id);
+    closedSession = { ...session, end: endTime };
+  } else {
+    // Fallback — session already closed (orphan cleanup, auto-close)
+    const lastSession = db.prepare('SELECT * FROM sessions WHERE task_id = ? ORDER BY start DESC LIMIT 1').get(params.task_id) as SessionRow | undefined;
+    if (!lastSession) return errorResponse('No timer sessions found for this task', 'NO_ACTIVE_SESSION');
+    duration = new Date(lastSession.end!).getTime() - new Date(lastSession.start).getTime();
+    closedSession = lastSession;
+  }
 
   // Update task to paused
   db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?').run('paused', endTime, params.task_id);
@@ -79,7 +89,7 @@ export async function pauseTimer(params: { task_id: number }) {
     entityId: params.task_id,
   });
 
-  const pausedSession = { ...session, end: endTime, duration };
+  const pausedSession = { ...closedSession, duration };
   broadcastChange('timer', 'timer_paused', { task_id: params.task_id, session: pausedSession, task_status: 'paused' });
   return successResponse(pausedSession);
 }

@@ -35,7 +35,27 @@ export function formatHumanDuration(ms: number): string {
   if (hours > 0) parts.push(`${hours}Hrs`)
   if (minutes > 0) parts.push(`${minutes}Mins`)
 
-  return parts.length > 0 ? parts.join(' ') : '0Mins'
+  return parts.length > 0 ? parts.join(' ') : '<1Min'
+}
+
+/**
+ * Smart duration format:
+ * - Under 1 second: "—" (no meaningful time)
+ * - Under 1 hour: "12m 30s"
+ * - 1 hour+: "1h 25m"
+ * - 24 hours+: "2d 3h"
+ */
+export function formatSmartDuration(ms: number): string {
+  if (ms < 1000) return '—'
+  const totalSeconds = Math.floor(ms / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m ${seconds}s`
 }
 
 /**
