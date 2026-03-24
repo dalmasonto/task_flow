@@ -51,12 +51,12 @@
     --radius-4xl: calc(var(--radius) * 2.6);
     --color-tertiary: #69fd5d;
     --color-tertiary-foreground: #005e07;
-    --color-surface-container-low: #161616;
-    --color-surface-container-high: #242423;
-    --color-surface-variant: #2a2a2a;
-    --color-outline-variant: #525251;
-    --color-primary-dim: #b90afc;
-    --color-error-dim: #d73357;
+    --color-surface-container-low: var(--surface-container-low);
+    --color-surface-container-high: var(--surface-container-high);
+    --color-surface-variant: var(--surface-variant);
+    --color-outline-variant: var(--outline-variant);
+    --color-primary-dim: var(--primary-dim);
+    --color-error-dim: var(--error-dim);
 }
 
 :root {
@@ -92,6 +92,12 @@
     --sidebar-accent-foreground: #006a6a;
     --sidebar-border: rgba(155, 0, 217, 0.2);
     --sidebar-ring: #9b00d9;
+    --surface-container-low: #efefef;
+    --surface-container-high: #e4e4e4;
+    --surface-variant: #d9d9d9;
+    --outline-variant: #c0c0c0;
+    --primary-dim: #9b00d9;
+    --error-dim: #c42a49;
 }
 
 .dark {
@@ -126,6 +132,12 @@
     --sidebar-accent-foreground: #00e5e5;
     --sidebar-border: rgba(222, 142, 255, 0.18);
     --sidebar-ring: #de8eff;
+    --surface-container-low: #161616;
+    --surface-container-high: #242423;
+    --surface-variant: #2a2a2a;
+    --outline-variant: #525251;
+    --primary-dim: #b90afc;
+    --error-dim: #d73357;
 }
 
 @layer base {
