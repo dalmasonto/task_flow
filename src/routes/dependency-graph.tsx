@@ -553,8 +553,10 @@ export default function DependencyGraph() {
         return
       }
     }
-    // Fallback: show all if no recent projects
-    setActiveFilters(null)
+    // Fallback: show the 2 most recently created projects
+    const projectKeys = filterOptions.filter(o => o.key !== UNASSIGNED_KEY).map(o => o.key)
+    const newest = projectKeys.slice(-2)
+    setActiveFilters(newest.length > 0 ? new Set(newest) : null)
   }, [filterOptions, recentProjectIds, initialized])
 
   const toggleFilter = useCallback((key: string) => {
