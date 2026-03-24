@@ -33,16 +33,17 @@ export async function getAgentInstructions() {
 
     rules: [
       // Task tracking
-      'Proactively create tasks for ALL substantial work (features, bugs, refactors). search_tasks first to avoid duplicates. Link tasks to the confirmed project.',
-      'Timer lifecycle: start_timer → work → stop_timer(final_status). Use "done"/"partial_done"/"blocked". pause_timer when waiting for input.',
-      'MUST stop_timer with "done" when work is complete. Never leave finished tasks in "in_progress" or "paused".',
+      'Proactively create tasks for ALL substantial work — features, bugs, refactors, AND debugging/investigation. Debugging is real work: create a task for it (e.g. "Debug: SSE connection dropping"), start a timer, and track it the same way you would a feature. search_tasks first to avoid duplicates. Link tasks to the confirmed project.',
+      'Timer lifecycle: start_timer → work → stop_timer(final_status). Use "done"/"partial_done"/"blocked". pause_timer when waiting for input. This applies equally to debugging tasks — start a timer before investigating, stop it when resolved or blocked.',
+      'MUST stop_timer with "done" when work is complete. Never leave finished tasks in "in_progress" or "paused". This includes debugging tasks — when the bug is fixed or the investigation concludes, stop the timer.',
       // Dependencies
       'Check task dependencies before starting. If any dep is incomplete, set task to "blocked".',
       'After completing a task, check if blocked tasks depending on it can be unblocked.',
       // Prioritization
       'When user is unsure what to work on: list_tasks priority="critical"/"high" status="not_started".',
       // Logging
-      'Use log_debug with task_id to record debugging steps, hypotheses, findings, decisions. Use Markdown formatting.',
+      'ALWAYS log your entire debugging process using log_debug with task_id. Log every stage: issue identification, hypothesis, files read/edited, commands run, errors encountered, fixes attempted, and resolution. This creates a visible trail in the Activity Pulse so users can follow your reasoning in real-time.',
+      'log_debug early and often — not just at the end. Log when you start investigating, when you find a clue, when you edit a file, and when the fix lands. Use Markdown: headings for stages, code blocks for errors/paths, bold for key findings.',
       // Formatting
       'Use Markdown in descriptions — headings, bullets, code blocks, bold. The UI renders it.',
     ],

@@ -152,6 +152,18 @@ github.com/dalmasonto/task_flow
 
 ---
 
+## Tweet 12 — Setup Guide + Agent Swarm
+
+Running multiple agents? You can see what every one of them is doing.
+
+TaskFlow shows live activity from Claude, Cursor, Windsurf — all on one board. Debug logs, task updates, timers. One dashboard for your entire agent swarm.
+
+Setup guide: dalmasonto.github.io/task_flow/
+
+[Screenshot: activity pulse showing multiple agent sessions]
+
+---
+
 ## Posting tips
 
 - Lead with tweet 1 + the most striking screenshot (dashboard dark mode)
@@ -160,3 +172,12 @@ github.com/dalmasonto/task_flow
 - Pin the thread to your profile for a day
 - Reply to the previous tweet (not tweet 1) to form a linear thread
 - Use the compose thread (+) button to draft all at once before posting
+
+
+The new tweets added (not in the original thread):
+
+  - Tweet 2 — MCP Server — npm install, 29 tools, agents manage your board while coding
+  - Tweet 3 — Video — placeholder for your 20-min agent demo
+  - Tweet 4 — Live Sync — SSE broadcast, SQLite→IndexedDB→UI in real-time
+  - Tweet 6 — Debug Logging — log_debug breadcrumbs in Activity Pulse
+  - Tweet 10 — Agent Rules — dedup, timers, blocked status, dependency checks
