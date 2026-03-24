@@ -287,9 +287,7 @@ function TaskDetailPanel({
             <div className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mb-1">
               Description
             </div>
-            <div className="text-xs text-muted-foreground leading-relaxed prose prose-sm prose-invert max-w-none">
-              <MarkdownRenderer content={task.description} />
-            </div>
+            <MarkdownRenderer content={task.description} compact />
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { useProjects } from '@/hooks/use-projects'
+import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { EmptyState } from '@/components/empty-state'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -14,9 +15,9 @@ function ProjectCard({ project }: { project: { id?: number; name: string; color:
     >
       <h2 className="font-bold text-lg uppercase mb-2">{project.name}</h2>
       {project.description && (
-        <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
-          {project.description}
-        </p>
+        <div className="line-clamp-2 mb-3">
+          <MarkdownRenderer content={project.description} compact className="text-muted-foreground" />
+        </div>
       )}
       <p className="text-[10px] tracking-widest uppercase text-muted-foreground">
         {new Date(project.createdAt).toLocaleDateString('en-US', {

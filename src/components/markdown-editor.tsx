@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { MarkdownRenderer } from '@/components/markdown-renderer'
 
 interface MarkdownEditorProps {
   value: string
@@ -39,11 +38,11 @@ export function MarkdownEditor({ value, onChange, placeholder, rows = 5, classNa
         </button>
       </div>
       {preview ? (
-        <div className="prose prose-sm dark:prose-invert max-w-none min-h-[120px] p-4 bg-input border-b border-border prose-headings:font-bold prose-headings:tracking-tight prose-a:text-secondary prose-code:text-secondary prose-code:bg-accent prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-accent prose-pre:border prose-pre:border-border prose-blockquote:border-l-primary">
+        <div className="min-h-[120px] p-4 bg-input border-b border-border">
           {value ? (
-            <Markdown remarkPlugins={[remarkGfm]}>{value}</Markdown>
+            <MarkdownRenderer content={value} />
           ) : (
-            <p className="text-muted-foreground/50 italic">Nothing to preview</p>
+            <p className="text-muted-foreground/50 italic text-sm">Nothing to preview</p>
           )}
         </div>
       ) : (

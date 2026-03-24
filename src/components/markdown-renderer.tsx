@@ -12,7 +12,11 @@ interface MarkdownRendererProps {
 export function MarkdownRenderer({ content, className, compact }: MarkdownRendererProps) {
   return (
     <div className={cn(
-      'prose prose-sm max-w-none dark:prose-invert',
+      'prose prose-sm max-w-none',
+      // Base colors — use theme variables so both light and dark mode work
+      'text-foreground',
+      'prose-headings:text-foreground',
+      'prose-p:text-foreground',
       // Headings
       'prose-headings:font-bold prose-headings:tracking-tight prose-headings:uppercase',
       // Links
@@ -20,19 +24,19 @@ export function MarkdownRenderer({ content, className, compact }: MarkdownRender
       // Code
       'prose-code:text-secondary prose-code:bg-accent prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none',
       // Pre / code blocks
-      'prose-pre:bg-accent prose-pre:border prose-pre:border-border',
+      'prose-pre:bg-accent prose-pre:border prose-pre:border-border prose-pre:text-foreground',
       // Blockquotes
       'prose-blockquote:border-l-primary prose-blockquote:text-muted-foreground',
       // Strong
       'prose-strong:text-foreground',
-      // Lists — collapse <p> inside <li> so numbers align with content
-      'prose-li:marker:text-muted-foreground',
+      // Lists
+      'prose-li:text-foreground prose-li:marker:text-muted-foreground',
       '[&_li>p]:my-0',
       // HR
       'prose-hr:border-border',
       // Tables
       'prose-th:text-left prose-th:text-xs prose-th:uppercase prose-th:tracking-widest prose-th:text-muted-foreground',
-      'prose-td:text-sm',
+      'prose-td:text-sm prose-td:text-foreground',
       // Images
       'prose-img:rounded-none',
       // Compact mode — tighter spacing for activity log entries
