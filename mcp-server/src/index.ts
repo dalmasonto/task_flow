@@ -39,8 +39,8 @@ function cleanupOrphanedSessions() {
 
 cleanupOrphanedSessions();
 
-// Always start the HTTP/SSE server
-startSSEServer();
+// Always start the HTTP/SSE server (probes for existing instances, finds fallback port)
+await startSSEServer();
 
 // Only start MCP stdio transport when not in http-only mode
 if (!httpOnly) {

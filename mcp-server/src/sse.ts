@@ -2,6 +2,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 
+const SERVICE_ID = 'taskflow-mcp';
+const MAX_PORT_ATTEMPTS = 10;
+const PROBE_TIMEOUT_MS = 2000;
+
 const clients = new Set<ServerResponse>();
 
 function resolvePort(): number {
@@ -17,7 +21,25 @@ function resolvePort(): number {
   return 3456;
 }
 
-const PORT = resolvePort();
+const PREFERRED_PORT = resolvePort();
+/** The port that is actually serving SSE — either ours or an existing instance's */
+let activePort = PREFERRED_PORT;
+
+/** Probe a port to check if a TaskFlow service is already running there */
+async function probeTaskFlow(port: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`http://localhost:${port}/healthz`, { signal: controller.signal });
+    if (!res.ok) return false;
+    const body = await res.json() as { service?: string };
+    return body.service === SERVICE_ID;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function jsonResponse(res: ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -32,7 +54,7 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-export function startSSEServer(): void {
+export async function startSSEServer(): Promise<void> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     // CORS headers for all requests
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -42,6 +64,12 @@ export function startSSEServer(): void {
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // GET /healthz — identity probe so other instances can detect us
+    if (req.url === '/healthz' && req.method === 'GET') {
+      jsonResponse(res, 200, { service: SERVICE_ID, pid: process.pid });
       return;
     }
 
@@ -265,16 +293,50 @@ export function startSSEServer(): void {
     res.end('Not Found');
   });
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      // Another MCP instance already owns this port — skip SSE, MCP tools still work
-      return;
-    }
-    // Unexpected error — still don't crash the MCP process
-  });
+  // Try ports sequentially: probe occupied ports to see if they're ours
+  await new Promise<void>((resolve) => {
+    let attempt = 0;
 
-  server.listen(PORT, '0.0.0.0', () => {
-    markSSEActive();
+    function tryPort(port: number) {
+      if (attempt >= MAX_PORT_ATTEMPTS) {
+        console.error(`[SSE] failed to bind after ${MAX_PORT_ATTEMPTS} attempts (ports ${PREFERRED_PORT}–${port - 1})`);
+        resolve();
+        return;
+      }
+
+      server.once('error', async (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          const isTaskFlow = await probeTaskFlow(port);
+          if (isTaskFlow) {
+            // Another TaskFlow instance owns this port — connect to it instead
+            activePort = port;
+            console.log(`[SSE] port ${port} owned by another TaskFlow instance (pid probe) — using it`);
+            resolve();
+          } else {
+            // Not ours — try next port
+            console.log(`[SSE] port ${port} in use by non-TaskFlow service — trying ${port + 1}`);
+            attempt++;
+            tryPort(port + 1);
+          }
+        } else {
+          console.error('[SSE] unexpected server error:', err.message);
+          resolve();
+        }
+      });
+
+      server.listen(port, '0.0.0.0', () => {
+        activePort = port;
+        markSSEActive();
+        if (port !== PREFERRED_PORT) {
+          console.log(`[SSE] listening on fallback port ${port} (preferred ${PREFERRED_PORT} was unavailable)`);
+        } else {
+          console.log(`[SSE] listening on port ${port}`);
+        }
+        resolve();
+      });
+    }
+
+    tryPort(PREFERRED_PORT);
   });
 }
 
@@ -295,7 +357,7 @@ export function markSSEActive(): void {
 
 /**
  * Broadcast an SSE event. If this process owns the SSE server, send directly.
- * Otherwise, relay via HTTP to the process that does (sidecar on port 3456).
+ * Otherwise, relay via HTTP to the process that does.
  */
 export function broadcast(event: string, data: object): void {
   if (sseServerActive && clients.size > 0) {
@@ -303,7 +365,7 @@ export function broadcast(event: string, data: object): void {
   } else {
     // Relay to the SSE server owner via HTTP
     const body = JSON.stringify({ event, data });
-    fetch(`http://localhost:${PORT}/api/broadcast`, {
+    fetch(`http://localhost:${activePort}/api/broadcast`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -311,4 +373,9 @@ export function broadcast(event: string, data: object): void {
       // SSE server not running — silently skip
     });
   }
+}
+
+/** Returns the port the SSE server is actively using */
+export function getActivePort(): number {
+  return activePort;
 }

@@ -28,164 +28,207 @@ async function initialSync(port: number, retries = 5, delay = 1500): Promise<voi
   console.log('[useSync] initial sync skipped — server not available')
 }
 
+const RECONNECT_DELAY = 3000
+const MAX_RECONNECT_DELAY = 30000
+
+/** Attach all SSE event listeners to an EventSource */
+function attachListeners(source: EventSource, sseUrl: string) {
+  source.addEventListener('connected', () => {
+    console.log('[useSync] SSE connected to', sseUrl)
+  })
+
+  source.addEventListener('task_created', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) {
+      const task = parseTask(payload)
+      console.log('[useSync] putting task:', task.id, task.title)
+      db.tasks.put(task)
+    }
+  })
+
+  source.addEventListener('task_updated', (e) => {
+    console.log('[useSync] task_updated event received')
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.tasks.put(parseTask(payload))
+  })
+
+  source.addEventListener('task_status_changed', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.tasks.put(parseTask(payload))
+  })
+
+  source.addEventListener('task_completed', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.tasks.put(parseTask(payload))
+  })
+
+  source.addEventListener('task_partial_done', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.tasks.put(parseTask(payload))
+  })
+
+  source.addEventListener('task_deleted', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.id) db.tasks.delete(payload.id)
+  })
+
+  source.addEventListener('tasks_bulk_created', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.tasks) db.tasks.bulkPut(payload.tasks.map(parseTask))
+  })
+
+  source.addEventListener('project_created', async (e) => {
+    console.log('[useSync] project_created event received')
+    const { payload } = JSON.parse(e.data)
+    if (payload) {
+      const project = parseProject(payload)
+      console.log('[useSync] putting project:', project.id, project.name)
+      try {
+        await db.projects.put(project)
+        const count = await db.projects.count()
+        console.log('[useSync] project put success, total projects in Dexie:', count)
+      } catch (err) {
+        console.error('[useSync] project put FAILED:', err)
+      }
+    }
+  })
+
+  source.addEventListener('project_updated', (e) => {
+    console.log('[useSync] project_updated event received')
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.projects.put(parseProject(payload))
+  })
+
+  source.addEventListener('project_deleted', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.id) db.projects.delete(payload.id)
+  })
+
+  source.addEventListener('timer_started', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) {
+      if (payload.session) db.sessions.put(parseSession(payload.session))
+      if (payload.task_id) db.tasks.update(payload.task_id, { status: 'in_progress', updatedAt: new Date() })
+    }
+  })
+
+  source.addEventListener('timer_paused', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) {
+      if (payload.session) db.sessions.put(parseSession(payload.session))
+      if (payload.task_id) db.tasks.update(payload.task_id, { status: 'paused', updatedAt: new Date() })
+    }
+  })
+
+  source.addEventListener('timer_stopped', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) {
+      if (payload.session) db.sessions.put(parseSession(payload.session))
+      if (payload.task_id && payload.task_status) {
+        db.tasks.update(payload.task_id, { status: payload.task_status, updatedAt: new Date() })
+      }
+    }
+  })
+
+  source.addEventListener('settings_saved', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.key !== undefined) {
+      db.settings.where('key').equals(payload.key).modify({ value: payload.value })
+        .catch(() => db.settings.add({ key: payload.key, value: payload.value }))
+    }
+  })
+
+  source.addEventListener('notifications_cleared', () => {
+    db.notifications.clear()
+  })
+
+  source.addEventListener('notifications_all_read', () => {
+    db.notifications.toCollection().modify({ read: true })
+  })
+
+  source.addEventListener('activity_logged', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.activityLogs.put(parseActivityLog(payload))
+  })
+
+  source.addEventListener('activity_cleared', () => {
+    db.activityLogs.clear()
+  })
+
+  source.addEventListener('data_cleared', async () => {
+    try {
+      await db.tasks.clear()
+      await db.projects.clear()
+      await db.sessions.clear()
+      await db.notifications.clear()
+      await db.activityLogs.clear()
+      console.log('[useSync] data_cleared: all Dexie tables cleared')
+    } catch (err) {
+      console.error('[useSync] data_cleared failed:', err)
+    }
+  })
+}
+
 export function useSync() {
   const sourceRef = useRef<EventSource | null>(null)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const port = useSetting('serverPort')
 
   useEffect(() => {
-    const sseUrl = `${baseUrl(port)}/events`
+    let killed = false
+    let delay = RECONNECT_DELAY
 
-    // Load existing MCP data into Dexie on first connect
-    initialSync(port)
+    function connect() {
+      if (killed) return
 
-    const source = new EventSource(sseUrl)
-    sourceRef.current = source
+      const sseUrl = `${baseUrl(port)}/events`
 
-    source.addEventListener('connected', () => {
-      console.log('[useSync] SSE connected to', sseUrl)
-    })
-
-    source.addEventListener('task_created', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) {
-        const task = parseTask(payload)
-        console.log('[useSync] putting task:', task.id, task.title)
-        db.tasks.put(task)
+      // Close previous connection if any
+      if (sourceRef.current) {
+        sourceRef.current.close()
+        sourceRef.current = null
       }
-    })
 
-    source.addEventListener('task_updated', (e) => {
-      console.log('[useSync] task_updated event received')
-      const { payload } = JSON.parse(e.data)
-      if (payload) db.tasks.put(parseTask(payload))
-    })
+      console.log('[useSync] connecting to', sseUrl)
+      const source = new EventSource(sseUrl)
+      sourceRef.current = source
 
-    source.addEventListener('task_status_changed', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) db.tasks.put(parseTask(payload))
-    })
+      attachListeners(source, sseUrl)
 
-    source.addEventListener('task_completed', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) db.tasks.put(parseTask(payload))
-    })
+      source.addEventListener('connected', () => {
+        // Reset backoff on successful connection
+        delay = RECONNECT_DELAY
+      })
 
-    source.addEventListener('task_partial_done', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) db.tasks.put(parseTask(payload))
-    })
+      source.onerror = () => {
+        const state = source.readyState
+        const label = state === 0 ? 'CONNECTING' : state === 1 ? 'OPEN' : 'CLOSED'
+        console.warn(`[useSync] SSE error — readyState: ${label}`)
 
-    source.addEventListener('task_deleted', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload?.id) db.tasks.delete(payload.id)
-    })
-
-    source.addEventListener('tasks_bulk_created', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload?.tasks) db.tasks.bulkPut(payload.tasks.map(parseTask))
-    })
-
-    source.addEventListener('project_created', async (e) => {
-      console.log('[useSync] project_created event received')
-      const { payload } = JSON.parse(e.data)
-      if (payload) {
-        const project = parseProject(payload)
-        console.log('[useSync] putting project:', project.id, project.name)
-        try {
-          await db.projects.put(project)
-          const count = await db.projects.count()
-          console.log('[useSync] project put success, total projects in Dexie:', count)
-        } catch (err) {
-          console.error('[useSync] project put FAILED:', err)
+        if (state === EventSource.CLOSED && !killed) {
+          // Native EventSource won't reconnect from CLOSED — do it ourselves
+          source.close()
+          sourceRef.current = null
+          console.log(`[useSync] SSE closed — reconnecting in ${delay / 1000}s`)
+          reconnectTimer.current = setTimeout(connect, delay)
+          // Exponential backoff capped at MAX_RECONNECT_DELAY
+          delay = Math.min(delay * 2, MAX_RECONNECT_DELAY)
         }
       }
-    })
-
-    source.addEventListener('project_updated', (e) => {
-      console.log('[useSync] project_updated event received')
-      const { payload } = JSON.parse(e.data)
-      if (payload) db.projects.put(parseProject(payload))
-    })
-
-    source.addEventListener('project_deleted', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload?.id) db.projects.delete(payload.id)
-    })
-
-    source.addEventListener('timer_started', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) {
-        if (payload.session) db.sessions.put(parseSession(payload.session))
-        if (payload.task_id) db.tasks.update(payload.task_id, { status: 'in_progress', updatedAt: new Date() })
-      }
-    })
-
-    source.addEventListener('timer_paused', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) {
-        if (payload.session) db.sessions.put(parseSession(payload.session))
-        if (payload.task_id) db.tasks.update(payload.task_id, { status: 'paused', updatedAt: new Date() })
-      }
-    })
-
-    source.addEventListener('timer_stopped', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) {
-        if (payload.session) db.sessions.put(parseSession(payload.session))
-        if (payload.task_id && payload.task_status) {
-          db.tasks.update(payload.task_id, { status: payload.task_status, updatedAt: new Date() })
-        }
-      }
-    })
-
-    source.addEventListener('settings_saved', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload?.key !== undefined) {
-        db.settings.where('key').equals(payload.key).modify({ value: payload.value })
-          .catch(() => db.settings.add({ key: payload.key, value: payload.value }))
-      }
-    })
-
-    source.addEventListener('notifications_cleared', () => {
-      db.notifications.clear()
-    })
-
-    source.addEventListener('notifications_all_read', () => {
-      db.notifications.toCollection().modify({ read: true })
-    })
-
-    source.addEventListener('activity_logged', (e) => {
-      const { payload } = JSON.parse(e.data)
-      if (payload) db.activityLogs.put(parseActivityLog(payload))
-    })
-
-    source.addEventListener('activity_cleared', () => {
-      db.activityLogs.clear()
-    })
-
-    source.addEventListener('data_cleared', async () => {
-      try {
-        await db.tasks.clear()
-        await db.projects.clear()
-        await db.sessions.clear()
-        await db.notifications.clear()
-        await db.activityLogs.clear()
-        console.log('[useSync] data_cleared: all Dexie tables cleared')
-      } catch (err) {
-        console.error('[useSync] data_cleared failed:', err)
-      }
-    })
-
-    source.onerror = (event) => {
-      const state = (event.target as EventSource)?.readyState
-      console.warn('[useSync] SSE error — readyState:', state === 0 ? 'CONNECTING' : state === 1 ? 'OPEN' : 'CLOSED')
     }
+
+    // Initial sync then connect
+    initialSync(port).then(connect)
 
     return () => {
-      source.close()
-      sourceRef.current = null
+      killed = true
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      if (sourceRef.current) {
+        sourceRef.current.close()
+        sourceRef.current = null
+      }
     }
-  }, [])
+  }, [port])
 }
 
 // Parse MCP server format (snake_case, JSON strings, ISO dates) to Dexie format (camelCase, arrays, Date objects)
