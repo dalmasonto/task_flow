@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router'
 import { useServer } from '@/hooks/use-server'
 import { useSync } from '@/hooks/use-sync'
+import { useFont } from '@/hooks/use-font'
 import { RootLayout } from '@/components/root-layout'
 import Dashboard from '@/routes/dashboard'
 import CreateProject from '@/routes/create-project'
@@ -20,6 +21,7 @@ import NotFound from '@/routes/not-found'
 export default function App() {
   useServer()
   useSync()
+  useFont()
 
   return (
     <Routes>

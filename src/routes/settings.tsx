@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
 import type { TaskStatus } from '@/types'
 import { useSetting, updateSetting } from '@/hooks/use-settings'
-import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS } from '@/lib/constants'
+import { DEFAULT_STATUS_COLORS, DEFAULT_SETTINGS, FONT_OPTIONS } from '@/lib/constants'
 import { getStatusLabel } from '@/lib/status'
 import { useTasks } from '@/hooks/use-tasks'
 import { seedDatabase } from '@/lib/seed'
@@ -43,6 +43,7 @@ export default function Settings() {
   const savedNotificationInterval = useSetting('notificationInterval')
   const savedBrowserNotifications = useSetting('browserNotificationsEnabled')
   const savedServerPort = useSetting('serverPort')
+  const savedFontFamily = useSetting('fontFamily')
 
   const [colors, setColors] = useState<Record<TaskStatus, string>>(savedColors)
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
@@ -53,6 +54,7 @@ export default function Settings() {
   const [notificationInterval, setNotificationInterval] = useState(savedNotificationInterval)
   const [browserNotifications, setBrowserNotifications] = useState(savedBrowserNotifications)
   const [serverPort, setServerPort] = useState(savedServerPort)
+  const [fontFamily, setFontFamily] = useState(savedFontFamily)
 
   // Sync local state when saved values load from DB
   useEffect(() => { setColors(savedColors) }, [savedColors])
@@ -64,6 +66,7 @@ export default function Settings() {
   useEffect(() => { setNotificationInterval(savedNotificationInterval) }, [savedNotificationInterval])
   useEffect(() => { setBrowserNotifications(savedBrowserNotifications) }, [savedBrowserNotifications])
   useEffect(() => { setServerPort(savedServerPort) }, [savedServerPort])
+  useEffect(() => { setFontFamily(savedFontFamily) }, [savedFontFamily])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -79,6 +82,7 @@ export default function Settings() {
     await updateSetting('notificationInterval', notificationInterval)
     await updateSetting('browserNotificationsEnabled', browserNotifications)
     await updateSetting('serverPort', serverPort)
+    await updateSetting('fontFamily', fontFamily)
     playSuccess()
     toast.success('Configuration committed to core')
     addNotification('Settings Saved', 'Configuration committed to core', 'success')
@@ -95,6 +99,7 @@ export default function Settings() {
     setNotificationInterval(DEFAULT_SETTINGS.notificationInterval)
     setBrowserNotifications(DEFAULT_SETTINGS.browserNotificationsEnabled)
     setServerPort(DEFAULT_SETTINGS.serverPort)
+    setFontFamily(DEFAULT_SETTINGS.fontFamily)
     playClick()
     toast.info('Settings reset to defaults — commit to apply')
   }
@@ -199,6 +204,58 @@ export default function Settings() {
                   className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 uppercase tracking-widest"
                 />
               </div>
+            </div>
+          </section>
+
+          {/* Font Selection */}
+          <section className="bg-accent/30 p-8 border-t border-primary/20">
+            <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-primary" /> TYPEFACE ENGINE
+            </h3>
+            <div className="space-y-3">
+              {FONT_OPTIONS.map(font => (
+                <button
+                  key={font.value}
+                  onClick={() => setFontFamily(font.value)}
+                  className={`w-full flex items-center justify-between p-4 transition-colors ${
+                    fontFamily === font.value
+                      ? 'bg-primary/10 border border-primary/40'
+                      : 'bg-accent/50 border border-transparent hover:bg-accent'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`w-3 h-3 border ${
+                        fontFamily === font.value
+                          ? 'bg-primary border-primary'
+                          : 'border-muted-foreground/40'
+                      }`}
+                    />
+                    <div className="text-left">
+                      <p
+                        className="text-sm font-bold uppercase tracking-widest"
+                        style={{ fontFamily: font.css }}
+                      >
+                        {font.label}
+                      </p>
+                      <p
+                        className="text-xs text-muted-foreground mt-1"
+                        style={{ fontFamily: font.css }}
+                      >
+                        The quick brown fox jumps over the lazy dog — 0123456789
+                      </p>
+                    </div>
+                  </div>
+                  {fontFamily === font.value && (
+                    <span className="text-[10px] uppercase tracking-widest text-primary font-bold">
+                      Active
+                    </span>
+                  )}
+                </button>
+              ))}
+              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mt-2">
+                Changes apply after committing to core.
+              </p>
             </div>
           </section>
 

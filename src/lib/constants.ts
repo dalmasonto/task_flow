@@ -23,4 +23,11 @@ export const DEFAULT_SETTINGS = {
   systemName: 'TASKFLOW_OS',
   terminalHistory: [] as string[],
   serverPort: 3456,
+  fontFamily: 'inter' as const,
 }
+
+export const FONT_OPTIONS = [
+  { value: 'inter', label: 'Inter', css: "'Inter Variable', sans-serif" },
+  { value: 'geist', label: 'Geist', css: "'Geist Variable', sans-serif" },
+  { value: 'space-grotesk', label: 'Space Grotesk', css: "'Space Grotesk Variable', sans-serif" },
+] as const

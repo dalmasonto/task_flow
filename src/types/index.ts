@@ -88,6 +88,8 @@ export interface ActivityLog {
   createdAt: Date
 }
 
+export type FontFamily = 'inter' | 'geist' | 'space-grotesk'
+
 export interface SettingsMap {
   timerBarDisplayMode: 'carousel' | 'expanded'
   notificationInterval: number
@@ -100,6 +102,7 @@ export interface SettingsMap {
   systemName: string
   terminalHistory: string[]
   serverPort: number
+  fontFamily: FontFamily
 }
 
 export interface Setting {
