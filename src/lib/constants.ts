@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS = {
   terminalHistory: [] as string[],
   serverPort: 3456,
   fontFamily: 'inter' as const,
+  recentProjectIds: [] as number[],
 }
 
 export const FONT_OPTIONS = [

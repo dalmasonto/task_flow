@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { toast } from 'sonner'
@@ -8,6 +8,7 @@ import { useTasks } from '@/hooks/use-tasks'
 import { useActiveSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
 import { db } from '@/db/database'
+import { trackRecentProject } from '@/hooks/use-settings'
 import { syncTaskUpdate, syncProjectUpdate, syncProjectDelete } from '@/lib/sync-api'
 import { TaskCard } from '@/components/task-card'
 import { EmptyState } from '@/components/empty-state'
@@ -87,6 +88,11 @@ export default function ProjectDetail() {
   const hasActive =
     activeSessions?.some(s => tasks?.some(t => t.id === s.taskId)) ?? false
   const { tick } = useTimer(hasActive)
+
+  // Track this project as recently viewed
+  useEffect(() => {
+    if (projectId !== undefined) trackRecentProject(projectId)
+  }, [projectId])
 
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')

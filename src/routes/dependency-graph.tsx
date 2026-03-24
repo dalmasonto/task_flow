@@ -24,11 +24,19 @@ import { useTasks } from '@/hooks/use-tasks'
 import { useProjects } from '@/hooks/use-projects'
 import { useActiveSessions, useSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
+import { useSetting, trackRecentProject } from '@/hooks/use-settings'
 import { getStatusColor, getStatusLabel, getDisplayStatus } from '@/lib/status'
 import { getBlockers } from '@/lib/dag'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { useTaskActivityLog } from '@/hooks/use-activity-log'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import type { Task, TaskStatus, Project } from '@/types'
 
 // ---------- Dagre layout ----------
@@ -498,8 +506,11 @@ const UNASSIGNED_COLOR = '#484847'
 export default function DependencyGraph() {
   const tasks = useTasks()
   const projects = useProjects()
+  const recentProjectIds = useSetting('recentProjectIds')
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
-  const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null) // null = all
+  const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null) // null = not yet initialized
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false)
+  const [filterSearch, setFilterSearch] = useState('')
 
   // Derive filter options from data
   const filterOptions = useMemo(() => {
@@ -525,27 +536,47 @@ export default function DependencyGraph() {
     return opts
   }, [tasks, projects])
 
+  // Initialize filters from recently viewed projects (once)
+  const [initialized, setInitialized] = useState(false)
+  useEffect(() => {
+    if (initialized || filterOptions.length === 0) return
+    setInitialized(true)
+
+    if (recentProjectIds.length > 0) {
+      const validKeys = new Set(filterOptions.map(o => o.key))
+      const recentKeys = recentProjectIds
+        .map(String)
+        .filter(k => validKeys.has(k))
+        .slice(0, 2)
+      if (recentKeys.length > 0) {
+        setActiveFilters(new Set(recentKeys))
+        return
+      }
+    }
+    // Fallback: show all if no recent projects
+    setActiveFilters(null)
+  }, [filterOptions, recentProjectIds, initialized])
+
   const toggleFilter = useCallback((key: string) => {
     setActiveFilters((prev) => {
-      if (prev === null) {
-        // Currently showing all — switch to only this one
-        return new Set([key])
-      }
-      const next = new Set(prev)
+      const current = prev ?? new Set(filterOptions.map(o => o.key))
+      const next = new Set(current)
       if (next.has(key)) {
         next.delete(key)
-        // If nothing selected, go back to "all"
-        if (next.size === 0) return null
+        if (next.size === 0) return new Set() // empty = show nothing (user explicitly deselected all)
       } else {
         next.add(key)
-        // If all selected, go back to null (show all)
-        if (next.size === filterOptions.length) return null
+      }
+      // Track project as recently viewed when selected
+      if (next.has(key) && key !== UNASSIGNED_KEY) {
+        trackRecentProject(Number(key))
       }
       return next
     })
-  }, [filterOptions.length])
+  }, [filterOptions])
 
   const showAll = activeFilters === null
+  const selectedCount = activeFilters?.size ?? filterOptions.length
 
   // Build nodes & edges from tasks + projects
   const { initialNodes, initialEdges, taskMap } = useMemo(() => {
@@ -763,43 +794,138 @@ export default function DependencyGraph() {
         </div>
       </header>
 
-      {/* Project Filter Bar */}
+      {/* Project Filter Bar — compact chips + dialog */}
       {filterOptions.length > 0 && (
         <div className="flex items-center gap-2 px-6 py-2 flex-shrink-0">
-          <span className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mr-1">Filter</span>
-          <button
-            onClick={() => setActiveFilters(null)}
-            className="px-3 py-1 text-[10px] uppercase tracking-widest font-bold border transition-colors"
-            style={{
-              backgroundColor: showAll ? 'rgba(0, 251, 251, 0.1)' : 'transparent',
-              borderColor: showAll ? '#00fbfb' : 'rgba(255,255,255,0.1)',
-              color: showAll ? '#00fbfb' : 'rgba(255,255,255,0.4)',
-            }}
-          >
-            All
-          </button>
-          {filterOptions.map((opt) => {
-            const isActive = showAll || (activeFilters !== null && activeFilters.has(opt.key))
-            return (
-              <button
-                key={opt.key}
-                onClick={() => toggleFilter(opt.key)}
-                className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-widest font-bold border transition-colors"
-                style={{
-                  backgroundColor: isActive ? `${opt.color}15` : 'transparent',
-                  borderColor: isActive ? opt.color : 'rgba(255,255,255,0.1)',
-                  color: isActive ? opt.color : 'rgba(255,255,255,0.4)',
-                }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: opt.color, opacity: isActive ? 1 : 0.3 }}
-                />
-                {opt.label}
-                <span className="text-[8px] opacity-60">{opt.count}</span>
+          <span className="text-[8px] text-muted-foreground tracking-[0.2em] uppercase mr-1">Showing</span>
+
+          {/* Selected project chips */}
+          {showAll ? (
+            <span className="px-3 py-1 text-[10px] uppercase tracking-widest font-bold border border-secondary/40 text-secondary bg-secondary/10">
+              All Projects
+            </span>
+          ) : (
+            filterOptions
+              .filter(opt => activeFilters?.has(opt.key))
+              .map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => toggleFilter(opt.key)}
+                  className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-widest font-bold border transition-colors group"
+                  style={{
+                    backgroundColor: `${opt.color}15`,
+                    borderColor: opt.color,
+                    color: opt.color,
+                  }}
+                >
+                  <span
+                    className="w-2 h-2 flex-shrink-0"
+                    style={{ backgroundColor: opt.color }}
+                  />
+                  {opt.label}
+                  <span className="text-[8px] opacity-60">{opt.count}</span>
+                  <span className="material-symbols-outlined text-xs opacity-0 group-hover:opacity-100 transition-opacity">close</span>
+                </button>
+              ))
+          )}
+
+          {activeFilters?.size === 0 && (
+            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+              No projects selected
+            </span>
+          )}
+
+          {/* Filter dialog trigger */}
+          <Dialog open={filterDialogOpen} onOpenChange={(open) => { setFilterDialogOpen(open); if (!open) setFilterSearch('') }}>
+            <DialogTrigger asChild>
+              <button className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-widest font-bold border border-muted-foreground/20 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+                <span className="material-symbols-outlined text-sm">filter_list</span>
+                Filter
+                {!showAll && selectedCount > 0 && (
+                  <span className="bg-primary/20 text-primary px-1.5 py-0.5 text-[8px] font-bold">
+                    {selectedCount}
+                  </span>
+                )}
               </button>
-            )
-          })}
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="uppercase tracking-widest text-sm">Project Filter</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {/* Search */}
+                <input
+                  type="text"
+                  placeholder="Search projects..."
+                  value={filterSearch}
+                  onChange={e => setFilterSearch(e.target.value)}
+                  className="w-full bg-input border border-border focus:border-primary text-sm py-2 px-3 uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal"
+                  autoFocus
+                />
+
+                {/* Quick actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setActiveFilters(null)}
+                    className="flex-1 px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold border border-secondary/30 text-secondary hover:bg-secondary/10 transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setActiveFilters(new Set())}
+                    className="flex-1 px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold border border-muted-foreground/20 text-muted-foreground hover:bg-accent transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+
+                {/* Project list */}
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {filterOptions
+                    .filter(opt => !filterSearch || opt.label.toLowerCase().includes(filterSearch.toLowerCase()))
+                    .map(opt => {
+                      const isActive = showAll || (activeFilters?.has(opt.key) ?? false)
+                      return (
+                        <button
+                          key={opt.key}
+                          onClick={() => toggleFilter(opt.key)}
+                          className="w-full flex items-center gap-3 p-3 transition-colors hover:bg-accent/50 text-left"
+                          style={{
+                            backgroundColor: isActive ? `${opt.color}10` : undefined,
+                          }}
+                        >
+                          {/* Checkbox indicator */}
+                          <div
+                            className="w-4 h-4 border flex-shrink-0 flex items-center justify-center"
+                            style={{
+                              borderColor: isActive ? opt.color : 'var(--muted-foreground)',
+                              backgroundColor: isActive ? opt.color : 'transparent',
+                            }}
+                          >
+                            {isActive && (
+                              <span className="material-symbols-outlined text-[10px] text-card font-bold">check</span>
+                            )}
+                          </div>
+
+                          <span
+                            className="w-3 h-3 flex-shrink-0"
+                            style={{ backgroundColor: opt.color }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-bold uppercase tracking-widest">
+                              {opt.label}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground tabular-nums">
+                            {opt.count} task{opt.count !== 1 ? 's' : ''}
+                          </span>
+                        </button>
+                      )
+                    })}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 

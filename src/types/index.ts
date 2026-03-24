@@ -103,6 +103,7 @@ export interface SettingsMap {
   terminalHistory: string[]
   serverPort: number
   fontFamily: FontFamily
+  recentProjectIds: number[]
 }
 
 export interface Setting {
