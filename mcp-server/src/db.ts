@@ -97,16 +97,29 @@ function initSchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS agent_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
       question TEXT NOT NULL,
       context TEXT,
       choices TEXT,
       response TEXT,
       agent_pid INTEGER,
       delivered INTEGER,
+      sender_name TEXT NOT NULL DEFAULT 'unknown',
+      recipient_name TEXT NOT NULL DEFAULT 'user',
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL,
       answered_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_registry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      project_path TEXT NOT NULL,
+      pid INTEGER NOT NULL,
+      tmux_pane TEXT,
+      status TEXT NOT NULL DEFAULT 'connected',
+      connected_at TEXT NOT NULL,
+      disconnected_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -119,6 +132,8 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_registry_status ON agent_registry(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_registry_name ON agent_registry(name);
   `);
 
   // Migrations — add columns that may be missing on existing databases
@@ -130,6 +145,45 @@ function initSchema(db: Database.Database): void {
   if (!colNames.has('delivered')) {
     db.exec('ALTER TABLE agent_messages ADD COLUMN delivered INTEGER');
   }
+  if (!colNames.has('sender_name')) {
+    db.exec("ALTER TABLE agent_messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT 'unknown'");
+  }
+  if (!colNames.has('recipient_name')) {
+    db.exec("ALTER TABLE agent_messages ADD COLUMN recipient_name TEXT NOT NULL DEFAULT 'user'");
+  }
+
+  // Migration: make agent_messages.project_id nullable if it was NOT NULL
+  try {
+    const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'agent_messages'").get() as { sql: string } | undefined;
+    if (tableInfo?.sql?.includes('project_id INTEGER NOT NULL')) {
+      db.exec(`
+        CREATE TABLE agent_messages_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+          question TEXT NOT NULL,
+          context TEXT,
+          choices TEXT,
+          response TEXT,
+          agent_pid INTEGER,
+          delivered INTEGER,
+          sender_name TEXT NOT NULL DEFAULT 'unknown',
+          recipient_name TEXT NOT NULL DEFAULT 'user',
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL,
+          answered_at TEXT
+        );
+        INSERT INTO agent_messages_new SELECT
+          id, project_id, question, context, choices, response, agent_pid, delivered,
+          COALESCE(sender_name, 'unknown'), COALESCE(recipient_name, 'user'),
+          status, created_at, answered_at
+        FROM agent_messages;
+        DROP TABLE agent_messages;
+        ALTER TABLE agent_messages_new RENAME TO agent_messages;
+        CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
+        CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
+      `);
+    }
+  } catch { /* table may not exist yet */ }
 }
 
 export function closeDb(): void {

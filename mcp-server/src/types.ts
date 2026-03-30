@@ -17,6 +17,9 @@ export type NotificationType = z.infer<typeof NotificationType>;
 export const AgentMessageStatus = z.enum(['pending', 'answered', 'dismissed']);
 export type AgentMessageStatus = z.infer<typeof AgentMessageStatus>;
 
+export const AgentStatus = z.enum(['connected', 'disconnected']);
+export type AgentStatus = z.infer<typeof AgentStatus>;
+
 export const ActivityAction = z.enum([
   'task_created', 'task_deleted', 'task_status_changed', 'task_completed',
   'task_partial_done', 'timer_started', 'timer_paused', 'timer_stopped',
@@ -25,6 +28,7 @@ export const ActivityAction = z.enum([
   'task_linked', 'task_unlinked', 'dependency_added', 'dependency_removed',
   'link_added', 'tag_added', 'tag_removed', 'debug_log',
   'agent_question', 'agent_question_answered',
+  'agent_connected', 'agent_disconnected',
 ]);
 export type ActivityAction = z.infer<typeof ActivityAction>;
 
