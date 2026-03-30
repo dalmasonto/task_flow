@@ -149,7 +149,7 @@ function MessageCard({
   const timeAgo = getTimeAgo(message.createdAt)
 
   return (
-    <div className="bg-card border border-secondary/20 shadow-[0_0_15px_rgba(222,142,255,0.05)] p-6 space-y-4">
+    <div className="bg-card text-card-foreground border border-secondary/20 shadow-[0_0_15px_rgba(222,142,255,0.05)] p-6 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -235,7 +235,7 @@ function AnsweredCard({
 
   return (
     <div
-      className="bg-card border border-border p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
+      className="bg-card text-card-foreground border border-border p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-start justify-between gap-4">
