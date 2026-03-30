@@ -1,8 +1,54 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 
 const SERVICE_ID = 'taskflow-mcp';
+
+/**
+ * Inject text into the terminal running the agent (Claude Code).
+ * Uses xdotool to find the terminal window and type the response.
+ */
+function injectIntoTerminal(text: string): void {
+  try {
+    // Check xdotool is available
+    try { execSync('which xdotool', { stdio: 'ignore' }); }
+    catch { console.log('[inject] xdotool not installed, skipping'); return; }
+
+    const ppid = process.ppid;
+
+    // Find the terminal window — walk up the process tree to find one with a window
+    let targetWindow = '';
+    let pid = ppid;
+    for (let i = 0; i < 5 && !targetWindow; i++) {
+      const result = execSync(`xdotool search --pid ${pid} 2>/dev/null || true`).toString().trim();
+      if (result) {
+        targetWindow = result.split('\n')[0];
+        break;
+      }
+      // Go up one level
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+        pid = parseInt(stat.split(' ')[3], 10);
+      } catch { break; }
+    }
+
+    if (!targetWindow) {
+      console.log('[inject] could not find terminal window, skipping');
+      return;
+    }
+
+    // Type into the terminal window
+    execSync(`xdotool windowactivate --sync ${targetWindow}`, { stdio: 'ignore', timeout: 3000 });
+    execSync(`xdotool type --clearmodifiers --delay 0 -- ${JSON.stringify(text)}`, { stdio: 'ignore', timeout: 5000 });
+    execSync(`xdotool key --clearmodifiers Return`, { stdio: 'ignore', timeout: 2000 });
+
+    console.log('[inject] response injected into terminal window', targetWindow);
+  } catch (err) {
+    console.error('[inject] failed:', err);
+  }
+}
 const MAX_PORT_ATTEMPTS = 10;
 const PROBE_TIMEOUT_MS = 2000;
 
@@ -323,6 +369,10 @@ export async function startSSEServer(): Promise<void> {
       logActivity('agent_question_answered', `Responded to: ${message.question}`, { entityType: 'agent_message', entityId: id });
 
       jsonResponse(res, 200, updated);
+
+      // Inject the response into the agent's terminal so it can continue
+      const question = (message.question as string).slice(0, 80);
+      injectIntoTerminal(`[Agent Inbox Response] to "${question}": ${response}`);
       return;
     }
 
