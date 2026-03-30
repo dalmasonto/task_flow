@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Task, Project, Session, Setting, AppNotification, ActivityLog } from '@/types'
+import type { Task, Project, Session, Setting, AppNotification, ActivityLog, AgentMessage } from '@/types'
 
 export class TaskFlowDB extends Dexie {
   tasks!: Table<Task>
@@ -8,6 +8,7 @@ export class TaskFlowDB extends Dexie {
   settings!: Table<Setting>
   notifications!: Table<AppNotification>
   activityLogs!: Table<ActivityLog>
+  agentMessages!: Table<AgentMessage>
 
   constructor() {
     super('TaskFlowDB')
@@ -31,6 +32,9 @@ export class TaskFlowDB extends Dexie {
     })
     this.version(4).stores({
       activityLogs: '++id, action, entityType, createdAt',
+    })
+    this.version(5).stores({
+      agentMessages: '++id, projectId, status, createdAt',
     })
   }
 }

@@ -113,6 +113,20 @@ export interface Setting {
   value: SettingsMap[keyof SettingsMap]
 }
 
+export type AgentMessageStatus = 'pending' | 'answered'
+
+export interface AgentMessage {
+  id?: number
+  projectId: number
+  question: string
+  context?: string
+  choices?: string[]
+  response?: string
+  status: AgentMessageStatus
+  createdAt: Date
+  answeredAt?: Date
+}
+
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   not_started: ['in_progress', 'blocked'],
   in_progress: ['paused', 'blocked', 'partial_done', 'done'],
