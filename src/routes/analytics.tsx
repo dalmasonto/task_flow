@@ -11,6 +11,7 @@ import { FocusByDayOfWeek } from '@/components/charts/focus-by-day-of-week'
 import { SessionLengthDistribution } from '@/components/charts/session-length-distribution'
 import { ProjectBurndown } from '@/components/charts/project-burndown'
 import { StatusFlow } from '@/components/charts/status-flow'
+import { DailyProductivity } from '@/components/charts/daily-productivity'
 import type { TaskStatus } from '@/types'
 
 const NEON_COLORS = ['#de8eff', '#00fbfb', '#69fd5d', '#ff6e84', '#b90afc', '#484847']
@@ -226,6 +227,9 @@ export default function Analytics() {
           )}
         </div>
       </section>
+
+      {/* Daily Productivity — filterable per-project, per-day view */}
+      <DailyProductivity />
 
       {/* Charts Grid */}
       <div className="space-y-8">
