@@ -102,6 +102,7 @@ function initSchema(db: Database.Database): void {
       context TEXT,
       choices TEXT,
       response TEXT,
+      agent_pid INTEGER,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL,
       answered_at TEXT
@@ -118,6 +119,13 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
   `);
+
+  // Migrations — add columns that may be missing on existing databases
+  const cols = db.prepare("PRAGMA table_info(agent_messages)").all() as Array<{ name: string }>;
+  const colNames = new Set(cols.map(c => c.name));
+  if (!colNames.has('agent_pid')) {
+    db.exec('ALTER TABLE agent_messages ADD COLUMN agent_pid INTEGER');
+  }
 }
 
 export function closeDb(): void {

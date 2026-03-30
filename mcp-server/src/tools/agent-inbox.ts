@@ -22,15 +22,19 @@ export function registerAgentInboxTools(server: McpServer) {
         return errorResponse(`Project ${params.project_id} not found`, 'NOT_FOUND');
       }
 
+      // Capture the calling agent's PID (our parent process) for terminal injection
+      const agentPid = process.ppid;
+
       const ts = now();
       const result = db.prepare(
-        `INSERT INTO agent_messages (project_id, question, context, choices, status, created_at)
-         VALUES (?, ?, ?, ?, 'pending', ?)`
+        `INSERT INTO agent_messages (project_id, question, context, choices, agent_pid, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?)`
       ).run(
         params.project_id,
         params.question,
         params.context ?? null,
         params.choices ? JSON.stringify(params.choices) : null,
+        agentPid,
         ts,
       );
 

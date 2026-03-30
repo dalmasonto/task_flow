@@ -7,80 +7,76 @@ import { logActivity } from './helpers.js';
 const SERVICE_ID = 'taskflow-mcp';
 
 /**
- * Detect the terminal window where Claude Code is running.
- * Cached on first successful detection.
+ * Find the terminal window for a given agent PID.
+ * Walks up the process tree from the agent PID looking for a window.
  */
-let cachedWindowId: string | null = null;
-
-function detectTerminalWindow(): string | null {
-  if (cachedWindowId) return cachedWindowId;
-
+function findWindowForPid(agentPid: number): string | null {
   try {
-    // Strategy 1: Walk up the process tree looking for a window
-    let pid = process.ppid;
-    for (let i = 0; i < 8; i++) {
+    // Walk up the process tree from the agent looking for a window
+    let pid = agentPid;
+    for (let i = 0; i < 10 && pid > 1; i++) {
       const result = execSync(`xdotool search --pid ${pid} 2>/dev/null || true`).toString().trim();
       if (result) {
-        cachedWindowId = result.split('\n')[0];
-        console.log(`[inject] found window ${cachedWindowId} via PID ${pid}`);
-        return cachedWindowId;
+        const windowId = result.split('\n')[0];
+        console.log(`[inject] found window ${windowId} via PID ${pid} (${i} hops from agent)`);
+        return windowId;
       }
+      // Go up one level
       try {
         const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
         pid = parseInt(stat.split(' ')[3], 10);
-        if (pid <= 1) break;
       } catch { break; }
     }
 
-    // Strategy 2: Claude Code runs in a terminal — find by Claude's PTY
-    // The PTY (e.g., /dev/pts/8) is shared by the shell and terminal emulator
-    const ppid = process.ppid;
-    const ptsLink = execSync(`readlink /proc/${ppid}/fd/0 2>/dev/null || true`).toString().trim();
+    // Fallback: find by the agent's PTY — the terminal emulator owns the PTY master
+    const ptsLink = execSync(`readlink /proc/${agentPid}/fd/0 2>/dev/null || true`).toString().trim();
     if (ptsLink.startsWith('/dev/pts/')) {
-      // Find all processes on this PTY, look for one with a window
       const ptsNum = ptsLink.split('/').pop();
-      const procs = execSync(`ls /proc/*/fd/0 2>/dev/null | xargs -I{} sh -c 'readlink {} 2>/dev/null | grep -q "/dev/pts/${ptsNum}$" && echo $(dirname {} | xargs dirname | xargs basename)' || true`)
-        .toString().trim().split('\n').filter(Boolean);
+      // Search processes that have this PTY, walking up their trees for a window
+      const procs = execSync(
+        `for f in /proc/[0-9]*/fd/0; do ` +
+        `  target=$(readlink "$f" 2>/dev/null); ` +
+        `  if [ "$target" = "/dev/pts/${ptsNum}" ]; then ` +
+        `    echo "$(echo "$f" | grep -oP '\\d+')"; ` +
+        `  fi; ` +
+        `done 2>/dev/null || true`
+      ).toString().trim().split('\n').filter(Boolean);
+
       for (const p of procs) {
         const result = execSync(`xdotool search --pid ${p} 2>/dev/null || true`).toString().trim();
         if (result) {
-          cachedWindowId = result.split('\n')[0];
-          console.log(`[inject] found window ${cachedWindowId} via PTY peer PID ${p}`);
-          return cachedWindowId;
+          const windowId = result.split('\n')[0];
+          console.log(`[inject] found window ${windowId} via PTY peer PID ${p}`);
+          return windowId;
         }
-      }
-    }
-
-    // Strategy 3: Find VS Code / terminal emulator window as fallback
-    const patterns = ['Visual Studio Code', 'code-insiders', 'Terminal', 'Konsole', 'GNOME Terminal', 'Alacritty', 'kitty', 'WezTerm'];
-    for (const pattern of patterns) {
-      const result = execSync(`xdotool search --name "${pattern}" 2>/dev/null || true`).toString().trim();
-      if (result) {
-        // Use the last match (most recently focused)
-        const windows = result.split('\n').filter(Boolean);
-        cachedWindowId = windows[windows.length - 1];
-        console.log(`[inject] found window ${cachedWindowId} via name "${pattern}"`);
-        return cachedWindowId;
       }
     }
   } catch (err) {
     console.error('[inject] window detection error:', err);
   }
-
   return null;
 }
 
 /**
  * Inject text into the terminal running the agent (Claude Code).
- * Uses xdotool to type the response into the detected terminal window.
+ * Uses the stored agent_pid from the message to find the right terminal.
  */
-function injectIntoTerminal(text: string): void {
+function injectIntoTerminal(text: string, agentPid: number | null): void {
   try {
+    if (!agentPid) {
+      console.log('[inject] no agent_pid stored, skipping');
+      return;
+    }
+
     // Check xdotool is available
     try { execSync('which xdotool', { stdio: 'ignore' }); }
     catch { console.log('[inject] xdotool not installed, skipping'); return; }
 
-    const targetWindow = detectTerminalWindow();
+    // Check the agent process is still alive
+    try { readFileSync(`/proc/${agentPid}/stat`); }
+    catch { console.log(`[inject] agent PID ${agentPid} no longer running, skipping`); return; }
+
+    const targetWindow = findWindowForPid(agentPid);
     if (!targetWindow) {
       console.log('[inject] could not find terminal window, skipping');
       return;
@@ -420,8 +416,9 @@ export async function startSSEServer(): Promise<void> {
       jsonResponse(res, 200, updated);
 
       // Inject the response into the agent's terminal so it can continue
+      const agentPid = message.agent_pid as number | null;
       const question = (message.question as string).slice(0, 80);
-      injectIntoTerminal(`[Agent Inbox Response] to "${question}": ${response}`);
+      injectIntoTerminal(`[Agent Inbox Response] to "${question}": ${response}`, agentPid);
       return;
     }
 
