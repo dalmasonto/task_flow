@@ -113,7 +113,7 @@ export interface Setting {
   value: SettingsMap[keyof SettingsMap]
 }
 
-export type AgentMessageStatus = 'pending' | 'answered'
+export type AgentMessageStatus = 'pending' | 'answered' | 'dismissed'
 
 export interface AgentMessage {
   id?: number

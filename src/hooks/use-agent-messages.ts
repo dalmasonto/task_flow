@@ -25,3 +25,15 @@ export async function respondToMessage(id: number, response: string, port: numbe
   }
   return res.json()
 }
+
+export async function dismissMessage(id: number, port: number) {
+  const res = await fetch(`http://localhost:${port}/api/agent-messages/${id}/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error ?? 'Failed to dismiss')
+  }
+  return res.json()
+}

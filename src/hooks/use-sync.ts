@@ -302,7 +302,7 @@ function parseAgentMessage(raw: Record<string, unknown>) {
     context: raw.context != null ? (raw.context as string) : undefined,
     choices: raw.choices != null ? parseJsonField(raw.choices, []) : undefined,
     response: raw.response != null ? (raw.response as string) : undefined,
-    status: raw.status as 'pending' | 'answered',
+    status: raw.status as 'pending' | 'answered' | 'dismissed',
     createdAt: new Date(raw.created_at as string),
     answeredAt: raw.answered_at ? new Date(raw.answered_at as string) : undefined,
   }

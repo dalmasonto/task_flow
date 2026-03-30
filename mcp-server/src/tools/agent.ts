@@ -63,6 +63,10 @@ export async function getAgentInstructions() {
 
       // Formatting
       'Use Markdown in descriptions — headings, bullets, code blocks, bold. The UI renders it.',
+
+      // Agent Inbox — remote communication
+      'When you need user input (choices, confirmations, clarifications), ALWAYS do BOTH: (1) ask the question normally in the terminal conversation, AND (2) call ask_user to post it to the Agent Inbox. This lets the user respond from either the terminal or the TaskFlow UI remotely. If the user explicitly tells you not to use the inbox (e.g. "don\'t post to inbox"), skip the ask_user call.',
+      'After calling ask_user, continue your work if possible. The user may respond from the UI, and the response will be delivered to your terminal automatically (if running in tmux). You can also call check_response to poll for the answer.',
     ],
 
     workflow: 'not_started → in_progress (start_timer) → paused (pause_timer) → done/partial_done/blocked (stop_timer)',

@@ -326,6 +326,33 @@ export async function startSSEServer(): Promise<void> {
       return;
     }
 
+    // POST /api/agent-messages/:id/dismiss — dismiss without responding (answered in terminal)
+    const agentDismissMatch = req.url?.match(/^\/api\/agent-messages\/(\d+)\/dismiss$/);
+    if (agentDismissMatch && req.method === 'POST') {
+      const db = getDb();
+      const id = Number(agentDismissMatch[1]);
+
+      const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+      if (!message) {
+        jsonResponse(res, 404, { error: 'Message not found' });
+        return;
+      }
+      if (message.status !== 'pending') {
+        jsonResponse(res, 400, { error: 'Message is not pending' });
+        return;
+      }
+
+      const ts = new Date().toISOString();
+      db.prepare('UPDATE agent_messages SET status = ?, answered_at = ? WHERE id = ?')
+        .run('dismissed', ts, id);
+
+      const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
+      broadcast('agent_question_answered', { entity: 'agent_message', action: 'agent_question_answered', payload: updated });
+
+      jsonResponse(res, 200, updated);
+      return;
+    }
+
     res.writeHead(404);
     res.end('Not Found');
   });

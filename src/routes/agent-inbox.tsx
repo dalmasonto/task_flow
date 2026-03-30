@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { useAgentMessages, respondToMessage } from '@/hooks/use-agent-messages'
+import { useAgentMessages, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
 import { useSetting } from '@/hooks/use-settings'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,7 @@ export default function AgentInbox() {
     : messages.filter(m => m.projectId === Number(projectFilter))
 
   const pending = filtered.filter(m => m.status === 'pending')
-  const answered = filtered.filter(m => m.status === 'answered')
+  const answered = filtered.filter(m => m.status === 'answered' || m.status === 'dismissed')
 
   const answeredByDate = answered.reduce<Record<string, AgentMessage[]>>((acc, m) => {
     const dateKey = m.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -134,6 +134,18 @@ function MessageCard({
     }
   }
 
+  const handleDismiss = async () => {
+    if (!message.id) return
+    setSending(true)
+    try {
+      await dismissMessage(message.id, port)
+    } catch (err) {
+      console.error('Failed to dismiss:', err)
+    } finally {
+      setSending(false)
+    }
+  }
+
   const timeAgo = getTimeAgo(message.createdAt)
 
   return (
@@ -148,7 +160,19 @@ function MessageCard({
             </span>
           )}
         </div>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{timeAgo}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{timeAgo}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={sending}
+            className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive h-auto py-1 px-2"
+            onClick={handleDismiss}
+          >
+            <span className="material-symbols-outlined text-sm mr-1">close</span>
+            Dismiss
+          </Button>
+        </div>
       </div>
 
       {/* Context rendered as Markdown */}
@@ -225,6 +249,11 @@ function AnsweredCard({
           <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
             {getTimeAgo(message.createdAt)}
           </span>
+          {message.status === 'dismissed' && (
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-1.5 py-0.5 border border-muted-foreground/20">
+              Dismissed
+            </span>
+          )}
           <span className="material-symbols-outlined text-sm text-muted-foreground">
             {expanded ? 'expand_less' : 'expand_more'}
           </span>
@@ -238,10 +267,18 @@ function AnsweredCard({
               <ReactMarkdown>{message.context}</ReactMarkdown>
             </div>
           )}
-          <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-sm text-secondary mt-0.5">reply</span>
-            <span className="text-sm">{message.response}</span>
-          </div>
+          {message.status === 'answered' && (
+            <div className="flex items-start gap-2">
+              <span className="material-symbols-outlined text-sm text-secondary mt-0.5">reply</span>
+              <span className="text-sm">{message.response}</span>
+            </div>
+          )}
+          {message.status === 'dismissed' && (
+            <div className="flex items-center gap-2 text-muted-foreground/50">
+              <span className="material-symbols-outlined text-sm">do_not_disturb</span>
+              <span className="text-xs uppercase tracking-widest">Answered in terminal</span>
+            </div>
+          )}
         </div>
       )}
     </div>

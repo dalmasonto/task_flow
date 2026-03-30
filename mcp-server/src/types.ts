@@ -14,7 +14,7 @@ export type ProjectType = z.infer<typeof ProjectType>;
 export const NotificationType = z.enum(['info', 'success', 'warning', 'error']);
 export type NotificationType = z.infer<typeof NotificationType>;
 
-export const AgentMessageStatus = z.enum(['pending', 'answered']);
+export const AgentMessageStatus = z.enum(['pending', 'answered', 'dismissed']);
 export type AgentMessageStatus = z.infer<typeof AgentMessageStatus>;
 
 export const ActivityAction = z.enum([
