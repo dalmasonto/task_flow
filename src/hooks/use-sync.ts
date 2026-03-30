@@ -297,7 +297,7 @@ function parseActivityLog(raw: Record<string, unknown>) {
 function parseAgentMessage(raw: Record<string, unknown>) {
   return {
     id: raw.id as number,
-    projectId: raw.project_id != null ? (raw.project_id as number) : undefined,
+    projectId: raw.project_id as number,
     question: raw.question as string,
     context: raw.context != null ? (raw.context as string) : undefined,
     choices: raw.choices != null ? parseJsonField(raw.choices, []) : undefined,

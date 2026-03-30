@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { useAgentMessages, respondToMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
 import { useSetting } from '@/hooks/use-settings'
@@ -12,6 +13,7 @@ export default function AgentInbox() {
   const projects = useProjects()
   const port = Number(useSetting('serverPort'))
   const [projectFilter, setProjectFilter] = useState('all')
+  const [showAnswered, setShowAnswered] = useState(false)
 
   if (!messages || !projects) return null
 
@@ -23,6 +25,13 @@ export default function AgentInbox() {
 
   const pending = filtered.filter(m => m.status === 'pending')
   const answered = filtered.filter(m => m.status === 'answered')
+
+  const answeredByDate = answered.reduce<Record<string, AgentMessage[]>>((acc, m) => {
+    const dateKey = m.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    if (!acc[dateKey]) acc[dateKey] = []
+    acc[dateKey].push(m)
+    return acc
+  }, {})
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">
@@ -66,12 +75,23 @@ export default function AgentInbox() {
       {/* Answered */}
       {answered.length > 0 && (
         <section className="space-y-4">
-          <h2 className="text-xs tracking-widest uppercase font-bold text-muted-foreground flex items-center gap-2">
+          <button
+            onClick={() => setShowAnswered(!showAnswered)}
+            className="text-xs tracking-widest uppercase font-bold text-muted-foreground flex items-center gap-2 hover:text-foreground transition-colors"
+          >
             <span className="material-symbols-outlined text-sm">check_circle</span>
-            Answered
-          </h2>
-          {answered.map(m => (
-            <AnsweredCard key={m.id} message={m} project={projectMap.get(m.projectId)} />
+            Answered ({answered.length})
+            <span className="material-symbols-outlined text-sm">
+              {showAnswered ? 'expand_less' : 'expand_more'}
+            </span>
+          </button>
+          {showAnswered && Object.entries(answeredByDate).map(([date, msgs]) => (
+            <div key={date} className="space-y-2">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-widest border-b border-border pb-1">{date}</div>
+              {msgs.map(m => (
+                <AnsweredCard key={m.id} message={m} project={projectMap.get(m.projectId)} />
+              ))}
+            </div>
           ))}
         </section>
       )}
@@ -131,10 +151,10 @@ function MessageCard({
         <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{timeAgo}</span>
       </div>
 
-      {/* Context (markdown rendered as pre-formatted for now) */}
+      {/* Context rendered as Markdown */}
       {message.context && (
-        <div className="bg-muted/50 border border-border p-4 text-sm whitespace-pre-wrap font-mono text-muted-foreground max-h-64 overflow-y-auto">
-          {message.context}
+        <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm prose-invert max-w-none">
+          <ReactMarkdown>{message.context}</ReactMarkdown>
         </div>
       )}
 
@@ -214,8 +234,8 @@ function AnsweredCard({
       {expanded && (
         <div className="mt-4 space-y-3 border-t border-border pt-4">
           {message.context && (
-            <div className="bg-muted/50 border border-border p-3 text-xs whitespace-pre-wrap font-mono text-muted-foreground max-h-48 overflow-y-auto">
-              {message.context}
+            <div className="bg-muted/50 border border-border p-3 text-xs text-muted-foreground max-h-48 overflow-y-auto prose prose-xs prose-invert max-w-none">
+              <ReactMarkdown>{message.context}</ReactMarkdown>
             </div>
           )}
           <div className="flex items-start gap-2">
