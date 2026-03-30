@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
+import { resolvePending } from './pending-questions.js';
 
 const SERVICE_ID = 'taskflow-mcp';
 const MAX_PORT_ATTEMPTS = 10;
@@ -288,6 +289,44 @@ export async function startSSEServer(): Promise<void> {
         broadcastLocal(body.event, body.data);
       }
       jsonResponse(res, 200, { relayed: true });
+      return;
+    }
+
+    // POST /api/agent-messages/:id/respond — user responds to an agent question
+    const agentRespondMatch = req.url?.match(/^\/api\/agent-messages\/(\d+)\/respond$/);
+    if (agentRespondMatch && req.method === 'POST') {
+      const db = getDb();
+      const id = Number(agentRespondMatch[1]);
+
+      const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+      if (!message) {
+        jsonResponse(res, 404, { error: 'Message not found' });
+        return;
+      }
+      if (message.status === 'answered') {
+        jsonResponse(res, 400, { error: 'Already answered' });
+        return;
+      }
+
+      const body = JSON.parse(await readBody(req));
+      const response = body.response as string;
+      if (!response) {
+        jsonResponse(res, 400, { error: 'Response is required' });
+        return;
+      }
+
+      const ts = new Date().toISOString();
+      db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ? WHERE id = ?')
+        .run(response, 'answered', ts, id);
+
+      // Resolve the blocking MCP tool call
+      resolvePending(id, response);
+
+      const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
+      broadcast('agent_question_answered', { entity: 'agent_message', action: 'agent_question_answered', payload: updated });
+      logActivity('agent_question_answered', `Responded to: ${message.question}`, { entityType: 'agent_message', entityId: id });
+
+      jsonResponse(res, 200, updated);
       return;
     }
 
