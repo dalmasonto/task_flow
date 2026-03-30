@@ -95,6 +95,18 @@ function initSchema(db: Database.Database): void {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      question TEXT NOT NULL,
+      context TEXT,
+      choices TEXT,
+      response TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      answered_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
@@ -103,6 +115,8 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_activity_logs_action ON activity_logs(action);
     CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
     CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
   `);
 }
 

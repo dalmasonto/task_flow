@@ -14,6 +14,9 @@ export type ProjectType = z.infer<typeof ProjectType>;
 export const NotificationType = z.enum(['info', 'success', 'warning', 'error']);
 export type NotificationType = z.infer<typeof NotificationType>;
 
+export const AgentMessageStatus = z.enum(['pending', 'answered']);
+export type AgentMessageStatus = z.infer<typeof AgentMessageStatus>;
+
 export const ActivityAction = z.enum([
   'task_created', 'task_deleted', 'task_status_changed', 'task_completed',
   'task_partial_done', 'timer_started', 'timer_paused', 'timer_stopped',
@@ -21,6 +24,7 @@ export const ActivityAction = z.enum([
   'tasks_bulk_created', 'settings_saved', 'data_seeded', 'data_cleared',
   'task_linked', 'task_unlinked', 'dependency_added', 'dependency_removed',
   'link_added', 'tag_added', 'tag_removed', 'debug_log',
+  'agent_question', 'agent_question_answered',
 ]);
 export type ActivityAction = z.infer<typeof ActivityAction>;
 
@@ -39,6 +43,7 @@ export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'CYCLE_DETECTED'
   | 'SESSION_ALREADY_ACTIVE'
-  | 'NO_ACTIVE_SESSION';
+  | 'NO_ACTIVE_SESSION'
+  | 'ALREADY_ANSWERED';
 
 export const LinkSchema = z.object({ label: z.string(), url: z.string() });

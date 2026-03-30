@@ -98,8 +98,9 @@ export async function startSSEServer(): Promise<void> {
       const sessions = db.prepare('SELECT * FROM sessions').all();
       const settings = db.prepare('SELECT * FROM settings').all();
       const activityLogs = db.prepare('SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 200').all();
+      const agentMessages = db.prepare('SELECT * FROM agent_messages ORDER BY created_at DESC LIMIT 100').all();
 
-      jsonResponse(res, 200, { tasks, projects, sessions, settings, activityLogs });
+      jsonResponse(res, 200, { tasks, projects, sessions, settings, activityLogs, agentMessages });
       return;
     }
 
@@ -112,6 +113,7 @@ export async function startSSEServer(): Promise<void> {
       db.exec('DELETE FROM projects');
       db.exec('DELETE FROM notifications');
       db.exec('DELETE FROM activity_logs');
+      db.exec('DELETE FROM agent_messages');
       logActivity('data_cleared', 'All data cleared via UI', { entityType: 'system' });
       broadcast('data_cleared', { entity: 'system', action: 'data_cleared', payload: {} });
       jsonResponse(res, 200, { cleared: true });
