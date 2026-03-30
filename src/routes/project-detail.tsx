@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { toast } from 'sonner'
-import { logActivity } from '@/hooks/use-activity-log'
+import { logActivity, useProjectActivityLog } from '@/hooks/use-activity-log'
 import { useProject } from '@/hooks/use-projects'
 import { useTasks } from '@/hooks/use-tasks'
 import { useActiveSessions } from '@/hooks/use-sessions'
@@ -13,6 +13,7 @@ import { syncTaskUpdate, syncProjectUpdate, syncProjectDelete } from '@/lib/sync
 import { TaskCard } from '@/components/task-card'
 import { EmptyState } from '@/components/empty-state'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
+import { getStatusColor } from '@/lib/status'
 import { MarkdownEditor } from '@/components/markdown-editor'
 import { Button } from '@/components/ui/button'
 import {
@@ -88,6 +89,9 @@ export default function ProjectDetail() {
   const hasActive =
     activeSessions?.some(s => tasks?.some(t => t.id === s.taskId)) ?? false
   const { tick } = useTimer(hasActive)
+
+  const taskIds = useMemo(() => (tasks ?? []).filter(t => t.id !== undefined).map(t => t.id!), [tasks])
+  const projectLogs = useProjectActivityLog(projectId, taskIds)
 
   // Track this project as recently viewed
   useEffect(() => {
@@ -438,6 +442,76 @@ export default function ProjectDetail() {
               </div>
             )}
           </section>
+
+          {/* Project Activity Log */}
+          {projectLogs && projectLogs.length > 0 && (
+            <section>
+              <div className="flex items-center gap-4 mb-6">
+                <h2 className="text-xs font-bold tracking-widest uppercase text-muted-foreground">
+                  Activity_Log
+                </h2>
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[10px] tracking-widest uppercase text-muted-foreground">
+                  {projectLogs.length} entries
+                </span>
+              </div>
+
+              <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                {projectLogs.map((log) => {
+                  const iconMap: Record<string, { icon: string; color: string }> = {
+                    debug_log: { icon: 'bug_report', color: 'var(--color-warning, #ffeb3b)' },
+                    timer_started: { icon: 'play_circle', color: 'var(--color-secondary, #00fbfb)' },
+                    timer_paused: { icon: 'pause_circle', color: 'var(--color-primary, #de8eff)' },
+                    timer_stopped: { icon: 'stop_circle', color: 'var(--color-destructive, #ff6e84)' },
+                    task_completed: { icon: 'task_alt', color: 'var(--color-tertiary, #69fd5d)' },
+                    task_partial_done: { icon: 'check_circle', color: 'var(--color-primary, #b90afc)' },
+                    task_status_changed: { icon: 'sync', color: 'var(--color-secondary, #00fbfb)' },
+                    task_created: { icon: 'add_task', color: 'var(--color-tertiary, #69fd5d)' },
+                    task_deleted: { icon: 'delete', color: 'var(--color-destructive, #ff6e84)' },
+                    task_linked: { icon: 'link', color: 'var(--color-secondary, #00fbfb)' },
+                    task_unlinked: { icon: 'link_off', color: 'var(--color-muted-foreground, #888)' },
+                    project_updated: { icon: 'edit', color: 'var(--color-primary, #de8eff)' },
+                    project_deleted: { icon: 'folder_delete', color: 'var(--color-destructive, #ff6e84)' },
+                  }
+                  const config = iconMap[log.action] ?? { icon: 'info', color: 'var(--color-muted-foreground, #484847)' }
+                  const time = new Date(log.createdAt)
+                  const timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+                    time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+
+                  return (
+                    <div key={log.id} className="flex items-start gap-3 p-3 bg-card/60 border-l-2" style={{ borderColor: config.color }}>
+                      <span
+                        className="material-symbols-outlined text-base mt-0.5 shrink-0"
+                        style={{ color: config.color }}
+                      >
+                        {config.icon}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold uppercase tracking-tight truncate">
+                            {log.title}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground font-mono shrink-0">
+                            {timeStr}
+                          </span>
+                        </div>
+                        {log.entityType === 'task' && log.entityId && (
+                          <span className="text-[9px] text-muted-foreground font-mono">
+                            TASK-{log.entityId}
+                          </span>
+                        )}
+                        {log.detail && (
+                          <div className="text-muted-foreground mt-1 text-xs">
+                            <MarkdownRenderer content={log.detail} compact />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          )}
         </div>
 
         {/* Right: sidebar */}

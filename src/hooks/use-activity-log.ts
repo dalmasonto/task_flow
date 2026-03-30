@@ -53,6 +53,32 @@ export function useTaskActivityLog(taskId: number | undefined, limit: number = 5
 }
 
 /**
+ * Read activity logs for a specific project — includes both:
+ * - Logs directly linked to the project (entity_type='project', entity_id=projectId)
+ * - Logs linked to tasks that belong to the project
+ */
+export function useProjectActivityLog(projectId: number | undefined, taskIds: number[], limit: number = 100) {
+  return useLiveQuery(
+    () => {
+      if (projectId === undefined) return []
+      const entityIds = new Set([projectId, ...taskIds])
+      return db.activityLogs
+        .orderBy('id')
+        .reverse()
+        .filter((log) => {
+          if (log.entityId === undefined || log.entityId === null) return false
+          if (log.entityType === 'project' && log.entityId === projectId) return true
+          if (log.entityType === 'task' && entityIds.has(log.entityId)) return true
+          return false
+        })
+        .limit(limit)
+        .toArray()
+    },
+    [projectId, taskIds, limit]
+  )
+}
+
+/**
  * Clear all activity logs.
  */
 export async function clearActivityLog() {

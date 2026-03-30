@@ -18,8 +18,8 @@ export async function getAgentInstructions() {
     role: 'TaskFlow — local-first task & time tracker with MCP integration.',
 
     startup: [
-      'search_projects to find the current project (try name variants; confirm with user if ambiguous)',
-      'list_tasks status="in_progress" and status="blocked"',
+      'Derive the project name from the **folder name** of the current working directory (e.g. `/home/user/projects/my-app` → search for "my-app"). Use search_projects with that name. If 2–3 results match, **ask the user** which project to use — never guess.',
+      'list_tasks status="in_progress" and status="blocked" for the confirmed project.',
       'list_notifications unread_only=true',
     ],
 
@@ -32,18 +32,31 @@ export async function getAgentInstructions() {
     },
 
     rules: [
+      // Project discovery
+      'The project name should be derived from the working directory folder name. Always search_projects first. If no match, create the project using create_project with the folder name. If multiple matches, present them to the user and ask which one to use.',
+
       // Task tracking
       'Proactively create tasks for ALL substantial work — features, bugs, refactors, AND debugging/investigation. Debugging is real work: create a task for it (e.g. "Debug: SSE connection dropping"), start a timer, and track it the same way you would a feature. search_tasks first to avoid duplicates. Link tasks to the confirmed project.',
       'Timer lifecycle: start_timer → work → stop_timer(final_status). Use "done"/"partial_done"/"blocked". pause_timer when waiting for input. This applies equally to debugging tasks — start a timer before investigating, stop it when resolved or blocked.',
       'MUST stop_timer with "done" when work is complete. Never leave finished tasks in "in_progress" or "paused". This includes debugging tasks — when the bug is fixed or the investigation concludes, stop the timer.',
+
       // Dependencies
       'Check task dependencies before starting. If any dep is incomplete, set task to "blocked".',
       'After completing a task, check if blocked tasks depending on it can be unblocked.',
+
       // Prioritization
       'When user is unsure what to work on: list_tasks priority="critical"/"high" status="not_started".',
-      // Logging
-      'ALWAYS log your entire debugging process using log_debug with task_id. Log every stage: issue identification, hypothesis, files read/edited, commands run, errors encountered, fixes attempted, and resolution. This creates a visible trail in the Activity Pulse so users can follow your reasoning in real-time.',
-      'log_debug early and often — not just at the end. Log when you start investigating, when you find a clue, when you edit a file, and when the fix lands. Use Markdown: headings for stages, code blocks for errors/paths, bold for key findings.',
+
+      // Transparency — CRITICAL
+      'ALWAYS tell the user what commands you are running and why. Before executing a shell command, state: "Running: `<command>`". After significant actions (file edits, installs, config changes), summarize what changed. The user must be able to reconstruct what happened from your messages alone — they should never wonder "what did the agent do?".',
+      'When starting work, briefly state the approach: what you plan to do, which files you expect to touch, and what commands you will run. This gives the user a chance to course-correct before you act.',
+
+      // Debug logging — comprehensive
+      'ALWAYS log your work using log_debug. Log with a task_id when working on a specific task, or with project_id for project-level observations. Use log_debug as a running journal — it shows up in the Activity Pulse and on the project page so the user (and future agents) can follow your reasoning.',
+      'What to log: **every stage** of your process. When you start investigating, when you form a hypothesis, when you read/edit a file, the exact commands you run (with output snippets), errors encountered, fixes attempted, and the resolution. Log the **path you took**, not just the destination.',
+      'Log early and often — not just at the end. A debug log entry per significant step (e.g. "Read `sse.ts:57` — found the healthz route exists but is unreachable because..."). Use Markdown: `## headings` for stages, `` `code blocks` `` for errors/paths/commands, **bold** for key findings.',
+      'For project-level notes (architecture decisions, setup gotchas, "how to run the app"), use log_debug with project_id instead of task_id. These appear on the project page and serve as living documentation.',
+
       // Formatting
       'Use Markdown in descriptions — headings, bullets, code blocks, bold. The UI renders it.',
     ],
@@ -54,6 +67,7 @@ export async function getAgentInstructions() {
       'Filter by tags (list_tasks tag="bug"), search by keyword (search_tasks), get full detail (get_task id).',
       'get_analytics for time spent & completion rates. Dependencies show in the dependency graph.',
       'list_tasks/search_tasks return compact summaries. Use get_task(id) to read full descriptions.',
+      'log_debug accepts task_id OR project_id — use project_id for project-wide notes visible on the project page.',
     ],
   };
 

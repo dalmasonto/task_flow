@@ -58,14 +58,20 @@ export async function clearActivityLog() {
 export async function logDebug(params: {
   message: string;
   task_id?: number;
+  project_id?: number;
   detail?: string;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
+
+  // task_id takes priority; fall back to project_id
+  const entityType = params.task_id ? 'task' : params.project_id ? 'project' : null;
+  const entityId = params.task_id ?? params.project_id ?? null;
+
   const result = db.prepare(
     `INSERT INTO activity_logs (action, title, detail, entity_type, entity_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run('debug_log', params.message, params.detail ?? null, params.task_id ? 'task' : null, params.task_id ?? null, now);
+  ).run('debug_log', params.message, params.detail ?? null, entityType, entityId, now);
 
   const entry = db.prepare('SELECT * FROM activity_logs WHERE id = ?').get(result.lastInsertRowid);
   broadcastChange('activity', 'activity_logged', entry);
@@ -95,11 +101,12 @@ export function registerActivityTools(server: McpServer) {
 
   server.tool(
     'log_debug',
-    'Log a debug entry to the activity log. Use this while debugging to record what you are investigating, what you tried, what you found, and your reasoning. Optionally link to a task. These entries appear in the Activity Pulse in the UI.',
+    'Log a debug entry to the activity log. Use this to record your work process — what you investigated, commands you ran, decisions you made, and findings. Entries appear in the Activity Pulse and on the project page. Link to a task (task_id) or project (project_id) for context.',
     {
       message: z.string().describe('Short summary of what you are doing or found'),
-      detail: z.string().optional().describe('Longer explanation — stack traces, error messages, hypotheses, what you tried'),
+      detail: z.string().optional().describe('Longer explanation — stack traces, error messages, hypotheses, commands run, what you tried'),
       task_id: z.number().optional().describe('Link this debug log to a specific task'),
+      project_id: z.number().optional().describe('Link this debug log to a project (used when no specific task applies)'),
     },
     async (params) => logDebug(params),
   );
