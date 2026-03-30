@@ -42,6 +42,14 @@ cleanupOrphanedSessions();
 // Always start the HTTP/SSE server (probes for existing instances, finds fallback port)
 await startSSEServer();
 
+// Liveness checker — periodically check registered agents and mark dead ones
+setInterval(async () => {
+  try {
+    const { checkAgentLiveness } = await import('./agent-registry.js');
+    checkAgentLiveness();
+  } catch { /* ignore */ }
+}, 30_000);
+
 // Only start MCP stdio transport when not in http-only mode
 if (!httpOnly) {
   const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
@@ -74,62 +82,73 @@ if (!httpOnly) {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Background poller: watch for answered inbox messages and inject into terminal via tmux
-  const agentPid = process.ppid; // Claude Code's PID
-  const POLL_INTERVAL = 3000; // Check every 3 seconds
+  const { registerAgent, unregisterAgent } = await import('./agent-registry.js');
 
-  // Detect the tmux pane for Claude Code (our parent process)
+  // Auto-register this agent
+  const agentName = registerAgent();
+  console.error(`[agent] registered as "${agentName}"`);
+
+  // Graceful shutdown — mark agent as disconnected
+  const cleanup = () => { try { unregisterAgent(agentName); } catch {} process.exit(0); };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+
+  // Background poller: deliver messages to this agent's terminal via tmux
+  const POLL_INTERVAL = 3000;
+  const agentPid = process.ppid;
+
   let tmuxTarget: string | null = null;
   try {
     const { execSync: exec } = await import('child_process');
-    // Get the tmux pane that owns Claude Code's PTY
     const ptsPath = exec(`readlink /proc/${agentPid}/fd/0`).toString().trim();
-    // List all tmux panes and find the one matching this PTY
     const panes = exec('tmux list-panes -a -F "#{pane_id} #{pane_tty}"').toString().trim().split('\n');
     for (const line of panes) {
       const [paneId, paneTty] = line.split(' ');
-      if (paneTty === ptsPath) {
-        tmuxTarget = paneId;
-        console.error(`[inject] found tmux pane ${paneId} for agent PID ${agentPid} on ${ptsPath}`);
-        break;
-      }
+      if (paneTty === ptsPath) { tmuxTarget = paneId; break; }
     }
-    if (!tmuxTarget) {
-      console.error(`[inject] agent is not running inside tmux — terminal injection disabled`);
-    }
+    if (tmuxTarget) console.error(`[inject] tmux pane ${tmuxTarget} for agent "${agentName}"`);
+    else console.error('[inject] agent not in tmux — terminal injection disabled');
   } catch {
-    console.error('[inject] tmux not available — terminal injection disabled');
+    console.error('[inject] tmux not available');
   }
 
   if (tmuxTarget) {
     const { execSync: exec } = await import('child_process');
-    const target = tmuxTarget; // capture for closure
+    const target = tmuxTarget;
 
     setInterval(() => {
       try {
         const db = getDb();
-        const answered = db.prepare(
-          `SELECT * FROM agent_messages WHERE agent_pid = ? AND status = 'answered' AND delivered IS NULL`
-        ).all(agentPid) as Array<{ id: number; question: string; response: string }>;
+        // Check for messages addressed to this agent (from user or other agents)
+        // AND for answered questions this agent sent (inbox responses)
+        const incoming = db.prepare(
+          `SELECT * FROM agent_messages WHERE
+            ((recipient_name = ? AND status = 'pending' AND delivered IS NULL) OR
+             (sender_name = ? AND recipient_name = 'user' AND status = 'answered' AND delivered IS NULL))`
+        ).all(agentName, agentName) as Array<{ id: number; sender_name: string; recipient_name: string; question: string; response: string | null; status: string }>;
 
-        for (const msg of answered) {
+        for (const msg of incoming) {
           db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
 
-          const text = `[Inbox Response] to "${msg.question.slice(0, 60)}": ${msg.response}`;
+          let text: string;
+          if (msg.recipient_name === agentName && msg.sender_name === 'user') {
+            text = `[Message from User]: ${msg.question}`;
+          } else if (msg.recipient_name === agentName && msg.sender_name !== 'user') {
+            text = `[Message from ${msg.sender_name}]: ${msg.question}`;
+          } else if (msg.status === 'answered' && msg.response) {
+            text = `[Inbox Response] to "${msg.question.slice(0, 60)}": ${msg.response}`;
+          } else {
+            continue;
+          }
+
           try {
-            // tmux send-keys types text into the pane and Enter submits it
-            exec(`tmux send-keys -t ${target} ${JSON.stringify(text)} Enter`, {
-              stdio: 'ignore',
-              timeout: 5000,
-            });
+            exec(`tmux send-keys -t ${target} ${JSON.stringify(text)} Enter`, { stdio: 'ignore', timeout: 5000 });
             console.error(`[inject] delivered message ${msg.id} to tmux pane ${target}`);
           } catch (err) {
             console.error(`[inject] tmux send-keys failed for message ${msg.id}:`, err);
           }
         }
-      } catch {
-        // Silently ignore polling errors
-      }
+      } catch { /* ignore */ }
     }, POLL_INTERVAL);
   }
 }
