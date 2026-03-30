@@ -18,6 +18,7 @@ async function initialSync(port: number, retries = 5, delay = 1500): Promise<voi
       if (data.sessions?.length) await db.sessions.bulkPut(data.sessions.map((s: Record<string, unknown>) => parseSession(s)))
       if (data.activityLogs?.length) await db.activityLogs.bulkPut(data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a)))
       if (data.agentMessages?.length) await db.agentMessages.bulkPut(data.agentMessages.map((m: Record<string, unknown>) => parseAgentMessage(m)))
+      if (data.agentRegistry?.length) await db.agentRegistry.bulkPut(data.agentRegistry.map((r: Record<string, unknown>) => parseAgentRegistry(r)))
 
       console.log('[useSync] initial sync complete')
       return
@@ -166,6 +167,16 @@ function attachListeners(source: EventSource, sseUrl: string) {
     if (payload) db.agentMessages.put(parseAgentMessage(payload))
   })
 
+  source.addEventListener('agent_connected', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.agentRegistry.put(parseAgentRegistry(payload))
+  })
+
+  source.addEventListener('agent_disconnected', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.agentRegistry.put(parseAgentRegistry(payload))
+  })
+
   source.addEventListener('data_cleared', async () => {
     try {
       await db.tasks.clear()
@@ -174,6 +185,7 @@ function attachListeners(source: EventSource, sseUrl: string) {
       await db.notifications.clear()
       await db.activityLogs.clear()
       await db.agentMessages.clear()
+      await db.agentRegistry.clear()
       console.log('[useSync] data_cleared: all Dexie tables cleared')
     } catch (err) {
       console.error('[useSync] data_cleared failed:', err)
@@ -297,7 +309,9 @@ function parseActivityLog(raw: Record<string, unknown>) {
 function parseAgentMessage(raw: Record<string, unknown>) {
   return {
     id: raw.id as number,
-    projectId: raw.project_id as number,
+    projectId: raw.project_id != null ? (raw.project_id as number) : undefined,
+    senderName: (raw.sender_name as string) ?? 'unknown',
+    recipientName: (raw.recipient_name as string) ?? 'user',
     question: raw.question as string,
     context: raw.context != null ? (raw.context as string) : undefined,
     choices: raw.choices != null ? parseJsonField(raw.choices, []) : undefined,
@@ -305,6 +319,19 @@ function parseAgentMessage(raw: Record<string, unknown>) {
     status: raw.status as 'pending' | 'answered' | 'dismissed',
     createdAt: new Date(raw.created_at as string),
     answeredAt: raw.answered_at ? new Date(raw.answered_at as string) : undefined,
+  }
+}
+
+function parseAgentRegistry(raw: Record<string, unknown>) {
+  return {
+    id: raw.id as number,
+    name: raw.name as string,
+    projectPath: raw.project_path as string,
+    pid: raw.pid as number,
+    tmuxPane: raw.tmux_pane != null ? (raw.tmux_pane as string) : undefined,
+    status: raw.status as 'connected' | 'disconnected',
+    connectedAt: new Date(raw.connected_at as string),
+    disconnectedAt: raw.disconnected_at ? new Date(raw.disconnected_at as string) : undefined,
   }
 }
 
