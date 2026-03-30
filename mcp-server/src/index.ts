@@ -74,44 +74,62 @@ if (!httpOnly) {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Background poller: watch for answered inbox messages and inject into terminal
+  // Background poller: watch for answered inbox messages and inject into terminal via tmux
   const agentPid = process.ppid; // Claude Code's PID
   const POLL_INTERVAL = 3000; // Check every 3 seconds
 
-  setInterval(() => {
-    try {
-      const db = getDb();
-      // Find messages answered since we last checked, for our agent
-      const answered = db.prepare(
-        `SELECT * FROM agent_messages WHERE agent_pid = ? AND status = 'answered' AND delivered IS NULL`
-      ).all(agentPid) as Array<{ id: number; question: string; response: string }>;
-
-      for (const msg of answered) {
-        // Mark as delivered first to prevent re-injection
-        db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
-
-        // Find our agent's PTY
-        let ptsPath: string;
-        try {
-          ptsPath = require('child_process').execSync(`readlink /proc/${agentPid}/fd/0`).toString().trim();
-        } catch { continue; }
-
-        if (!ptsPath.startsWith('/dev/pts/')) continue;
-
-        // Inject via TIOCSTI
-        const text = `[Inbox Response] to "${msg.question.slice(0, 60)}": ${msg.response}`;
-        try {
-          require('child_process').execSync(
-            `python3 -c "import os,fcntl,sys;fd=os.open(sys.argv[1],os.O_RDWR)\nfor c in sys.argv[2]+'\\\\n':fcntl.ioctl(fd,0x5412,c.encode())\nos.close(fd)" ${JSON.stringify(ptsPath)} ${JSON.stringify(text)}`,
-            { stdio: 'ignore', timeout: 10000 }
-          );
-          console.error(`[inject] delivered response for message ${msg.id} to ${ptsPath}`);
-        } catch (err) {
-          console.error(`[inject] TIOCSTI failed for message ${msg.id}:`, err);
-        }
+  // Detect the tmux pane for Claude Code (our parent process)
+  let tmuxTarget: string | null = null;
+  try {
+    const { execSync: exec } = await import('child_process');
+    // Get the tmux pane that owns Claude Code's PTY
+    const ptsPath = exec(`readlink /proc/${agentPid}/fd/0`).toString().trim();
+    // List all tmux panes and find the one matching this PTY
+    const panes = exec('tmux list-panes -a -F "#{pane_id} #{pane_tty}"').toString().trim().split('\n');
+    for (const line of panes) {
+      const [paneId, paneTty] = line.split(' ');
+      if (paneTty === ptsPath) {
+        tmuxTarget = paneId;
+        console.error(`[inject] found tmux pane ${paneId} for agent PID ${agentPid} on ${ptsPath}`);
+        break;
       }
-    } catch {
-      // Silently ignore polling errors
     }
-  }, POLL_INTERVAL);
+    if (!tmuxTarget) {
+      console.error(`[inject] agent is not running inside tmux — terminal injection disabled`);
+    }
+  } catch {
+    console.error('[inject] tmux not available — terminal injection disabled');
+  }
+
+  if (tmuxTarget) {
+    const { execSync: exec } = await import('child_process');
+    const target = tmuxTarget; // capture for closure
+
+    setInterval(() => {
+      try {
+        const db = getDb();
+        const answered = db.prepare(
+          `SELECT * FROM agent_messages WHERE agent_pid = ? AND status = 'answered' AND delivered IS NULL`
+        ).all(agentPid) as Array<{ id: number; question: string; response: string }>;
+
+        for (const msg of answered) {
+          db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
+
+          const text = `[Inbox Response] to "${msg.question.slice(0, 60)}": ${msg.response}`;
+          try {
+            // tmux send-keys types text into the pane and Enter submits it
+            exec(`tmux send-keys -t ${target} ${JSON.stringify(text)} Enter`, {
+              stdio: 'ignore',
+              timeout: 5000,
+            });
+            console.error(`[inject] delivered message ${msg.id} to tmux pane ${target}`);
+          } catch (err) {
+            console.error(`[inject] tmux send-keys failed for message ${msg.id}:`, err);
+          }
+        }
+      } catch {
+        // Silently ignore polling errors
+      }
+    }, POLL_INTERVAL);
+  }
 }
