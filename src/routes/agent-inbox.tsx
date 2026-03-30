@@ -177,7 +177,7 @@ function MessageCard({
 
       {/* Context rendered as Markdown */}
       {message.context && (
-        <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm prose-invert max-w-none">
+        <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
           <ReactMarkdown>{message.context}</ReactMarkdown>
         </div>
       )}
