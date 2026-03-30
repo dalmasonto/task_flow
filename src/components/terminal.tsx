@@ -8,7 +8,8 @@ import { db } from '@/db/database'
 import { useTasks } from '@/hooks/use-tasks'
 import { useProjects } from '@/hooks/use-projects'
 import { logActivity } from '@/hooks/use-activity-log'
-import { syncTaskUpdate, syncTaskDelete, syncProjectDelete, syncSessionCreate, syncSessionUpdate } from '@/lib/sync-api'
+import { syncTaskUpdate, syncTaskDelete, syncProjectDelete } from '@/lib/sync-api'
+import { handleSessionsForStatusChange } from '@/lib/session-lifecycle'
 import { addNotification } from '@/hooks/use-app-notifications'
 import { getStatusLabel } from '@/lib/status'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
@@ -335,13 +336,9 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
           if (t.status === 'done') { playError(); writeln(`${C.red}Task #${id} is marked as done. Use ${C.bold}status ${id} in_progress${C.reset}${C.red} to reopen it first.${C.reset}`); break }
-          const existing = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-          if (existing) { writeln(`${C.yellow}Task #${id} already has an active session${C.reset}`); break }
-          const now = new Date()
-          await db.sessions.add({ taskId: id, start: now })
-          syncSessionCreate({ taskId: id, start: now })
+          await handleSessionsForStatusChange(id, 'in_progress')
           if (t.status !== 'in_progress') {
-            await db.tasks.update(id, { status: 'in_progress', updatedAt: now })
+            await db.tasks.update(id, { status: 'in_progress', updatedAt: new Date() })
             syncTaskUpdate(id, { status: 'in_progress' })
           }
           playTimerStart()
@@ -356,12 +353,8 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!id) { writeln(`${C.red}Usage: pause <task_id>${C.reset}`); break }
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
-          const session = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-          if (!session) { writeln(`${C.yellow}Task #${id} has no active session${C.reset}`); break }
-          const now = new Date()
-          await db.sessions.update(session.id!, { end: now })
-          syncSessionUpdate(session.id!, { end: now })
-          await db.tasks.update(id, { status: 'paused', updatedAt: now })
+          await handleSessionsForStatusChange(id, 'paused')
+          await db.tasks.update(id, { status: 'paused', updatedAt: new Date() })
           syncTaskUpdate(id, { status: 'paused' })
           playTimerPause()
           toast.info(`Timer paused: ${t.title}`)
@@ -375,14 +368,9 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           if (!id) { writeln(`${C.red}Usage: stop <task_id> [--done|--partial]${C.reset}`); break }
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
-          const now = new Date()
-          const session = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-          if (session) {
-            await db.sessions.update(session.id!, { end: now })
-            syncSessionUpdate(session.id!, { end: now })
-          }
           const finalStatus = flags.partial ? 'partial_done' : 'done'
-          await db.tasks.update(id, { status: finalStatus as TaskStatus, updatedAt: now })
+          await handleSessionsForStatusChange(id, finalStatus as TaskStatus)
+          await db.tasks.update(id, { status: finalStatus as TaskStatus, updatedAt: new Date() })
           syncTaskUpdate(id, { status: finalStatus })
           playTaskDone()
           toast.success(`Task ${finalStatus === 'done' ? 'completed' : 'partial done'}: ${t.title}`)
@@ -399,19 +387,7 @@ export function Terminal({ onClose }: { onClose?: () => void }) {
           const t = await db.tasks.get(id)
           if (!t) { writeln(`${C.red}Task #${id} not found${C.reset}`); break }
           const now = new Date()
-          if (newStatus === 'in_progress') {
-            const existing = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-            if (!existing) {
-              await db.sessions.add({ taskId: id, start: now })
-              syncSessionCreate({ taskId: id, start: now })
-            }
-          } else if (newStatus === 'done' || newStatus === 'partial_done') {
-            const active = await db.sessions.where('taskId').equals(id).filter(s => !s.end).first()
-            if (active) {
-              await db.sessions.update(active.id!, { end: now })
-              syncSessionUpdate(active.id!, { end: now })
-            }
-          }
+          await handleSessionsForStatusChange(id, newStatus)
           await db.tasks.update(id, { status: newStatus, updatedAt: now })
           syncTaskUpdate(id, { status: newStatus })
           playClick()

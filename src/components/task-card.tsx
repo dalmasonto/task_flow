@@ -12,6 +12,7 @@ import { playTimerStart, playTimerPause, playTaskDone, playClick, playDelete } f
 import { addNotification } from '@/hooks/use-app-notifications'
 import { logActivity } from '@/hooks/use-activity-log'
 import { syncTaskUpdate, syncTaskDelete } from '@/lib/sync-api'
+import { handleSessionsForStatusChange } from '@/lib/session-lifecycle'
 import { StatusBadge } from './status-badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -46,24 +47,7 @@ export function TaskCard({ task, tick, className }: TaskCardProps) {
   const handleStatusChange = async (newStatus: TaskStatus) => {
     if (!canTransition(task.status, newStatus)) return
 
-    if (newStatus === 'done' || newStatus === 'partial_done') {
-      const activeSession = await db.sessions
-        .where('taskId').equals(task.id!)
-        .filter(s => s.end === undefined).first()
-      if (activeSession) {
-        await db.sessions.update(activeSession.id!, { end: new Date() })
-      }
-    }
-
-    if (newStatus === 'in_progress') {
-      const alreadyActive = await db.sessions
-        .where('taskId').equals(task.id!)
-        .filter(s => s.end === undefined).first()
-      if (!alreadyActive) {
-        await db.sessions.add({ taskId: task.id!, start: new Date() })
-      }
-    }
-
+    await handleSessionsForStatusChange(task.id!, newStatus)
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
     syncTaskUpdate(task.id!, { status: newStatus })
 

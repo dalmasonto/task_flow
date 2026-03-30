@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useTasks } from '@/hooks/use-tasks'
 import { syncTaskUpdate } from '@/lib/sync-api'
+import { handleSessionsForStatusChange } from '@/lib/session-lifecycle'
 import { useProjects } from '@/hooks/use-projects'
 import { useTimer } from '@/hooks/use-timer'
 import { db } from '@/db/database'
@@ -33,6 +34,7 @@ export default function Archive() {
   }, [tasks, selectedProjectId])
 
   async function handleReopen(id: number) {
+    await handleSessionsForStatusChange(id, 'in_progress')
     await db.tasks.update(id, { status: 'in_progress', updatedAt: new Date() })
     syncTaskUpdate(id, { status: 'in_progress' })
   }

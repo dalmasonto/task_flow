@@ -14,6 +14,7 @@ import { MarkdownEditor } from '@/components/markdown-editor'
 import { DependencyPicker } from '@/components/dependency-picker'
 import { hasCycle } from '@/lib/dag'
 import { syncTaskUpdate } from '@/lib/sync-api'
+import { handleSessionsForStatusChange } from '@/lib/session-lifecycle'
 import {
   Select,
   SelectContent,
@@ -143,30 +144,7 @@ export default function TaskDetail() {
   const handleStatusChange = async (newStatus: TaskStatus) => {
     if (!canTransition(task.status, newStatus)) return
 
-    // Close any active session when moving to done or partial_done
-    if (newStatus === 'done' || newStatus === 'partial_done') {
-      const activeSession = await db.sessions
-        .where('taskId')
-        .equals(task.id!)
-        .filter(s => s.end === undefined)
-        .first()
-      if (activeSession) {
-        await db.sessions.update(activeSession.id!, { end: new Date() })
-      }
-    }
-
-    // Auto-start a session when moving to in_progress
-    if (newStatus === 'in_progress') {
-      const alreadyActive = await db.sessions
-        .where('taskId')
-        .equals(task.id!)
-        .filter(s => s.end === undefined)
-        .first()
-      if (!alreadyActive) {
-        await db.sessions.add({ taskId: task.id!, start: new Date() })
-      }
-    }
-
+    await handleSessionsForStatusChange(task.id!, newStatus)
     await db.tasks.update(task.id!, { status: newStatus, updatedAt: new Date() })
     syncTaskUpdate(task.id!, { status: newStatus })
 
