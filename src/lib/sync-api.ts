@@ -1,8 +1,13 @@
-const BASE = 'http://localhost:3456'
+let currentPort = 3456
+
+/** Update the port used by all sync-api calls. Called from useSyncPort(). */
+export function setServerPort(port: number) {
+  currentPort = port
+}
 
 /** Fire-and-forget sync to MCP backend. Never throws — UI always works standalone. */
 function fire(url: string, method: string, body?: unknown) {
-  fetch(`${BASE}${url}`, {
+  fetch(`http://localhost:${currentPort}${url}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
