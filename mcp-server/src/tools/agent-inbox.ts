@@ -2,16 +2,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
 import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
+import { addPending } from '../pending-questions.js';
 
 export function registerAgentInboxTools(server: McpServer) {
   server.tool(
     'ask_user',
-    'Post a question to the TaskFlow Agent Inbox for the user to answer remotely. Returns immediately with the message ID — does NOT block. The question appears in the Agent Inbox UI with full context and optional quick-tap choices. Use check_response to poll for the answer, or let the next session pick it up.',
+    'Post a question to the TaskFlow Agent Inbox and wait for the user to respond. By default blocks until the user replies from the UI — the response is returned directly. Set wait=false to return immediately and use check_response later. The question appears in the Agent Inbox UI with full context and optional quick-tap choices.',
     {
       project_id: z.number().describe('Project ID to attach the question to'),
       question: z.string().describe('The question to ask the user'),
       context: z.string().optional().describe('Markdown context — proposals, trade-offs, code snippets shown before the question'),
       choices: z.array(z.string()).optional().describe('Optional quick-tap choices, e.g. ["Yes", "No", "Skip"]'),
+      wait: z.boolean().optional().default(true).describe('If true (default), block until the user responds. If false, return immediately with the message ID.'),
     },
     async (params) => {
       const db = getDb();
@@ -41,11 +43,18 @@ export function registerAgentInboxTools(server: McpServer) {
       broadcastChange('agent_message', 'agent_question', message);
       logActivity('agent_question', params.question, { entityType: 'agent_message', entityId: id });
 
-      return successResponse({
-        id,
-        status: 'pending',
-        message: `Question posted to Agent Inbox (id: ${id}). The user can respond from the TaskFlow UI. Use check_response(${id}) to check for their answer.`,
-      });
+      if (params.wait === false) {
+        return successResponse({
+          id,
+          status: 'pending',
+          message: `Question posted to Agent Inbox (id: ${id}). Use check_response(${id}) to check for their answer.`,
+        });
+      }
+
+      // Block until user responds from the UI
+      const response = await addPending(id);
+
+      return successResponse({ id, response });
     },
   );
 
