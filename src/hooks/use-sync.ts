@@ -17,6 +17,7 @@ async function initialSync(port: number, retries = 5, delay = 1500): Promise<voi
       if (data.projects?.length) await db.projects.bulkPut(data.projects.map((p: Record<string, unknown>) => parseProject(p)))
       if (data.sessions?.length) await db.sessions.bulkPut(data.sessions.map((s: Record<string, unknown>) => parseSession(s)))
       if (data.activityLogs?.length) await db.activityLogs.bulkPut(data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a)))
+      if (data.agentMessages?.length) await db.agentMessages.bulkPut(data.agentMessages.map((m: Record<string, unknown>) => parseAgentMessage(m)))
 
       console.log('[useSync] initial sync complete')
       return
@@ -155,6 +156,16 @@ function attachListeners(source: EventSource, sseUrl: string) {
     db.activityLogs.clear()
   })
 
+  source.addEventListener('agent_question', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.agentMessages.put(parseAgentMessage(payload))
+  })
+
+  source.addEventListener('agent_question_answered', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.agentMessages.put(parseAgentMessage(payload))
+  })
+
   source.addEventListener('data_cleared', async () => {
     try {
       await db.tasks.clear()
@@ -162,6 +173,7 @@ function attachListeners(source: EventSource, sseUrl: string) {
       await db.sessions.clear()
       await db.notifications.clear()
       await db.activityLogs.clear()
+      await db.agentMessages.clear()
       console.log('[useSync] data_cleared: all Dexie tables cleared')
     } catch (err) {
       console.error('[useSync] data_cleared failed:', err)
@@ -279,6 +291,20 @@ function parseActivityLog(raw: Record<string, unknown>) {
     entityType: raw.entity_type != null ? (raw.entity_type as 'task' | 'project' | 'session' | 'system') : undefined,
     entityId: raw.entity_id != null ? (raw.entity_id as number) : undefined,
     createdAt: new Date(raw.created_at as string),
+  }
+}
+
+function parseAgentMessage(raw: Record<string, unknown>) {
+  return {
+    id: raw.id as number,
+    projectId: raw.project_id != null ? (raw.project_id as number) : undefined,
+    question: raw.question as string,
+    context: raw.context != null ? (raw.context as string) : undefined,
+    choices: raw.choices != null ? parseJsonField(raw.choices, []) : undefined,
+    response: raw.response != null ? (raw.response as string) : undefined,
+    status: raw.status as 'pending' | 'answered',
+    createdAt: new Date(raw.created_at as string),
+    answeredAt: raw.answered_at ? new Date(raw.answered_at as string) : undefined,
   }
 }
 
