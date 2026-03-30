@@ -7,8 +7,72 @@ import { logActivity } from './helpers.js';
 const SERVICE_ID = 'taskflow-mcp';
 
 /**
+ * Detect the terminal window where Claude Code is running.
+ * Cached on first successful detection.
+ */
+let cachedWindowId: string | null = null;
+
+function detectTerminalWindow(): string | null {
+  if (cachedWindowId) return cachedWindowId;
+
+  try {
+    // Strategy 1: Walk up the process tree looking for a window
+    let pid = process.ppid;
+    for (let i = 0; i < 8; i++) {
+      const result = execSync(`xdotool search --pid ${pid} 2>/dev/null || true`).toString().trim();
+      if (result) {
+        cachedWindowId = result.split('\n')[0];
+        console.log(`[inject] found window ${cachedWindowId} via PID ${pid}`);
+        return cachedWindowId;
+      }
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+        pid = parseInt(stat.split(' ')[3], 10);
+        if (pid <= 1) break;
+      } catch { break; }
+    }
+
+    // Strategy 2: Claude Code runs in a terminal — find by Claude's PTY
+    // The PTY (e.g., /dev/pts/8) is shared by the shell and terminal emulator
+    const ppid = process.ppid;
+    const ptsLink = execSync(`readlink /proc/${ppid}/fd/0 2>/dev/null || true`).toString().trim();
+    if (ptsLink.startsWith('/dev/pts/')) {
+      // Find all processes on this PTY, look for one with a window
+      const ptsNum = ptsLink.split('/').pop();
+      const procs = execSync(`ls /proc/*/fd/0 2>/dev/null | xargs -I{} sh -c 'readlink {} 2>/dev/null | grep -q "/dev/pts/${ptsNum}$" && echo $(dirname {} | xargs dirname | xargs basename)' || true`)
+        .toString().trim().split('\n').filter(Boolean);
+      for (const p of procs) {
+        const result = execSync(`xdotool search --pid ${p} 2>/dev/null || true`).toString().trim();
+        if (result) {
+          cachedWindowId = result.split('\n')[0];
+          console.log(`[inject] found window ${cachedWindowId} via PTY peer PID ${p}`);
+          return cachedWindowId;
+        }
+      }
+    }
+
+    // Strategy 3: Find VS Code / terminal emulator window as fallback
+    const patterns = ['Visual Studio Code', 'code-insiders', 'Terminal', 'Konsole', 'GNOME Terminal', 'Alacritty', 'kitty', 'WezTerm'];
+    for (const pattern of patterns) {
+      const result = execSync(`xdotool search --name "${pattern}" 2>/dev/null || true`).toString().trim();
+      if (result) {
+        // Use the last match (most recently focused)
+        const windows = result.split('\n').filter(Boolean);
+        cachedWindowId = windows[windows.length - 1];
+        console.log(`[inject] found window ${cachedWindowId} via name "${pattern}"`);
+        return cachedWindowId;
+      }
+    }
+  } catch (err) {
+    console.error('[inject] window detection error:', err);
+  }
+
+  return null;
+}
+
+/**
  * Inject text into the terminal running the agent (Claude Code).
- * Uses xdotool to find the terminal window and type the response.
+ * Uses xdotool to type the response into the detected terminal window.
  */
 function injectIntoTerminal(text: string): void {
   try {
@@ -16,35 +80,20 @@ function injectIntoTerminal(text: string): void {
     try { execSync('which xdotool', { stdio: 'ignore' }); }
     catch { console.log('[inject] xdotool not installed, skipping'); return; }
 
-    const ppid = process.ppid;
-
-    // Find the terminal window — walk up the process tree to find one with a window
-    let targetWindow = '';
-    let pid = ppid;
-    for (let i = 0; i < 5 && !targetWindow; i++) {
-      const result = execSync(`xdotool search --pid ${pid} 2>/dev/null || true`).toString().trim();
-      if (result) {
-        targetWindow = result.split('\n')[0];
-        break;
-      }
-      // Go up one level
-      try {
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-        pid = parseInt(stat.split(' ')[3], 10);
-      } catch { break; }
-    }
-
+    const targetWindow = detectTerminalWindow();
     if (!targetWindow) {
       console.log('[inject] could not find terminal window, skipping');
       return;
     }
 
-    // Type into the terminal window
+    // Activate the window, type, press Enter
     execSync(`xdotool windowactivate --sync ${targetWindow}`, { stdio: 'ignore', timeout: 3000 });
-    execSync(`xdotool type --clearmodifiers --delay 0 -- ${JSON.stringify(text)}`, { stdio: 'ignore', timeout: 5000 });
+    // Small delay for window to become ready
+    execSync('sleep 0.15', { stdio: 'ignore' });
+    execSync(`xdotool type --clearmodifiers --delay 0 -- ${JSON.stringify(text)}`, { stdio: 'ignore', timeout: 10000 });
     execSync(`xdotool key --clearmodifiers Return`, { stdio: 'ignore', timeout: 2000 });
 
-    console.log('[inject] response injected into terminal window', targetWindow);
+    console.log('[inject] response injected into window', targetWindow);
   } catch (err) {
     console.error('[inject] failed:', err);
   }
