@@ -177,7 +177,7 @@ function MessageCard({
 
       {/* Context rendered as Markdown */}
       {message.context && (
-        <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
+        <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm max-w-none">
           <ReactMarkdown>{message.context}</ReactMarkdown>
         </div>
       )}
@@ -263,7 +263,7 @@ function AnsweredCard({
       {expanded && (
         <div className="mt-4 space-y-3 border-t border-border pt-4">
           {message.context && (
-            <div className="bg-muted/50 border border-border p-3 text-xs text-muted-foreground max-h-48 overflow-y-auto prose prose-xs prose-invert max-w-none">
+            <div className="bg-muted/50 border border-border p-3 text-xs text-muted-foreground max-h-48 overflow-y-auto prose prose-xs max-w-none">
               <ReactMarkdown>{message.context}</ReactMarkdown>
             </div>
           )}
