@@ -40,7 +40,10 @@ By default, Claude Code will prompt you to approve each MCP tool call. To allow 
       "mcp__taskflow__*"
     ]
   },
-  "enableAllProjectMcpServers": true
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "taskflow"
+  ]
 }
 ```
 
@@ -112,6 +115,34 @@ The `get_agent_instructions` tool tells agents to:
 5. **Stay in sync** — create tasks for new work items to keep the tracker up to date
 6. **Read descriptions** — task descriptions contain implementation details and acceptance criteria
 
+## Agent Inbox — Remote Communication
+
+The Agent Inbox lets agents ask questions that appear in the TaskFlow UI. Users can respond from any device (phone, browser, another machine), and the response is delivered back to the agent's terminal automatically.
+
+### How it works
+
+1. Agent calls `ask_user` with a question, context, and optional quick-tap choices
+2. Question appears instantly in the TaskFlow UI at `/inbox`
+3. User responds from the UI — response is injected into the agent's terminal via tmux
+4. Agent also asks in the terminal normally, so the user can answer from either place
+
+### Setup for auto-injection
+
+For responses to be injected directly into the terminal, run Claude Code inside tmux:
+
+```bash
+# Install tmux (one-time)
+sudo apt-get install -y tmux
+
+# Start a tmux session and run claude inside it
+tmux new -s agent
+claude
+```
+
+Without tmux, the inbox still works — agents can use `check_response` to poll for answers, or the user can dismiss questions answered in the terminal.
+
+See [Terminal Injection Setup](../docs/agent-inbox-terminal-injection.md) for full details, multiple agent setup, and cleanup instructions.
+
 ## Available Tools
 
 ### Agent
@@ -167,6 +198,12 @@ The `get_agent_instructions` tool tells agents to:
 | `mark_notification_read` | Mark a single notification as read |
 | `mark_all_notifications_read` | Mark all as read |
 | `clear_notifications` | Delete all notifications |
+
+### Agent Inbox
+| Tool | Description |
+|------|-------------|
+| `ask_user` | Post a question to the Agent Inbox for remote response. Returns immediately with message ID |
+| `check_response` | Check if the user has responded to a previously posted question |
 
 ### Settings
 | Tool | Description |
