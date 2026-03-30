@@ -5,30 +5,48 @@ import type { ActivityAction } from '@/types'
 
 const PAGE_SIZE = 50
 
-const ACTION_CONFIG: Record<ActivityAction, { icon: string; color: string }> = {
-  task_created: { icon: 'add_task', color: '#69fd5d' },
-  task_deleted: { icon: 'delete', color: '#ff6e84' },
-  task_status_changed: { icon: 'sync', color: '#00fbfb' },
-  task_completed: { icon: 'task_alt', color: '#69fd5d' },
-  task_partial_done: { icon: 'pending', color: '#b90afc' },
-  timer_started: { icon: 'play_circle', color: '#00fbfb' },
-  timer_paused: { icon: 'pause_circle', color: '#de8eff' },
-  timer_stopped: { icon: 'stop_circle', color: '#ff6e84' },
-  project_created: { icon: 'create_new_folder', color: '#69fd5d' },
-  project_deleted: { icon: 'folder_delete', color: '#ff6e84' },
-  project_updated: { icon: 'edit', color: '#00fbfb' },
-  tasks_bulk_created: { icon: 'playlist_add', color: '#69fd5d' },
-  settings_saved: { icon: 'settings', color: '#de8eff' },
-  data_seeded: { icon: 'database', color: '#de8eff' },
-  data_cleared: { icon: 'delete_sweep', color: '#ff6e84' },
-  task_linked: { icon: 'link', color: '#00fbfb' },
-  task_unlinked: { icon: 'link_off', color: '#484847' },
-  dependency_added: { icon: 'account_tree', color: '#00fbfb' },
-  dependency_removed: { icon: 'account_tree', color: '#484847' },
-  link_added: { icon: 'add_link', color: '#00fbfb' },
-  tag_added: { icon: 'label', color: '#69fd5d' },
-  tag_removed: { icon: 'label_off', color: '#484847' },
-  debug_log: { icon: 'bug_report', color: '#ffeb3b' },
+// Colors are [dark, light] pairs — neon for dark mode, deeper tones for light mode
+const COLORS = {
+  green:   ['#69fd5d', '#15803d'],
+  cyan:    ['#00fbfb', '#0e7490'],
+  purple:  ['#de8eff', '#7c3aed'],
+  red:     ['#ff6e84', '#c42a49'],
+  magenta: ['#b90afc', '#7e22ce'],
+  yellow:  ['#ffeb3b', '#a16207'],
+  muted:   ['#484847', '#71717a'],
+} as const
+
+function c(pair: readonly [string, string]): string {
+  const isDark = document.documentElement.classList.contains('dark')
+  return isDark ? pair[0] : pair[1]
+}
+
+function getActionConfig(): Record<ActivityAction, { icon: string; color: string }> {
+  return {
+    task_created: { icon: 'add_task', color: c(COLORS.green) },
+    task_deleted: { icon: 'delete', color: c(COLORS.red) },
+    task_status_changed: { icon: 'sync', color: c(COLORS.cyan) },
+    task_completed: { icon: 'task_alt', color: c(COLORS.green) },
+    task_partial_done: { icon: 'pending', color: c(COLORS.magenta) },
+    timer_started: { icon: 'play_circle', color: c(COLORS.cyan) },
+    timer_paused: { icon: 'pause_circle', color: c(COLORS.purple) },
+    timer_stopped: { icon: 'stop_circle', color: c(COLORS.red) },
+    project_created: { icon: 'create_new_folder', color: c(COLORS.green) },
+    project_deleted: { icon: 'folder_delete', color: c(COLORS.red) },
+    project_updated: { icon: 'edit', color: c(COLORS.cyan) },
+    tasks_bulk_created: { icon: 'playlist_add', color: c(COLORS.green) },
+    settings_saved: { icon: 'settings', color: c(COLORS.purple) },
+    data_seeded: { icon: 'database', color: c(COLORS.purple) },
+    data_cleared: { icon: 'delete_sweep', color: c(COLORS.red) },
+    task_linked: { icon: 'link', color: c(COLORS.cyan) },
+    task_unlinked: { icon: 'link_off', color: c(COLORS.muted) },
+    dependency_added: { icon: 'account_tree', color: c(COLORS.cyan) },
+    dependency_removed: { icon: 'account_tree', color: c(COLORS.muted) },
+    link_added: { icon: 'add_link', color: c(COLORS.cyan) },
+    tag_added: { icon: 'label', color: c(COLORS.green) },
+    tag_removed: { icon: 'label_off', color: c(COLORS.muted) },
+    debug_log: { icon: 'bug_report', color: c(COLORS.yellow) },
+  }
 }
 
 function formatTimeAgo(date: Date): string {
@@ -107,7 +125,8 @@ export default function ActivityPulse() {
           <div className="absolute left-4 top-0 bottom-0 w-[1px] bg-muted-foreground/20" />
           <div className="space-y-6 relative">
             {visibleLogs.map((log, i) => {
-              const config = ACTION_CONFIG[log.action] ?? { icon: 'info', color: '#484847' }
+              const actionConfig = getActionConfig()
+              const config = actionConfig[log.action] ?? { icon: 'info', color: c(COLORS.muted) }
               const dateStr = new Date(log.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
               const timeStr = new Date(log.createdAt).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 

@@ -604,10 +604,10 @@ export default function DependencyGraph() {
         return
       }
     }
-    // Fallback: show the 2 most recently created projects
+    // Fallback: show the 2 most recently created projects (never show all by default)
     const projectKeys = filterOptions.filter(o => o.key !== UNASSIGNED_KEY).map(o => o.key)
     const newest = projectKeys.slice(-2)
-    setActiveFilters(newest.length > 0 ? new Set(newest) : null)
+    setActiveFilters(new Set(newest))
   }, [filterOptions, recentProjectIds, initialized])
 
   const toggleFilter = useCallback((key: string) => {
@@ -794,6 +794,9 @@ export default function DependencyGraph() {
   const hasTasks = (tasks?.length ?? 0) > 0
 
   if (!tasks) return null
+
+  // Don't render until filters are initialized — prevents flash of "all projects"
+  if (!initialized) return null
 
   // Empty state
   if (!hasTasks) {
