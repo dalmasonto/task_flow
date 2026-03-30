@@ -73,4 +73,45 @@ if (!httpOnly) {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Background poller: watch for answered inbox messages and inject into terminal
+  const agentPid = process.ppid; // Claude Code's PID
+  const POLL_INTERVAL = 3000; // Check every 3 seconds
+
+  setInterval(() => {
+    try {
+      const db = getDb();
+      // Find messages answered since we last checked, for our agent
+      const answered = db.prepare(
+        `SELECT * FROM agent_messages WHERE agent_pid = ? AND status = 'answered' AND delivered IS NULL`
+      ).all(agentPid) as Array<{ id: number; question: string; response: string }>;
+
+      for (const msg of answered) {
+        // Mark as delivered first to prevent re-injection
+        db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
+
+        // Find our agent's PTY
+        let ptsPath: string;
+        try {
+          ptsPath = require('child_process').execSync(`readlink /proc/${agentPid}/fd/0`).toString().trim();
+        } catch { continue; }
+
+        if (!ptsPath.startsWith('/dev/pts/')) continue;
+
+        // Inject via TIOCSTI
+        const text = `[Inbox Response] to "${msg.question.slice(0, 60)}": ${msg.response}`;
+        try {
+          require('child_process').execSync(
+            `python3 -c "import os,fcntl,sys;fd=os.open(sys.argv[1],os.O_RDWR)\nfor c in sys.argv[2]+'\\\\n':fcntl.ioctl(fd,0x5412,c.encode())\nos.close(fd)" ${JSON.stringify(ptsPath)} ${JSON.stringify(text)}`,
+            { stdio: 'ignore', timeout: 10000 }
+          );
+          console.error(`[inject] delivered response for message ${msg.id} to ${ptsPath}`);
+        } catch (err) {
+          console.error(`[inject] TIOCSTI failed for message ${msg.id}:`, err);
+        }
+      }
+    } catch {
+      // Silently ignore polling errors
+    }
+  }, POLL_INTERVAL);
 }

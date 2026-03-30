@@ -1,99 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 
 const SERVICE_ID = 'taskflow-mcp';
-
-/**
- * Find the terminal window for a given agent PID.
- * Walks up the process tree from the agent PID looking for a window.
- */
-function findWindowForPid(agentPid: number): string | null {
-  try {
-    // Walk up the process tree from the agent looking for a window
-    let pid = agentPid;
-    for (let i = 0; i < 10 && pid > 1; i++) {
-      const result = execSync(`xdotool search --pid ${pid} 2>/dev/null || true`).toString().trim();
-      if (result) {
-        const windowId = result.split('\n')[0];
-        console.log(`[inject] found window ${windowId} via PID ${pid} (${i} hops from agent)`);
-        return windowId;
-      }
-      // Go up one level
-      try {
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-        pid = parseInt(stat.split(' ')[3], 10);
-      } catch { break; }
-    }
-
-    // Fallback: find by the agent's PTY — the terminal emulator owns the PTY master
-    const ptsLink = execSync(`readlink /proc/${agentPid}/fd/0 2>/dev/null || true`).toString().trim();
-    if (ptsLink.startsWith('/dev/pts/')) {
-      const ptsNum = ptsLink.split('/').pop();
-      // Search processes that have this PTY, walking up their trees for a window
-      const procs = execSync(
-        `for f in /proc/[0-9]*/fd/0; do ` +
-        `  target=$(readlink "$f" 2>/dev/null); ` +
-        `  if [ "$target" = "/dev/pts/${ptsNum}" ]; then ` +
-        `    echo "$(echo "$f" | grep -oP '\\d+')"; ` +
-        `  fi; ` +
-        `done 2>/dev/null || true`
-      ).toString().trim().split('\n').filter(Boolean);
-
-      for (const p of procs) {
-        const result = execSync(`xdotool search --pid ${p} 2>/dev/null || true`).toString().trim();
-        if (result) {
-          const windowId = result.split('\n')[0];
-          console.log(`[inject] found window ${windowId} via PTY peer PID ${p}`);
-          return windowId;
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[inject] window detection error:', err);
-  }
-  return null;
-}
-
-/**
- * Inject text into the terminal running the agent (Claude Code).
- * Uses the stored agent_pid from the message to find the right terminal.
- */
-function injectIntoTerminal(text: string, agentPid: number | null): void {
-  try {
-    if (!agentPid) {
-      console.log('[inject] no agent_pid stored, skipping');
-      return;
-    }
-
-    // Check xdotool is available
-    try { execSync('which xdotool', { stdio: 'ignore' }); }
-    catch { console.log('[inject] xdotool not installed, skipping'); return; }
-
-    // Check the agent process is still alive
-    try { readFileSync(`/proc/${agentPid}/stat`); }
-    catch { console.log(`[inject] agent PID ${agentPid} no longer running, skipping`); return; }
-
-    const targetWindow = findWindowForPid(agentPid);
-    if (!targetWindow) {
-      console.log('[inject] could not find terminal window, skipping');
-      return;
-    }
-
-    // Activate the window, type, press Enter
-    execSync(`xdotool windowactivate --sync ${targetWindow}`, { stdio: 'ignore', timeout: 3000 });
-    // Small delay for window to become ready
-    execSync('sleep 0.15', { stdio: 'ignore' });
-    execSync(`xdotool type --clearmodifiers --delay 0 -- ${JSON.stringify(text)}`, { stdio: 'ignore', timeout: 10000 });
-    execSync(`xdotool key --clearmodifiers Return`, { stdio: 'ignore', timeout: 2000 });
-
-    console.log('[inject] response injected into window', targetWindow);
-  } catch (err) {
-    console.error('[inject] failed:', err);
-  }
-}
 const MAX_PORT_ATTEMPTS = 10;
 const PROBE_TIMEOUT_MS = 2000;
 
@@ -414,11 +323,6 @@ export async function startSSEServer(): Promise<void> {
       logActivity('agent_question_answered', `Responded to: ${message.question}`, { entityType: 'agent_message', entityId: id });
 
       jsonResponse(res, 200, updated);
-
-      // Inject the response into the agent's terminal so it can continue
-      const agentPid = message.agent_pid as number | null;
-      const question = (message.question as string).slice(0, 80);
-      injectIntoTerminal(`[Agent Inbox Response] to "${question}": ${response}`, agentPid);
       return;
     }
 

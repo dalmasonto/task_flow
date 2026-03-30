@@ -103,6 +103,7 @@ function initSchema(db: Database.Database): void {
       choices TEXT,
       response TEXT,
       agent_pid INTEGER,
+      delivered INTEGER,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL,
       answered_at TEXT
@@ -125,6 +126,9 @@ function initSchema(db: Database.Database): void {
   const colNames = new Set(cols.map(c => c.name));
   if (!colNames.has('agent_pid')) {
     db.exec('ALTER TABLE agent_messages ADD COLUMN agent_pid INTEGER');
+  }
+  if (!colNames.has('delivered')) {
+    db.exec('ALTER TABLE agent_messages ADD COLUMN delivered INTEGER');
   }
 }
 
