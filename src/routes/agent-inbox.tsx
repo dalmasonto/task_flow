@@ -238,14 +238,14 @@ function AnsweredCard({
       className="bg-card border border-border p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
       onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
           {project && (
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: project.color }} />
+            <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: project.color }} />
           )}
-          <span className="text-sm font-bold truncate">{message.question}</span>
+          <span className="text-sm font-bold break-words">{message.question}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
             {getTimeAgo(message.createdAt)}
           </span>
