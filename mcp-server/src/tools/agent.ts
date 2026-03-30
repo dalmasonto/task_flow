@@ -40,6 +40,10 @@ export async function getAgentInstructions() {
       'Timer lifecycle: start_timer → work → stop_timer(final_status). Use "done"/"partial_done"/"blocked". pause_timer when waiting for input. This applies equally to debugging tasks — start a timer before investigating, stop it when resolved or blocked.',
       'MUST stop_timer with "done" when work is complete. Never leave finished tasks in "in_progress" or "paused". This includes debugging tasks — when the bug is fixed or the investigation concludes, stop the timer.',
 
+      // Bugs & post-build debugging
+      'When a user reports a bug or you discover one while testing/building: FIRST search_tasks for an existing related task. If found (even if "done"), move it back to in_progress (update_task_status) — this reopens the task and auto-starts a timer. Then log_debug on that task to document the new bug. If no related task exists, create a new one (e.g. "Bug: sidebar not rendering in light mode") with tag "bug", start the timer, and begin debugging.',
+      'This also applies to post-build issues: after running a build/test and seeing failures, do NOT silently fix them. Open or reopen a task first, log what failed, then fix. The task becomes the paper trail — the user and future agents can see what broke, what was tried, and how it was resolved.',
+
       // Dependencies
       'Check task dependencies before starting. If any dep is incomplete, set task to "blocked".',
       'After completing a task, check if blocked tasks depending on it can be unblocked.',
