@@ -13,6 +13,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useSetting } from "@/hooks/use-settings"
+import { usePendingCount } from "@/hooks/use-agent-messages"
 
 const navItems = [
   { label: "Dashboard", to: "/dashboard", icon: "dashboard" },
@@ -20,11 +21,12 @@ const navItems = [
   { label: "Analytics", to: "/analytics", icon: "insights" },
   { label: "Timeline", to: "/analytics/timeline", icon: "timeline" },
   { label: "Activity Pulse", to: "/activity", icon: "monitoring" },
+  { label: "Agent Inbox", to: "/inbox", icon: "inbox" },
   { label: "Dependencies", to: "/dependencies", icon: "account_tree" },
   { label: "Archive", to: "/archive", icon: "archive" },
 ]
 
-function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: string }) {
+function SidebarNavLink({ to, icon, label, badge }: { to: string; icon: string; label: string; badge?: number }) {
   const resolved = useResolvedPath(to)
   const match = useMatch({ path: resolved.pathname, end: true })
   const { isMobile, setOpenMobile } = useSidebar()
@@ -41,7 +43,12 @@ function SidebarNavLink({ to, icon, label }: { to: string; icon: string; label: 
         }`}
       >
         <span className="material-symbols-outlined text-lg">{icon}</span>
-        <span>{label}</span>
+        <span className="flex-1">{label}</span>
+        {badge != null && badge > 0 && (
+          <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center animate-pulse">
+            {badge}
+          </span>
+        )}
       </NavLink>
     </SidebarMenuItem>
   )
@@ -52,6 +59,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const systemName = useSetting('systemName')
   const { isMobile, setOpenMobile } = useSidebar()
   const closeMobile = () => { if (isMobile) setOpenMobile(false) }
+  const pendingCount = usePendingCount()
 
   return (
     <Sidebar variant="sidebar" {...props}>
@@ -73,7 +81,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarMenu className="gap-2">
             {navItems.map((item) => (
-              <SidebarNavLink key={item.to} {...item} />
+              <SidebarNavLink
+                key={item.to}
+                {...item}
+                badge={item.to === '/inbox' ? pendingCount : undefined}
+              />
             ))}
           </SidebarMenu>
         </SidebarGroup>
