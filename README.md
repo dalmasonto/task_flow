@@ -37,17 +37,17 @@ Data stays on your machine via IndexedDB. No accounts, no servers, no sync.
 ## Getting Started
 
 ```bash
-# Install dependencies
-npm install
+# Install dependencies (postinstall auto-rebuilds native SQLite addon)
+pnpm install
 
 # Start dev server (browser)
-npm run dev
+pnpm run dev
 
 # Build for production
-npm run build
+pnpm run build
 
 # Preview production build
-npm run preview
+pnpm run preview
 ```
 
 ### Desktop App (Tauri)
@@ -56,13 +56,28 @@ npm run preview
 
 - [Rust](https://rustup.rs/) — install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - [Node.js](https://nodejs.org/) >= 18
+- [pnpm](https://pnpm.io/) — `npm install -g pnpm`
 - System dependencies (Linux): `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
-- TaskFlow MCP server (for live sync): `npm install -g @dalmasonto/taskflow-mcp`
+- TaskFlow MCP server (for live sync): `pnpm add @dalmasonto/taskflow-mcp` (or `npm install -g @dalmasonto/taskflow-mcp`)
+
+#### Fresh install / after cleaning node_modules
+
+After deleting `node_modules` (e.g. to free disk space), run:
+
+```bash
+pnpm install
+```
+
+The `postinstall` script automatically rebuilds the `better-sqlite3` native addon inside the pnpm store. If the Tauri app fails to spawn the MCP server with a "Could not locate the bindings file" error, run manually:
+
+```bash
+node scripts/rebuild-sqlite.mjs
+```
 
 #### Development
 
 ```bash
-npm run tauri:dev
+pnpm run tauri:dev
 ```
 
 Opens a native window with hot reload. The first run compiles Rust dependencies and takes a few minutes — subsequent runs are fast.
@@ -219,6 +234,7 @@ Available HTTP endpoints:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/healthz` | GET | Health check — returns `{ service, pid }` for instance detection |
 | `/events` | GET | SSE event stream |
 | `/sync` | GET | Full data dump (tasks, projects, sessions, settings) |
 | `/api/tasks` | POST | Create a task |

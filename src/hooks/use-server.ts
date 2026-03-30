@@ -5,15 +5,16 @@ import { setServerPort } from '@/lib/sync-api'
 const RESTART_DELAY = 2000
 const HEALTH_CHECK_INTERVAL = 10_000
 const SERVICE_ID = 'taskflow-mcp'
-// Uses the globally installed npm package
-const SERVER_COMMAND = 'taskflow-mcp'
 
 /** Probe /healthz to see if a TaskFlow server is already running on this port */
 async function probeServer(port: number): Promise<boolean> {
   try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 2000)
     const res = await fetch(`http://localhost:${port}/healthz`, {
-      signal: AbortSignal.timeout(2000),
+      signal: controller.signal,
     })
+    clearTimeout(timer)
     if (!res.ok) return false
     const body = await res.json() as { service?: string }
     return body.service === SERVICE_ID
@@ -41,21 +42,13 @@ export function useServer() {
     let killed = false
     let healthTimer: ReturnType<typeof setInterval> | null = null
 
-    async function spawn() {
+    async function doSpawn() {
       if (killed || !mountedRef.current) return
-
-      // Check if a TaskFlow server is already running on this port
-      const alreadyRunning = await probeServer(port)
-      if (alreadyRunning) {
-        console.log('[useServer] server already running on port', port, '— skipping spawn')
-        startHealthCheck()
-        return
-      }
 
       try {
         const { Command } = await import('@tauri-apps/plugin-shell')
 
-        console.log('[useServer] spawning:', SERVER_COMMAND, '--http-only --port', port)
+        console.log('[useServer] spawning: taskflow-mcp --http-only --port', port)
 
         const command = Command.create('taskflow-server', ['--http-only', '--port', String(port)])
 
@@ -63,7 +56,7 @@ export function useServer() {
           console.log(`[useServer] server exited code=${data.code}`)
           childRef.current = null
           if (!killed && mountedRef.current) {
-            setTimeout(spawn, RESTART_DELAY)
+            setTimeout(spawnIfNeeded, RESTART_DELAY)
           }
         })
 
@@ -85,23 +78,34 @@ export function useServer() {
       } catch (err) {
         console.error('[useServer] spawn failed:', err)
         if (!killed && mountedRef.current) {
-          setTimeout(spawn, RESTART_DELAY)
+          setTimeout(spawnIfNeeded, RESTART_DELAY)
         }
       }
     }
 
-    /** Periodically verify the external server is still alive; spawn if it dies */
+    async function spawnIfNeeded() {
+      if (killed || !mountedRef.current) return
+
+      const alreadyRunning = await probeServer(port)
+      if (alreadyRunning) {
+        console.log('[useServer] server already running on port', port, '— skipping spawn')
+        startHealthCheck()
+        return
+      }
+
+      doSpawn()
+    }
+
     function startHealthCheck() {
       stopHealthCheck()
       healthTimer = setInterval(async () => {
         if (killed || !mountedRef.current) { stopHealthCheck(); return }
-        // Only check if we didn't spawn — if we spawned, the close handler handles restarts
         if (childRef.current) return
         const alive = await probeServer(port)
         if (!alive) {
           console.log('[useServer] external server gone — spawning')
           stopHealthCheck()
-          spawn()
+          doSpawn()
         }
       }, HEALTH_CHECK_INTERVAL)
     }
@@ -110,7 +114,8 @@ export function useServer() {
       if (healthTimer) { clearInterval(healthTimer); healthTimer = null }
     }
 
-    spawn()
+    // First launch: spawn immediately
+    doSpawn()
 
     return () => {
       killed = true
