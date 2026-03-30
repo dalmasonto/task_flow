@@ -117,7 +117,9 @@ export type AgentMessageStatus = 'pending' | 'answered' | 'dismissed'
 
 export interface AgentMessage {
   id?: number
-  projectId: number
+  projectId?: number
+  senderName: string
+  recipientName: string
   question: string
   context?: string
   choices?: string[]
@@ -125,6 +127,19 @@ export interface AgentMessage {
   status: AgentMessageStatus
   createdAt: Date
   answeredAt?: Date
+}
+
+export type AgentConnectionStatus = 'connected' | 'disconnected'
+
+export interface AgentRegistryEntry {
+  id?: number
+  name: string
+  projectPath: string
+  pid: number
+  tmuxPane?: string
+  status: AgentConnectionStatus
+  connectedAt: Date
+  disconnectedAt?: Date
 }
 
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
