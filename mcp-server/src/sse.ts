@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
-import { resolvePending } from './pending-questions.js';
 
 const SERVICE_ID = 'taskflow-mcp';
 const MAX_PORT_ATTEMPTS = 10;
@@ -318,9 +317,6 @@ export async function startSSEServer(): Promise<void> {
       const ts = new Date().toISOString();
       db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ? WHERE id = ?')
         .run(response, 'answered', ts, id);
-
-      // Resolve the blocking MCP tool call
-      resolvePending(id, response);
 
       const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
       broadcast('agent_question_answered', { entity: 'agent_message', action: 'agent_question_answered', payload: updated });

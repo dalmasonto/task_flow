@@ -2,12 +2,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
 import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
-import { addPending } from '../pending-questions.js';
 
 export function registerAgentInboxTools(server: McpServer) {
   server.tool(
     'ask_user',
-    'Ask the user a question and block until they respond via the TaskFlow UI. Use this when you need user input and they may not be at their terminal. The question appears in the Agent Inbox with full context and optional quick-tap choices.',
+    'Post a question to the TaskFlow Agent Inbox for the user to answer remotely. Returns immediately with the message ID — does NOT block. The question appears in the Agent Inbox UI with full context and optional quick-tap choices. Use check_response to poll for the answer, or let the next session pick it up.',
     {
       project_id: z.number().describe('Project ID to attach the question to'),
       question: z.string().describe('The question to ask the user'),
@@ -42,10 +41,44 @@ export function registerAgentInboxTools(server: McpServer) {
       broadcastChange('agent_message', 'agent_question', message);
       logActivity('agent_question', params.question, { entityType: 'agent_message', entityId: id });
 
-      // Block until user responds
-      const response = await addPending(id);
+      return successResponse({
+        id,
+        status: 'pending',
+        message: `Question posted to Agent Inbox (id: ${id}). The user can respond from the TaskFlow UI. Use check_response(${id}) to check for their answer.`,
+      });
+    },
+  );
 
-      return successResponse({ id, response });
+  server.tool(
+    'check_response',
+    'Check if the user has responded to a previously posted agent question. Returns the response if answered, or status "pending" if still waiting.',
+    {
+      message_id: z.number().describe('The agent message ID returned by ask_user'),
+    },
+    async (params) => {
+      const db = getDb();
+
+      const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(params.message_id) as Record<string, unknown> | undefined;
+      if (!message) {
+        return errorResponse(`Message ${params.message_id} not found`, 'NOT_FOUND');
+      }
+
+      if (message.status === 'answered') {
+        return successResponse({
+          id: message.id,
+          status: 'answered',
+          response: message.response,
+          question: message.question,
+          answered_at: message.answered_at,
+        });
+      }
+
+      return successResponse({
+        id: message.id,
+        status: 'pending',
+        question: message.question,
+        message: 'User has not responded yet. Try again later or continue with other work.',
+      });
     },
   );
 }
