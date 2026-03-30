@@ -2,8 +2,9 @@ import { useEffect, useRef } from 'react'
 import { useSetting } from '@/hooks/use-settings'
 import { setServerPort } from '@/lib/sync-api'
 
-const RESTART_DELAY = 2000
+const RESTART_DELAY = 3000
 const HEALTH_CHECK_INTERVAL = 10_000
+const MAX_SPAWN_FAILURES = 5
 const SERVICE_ID = 'taskflow-mcp'
 
 /** Probe /healthz to see if a TaskFlow server is already running on this port */
@@ -41,6 +42,7 @@ export function useServer() {
 
     let killed = false
     let healthTimer: ReturnType<typeof setInterval> | null = null
+    let consecutiveFailures = 0
 
     async function doSpawn() {
       if (killed || !mountedRef.current) return
@@ -55,6 +57,17 @@ export function useServer() {
         command.on('close', (data) => {
           console.log(`[useServer] server exited code=${data.code}`)
           childRef.current = null
+
+          if (data.code !== 0) {
+            consecutiveFailures++
+            if (consecutiveFailures >= MAX_SPAWN_FAILURES) {
+              console.error(`[useServer] ${MAX_SPAWN_FAILURES} consecutive failures — giving up`)
+              return
+            }
+          } else {
+            consecutiveFailures = 0
+          }
+
           if (!killed && mountedRef.current) {
             setTimeout(spawnIfNeeded, RESTART_DELAY)
           }
@@ -77,6 +90,11 @@ export function useServer() {
         console.log('[useServer] spawned pid:', child.pid)
       } catch (err) {
         console.error('[useServer] spawn failed:', err)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_SPAWN_FAILURES) {
+          console.error(`[useServer] ${MAX_SPAWN_FAILURES} consecutive failures — giving up`)
+          return
+        }
         if (!killed && mountedRef.current) {
           setTimeout(spawnIfNeeded, RESTART_DELAY)
         }
@@ -86,6 +104,7 @@ export function useServer() {
     async function spawnIfNeeded() {
       if (killed || !mountedRef.current) return
 
+      // Always check first — prevents duplicate spawns (React strict mode, HMR, etc.)
       const alreadyRunning = await probeServer(port)
       if (alreadyRunning) {
         console.log('[useServer] server already running on port', port, '— skipping spawn')
@@ -96,6 +115,7 @@ export function useServer() {
       doSpawn()
     }
 
+    /** Periodically verify the external server is still alive; spawn if it dies */
     function startHealthCheck() {
       stopHealthCheck()
       healthTimer = setInterval(async () => {
@@ -114,8 +134,8 @@ export function useServer() {
       if (healthTimer) { clearInterval(healthTimer); healthTimer = null }
     }
 
-    // First launch: spawn immediately
-    doSpawn()
+    // Always probe first — if server already exists (e.g. from previous mount), reuse it
+    spawnIfNeeded()
 
     return () => {
       killed = true
