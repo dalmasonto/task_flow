@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router'
 import {
   ReactFlow,
@@ -24,7 +24,7 @@ import { useTasks } from '@/hooks/use-tasks'
 import { useProjects } from '@/hooks/use-projects'
 import { useActiveSessions, useSessions } from '@/hooks/use-sessions'
 import { useTimer } from '@/hooks/use-timer'
-import { useSetting, trackRecentProject } from '@/hooks/use-settings'
+import { useSetting, updateSetting, trackRecentProject } from '@/hooks/use-settings'
 import { getStatusColor, getStatusLabel, getDisplayStatus } from '@/lib/status'
 import { getBlockers } from '@/lib/dag'
 import { formatDuration, computeSessionDuration } from '@/lib/time'
@@ -220,16 +220,23 @@ const ALL_STATUSES: TaskStatus[] = [
 
 // ---------- Detail Panel (separate component so hooks work) ----------
 
+const MIN_SIDEBAR_WIDTH = 320
+const MAX_SIDEBAR_WIDTH = 700
+
 function TaskDetailPanel({
   task,
   allTasks,
   taskMap,
   onClose,
+  width,
+  onWidthChange,
 }: {
   task: Task
   allTasks: Task[]
   taskMap: Map<number, Task>
   onClose: () => void
+  width: number
+  onWidthChange: (w: number) => void
 }) {
   const sessions = useSessions(task.id)
   const taskLogs = useTaskActivityLog(task.id)
@@ -245,8 +252,41 @@ function TaskDetailPanel({
     t => t.id !== undefined && task.id !== undefined && t.dependencies.includes(task.id)
   )
 
+  const dragging = useRef(false)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    const startX = e.clientX
+    const startW = width
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = startX - ev.clientX
+      const newW = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, startW + delta))
+      onWidthChange(newW)
+    }
+
+    const onMouseUp = () => {
+      dragging.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [width, onWidthChange])
+
   return (
-    <div className="absolute top-0 right-0 h-full w-80 bg-card/95 backdrop-blur-md border-l border-muted-foreground/20 z-20 overflow-y-auto">
+    <div
+      className="absolute top-0 right-0 h-full bg-card/95 backdrop-blur-md border-l border-muted-foreground/20 z-20 overflow-y-auto"
+      style={{ width }}
+    >
+      {/* Drag handle */}
+      <div
+        onMouseDown={onMouseDown}
+        className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-30"
+      />
       <div className="p-6 space-y-6">
         {/* Close */}
         <div className="flex items-center justify-between">
@@ -505,6 +545,19 @@ export default function DependencyGraph() {
   const tasks = useTasks()
   const projects = useProjects()
   const recentProjectIds = useSetting('recentProjectIds')
+  const savedSidebarWidth = useSetting('depGraphSidebarWidth')
+  const [sidebarWidth, setSidebarWidth] = useState(savedSidebarWidth)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSidebarWidthChange = useCallback((w: number) => {
+    setSidebarWidth(w)
+    // Debounce the DB save so it doesn't fire on every pixel
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      updateSetting('depGraphSidebarWidth', w)
+    }, 300)
+  }, [])
+
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
   const [activeFilters, setActiveFilters] = useState<Set<string> | null>(null) // null = not yet initialized
   const [filterDialogOpen, setFilterDialogOpen] = useState(false)
@@ -1001,6 +1054,8 @@ export default function DependencyGraph() {
             allTasks={tasks ?? []}
             taskMap={taskMap}
             onClose={() => setSelectedTaskId(null)}
+            width={sidebarWidth}
+            onWidthChange={handleSidebarWidthChange}
           />
         )}
       </div>

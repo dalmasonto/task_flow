@@ -104,6 +104,7 @@ export interface SettingsMap {
   serverPort: number
   fontFamily: FontFamily
   recentProjectIds: number[]
+  depGraphSidebarWidth: number
 }
 
 export interface Setting {

@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS = {
   serverPort: 3456,
   fontFamily: 'inter' as const,
   recentProjectIds: [] as number[],
+  depGraphSidebarWidth: 400,
 }
 
 export const FONT_OPTIONS = [
