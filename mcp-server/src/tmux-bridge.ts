@@ -109,6 +109,8 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string): voi
   db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(id);
   try {
     execSync(`tmux send-keys -t ${tmuxPane} ${JSON.stringify(text)} Enter`, { stdio: 'ignore', timeout: 5000 });
+    // Long text triggers tmux bracketed paste — send extra Enter to confirm
+    execSync(`tmux send-keys -t ${tmuxPane} Enter`, { stdio: 'ignore', timeout: 2000 });
     console.error(`[bridge] delivered message ${id} to tmux pane ${tmuxPane}`);
   } catch (err) {
     console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);
