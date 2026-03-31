@@ -5,26 +5,24 @@ import { useProjects } from '@/hooks/use-projects'
 import { useSetting } from '@/hooks/use-settings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ProjectFilter } from '@/components/charts/project-filter'
+import { AgentSidebar } from '@/components/inbox/agent-sidebar'
+import { ComposeBox } from '@/components/inbox/compose-box'
 import type { AgentMessage } from '@/types'
 
 export default function AgentInbox() {
-  const messages = useAgentMessages()
   const projects = useProjects()
   const port = Number(useSetting('serverPort'))
-  const [projectFilter, setProjectFilter] = useState('all')
+  const [agentFilter, setAgentFilter] = useState('all')
   const [showAnswered, setShowAnswered] = useState(false)
 
-  if (!messages || !projects) return null
+  const filteredMessages = useAgentMessages(agentFilter)
+
+  if (!filteredMessages || !projects) return null
 
   const projectMap = new Map(projects.map(p => [p.id!, p]))
 
-  const filtered = projectFilter === 'all'
-    ? messages
-    : messages.filter(m => m.projectId === Number(projectFilter))
-
-  const pending = filtered.filter(m => m.status === 'pending')
-  const answered = filtered.filter(m => m.status === 'answered' || m.status === 'dismissed')
+  const pending = filteredMessages.filter(m => m.status === 'pending')
+  const answered = filteredMessages.filter(m => m.status === 'answered' || m.status === 'dismissed')
 
   const answeredByDate = answered.reduce<Record<string, AgentMessage[]>>((acc, m) => {
     const dateKey = m.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -34,77 +32,89 @@ export default function AgentInbox() {
   }, {})
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="relative flex h-2 w-2">
-              {pending.length > 0 && (
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
-              )}
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${pending.length > 0 ? 'bg-secondary' : 'bg-muted-foreground/30'}`} />
-            </span>
-            <span className="text-xs tracking-widest uppercase text-secondary font-bold">
-              Agent Comms
-            </span>
-          </div>
-          <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase leading-none">
-            Agent <span className="text-secondary">Inbox</span>
-          </h1>
-          <p className="text-xs text-muted-foreground uppercase tracking-widest mt-2">
-            {pending.length} pending {pending.length === 1 ? 'question' : 'questions'}
-          </p>
-        </div>
-        <ProjectFilter value={projectFilter} onChange={setProjectFilter} />
+    <div className="flex h-full">
+      {/* Left sidebar — agent list */}
+      <div className="w-48 shrink-0 border-r border-border py-4 overflow-y-auto">
+        <AgentSidebar selected={agentFilter} onSelect={setAgentFilter} />
       </div>
 
-      {/* Pending Questions */}
-      {pending.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-xs tracking-widest uppercase font-bold text-secondary flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm">pending</span>
-            Awaiting Response
-          </h2>
-          {pending.map(m => (
-            <MessageCard key={m.id} message={m} project={projectMap.get(m.projectId)} port={port} />
-          ))}
-        </section>
-      )}
-
-      {/* Answered */}
-      {answered.length > 0 && (
-        <section className="space-y-4">
-          <button
-            onClick={() => setShowAnswered(!showAnswered)}
-            className="text-xs tracking-widest uppercase font-bold text-muted-foreground flex items-center gap-2 hover:text-foreground transition-colors"
-          >
-            <span className="material-symbols-outlined text-sm">check_circle</span>
-            Answered ({answered.length})
-            <span className="material-symbols-outlined text-sm">
-              {showAnswered ? 'expand_less' : 'expand_more'}
-            </span>
-          </button>
-          {showAnswered && Object.entries(answeredByDate).map(([date, msgs]) => (
-            <div key={date} className="space-y-2">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-widest border-b border-border pb-1">{date}</div>
-              {msgs.map(m => (
-                <AnsweredCard key={m.id} message={m} project={projectMap.get(m.projectId)} />
-              ))}
+      {/* Main panel */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full space-y-8">
+          {/* Header */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="relative flex h-2 w-2">
+                {pending.length > 0 && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
+                )}
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${pending.length > 0 ? 'bg-secondary' : 'bg-muted-foreground/30'}`} />
+              </span>
+              <span className="text-xs tracking-widest uppercase text-secondary font-bold">
+                Agent Comms
+              </span>
             </div>
-          ))}
-        </section>
-      )}
+            <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase leading-none">
+              Agent <span className="text-secondary">Inbox</span>
+            </h1>
+            <p className="text-xs text-muted-foreground uppercase tracking-widest mt-2">
+              {agentFilter === 'all' ? `${pending.length} pending` : `${agentFilter} — ${pending.length} pending`}
+            </p>
+          </div>
 
-      {/* Empty state */}
-      {filtered.length === 0 && (
-        <div className="text-center py-16">
-          <span className="material-symbols-outlined text-5xl text-muted-foreground/30 mb-4 block">inbox</span>
-          <p className="text-xs text-muted-foreground uppercase tracking-widest">
-            No agent questions yet
-          </p>
+          {/* Pending */}
+          {pending.length > 0 && (
+            <section className="space-y-4">
+              <h2 className="text-xs tracking-widest uppercase font-bold text-secondary flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">pending</span>
+                Awaiting Response
+              </h2>
+              {pending.map(m => (
+                <MessageCard key={m.id} message={m} project={m.projectId ? projectMap.get(m.projectId) : undefined} port={port} />
+              ))}
+            </section>
+          )}
+
+          {/* Answered */}
+          {answered.length > 0 && (
+            <section className="space-y-4">
+              <button
+                onClick={() => setShowAnswered(!showAnswered)}
+                className="text-xs tracking-widest uppercase font-bold text-muted-foreground flex items-center gap-2 hover:text-foreground transition-colors"
+              >
+                <span className="material-symbols-outlined text-sm">check_circle</span>
+                Answered ({answered.length})
+                <span className="material-symbols-outlined text-sm">
+                  {showAnswered ? 'expand_less' : 'expand_more'}
+                </span>
+              </button>
+              {showAnswered && Object.entries(answeredByDate).map(([date, msgs]) => (
+                <div key={date} className="space-y-2">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest border-b border-border pb-1">{date}</div>
+                  {msgs.map(m => (
+                    <AnsweredCard key={m.id} message={m} project={m.projectId ? projectMap.get(m.projectId) : undefined} />
+                  ))}
+                </div>
+              ))}
+            </section>
+          )}
+
+          {/* Empty */}
+          {filteredMessages.length === 0 && (
+            <div className="text-center py-16">
+              <span className="material-symbols-outlined text-5xl text-muted-foreground/30 mb-4 block">inbox</span>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest">
+                {agentFilter === 'all' ? 'No agent questions yet' : `No messages for ${agentFilter}`}
+              </p>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Compose box — only when a specific agent is selected */}
+        {agentFilter !== 'all' && (
+          <ComposeBox recipient={agentFilter} port={port} />
+        )}
+      </div>
     </div>
   )
 }
@@ -159,6 +169,9 @@ function MessageCard({
               {project.name}
             </span>
           )}
+          <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+            {message.senderName === 'user' ? 'You' : message.senderName} →
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{timeAgo}</span>
