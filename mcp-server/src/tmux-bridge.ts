@@ -20,10 +20,18 @@ function isInjectedLine(line: string): boolean {
   return INJECTED_PREFIXES.some(prefix => line.startsWith(prefix));
 }
 
-// ─── Strip ANSI escape codes ─────────────────────────────────────────
-const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, '');
+// ─── Clean terminal output ───────────────────────────────────────────
+function cleanTerminalOutput(text: string): string {
+  // 1. Replace cursor-forward sequences (ESC[NC) with N spaces — these represent word gaps
+  let cleaned = text.replace(/\x1B\[(\d+)C/g, (_m, n) => ' '.repeat(Number(n)));
+
+  // 2. Strip remaining ANSI escape codes (colors, styles, cursor moves, etc.)
+  cleaned = cleaned.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+
+  // 3. Normalize line endings: \r\n → \n, lone \r → \n, collapse 3+ newlines to 2
+  cleaned = cleaned.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
+
+  return cleaned;
 }
 
 // ─── SSE Listener (replaces the 3s poller) ───────────────────────────
@@ -223,7 +231,7 @@ function startCapture(options: BridgeOptions): () => void {
       if (!newData) return;
       readPosition += Buffer.byteLength(newData);
 
-      const cleaned = stripAnsi(newData);
+      const cleaned = cleanTerminalOutput(newData);
       const lines = cleaned.split('\n');
       const filtered = lines.filter(line => !isInjectedLine(line.trim()));
       const text = filtered.join('\n');
