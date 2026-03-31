@@ -93,7 +93,7 @@ function handleSSEEvent(event: string, data: { payload?: Record<string, unknown>
     const delivered = payload.delivered as number | null;
     const agentPidField = payload.agent_pid as number | null;
 
-    const isOurs = (sender === agentName || agentPidField === agentPid) && recipient === 'user';
+    const isOurs = sender === agentName || agentPidField === agentPid;
     if (!isOurs || status !== 'answered' || delivered === 1) return;
 
     const question = (payload.question as string || '').slice(0, 60);
@@ -122,8 +122,8 @@ function deliverUndelivered(options: BridgeOptions): void {
   const incoming = db.prepare(
     `SELECT * FROM agent_messages WHERE delivered IS NULL AND (
       (recipient_name = ? AND status = 'pending') OR
-      (sender_name = ? AND recipient_name = 'user' AND status = 'answered') OR
-      (agent_pid = ? AND recipient_name = 'user' AND status = 'answered')
+      (sender_name = ? AND status = 'answered') OR
+      (agent_pid = ? AND status = 'answered')
     )`
   ).all(agentName, agentName, agentPid) as Array<{
     id: number; sender_name: string; recipient_name: string;
