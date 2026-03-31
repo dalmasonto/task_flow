@@ -152,11 +152,11 @@ function ChatBubble({
           </div>
         )}
 
-        {/* Question */}
-        <p className={`font-bold ${message.context ? 'text-base' : 'text-base'}`}>{message.question}</p>
+        {/* Message text — bold question for agents, plain text for user */}
+        <p className={isFromUser ? 'text-sm' : 'font-bold text-base'}>{message.question}</p>
 
-        {/* Pending: show choices + input */}
-        {isPending && <PendingActions message={message} port={port} />}
+        {/* Pending: show choices + input (only for agent messages, not user-sent) */}
+        {isPending && !isFromUser && <PendingActions message={message} port={port} />}
 
         {/* Answered: show response */}
         {message.status === 'answered' && message.response && (
