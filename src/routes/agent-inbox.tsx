@@ -39,7 +39,7 @@ export default function AgentInbox() {
   return (
     <div className="flex h-[calc(100vh-4rem)] -mt-4" style={{ marginBottom: 'calc(-1 * max(1rem, var(--timer-bar-height, 0px)))' }}>
       {/* Compact sidebar */}
-      <div className="w-44 shrink-0 border-r border-border flex flex-col">
+      <div className="w-52 shrink-0 border-r border-border flex flex-col">
         <div className="h-[60px] px-3 flex items-center border-b border-border">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-secondary text-sm">forum</span>
