@@ -153,7 +153,13 @@ function ChatBubble({
         )}
 
         {/* Message text — bold question for agents, plain text for user */}
-        <p className={isFromUser ? 'text-sm' : 'font-bold text-base'}>{message.question}</p>
+        {isFromUser ? (
+          <p className="text-sm">{message.question}</p>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+            <ReactMarkdown>{unescapeMarkdown(message.question)}</ReactMarkdown>
+          </div>
+        )}
 
         {/* Pending: show choices + input (only for agent messages, not user-sent) */}
         {isPending && !isFromUser && <PendingActions message={message} port={port} />}
@@ -161,8 +167,10 @@ function ChatBubble({
         {/* Answered: show response */}
         {message.status === 'answered' && message.response && (
           <div className="flex items-start gap-2 pt-2 border-t border-border/50">
-            <span className="material-symbols-outlined text-sm text-secondary mt-0.5">reply</span>
-            <span className="text-sm">{message.response}</span>
+            <span className="material-symbols-outlined text-sm text-secondary mt-0.5 shrink-0">reply</span>
+            <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+              <ReactMarkdown>{unescapeMarkdown(message.response)}</ReactMarkdown>
+            </div>
           </div>
         )}
 
