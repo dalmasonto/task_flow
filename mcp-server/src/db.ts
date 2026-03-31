@@ -107,6 +107,7 @@ function initSchema(db: Database.Database): void {
       sender_name TEXT NOT NULL DEFAULT 'unknown',
       recipient_name TEXT NOT NULL DEFAULT 'user',
       status TEXT NOT NULL DEFAULT 'pending',
+      source TEXT NOT NULL DEFAULT 'mcp',
       created_at TEXT NOT NULL,
       answered_at TEXT
     );
@@ -151,6 +152,9 @@ function initSchema(db: Database.Database): void {
   if (!colNames.has('recipient_name')) {
     db.exec("ALTER TABLE agent_messages ADD COLUMN recipient_name TEXT NOT NULL DEFAULT 'user'");
   }
+  if (!colNames.has('source')) {
+    db.exec("ALTER TABLE agent_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'mcp'");
+  }
 
   // Migration: make agent_messages.project_id nullable if it was NOT NULL
   try {
@@ -169,13 +173,14 @@ function initSchema(db: Database.Database): void {
           sender_name TEXT NOT NULL DEFAULT 'unknown',
           recipient_name TEXT NOT NULL DEFAULT 'user',
           status TEXT NOT NULL DEFAULT 'pending',
+          source TEXT NOT NULL DEFAULT 'mcp',
           created_at TEXT NOT NULL,
           answered_at TEXT
         );
         INSERT INTO agent_messages_new SELECT
           id, project_id, question, context, choices, response, agent_pid, delivered,
           COALESCE(sender_name, 'unknown'), COALESCE(recipient_name, 'user'),
-          status, created_at, answered_at
+          status, COALESCE(source, 'mcp'), created_at, answered_at
         FROM agent_messages;
         DROP TABLE agent_messages;
         ALTER TABLE agent_messages_new RENAME TO agent_messages;
