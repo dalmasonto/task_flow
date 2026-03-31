@@ -37,7 +37,7 @@ export default function AgentInbox() {
   const sorted = [...filteredMessages].reverse()
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] -mt-4" style={{ marginBottom: 'calc(-1 * max(1rem, var(--timer-bar-height, 0px)))' }}>
+    <div className="flex h-[calc(100vh-4rem-var(--timer-bar-height,0px))] -mt-4">
       {/* Compact sidebar */}
       <div className="w-52 shrink-0 border-r border-border flex flex-col">
         <div className="h-[60px] px-3 flex items-center border-b border-border">
@@ -59,9 +59,9 @@ export default function AgentInbox() {
             <h1 className="text-sm font-bold uppercase tracking-widest">
               {agentFilter === 'all' ? 'All Conversations' : agentFilter}
             </h1>
-            {sorted.filter(m => m.status === 'pending').length > 0 && (
+            {sorted.filter(m => m.status === 'pending' && m.senderName !== 'user').length > 0 && (
               <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
-                {sorted.filter(m => m.status === 'pending').length}
+                {sorted.filter(m => m.status === 'pending' && m.senderName !== 'user').length}
               </span>
             )}
           </div>

@@ -13,11 +13,13 @@ export function useAgentMessages(agentFilter?: string) {
 
 export function usePendingCount(agentFilter?: string) {
   return useLiveQuery(async () => {
-    if (!agentFilter || agentFilter === 'all') {
-      return db.agentMessages.where('status').equals('pending').count()
-    }
     const all = await db.agentMessages.where('status').equals('pending').toArray()
-    return all.filter(m => m.senderName === agentFilter || m.recipientName === agentFilter).length
+    // Only count agent-sent messages as unread — user messages are outgoing, not "unread"
+    const unread = all.filter(m => m.senderName !== 'user')
+    if (!agentFilter || agentFilter === 'all') {
+      return unread.length
+    }
+    return unread.filter(m => m.senderName === agentFilter || m.recipientName === agentFilter).length
   }, [agentFilter])
 }
 
