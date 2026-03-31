@@ -121,11 +121,14 @@ if (!httpOnly) {
         const db = getDb();
         // Check for messages addressed to this agent (from user or other agents)
         // AND for answered questions this agent sent (inbox responses)
+        // Check by agent name AND by agent_pid (backward compat with old messages)
         const incoming = db.prepare(
-          `SELECT * FROM agent_messages WHERE
-            ((recipient_name = ? AND status = 'pending' AND delivered IS NULL) OR
-             (sender_name = ? AND recipient_name = 'user' AND status = 'answered' AND delivered IS NULL))`
-        ).all(agentName, agentName) as Array<{ id: number; sender_name: string; recipient_name: string; question: string; response: string | null; status: string }>;
+          `SELECT * FROM agent_messages WHERE delivered IS NULL AND (
+            (recipient_name = ? AND status = 'pending') OR
+            (sender_name = ? AND recipient_name = 'user' AND status = 'answered') OR
+            (agent_pid = ? AND recipient_name = 'user' AND status = 'answered')
+          )`
+        ).all(agentName, agentName, agentPid) as Array<{ id: number; sender_name: string; recipient_name: string; question: string; response: string | null; status: string }>;
 
         for (const msg of incoming) {
           db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
