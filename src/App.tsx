@@ -1,7 +1,9 @@
+import { useState, useCallback } from 'react'
 import { Routes, Route, Navigate } from 'react-router'
 import { useServer } from '@/hooks/use-server'
 import { useSync } from '@/hooks/use-sync'
 import { useFont } from '@/hooks/use-font'
+import { LoadingScreen } from '@/components/loading-screen'
 import { RootLayout } from '@/components/root-layout'
 import Dashboard from '@/routes/dashboard'
 import CreateProject from '@/routes/create-project'
@@ -21,8 +23,15 @@ import NotFound from '@/routes/not-found'
 
 export default function App() {
   useServer()
-  useSync()
+  const { synced } = useSync()
   useFont()
+
+  const [showLoader, setShowLoader] = useState(true)
+  const handleFadeOut = useCallback(() => setShowLoader(false), [])
+
+  if (showLoader) {
+    return <LoadingScreen visible={!synced} onFadeOut={handleFadeOut} />
+  }
 
   return (
     <Routes>
