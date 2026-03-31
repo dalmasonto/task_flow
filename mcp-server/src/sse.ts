@@ -355,22 +355,26 @@ export async function startSSEServer(): Promise<void> {
       return;
     }
 
-    // POST /api/agent-messages/send — user sends a message to an agent
+    // POST /api/agent-messages/send — send a message (from user UI or capture system)
     if (req.url === '/api/agent-messages/send' && req.method === 'POST') {
       const db = getDb();
       const body = JSON.parse(await readBody(req));
-      const { recipient, message: msgText, projectId } = body as { recipient: string; message: string; projectId?: number };
+      const { recipient, message: msgText, projectId, source: msgSource, senderName } = body as {
+        recipient: string; message: string; projectId?: number; source?: string; senderName?: string
+      };
 
       if (!recipient || !msgText) {
         jsonResponse(res, 400, { error: 'recipient and message are required' });
         return;
       }
 
+      const source = msgSource || 'ui';
+      const sender = senderName || 'user';
       const ts = new Date().toISOString();
       const result = db.prepare(
-        `INSERT INTO agent_messages (project_id, question, sender_name, recipient_name, status, created_at)
-         VALUES (?, ?, 'user', ?, 'pending', ?)`
-      ).run(projectId ?? null, msgText, recipient, ts);
+        `INSERT INTO agent_messages (project_id, question, sender_name, recipient_name, source, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+      ).run(projectId ?? null, msgText, sender, recipient, source, ts);
 
       const id = (result as { lastInsertRowid: number }).lastInsertRowid;
       const msg = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
