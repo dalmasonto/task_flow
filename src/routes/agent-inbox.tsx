@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useAgentMessages, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
@@ -18,113 +18,93 @@ export default function AgentInbox() {
   const projects = useProjects()
   const port = Number(useSetting('serverPort'))
   const [agentFilter, setAgentFilter] = useState('all')
-  const [showAnswered, setShowAnswered] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const filteredMessages = useAgentMessages(agentFilter)
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [filteredMessages?.length])
 
   if (!filteredMessages || !projects) return null
 
   const projectMap = new Map(projects.map(p => [p.id!, p]))
 
-  const pending = filteredMessages.filter(m => m.status === 'pending')
-  const answered = filteredMessages.filter(m => m.status === 'answered' || m.status === 'dismissed')
-
-  const answeredByDate = answered.reduce<Record<string, AgentMessage[]>>((acc, m) => {
-    const dateKey = m.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    if (!acc[dateKey]) acc[dateKey] = []
-    acc[dateKey].push(m)
-    return acc
-  }, {})
+  // Sort messages oldest first for chat thread flow
+  const sorted = [...filteredMessages].reverse()
 
   return (
-    <div className="flex h-full">
-      {/* Left sidebar — agent list */}
-      <div className="w-48 shrink-0 border-r border-border py-4 overflow-y-auto">
-        <AgentSidebar selected={agentFilter} onSelect={setAgentFilter} />
+    <div className="flex h-[calc(100vh-4rem)] -mt-4" style={{ marginBottom: 'calc(-1 * max(1rem, var(--timer-bar-height, 0px)))' }}>
+      {/* Compact sidebar */}
+      <div className="w-44 shrink-0 border-r border-border flex flex-col">
+        <div className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-secondary text-sm">forum</span>
+            <span className="text-[10px] tracking-widest uppercase text-secondary font-bold">Inbox</span>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto py-2">
+          <AgentSidebar selected={agentFilter} onSelect={setAgentFilter} />
+        </div>
       </div>
 
-      {/* Main panel */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full space-y-8">
-          {/* Header */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="relative flex h-2 w-2">
-                {pending.length > 0 && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75" />
-                )}
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${pending.length > 0 ? 'bg-secondary' : 'bg-muted-foreground/30'}`} />
-              </span>
-              <span className="text-xs tracking-widest uppercase text-secondary font-bold">
-                Agent Comms
-              </span>
-            </div>
-            <h1 className="text-3xl md:text-5xl font-bold tracking-tighter uppercase leading-none">
-              Agent <span className="text-secondary">Inbox</span>
+      {/* Chat area */}
+      <div className="flex-1 flex flex-col min-w-0 max-w-3xl">
+        {/* Chat header */}
+        <div className="shrink-0 px-6 py-3 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold uppercase tracking-widest">
+              {agentFilter === 'all' ? 'All Conversations' : agentFilter}
             </h1>
-            <p className="text-xs text-muted-foreground uppercase tracking-widest mt-2">
-              {agentFilter === 'all' ? `${pending.length} pending` : `${agentFilter} — ${pending.length} pending`}
-            </p>
+            {sorted.filter(m => m.status === 'pending').length > 0 && (
+              <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
+                {sorted.filter(m => m.status === 'pending').length}
+              </span>
+            )}
           </div>
+          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+            {sorted.length} messages
+          </span>
+        </div>
 
-          {/* Pending */}
-          {pending.length > 0 && (
-            <section className="space-y-4">
-              <h2 className="text-xs tracking-widest uppercase font-bold text-secondary flex items-center gap-2">
-                <span className="material-symbols-outlined text-sm">pending</span>
-                Awaiting Response
-              </h2>
-              {pending.map(m => (
-                <MessageCard key={m.id} message={m} project={m.projectId ? projectMap.get(m.projectId) : undefined} port={port} />
-              ))}
-            </section>
-          )}
-
-          {/* Answered */}
-          {answered.length > 0 && (
-            <section className="space-y-4">
-              <button
-                onClick={() => setShowAnswered(!showAnswered)}
-                className="text-xs tracking-widest uppercase font-bold text-muted-foreground flex items-center gap-2 hover:text-foreground transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">check_circle</span>
-                Answered ({answered.length})
-                <span className="material-symbols-outlined text-sm">
-                  {showAnswered ? 'expand_less' : 'expand_more'}
-                </span>
-              </button>
-              {showAnswered && Object.entries(answeredByDate).map(([date, msgs]) => (
-                <div key={date} className="space-y-2">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-widest border-b border-border pb-1">{date}</div>
-                  {msgs.map(m => (
-                    <AnsweredCard key={m.id} message={m} project={m.projectId ? projectMap.get(m.projectId) : undefined} />
-                  ))}
-                </div>
-              ))}
-            </section>
-          )}
-
-          {/* Empty */}
-          {filteredMessages.length === 0 && (
-            <div className="text-center py-16">
-              <span className="material-symbols-outlined text-5xl text-muted-foreground/30 mb-4 block">inbox</span>
+        {/* Message thread — scrollable */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {sorted.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full">
+              <span className="material-symbols-outlined text-5xl text-muted-foreground/20 mb-3">chat</span>
               <p className="text-xs text-muted-foreground uppercase tracking-widest">
-                {agentFilter === 'all' ? 'No agent questions yet' : `No messages for ${agentFilter}`}
+                {agentFilter === 'all' ? 'No conversations yet' : `No messages from ${agentFilter}`}
               </p>
             </div>
+          ) : (
+            sorted.map(m => (
+              <ChatBubble
+                key={m.id}
+                message={m}
+                project={m.projectId ? projectMap.get(m.projectId) : undefined}
+                port={port}
+              />
+            ))
           )}
         </div>
 
-        {/* Compose box — only when a specific agent is selected */}
+        {/* Fixed compose box at bottom */}
         {agentFilter !== 'all' && (
-          <ComposeBox recipient={agentFilter} port={port} />
+          <div className="shrink-0">
+            <ComposeBox recipient={agentFilter} port={port} />
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-function MessageCard({
+// ─── Chat Bubble ──────────────────────────────────────────────────────
+
+function ChatBubble({
   message,
   project,
   port,
@@ -133,6 +113,71 @@ function MessageCard({
   project?: { name: string; color: string }
   port: number
 }) {
+  const isFromUser = message.senderName === 'user'
+  const isPending = message.status === 'pending'
+
+  return (
+    <div className={`flex flex-col ${isFromUser ? 'items-end' : 'items-start'}`}>
+      {/* Sender label + timestamp */}
+      <div className={`flex items-center gap-2 mb-1 ${isFromUser ? 'flex-row-reverse' : ''}`}>
+        {project && (
+          <span
+            className="text-[9px] uppercase tracking-widest font-bold px-1.5 py-0.5 border"
+            style={{ borderColor: project.color, color: project.color }}
+          >
+            {project.name}
+          </span>
+        )}
+        <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+          {isFromUser ? 'You' : message.senderName}
+        </span>
+        <span className="text-[10px] text-muted-foreground/60">{getTimeAgo(message.createdAt)}</span>
+      </div>
+
+      {/* Bubble */}
+      <div className={`max-w-[85%] space-y-3 ${
+        isFromUser
+          ? 'bg-secondary/10 border border-secondary/20'
+          : isPending
+            ? 'bg-card border border-secondary/30 shadow-[0_0_10px_rgba(222,142,255,0.06)]'
+            : 'bg-card border border-border'
+      } px-4 py-3`}>
+        {/* Context */}
+        {message.context && (
+          <div className="text-sm text-muted-foreground prose prose-sm max-w-none prose-headings:text-muted-foreground prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+            <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
+          </div>
+        )}
+
+        {/* Question */}
+        <p className={`font-bold ${message.context ? 'text-base' : 'text-base'}`}>{message.question}</p>
+
+        {/* Pending: show choices + input */}
+        {isPending && <PendingActions message={message} port={port} />}
+
+        {/* Answered: show response */}
+        {message.status === 'answered' && message.response && (
+          <div className="flex items-start gap-2 pt-2 border-t border-border/50">
+            <span className="material-symbols-outlined text-sm text-secondary mt-0.5">reply</span>
+            <span className="text-sm">{message.response}</span>
+          </div>
+        )}
+
+        {/* Dismissed */}
+        {message.status === 'dismissed' && (
+          <div className="flex items-center gap-2 pt-2 border-t border-border/50 text-muted-foreground/50">
+            <span className="material-symbols-outlined text-sm">do_not_disturb</span>
+            <span className="text-[10px] uppercase tracking-widest">Answered in terminal</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Pending Actions (choices + text input) ───────────────────────────
+
+function PendingActions({ message, port }: { message: AgentMessage; port: number }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -161,57 +206,18 @@ function MessageCard({
     }
   }
 
-  const timeAgo = getTimeAgo(message.createdAt)
-
   return (
-    <div className="bg-card text-card-foreground border border-secondary/20 shadow-[0_0_15px_rgba(222,142,255,0.05)] p-6 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {project && (
-            <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 border" style={{ borderColor: project.color, color: project.color }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: project.color }} />
-              {project.name}
-            </span>
-          )}
-          <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
-            {message.senderName === 'user' ? 'You' : message.senderName} →
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{timeAgo}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={sending}
-            className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive h-auto py-1 px-2"
-            onClick={handleDismiss}
-          >
-            <span className="material-symbols-outlined text-sm mr-1">close</span>
-            Dismiss
-          </Button>
-        </div>
-      </div>
-
-      {/* Context rendered as Markdown */}
-      {message.context && (
-        <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm max-w-none">
-          <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
-        </div>
-      )}
-
-      {/* Question */}
-      <p className="text-lg font-bold">{message.question}</p>
-
-      {/* Choice buttons */}
+    <div className="space-y-2 pt-2 border-t border-border/50">
+      {/* Choices */}
       {message.choices && message.choices.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {message.choices.map((choice) => (
             <Button
               key={choice}
               variant="outline"
+              size="sm"
               disabled={sending}
-              className="uppercase tracking-widest text-xs font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary"
+              className="uppercase tracking-widest text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7"
               onClick={() => handleRespond(choice)}
             >
               {choice}
@@ -220,7 +226,7 @@ function MessageCard({
         </div>
       )}
 
-      {/* Free-text input */}
+      {/* Text input + dismiss */}
       <div className="flex gap-2">
         <Input
           value={input}
@@ -228,80 +234,32 @@ function MessageCard({
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) handleRespond(input) }}
           placeholder="Type a response..."
           disabled={sending}
-          className="bg-muted/30 border-border text-sm"
+          className="bg-muted/30 border-border text-xs h-8"
         />
         <Button
           onClick={() => handleRespond(input)}
           disabled={sending || !input.trim()}
-          className="uppercase tracking-widest text-xs font-bold"
+          size="sm"
+          className="uppercase tracking-widest text-[10px] font-bold h-8"
         >
-          {sending ? 'Sending...' : 'Send'}
+          {sending ? '...' : 'Send'}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={sending}
+          className="text-muted-foreground hover:text-destructive h-8 px-2"
+          onClick={handleDismiss}
+          title="Dismiss"
+        >
+          <span className="material-symbols-outlined text-sm">close</span>
         </Button>
       </div>
     </div>
   )
 }
 
-function AnsweredCard({
-  message,
-  project,
-}: {
-  message: AgentMessage
-  project?: { name: string; color: string }
-}) {
-  const [expanded, setExpanded] = useState(false)
-
-  return (
-    <div
-      className="bg-card text-card-foreground border border-border p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
-      onClick={() => setExpanded(!expanded)}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0">
-          {project && (
-            <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: project.color }} />
-          )}
-          <span className="text-sm font-bold break-words">{message.question}</span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-            {getTimeAgo(message.createdAt)}
-          </span>
-          {message.status === 'dismissed' && (
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-1.5 py-0.5 border border-muted-foreground/20">
-              Dismissed
-            </span>
-          )}
-          <span className="material-symbols-outlined text-sm text-muted-foreground">
-            {expanded ? 'expand_less' : 'expand_more'}
-          </span>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="mt-4 space-y-3 border-t border-border pt-4">
-          {message.context && (
-            <div className="bg-muted/50 border border-border p-3 text-xs text-muted-foreground max-h-48 overflow-y-auto prose prose-xs max-w-none">
-              <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
-            </div>
-          )}
-          {message.status === 'answered' && (
-            <div className="flex items-start gap-2">
-              <span className="material-symbols-outlined text-sm text-secondary mt-0.5">reply</span>
-              <span className="text-sm">{message.response}</span>
-            </div>
-          )}
-          {message.status === 'dismissed' && (
-            <div className="flex items-center gap-2 text-muted-foreground/50">
-              <span className="material-symbols-outlined text-sm">do_not_disturb</span>
-              <span className="text-xs uppercase tracking-widest">Answered in terminal</span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
+// ─── Helpers ──────────────────────────────────────────────────────────
 
 function getTimeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
