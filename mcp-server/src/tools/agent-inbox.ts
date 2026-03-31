@@ -47,8 +47,8 @@ export function registerAgentInboxTools(server: McpServer) {
       const senderName = ensureRegistered();
       const ts = now();
       const result = db.prepare(
-        `INSERT INTO agent_messages (project_id, question, context, choices, sender_name, recipient_name, agent_pid, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'user', ?, 'pending', ?)`
+        `INSERT INTO agent_messages (project_id, question, context, choices, sender_name, recipient_name, agent_pid, source, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'user', ?, 'mcp', 'pending', ?)`
       ).run(
         params.project_id,
         params.question,
@@ -114,8 +114,8 @@ export function registerAgentInboxTools(server: McpServer) {
 
       const ts = now();
       const result = db.prepare(
-        `INSERT INTO agent_messages (project_id, question, context, sender_name, recipient_name, status, created_at)
-         VALUES (NULL, ?, ?, ?, ?, 'pending', ?)`
+        `INSERT INTO agent_messages (project_id, question, context, sender_name, recipient_name, source, status, created_at)
+         VALUES (NULL, ?, ?, ?, ?, 'mcp', 'pending', ?)`
       ).run(params.message, params.context ?? null, senderName, params.recipient, ts);
 
       const id = result.lastInsertRowid as number;
