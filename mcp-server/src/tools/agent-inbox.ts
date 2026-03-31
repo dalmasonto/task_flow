@@ -75,9 +75,9 @@ export function registerAgentInboxTools(server: McpServer) {
 
   server.tool(
     'check_response',
-    'Check if the user has responded to a previously posted agent question. Returns the response if answered, or status "pending" if still waiting.',
+    'Check if a previously posted question (via ask_user or ask_agent) has been answered. Returns the response if answered, or status "pending" if still waiting.',
     {
-      message_id: z.number().describe('The agent message ID returned by ask_user'),
+      message_id: z.number().describe('The message ID returned by ask_user or ask_agent'),
     },
     async (params) => {
       const db = getDb();
@@ -87,12 +87,14 @@ export function registerAgentInboxTools(server: McpServer) {
       if (message.status === 'answered') {
         return successResponse({
           id: message.id, status: 'answered', response: message.response,
+          respondedBy: message.recipient_name,
           question: message.question, answered_at: message.answered_at,
         });
       }
       return successResponse({
         id: message.id, status: 'pending', question: message.question,
-        message: 'User has not responded yet. Try again later or continue with other work.',
+        recipient: message.recipient_name,
+        message: 'No response yet. Try again later or continue with other work.',
       });
     },
   );
@@ -123,6 +125,86 @@ export function registerAgentInboxTools(server: McpServer) {
       broadcastChange('agent_message', 'agent_question', msg);
 
       return successResponse({ id, sender: senderName, recipient: params.recipient, status: 'pending' });
+    },
+  );
+
+  server.tool(
+    'ask_agent',
+    'Ask another agent a question and wait for their response. Like ask_user but targets an agent. Returns the message ID — use check_response to poll for the answer. The recipient agent receives the question in their terminal (if in tmux) and can respond with respond_to_message.',
+    {
+      recipient: z.string().describe('Name of the target agent (e.g. "backend", "task_flow:2")'),
+      question: z.string().describe('The question to ask'),
+      context: z.string().optional().describe('Markdown context — background info, code snippets, proposals'),
+      choices: z.array(z.string()).optional().describe('Optional quick-tap choices, e.g. ["Yes", "No", "Skip"]'),
+      project_id: z.number().optional().describe('Optional project ID to attach the question to'),
+    },
+    async (params) => {
+      const db = getDb();
+      const senderName = ensureRegistered();
+
+      const recipient = getAgent(params.recipient);
+      if (!recipient) return errorResponse(`Agent "${params.recipient}" not found or not connected`, 'NOT_FOUND');
+
+      const ts = now();
+      const result = db.prepare(
+        `INSERT INTO agent_messages (project_id, question, context, choices, sender_name, recipient_name, agent_pid, source, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'mcp', 'pending', ?)`
+      ).run(
+        params.project_id ?? null,
+        params.question,
+        params.context ?? null,
+        params.choices ? JSON.stringify(params.choices) : null,
+        senderName,
+        params.recipient,
+        process.ppid,
+        ts,
+      );
+
+      const id = result.lastInsertRowid as number;
+      const msg = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
+      broadcastChange('agent_message', 'agent_question', msg);
+      logActivity('agent_question', `Asked ${params.recipient}: ${params.question}`, { entityType: 'agent_message', entityId: id });
+
+      return successResponse({
+        id,
+        status: 'pending',
+        sender: senderName,
+        recipient: params.recipient,
+        message: `Question sent to "${params.recipient}" (id: ${id}). Use check_response(${id}) to retrieve their answer.`,
+      });
+    },
+  );
+
+  server.tool(
+    'respond_to_message',
+    'Respond to a pending message addressed to this agent. Use check_messages to see incoming messages, then respond by message ID.',
+    {
+      message_id: z.number().describe('The message ID to respond to (from check_messages)'),
+      response: z.string().describe('Your response text'),
+    },
+    async (params) => {
+      const db = getDb();
+      const name = ensureRegistered();
+
+      const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(params.message_id) as Record<string, unknown> | undefined;
+      if (!message) return errorResponse(`Message ${params.message_id} not found`, 'NOT_FOUND');
+      if (message.recipient_name !== name) return errorResponse(`Message ${params.message_id} is not addressed to you`, 'VALIDATION_ERROR');
+      if (message.status !== 'pending') return errorResponse(`Message ${params.message_id} is already ${message.status}`, 'VALIDATION_ERROR');
+
+      const ts = now();
+      db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ? WHERE id = ?')
+        .run(params.response, 'answered', ts, params.message_id);
+
+      const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(params.message_id);
+      broadcastChange('agent_message', 'agent_question_answered', updated);
+      logActivity('agent_question_answered', `Responded to ${message.sender_name}: ${params.response.slice(0, 80)}`, { entityType: 'agent_message', entityId: params.message_id });
+
+      return successResponse({
+        id: params.message_id,
+        status: 'answered',
+        sender: message.sender_name,
+        message: `Response sent to "${message.sender_name}".`,
+      });
     },
   );
 
