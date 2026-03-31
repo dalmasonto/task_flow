@@ -192,7 +192,7 @@ export function registerAgentInboxTools(server: McpServer) {
       if (message.status !== 'pending') return errorResponse(`Message ${params.message_id} is already ${message.status}`, 'VALIDATION_ERROR');
 
       const ts = now();
-      db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ? WHERE id = ?')
+      db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ?, delivered = NULL WHERE id = ?')
         .run(params.response, 'answered', ts, params.message_id);
 
       const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(params.message_id);

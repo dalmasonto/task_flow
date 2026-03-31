@@ -317,7 +317,7 @@ export async function startSSEServer(): Promise<void> {
       }
 
       const ts = new Date().toISOString();
-      db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ? WHERE id = ?')
+      db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ?, delivered = NULL WHERE id = ?')
         .run(response, 'answered', ts, id);
 
       const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
