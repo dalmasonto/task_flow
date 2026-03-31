@@ -40,7 +40,7 @@ export default function AgentInbox() {
     <div className="flex h-[calc(100vh-4rem)] -mt-4" style={{ marginBottom: 'calc(-1 * max(1rem, var(--timer-bar-height, 0px)))' }}>
       {/* Compact sidebar */}
       <div className="w-44 shrink-0 border-r border-border flex flex-col">
-        <div className="px-3 py-3 border-b border-border">
+        <div className="h-[60px] px-3 flex items-center border-b border-border">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-secondary text-sm">forum</span>
             <span className="text-[10px] tracking-widest uppercase text-secondary font-bold">Inbox</span>
@@ -54,7 +54,7 @@ export default function AgentInbox() {
       {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0 max-w-3xl">
         {/* Chat header */}
-        <div className="shrink-0 px-6 py-3 border-b border-border flex items-center justify-between">
+        <div className="shrink-0 h-[60px] px-6 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-bold uppercase tracking-widest">
               {agentFilter === 'all' ? 'All Conversations' : agentFilter}
@@ -132,6 +132,9 @@ function ChatBubble({
           {isFromUser ? 'You' : message.senderName}
         </span>
         <span className="text-[10px] text-muted-foreground/60">{getTimeAgo(message.createdAt)}</span>
+        {isPending && !isFromUser && (
+          <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" title="Unread" />
+        )}
       </div>
 
       {/* Bubble */}
@@ -139,12 +142,12 @@ function ChatBubble({
         isFromUser
           ? 'bg-secondary/10 border border-secondary/20'
           : isPending
-            ? 'bg-card border border-secondary/30 shadow-[0_0_10px_rgba(222,142,255,0.06)]'
-            : 'bg-card border border-border'
+            ? 'bg-card border-l-2 border-l-secondary border border-secondary/30 shadow-[0_0_12px_rgba(222,142,255,0.08)]'
+            : 'bg-card border border-border opacity-80'
       } px-4 py-3`}>
         {/* Context */}
         {message.context && (
-          <div className="text-sm text-muted-foreground prose prose-sm max-w-none prose-headings:text-muted-foreground prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+          <div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none prose-headings:text-muted-foreground prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
             <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
           </div>
         )}
