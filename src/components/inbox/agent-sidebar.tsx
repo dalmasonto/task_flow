@@ -1,4 +1,4 @@
-import { useAgentRegistry, usePendingCount } from '@/hooks/use-agent-messages'
+import { useAgentRegistry, usePendingCount, useAgentPendingCount } from '@/hooks/use-agent-messages'
 import type { AgentRegistryEntry } from '@/types'
 
 interface AgentSidebarProps {
@@ -62,6 +62,7 @@ export function AgentSidebar({ selected, onSelect }: AgentSidebarProps) {
 
 function AgentItem({ agent, selected, onSelect }: { agent: AgentRegistryEntry; selected: boolean; onSelect: (name: string) => void }) {
   const isLive = agent.status === 'connected'
+  const pendingCount = useAgentPendingCount(agent.name)
 
   return (
     <button
@@ -77,6 +78,11 @@ function AgentItem({ agent, selected, onSelect }: { agent: AgentRegistryEntry; s
         <span className={`relative inline-flex rounded-full h-2 w-2 ${isLive ? 'bg-[#69fd5d]' : 'bg-muted-foreground/30'}`} />
       </span>
       <span className="flex-1 text-left truncate">{agent.name}</span>
+      {pendingCount != null && pendingCount > 0 && (
+        <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
+          {pendingCount}
+        </span>
+      )}
     </button>
   )
 }

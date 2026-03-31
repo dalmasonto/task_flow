@@ -13,14 +13,26 @@ export function useAgentMessages(agentFilter?: string) {
 
 export function usePendingCount(agentFilter?: string) {
   return useLiveQuery(async () => {
-    const all = await db.agentMessages.where('status').equals('pending').toArray()
-    // Only count messages addressed to the user as unread — skip agent-to-agent and outgoing
-    const unread = all.filter(m => m.senderName !== 'user' && m.recipientName === 'user')
+    // Query from Dexie index, only count messages FROM agents TO the user
+    const pending = await db.agentMessages.where('status').equals('pending').toArray()
+    const forUser = pending.filter(m => m.senderName !== 'user' && m.recipientName === 'user')
+
     if (!agentFilter || agentFilter === 'all') {
-      return unread.length
+      return forUser.length
     }
-    return unread.filter(m => m.senderName === agentFilter || m.recipientName === agentFilter).length
+    return forUser.filter(m => m.senderName === agentFilter).length
   }, [agentFilter])
+}
+
+export function useAgentPendingCount(agentName: string) {
+  return useLiveQuery(async () => {
+    // Count pending messages FROM this specific agent TO the user
+    const pending = await db.agentMessages
+      .where('status').equals('pending')
+      .filter(m => m.senderName === agentName && m.recipientName === 'user')
+      .count()
+    return pending
+  }, [agentName])
 }
 
 export function useAgentRegistry() {

@@ -9,10 +9,9 @@ export function useAppNotifications(limit: number = 50) {
 }
 
 export function useUnreadCount() {
-  return useLiveQuery(async () => {
-    const all = await db.notifications.toArray()
-    return all.filter(n => !n.read).length
-  })
+  return useLiveQuery(() =>
+    db.notifications.where('read').equals(0).count()
+  )
 }
 
 export async function addNotification(

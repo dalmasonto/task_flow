@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { useAgentMessages, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
+import { useAgentMessages, usePendingCount, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
 import { useSetting } from '@/hooks/use-settings'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,7 @@ export default function AgentInbox() {
   const projects = useProjects()
   const port = Number(useSetting('serverPort'))
   const [agentFilter, setAgentFilter] = useState('all')
+  const pendingCount = usePendingCount(agentFilter === 'all' ? undefined : agentFilter)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const prevLengthRef = useRef(0)
@@ -89,9 +90,9 @@ export default function AgentInbox() {
             <h1 className="text-sm font-bold uppercase tracking-widest">
               {agentFilter === 'all' ? 'All Conversations' : agentFilter}
             </h1>
-            {visible.filter(m => m.status === 'pending' && m.senderName !== 'user').length > 0 && (
+            {pendingCount != null && pendingCount > 0 && (
               <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
-                {visible.filter(m => m.status === 'pending' && m.senderName !== 'user').length}
+                {pendingCount}
               </span>
             )}
           </div>
