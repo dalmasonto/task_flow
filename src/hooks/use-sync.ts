@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { db } from '@/db/database'
 import { useSetting } from '@/hooks/use-settings'
 import type { TaskStatus, TaskPriority, ProjectType, ActivityAction } from '@/types'
@@ -194,6 +194,7 @@ function attachListeners(source: EventSource, sseUrl: string) {
 }
 
 export function useSync() {
+  const [synced, setSynced] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const port = useSetting('serverPort')
@@ -242,7 +243,7 @@ export function useSync() {
     }
 
     // Initial sync then connect
-    initialSync(port).then(connect)
+    initialSync(port).finally(() => setSynced(true)).then(connect)
 
     return () => {
       killed = true
@@ -253,6 +254,8 @@ export function useSync() {
       }
     }
   }, [port])
+
+  return { synced }
 }
 
 // Parse MCP server format (snake_case, JSON strings, ISO dates) to Dexie format (camelCase, arrays, Date objects)
