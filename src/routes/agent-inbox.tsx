@@ -153,6 +153,8 @@ function ChatBubble({
   port: number
 }) {
   const isFromUser = message.senderName === 'user'
+  const isToUser = message.recipientName === 'user'
+  const isAgentToAgent = !isFromUser && !isToUser
   const isPending = message.status === 'pending'
 
   return (
@@ -170,9 +172,14 @@ function ChatBubble({
         <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
           {isFromUser ? 'You' : message.senderName}
         </span>
+        {isAgentToAgent && (
+          <span className="text-[9px] text-muted-foreground/50 uppercase tracking-widest">
+            → {message.recipientName}
+          </span>
+        )}
         <span className="text-[10px] text-muted-foreground/60">{getTimeAgo(message.createdAt)}</span>
-        {isPending && !isFromUser && (
-          <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" title="Unread" />
+        {isPending && isToUser && !isFromUser && (
+          <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" title="Needs your response" />
         )}
       </div>
 
@@ -180,9 +187,13 @@ function ChatBubble({
       <div className={`max-w-[85%] space-y-3 overflow-hidden break-words ${
         isFromUser
           ? 'bg-secondary/10 border border-secondary/20'
-          : isPending
-            ? 'bg-card border-l-2 border-l-secondary border border-secondary/30 shadow-[0_0_12px_rgba(222,142,255,0.08)]'
-            : 'bg-card border border-border opacity-80'
+          : isAgentToAgent
+            ? isPending
+              ? 'bg-muted/30 border border-border/60'
+              : 'bg-muted/20 border border-border/40 opacity-70'
+            : isPending
+              ? 'bg-card border-l-2 border-l-secondary border border-secondary/30 shadow-[0_0_12px_rgba(222,142,255,0.08)]'
+              : 'bg-card border border-border opacity-80'
       } px-4 py-3`}>
         {/* Context */}
         {message.context && (
@@ -201,7 +212,7 @@ function ChatBubble({
         )}
 
         {/* Pending: show choices + input (only for agent messages, not user-sent) */}
-        {isPending && !isFromUser && <PendingActions message={message} port={port} />}
+        {isPending && isToUser && !isFromUser && <PendingActions message={message} port={port} />}
 
         {/* Answered: show response */}
         {message.status === 'answered' && message.response && (
