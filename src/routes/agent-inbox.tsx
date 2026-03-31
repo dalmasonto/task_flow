@@ -138,7 +138,7 @@ function ChatBubble({
       </div>
 
       {/* Bubble */}
-      <div className={`max-w-[85%] space-y-3 ${
+      <div className={`max-w-[85%] space-y-3 overflow-hidden break-words ${
         isFromUser
           ? 'bg-secondary/10 border border-secondary/20'
           : isPending
@@ -147,16 +147,16 @@ function ChatBubble({
       } px-4 py-3`}>
         {/* Context */}
         {message.context && (
-          <div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none prose-headings:text-muted-foreground prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+          <div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none prose-headings:text-muted-foreground prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-pre:overflow-x-auto prose-code:break-all">
             <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
           </div>
         )}
 
         {/* Message text — bold question for agents, plain text for user */}
         {isFromUser ? (
-          <p className="text-sm">{message.question}</p>
+          <p className="text-sm break-words">{message.question}</p>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-pre:overflow-x-auto prose-code:break-all">
             <ReactMarkdown>{unescapeMarkdown(message.question)}</ReactMarkdown>
           </div>
         )}
@@ -166,9 +166,9 @@ function ChatBubble({
 
         {/* Answered: show response */}
         {message.status === 'answered' && message.response && (
-          <div className="flex items-start gap-2 pt-2 border-t border-border/50">
+          <div className="flex items-start gap-2 pt-2 border-t border-border/50 min-w-0">
             <span className="material-symbols-outlined text-sm text-secondary mt-0.5 shrink-0">reply</span>
-            <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+            <div className="text-sm prose prose-sm dark:prose-invert max-w-none min-w-0 prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-pre:overflow-x-auto prose-code:break-all">
               <ReactMarkdown>{unescapeMarkdown(message.response)}</ReactMarkdown>
             </div>
           </div>
