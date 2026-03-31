@@ -115,7 +115,6 @@ function ChatBubble({
 }) {
   const isFromUser = message.senderName === 'user'
   const isPending = message.status === 'pending'
-  const isTerminal = message.source === 'terminal'
 
   return (
     <div className={`flex flex-col ${isFromUser ? 'items-end' : 'items-start'}`}>
@@ -132,11 +131,6 @@ function ChatBubble({
         <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
           {isFromUser ? 'You' : message.senderName}
         </span>
-        {isTerminal && (
-          <span className="text-[9px] uppercase tracking-widest font-bold px-1.5 py-0.5 border border-emerald-500/40 text-emerald-500">
-            terminal
-          </span>
-        )}
         <span className="text-[10px] text-muted-foreground/60">{getTimeAgo(message.createdAt)}</span>
         {isPending && !isFromUser && (
           <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" title="Unread" />
@@ -147,11 +141,9 @@ function ChatBubble({
       <div className={`max-w-[85%] space-y-3 ${
         isFromUser
           ? 'bg-secondary/10 border border-secondary/20'
-          : isTerminal
-            ? 'bg-emerald-500/5 border border-emerald-500/20'
-            : isPending
-              ? 'bg-card border-l-2 border-l-secondary border border-secondary/30 shadow-[0_0_12px_rgba(222,142,255,0.08)]'
-              : 'bg-card border border-border opacity-80'
+          : isPending
+            ? 'bg-card border-l-2 border-l-secondary border border-secondary/30 shadow-[0_0_12px_rgba(222,142,255,0.08)]'
+            : 'bg-card border border-border opacity-80'
       } px-4 py-3`}>
         {/* Context */}
         {message.context && (
@@ -160,15 +152,11 @@ function ChatBubble({
           </div>
         )}
 
-        {/* Message text — bold question for agents, plain text for user, monospace for terminal */}
-        {isTerminal ? (
-          <pre className="text-xs font-mono whitespace-pre-wrap break-words text-emerald-300/90 overflow-x-auto">{message.question}</pre>
-        ) : (
-          <p className={isFromUser ? 'text-sm' : 'font-bold text-base'}>{message.question}</p>
-        )}
+        {/* Message text — bold question for agents, plain text for user */}
+        <p className={isFromUser ? 'text-sm' : 'font-bold text-base'}>{message.question}</p>
 
-        {/* Pending: show choices + input (only for agent messages, not user-sent, not terminal) */}
-        {isPending && !isFromUser && !isTerminal && <PendingActions message={message} port={port} />}
+        {/* Pending: show choices + input (only for agent messages, not user-sent) */}
+        {isPending && !isFromUser && <PendingActions message={message} port={port} />}
 
         {/* Answered: show response */}
         {message.status === 'answered' && message.response && (
