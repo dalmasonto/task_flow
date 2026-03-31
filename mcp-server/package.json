@@ -1,6 +1,6 @@
 {
   "name": "@dalmasonto/taskflow-mcp",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "MCP server for TaskFlow — manage projects, tasks, timers, analytics via AI agents",
   "type": "module",
   "main": "dist/index.js",
