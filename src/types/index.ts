@@ -116,6 +116,8 @@ export interface Setting {
 
 export type AgentMessageStatus = 'pending' | 'answered' | 'dismissed'
 
+export type AgentMessageSource = 'mcp' | 'terminal' | 'ui'
+
 export interface AgentMessage {
   id?: number
   projectId?: number
@@ -126,6 +128,7 @@ export interface AgentMessage {
   choices?: string[]
   response?: string
   status: AgentMessageStatus
+  source?: AgentMessageSource
   createdAt: Date
   answeredAt?: Date
 }

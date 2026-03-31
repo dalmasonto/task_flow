@@ -41,6 +41,9 @@ export class TaskFlowDB extends Dexie {
       agentRegistry: '++id, name, status, connectedAt',
       agentMessages: '++id, projectId, senderName, recipientName, status, createdAt',
     })
+    this.version(7).stores({
+      agentMessages: '++id, projectId, senderName, recipientName, status, source, createdAt',
+    })
   }
 }
 
