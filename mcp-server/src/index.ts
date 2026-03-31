@@ -86,17 +86,14 @@ if (!httpOnly) {
 
   // Auto-register this agent
   const agentName = registerAgent();
+  const agentPid = process.ppid;
   console.error(`[agent] registered as "${agentName}"`);
 
-  // Graceful shutdown — mark agent as disconnected
-  const cleanup = () => { try { unregisterAgent(agentName); } catch {} process.exit(0); };
+  let cleanup: () => void = () => { try { unregisterAgent(agentName); } catch {} process.exit(0); };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  // Background poller: deliver messages to this agent's terminal via tmux
-  const POLL_INTERVAL = 3000;
-  const agentPid = process.ppid;
-
+  // Tmux bridge: SSE listener for instant delivery + capture for terminal→chat
   let tmuxTarget: string | null = null;
   try {
     const { execSync: exec } = await import('child_process');
@@ -106,52 +103,25 @@ if (!httpOnly) {
       const [paneId, paneTty] = line.split(' ');
       if (paneTty === ptsPath) { tmuxTarget = paneId; break; }
     }
-    if (tmuxTarget) console.error(`[inject] tmux pane ${tmuxTarget} for agent "${agentName}"`);
-    else console.error('[inject] agent not in tmux — terminal injection disabled');
   } catch {
-    console.error('[inject] tmux not available');
+    console.error('[bridge] tmux not available');
   }
 
   if (tmuxTarget) {
-    const { execSync: exec } = await import('child_process');
-    const target = tmuxTarget;
+    const { startTmuxBridge } = await import('./tmux-bridge.js');
+    const stopBridge = startTmuxBridge({
+      agentName,
+      agentPid,
+      tmuxPane: tmuxTarget,
+    });
 
-    setInterval(() => {
-      try {
-        const db = getDb();
-        // Check for messages addressed to this agent (from user or other agents)
-        // AND for answered questions this agent sent (inbox responses)
-        // Check by agent name AND by agent_pid (backward compat with old messages)
-        const incoming = db.prepare(
-          `SELECT * FROM agent_messages WHERE delivered IS NULL AND (
-            (recipient_name = ? AND status = 'pending') OR
-            (sender_name = ? AND recipient_name = 'user' AND status = 'answered') OR
-            (agent_pid = ? AND recipient_name = 'user' AND status = 'answered')
-          )`
-        ).all(agentName, agentName, agentPid) as Array<{ id: number; sender_name: string; recipient_name: string; question: string; response: string | null; status: string }>;
-
-        for (const msg of incoming) {
-          db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
-
-          let text: string;
-          if (msg.recipient_name === agentName && msg.sender_name === 'user') {
-            text = `[Message from User]: ${msg.question}`;
-          } else if (msg.recipient_name === agentName && msg.sender_name !== 'user') {
-            text = `[Message from ${msg.sender_name}]: ${msg.question}`;
-          } else if (msg.status === 'answered' && msg.response) {
-            text = `[Inbox Response] to "${msg.question.slice(0, 60)}": ${msg.response}`;
-          } else {
-            continue;
-          }
-
-          try {
-            exec(`tmux send-keys -t ${target} ${JSON.stringify(text)} Enter`, { stdio: 'ignore', timeout: 5000 });
-            console.error(`[inject] delivered message ${msg.id} to tmux pane ${target}`);
-          } catch (err) {
-            console.error(`[inject] tmux send-keys failed for message ${msg.id}:`, err);
-          }
-        }
-      } catch { /* ignore */ }
-    }, POLL_INTERVAL);
+    const originalCleanup = cleanup;
+    cleanup = () => { stopBridge(); originalCleanup(); };
+    process.removeListener('SIGINT', originalCleanup);
+    process.removeListener('SIGTERM', originalCleanup);
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+  } else {
+    console.error('[bridge] agent not in tmux — bridge disabled');
   }
 }
