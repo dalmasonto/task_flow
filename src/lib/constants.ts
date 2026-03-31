@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS = {
   fontFamily: 'inter' as const,
   recentProjectIds: [] as number[],
   depGraphSidebarWidth: 400,
+  depGraphActiveFilters: [] as string[],
 }
 
 export const FONT_OPTIONS = [

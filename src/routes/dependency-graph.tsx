@@ -545,6 +545,7 @@ export default function DependencyGraph() {
   const tasks = useTasks()
   const projects = useProjects()
   const recentProjectIds = useSetting('recentProjectIds')
+  const savedActiveFilters = useSetting('depGraphActiveFilters')
   const savedSidebarWidth = useSetting('depGraphSidebarWidth')
   const [sidebarWidth, setSidebarWidth] = useState(savedSidebarWidth)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -587,14 +588,25 @@ export default function DependencyGraph() {
     return opts
   }, [tasks, projects])
 
-  // Initialize filters from recently viewed projects (once)
+  // Initialize filters from saved selection, then recent projects, then fallback (once)
   const [initialized, setInitialized] = useState(false)
   useEffect(() => {
     if (initialized || filterOptions.length === 0) return
     setInitialized(true)
 
+    const validKeys = new Set(filterOptions.map(o => o.key))
+
+    // 1. Restore from saved active filters
+    if (savedActiveFilters.length > 0) {
+      const restored = savedActiveFilters.filter(k => validKeys.has(k))
+      if (restored.length > 0) {
+        setActiveFilters(new Set(restored))
+        return
+      }
+    }
+
+    // 2. Fall back to recently viewed projects
     if (recentProjectIds.length > 0) {
-      const validKeys = new Set(filterOptions.map(o => o.key))
       const recentKeys = recentProjectIds
         .map(String)
         .filter(k => validKeys.has(k))
@@ -604,11 +616,19 @@ export default function DependencyGraph() {
         return
       }
     }
-    // Fallback: show the 2 most recently created projects (never show all by default)
+
+    // 3. Fallback: show the 2 most recently created projects
     const projectKeys = filterOptions.filter(o => o.key !== UNASSIGNED_KEY).map(o => o.key)
     const newest = projectKeys.slice(-2)
     setActiveFilters(new Set(newest))
-  }, [filterOptions, recentProjectIds, initialized])
+  }, [filterOptions, recentProjectIds, savedActiveFilters, initialized])
+
+  // Persist active filters to settings whenever they change
+  useEffect(() => {
+    if (activeFilters !== null) {
+      updateSetting('depGraphActiveFilters', [...activeFilters])
+    }
+  }, [activeFilters])
 
   const toggleFilter = useCallback((key: string) => {
     setActiveFilters((prev) => {

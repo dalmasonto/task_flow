@@ -105,6 +105,7 @@ export interface SettingsMap {
   fontFamily: FontFamily
   recentProjectIds: number[]
   depGraphSidebarWidth: number
+  depGraphActiveFilters: string[]
 }
 
 export interface Setting {
