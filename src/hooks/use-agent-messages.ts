@@ -14,8 +14,8 @@ export function useAgentMessages(agentFilter?: string) {
 export function usePendingCount(agentFilter?: string) {
   return useLiveQuery(async () => {
     const all = await db.agentMessages.where('status').equals('pending').toArray()
-    // Only count agent-sent messages as unread — user messages are outgoing, not "unread"
-    const unread = all.filter(m => m.senderName !== 'user')
+    // Only count messages addressed to the user as unread — skip agent-to-agent and outgoing
+    const unread = all.filter(m => m.senderName !== 'user' && m.recipientName === 'user')
     if (!agentFilter || agentFilter === 'all') {
       return unread.length
     }
