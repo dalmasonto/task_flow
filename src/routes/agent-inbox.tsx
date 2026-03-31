@@ -37,7 +37,7 @@ export default function AgentInbox() {
   const sorted = [...filteredMessages].reverse()
 
   return (
-    <div className="flex h-[calc(100vh-4rem-var(--timer-bar-height,0px))] -mt-4">
+    <div className="flex -mt-4 -mb-4" style={{ height: 'calc(100vh - 4rem - var(--timer-bar-height, 0px))' }}>
       {/* Compact sidebar */}
       <div className="w-52 shrink-0 border-r border-border flex flex-col">
         <div className="h-[60px] px-3 flex items-center border-b border-border">
