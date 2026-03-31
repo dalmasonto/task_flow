@@ -698,7 +698,7 @@
         <h2
           class="text-3xl font-medium tracking-tight mb-12 text-center text-white"
         >
-          Get Started in 3 Steps
+          Get Started in 4 Steps
         </h2>
 
         <div class="space-y-12">
@@ -913,6 +913,83 @@
               </div>
               <p class="text-xs text-neutral-500 mt-3">
                 The agent calls <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">get_agent_instructions</code> on startup — it learns how to use TaskFlow automatically. No prompt engineering needed.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="flex gap-6">
+            <div
+              class="flex-shrink-0 w-8 h-8 rounded-full border border-neutral-700 bg-neutral-900 flex items-center justify-center text-sm font-mono text-[#00fbfb]"
+            >
+              4
+            </div>
+            <div class="w-full">
+              <h3 class="text-lg font-medium tracking-tight mb-2">
+                Enable Live Agent Chat with tmux
+              </h3>
+              <p class="text-sm text-neutral-400 mb-4">
+                Run Claude Code inside a <code class="text-neutral-300 bg-neutral-800 px-1.5 py-0.5 rounded text-[11px] font-mono">tmux</code> session so agents can receive your responses in real-time from the TaskFlow UI — no terminal switching needed.
+              </p>
+
+              <!-- Install tmux -->
+              <div class="bg-[#0a0a0a] border border-neutral-800 rounded-lg overflow-hidden mb-4">
+                <div class="px-4 py-2 border-b border-neutral-800 bg-[#050505] text-xs font-mono text-neutral-500 flex items-center gap-2">
+                  <iconify-icon icon="solar:terminal-linear"></iconify-icon>
+                  Install tmux
+                </div>
+                <div class="p-4 text-xs font-mono text-neutral-300 overflow-x-auto">
+                  <span class="text-neutral-500"># Debian / Ubuntu</span><br />
+                  sudo apt-get install -y tmux<br /><br />
+                  <span class="text-neutral-500"># macOS</span><br />
+                  brew install tmux
+                </div>
+              </div>
+
+              <!-- Run agent in tmux -->
+              <div class="bg-[#0a0a0a] border border-neutral-800 rounded-lg overflow-hidden mb-4">
+                <div class="px-4 py-2 border-b border-neutral-800 bg-[#050505] text-xs font-mono text-neutral-500 flex items-center gap-2">
+                  <iconify-icon icon="solar:terminal-linear"></iconify-icon>
+                  Start your agent
+                </div>
+                <div class="p-4 text-xs font-mono text-neutral-300 overflow-x-auto">
+                  <span class="text-neutral-500"># Create a tmux session and start Claude Code</span><br />
+                  tmux new -s agent<br />
+                  claude<br /><br />
+                  <span class="text-neutral-500"># For multiple agents, use separate sessions</span><br />
+                  tmux new -s agent1 &nbsp; <span class="text-neutral-500"># Terminal 1</span><br />
+                  tmux new -s agent2 &nbsp; <span class="text-neutral-500"># Terminal 2</span>
+                </div>
+              </div>
+
+              <!-- How it works -->
+              <div class="p-4 rounded-lg border border-[#00fbfb]/20 bg-[#00fbfb]/5 space-y-3">
+                <div class="text-sm font-medium text-[#00fbfb] flex items-center gap-2">
+                  <iconify-icon icon="solar:chat-round-dots-linear" class="text-base"></iconify-icon>
+                  How live chat works
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-neutral-400">
+                  <div class="flex items-start gap-2">
+                    <span class="text-[#00fbfb] mt-0.5 font-mono font-bold">1</span>
+                    Agent calls <code class="text-neutral-300 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">ask_user</code> — question appears in the <strong class="text-white">Agent Inbox</strong>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-[#00fbfb] mt-0.5 font-mono font-bold">2</span>
+                    You respond from the TaskFlow UI (phone, browser, any device)
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-[#00fbfb] mt-0.5 font-mono font-bold">3</span>
+                    MCP server injects your response into the agent's tmux pane
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-[#00fbfb] mt-0.5 font-mono font-bold">4</span>
+                    Agent continues working — as if you typed it directly
+                  </div>
+                </div>
+              </div>
+
+              <p class="text-xs text-neutral-500 mt-3">
+                Without tmux, the Agent Inbox still works — you just need to manually tell the agent to <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">check_response</code> or respond in the terminal directly.
               </p>
             </div>
           </div>
