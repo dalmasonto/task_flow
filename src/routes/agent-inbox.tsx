@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useAgentMessages, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
@@ -14,27 +14,57 @@ function unescapeMarkdown(text: string): string {
   return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
 }
 
+const PAGE_SIZE = 15
+
 export default function AgentInbox() {
   const projects = useProjects()
   const port = Number(useSetting('serverPort'))
   const [agentFilter, setAgentFilter] = useState('all')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const prevLengthRef = useRef(0)
 
   const filteredMessages = useAgentMessages(agentFilter)
 
-  // Auto-scroll to bottom when new messages arrive
+  // Reset visible count when switching agent filter
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    setVisibleCount(PAGE_SIZE)
+  }, [agentFilter])
+
+  // Sort messages oldest first for chat thread flow
+  const sorted = filteredMessages ? [...filteredMessages].reverse() : []
+  const totalCount = sorted.length
+  const startIndex = Math.max(0, totalCount - visibleCount)
+  const visible = sorted.slice(startIndex)
+  const hasMore = startIndex > 0
+
+  // Auto-scroll to bottom only when new messages arrive (not when loading older ones)
+  useEffect(() => {
+    if (filteredMessages && filteredMessages.length > prevLengthRef.current) {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      }
     }
+    prevLengthRef.current = filteredMessages?.length ?? 0
   }, [filteredMessages?.length])
+
+  // Load more when scrolling to top
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || !hasMore) return
+    if (el.scrollTop < 100) {
+      const prevHeight = el.scrollHeight
+      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, totalCount))
+      // Preserve scroll position after prepending
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight - prevHeight
+      })
+    }
+  }, [hasMore, totalCount])
 
   if (!filteredMessages || !projects) return null
 
   const projectMap = new Map(projects.map(p => [p.id!, p]))
-
-  // Sort messages oldest first for chat thread flow
-  const sorted = [...filteredMessages].reverse()
 
   return (
     <div className="flex -mt-4 -mb-4" style={{ height: 'calc(100vh - 4rem - var(--timer-bar-height, 0px))' }}>
@@ -59,20 +89,28 @@ export default function AgentInbox() {
             <h1 className="text-sm font-bold uppercase tracking-widest">
               {agentFilter === 'all' ? 'All Conversations' : agentFilter}
             </h1>
-            {sorted.filter(m => m.status === 'pending' && m.senderName !== 'user').length > 0 && (
+            {visible.filter(m => m.status === 'pending' && m.senderName !== 'user').length > 0 && (
               <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
-                {sorted.filter(m => m.status === 'pending' && m.senderName !== 'user').length}
+                {visible.filter(m => m.status === 'pending' && m.senderName !== 'user').length}
               </span>
             )}
           </div>
           <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-            {sorted.length} messages
+            {totalCount} messages
           </span>
         </div>
 
         {/* Message thread — scrollable */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {sorted.length === 0 ? (
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Load more indicator */}
+          {hasMore && (
+            <div className="flex justify-center py-2">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                Scroll up to load {Math.min(PAGE_SIZE, startIndex)} more
+              </span>
+            </div>
+          )}
+          {visible.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full">
               <span className="material-symbols-outlined text-5xl text-muted-foreground/20 mb-3">chat</span>
               <p className="text-xs text-muted-foreground uppercase tracking-widest">
@@ -80,7 +118,7 @@ export default function AgentInbox() {
               </p>
             </div>
           ) : (
-            sorted.map(m => (
+            visible.map(m => (
               <ChatBubble
                 key={m.id}
                 message={m}
