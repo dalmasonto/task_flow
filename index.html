@@ -34,7 +34,55 @@
     <meta name="description" content="Local-first task tracker with timer sessions, dependency graphs, terminal interface, and analytics." />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        .splash-screen {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          width: 100vw;
+          margin: 0;
+          padding: 0;
+          background: #f5f5f5;
+          color: #1a1a1a;
+          font-family: 'Inter Variable', system-ui, sans-serif;
+          transition: opacity 0.3s ease-out;
+        }
+        .dark .splash-screen {
+          background: #0e0e0e;
+          color: #ececec;
+        }
+        .splash-logo {
+          width: 64px;
+          height: 64px;
+          margin-bottom: 24px;
+        }
+        .splash-title {
+          font-size: 1.25rem;
+          font-weight: 600;
+          margin-bottom: 24px;
+          letter-spacing: -0.01em;
+        }
+        .splash-spinner {
+          width: 32px;
+          height: 32px;
+          border: 3px solid rgba(134, 59, 255, 0.2);
+          border-top-color: #863bff;
+          border-radius: 50%;
+          animation: splash-spin 0.8s linear infinite;
+        }
+        @keyframes splash-spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+      <div class="splash-screen">
+        <img src="/favicon.svg" alt="TaskFlow" class="splash-logo" />
+        <div class="splash-title">TaskFlow</div>
+        <div class="splash-spinner"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
