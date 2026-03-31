@@ -67,6 +67,10 @@ export async function getAgentInstructions() {
       // Agent Inbox — remote communication
       'When you need user input (choices, confirmations, clarifications), ALWAYS do BOTH: (1) ask the question normally in the terminal conversation, AND (2) call ask_user to post it to the Agent Inbox. This lets the user respond from either the terminal or the TaskFlow UI remotely. If the user explicitly tells you not to use the inbox (e.g. "don\'t post to inbox"), skip the ask_user call.',
       'After calling ask_user, continue your work if possible. The user may respond from the UI, and the response will be delivered to your terminal automatically (if running in tmux). You can also call check_response to poll for the answer.',
+
+      // Agent Inbox — formatting
+      'When calling ask_user, write **proper titles** for the question field — clear, concise, well-formed sentences (not random fragments or debug-style text). The question is the headline the user sees first.',
+      'The `context` field in ask_user is rendered as Markdown in the UI. Format it well: use `## headings` to organize sections, `**bold**` for key terms, bullet lists for options/trade-offs, and `\\`code\\`` for file paths or commands. Use real newlines (not literal \\\\n). The context should read like a well-written message, not raw debug output.',
     ],
 
     workflow: 'not_started → in_progress (start_timer) → paused (pause_timer) → done/partial_done/blocked (stop_timer)',

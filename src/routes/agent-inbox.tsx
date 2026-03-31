@@ -9,6 +9,11 @@ import { AgentSidebar } from '@/components/inbox/agent-sidebar'
 import { ComposeBox } from '@/components/inbox/compose-box'
 import type { AgentMessage } from '@/types'
 
+/** Convert literal escape sequences (e.g. \\n, \\t) from MCP JSON strings into real characters */
+function unescapeMarkdown(text: string): string {
+  return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+}
+
 export default function AgentInbox() {
   const projects = useProjects()
   const port = Number(useSetting('serverPort'))
@@ -191,7 +196,7 @@ function MessageCard({
       {/* Context rendered as Markdown */}
       {message.context && (
         <div className="bg-muted/50 border border-border p-4 text-sm text-muted-foreground max-h-64 overflow-y-auto prose prose-sm max-w-none">
-          <ReactMarkdown>{message.context}</ReactMarkdown>
+          <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
         </div>
       )}
 
@@ -277,7 +282,7 @@ function AnsweredCard({
         <div className="mt-4 space-y-3 border-t border-border pt-4">
           {message.context && (
             <div className="bg-muted/50 border border-border p-3 text-xs text-muted-foreground max-h-48 overflow-y-auto prose prose-xs max-w-none">
-              <ReactMarkdown>{message.context}</ReactMarkdown>
+              <ReactMarkdown>{unescapeMarkdown(message.context)}</ReactMarkdown>
             </div>
           )}
           {message.status === 'answered' && (
