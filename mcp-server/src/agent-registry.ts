@@ -55,13 +55,18 @@ export function registerAgent(options?: { customName?: string }): string {
   const projectPath = process.cwd();
   const folderName = projectPath.split('/').pop() || 'unknown';
 
-  // Check if this PID already has a registration — reuse it
+  // Check if this PID already has a registration — reuse it (or rename if customName provided)
   const existingByPid = db.prepare('SELECT * FROM agent_registry WHERE pid = ? AND status = ?').get(agentPid, 'connected') as AgentRow | undefined;
   if (existingByPid) {
-    // Update tmux pane in case it changed, but keep the same name
     const tmuxPane = detectTmuxPane(agentPid);
     if (tmuxPane !== existingByPid.tmux_pane) {
       db.prepare('UPDATE agent_registry SET tmux_pane = ? WHERE id = ?').run(tmuxPane, existingByPid.id);
+    }
+    // Allow renaming via customName
+    if (options?.customName && options.customName !== existingByPid.name) {
+      db.prepare('UPDATE agent_registry SET name = ? WHERE id = ?').run(options.customName, existingByPid.id);
+      broadcast('agent_connected', { entity: 'agent', action: 'agent_connected', payload: { ...existingByPid, name: options.customName, tmux_pane: tmuxPane ?? existingByPid.tmux_pane } });
+      return options.customName;
     }
     return existingByPid.name;
   }
