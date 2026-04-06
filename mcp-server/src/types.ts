@@ -30,6 +30,7 @@ export const ActivityAction = z.enum([
   'agent_question', 'agent_question_answered',
   'agent_connected', 'agent_disconnected',
   'terminal_send_keys', 'terminal_captured',
+  'compaction_summary', 'activity_compacted',
 ]);
 export type ActivityAction = z.infer<typeof ActivityAction>;
 
