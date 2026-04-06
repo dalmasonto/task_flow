@@ -62,7 +62,8 @@ function loadFromFile(): Partial<TaskFlowConfig> {
 function applyCliAndEnvOverrides(config: TaskFlowConfig): TaskFlowConfig {
   // Env vars override config file
   if (process.env.TASKFLOW_SSE_PORT) {
-    config.port = parseInt(process.env.TASKFLOW_SSE_PORT, 10);
+    const p = parseInt(process.env.TASKFLOW_SSE_PORT, 10);
+    if (!isNaN(p)) config.port = p;
   }
   if (process.env.TASKFLOW_DB_PATH) {
     config.databasePath = process.env.TASKFLOW_DB_PATH;
@@ -77,7 +78,8 @@ function applyCliAndEnvOverrides(config: TaskFlowConfig): TaskFlowConfig {
   // CLI args take highest priority
   const portArgIdx = process.argv.indexOf('--port');
   if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
-    config.port = parseInt(process.argv[portArgIdx + 1], 10);
+    const p = parseInt(process.argv[portArgIdx + 1], 10);
+    if (!isNaN(p)) config.port = p;
   }
   const hostArgIdx = process.argv.indexOf('--host');
   if (hostArgIdx !== -1 && process.argv[hostArgIdx + 1]) {

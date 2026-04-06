@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 import { getConfig } from './config.js';
@@ -407,7 +407,7 @@ export async function startSSEServer(): Promise<void> {
       if (!agent.tmux_pane) { jsonResponse(res, 400, { error: `Agent "${agentName}" has no tmux pane` }); return; }
 
       try {
-        const output = execSync(`tmux capture-pane -p -t ${agent.tmux_pane}`, { timeout: 5000 }).toString();
+        const output = execFileSync('tmux', ['capture-pane', '-p', '-t', agent.tmux_pane], { timeout: 5000 }).toString();
         jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, content: output });
       } catch (err: any) {
         jsonResponse(res, 500, { error: `Failed to capture pane: ${err.message}` });
@@ -425,18 +425,17 @@ export async function startSSEServer(): Promise<void> {
       if (!agent) { jsonResponse(res, 404, { error: `Agent "${agentName}" not found` }); return; }
       if (!agent.tmux_pane) { jsonResponse(res, 400, { error: `Agent "${agentName}" has no tmux pane` }); return; }
 
-      const body = JSON.parse(await readBody(req));
-      const keys = body.keys as string;
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
+      const keys = body.keys;
       const enter = body.enter !== false; // default: send Enter after keys
 
-      if (!keys && keys !== '') { jsonResponse(res, 400, { error: 'keys is required' }); return; }
+      if (typeof keys !== 'string') { jsonResponse(res, 400, { error: 'keys must be a string' }); return; }
 
       try {
-        if (enter) {
-          execSync(`tmux send-keys -t ${agent.tmux_pane} ${JSON.stringify(keys)} Enter`, { stdio: 'ignore', timeout: 5000 });
-        } else {
-          execSync(`tmux send-keys -t ${agent.tmux_pane} ${JSON.stringify(keys)}`, { stdio: 'ignore', timeout: 5000 });
-        }
+        const args = ['send-keys', '-t', agent.tmux_pane, keys];
+        if (enter) args.push('Enter');
+        execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
         logActivity('terminal_send_keys', `Sent keys to ${agentName}: ${keys.slice(0, 50)}`, { entityType: 'agent' });
         jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, keys, enter, sent: true });
       } catch (err: any) {

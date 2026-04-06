@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
-import { successResponse } from '../helpers.js';
+import { successResponse, errorResponse } from '../helpers.js';
 
 // ─── exported handler functions ───────────────────────────────────────
 
@@ -219,36 +219,39 @@ export function registerAnalyticsTools(server: McpServer) {
       const db = getDb();
 
       if (params.task_id) {
-        // Cost for a single task — join tool_executions with sessions
-        const stats = db.prepare(`
-          SELECT
-            t.id as task_id,
-            t.title,
-            COUNT(te.id) as tool_calls,
-            COALESCE(SUM(te.duration_ms), 0) as total_tool_duration_ms,
-            SUM(CASE WHEN te.success = 0 THEN 1 ELSE 0 END) as failed_calls,
-            COALESCE(SUM(CASE WHEN s.end IS NOT NULL THEN (julianday(s.end) - julianday(s.start)) * 86400000 ELSE 0 END), 0) as total_session_time_ms
-          FROM tasks t
-          LEFT JOIN sessions s ON s.task_id = t.id
-          LEFT JOIN tool_executions te ON te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end)
-          WHERE t.id = ?
-          GROUP BY t.id
-        `).get(params.task_id);
+        // Cost for a single task — use subqueries to avoid cross-join inflation
+        const task = db.prepare('SELECT id, title, status FROM tasks WHERE id = ?').get(params.task_id) as { id: number; title: string; status: string } | undefined;
+        if (!task) return errorResponse(`Task ${params.task_id} not found`, 'NOT_FOUND');
+
+        const sessionTime = db.prepare(
+          'SELECT COALESCE(SUM(CASE WHEN end IS NOT NULL THEN (julianday(end) - julianday(start)) * 86400000 ELSE 0 END), 0) as total FROM sessions WHERE task_id = ?'
+        ).get(params.task_id) as { total: number };
+
+        // Tool calls that occurred during any session for this task
+        const toolCalls = db.prepare(`
+          SELECT COUNT(*) as total, COALESCE(SUM(te.duration_ms), 0) as duration_ms,
+            SUM(CASE WHEN te.success = 0 THEN 1 ELSE 0 END) as failed
+          FROM tool_executions te
+          WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.task_id = ? AND te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end))
+        `).get(params.task_id) as { total: number; duration_ms: number; failed: number };
 
         // Tool breakdown for this task
         const tools = db.prepare(`
           SELECT te.tool_name, COUNT(*) as call_count, ROUND(AVG(te.duration_ms)) as avg_ms
           FROM tool_executions te
-          JOIN sessions s ON s.task_id = ? AND te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end)
+          WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.task_id = ? AND te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end))
           GROUP BY te.tool_name
           ORDER BY call_count DESC
         `).all(params.task_id);
 
-        return successResponse({ task: stats, tool_breakdown: tools });
+        return successResponse({
+          task: { task_id: task.id, title: task.title, status: task.status, tool_calls: toolCalls.total, total_tool_duration_ms: toolCalls.duration_ms, failed_calls: toolCalls.failed, total_session_time_ms: sessionTime.total },
+          tool_breakdown: tools,
+        });
       }
 
-      // All tasks (optionally filtered by project)
-      const projectFilter = params.project_id ? 'AND t.project_id = ?' : '';
+      // All tasks (optionally filtered by project) — use subqueries to avoid cross-join
+      const projectFilter = params.project_id ? 'WHERE t.project_id = ?' : '';
       const filterValues = params.project_id ? [params.project_id] : [];
 
       const tasks = db.prepare(`
@@ -256,14 +259,11 @@ export function registerAnalyticsTools(server: McpServer) {
           t.id as task_id,
           t.title,
           t.status,
-          COUNT(te.id) as tool_calls,
-          COALESCE(SUM(te.duration_ms), 0) as total_tool_duration_ms,
-          COALESCE(SUM(CASE WHEN s.end IS NOT NULL THEN (julianday(s.end) - julianday(s.start)) * 86400000 ELSE 0 END), 0) as total_session_time_ms
+          (SELECT COUNT(*) FROM tool_executions te WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.task_id = t.id AND te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end))) as tool_calls,
+          (SELECT COALESCE(SUM(te.duration_ms), 0) FROM tool_executions te WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.task_id = t.id AND te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end))) as total_tool_duration_ms,
+          (SELECT COALESCE(SUM(CASE WHEN end IS NOT NULL THEN (julianday(end) - julianday(start)) * 86400000 ELSE 0 END), 0) FROM sessions WHERE task_id = t.id) as total_session_time_ms
         FROM tasks t
-        LEFT JOIN sessions s ON s.task_id = t.id
-        LEFT JOIN tool_executions te ON te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end)
-        WHERE 1=1 ${projectFilter}
-        GROUP BY t.id
+        ${projectFilter}
         HAVING tool_calls > 0
         ORDER BY tool_calls DESC
         LIMIT 30

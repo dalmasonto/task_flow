@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { getDb } from '../db.js';
 import { logActivity, errorResponse, successResponse } from '../helpers.js';
 
@@ -32,7 +32,7 @@ export function registerTerminalTools(server: McpServer) {
       if (result.error) return result.error;
 
       try {
-        const output = execSync(`tmux capture-pane -p -t ${result.agent.tmux_pane}`, { timeout: 5000 }).toString();
+        const output = execFileSync('tmux', ['capture-pane', '-p', '-t', result.agent.tmux_pane!], { timeout: 5000 }).toString();
         return successResponse({
           agent: params.agent_name,
           pane: result.agent.tmux_pane,
@@ -60,11 +60,9 @@ export function registerTerminalTools(server: McpServer) {
       const sendEnter = params.enter !== false;
 
       try {
-        if (sendEnter) {
-          execSync(`tmux send-keys -t ${result.agent.tmux_pane} ${JSON.stringify(params.keys)} Enter`, { stdio: 'ignore', timeout: 5000 });
-        } else {
-          execSync(`tmux send-keys -t ${result.agent.tmux_pane} ${JSON.stringify(params.keys)}`, { stdio: 'ignore', timeout: 5000 });
-        }
+        const args = ['send-keys', '-t', result.agent.tmux_pane!, params.keys];
+        if (sendEnter) args.push('Enter');
+        execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
 
         logActivity('terminal_send_keys', `Sent keys to ${params.agent_name}: ${params.keys.slice(0, 50)}`, { entityType: 'agent' });
 
