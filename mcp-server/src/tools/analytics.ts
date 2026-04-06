@@ -206,4 +206,70 @@ export function registerAnalyticsTools(server: McpServer) {
       return successResponse({ total_executions: total.count, tools: stats });
     },
   );
+
+  server.tool(
+    'get_task_cost',
+    'Get per-task cost metrics: tool calls made during active timer sessions, total execution time, and tool breakdown. Useful for understanding which tasks consume the most resources.',
+    {
+      task_id: z.number().optional().describe('Get cost for a specific task. Omit for all tasks.'),
+      project_id: z.number().optional().describe('Get cost for all tasks in a project'),
+    },
+    { readOnlyHint: true },
+    async (params) => {
+      const db = getDb();
+
+      if (params.task_id) {
+        // Cost for a single task — join tool_executions with sessions
+        const stats = db.prepare(`
+          SELECT
+            t.id as task_id,
+            t.title,
+            COUNT(te.id) as tool_calls,
+            COALESCE(SUM(te.duration_ms), 0) as total_tool_duration_ms,
+            SUM(CASE WHEN te.success = 0 THEN 1 ELSE 0 END) as failed_calls,
+            COALESCE(SUM(CASE WHEN s.end IS NOT NULL THEN (julianday(s.end) - julianday(s.start)) * 86400000 ELSE 0 END), 0) as total_session_time_ms
+          FROM tasks t
+          LEFT JOIN sessions s ON s.task_id = t.id
+          LEFT JOIN tool_executions te ON te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end)
+          WHERE t.id = ?
+          GROUP BY t.id
+        `).get(params.task_id);
+
+        // Tool breakdown for this task
+        const tools = db.prepare(`
+          SELECT te.tool_name, COUNT(*) as call_count, ROUND(AVG(te.duration_ms)) as avg_ms
+          FROM tool_executions te
+          JOIN sessions s ON s.task_id = ? AND te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end)
+          GROUP BY te.tool_name
+          ORDER BY call_count DESC
+        `).all(params.task_id);
+
+        return successResponse({ task: stats, tool_breakdown: tools });
+      }
+
+      // All tasks (optionally filtered by project)
+      const projectFilter = params.project_id ? 'AND t.project_id = ?' : '';
+      const filterValues = params.project_id ? [params.project_id] : [];
+
+      const tasks = db.prepare(`
+        SELECT
+          t.id as task_id,
+          t.title,
+          t.status,
+          COUNT(te.id) as tool_calls,
+          COALESCE(SUM(te.duration_ms), 0) as total_tool_duration_ms,
+          COALESCE(SUM(CASE WHEN s.end IS NOT NULL THEN (julianday(s.end) - julianday(s.start)) * 86400000 ELSE 0 END), 0) as total_session_time_ms
+        FROM tasks t
+        LEFT JOIN sessions s ON s.task_id = t.id
+        LEFT JOIN tool_executions te ON te.created_at >= s.start AND (s.end IS NULL OR te.created_at <= s.end)
+        WHERE 1=1 ${projectFilter}
+        GROUP BY t.id
+        HAVING tool_calls > 0
+        ORDER BY tool_calls DESC
+        LIMIT 30
+      `).all(...filterValues);
+
+      return successResponse({ tasks });
+    },
+  );
 }
