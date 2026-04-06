@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getDb } from '../db.js';
 import { logActivity, successResponse, broadcastChange } from '../helpers.js';
+import { getConfig, isServerConfigKey, writeConfigKey } from '../config.js';
 
 // ─── defaults ─────────────────────────────────────────────────────────
 
@@ -35,6 +36,14 @@ interface SettingRow {
 // ─── exported handler functions ───────────────────────────────────────
 
 export async function getSetting(params: { key: string }) {
+  // Server-level settings come from the config file
+  if (isServerConfigKey(params.key)) {
+    const config = getConfig();
+    const value = (config as any)[params.key] ?? null;
+    return successResponse({ key: params.key, value, source: 'config_file' });
+  }
+
+  // UI settings come from SQLite
   const db = getDb();
   const row = db
     .prepare('SELECT value FROM settings WHERE key = ?')
@@ -52,6 +61,20 @@ export async function getSetting(params: { key: string }) {
 }
 
 export async function updateSetting(params: { key: string; value: unknown }) {
+  // Server-level settings write back to ~/.taskflow_config.json
+  if (isServerConfigKey(params.key)) {
+    writeConfigKey(params.key, params.value);
+    logActivity('settings_saved', params.key, { detail: `Server setting "${params.key}" updated in config file` });
+    broadcastChange('setting', 'settings_saved', { key: params.key, value: params.value });
+    return successResponse({
+      key: params.key,
+      value: params.value,
+      source: 'config_file',
+      note: 'Server setting saved to ~/.taskflow_config.json. Restart the MCP server for the change to take full effect.',
+    });
+  }
+
+  // UI settings go to SQLite
   const db = getDb();
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
     params.key,
@@ -69,14 +92,14 @@ export async function updateSetting(params: { key: string; value: unknown }) {
 export function registerSettingsTools(server: McpServer) {
   server.tool(
     'get_setting',
-    'Get a setting value by key, returning the default if not set. Available keys: timerBarDisplayMode, notificationInterval, statusColors, operatorName, systemName, and more.',
+    'Get a setting value by key. Server settings (port, host, databasePath, logLevel, agentLivenessInterval, maxPortAttempts) come from ~/.taskflow_config.json. UI settings (timerBarDisplayMode, notificationInterval, statusColors, operatorName, systemName, etc.) come from SQLite.',
     { key: z.string() },
     async (params) => getSetting(params),
   );
 
   server.tool(
     'update_setting',
-    'Update or create a setting value. Settings persist across sessions in the local SQLite database.',
+    'Update a setting value. Server settings (port, host, databasePath, logLevel, agentLivenessInterval, maxPortAttempts) are written to ~/.taskflow_config.json and require a restart. UI settings are saved to the local SQLite database.',
     {
       key: z.string(),
       value: z.unknown(),

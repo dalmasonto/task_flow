@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { getConfig } from './config.js';
 import { startSSEServer } from './sse.js';
 import { getDb } from './db.js';
 import { broadcast } from './sse.js';
@@ -43,12 +44,13 @@ cleanupOrphanedSessions();
 await startSSEServer();
 
 // Liveness checker — periodically check registered agents and mark dead ones
+const cfg = getConfig();
 setInterval(async () => {
   try {
     const { checkAgentLiveness } = await import('./agent-registry.js');
     checkAgentLiveness();
   } catch { /* ignore */ }
-}, 30_000);
+}, cfg.agentLivenessInterval);
 
 // Only start MCP stdio transport when not in http-only mode
 if (!httpOnly) {

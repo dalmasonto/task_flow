@@ -1,27 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
+import { getConfig } from './config.js';
 
 const SERVICE_ID = 'taskflow-mcp';
-const MAX_PORT_ATTEMPTS = 10;
 const PROBE_TIMEOUT_MS = 2000;
 
 const clients = new Set<ServerResponse>();
 
-function resolvePort(): number {
-  // CLI arg takes priority: --port 4000
-  const portArgIdx = process.argv.indexOf('--port');
-  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
-    return parseInt(process.argv[portArgIdx + 1], 10);
-  }
-  // Then env var
-  if (process.env.TASKFLOW_SSE_PORT) {
-    return parseInt(process.env.TASKFLOW_SSE_PORT, 10);
-  }
-  return 3456;
-}
-
-const PREFERRED_PORT = resolvePort();
+const cfg = getConfig();
+const PREFERRED_PORT = cfg.port;
 /** The port that is actually serving SSE — either ours or an existing instance's */
 let activePort = PREFERRED_PORT;
 
@@ -393,8 +381,8 @@ export async function startSSEServer(): Promise<void> {
     let attempt = 0;
 
     function tryPort(port: number) {
-      if (attempt >= MAX_PORT_ATTEMPTS) {
-        console.error(`[SSE] failed to bind after ${MAX_PORT_ATTEMPTS} attempts (ports ${PREFERRED_PORT}–${port - 1})`);
+      if (attempt >= cfg.maxPortAttempts) {
+        console.error(`[SSE] failed to bind after ${cfg.maxPortAttempts} attempts (ports ${PREFERRED_PORT}–${port - 1})`);
         resolve();
         return;
       }
@@ -419,7 +407,7 @@ export async function startSSEServer(): Promise<void> {
         }
       });
 
-      server.listen(port, '0.0.0.0', () => {
+      server.listen(port, cfg.host, () => {
         activePort = port;
         markSSEActive();
         if (port !== PREFERRED_PORT) {

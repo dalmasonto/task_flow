@@ -2,8 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
-
-const DEFAULT_DB_PATH = '~/.taskflow/taskflow.db';
+import { getConfig } from './config.js';
 
 let db: Database.Database | null = null;
 
@@ -17,7 +16,7 @@ export function resolvePath(p: string): string {
 
 export function getDb(): Database.Database {
   if (db) return db;
-  return initDb(process.env.TASKFLOW_DB_PATH || DEFAULT_DB_PATH);
+  return initDb(getConfig().databasePath);
 }
 
 // For testing: initialize with a specific path (use ':memory:' for tests)
