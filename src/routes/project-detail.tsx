@@ -13,7 +13,6 @@ import { syncTaskUpdate, syncProjectUpdate, syncProjectDelete } from '@/lib/sync
 import { TaskCard } from '@/components/task-card'
 import { EmptyState } from '@/components/empty-state'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
-import { getStatusColor } from '@/lib/status'
 import { MarkdownEditor } from '@/components/markdown-editor'
 import { Button } from '@/components/ui/button'
 import {
