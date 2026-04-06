@@ -161,4 +161,49 @@ export function registerAnalyticsTools(server: McpServer) {
     { readOnlyHint: true },
     async (params) => getTimeline(params),
   );
+
+  server.tool(
+    'get_tool_stats',
+    'Get tool execution statistics: call count, success rate, average duration per tool. Shows which tools are used most and which are slow or failing.',
+    {
+      since: z.string().optional().describe('ISO date to filter from (e.g. "2026-04-01"). Defaults to all time.'),
+      tool_name: z.string().optional().describe('Filter to a specific tool name'),
+    },
+    { readOnlyHint: true },
+    async (params) => {
+      const db = getDb();
+      const conditions: string[] = [];
+      const values: unknown[] = [];
+
+      if (params.since) {
+        conditions.push('created_at >= ?');
+        values.push(params.since);
+      }
+      if (params.tool_name) {
+        conditions.push('tool_name = ?');
+        values.push(params.tool_name);
+      }
+
+      const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+
+      const stats = db.prepare(`
+        SELECT
+          tool_name,
+          COUNT(*) as call_count,
+          SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+          SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failure_count,
+          ROUND(AVG(duration_ms)) as avg_duration_ms,
+          MAX(duration_ms) as max_duration_ms,
+          MIN(created_at) as first_call,
+          MAX(created_at) as last_call
+        FROM tool_executions${where}
+        GROUP BY tool_name
+        ORDER BY call_count DESC
+      `).all(...values);
+
+      const total = db.prepare(`SELECT COUNT(*) as count FROM tool_executions${where}`).get(...values) as { count: number };
+
+      return successResponse({ total_executions: total.count, tools: stats });
+    },
+  );
 }

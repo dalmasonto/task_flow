@@ -73,6 +73,38 @@ if (!httpOnly) {
     version: '1.0.0',
   });
 
+  // Wrap server.tool() to track execution time and log failures
+  const originalTool = server.tool.bind(server);
+  (server as any).tool = function (...args: any[]) {
+    const toolName = args[0] as string;
+    // Find the callback (always the last argument, and it's a function)
+    const cbIndex = args.length - 1;
+    const originalCb = args[cbIndex];
+    if (typeof originalCb === 'function') {
+      args[cbIndex] = async (...cbArgs: any[]) => {
+        const start = Date.now();
+        try {
+          const result = await originalCb(...cbArgs);
+          const duration = Date.now() - start;
+          // Record execution (fire-and-forget)
+          try {
+            const db = getDb();
+            db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, created_at) VALUES (?, ?, 1, ?)').run(toolName, duration, new Date().toISOString());
+          } catch { /* don't break tool execution */ }
+          return result;
+        } catch (err: any) {
+          const duration = Date.now() - start;
+          try {
+            const db = getDb();
+            db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, error_message, created_at) VALUES (?, ?, 0, ?, ?)').run(toolName, duration, err.message ?? String(err), new Date().toISOString());
+          } catch { /* don't break tool execution */ }
+          throw err;
+        }
+      };
+    }
+    return (originalTool as Function).apply(server, args);
+  };
+
   registerAgentTools(server);
   registerTaskTools(server);
   registerProjectTools(server);

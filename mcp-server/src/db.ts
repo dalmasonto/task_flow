@@ -134,6 +134,17 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_status ON agent_registry(status);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_name ON agent_registry(name);
+
+    CREATE TABLE IF NOT EXISTS tool_executions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tool_name TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      success INTEGER NOT NULL DEFAULT 1,
+      error_message TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_executions_tool_name ON tool_executions(tool_name);
+    CREATE INDEX IF NOT EXISTS idx_tool_executions_created_at ON tool_executions(created_at);
   `);
 
   // Migrations — add columns that may be missing on existing databases
