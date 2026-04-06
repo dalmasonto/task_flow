@@ -147,6 +147,7 @@ export function registerAgentTools(server: McpServer) {
     'get_agent_instructions',
     '**Call this at the start of every conversation.** Returns onboarding instructions, behavioral rules, and live project context for AI agents working with TaskFlow. This tool tells you how to proactively manage tasks, track time, and stay in sync with the project.',
     {},
+    { readOnlyHint: true },
     async () => getAgentInstructions(),
   );
 
@@ -154,6 +155,7 @@ export function registerAgentTools(server: McpServer) {
     'clear_data',
     'Delete ALL tasks, projects, sessions, notifications, and activity logs. Settings are preserved. Use with extreme caution — this is irreversible.',
     {},
+    { destructiveHint: true },
     async () => clearData(),
   );
 }

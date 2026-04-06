@@ -26,6 +26,7 @@ export function registerTerminalTools(server: McpServer) {
     {
       agent_name: z.string().describe('Name of the agent whose terminal to capture'),
     },
+    { readOnlyHint: true },
     async (params) => {
       const result = getAgentPane(params.agent_name);
       if (result.error) return result.error;
@@ -51,6 +52,7 @@ export function registerTerminalTools(server: McpServer) {
       keys: z.string().describe('The keys/text to send (e.g. "yes", "1", "y")'),
       enter: z.boolean().optional().describe('Whether to press Enter after the keys (default: true)'),
     },
+    { destructiveHint: true },
     async (params) => {
       const result = getAgentPane(params.agent_name);
       if (result.error) return result.error;

@@ -66,6 +66,7 @@ if (!httpOnly) {
   const { registerAgentTools } = await import('./tools/agent.js');
   const { registerAgentInboxTools } = await import('./tools/agent-inbox.js');
   const { registerTerminalTools } = await import('./tools/terminal.js');
+  const { registerResources } = await import('./resources.js');
 
   const server = new McpServer({
     name: 'taskflow',
@@ -82,6 +83,7 @@ if (!httpOnly) {
   registerSettingsTools(server);
   registerAgentInboxTools(server);
   registerTerminalTools(server);
+  registerResources(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

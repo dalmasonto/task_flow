@@ -89,6 +89,7 @@ export function registerActivityTools(server: McpServer) {
       action: z.string().optional(),
       entity_type: z.string().optional(),
     },
+    { readOnlyHint: true },
     async (params) => getActivityLog(params),
   );
 
@@ -96,6 +97,7 @@ export function registerActivityTools(server: McpServer) {
     'clear_activity_log',
     'Delete all activity log entries. Use with caution — this is irreversible.',
     {},
+    { destructiveHint: true },
     async () => clearActivityLog(),
   );
 
@@ -108,6 +110,7 @@ export function registerActivityTools(server: McpServer) {
       task_id: z.number().optional().describe('Link this debug log to a specific task'),
       project_id: z.number().optional().describe('Link this debug log to a project (used when no specific task applies)'),
     },
+    { readOnlyHint: false },
     async (params) => logDebug(params),
   );
 }

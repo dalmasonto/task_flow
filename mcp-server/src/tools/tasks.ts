@@ -496,6 +496,7 @@ export function registerTaskTools(server: McpServer) {
       due_date: z.string().optional(),
       estimated_time: z.number().optional(),
     },
+    { readOnlyHint: false },
     async (params) => createTask(params),
   );
 
@@ -508,6 +509,7 @@ export function registerTaskTools(server: McpServer) {
       priority: TaskPriority.optional(),
       tag: z.string().optional(),
     },
+    { readOnlyHint: true },
     async (params) => listTasks(params),
   );
 
@@ -515,6 +517,7 @@ export function registerTaskTools(server: McpServer) {
     'get_task',
     'Get a task by ID with time tracking info. Read the description carefully — it often contains implementation details and acceptance criteria.',
     { id: z.number() },
+    { readOnlyHint: true },
     async (params) => getTask(params),
   );
 
@@ -534,6 +537,7 @@ export function registerTaskTools(server: McpServer) {
       due_date: z.string().optional(),
       estimated_time: z.number().optional(),
     },
+    { readOnlyHint: false },
     async (params) => updateTask(params),
   );
 
@@ -544,6 +548,7 @@ export function registerTaskTools(server: McpServer) {
       id: z.number(),
       status: TaskStatus,
     },
+    { readOnlyHint: false },
     async (params) => updateTaskStatus(params),
   );
 
@@ -551,6 +556,7 @@ export function registerTaskTools(server: McpServer) {
     'delete_task',
     'Delete a task by ID. Use sparingly — prefer updating status to "done" instead of deleting.',
     { id: z.number() },
+    { destructiveHint: true },
     async (params) => deleteTask(params),
   );
 
@@ -568,6 +574,7 @@ export function registerTaskTools(server: McpServer) {
         tags: z.array(z.string()).optional(),
       })),
     },
+    { readOnlyHint: false },
     async (params) => bulkCreateTasks(params),
   );
 
@@ -575,6 +582,7 @@ export function registerTaskTools(server: McpServer) {
     'search_tasks',
     'Search tasks by title or description. Use this to find tasks related to your current work before creating duplicates.',
     { query: z.string() },
+    { readOnlyHint: true },
     async (params) => searchTasks(params),
   );
 }

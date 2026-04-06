@@ -83,6 +83,7 @@ export function registerNotificationTools(server: McpServer) {
       limit: z.number().optional(),
       unread_only: z.boolean().optional(),
     },
+    { readOnlyHint: true },
     async (params) => listNotifications(params),
   );
 
@@ -90,6 +91,7 @@ export function registerNotificationTools(server: McpServer) {
     'mark_notification_read',
     'Mark a notification as read after surfacing it to the user.',
     { id: z.number() },
+    { readOnlyHint: false },
     async (params) => markNotificationRead(params),
   );
 
@@ -97,6 +99,7 @@ export function registerNotificationTools(server: McpServer) {
     'mark_all_notifications_read',
     'Mark all unread notifications as read. Call after the user has been briefed on pending notifications.',
     {},
+    { readOnlyHint: false },
     async () => markAllNotificationsRead(),
   );
 
@@ -104,6 +107,7 @@ export function registerNotificationTools(server: McpServer) {
     'clear_notifications',
     'Delete all notifications. Use with caution — this is irreversible.',
     {},
+    { destructiveHint: true },
     async () => clearNotifications(),
   );
 }

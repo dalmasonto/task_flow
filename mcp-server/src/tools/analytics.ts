@@ -146,6 +146,7 @@ export function registerAnalyticsTools(server: McpServer) {
       start_date: z.string().optional(),
       end_date: z.string().optional(),
     },
+    { readOnlyHint: true },
     async (params) => getAnalytics(params),
   );
 
@@ -157,6 +158,7 @@ export function registerAnalyticsTools(server: McpServer) {
       end_date: z.string().optional(),
       group_by: z.enum(['day', 'week']).optional(),
     },
+    { readOnlyHint: true },
     async (params) => getTimeline(params),
   );
 }

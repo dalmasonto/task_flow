@@ -94,6 +94,7 @@ export function registerSettingsTools(server: McpServer) {
     'get_setting',
     'Get a setting value by key. Server settings (port, host, databasePath, logLevel, agentLivenessInterval, maxPortAttempts) come from ~/.taskflow_config.json. UI settings (timerBarDisplayMode, notificationInterval, statusColors, operatorName, systemName, etc.) come from SQLite.',
     { key: z.string() },
+    { readOnlyHint: true },
     async (params) => getSetting(params),
   );
 
@@ -104,6 +105,7 @@ export function registerSettingsTools(server: McpServer) {
       key: z.string(),
       value: z.unknown(),
     },
+    { readOnlyHint: false },
     async (params) => updateSetting(params),
   );
 }

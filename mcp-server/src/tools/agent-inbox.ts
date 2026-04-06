@@ -24,6 +24,7 @@ export function registerAgentInboxTools(server: McpServer) {
     {
       name: z.string().optional().describe('Custom agent name. If omitted, uses the project folder name.'),
     },
+    { readOnlyHint: false, idempotentHint: true },
     async (params) => {
       myAgentName = doRegister({ customName: params.name });
       return successResponse({ name: myAgentName, message: `Registered as "${myAgentName}"` });
@@ -39,6 +40,7 @@ export function registerAgentInboxTools(server: McpServer) {
       context: z.string().optional().describe('Markdown context — proposals, trade-offs, code snippets shown before the question'),
       choices: z.array(z.string()).optional().describe('Optional quick-tap choices, e.g. ["Yes", "No", "Skip"]'),
     },
+    { readOnlyHint: false },
     async (params) => {
       const db = getDb();
       const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(params.project_id);
@@ -79,6 +81,7 @@ export function registerAgentInboxTools(server: McpServer) {
     {
       message_id: z.number().describe('The message ID returned by ask_user or ask_agent'),
     },
+    { readOnlyHint: true },
     async (params) => {
       const db = getDb();
       const message = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(params.message_id) as Record<string, unknown> | undefined;
@@ -107,6 +110,7 @@ export function registerAgentInboxTools(server: McpServer) {
       message: z.string().describe('The message to send'),
       context: z.string().optional().describe('Optional markdown context'),
     },
+    { readOnlyHint: false },
     async (params) => {
       const db = getDb();
       const senderName = ensureRegistered();
@@ -138,6 +142,7 @@ export function registerAgentInboxTools(server: McpServer) {
       choices: z.array(z.string()).optional().describe('Optional quick-tap choices, e.g. ["Yes", "No", "Skip"]'),
       project_id: z.number().optional().describe('Optional project ID to attach the question to'),
     },
+    { readOnlyHint: false },
     async (params) => {
       const db = getDb();
       const senderName = ensureRegistered();
@@ -182,6 +187,7 @@ export function registerAgentInboxTools(server: McpServer) {
       message_id: z.number().describe('The message ID to respond to (from check_messages)'),
       response: z.string().describe('Your response text'),
     },
+    { readOnlyHint: false },
     async (params) => {
       const db = getDb();
       const name = ensureRegistered();
@@ -212,6 +218,7 @@ export function registerAgentInboxTools(server: McpServer) {
     'check_messages',
     'Check for incoming messages from users or other agents addressed to this agent.',
     {},
+    { readOnlyHint: true },
     async () => {
       const db = getDb();
       const name = ensureRegistered();
@@ -237,6 +244,7 @@ export function registerAgentInboxTools(server: McpServer) {
     {
       status: z.enum(['connected', 'disconnected']).optional().describe('Filter by status. Omit for all agents.'),
     },
+    { readOnlyHint: true },
     async (params) => {
       const agents = listAgents(params.status);
       return successResponse(agents);

@@ -169,6 +169,7 @@ export function registerProjectTools(server: McpServer) {
       type: ProjectType.optional(),
       description: z.string().optional(),
     },
+    { readOnlyHint: false },
     async (params) => createProject(params),
   );
 
@@ -176,6 +177,7 @@ export function registerProjectTools(server: McpServer) {
     'list_projects',
     'List all projects with task count. Call this at conversation start to understand the workspace.',
     {},
+    { readOnlyHint: true },
     async () => listProjects(),
   );
 
@@ -183,6 +185,7 @@ export function registerProjectTools(server: McpServer) {
     'get_project',
     'Get a project by ID with all its tasks. Use this to understand the full scope of a project before starting work.',
     { id: z.number() },
+    { readOnlyHint: true },
     async (params) => getProject(params),
   );
 
@@ -196,6 +199,7 @@ export function registerProjectTools(server: McpServer) {
       type: ProjectType.optional(),
       description: z.string().optional(),
     },
+    { readOnlyHint: false },
     async (params) => updateProject(params),
   );
 
@@ -203,6 +207,7 @@ export function registerProjectTools(server: McpServer) {
     'delete_project',
     'Delete a project by ID. Tasks under this project will be unlinked (project_id set to NULL), not deleted.',
     { id: z.number() },
+    { destructiveHint: true },
     async (params) => deleteProject(params),
   );
 
@@ -210,6 +215,7 @@ export function registerProjectTools(server: McpServer) {
     'search_projects',
     'Search projects by name or description. Use this to find projects related to your current work.',
     { query: z.string() },
+    { readOnlyHint: true },
     async (params) => searchProjects(params),
   );
 }
