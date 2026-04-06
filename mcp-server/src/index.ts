@@ -67,6 +67,7 @@ if (!httpOnly) {
   const { registerAgentInboxTools } = await import('./tools/agent-inbox.js');
   const { registerTerminalTools } = await import('./tools/terminal.js');
   const { registerResources } = await import('./resources.js');
+  const { registerCheckpointTools } = await import('./tools/checkpoint.js');
 
   const server = new McpServer({
     name: 'taskflow',
@@ -119,6 +120,7 @@ if (!httpOnly) {
   registerSettingsTools(server);
   registerAgentInboxTools(server);
   registerTerminalTools(server);
+  registerCheckpointTools(server);
   registerResources(server);
 
   const transport = new StdioServerTransport();
