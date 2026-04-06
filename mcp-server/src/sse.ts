@@ -9,6 +9,20 @@ const PROBE_TIMEOUT_MS = 2000;
 
 const clients = new Set<ServerResponse>();
 
+// ─── Event buffer for Last-Event-ID replay ──────────────────────────
+const EVENT_BUFFER_SIZE = 200;
+let eventIdCounter = 0;
+const eventBuffer: Array<{ id: number; event: string; data: string }> = [];
+
+function bufferEvent(event: string, data: string): number {
+  const id = ++eventIdCounter;
+  eventBuffer.push({ id, event, data });
+  if (eventBuffer.length > EVENT_BUFFER_SIZE) {
+    eventBuffer.shift();
+  }
+  return id;
+}
+
 const cfg = getConfig();
 const PREFERRED_PORT = cfg.port;
 /** The port that is actually serving SSE — either ours or an existing instance's */
@@ -71,6 +85,15 @@ export async function startSSEServer(): Promise<void> {
 
       // Send initial connection event
       res.write('event: connected\ndata: {}\n\n');
+
+      // Replay missed events if client sends Last-Event-ID
+      const lastEventId = req.headers['last-event-id'];
+      if (lastEventId && typeof lastEventId === 'string') {
+        const missed = eventBuffer.filter(e => e.id > Number(lastEventId));
+        for (const e of missed) {
+          res.write(`id: ${e.id}\nevent: ${e.event}\ndata: ${e.data}\n\n`);
+        }
+      }
 
       clients.add(res);
 
@@ -468,6 +491,15 @@ export async function startSSEServer(): Promise<void> {
       server.listen(port, cfg.host, () => {
         activePort = port;
         markSSEActive();
+
+        // Heartbeat — keeps connections alive and detects stale clients
+        setInterval(() => {
+          const ping = `:ping ${Date.now()}\n\n`;
+          for (const client of clients) {
+            try { client.write(ping); } catch { clients.delete(client); }
+          }
+        }, 30_000);
+
         if (port !== PREFERRED_PORT) {
           console.log(`[SSE] listening on fallback port ${port} (preferred ${PREFERRED_PORT} was unavailable)`);
         } else {
@@ -483,7 +515,9 @@ export async function startSSEServer(): Promise<void> {
 
 /** Broadcast directly to connected SSE clients in this process */
 function broadcastLocal(event: string, data: object): void {
-  const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const dataStr = JSON.stringify(data);
+  const id = bufferEvent(event, dataStr);
+  const message = `id: ${id}\nevent: ${event}\ndata: ${dataStr}\n\n`;
   for (const client of clients) {
     client.write(message);
   }

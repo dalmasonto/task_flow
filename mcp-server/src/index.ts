@@ -86,17 +86,21 @@ if (!httpOnly) {
         try {
           const result = await originalCb(...cbArgs);
           const duration = Date.now() - start;
-          // Record execution (fire-and-forget)
+          // Record execution and broadcast event
           try {
+            const ts = new Date().toISOString();
             const db = getDb();
-            db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, created_at) VALUES (?, ?, 1, ?)').run(toolName, duration, new Date().toISOString());
+            db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, created_at) VALUES (?, ?, 1, ?)').run(toolName, duration, ts);
+            broadcast('tool_executed', { entity: 'tool', action: 'tool_executed', payload: { tool_name: toolName, duration_ms: duration, success: true, created_at: ts } });
           } catch { /* don't break tool execution */ }
           return result;
         } catch (err: any) {
           const duration = Date.now() - start;
           try {
+            const ts = new Date().toISOString();
             const db = getDb();
-            db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, error_message, created_at) VALUES (?, ?, 0, ?, ?)').run(toolName, duration, err.message ?? String(err), new Date().toISOString());
+            db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, error_message, created_at) VALUES (?, ?, 0, ?, ?)').run(toolName, duration, err.message ?? String(err), ts);
+            broadcast('tool_failed', { entity: 'tool', action: 'tool_failed', payload: { tool_name: toolName, duration_ms: duration, success: false, error: err.message, created_at: ts } });
           } catch { /* don't break tool execution */ }
           throw err;
         }
