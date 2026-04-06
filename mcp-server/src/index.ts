@@ -83,6 +83,29 @@ if (!httpOnly) {
     const originalCb = args[cbIndex];
     if (typeof originalCb === 'function') {
       args[cbIndex] = async (...cbArgs: any[]) => {
+        // Check task-scoped tool allowlists if a timer is active
+        try {
+          const db = getDb();
+          const activeSession = db.prepare("SELECT task_id FROM sessions WHERE end IS NULL ORDER BY start DESC LIMIT 1").get() as { task_id: number } | undefined;
+          if (activeSession) {
+            const task = db.prepare("SELECT allowed_tools, denied_tools FROM tasks WHERE id = ?").get(activeSession.task_id) as { allowed_tools: string | null; denied_tools: string | null } | undefined;
+            if (task) {
+              if (task.denied_tools) {
+                const denied = JSON.parse(task.denied_tools) as string[];
+                if (denied.includes(toolName)) {
+                  return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: `Tool "${toolName}" is denied for task #${activeSession.task_id}`, code: 'TOOL_DENIED' }) }] };
+                }
+              }
+              if (task.allowed_tools) {
+                const allowed = JSON.parse(task.allowed_tools) as string[];
+                if (!allowed.includes(toolName)) {
+                  return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: `Tool "${toolName}" is not in the allowlist for task #${activeSession.task_id}`, code: 'TOOL_NOT_ALLOWED' }) }] };
+                }
+              }
+            }
+          }
+        } catch { /* don't break tool execution on allowlist check failure */ }
+
         const start = Date.now();
         try {
           const result = await originalCb(...cbArgs);

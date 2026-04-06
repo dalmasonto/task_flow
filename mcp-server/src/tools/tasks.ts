@@ -246,6 +246,8 @@ export async function updateTask(params: {
   links?: Array<{ label: string; url: string }>;
   due_date?: string;
   estimated_time?: number;
+  allowed_tools?: string[];
+  denied_tools?: string[];
 }) {
   const db = getDb();
   const old = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id) as TaskRow | undefined;
@@ -285,6 +287,8 @@ export async function updateTask(params: {
   if (params.links !== undefined) updates.links = JSON.stringify(params.links);
   if (params.due_date !== undefined) updates.due_date = params.due_date;
   if (params.estimated_time !== undefined) updates.estimated_time = params.estimated_time;
+  if (params.allowed_tools !== undefined) updates.allowed_tools = JSON.stringify(params.allowed_tools);
+  if (params.denied_tools !== undefined) updates.denied_tools = JSON.stringify(params.denied_tools);
 
   if (Object.keys(updates).length === 0) {
     return successResponse(oldParsed);
@@ -536,6 +540,8 @@ export function registerTaskTools(server: McpServer) {
       links: z.array(LinkSchema).optional(),
       due_date: z.string().optional(),
       estimated_time: z.number().optional(),
+      allowed_tools: z.array(z.string()).optional().describe('Allowlist of MCP tool names for this task. If set, only these tools can be used while timer is active.'),
+      denied_tools: z.array(z.string()).optional().describe('Denylist of MCP tool names for this task. These tools are blocked while timer is active.'),
     },
     { readOnlyHint: false },
     async (params) => updateTask(params),

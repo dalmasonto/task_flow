@@ -199,6 +199,16 @@ function initSchema(db: Database.Database): void {
       `);
     }
   } catch { /* table may not exist yet */ }
+
+  // Migration: add allowed_tools and denied_tools to tasks
+  const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+  const taskColNames = new Set(taskCols.map(c => c.name));
+  if (!taskColNames.has('allowed_tools')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN allowed_tools TEXT");
+  }
+  if (!taskColNames.has('denied_tools')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN denied_tools TEXT");
+  }
 }
 
 export function closeDb(): void {
