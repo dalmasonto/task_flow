@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { useAgentMessages, usePendingCount, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
+import { useAgentMessages, usePendingCount, useLiveAgents, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
 import { useSetting } from '@/hooks/use-settings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AgentSidebar } from '@/components/inbox/agent-sidebar'
 import { ComposeBox } from '@/components/inbox/compose-box'
+import { TerminalControl } from '@/components/inbox/terminal-control'
 import type { AgentMessage } from '@/types'
 
 /** Convert literal escape sequences (e.g. \\n, \\t) from MCP JSON strings into real characters */
@@ -24,8 +25,12 @@ export default function AgentInbox() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const prevLengthRef = useRef(0)
+  const liveAgents = useLiveAgents()
 
   const filteredMessages = useAgentMessages(agentFilter)
+
+  // Check if selected agent is live (for terminal control)
+  const selectedAgentIsLive = agentFilter !== 'all' && liveAgents?.some(a => a.name === agentFilter)
 
   // Reset visible count when switching agent filter
   useEffect(() => {
@@ -137,6 +142,13 @@ export default function AgentInbox() {
           </div>
         )}
       </div>
+
+      {/* Terminal control panel — shown when a live agent is selected */}
+      {selectedAgentIsLive && (
+        <div className="w-72 shrink-0 border-l border-border flex flex-col">
+          <TerminalControl agentName={agentFilter} port={port} />
+        </div>
+      )}
     </div>
   )
 }
