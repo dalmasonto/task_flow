@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync, exec } from 'child_process';
 import { getDb } from './db.js';
 import { getActivePort } from './sse.js';
 import http from 'http';
@@ -111,9 +111,13 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string): voi
   const db = getDb();
   db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(id);
   try {
-    execSync(`tmux send-keys -t ${tmuxPane} ${JSON.stringify(text)} Enter`, { stdio: 'ignore', timeout: 5000 });
-    // Long text triggers tmux bracketed paste — delay then send extra Enter to confirm
-    execSync(`sleep 1 && tmux send-keys -t ${tmuxPane} Enter`, { stdio: 'ignore', timeout: 5000 });
+    execFileSync('tmux', ['send-keys', '-t', tmuxPane, text, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+    // Long text triggers tmux bracketed paste — async delay then extra Enter (non-blocking)
+    setTimeout(() => {
+      try {
+        execFileSync('tmux', ['send-keys', '-t', tmuxPane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+      } catch { /* pane may have closed */ }
+    }, 1000);
     console.error(`[bridge] delivered message ${id} to tmux pane ${tmuxPane}`);
   } catch (err) {
     console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);
