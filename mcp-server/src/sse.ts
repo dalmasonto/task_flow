@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { execSync } from 'child_process';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 import { getConfig } from './config.js';
@@ -369,6 +370,63 @@ export async function startSSEServer(): Promise<void> {
       broadcast('agent_question', { entity: 'agent_message', action: 'agent_question', payload: msg });
 
       jsonResponse(res, 200, msg);
+      return;
+    }
+
+    // GET /api/terminal/:agentName/capture — capture terminal content via tmux
+    const captureMatch = req.url?.match(/^\/api\/terminal\/([^/]+)\/capture$/);
+    if (captureMatch && req.method === 'GET') {
+      const agentName = decodeURIComponent(captureMatch[1]);
+      const db = getDb();
+      const agent = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(agentName) as { tmux_pane: string | null; status: string } | undefined;
+
+      if (!agent) { jsonResponse(res, 404, { error: `Agent "${agentName}" not found` }); return; }
+      if (!agent.tmux_pane) { jsonResponse(res, 400, { error: `Agent "${agentName}" has no tmux pane` }); return; }
+
+      try {
+        const output = execSync(`tmux capture-pane -p -t ${agent.tmux_pane}`, { timeout: 5000 }).toString();
+        jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, content: output });
+      } catch (err: any) {
+        jsonResponse(res, 500, { error: `Failed to capture pane: ${err.message}` });
+      }
+      return;
+    }
+
+    // POST /api/terminal/:agentName/send-keys — inject raw keystrokes into agent's tmux pane
+    const sendKeysMatch = req.url?.match(/^\/api\/terminal\/([^/]+)\/send-keys$/);
+    if (sendKeysMatch && req.method === 'POST') {
+      const agentName = decodeURIComponent(sendKeysMatch[1]);
+      const db = getDb();
+      const agent = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(agentName) as { tmux_pane: string | null; status: string } | undefined;
+
+      if (!agent) { jsonResponse(res, 404, { error: `Agent "${agentName}" not found` }); return; }
+      if (!agent.tmux_pane) { jsonResponse(res, 400, { error: `Agent "${agentName}" has no tmux pane` }); return; }
+
+      const body = JSON.parse(await readBody(req));
+      const keys = body.keys as string;
+      const enter = body.enter !== false; // default: send Enter after keys
+
+      if (!keys && keys !== '') { jsonResponse(res, 400, { error: 'keys is required' }); return; }
+
+      try {
+        if (enter) {
+          execSync(`tmux send-keys -t ${agent.tmux_pane} ${JSON.stringify(keys)} Enter`, { stdio: 'ignore', timeout: 5000 });
+        } else {
+          execSync(`tmux send-keys -t ${agent.tmux_pane} ${JSON.stringify(keys)}`, { stdio: 'ignore', timeout: 5000 });
+        }
+        logActivity('terminal_send_keys', `Sent keys to ${agentName}: ${keys.slice(0, 50)}`, { entityType: 'agent' });
+        jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, keys, enter, sent: true });
+      } catch (err: any) {
+        jsonResponse(res, 500, { error: `Failed to send keys: ${err.message}` });
+      }
+      return;
+    }
+
+    // GET /api/terminal/agents — list agents with tmux panes for terminal interaction
+    if (req.url === '/api/terminal/agents' && req.method === 'GET') {
+      const db = getDb();
+      const agents = db.prepare("SELECT name, tmux_pane, status, pid FROM agent_registry WHERE tmux_pane IS NOT NULL ORDER BY connected_at DESC").all();
+      jsonResponse(res, 200, agents);
       return;
     }
 
