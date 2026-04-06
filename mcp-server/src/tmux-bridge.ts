@@ -18,13 +18,13 @@ function startSSEListener(options: BridgeOptions): void {
   function connect() {
     const req = http.get(`http://localhost:${port}/events`, (res) => {
       let buffer = '';
+      let eventType = '';  // persists across chunks — SSE fields may split across TCP segments
 
       res.on('data', (chunk: Buffer) => {
         buffer += chunk.toString();
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
-        let eventType = '';
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             eventType = line.slice(7).trim();
@@ -33,6 +33,9 @@ function startSSEListener(options: BridgeOptions): void {
               const data = JSON.parse(line.slice(6));
               handleSSEEvent(eventType, data, options);
             } catch { /* malformed JSON */ }
+            eventType = '';
+          } else if (line === '') {
+            // SSE event delimiter — reset state for next event
             eventType = '';
           }
         }

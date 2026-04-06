@@ -452,8 +452,8 @@ export function broadcast(event: string, data: object): void {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-    }).catch(() => {
-      // SSE server not running — silently skip
+    }).catch((err) => {
+      console.error(`[SSE] broadcast relay to port ${activePort} failed: ${err.message}`);
     });
   }
 }
