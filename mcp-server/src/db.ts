@@ -134,6 +134,7 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_status ON agent_registry(status);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_name ON agent_registry(name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_registry_project_path ON agent_registry(project_path);
 
     CREATE TABLE IF NOT EXISTS tool_executions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

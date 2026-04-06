@@ -48,50 +48,75 @@ function generateName(folderName: string): string {
   return `${folderName}:${Date.now()}`;
 }
 
-/** Register an agent. Returns the assigned name. */
+/** Register an agent. Returns the assigned name.
+ *  Uses project_path as the stable identifier — same directory always reuses
+ *  the same agent entry, preserving message history across sessions.
+ */
 export function registerAgent(options?: { customName?: string }): string {
   const db = getDb();
   const agentPid = process.ppid;
   const projectPath = process.cwd();
   const folderName = projectPath.split('/').pop() || 'unknown';
+  const tmuxPane = detectTmuxPane(agentPid);
+  const ts = new Date().toISOString();
 
-  // Check if this PID already has a registration — reuse it (or rename if customName provided)
-  const existingByPid = db.prepare('SELECT * FROM agent_registry WHERE pid = ? AND status = ?').get(agentPid, 'connected') as AgentRow | undefined;
-  if (existingByPid) {
-    const tmuxPane = detectTmuxPane(agentPid);
-    if (tmuxPane !== existingByPid.tmux_pane) {
-      db.prepare('UPDATE agent_registry SET tmux_pane = ? WHERE id = ?').run(tmuxPane, existingByPid.id);
+  // Look up by project_path — stable across PID changes and restarts
+  const existing = db.prepare('SELECT * FROM agent_registry WHERE project_path = ?').get(projectPath) as AgentRow | undefined;
+
+  if (existing) {
+    // Reuse existing entry — update PID, tmux pane, status, and optionally rename
+    const newName = options?.customName || existing.name;
+    const renamed = newName !== existing.name;
+
+    // If renaming, update agent_messages to preserve history under the new name
+    if (renamed) {
+      db.prepare('UPDATE agent_messages SET sender_name = ? WHERE sender_name = ?').run(newName, existing.name);
+      db.prepare('UPDATE agent_messages SET recipient_name = ? WHERE recipient_name = ?').run(newName, existing.name);
     }
-    // Allow renaming via customName
-    if (options?.customName && options.customName !== existingByPid.name) {
-      db.prepare('UPDATE agent_registry SET name = ? WHERE id = ?').run(options.customName, existingByPid.id);
-      broadcast('agent_connected', { entity: 'agent', action: 'agent_connected', payload: { ...existingByPid, name: options.customName, tmux_pane: tmuxPane ?? existingByPid.tmux_pane } });
-      return options.customName;
+
+    db.prepare(
+      'UPDATE agent_registry SET name = ?, pid = ?, tmux_pane = ?, status = ?, connected_at = ?, disconnected_at = NULL WHERE id = ?'
+    ).run(newName, agentPid, tmuxPane, 'connected', ts, existing.id);
+
+    const row = db.prepare('SELECT * FROM agent_registry WHERE id = ?').get(existing.id);
+    broadcast('agent_connected', { entity: 'agent', action: 'agent_connected', payload: row });
+    if (renamed) {
+      logActivity('agent_connected', `Agent "${existing.name}" renamed to "${newName}" and reconnected`, { entityType: 'agent' });
+    } else {
+      logActivity('agent_connected', `Agent "${newName}" reconnected`, { entityType: 'agent' });
     }
-    return existingByPid.name;
+
+    return newName;
   }
 
+  // No existing entry for this project path — create a new one
   // Clean up dead agents first to free up names
   checkAgentLiveness();
 
   const name = options?.customName || generateName(folderName);
-  const tmuxPane = detectTmuxPane(agentPid);
-  const ts = new Date().toISOString();
 
-  const existing = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name) as AgentRow | undefined;
-  if (existing) {
-    db.prepare(
-      'UPDATE agent_registry SET project_path = ?, pid = ?, tmux_pane = ?, status = ?, connected_at = ?, disconnected_at = NULL WHERE name = ?'
-    ).run(projectPath, agentPid, tmuxPane, 'connected', ts, name);
-  } else {
+  // Check if the name is taken by a different project path
+  const nameConflict = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name) as AgentRow | undefined;
+  if (nameConflict) {
+    // Name exists for a different project — generate a unique suffix
+    const uniqueName = options?.customName ? `${options.customName}:${Date.now()}` : generateName(folderName);
     db.prepare(
       'INSERT INTO agent_registry (name, project_path, pid, tmux_pane, status, connected_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(name, projectPath, agentPid, tmuxPane, 'connected', ts);
+    ).run(uniqueName, projectPath, agentPid, tmuxPane, 'connected', ts);
+
+    const row = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(uniqueName);
+    broadcast('agent_connected', { entity: 'agent', action: 'agent_connected', payload: row });
+    logActivity('agent_connected', `Agent "${uniqueName}" connected (new)`, { entityType: 'agent' });
+    return uniqueName;
   }
+
+  db.prepare(
+    'INSERT INTO agent_registry (name, project_path, pid, tmux_pane, status, connected_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(name, projectPath, agentPid, tmuxPane, 'connected', ts);
 
   const row = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name);
   broadcast('agent_connected', { entity: 'agent', action: 'agent_connected', payload: row });
-  logActivity('agent_connected', `Agent "${name}" connected`, { entityType: 'agent' });
+  logActivity('agent_connected', `Agent "${name}" connected (new)`, { entityType: 'agent' });
 
   return name;
 }
