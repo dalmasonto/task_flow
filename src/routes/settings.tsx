@@ -281,6 +281,24 @@ export default function Settings() {
                       className="w-full bg-input border-0 border-b border-border focus:border-tertiary focus:ring-0 text-sm py-2 px-2 font-mono"
                     />
                   </div>
+                  <button
+                    onClick={async () => {
+                      if (!relayUrlInput) { toast.error('Enter a relay URL first'); return }
+                      try {
+                        const res = await fetch(`${relayUrlInput}/health`, {
+                          headers: { 'Authorization': `Bearer ${relayAccessTokenInput}` },
+                        })
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                        const data = await res.json()
+                        toast.success(`Relay online — upstream: ${data.upstream}, clients: ${data.clients}`)
+                      } catch (err: any) {
+                        toast.error(`Relay unreachable: ${err.message}`)
+                      }
+                    }}
+                    className="w-full py-2 text-[10px] uppercase tracking-widest font-bold border border-tertiary/30 bg-tertiary/5 text-tertiary hover:bg-tertiary/15 transition-colors"
+                  >
+                    Test Connection
+                  </button>
                   <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
                     Remote mode connects through a relay server — no local sidecar is spawned
                   </p>
