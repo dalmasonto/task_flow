@@ -69,24 +69,32 @@ interface AgentRegistryRow {
   pid: number;
 }
 
-const PROMPT_PATTERNS = [
-  /Esc to cancel/i,
-  /Tab to amend/i,
-  /\(y\/n\)/i,
-  /\(yes\/no\)/i,
-  /Do you want to/i,
-  /Allow .+ for this/i,
-];
-
+/**
+ * Detect an active Claude Code permission prompt.
+ *
+ * The definitive marker is "Esc to cancel" which only appears in the
+ * footer of active prompts and disappears once the user responds.
+ * We check only the last 10 lines of the VISIBLE screen (not full
+ * scrollback) to avoid matching old, already-answered prompts.
+ *
+ * Generic patterns like "Do you want to" and "(y/n)" are intentionally
+ * excluded — Claude writes these in prose responses too, causing false flags.
+ */
 function detectPrompt(content: string): { detected: boolean; hints: string[] } {
-  const tail = content.split('\n').slice(-25).join('\n');
+  // Only check last 10 lines — the prompt footer is always at the bottom
+  const lines = content.split('\n');
+  const tail = lines.slice(-10).join('\n');
   const hints: string[] = [];
 
-  if (/Esc to cancel/i.test(tail)) hints.push('Esc to cancel');
-  if (/Tab to amend/i.test(tail)) hints.push('Tab to amend');
+  const hasEsc = /Esc to cancel/i.test(tail);
+  const hasTab = /Tab to amend/i.test(tail);
+
+  if (hasEsc) hints.push('Esc to cancel');
+  if (hasTab) hints.push('Tab to amend');
   if (/shift\+tab/i.test(tail)) hints.push('Shift+Tab');
 
-  const detected = PROMPT_PATTERNS.some(p => p.test(tail));
+  // Only flag as detected if we see the actual prompt footer
+  const detected = hasEsc || hasTab;
   return { detected, hints };
 }
 

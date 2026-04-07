@@ -58,28 +58,18 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
     3000,
   )
 
-  // Detect permission prompts / input-required state from terminal content
+  // Detect active Claude Code permission prompts from terminal content.
+  // Only checks last 10 lines for "Esc to cancel" / "Tab to amend" —
+  // the definitive footer that only appears during active prompts.
   const promptHints = (() => {
     if (!content) return null
-    // Look at the last ~20 lines where prompts appear
-    const tail = content.split('\n').slice(-20).join('\n')
-    const hints: { label: string; key: string; keys: string; literal: boolean }[] = []
+    const tail = content.split('\n').slice(-10).join('\n')
 
-    if (/Esc to cancel/i.test(tail))
-      hints.push({ label: 'Esc to cancel', key: 'Escape', keys: 'Escape', literal: false })
-    if (/Tab to amend/i.test(tail))
-      hints.push({ label: 'Tab to amend', key: 'Tab', keys: 'Tab', literal: false })
-    if (/shift\+tab/i.test(tail))
-      hints.push({ label: 'Shift+Tab', key: 'S-Tab', keys: 'BTab', literal: false })
+    const hasEsc = /Esc to cancel/i.test(tail)
+    const hasTab = /Tab to amend/i.test(tail)
 
-    // Detect numbered choice prompts (❯ 1. ... 2. ... 3. ...)
-    const hasChoices = /^\s*[❯›>]?\s*\d+\.\s+/m.test(tail)
-    // Detect y/n or yes/no prompts
-    const hasYesNo = /\(y\/n\)|\(yes\/no\)/i.test(tail)
-
-    return hints.length > 0 || hasChoices || hasYesNo
-      ? { hints, hasChoices, hasYesNo, awaiting: true }
-      : null
+    if (!hasEsc && !hasTab) return null
+    return { awaiting: true }
   })()
 
   // Auto-scroll preview to bottom
