@@ -255,7 +255,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
             className="text-muted-foreground hover:text-foreground"
           >
             <span className="material-symbols-outlined text-sm">
-              {expandKeys ? 'expand_less' : 'expand_more'}
+              {expandKeys ? 'expand_more' : 'expand_less'}
             </span>
           </button>
         </div>
@@ -284,6 +284,17 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
             className={`text-[10px] font-bold h-7 px-2 ${btnBase}`}
             onClick={() => handleSend('Enter', false, false)}
           >Enter</Button>
+          <div className="w-px bg-border/50 mx-0.5" />
+          {CRITICAL_KEYS.map((k) => (
+            <Button key={k.keys} variant="outline" size="sm" disabled={sending}
+              className={`text-[10px] font-bold h-7 px-2 ${
+                promptHints
+                  ? '!bg-red-500/15 !border-red-500/50 hover:!bg-red-500/30 hover:!border-red-400 text-red-300'
+                  : 'border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 text-red-400'
+              }`}
+              onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+            >{k.label}</Button>
+          ))}
         </div>
 
         {/* Expanded section — navigation, control, critical */}
@@ -331,23 +342,6 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
                     >{k.label}</Button>
                   ))}
                 </div>
-              </div>
-            </div>
-
-            {/* Critical */}
-            <div className="space-y-1.5">
-              <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Critical</div>
-              <div className="flex gap-1">
-                {CRITICAL_KEYS.map((k) => (
-                  <Button key={k.keys} variant="outline" size="sm" disabled={sending}
-                    className={`text-[10px] font-bold h-7 px-3 ${
-                      promptHints
-                        ? '!bg-red-500/15 !border-red-500/50 hover:!bg-red-500/30 hover:!border-red-400 text-red-300'
-                        : 'border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 text-red-400'
-                    }`}
-                    onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
-                  >{k.label}</Button>
-                ))}
               </div>
             </div>
           </div>
