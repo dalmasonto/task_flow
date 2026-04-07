@@ -57,7 +57,7 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-// ─── Prompt detection poller ─────────────────────────────────────────
+// ─── Terminal capture & prompt detection poller ─────────────────────
 
 interface AgentRegistryRow {
   name: string;
@@ -87,7 +87,22 @@ function detectPrompt(content: string): { detected: boolean; hints: string[] } {
   return { detected, hints };
 }
 
-function pollAgentPrompts(prevState: Map<string, boolean>): void {
+/** Fast string hash (djb2) for content change detection */
+function hashContent(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
+/**
+ * Unified terminal poller — single capture per agent, broadcasts:
+ * - terminal_capture: full pane content for UI rendering (only when changed)
+ * - agent_awaiting_input / agent_input_resolved: prompt state transitions
+ * - notification_created: when an agent first needs input
+ */
+function pollAgentTerminals(promptState: Map<string, boolean>, contentHashes: Map<string, number>): void {
   const db = getDb();
   const agents = db.prepare(
     "SELECT name, tmux_pane, status, pid FROM agent_registry WHERE status = 'connected' AND tmux_pane IS NOT NULL"
@@ -95,17 +110,29 @@ function pollAgentPrompts(prevState: Map<string, boolean>): void {
 
   for (const agent of agents) {
     try {
-      const output = execFileSync(
+      const content = execFileSync(
         'tmux', ['capture-pane', '-p', '-S', '-', '-t', agent.tmux_pane!],
         { timeout: 5000 }
       ).toString();
 
-      const { detected, hints } = detectPrompt(output);
-      const wasAwaiting = prevState.get(agent.name) ?? false;
+      // Only broadcast if content actually changed
+      const hash = hashContent(content);
+      const prevHash = contentHashes.get(agent.name);
+      if (hash !== prevHash) {
+        contentHashes.set(agent.name, hash);
+        broadcast('terminal_capture', {
+          entity: 'terminal',
+          action: 'terminal_capture',
+          payload: { name: agent.name, pane: agent.tmux_pane, content },
+        });
+      }
+
+      // Prompt detection with state transitions (always check, even if content unchanged hash-wise)
+      const { detected, hints } = detectPrompt(content);
+      const wasAwaiting = promptState.get(agent.name) ?? false;
 
       if (detected && !wasAwaiting) {
-        // Transition: not awaiting → awaiting — fire notification + broadcast
-        prevState.set(agent.name, true);
+        promptState.set(agent.name, true);
 
         const ts = new Date().toISOString();
         const hintsText = hints.length > 0 ? ` (${hints.join(' · ')})` : '';
@@ -122,8 +149,7 @@ function pollAgentPrompts(prevState: Map<string, boolean>): void {
         broadcast('notification_created', { entity: 'notification', action: 'notification_created', payload: notification });
         broadcast('agent_awaiting_input', { entity: 'agent', action: 'agent_awaiting_input', payload: { name: agent.name, hints, awaiting: true } });
       } else if (!detected && wasAwaiting) {
-        // Transition: awaiting → resolved
-        prevState.set(agent.name, false);
+        promptState.set(agent.name, false);
         broadcast('agent_input_resolved', { entity: 'agent', action: 'agent_input_resolved', payload: { name: agent.name, awaiting: false } });
       }
     } catch {
@@ -132,9 +158,10 @@ function pollAgentPrompts(prevState: Map<string, boolean>): void {
   }
 
   // Clean up agents that disconnected
-  for (const [name] of prevState) {
+  for (const [name] of promptState) {
     if (!agents.some(a => a.name === name)) {
-      prevState.delete(name);
+      promptState.delete(name);
+      contentHashes.delete(name);
     }
   }
 }
@@ -588,11 +615,12 @@ export async function startSSEServer(): Promise<void> {
           }
         }, 30_000);
 
-        // Prompt detection — poll connected agents for input-required state
+        // Terminal capture & prompt detection — single capture loop for all agents
         const promptState = new Map<string, boolean>();
+        const contentHashes = new Map<string, number>();
         setInterval(() => {
-          try { pollAgentPrompts(promptState); } catch { /* ignore */ }
-        }, 5_000);
+          try { pollAgentTerminals(promptState, contentHashes); } catch { /* ignore */ }
+        }, 3_000);
 
         if (port !== PREFERRED_PORT) {
           console.log(`[SSE] listening on fallback port ${port} (preferred ${PREFERRED_PORT} was unavailable)`);

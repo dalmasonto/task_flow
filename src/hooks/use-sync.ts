@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { db } from '@/db/database'
 import { useSetting } from '@/hooks/use-settings'
+import { terminalStore } from '@/hooks/use-terminal'
 import type { TaskStatus, TaskPriority, ProjectType, ActivityAction } from '@/types'
 
 function baseUrl(port: number) { return `http://localhost:${port}` }
@@ -198,6 +199,13 @@ function attachListeners(source: EventSource, sseUrl: string) {
     const { payload } = JSON.parse(e.data)
     if (payload?.name) {
       db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: false })
+    }
+  })
+
+  source.addEventListener('terminal_capture', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.name && payload?.content != null) {
+      terminalStore.set(payload.name, payload.content)
     }
   })
 

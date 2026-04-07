@@ -1,26 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 
-interface CaptureResult {
-  agent: string
-  pane: string
-  content: string
-}
-
 interface SendKeysResult {
   agent: string
   pane: string
   keys: string
   enter: boolean
   sent: boolean
-}
-
-export async function captureTerminal(agentName: string, port: number): Promise<CaptureResult> {
-  const res = await fetch(`http://localhost:${port}/api/terminal/${encodeURIComponent(agentName)}/capture`)
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error ?? 'Failed to capture terminal')
-  }
-  return res.json()
 }
 
 export async function sendKeys(agentName: string, keys: string, port: number, enter = true, literal = true): Promise<SendKeysResult> {
@@ -42,34 +27,56 @@ export async function fetchTerminalAgents(port: number) {
   return res.json() as Promise<Array<{ name: string; tmux_pane: string; status: string; pid: number }>>
 }
 
-/** Auto-refreshing terminal capture hook */
-export function useTerminalCapture(agentName: string | null, port: number, intervalMs = 3000) {
-  const [content, setContent] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+// ─── SSE-driven terminal content store ──────────────────────────────
 
-  const refresh = useCallback(async () => {
-    if (!agentName || !port) return
-    try {
-      const result = await captureTerminal(agentName, port)
-      setContent(result.content)
-      setError(null)
-    } catch (err: any) {
-      setError(err.message)
-    }
-  }, [agentName, port])
+type Listener = (content: string) => void
+
+/** In-memory store for terminal content, updated by SSE events */
+class TerminalStore {
+  private content = new Map<string, string>()
+  private listeners = new Map<string, Set<Listener>>()
+
+  set(agentName: string, content: string) {
+    this.content.set(agentName, content)
+    const subs = this.listeners.get(agentName)
+    if (subs) subs.forEach(fn => fn(content))
+  }
+
+  get(agentName: string): string | null {
+    return this.content.get(agentName) ?? null
+  }
+
+  subscribe(agentName: string, fn: Listener): () => void {
+    if (!this.listeners.has(agentName)) this.listeners.set(agentName, new Set())
+    this.listeners.get(agentName)!.add(fn)
+    return () => { this.listeners.get(agentName)?.delete(fn) }
+  }
+}
+
+export const terminalStore = new TerminalStore()
+
+/** Hook that subscribes to terminal content for an agent via SSE-driven store */
+export function useTerminalCapture(agentName: string | null, _port: number, _intervalMs = 3000) {
+  const [content, setContent] = useState<string | null>(
+    agentName ? terminalStore.get(agentName) : null
+  )
+  const [error] = useState<string | null>(null)
 
   useEffect(() => {
     if (!agentName) {
       setContent(null)
       return
     }
-    refresh()
-    timerRef.current = setInterval(refresh, intervalMs)
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [agentName, refresh, intervalMs])
+    // Read current value
+    const current = terminalStore.get(agentName)
+    if (current) setContent(current)
+
+    // Subscribe to updates
+    return terminalStore.subscribe(agentName, setContent)
+  }, [agentName])
+
+  // Refresh is now a no-op since backend pushes content
+  const refresh = useCallback(() => {}, [])
 
   return { content, error, refresh }
 }
