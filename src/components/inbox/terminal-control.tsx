@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { sendKeys, useTerminalCapture } from '@/hooks/use-terminal'
@@ -158,9 +159,10 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       await sendKeys(agentName, keys, port, enter, literal)
       setLastSent(keys)
       setInput('')
+      toast.success(`Sent "${keys}" to ${agentName}`)
       setTimeout(refresh, 500)
-    } catch (err) {
-      console.error('Failed to send keys:', err)
+    } catch (err: any) {
+      toast.error(`Failed to send keys: ${err.message}`)
     } finally {
       setSending(false)
     }
