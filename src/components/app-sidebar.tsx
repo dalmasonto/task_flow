@@ -22,6 +22,7 @@ const navItems = [
   { label: "Timeline", to: "/analytics/timeline", icon: "timeline" },
   { label: "Activity Pulse", to: "/activity", icon: "monitoring" },
   { label: "Agent Inbox", to: "/inbox", icon: "inbox" },
+  { label: "Agent Terminals", to: "/terminals", icon: "terminal" },
   { label: "Dependencies", to: "/dependencies", icon: "account_tree" },
   { label: "Archive", to: "/archive", icon: "archive" },
 ]

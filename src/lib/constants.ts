@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS = {
   recentProjectIds: [] as number[],
   depGraphSidebarWidth: 400,
   depGraphActiveFilters: [] as string[],
+  terminalWidth: 420,
 }
 
 export const FONT_OPTIONS = [

@@ -19,6 +19,7 @@ import Archive from '@/routes/archive'
 import ActivityPulse from '@/routes/activity-pulse'
 import BulkCreateTasks from '@/routes/bulk-create-tasks'
 import AgentInbox from '@/routes/agent-inbox'
+import AgentTerminals from '@/routes/agent-terminals'
 import NotFound from '@/routes/not-found'
 
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="archive" element={<Archive />} />
         <Route path="inbox" element={<AgentInbox />} />
+        <Route path="terminals" element={<AgentTerminals />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

@@ -106,6 +106,7 @@ export interface SettingsMap {
   recentProjectIds: number[]
   depGraphSidebarWidth: number
   depGraphActiveFilters: string[]
+  terminalWidth: number
 }
 
 export interface Setting {
