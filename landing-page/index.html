@@ -1167,7 +1167,7 @@
           Remote Agent Control
         </h2>
         <p class="text-sm text-neutral-400 mb-12 text-center">
-          Control your agents from anywhere. A lightweight relay server bridges your local MCP server to remote clients — same UI, no VPN needed.
+          Control your agents from anywhere. A lightweight relay server acts as a mailbox between your local machine and remote clients — all connections are outbound, no VPN or port forwarding needed.
         </p>
 
         <!-- Architecture diagram -->
@@ -1177,16 +1177,19 @@
               Local MCP Server
             </div>
             <div class="p-3 border border-[#de8eff]/30 rounded bg-[#de8eff]/5 text-center text-[#de8eff]">
-              Relay Server
+              Relay (mailbox)
             </div>
             <div class="p-3 border border-neutral-700 rounded bg-neutral-900 text-center text-neutral-300">
               Remote TaskFlow App
             </div>
           </div>
           <div class="grid grid-cols-3 gap-3 text-center text-neutral-500 text-[10px]">
-            <span>Pushes events →</span>
-            <span>← SSE stream / Proxy commands →</span>
-            <span>← Reads &amp; controls</span>
+            <span>Pushes events + state →<br>Polls commands ←</span>
+            <span>Event buffer + command queue</span>
+            <span>← SSE stream + state<br>Posts commands →</span>
+          </div>
+          <div class="mt-4 p-3 border border-neutral-800 rounded bg-[#0a0a0a] text-neutral-400 text-[11px] leading-relaxed">
+            <strong class="text-neutral-300">How it works:</strong> Your local MCP server pushes SSE events and state snapshots to the relay (outbound only). The remote app reads events via SSE and submits commands to a queue. The local MCP polls the queue every 2 seconds and executes commands locally. No inbound connections required — works behind NAT, firewalls, anything.
           </div>
         </div>
 
@@ -1201,7 +1204,7 @@
             </div>
             <div class="p-4 space-y-3">
               <p class="text-sm text-neutral-400">
-                The relay is a small Node.js proxy. Deploy it on any VPS (fly.io, Railway, DigitalOcean, etc).
+                The relay is a stateless Node.js mailbox — it buffers events and queues commands. Deploy it on any VPS (fly.io, Railway, DigitalOcean, etc). Only 3 env vars needed.
               </p>
               <pre class="bg-black p-3 rounded text-xs text-neutral-300 overflow-x-auto"><code><span class="text-neutral-500"># Clone and build</span>
 cd relay-server
@@ -1230,7 +1233,7 @@ node dist/index.js</code></pre>
             </div>
             <div class="p-4 space-y-3">
               <p class="text-sm text-neutral-400">
-                Tell the MCP server where to push events. Edit <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">~/.taskflow/config.json</code>:
+                Tell the MCP server where to push events and poll for commands. Edit <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">~/.taskflow/config.json</code>:
               </p>
               <pre class="bg-black p-3 rounded text-xs text-neutral-300 overflow-x-auto"><code>{
   "port": 3456,
@@ -1282,6 +1285,7 @@ node dist/index.js</code></pre>
               <li>• <strong class="text-neutral-300">Always use HTTPS</strong> for the relay in production — tokens travel in headers.</li>
               <li>• <strong class="text-neutral-300">Shell injection blocked</strong> — send_keys rejects <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">!</code> prefix (Claude's shell escape) and payloads over 200 chars.</li>
               <li>• <strong class="text-neutral-300">Disconnected agents locked</strong> — after /exit, key sending is blocked to prevent bare shell access.</li>
+              <li>• <strong class="text-neutral-300">Outbound only</strong> — your local machine never accepts inbound connections. Works behind NAT and firewalls.</li>
               <li>• <strong class="text-neutral-300">No default access</strong> — without tokens configured, the relay rejects all requests.</li>
             </ul>
           </div>
