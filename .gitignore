@@ -27,6 +27,8 @@ src-tauri/Cargo.lock
 
 # Editor directories and files
 .vscode/*
+info
+keys.txt
 !.vscode/extensions.json
 .idea
 .DS_Store
