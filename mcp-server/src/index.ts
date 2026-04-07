@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import { getConfig } from './config.js';
 import { startSSEServer } from './sse.js';
 import { getDb } from './db.js';

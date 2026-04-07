@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 
 // ─── Config ─────────────────────────────────────────────────────────
