@@ -151,9 +151,11 @@ if (!httpOnly) {
   await server.connect(transport);
 
   const { registerAgent, unregisterAgent } = await import('./agent-registry.js');
+  const { setAgentName } = await import('./tools/agent-inbox.js');
 
-  // Auto-register this agent
+  // Auto-register this agent and sync name to agent-inbox tools
   const agentName = registerAgent();
+  setAgentName(agentName);
   const agentPid = process.ppid;
   console.error(`[agent] registered as "${agentName}"`);
 

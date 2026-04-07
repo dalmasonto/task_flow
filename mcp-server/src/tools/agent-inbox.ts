@@ -7,6 +7,14 @@ import { registerAgent as doRegister, getAgent, listAgents } from '../agent-regi
 /** The name assigned to this agent after registration */
 let myAgentName: string | null = null;
 
+/** Set the agent name from external registration (index.ts).
+ *  This prevents double-registration when index.ts registers at startup
+ *  and ensureRegistered() would register again on first tool call.
+ */
+export function setAgentName(name: string): void {
+  myAgentName = name;
+}
+
 /** Get or auto-register the agent name.
  *  Verifies the cached registration is still valid — if the liveness
  *  checker disconnected us while sleeping, re-register to reclaim identity.
