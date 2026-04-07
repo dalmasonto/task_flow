@@ -143,6 +143,12 @@
             Setup
           </a>
           <a
+            href="#remote"
+            class="hover:text-white transition-colors hidden md:block"
+          >
+            Remote
+          </a>
+          <a
             href="#mcp"
             class="hover:text-white transition-colors hidden md:block"
           >
@@ -1154,6 +1160,135 @@
       </div>
     </section>
 
+    <!-- Remote Execution Setup -->
+    <section id="remote" class="py-24 border-t border-[#171717] bg-[#030303]">
+      <div class="max-w-4xl mx-auto px-6">
+        <h2 class="text-2xl font-medium tracking-tight mb-2 text-center text-white">
+          Remote Agent Control
+        </h2>
+        <p class="text-sm text-neutral-400 mb-12 text-center">
+          Control your agents from anywhere. A lightweight relay server bridges your local MCP server to remote clients — same UI, no VPN needed.
+        </p>
+
+        <!-- Architecture diagram -->
+        <div class="mb-12 font-mono text-xs space-y-3">
+          <div class="grid grid-cols-3 gap-3 items-center">
+            <div class="p-3 border border-[#69fd5d]/30 rounded bg-[#69fd5d]/5 text-center text-[#69fd5d]">
+              Local MCP Server
+            </div>
+            <div class="p-3 border border-[#de8eff]/30 rounded bg-[#de8eff]/5 text-center text-[#de8eff]">
+              Relay Server
+            </div>
+            <div class="p-3 border border-neutral-700 rounded bg-neutral-900 text-center text-neutral-300">
+              Remote TaskFlow App
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-3 text-center text-neutral-500 text-[10px]">
+            <span>Pushes events →</span>
+            <span>← SSE stream / Proxy commands →</span>
+            <span>← Reads &amp; controls</span>
+          </div>
+        </div>
+
+        <div class="space-y-8">
+          <!-- Step 1: Deploy Relay -->
+          <div class="border border-neutral-800 rounded-xl overflow-hidden bg-[#0a0a0a]">
+            <div class="p-4 border-b border-neutral-800 bg-[#050505]">
+              <h3 class="text-sm font-medium text-white flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-[#de8eff]/20 text-[#de8eff] text-[10px] font-bold flex items-center justify-center">1</span>
+                Deploy the Relay Server
+              </h3>
+            </div>
+            <div class="p-4 space-y-3">
+              <p class="text-sm text-neutral-400">
+                The relay is a small Node.js proxy. Deploy it on any VPS (fly.io, Railway, DigitalOcean, etc).
+              </p>
+              <pre class="bg-black p-3 rounded text-xs text-neutral-300 overflow-x-auto"><code><span class="text-neutral-500"># Clone and build</span>
+cd relay-server
+npm install && npm run build
+
+<span class="text-neutral-500"># Create .env</span>
+PORT=4000
+PUSH_TOKEN=<span class="text-[#69fd5d]">your-secure-push-token</span>
+ACCESS_TOKEN=<span class="text-[#de8eff]">your-secure-access-token</span>
+
+<span class="text-neutral-500"># Start</span>
+node dist/index.js</code></pre>
+              <p class="text-xs text-neutral-500">
+                Or use Docker: <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">docker build -t taskflow-relay . && docker run -e PUSH_TOKEN=... -e ACCESS_TOKEN=... -p 4000:4000 taskflow-relay</code>
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 2: Configure Local MCP -->
+          <div class="border border-neutral-800 rounded-xl overflow-hidden bg-[#0a0a0a]">
+            <div class="p-4 border-b border-neutral-800 bg-[#050505]">
+              <h3 class="text-sm font-medium text-white flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-[#69fd5d]/20 text-[#69fd5d] text-[10px] font-bold flex items-center justify-center">2</span>
+                Configure Your Local MCP Server
+              </h3>
+            </div>
+            <div class="p-4 space-y-3">
+              <p class="text-sm text-neutral-400">
+                Tell the MCP server where to push events. Edit <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">~/.taskflow/config.json</code>:
+              </p>
+              <pre class="bg-black p-3 rounded text-xs text-neutral-300 overflow-x-auto"><code>{
+  "port": 3456,
+  "relayUrl": "<span class="text-[#de8eff]">https://your-relay.example.com</span>",
+  "relayPushToken": "<span class="text-[#69fd5d]">your-secure-push-token</span>"
+}</code></pre>
+              <p class="text-xs text-neutral-500">
+                Or use environment variables: <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">TASKFLOW_RELAY_URL</code> and <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">TASKFLOW_RELAY_PUSH_TOKEN</code>. Or a <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">.env</code> file in the MCP server directory. All three work — env vars take priority over config file.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 3: Connect Remote App -->
+          <div class="border border-neutral-800 rounded-xl overflow-hidden bg-[#0a0a0a]">
+            <div class="p-4 border-b border-neutral-800 bg-[#050505]">
+              <h3 class="text-sm font-medium text-white flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-neutral-700 text-neutral-300 text-[10px] font-bold flex items-center justify-center">3</span>
+                Connect the Remote App
+              </h3>
+            </div>
+            <div class="p-4 space-y-3">
+              <p class="text-sm text-neutral-400">
+                Open TaskFlow on your remote device. Go to <strong class="text-white">Settings → Connection</strong> and switch to <strong class="text-white">Remote</strong> mode:
+              </p>
+              <div class="grid grid-cols-2 gap-3 text-xs">
+                <div class="p-3 border border-neutral-800 rounded bg-black">
+                  <div class="text-neutral-500 text-[10px] uppercase tracking-widest mb-1">Relay URL</div>
+                  <div class="text-[#de8eff] font-mono">https://your-relay.example.com</div>
+                </div>
+                <div class="p-3 border border-neutral-800 rounded bg-black">
+                  <div class="text-neutral-500 text-[10px] uppercase tracking-widest mb-1">Access Token</div>
+                  <div class="text-[#de8eff] font-mono">your-secure-access-token</div>
+                </div>
+              </div>
+              <p class="text-xs text-neutral-500">
+                Click <strong class="text-neutral-300">Test Connection</strong> to verify. Save, and you're controlling agents remotely — terminal capture, send keys, inbox messages, everything works through the relay.
+              </p>
+            </div>
+          </div>
+
+          <!-- Security note -->
+          <div class="p-4 border border-amber-500/20 rounded-xl bg-amber-500/5">
+            <h4 class="text-sm font-medium text-amber-400 mb-2 flex items-center gap-2">
+              <iconify-icon icon="solar:shield-warning-linear" class="text-lg"></iconify-icon>
+              Security
+            </h4>
+            <ul class="text-xs text-neutral-400 space-y-1.5">
+              <li>• <strong class="text-neutral-300">Two separate tokens</strong> — push token (MCP → relay) and access token (app → relay). Rotate independently.</li>
+              <li>• <strong class="text-neutral-300">Always use HTTPS</strong> for the relay in production — tokens travel in headers.</li>
+              <li>• <strong class="text-neutral-300">Shell injection blocked</strong> — send_keys rejects <code class="text-neutral-400 bg-neutral-800 px-1 py-0.5 rounded text-[10px]">!</code> prefix (Claude's shell escape) and payloads over 200 chars.</li>
+              <li>• <strong class="text-neutral-300">Disconnected agents locked</strong> — after /exit, key sending is blocked to prevent bare shell access.</li>
+              <li>• <strong class="text-neutral-300">No default access</strong> — without tokens configured, the relay rejects all requests.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- MCP Tools Reference -->
     <section id="mcp" class="py-24 border-t border-[#171717] bg-[#050505]">
       <div class="max-w-4xl mx-auto px-6">
@@ -1163,7 +1298,7 @@
           MCP Tools Reference
         </h2>
         <p class="text-sm text-neutral-400 mb-12 text-center">
-          31 tools across 8 domains. Agent instructions are built-in — your AI learns TaskFlow automatically.
+          32 tools across 9 domains. Agent instructions are built-in — your AI learns TaskFlow automatically.
         </p>
 
         <div

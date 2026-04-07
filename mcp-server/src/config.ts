@@ -41,8 +41,16 @@ const DEFAULTS: TaskFlowConfig = {
 };
 
 // ─── config file path ────────────────────────────────────────────────
+// Config lives alongside the database in ~/.taskflow/
+// Falls back to legacy ~/.taskflow_config.json for backward compat
 
-const CONFIG_PATH = resolve(homedir(), '.taskflow_config.json');
+import { existsSync } from 'fs';
+
+const NEW_CONFIG_PATH = resolve(homedir(), '.taskflow', 'config.json');
+const LEGACY_CONFIG_PATH = resolve(homedir(), '.taskflow_config.json');
+const CONFIG_PATH = existsSync(NEW_CONFIG_PATH) ? NEW_CONFIG_PATH
+  : existsSync(LEGACY_CONFIG_PATH) ? LEGACY_CONFIG_PATH
+  : NEW_CONFIG_PATH; // default to new path for fresh installs
 
 // ─── loader ──────────────────────────────────────────────────────────
 
