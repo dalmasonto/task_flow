@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { sendKeys, useTerminalCapture } from '@/hooks/use-terminal'
+import { MarkdownRenderer } from '@/components/markdown-renderer'
 
 interface TerminalControlProps {
   agentName: string
@@ -42,7 +43,8 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [sending, setSending] = useState(false)
   const [lastSent, setLastSent] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(true)
-  const previewRef = useRef<HTMLPreElement>(null)
+  const [rawMode, setRawMode] = useState(false)
+  const previewRef = useRef<HTMLDivElement>(null)
   const { content, error, refresh } = useTerminalCapture(
     showPreview ? agentName : null,
     port,
@@ -55,6 +57,69 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       previewRef.current.scrollTop = previewRef.current.scrollHeight
     }
   }, [content])
+
+  // Clean up terminal artifacts and convert indented code blocks to fenced markdown
+  const cleanContent = (text: string) => {
+    let cleaned = text
+      .replace(/^[─━—\-═╌╍┄┅╭╰╮╯│┃]{5,}.*$/gm, '') // strip decorator/box-drawing lines
+      .replace(/^[│┃]\s.*$/gm, '')                     // strip box content lines
+      .replace(/●/g, '-')                               // replace bullet dots with dashes
+
+    // Convert 2-space indented code blocks into fenced code blocks
+    // A code block is 2+ consecutive lines starting with exactly 2+ spaces
+    // that look like code (not list items or blockquotes)
+    cleaned = cleaned.replace(
+      /(?:^  .+\n?){2,}/gm,
+      (block) => {
+        const lines = block.split('\n').filter(l => l.length > 0)
+        // Check it's actually code-like (not just indented prose)
+        const hasCodeSignals = lines.some(l =>
+          /^\s*(\/\/|\/\*|\*|import |export |const |let |var |type |interface |function |class |return |if |for |while |switch |try |catch |\{|\}|=>|[a-zA-Z]+\(|[a-zA-Z]+:|<[a-zA-Z])/.test(l.trim())
+        )
+        if (!hasCodeSignals) return block
+        const dedented = lines.map(l => l.replace(/^ {2}/, '')).join('\n')
+        return '\n```ts\n' + dedented + '\n```\n'
+      }
+    )
+
+    return cleaned.replace(/\n{3,}/g, '\n\n')
+  }
+
+  // Split content into segments: user input (❯) lines vs markdown content
+  const renderContent = (text: string) => {
+    const cleaned = cleanContent(text)
+    const segments: { type: 'input' | 'markdown'; text: string }[] = []
+    let currentMarkdown = ''
+
+    for (const line of cleaned.split('\n')) {
+      if (line.trimStart().startsWith('❯')) {
+        if (currentMarkdown.trim()) {
+          segments.push({ type: 'markdown', text: currentMarkdown })
+          currentMarkdown = ''
+        }
+        segments.push({ type: 'input', text: line })
+      } else {
+        currentMarkdown += line + '\n'
+      }
+    }
+    if (currentMarkdown.trim()) {
+      segments.push({ type: 'markdown', text: currentMarkdown })
+    }
+
+    return segments.map((seg, i) =>
+      seg.type === 'input' ? (
+        <div
+          key={i}
+          className="flex items-start gap-2 my-1.5 px-2 py-1 bg-secondary/10 border-l-2 border-secondary rounded-r text-sm font-mono"
+        >
+          <span className="text-secondary shrink-0">❯</span>
+          <span className="text-foreground">{seg.text.replace(/^\s*❯\s*/, '')}</span>
+        </div>
+      ) : (
+        <MarkdownRenderer key={i} content={seg.text} className="text-sm" />
+      )
+    )
+  }
 
   const handleSend = async (keys: string, enter = true, literal = true) => {
     if (!keys && enter) return
@@ -84,31 +149,49 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
             {agentName}
           </span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-[10px] uppercase tracking-widest"
-          onClick={() => setShowPreview(!showPreview)}
-        >
-          {showPreview ? 'Hide' : 'Show'} Preview
-        </Button>
+        <div className="flex items-center gap-1">
+          {showPreview && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] uppercase tracking-widest"
+              onClick={() => setRawMode(!rawMode)}
+            >
+              {rawMode ? 'Rendered' : 'Raw'}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px] uppercase tracking-widest"
+            onClick={() => setShowPreview(!showPreview)}
+          >
+            {showPreview ? 'Hide' : 'Show'}
+          </Button>
+        </div>
       </div>
 
       {/* Terminal preview */}
       {showPreview && (
         <div className="flex-1 min-h-0 border-b border-border relative">
-          <pre
+          <div
             ref={previewRef}
-            className="h-full overflow-auto p-3 text-[11px] leading-tight font-mono bg-black/40 text-green-400/80 whitespace-pre-wrap"
+            className="h-full overflow-auto p-3"
           >
             {error ? (
-              <span className="text-destructive">{error}</span>
+              <span className="text-destructive text-xs">{error}</span>
             ) : content ? (
-              content
+              rawMode ? (
+                <pre className="text-xs leading-tight font-mono text-green-400/80 whitespace-pre-wrap bg-black/40 p-2 rounded">
+                  {content}
+                </pre>
+              ) : (
+                renderContent(content)
+              )
             ) : (
-              <span className="text-muted-foreground">Loading...</span>
+              <span className="text-muted-foreground text-xs">Loading...</span>
             )}
-          </pre>
+          </div>
           <button
             onClick={refresh}
             className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"

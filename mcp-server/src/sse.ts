@@ -407,7 +407,7 @@ export async function startSSEServer(): Promise<void> {
       if (!agent.tmux_pane) { jsonResponse(res, 400, { error: `Agent "${agentName}" has no tmux pane` }); return; }
 
       try {
-        const output = execFileSync('tmux', ['capture-pane', '-p', '-t', agent.tmux_pane], { timeout: 5000 }).toString();
+        const output = execFileSync('tmux', ['capture-pane', '-p', '-S', '-', '-t', agent.tmux_pane], { timeout: 5000 }).toString();
         jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, content: output });
       } catch (err: any) {
         jsonResponse(res, 500, { error: `Failed to capture pane: ${err.message}` });

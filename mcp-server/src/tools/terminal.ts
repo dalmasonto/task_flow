@@ -32,7 +32,7 @@ export function registerTerminalTools(server: McpServer) {
       if (result.error) return result.error;
 
       try {
-        const output = execFileSync('tmux', ['capture-pane', '-p', '-t', result.agent.tmux_pane!], { timeout: 5000 }).toString();
+        const output = execFileSync('tmux', ['capture-pane', '-p', '-S', '-', '-t', result.agent.tmux_pane!], { timeout: 5000 }).toString();
         return successResponse({
           agent: params.agent_name,
           pane: result.agent.tmux_pane,

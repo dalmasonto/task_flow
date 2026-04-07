@@ -145,7 +145,7 @@ export default function AgentInbox() {
 
       {/* Terminal control panel — shown when a live agent is selected */}
       {selectedAgentIsLive && (
-        <div className="w-72 shrink-0 border-l border-border flex flex-col">
+        <div className="w-[420px] shrink-0 border-l border-border flex flex-col">
           <TerminalControl agentName={agentFilter} port={port} />
         </div>
       )}
