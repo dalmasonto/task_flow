@@ -6,10 +6,9 @@ import { setConnectionConfig, getSyncUrl, getStreamUrl, getAuthHeaders } from '@
 import type { TaskStatus, TaskPriority, ProjectType, ActivityAction } from '@/types'
 
 async function initialSync(retries = 5, delay = 1500): Promise<void> {
-  const syncUrl = getSyncUrl()
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(syncUrl, { headers: getAuthHeaders() })
+      const res = await fetch(getSyncUrl(), { headers: getAuthHeaders() })
       if (!res.ok) continue
       const data = await res.json()
 
