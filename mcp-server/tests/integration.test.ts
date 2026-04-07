@@ -18,7 +18,7 @@ describe('Integration: Server Entry Point', () => {
     closeDb();
   });
 
-  it('registers all 27 tools on the server', () => {
+  it('registers all 32 tools on the server', async () => {
     const server = new McpServer({ name: 'taskflow', version: '1.0.0' });
 
     registerTaskTools(server);
@@ -58,6 +58,8 @@ describe('Integration: Server Entry Point', () => {
     expect(toolNames).toContain('get_timeline');
     expect(toolNames).toContain('get_activity_log');
     expect(toolNames).toContain('clear_activity_log');
+
+    await server.close();
   });
 
   it('full workflow: project -> task -> timer -> analytics -> activity', async () => {
