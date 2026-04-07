@@ -11,11 +11,14 @@ interface AgentRow {
   pid: number;
 }
 
-function getAgentPane(agentName: string): { agent: AgentRow; error?: undefined } | { agent?: undefined; error: ReturnType<typeof errorResponse> } {
+function getAgentPane(agentName: string, requireConnected = false): { agent: AgentRow; error?: undefined } | { agent?: undefined; error: ReturnType<typeof errorResponse> } {
   const db = getDb();
   const agent = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(agentName) as AgentRow | undefined;
   if (!agent) return { error: errorResponse(`Agent "${agentName}" not found`, 'NOT_FOUND') };
   if (!agent.tmux_pane) return { error: errorResponse(`Agent "${agentName}" has no tmux pane`, 'VALIDATION_ERROR') };
+  if (requireConnected && agent.status !== 'connected') {
+    return { error: errorResponse(`Agent "${agentName}" is disconnected — sending keys to a bare shell is blocked for security`, 'VALIDATION_ERROR') };
+  }
   return { agent };
 }
 
@@ -55,7 +58,7 @@ export function registerTerminalTools(server: McpServer) {
     },
     { destructiveHint: true },
     async (params) => {
-      const result = getAgentPane(params.agent_name);
+      const result = getAgentPane(params.agent_name, true);
       if (result.error) return result.error;
 
       const sendEnter = params.enter !== false;

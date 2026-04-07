@@ -544,6 +544,7 @@ export async function startSSEServer(): Promise<void> {
 
       if (!agent) { jsonResponse(res, 404, { error: `Agent "${agentName}" not found` }); return; }
       if (!agent.tmux_pane) { jsonResponse(res, 400, { error: `Agent "${agentName}" has no tmux pane` }); return; }
+      if (agent.status !== 'connected') { jsonResponse(res, 403, { error: `Agent "${agentName}" is disconnected — sending keys to a bare shell is blocked for security` }); return; }
 
       let body: any;
       try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
