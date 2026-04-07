@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
+import { getApiBaseUrl, getAuthHeaders } from '@/lib/connection'
 
 export function useAgentMessages(agentFilter?: string) {
   return useLiveQuery(() => {
@@ -47,10 +48,10 @@ export function useLiveAgents() {
   )
 }
 
-export async function respondToMessage(id: number, response: string, port: number) {
-  const res = await fetch(`http://localhost:${port}/api/agent-messages/${id}/respond`, {
+export async function respondToMessage(id: number, response: string, _port: number) {
+  const res = await fetch(`${getApiBaseUrl()}/api/agent-messages/${id}/respond`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ response }),
   })
   if (!res.ok) {
@@ -60,10 +61,10 @@ export async function respondToMessage(id: number, response: string, port: numbe
   return res.json()
 }
 
-export async function dismissMessage(id: number, port: number) {
-  const res = await fetch(`http://localhost:${port}/api/agent-messages/${id}/dismiss`, {
+export async function dismissMessage(id: number, _port: number) {
+  const res = await fetch(`${getApiBaseUrl()}/api/agent-messages/${id}/dismiss`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
   })
   if (!res.ok) {
     const err = await res.json()
@@ -72,10 +73,10 @@ export async function dismissMessage(id: number, port: number) {
   return res.json()
 }
 
-export async function sendToAgent(recipient: string, message: string, port: number, projectId?: number) {
-  const res = await fetch(`http://localhost:${port}/api/agent-messages/send`, {
+export async function sendToAgent(recipient: string, message: string, _port: number, projectId?: number) {
+  const res = await fetch(`${getApiBaseUrl()}/api/agent-messages/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ recipient, message, projectId }),
   })
   if (!res.ok) {

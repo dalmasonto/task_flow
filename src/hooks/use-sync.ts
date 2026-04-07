@@ -2,15 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { db } from '@/db/database'
 import { useSetting } from '@/hooks/use-settings'
 import { terminalStore } from '@/hooks/use-terminal'
+import { setConnectionConfig, getSyncUrl, getStreamUrl, getAuthHeaders } from '@/lib/connection'
 import type { TaskStatus, TaskPriority, ProjectType, ActivityAction } from '@/types'
 
-function baseUrl(port: number) { return `http://localhost:${port}` }
-
-async function initialSync(port: number, retries = 5, delay = 1500): Promise<void> {
-  const syncUrl = `${baseUrl(port)}/sync`
+async function initialSync(retries = 5, delay = 1500): Promise<void> {
+  const syncUrl = getSyncUrl()
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(syncUrl)
+      const res = await fetch(syncUrl, { headers: getAuthHeaders() })
       if (!res.ok) continue
       const data = await res.json()
 
@@ -230,6 +229,14 @@ export function useSync() {
   const sourceRef = useRef<EventSource | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const port = useSetting('serverPort')
+  const connectionMode = useSetting('connectionMode')
+  const relayUrl = useSetting('relayUrl')
+  const relayAccessToken = useSetting('relayAccessToken')
+
+  // Keep connection config in sync with settings
+  useEffect(() => {
+    setConnectionConfig({ mode: connectionMode, port, relayUrl, relayAccessToken })
+  }, [connectionMode, port, relayUrl, relayAccessToken])
 
   useEffect(() => {
     let killed = false
@@ -238,7 +245,8 @@ export function useSync() {
     function connect() {
       if (killed) return
 
-      const sseUrl = `${baseUrl(port)}/events`
+      const sseUrl = getStreamUrl()
+      const authHeaders = getAuthHeaders()
 
       // Close previous connection if any
       if (sourceRef.current) {
@@ -247,7 +255,12 @@ export function useSync() {
       }
 
       console.log('[useSync] connecting to', sseUrl)
-      const source = new EventSource(sseUrl)
+      // EventSource doesn't support custom headers natively.
+      // For remote mode with auth, append token as query param.
+      const url = authHeaders['Authorization']
+        ? `${sseUrl}?token=${encodeURIComponent(relayAccessToken)}`
+        : sseUrl
+      const source = new EventSource(url)
       sourceRef.current = source
 
       attachListeners(source, sseUrl)
@@ -275,7 +288,7 @@ export function useSync() {
     }
 
     // Initial sync then connect
-    initialSync(port).finally(() => setSynced(true)).then(connect)
+    initialSync().finally(() => setSynced(true)).then(connect)
 
     return () => {
       killed = true
@@ -285,7 +298,7 @@ export function useSync() {
         sourceRef.current = null
       }
     }
-  }, [port])
+  }, [port, connectionMode, relayUrl, relayAccessToken])
 
   return { synced }
 }

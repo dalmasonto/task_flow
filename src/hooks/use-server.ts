@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSetting } from '@/hooks/use-settings'
-import { setServerPort } from '@/lib/sync-api'
+import { isRemoteMode } from '@/lib/connection'
 
 const RESTART_DELAY = 3000
 const HEALTH_CHECK_INTERVAL = 10_000
@@ -29,13 +29,11 @@ export function useServer() {
   const mountedRef = useRef(true)
   const port = useSetting('serverPort')
 
-  // Keep sync-api in sync with the current port setting
-  useEffect(() => {
-    setServerPort(port)
-  }, [port])
-
   useEffect(() => {
     mountedRef.current = true
+
+    // Skip sidecar spawn in remote mode — no local server needed
+    if (isRemoteMode()) return
 
     const isTauri = '__TAURI_INTERNALS__' in window || '__TAURI__' in window
     if (!isTauri) return

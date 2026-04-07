@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { getApiBaseUrl, getAuthHeaders } from '@/lib/connection'
 
 interface SendKeysResult {
   agent: string
@@ -8,10 +9,10 @@ interface SendKeysResult {
   sent: boolean
 }
 
-export async function sendKeys(agentName: string, keys: string, port: number, enter = true, literal = true): Promise<SendKeysResult> {
-  const res = await fetch(`http://localhost:${port}/api/terminal/${encodeURIComponent(agentName)}/send-keys`, {
+export async function sendKeys(agentName: string, keys: string, _port: number, enter = true, literal = true): Promise<SendKeysResult> {
+  const res = await fetch(`${getApiBaseUrl()}/api/terminal/${encodeURIComponent(agentName)}/send-keys`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ keys, enter, literal }),
   })
   if (!res.ok) {
@@ -21,8 +22,8 @@ export async function sendKeys(agentName: string, keys: string, port: number, en
   return res.json()
 }
 
-export async function fetchTerminalAgents(port: number) {
-  const res = await fetch(`http://localhost:${port}/api/terminal/agents`)
+export async function fetchTerminalAgents(_port: number) {
+  const res = await fetch(`${getApiBaseUrl()}/api/terminal/agents`, { headers: getAuthHeaders() })
   if (!res.ok) return []
   return res.json() as Promise<Array<{ name: string; tmux_pane: string; status: string; pid: number }>>
 }

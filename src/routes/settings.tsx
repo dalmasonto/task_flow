@@ -45,6 +45,9 @@ export default function Settings() {
   const savedServerPort = useSetting('serverPort')
   const savedFontFamily = useSetting('fontFamily')
   const savedTerminalWidth = useSetting('terminalWidth')
+  const savedConnectionMode = useSetting('connectionMode')
+  const savedRelayUrl = useSetting('relayUrl')
+  const savedRelayAccessToken = useSetting('relayAccessToken')
 
   const [colors, setColors] = useState<Record<TaskStatus, string>>({ ...DEFAULT_STATUS_COLORS, ...savedColors })
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
@@ -57,6 +60,9 @@ export default function Settings() {
   const [serverPort, setServerPort] = useState(savedServerPort)
   const [fontFamily, setFontFamily] = useState(savedFontFamily)
   const [terminalWidth, setTerminalWidth] = useState(savedTerminalWidth)
+  const [connectionMode, setConnectionMode] = useState(savedConnectionMode)
+  const [relayUrlInput, setRelayUrlInput] = useState(savedRelayUrl)
+  const [relayAccessTokenInput, setRelayAccessTokenInput] = useState(savedRelayAccessToken)
 
   // Sync local state when saved values load from DB
   useEffect(() => { setColors({ ...DEFAULT_STATUS_COLORS, ...savedColors }) }, [savedColors])
@@ -70,6 +76,9 @@ export default function Settings() {
   useEffect(() => { setServerPort(savedServerPort) }, [savedServerPort])
   useEffect(() => { setFontFamily(savedFontFamily) }, [savedFontFamily])
   useEffect(() => { setTerminalWidth(savedTerminalWidth) }, [savedTerminalWidth])
+  useEffect(() => { setConnectionMode(savedConnectionMode) }, [savedConnectionMode])
+  useEffect(() => { setRelayUrlInput(savedRelayUrl) }, [savedRelayUrl])
+  useEffect(() => { setRelayAccessTokenInput(savedRelayAccessToken) }, [savedRelayAccessToken])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -87,6 +96,9 @@ export default function Settings() {
     await updateSetting('serverPort', serverPort)
     await updateSetting('fontFamily', fontFamily)
     await updateSetting('terminalWidth', terminalWidth)
+    await updateSetting('connectionMode', connectionMode)
+    await updateSetting('relayUrl', relayUrlInput)
+    await updateSetting('relayAccessToken', relayAccessTokenInput)
     playSuccess()
     toast.success('Configuration committed to core')
     addNotification('Settings Saved', 'Configuration committed to core', 'success')
@@ -105,6 +117,9 @@ export default function Settings() {
     setServerPort(DEFAULT_SETTINGS.serverPort)
     setFontFamily(DEFAULT_SETTINGS.fontFamily)
     setTerminalWidth(DEFAULT_SETTINGS.terminalWidth)
+    setConnectionMode(DEFAULT_SETTINGS.connectionMode)
+    setRelayUrlInput(DEFAULT_SETTINGS.relayUrl)
+    setRelayAccessTokenInput(DEFAULT_SETTINGS.relayAccessToken)
     playClick()
     toast.info('Settings reset to defaults — commit to apply')
   }
@@ -209,6 +224,68 @@ export default function Settings() {
                   className="w-full bg-input border-0 border-b border-border focus:border-secondary focus:ring-0 text-sm py-2 px-2 uppercase tracking-widest"
                 />
               </div>
+            </div>
+          </section>
+
+          {/* Connection Mode */}
+          <section className="bg-accent/30 p-8 border-t border-tertiary/20">
+            <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-tertiary" /> CONNECTION
+            </h3>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                {(['local', 'remote'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setConnectionMode(m)}
+                    className={`flex-1 py-2 text-[10px] uppercase tracking-widest font-bold border transition-colors ${
+                      connectionMode === m
+                        ? 'border-tertiary bg-tertiary/10 text-tertiary'
+                        : 'border-border bg-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+
+              {connectionMode === 'local' && (
+                <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                  Connecting to local MCP server via sidecar or Claude Code
+                </p>
+              )}
+
+              {connectionMode === 'remote' && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                      Relay URL
+                    </label>
+                    <input
+                      type="url"
+                      value={relayUrlInput}
+                      onChange={(e) => setRelayUrlInput(e.target.value)}
+                      placeholder="https://relay.example.com"
+                      className="w-full bg-input border-0 border-b border-border focus:border-tertiary focus:ring-0 text-sm py-2 px-2 font-mono"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                      Access Token
+                    </label>
+                    <input
+                      type="password"
+                      value={relayAccessTokenInput}
+                      onChange={(e) => setRelayAccessTokenInput(e.target.value)}
+                      placeholder="Bearer token for relay access"
+                      className="w-full bg-input border-0 border-b border-border focus:border-tertiary focus:ring-0 text-sm py-2 px-2 font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest">
+                    Remote mode connects through a relay server — no local sidecar is spawned
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 

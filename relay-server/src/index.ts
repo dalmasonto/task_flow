@@ -47,7 +47,10 @@ function checkPushAuth(req: IncomingMessage): boolean {
 }
 
 function checkAccessAuth(req: IncomingMessage): boolean {
-  return extractToken(req) === ACCESS_TOKEN;
+  // Check header first, then query param (EventSource can't send headers)
+  if (extractToken(req) === ACCESS_TOKEN) return true;
+  const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  return urlObj.searchParams.get('token') === ACCESS_TOKEN;
 }
 
 function json(res: ServerResponse, status: number, body: object): void {

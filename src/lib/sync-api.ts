@@ -1,15 +1,18 @@
-let currentPort = 3456
+import { getApiBaseUrl, getAuthHeaders } from '@/lib/connection'
 
-/** Update the port used by all sync-api calls. Called from useSyncPort(). */
-export function setServerPort(port: number) {
-  currentPort = port
+/** @deprecated Use setConnectionConfig instead */
+export function setServerPort(_port: number) {
+  // No-op — kept for backward compat, connection.ts handles this now
 }
 
 /** Fire-and-forget sync to MCP backend. Never throws — UI always works standalone. */
 function fire(url: string, method: string, body?: unknown) {
-  fetch(`http://localhost:${currentPort}${url}`, {
+  fetch(`${getApiBaseUrl()}${url}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...getAuthHeaders(),
+    },
     body: body ? JSON.stringify(body) : undefined,
   }).catch(() => {})
 }
