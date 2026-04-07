@@ -11,6 +11,8 @@ export interface TaskFlowConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   agentLivenessInterval: number;
   maxPortAttempts: number;
+  relayUrl: string;
+  relayPushToken: string;
 }
 
 /** Keys that live in the config file (not SQLite) */
@@ -21,6 +23,8 @@ export const SERVER_CONFIG_KEYS = new Set<string>([
   'logLevel',
   'agentLivenessInterval',
   'maxPortAttempts',
+  'relayUrl',
+  'relayPushToken',
 ]);
 
 // ─── defaults ────────────────────────────────────────────────────────
@@ -32,6 +36,8 @@ const DEFAULTS: TaskFlowConfig = {
   logLevel: 'info',
   agentLivenessInterval: 30_000,
   maxPortAttempts: 10,
+  relayUrl: '',
+  relayPushToken: '',
 };
 
 // ─── config file path ────────────────────────────────────────────────
@@ -73,6 +79,12 @@ function applyCliAndEnvOverrides(config: TaskFlowConfig): TaskFlowConfig {
   }
   if (process.env.TASKFLOW_LOG_LEVEL) {
     config.logLevel = process.env.TASKFLOW_LOG_LEVEL as TaskFlowConfig['logLevel'];
+  }
+  if (process.env.TASKFLOW_RELAY_URL) {
+    config.relayUrl = process.env.TASKFLOW_RELAY_URL;
+  }
+  if (process.env.TASKFLOW_RELAY_PUSH_TOKEN) {
+    config.relayPushToken = process.env.TASKFLOW_RELAY_PUSH_TOKEN;
   }
 
   // CLI args take highest priority

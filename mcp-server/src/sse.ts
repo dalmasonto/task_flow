@@ -7,9 +7,8 @@ import { getConfig } from './config.js';
 const SERVICE_ID = 'taskflow-mcp';
 const PROBE_TIMEOUT_MS = 2000;
 
-// ─── Relay upstream config (env vars) ───────────────────────────────
-const RELAY_URL = process.env.TASKFLOW_RELAY_URL || '';
-const RELAY_PUSH_TOKEN = process.env.TASKFLOW_RELAY_PUSH_TOKEN || '';
+// ─── Relay upstream config (from config file, env vars, or .env) ────
+const { relayUrl: RELAY_URL, relayPushToken: RELAY_PUSH_TOKEN } = getConfig();
 
 const clients = new Set<ServerResponse>();
 
