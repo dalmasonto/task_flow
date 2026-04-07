@@ -156,7 +156,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       toast.error(`Failed to send keys: ${err.message}`)
     } finally {
       setSending(false)
-      inputRef.current?.focus()
+      requestAnimationFrame(() => inputRef.current?.focus())
     }
   }
 
