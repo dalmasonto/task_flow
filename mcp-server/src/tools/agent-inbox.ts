@@ -7,11 +7,21 @@ import { registerAgent as doRegister, getAgent, listAgents } from '../agent-regi
 /** The name assigned to this agent after registration */
 let myAgentName: string | null = null;
 
-/** Get or auto-register the agent name */
+/** Get or auto-register the agent name.
+ *  Verifies the cached registration is still valid — if the liveness
+ *  checker disconnected us while sleeping, re-register to reclaim identity.
+ */
 function ensureRegistered(): string {
-  if (!myAgentName) {
-    myAgentName = doRegister();
+  if (myAgentName) {
+    // Verify our registration is still active
+    const agent = getAgent(myAgentName);
+    if (agent && agent.status === 'connected' && agent.pid === process.ppid) {
+      return myAgentName;
+    }
+    // Stale — re-register
+    myAgentName = null;
   }
+  myAgentName = doRegister();
   return myAgentName;
 }
 

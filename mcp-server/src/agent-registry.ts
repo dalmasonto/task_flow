@@ -69,8 +69,12 @@ export function registerAgent(options?: { customName?: string }): string {
     'SELECT * FROM agent_registry WHERE project_path = ? ORDER BY connected_at DESC'
   ).all(projectPath) as AgentRow[];
 
-  // Priority 1: Reuse a disconnected entry (preserves history)
-  const disconnected = entries.find(e => e.status === 'disconnected');
+  // Priority 1: Reuse a disconnected entry that had the SAME PID (exact session resume)
+  // Priority 2: Reuse any disconnected entry for this path (new session, same project)
+  // This prevents a reconnecting agent from stealing another agent's identity
+  // when two sessions share the same project directory.
+  const disconnected = entries.find(e => e.status === 'disconnected' && e.pid === agentPid)
+    || entries.find(e => e.status === 'disconnected');
   if (disconnected) {
     const newName = options?.customName || disconnected.name;
     const renamed = newName !== disconnected.name;
