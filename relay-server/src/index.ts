@@ -50,8 +50,8 @@ function checkPushAuth(req: IncomingMessage): boolean {
 function checkAccessAuth(req: IncomingMessage): boolean {
   // Check header first, then query param (EventSource can't send headers)
   if (extractToken(req) === ACCESS_TOKEN) return true;
-  const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  return urlObj.searchParams.get('token') === ACCESS_TOKEN;
+  const u = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  return u.searchParams.get('token') === ACCESS_TOKEN;
 }
 
 function json(res: ServerResponse, status: number, body: object): void {
@@ -81,7 +81,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
-  const url = req.url || '/';
+  const fullUrl = req.url || '/';
+  const urlObj = new URL(fullUrl, `http://${req.headers.host || 'localhost'}`);
+  const url = urlObj.pathname;
 
   // ─── Health check (no auth) ─────────────────────────────────────
   if (url === '/health' && req.method === 'GET') {
@@ -170,7 +172,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     if (!upstreamUrl) { json(res, 502, { error: 'No upstream registered' }); return; }
 
     const targetPath = url.slice(6); // strip /proxy
-    const targetUrl = `${upstreamUrl}${targetPath}`;
+    const targetUrl = `${upstreamUrl}${targetPath}${urlObj.search}`;
 
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
