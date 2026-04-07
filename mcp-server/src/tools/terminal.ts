@@ -60,9 +60,12 @@ export function registerTerminalTools(server: McpServer) {
       const sendEnter = params.enter !== false;
 
       try {
-        const args = ['send-keys', '-t', result.agent.tmux_pane!, params.keys];
-        if (sendEnter) args.push('Enter');
-        execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
+        // Use -l to send keys as literal text (like typing on a keyboard)
+        execFileSync('tmux', ['send-keys', '-t', result.agent.tmux_pane!, '-l', params.keys], { stdio: 'ignore', timeout: 5000 });
+        // Enter is a tmux key name, so send it separately without -l
+        if (sendEnter) {
+          execFileSync('tmux', ['send-keys', '-t', result.agent.tmux_pane!, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+        }
 
         logActivity('terminal_send_keys', `Sent keys to ${params.agent_name}: ${params.keys.slice(0, 50)}`, { entityType: 'agent' });
 
