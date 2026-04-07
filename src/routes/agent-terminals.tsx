@@ -35,7 +35,7 @@ export default function AgentTerminals() {
         </div>
       </div>
 
-      {/* Terminal cards — horizontal scroll */}
+      {/* Terminal cards */}
       {!liveAgents || liveAgents.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center">
           <span className="material-symbols-outlined text-5xl text-muted-foreground/20 mb-3">terminal</span>
@@ -49,7 +49,7 @@ export default function AgentTerminals() {
       ) : (
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 flex overflow-x-auto overflow-y-hidden gap-0"
+          className="flex-1 min-h-0 flex overflow-auto"
         >
           {liveAgents.map((agent) => (
             <TerminalCard
@@ -70,7 +70,7 @@ function TerminalCard({ agent, port, width }: { agent: AgentRegistryEntry; port:
     <div
       data-agent={agent.name}
       className="shrink-0 border-r border-border flex flex-col h-full"
-      style={{ width }}
+      style={{ width: `min(${width}px, 100vw)` }}
     >
       <TerminalControl agentName={agent.name} port={port} />
     </div>

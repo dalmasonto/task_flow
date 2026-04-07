@@ -26,6 +26,7 @@ export default function AgentInbox() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const prevLengthRef = useRef(0)
   const liveAgents = useLiveAgents()
+  const [mobilePanel, setMobilePanel] = useState<'agents' | 'chat' | 'terminal'>('chat')
 
   const filteredMessages = useAgentMessages(agentFilter)
 
@@ -73,82 +74,101 @@ export default function AgentInbox() {
   const projectMap = new Map(projects.map(p => [p.id!, p]))
 
   return (
-    <div className="flex -mt-4 -mb-4" style={{ height: 'calc(100vh - 4rem - var(--timer-bar-height, 0px))' }}>
-      {/* Compact sidebar */}
-      <div className="w-52 shrink-0 border-r border-border flex flex-col">
-        <div className="h-[60px] px-3 flex items-center border-b border-border">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-secondary text-sm">forum</span>
-            <span className="text-[10px] tracking-widest uppercase text-secondary font-bold">Inbox</span>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto py-2">
-          <AgentSidebar selected={agentFilter} onSelect={setAgentFilter} />
-        </div>
+    <div className="flex flex-col -mt-4 -mb-4" style={{ height: 'calc(100vh - 4rem - var(--timer-bar-height, 0px))' }}>
+      {/* Mobile panel switcher — visible below md */}
+      <div className="md:hidden shrink-0 flex border-b border-border">
+        {(['agents', 'chat', ...(selectedAgentIsLive ? ['terminal'] : [])] as const).map((panel) => (
+          <button
+            key={panel}
+            onClick={() => setMobilePanel(panel as typeof mobilePanel)}
+            className={`flex-1 py-2 text-[10px] uppercase tracking-widest font-bold border-b-2 transition-colors ${
+              mobilePanel === panel
+                ? 'text-secondary border-secondary'
+                : 'text-muted-foreground border-transparent'
+            }`}
+          >
+            {panel === 'agents' ? 'Agents' : panel === 'chat' ? 'Messages' : 'Terminal'}
+          </button>
+        ))}
       </div>
 
-      {/* Chat area */}
-      <div className="flex-1 flex flex-col min-w-0 max-w-3xl border-r border-border">
-        {/* Chat header */}
-        <div className="shrink-0 h-[60px] px-6 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold uppercase tracking-widest">
-              {agentFilter === 'all' ? 'All Conversations' : agentFilter}
-            </h1>
-            {pendingCount != null && pendingCount > 0 && (
-              <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
-                {pendingCount}
-              </span>
+      <div className="flex-1 flex min-h-0">
+        {/* Compact sidebar — hidden on mobile unless active */}
+        <div className={`w-52 shrink-0 border-r border-border flex flex-col ${mobilePanel === 'agents' ? '' : 'hidden md:flex'}`}>
+          <div className="h-[60px] px-3 flex items-center border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-secondary text-sm">forum</span>
+              <span className="text-[10px] tracking-widest uppercase text-secondary font-bold">Inbox</span>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto py-2">
+            <AgentSidebar selected={agentFilter} onSelect={(name) => { setAgentFilter(name); setMobilePanel('chat') }} />
+          </div>
+        </div>
+
+        {/* Chat area — hidden on mobile unless active */}
+        <div className={`flex-1 flex flex-col min-w-0 md:max-w-3xl md:border-r border-border ${mobilePanel === 'chat' ? '' : 'hidden md:flex'}`}>
+          {/* Chat header */}
+          <div className="shrink-0 h-[60px] px-6 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold uppercase tracking-widest">
+                {agentFilter === 'all' ? 'All Conversations' : agentFilter}
+              </h1>
+              {pendingCount != null && pendingCount > 0 && (
+                <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
+                  {pendingCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+              {totalCount} messages
+            </span>
+          </div>
+
+          {/* Message thread — scrollable */}
+          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            {/* Load more indicator */}
+            {hasMore && (
+              <div className="flex justify-center py-2">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                  Scroll up to load {Math.min(PAGE_SIZE, startIndex)} more
+                </span>
+              </div>
+            )}
+            {visible.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full">
+                <span className="material-symbols-outlined text-5xl text-muted-foreground/20 mb-3">chat</span>
+                <p className="text-xs text-muted-foreground uppercase tracking-widest">
+                  {agentFilter === 'all' ? 'No conversations yet' : `No messages from ${agentFilter}`}
+                </p>
+              </div>
+            ) : (
+              visible.map(m => (
+                <ChatBubble
+                  key={m.id}
+                  message={m}
+                  project={m.projectId ? projectMap.get(m.projectId) : undefined}
+                  port={port}
+                />
+              ))
             )}
           </div>
-          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-            {totalCount} messages
-          </span>
-        </div>
 
-        {/* Message thread — scrollable */}
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {/* Load more indicator */}
-          {hasMore && (
-            <div className="flex justify-center py-2">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-                Scroll up to load {Math.min(PAGE_SIZE, startIndex)} more
-              </span>
+          {/* Fixed compose box at bottom */}
+          {agentFilter !== 'all' && (
+            <div className="shrink-0">
+              <ComposeBox recipient={agentFilter} port={port} />
             </div>
-          )}
-          {visible.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full">
-              <span className="material-symbols-outlined text-5xl text-muted-foreground/20 mb-3">chat</span>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest">
-                {agentFilter === 'all' ? 'No conversations yet' : `No messages from ${agentFilter}`}
-              </p>
-            </div>
-          ) : (
-            visible.map(m => (
-              <ChatBubble
-                key={m.id}
-                message={m}
-                project={m.projectId ? projectMap.get(m.projectId) : undefined}
-                port={port}
-              />
-            ))
           )}
         </div>
 
-        {/* Fixed compose box at bottom */}
-        {agentFilter !== 'all' && (
-          <div className="shrink-0">
-            <ComposeBox recipient={agentFilter} port={port} />
+        {/* Terminal control panel — hidden on mobile unless active */}
+        {selectedAgentIsLive && (
+          <div className={`w-full md:w-[420px] shrink-0 md:border-l border-border flex flex-col ${mobilePanel === 'terminal' ? '' : 'hidden md:flex'}`}>
+            <TerminalControl agentName={agentFilter} port={port} />
           </div>
         )}
       </div>
-
-      {/* Terminal control panel — shown when a live agent is selected */}
-      {selectedAgentIsLive && (
-        <div className="w-[420px] shrink-0 border-l border-border flex flex-col">
-          <TerminalControl agentName={agentFilter} port={port} />
-        </div>
-      )}
     </div>
   )
 }
