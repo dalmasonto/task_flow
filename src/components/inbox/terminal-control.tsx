@@ -38,6 +38,11 @@ const CONTROL_KEYS: KeyAction[] = [
   { label: 'S-Tab', keys: 'BTab', enter: false, literal: false },
 ]
 
+const CRITICAL_KEYS: KeyAction[] = [
+  { label: 'Ctrl+C', keys: 'C-c', enter: false, literal: false },
+  { label: '/exit', keys: '/exit', enter: true, literal: true },
+]
+
 export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -160,6 +165,12 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
     }
   }
 
+  // Button styles shift for better contrast when input is required
+  const btnBase = promptHints
+    ? '!bg-amber-500/15 !border-amber-500/50 hover:!bg-amber-500/30 hover:!border-amber-400 text-amber-200'
+    : 'border-secondary/40 hover:bg-secondary/10 hover:border-secondary'
+  const labelColor = promptHints ? 'text-amber-400/70' : 'text-muted-foreground/60'
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -226,44 +237,21 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
         </div>
       )}
 
-      {/* Input required alert */}
-      {promptHints && (
-        <div className="shrink-0 px-3 pt-3">
-          <div className="flex items-start gap-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded">
-            <span className="material-symbols-outlined text-amber-500 text-sm shrink-0 mt-0.5">warning</span>
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-1">
-                Input Required
-              </div>
-              {promptHints.hints.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {promptHints.hints.map((h) => (
-                    <button
-                      key={h.key}
-                      disabled={sending}
-                      onClick={() => handleSend(h.keys, false, h.literal)}
-                      className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded font-mono transition-colors"
-                    >
-                      {h.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Keyboard */}
-      <div className="shrink-0 p-3 space-y-3">
-        <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
-          Quick Response
+      <div className={`shrink-0 p-3 space-y-3 transition-colors ${promptHints ? 'bg-amber-500/10 border-t border-amber-500/30' : ''}`}>
+        <div className="flex items-center gap-2 mb-2">
+          {promptHints && (
+            <span className="material-symbols-outlined text-amber-500 text-sm animate-pulse">warning</span>
+          )}
+          <div className={`text-[10px] font-bold uppercase tracking-widest ${promptHints ? 'text-amber-500' : 'text-muted-foreground'}`}>
+            {promptHints ? 'Input Required' : 'Quick Response'}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           {/* Choices */}
           <div className="space-y-1.5">
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Choices</div>
+            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Choices</div>
             <div className="flex gap-1">
               {CHOICE_KEYS.map((k) => (
                 <Button
@@ -271,7 +259,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
                   variant="outline"
                   size="sm"
                   disabled={sending}
-                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 w-7 p-0"
+                  className={`text-[10px] font-bold h-7 w-7 p-0 ${btnBase}`}
                   onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
                 >
                   {k.label}
@@ -282,13 +270,13 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
 
           {/* Navigation */}
           <div className="space-y-1.5">
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Navigation</div>
+            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Navigation</div>
             <div className="flex flex-col items-center gap-0.5">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={sending}
-                className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
                 onClick={() => handleSend('Up', false, false)}
               >
                 <span className="material-symbols-outlined text-xs">keyboard_arrow_up</span>
@@ -298,36 +286,37 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
                   variant="outline"
                   size="sm"
                   disabled={sending}
-                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                  className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
                   onClick={() => handleSend('Left', false, false)}
                 >
                   <span className="material-symbols-outlined text-xs">keyboard_arrow_left</span>
                 </Button>
+                <div className="h-6 w-7 rounded border border-border/30" />
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={sending}
-                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
-                  onClick={() => handleSend('Down', false, false)}
-                >
-                  <span className="material-symbols-outlined text-xs">keyboard_arrow_down</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                  className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
                   onClick={() => handleSend('Right', false, false)}
                 >
                   <span className="material-symbols-outlined text-xs">keyboard_arrow_right</span>
                 </Button>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={sending}
+                className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
+                onClick={() => handleSend('Down', false, false)}
+              >
+                <span className="material-symbols-outlined text-xs">keyboard_arrow_down</span>
+              </Button>
             </div>
           </div>
 
           {/* Confirm */}
           <div className="space-y-1.5">
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Confirm</div>
+            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Confirm</div>
             <div className="flex gap-1">
               {CONFIRM_KEYS.map((k) => (
                 <Button
@@ -335,7 +324,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
                   variant="outline"
                   size="sm"
                   disabled={sending}
-                  className="uppercase tracking-widest text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 px-2"
+                  className={`uppercase tracking-widest text-[10px] font-bold h-7 px-2 ${btnBase}`}
                   onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
                 >
                   {k.label}
@@ -346,7 +335,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
 
           {/* Control */}
           <div className="space-y-1.5">
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Control</div>
+            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Control</div>
             <div className="grid grid-cols-2 gap-1">
               {CONTROL_KEYS.map((k) => (
                 <Button
@@ -354,8 +343,31 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
                   variant="outline"
                   size="sm"
                   disabled={sending}
-                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 px-2"
+                  className={`text-[10px] font-bold h-7 px-2 ${btnBase}`}
                   onClick={() => handleSend(k.keys, false, false)}
+                >
+                  {k.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Critical */}
+          <div className="col-span-2 space-y-1.5">
+            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Critical</div>
+            <div className="flex gap-1">
+              {CRITICAL_KEYS.map((k) => (
+                <Button
+                  key={k.keys}
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className={`text-[10px] font-bold h-7 px-3 ${
+                    promptHints
+                      ? '!bg-red-500/15 !border-red-500/50 hover:!bg-red-500/30 hover:!border-red-400 text-red-300'
+                      : 'border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 text-red-400'
+                  }`}
+                  onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
                 >
                   {k.label}
                 </Button>

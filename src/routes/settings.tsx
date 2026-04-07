@@ -44,8 +44,9 @@ export default function Settings() {
   const savedBrowserNotifications = useSetting('browserNotificationsEnabled')
   const savedServerPort = useSetting('serverPort')
   const savedFontFamily = useSetting('fontFamily')
+  const savedTerminalWidth = useSetting('terminalWidth')
 
-  const [colors, setColors] = useState<Record<TaskStatus, string>>(savedColors)
+  const [colors, setColors] = useState<Record<TaskStatus, string>>({ ...DEFAULT_STATUS_COLORS, ...savedColors })
   const [glowIntensity, setGlowIntensity] = useState(savedGlow)
   const [backdropBlur, setBackdropBlur] = useState(savedBlur)
   const [shadowSpread, setShadowSpread] = useState(savedSpread)
@@ -55,9 +56,10 @@ export default function Settings() {
   const [browserNotifications, setBrowserNotifications] = useState(savedBrowserNotifications)
   const [serverPort, setServerPort] = useState(savedServerPort)
   const [fontFamily, setFontFamily] = useState(savedFontFamily)
+  const [terminalWidth, setTerminalWidth] = useState(savedTerminalWidth)
 
   // Sync local state when saved values load from DB
-  useEffect(() => { setColors(savedColors) }, [savedColors])
+  useEffect(() => { setColors({ ...DEFAULT_STATUS_COLORS, ...savedColors }) }, [savedColors])
   useEffect(() => { setGlowIntensity(savedGlow) }, [savedGlow])
   useEffect(() => { setBackdropBlur(savedBlur) }, [savedBlur])
   useEffect(() => { setShadowSpread(savedSpread) }, [savedSpread])
@@ -67,6 +69,7 @@ export default function Settings() {
   useEffect(() => { setBrowserNotifications(savedBrowserNotifications) }, [savedBrowserNotifications])
   useEffect(() => { setServerPort(savedServerPort) }, [savedServerPort])
   useEffect(() => { setFontFamily(savedFontFamily) }, [savedFontFamily])
+  useEffect(() => { setTerminalWidth(savedTerminalWidth) }, [savedTerminalWidth])
 
   function handleColorChange(status: TaskStatus, value: string) {
     setColors(prev => ({ ...prev, [status]: value }))
@@ -83,6 +86,7 @@ export default function Settings() {
     await updateSetting('browserNotificationsEnabled', browserNotifications)
     await updateSetting('serverPort', serverPort)
     await updateSetting('fontFamily', fontFamily)
+    await updateSetting('terminalWidth', terminalWidth)
     playSuccess()
     toast.success('Configuration committed to core')
     addNotification('Settings Saved', 'Configuration committed to core', 'success')
@@ -100,6 +104,7 @@ export default function Settings() {
     setBrowserNotifications(DEFAULT_SETTINGS.browserNotificationsEnabled)
     setServerPort(DEFAULT_SETTINGS.serverPort)
     setFontFamily(DEFAULT_SETTINGS.fontFamily)
+    setTerminalWidth(DEFAULT_SETTINGS.terminalWidth)
     playClick()
     toast.info('Settings reset to defaults — commit to apply')
   }
@@ -420,6 +425,41 @@ export default function Settings() {
                   />
                 </div>
               </div>
+            </div>
+          </section>
+
+          {/* Agent Terminal Settings */}
+          <section className="bg-accent/30 p-8 border-t border-primary/20">
+            <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-primary" /> AGENT TERMINAL
+            </h3>
+            <div className="space-y-6">
+              <div>
+                <div className="flex justify-between mb-4">
+                  <span className="text-[10px] uppercase tracking-widest font-bold">
+                    Terminal Card Width
+                  </span>
+                  <span className="text-[10px] uppercase tracking-widest text-primary font-bold">
+                    {terminalWidth}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={300}
+                  max={800}
+                  step={10}
+                  value={terminalWidth}
+                  onChange={e => setTerminalWidth(Number(e.target.value))}
+                  className="w-full h-1 bg-accent appearance-none cursor-pointer accent-primary"
+                />
+                <div className="flex justify-between mt-2 text-[9px] text-muted-foreground uppercase tracking-widest">
+                  <span>300px</span>
+                  <span>800px</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                Controls the width of each agent terminal card on the Agent Terminals page
+              </p>
             </div>
           </section>
         </div>
