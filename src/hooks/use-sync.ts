@@ -233,10 +233,8 @@ export function useSync() {
   const relayUrl = useSetting('relayUrl')
   const relayAccessToken = useSetting('relayAccessToken')
 
-  // Keep connection config in sync with settings
-  useEffect(() => {
-    setConnectionConfig({ mode: connectionMode, port, relayUrl, relayAccessToken })
-  }, [connectionMode, port, relayUrl, relayAccessToken])
+  // Set connection config synchronously so it's available before any effects run
+  setConnectionConfig({ mode: connectionMode, port, relayUrl, relayAccessToken })
 
   useEffect(() => {
     let killed = false
