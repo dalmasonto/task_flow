@@ -18,6 +18,7 @@ async function initialSync(retries = 5, delay = 1500): Promise<void> {
       if (data.activityLogs?.length) await db.activityLogs.bulkPut(data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a)))
       if (data.agentMessages?.length) await db.agentMessages.bulkPut(data.agentMessages.map((m: Record<string, unknown>) => parseAgentMessage(m)))
       if (data.agentRegistry?.length) await db.agentRegistry.bulkPut(data.agentRegistry.map((r: Record<string, unknown>) => parseAgentRegistry(r)))
+      if (data.notifications?.length) await db.notifications.bulkPut(data.notifications.map((n: Record<string, unknown>) => parseNotification(n)))
 
       console.log('[useSync] initial sync complete')
       return
