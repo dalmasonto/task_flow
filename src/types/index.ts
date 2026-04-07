@@ -142,6 +142,7 @@ export interface AgentRegistryEntry {
   pid: number
   tmuxPane?: string
   status: AgentConnectionStatus
+  awaitingInput?: boolean
   connectedAt: Date
   disconnectedAt?: Date
 }

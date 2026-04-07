@@ -177,6 +177,30 @@ function attachListeners(source: EventSource, sseUrl: string) {
     if (payload) db.agentRegistry.put(parseAgentRegistry(payload))
   })
 
+  source.addEventListener('notification_created', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.notifications.put(parseNotification(payload))
+  })
+
+  source.addEventListener('notification_updated', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) db.notifications.put(parseNotification(payload))
+  })
+
+  source.addEventListener('agent_awaiting_input', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.name) {
+      db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: true })
+    }
+  })
+
+  source.addEventListener('agent_input_resolved', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload?.name) {
+      db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: false })
+    }
+  })
+
   source.addEventListener('data_cleared', async () => {
     try {
       await db.tasks.clear()
@@ -336,6 +360,17 @@ function parseAgentRegistry(raw: Record<string, unknown>) {
     status: raw.status as 'connected' | 'disconnected',
     connectedAt: new Date(raw.connected_at as string),
     disconnectedAt: raw.disconnected_at ? new Date(raw.disconnected_at as string) : undefined,
+  }
+}
+
+function parseNotification(raw: Record<string, unknown>) {
+  return {
+    id: raw.id as number,
+    title: raw.title as string,
+    message: raw.message as string,
+    type: (raw.type as string) as import('../types').NotificationType,
+    read: raw.read === 1 || raw.read === true,
+    createdAt: new Date(raw.created_at as string),
   }
 }
 

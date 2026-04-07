@@ -51,6 +51,30 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
     3000,
   )
 
+  // Detect permission prompts / input-required state from terminal content
+  const promptHints = (() => {
+    if (!content) return null
+    // Look at the last ~20 lines where prompts appear
+    const tail = content.split('\n').slice(-20).join('\n')
+    const hints: { label: string; key: string; keys: string; literal: boolean }[] = []
+
+    if (/Esc to cancel/i.test(tail))
+      hints.push({ label: 'Esc to cancel', key: 'Escape', keys: 'Escape', literal: false })
+    if (/Tab to amend/i.test(tail))
+      hints.push({ label: 'Tab to amend', key: 'Tab', keys: 'Tab', literal: false })
+    if (/shift\+tab/i.test(tail))
+      hints.push({ label: 'Shift+Tab', key: 'S-Tab', keys: 'BTab', literal: false })
+
+    // Detect numbered choice prompts (❯ 1. ... 2. ... 3. ...)
+    const hasChoices = /^\s*[❯›>]?\s*\d+\.\s+/m.test(tail)
+    // Detect y/n or yes/no prompts
+    const hasYesNo = /\(y\/n\)|\(yes\/no\)/i.test(tail)
+
+    return hints.length > 0 || hasChoices || hasYesNo
+      ? { hints, hasChoices, hasYesNo, awaiting: true }
+      : null
+  })()
+
   // Auto-scroll preview to bottom
   useEffect(() => {
     if (previewRef.current) {
@@ -199,6 +223,34 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
           >
             <span className="material-symbols-outlined text-sm">refresh</span>
           </button>
+        </div>
+      )}
+
+      {/* Input required alert */}
+      {promptHints && (
+        <div className="shrink-0 px-3 pt-3">
+          <div className="flex items-start gap-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded">
+            <span className="material-symbols-outlined text-amber-500 text-sm shrink-0 mt-0.5">warning</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-1">
+                Input Required
+              </div>
+              {promptHints.hints.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {promptHints.hints.map((h) => (
+                    <button
+                      key={h.key}
+                      disabled={sending}
+                      onClick={() => handleSend(h.keys, false, h.literal)}
+                      className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded font-mono transition-colors"
+                    >
+                      {h.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

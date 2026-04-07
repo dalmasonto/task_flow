@@ -62,22 +62,34 @@ export function AgentSidebar({ selected, onSelect }: AgentSidebarProps) {
 
 function AgentItem({ agent, selected, onSelect }: { agent: AgentRegistryEntry; selected: boolean; onSelect: (name: string) => void }) {
   const isLive = agent.status === 'connected'
+  const awaitingInput = agent.awaitingInput ?? false
   const pendingCount = useAgentPendingCount(agent.name)
 
   return (
     <button
       onClick={() => onSelect(agent.name)}
       className={`w-full flex items-center gap-3 px-3 py-2 text-xs uppercase tracking-widest font-bold transition-colors border-l-2 ${
-        selected
-          ? 'text-secondary border-secondary'
-          : 'text-muted-foreground border-transparent hover:text-foreground'
+        awaitingInput
+          ? 'text-amber-500 border-amber-500'
+          : selected
+            ? 'text-secondary border-secondary'
+            : 'text-muted-foreground border-transparent hover:text-foreground'
       }`}
     >
       <span className="relative flex h-2 w-2 shrink-0">
-        {isLive && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#69fd5d] opacity-75" />}
-        <span className={`relative inline-flex rounded-full h-2 w-2 ${isLive ? 'bg-[#69fd5d]' : 'bg-muted-foreground/30'}`} />
+        {awaitingInput ? (
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" />
+        ) : isLive ? (
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#69fd5d] opacity-75" />
+        ) : null}
+        <span className={`relative inline-flex rounded-full h-2 w-2 ${
+          awaitingInput ? 'bg-amber-500' : isLive ? 'bg-[#69fd5d]' : 'bg-muted-foreground/30'
+        }`} />
       </span>
       <span className="flex-1 text-left truncate">{agent.name}</span>
+      {awaitingInput && (
+        <span className="material-symbols-outlined text-amber-500 text-xs">keyboard</span>
+      )}
       {pendingCount != null && pendingCount > 0 && (
         <span className="bg-secondary text-secondary-foreground text-[10px] font-bold px-1.5 py-0.5 min-w-[1.25rem] text-center">
           {pendingCount}

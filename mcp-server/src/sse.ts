@@ -57,6 +57,88 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+// ─── Prompt detection poller ─────────────────────────────────────────
+
+interface AgentRegistryRow {
+  name: string;
+  tmux_pane: string | null;
+  status: string;
+  pid: number;
+}
+
+const PROMPT_PATTERNS = [
+  /Esc to cancel/i,
+  /Tab to amend/i,
+  /\(y\/n\)/i,
+  /\(yes\/no\)/i,
+  /Do you want to/i,
+  /Allow .+ for this/i,
+];
+
+function detectPrompt(content: string): { detected: boolean; hints: string[] } {
+  const tail = content.split('\n').slice(-25).join('\n');
+  const hints: string[] = [];
+
+  if (/Esc to cancel/i.test(tail)) hints.push('Esc to cancel');
+  if (/Tab to amend/i.test(tail)) hints.push('Tab to amend');
+  if (/shift\+tab/i.test(tail)) hints.push('Shift+Tab');
+
+  const detected = PROMPT_PATTERNS.some(p => p.test(tail));
+  return { detected, hints };
+}
+
+function pollAgentPrompts(prevState: Map<string, boolean>): void {
+  const db = getDb();
+  const agents = db.prepare(
+    "SELECT name, tmux_pane, status, pid FROM agent_registry WHERE status = 'connected' AND tmux_pane IS NOT NULL"
+  ).all() as AgentRegistryRow[];
+
+  for (const agent of agents) {
+    try {
+      const output = execFileSync(
+        'tmux', ['capture-pane', '-p', '-S', '-', '-t', agent.tmux_pane!],
+        { timeout: 5000 }
+      ).toString();
+
+      const { detected, hints } = detectPrompt(output);
+      const wasAwaiting = prevState.get(agent.name) ?? false;
+
+      if (detected && !wasAwaiting) {
+        // Transition: not awaiting → awaiting — fire notification + broadcast
+        prevState.set(agent.name, true);
+
+        const ts = new Date().toISOString();
+        const hintsText = hints.length > 0 ? ` (${hints.join(' · ')})` : '';
+        db.prepare(
+          'INSERT INTO notifications (title, message, type, created_at) VALUES (?, ?, ?, ?)'
+        ).run(
+          `Agent "${agent.name}" needs input`,
+          `A permission prompt is waiting for your response${hintsText}`,
+          'warning',
+          ts
+        );
+
+        const notification = db.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 1').get();
+        broadcast('notification_created', { entity: 'notification', action: 'notification_created', payload: notification });
+        broadcast('agent_awaiting_input', { entity: 'agent', action: 'agent_awaiting_input', payload: { name: agent.name, hints, awaiting: true } });
+      } else if (!detected && wasAwaiting) {
+        // Transition: awaiting → resolved
+        prevState.set(agent.name, false);
+        broadcast('agent_input_resolved', { entity: 'agent', action: 'agent_input_resolved', payload: { name: agent.name, awaiting: false } });
+      }
+    } catch {
+      // tmux capture failed — agent pane may be gone
+    }
+  }
+
+  // Clean up agents that disconnected
+  for (const [name] of prevState) {
+    if (!agents.some(a => a.name === name)) {
+      prevState.delete(name);
+    }
+  }
+}
+
 export async function startSSEServer(): Promise<void> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     // CORS headers for all requests
@@ -505,6 +587,12 @@ export async function startSSEServer(): Promise<void> {
             try { client.write(ping); } catch { clients.delete(client); }
           }
         }, 30_000);
+
+        // Prompt detection — poll connected agents for input-required state
+        const promptState = new Map<string, boolean>();
+        setInterval(() => {
+          try { pollAgentPrompts(promptState); } catch { /* ignore */ }
+        }, 5_000);
 
         if (port !== PREFERRED_PORT) {
           console.log(`[SSE] listening on fallback port ${port} (preferred ${PREFERRED_PORT} was unavailable)`);
