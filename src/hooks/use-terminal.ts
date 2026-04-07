@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { getApiBaseUrl, getAuthHeaders } from '@/lib/connection'
 
 interface SendKeysResult {
