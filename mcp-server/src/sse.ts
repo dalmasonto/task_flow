@@ -723,17 +723,16 @@ export async function startSSEServer(): Promise<void> {
         if (RELAY_URL && RELAY_PUSH_TOKEN) {
           console.log(`[relay] command polling started → ${RELAY_URL}`);
 
-          // Push state snapshot on startup and every 30s
+          // Push lightweight sync state — only what the remote app needs
+          // SSE events handle real-time updates after this initial load
           const pushState = () => {
             try {
               const db = getDb();
               const state = {
-                tasks: db.prepare('SELECT * FROM tasks').all(),
-                projects: db.prepare('SELECT * FROM projects').all(),
-                sessions: db.prepare('SELECT * FROM sessions').all(),
-                activityLogs: db.prepare('SELECT * FROM activity_logs ORDER BY id DESC LIMIT 100').all(),
-                agentMessages: db.prepare('SELECT * FROM agent_messages ORDER BY id DESC LIMIT 200').all(),
                 agentRegistry: db.prepare('SELECT * FROM agent_registry').all(),
+                agentMessages: db.prepare('SELECT * FROM agent_messages ORDER BY id DESC LIMIT 100').all(),
+                notifications: db.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 50').all(),
+                projects: db.prepare('SELECT * FROM projects').all(),
               };
               fetch(`${RELAY_URL}/push/state`, {
                 method: 'POST',
@@ -743,7 +742,7 @@ export async function startSSEServer(): Promise<void> {
             } catch { /* ignore */ }
           };
           pushState();
-          setInterval(pushState, 30_000);
+          setInterval(pushState, 60_000);
 
           // Poll for commands every 2s
           setInterval(async () => {
