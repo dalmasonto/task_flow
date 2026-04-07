@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process';
 import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 import { getConfig } from './config.js';
+import { validateKeys } from './tools/terminal.js';
 
 const SERVICE_ID = 'taskflow-mcp';
 const PROBE_TIMEOUT_MS = 2000;
@@ -553,6 +554,10 @@ export async function startSSEServer(): Promise<void> {
       const literal = body.literal !== false; // default: send as literal text
 
       if (typeof keys !== 'string') { jsonResponse(res, 400, { error: 'keys must be a string' }); return; }
+
+      // Block shell escape patterns and oversized payloads
+      const violation = validateKeys(keys);
+      if (violation) { jsonResponse(res, 403, { error: violation }); return; }
 
       try {
         const pane = agent.tmux_pane!;

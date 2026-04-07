@@ -11,6 +11,27 @@ interface AgentRow {
   pid: number;
 }
 
+const MAX_KEYS_LENGTH = 200;
+
+// Patterns that should never be sent via remote key injection
+const BLOCKED_PATTERNS = [
+  /^\s*!/,              // Claude Code shell escape (! command)
+  /;\s*!/,              // shell escape after semicolon
+];
+
+/** Validate keys before sending — blocks shell escape patterns */
+export function validateKeys(keys: string): string | null {
+  if (keys.length > MAX_KEYS_LENGTH) {
+    return `Keys too long (${keys.length} chars, max ${MAX_KEYS_LENGTH}) — potential injection`;
+  }
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (pattern.test(keys)) {
+      return 'Blocked: shell escape pattern detected (! prefix). Use the terminal directly for shell commands.';
+    }
+  }
+  return null; // valid
+}
+
 function getAgentPane(agentName: string, requireConnected = false): { agent: AgentRow; error?: undefined } | { agent?: undefined; error: ReturnType<typeof errorResponse> } {
   const db = getDb();
   const agent = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(agentName) as AgentRow | undefined;
@@ -60,6 +81,10 @@ export function registerTerminalTools(server: McpServer) {
     async (params) => {
       const result = getAgentPane(params.agent_name, true);
       if (result.error) return result.error;
+
+      // Validate keys for injection attacks
+      const violation = validateKeys(params.keys);
+      if (violation) return errorResponse(violation, 'VALIDATION_ERROR');
 
       const sendEnter = params.enter !== false;
       const isLiteral = params.literal !== false;
