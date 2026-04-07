@@ -273,6 +273,7 @@ function ChatBubble({
 function PendingActions({ message, port }: { message: AgentMessage; port: number }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const handleRespond = async (response: string) => {
     if (!response.trim() || !message.id) return
@@ -284,6 +285,7 @@ function PendingActions({ message, port }: { message: AgentMessage; port: number
     } finally {
       setSending(false)
       setInput('')
+      inputRef.current?.focus()
     }
   }
 
@@ -322,6 +324,7 @@ function PendingActions({ message, port }: { message: AgentMessage; port: number
       {/* Text input + dismiss */}
       <div className="flex gap-2">
         <Input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) handleRespond(input) }}

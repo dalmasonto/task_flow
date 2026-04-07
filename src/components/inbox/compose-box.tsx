@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { sendToAgent } from '@/hooks/use-agent-messages'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ interface ComposeBoxProps {
 export function ComposeBox({ recipient, port }: ComposeBoxProps) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const handleSend = async () => {
     if (!input.trim()) return
@@ -22,6 +23,7 @@ export function ComposeBox({ recipient, port }: ComposeBoxProps) {
       console.error('Failed to send:', err)
     } finally {
       setSending(false)
+      inputRef.current?.focus()
     }
   }
 
@@ -29,6 +31,7 @@ export function ComposeBox({ recipient, port }: ComposeBoxProps) {
     <div className="border-t border-border p-4 bg-card">
       <div className="flex gap-2">
         <Input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) handleSend() }}

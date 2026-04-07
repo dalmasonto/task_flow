@@ -52,6 +52,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [rawMode, setRawMode] = useState(false)
   const [expandKeys, setExpandKeys] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const { content, error, refresh } = useTerminalCapture(
     showPreview ? agentName : null,
     port,
@@ -155,6 +156,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       toast.error(`Failed to send keys: ${err.message}`)
     } finally {
       setSending(false)
+      inputRef.current?.focus()
     }
   }
 
@@ -342,6 +344,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
         {/* Raw input */}
         <div className="flex gap-2">
           <Input
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
