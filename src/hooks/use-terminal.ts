@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { getApiBaseUrl, getAuthHeaders } from '@/lib/connection'
+import { getApiBaseUrl, getAuthHeaders, isRemoteMode, submitCommand } from '@/lib/connection'
 
 interface SendKeysResult {
   agent: string
@@ -10,6 +10,10 @@ interface SendKeysResult {
 }
 
 export async function sendKeys(agentName: string, keys: string, _port: number, enter = true, literal = true): Promise<SendKeysResult> {
+  if (isRemoteMode()) {
+    const result = await submitCommand('send-keys', { agentName, keys, enter, literal })
+    return { agent: agentName, pane: '', keys, enter, sent: true, ...result }
+  }
   const res = await fetch(`${getApiBaseUrl()}/api/terminal/${encodeURIComponent(agentName)}/send-keys`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },

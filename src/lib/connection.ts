@@ -1,9 +1,9 @@
 /**
- * Central connection config — resolves base URL and auth headers
+ * Central connection config — resolves URLs and auth headers
  * based on whether the app is in local or remote mode.
  *
- * Local mode:  http://localhost:{port}
- * Remote mode: {relayUrl}/proxy (with bearer token auth)
+ * Local mode:  direct HTTP to http://localhost:{port}
+ * Remote mode: commands via relay /command queue, sync from /state, SSE from /stream
  */
 
 type ConnectionMode = 'local' | 'remote'
@@ -26,10 +26,13 @@ export function setConnectionConfig(config: {
   relayAccessToken = config.relayAccessToken
 }
 
-/** Get the base URL for API calls */
+/** Get the base URL for direct API calls (local mode only) */
 export function getApiBaseUrl(): string {
   if (mode === 'remote' && relayUrl) {
-    return `${relayUrl}/proxy`
+    // In remote mode, most writes go through /command queue.
+    // This is used for sync-api fire-and-forget calls which
+    // still need a target. In remote mode they're no-ops.
+    return `${relayUrl}/_noop`
   }
   return `http://localhost:${localPort}`
 }
@@ -44,7 +47,10 @@ export function getStreamUrl(): string {
 
 /** Get the sync URL for initial data load */
 export function getSyncUrl(): string {
-  return `${getApiBaseUrl()}/sync`
+  if (mode === 'remote' && relayUrl) {
+    return `${relayUrl}/state`
+  }
+  return `http://localhost:${localPort}/sync`
 }
 
 /** Get auth headers (empty for local, bearer token for remote) */
@@ -53,6 +59,25 @@ export function getAuthHeaders(): Record<string, string> {
     return { 'Authorization': `Bearer ${relayAccessToken}` }
   }
   return {}
+}
+
+/** Get the relay command URL (remote mode only) */
+export function getCommandUrl(): string {
+  return `${relayUrl}/command`
+}
+
+/** Submit a command to the relay queue (remote mode) */
+export async function submitCommand(type: string, payload: unknown): Promise<{ id: number; status: string }> {
+  const res = await fetch(getCommandUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ type, payload }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }))
+    throw new Error(err.error ?? `HTTP ${res.status}`)
+  }
+  return res.json()
 }
 
 /** Check if we're in remote mode */

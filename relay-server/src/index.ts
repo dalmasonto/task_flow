@@ -14,9 +14,6 @@ if (!PUSH_TOKEN || !ACCESS_TOKEN) {
   process.exit(1);
 }
 
-// The local MCP server URL — set by the local MCP when it registers
-let upstreamUrl: string | null = process.env.UPSTREAM_URL || null;
-
 // ─── SSE Client Management ──────────────────────────────────────────
 
 const clients = new Set<ServerResponse>();
@@ -28,12 +25,35 @@ function broadcastToClients(event: string, data: string): void {
   }
 }
 
-// ─── State Buffer (latest per key) ──────────────────────────────────
+// ─── State Buffer ───────────────────────────────────────────────────
 
-// Buffer latest terminal content and agent states so new clients get
-// current state immediately on connect
-const terminalContent = new Map<string, string>(); // agent name → content JSON
-const latestEvents = new Map<string, string>();     // event type → last data
+const terminalContent = new Map<string, string>();
+const latestEvents = new Map<string, string>();
+let stateSnapshot: string | null = null; // full sync snapshot from local MCP
+
+// ─── Command Queue ──────────────────────────────────────────────────
+// Remote app posts commands, local MCP polls and executes them.
+// All connections are outbound from the local machine — no tunnels needed.
+
+interface QueuedCommand {
+  id: number;
+  type: string;         // 'send-keys' | 'respond-message' | 'dismiss-message' | 'send-to-agent'
+  payload: unknown;
+  status: 'pending' | 'done' | 'error';
+  result?: unknown;
+  createdAt: string;
+}
+
+let commandIdCounter = 0;
+const commandQueue: QueuedCommand[] = [];
+const MAX_QUEUE_SIZE = 200;
+
+function pruneQueue(): void {
+  // Keep only last MAX_QUEUE_SIZE commands
+  if (commandQueue.length > MAX_QUEUE_SIZE) {
+    commandQueue.splice(0, commandQueue.length - MAX_QUEUE_SIZE);
+  }
+}
 
 // ─── Auth Helpers ───────────────────────────────────────────────────
 
@@ -48,7 +68,6 @@ function checkPushAuth(req: IncomingMessage): boolean {
 }
 
 function checkAccessAuth(req: IncomingMessage): boolean {
-  // Check header first, then query param (EventSource can't send headers)
   if (extractToken(req) === ACCESS_TOKEN) return true;
   const u = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   return u.searchParams.get('token') === ACCESS_TOKEN;
@@ -70,16 +89,11 @@ function readBody(req: IncomingMessage): Promise<string> {
 // ─── HTTP Server ────────────────────────────────────────────────────
 
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const fullUrl = req.url || '/';
   const urlObj = new URL(fullUrl, `http://${req.headers.host || 'localhost'}`);
@@ -89,14 +103,19 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (url === '/health' && req.method === 'GET') {
     json(res, 200, {
       status: 'ok',
-      upstream: upstreamUrl ? 'connected' : 'waiting',
       clients: clients.size,
+      pendingCommands: commandQueue.filter(c => c.status === 'pending').length,
       bufferedTerminals: terminalContent.size,
+      hasState: !!stateSnapshot,
     });
     return;
   }
 
-  // ─── Push endpoint (local MCP → relay) ──────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // PUSH TOKEN endpoints (local MCP → relay)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ─── Push SSE event ─────────────────────────────────────────────
   if (url === '/push' && req.method === 'POST') {
     if (!checkPushAuth(req)) { json(res, 401, { error: 'Invalid push token' }); return; }
 
@@ -107,7 +126,6 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
       const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
 
-      // Buffer state
       if (event === 'terminal_capture') {
         const parsed = typeof data === 'string' ? JSON.parse(data) : data;
         if (parsed.payload?.name) {
@@ -115,8 +133,6 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         }
       }
       latestEvents.set(event, dataStr);
-
-      // Forward to all connected remote clients
       broadcastToClients(event, dataStr);
 
       json(res, 200, { ok: true });
@@ -126,24 +142,58 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
-  // ─── Register upstream URL (local MCP tells relay where it is) ──
-  if (url === '/register' && req.method === 'POST') {
+  // ─── Push state snapshot (replaces /sync proxy) ─────────────────
+  if (url === '/push/state' && req.method === 'POST') {
     if (!checkPushAuth(req)) { json(res, 401, { error: 'Invalid push token' }); return; }
 
-    const body = await readBody(req);
-    try {
-      const { url: upstream } = JSON.parse(body);
-      if (!upstream) { json(res, 400, { error: 'Missing url' }); return; }
-      upstreamUrl = upstream;
-      console.log(`[relay] upstream registered: ${upstreamUrl}`);
-      json(res, 200, { ok: true, upstream: upstreamUrl });
-    } catch {
-      json(res, 400, { error: 'Invalid JSON' });
-    }
+    stateSnapshot = await readBody(req);
+    console.log(`[relay] state snapshot received (${(stateSnapshot.length / 1024).toFixed(1)}KB)`);
+    json(res, 200, { ok: true });
     return;
   }
 
-  // ─── SSE stream (remote app ← relay) ───────────────────────────
+  // ─── Poll pending commands (local MCP picks up work) ────────────
+  if (url === '/commands/pending' && req.method === 'GET') {
+    if (!checkPushAuth(req)) { json(res, 401, { error: 'Invalid push token' }); return; }
+
+    const pending = commandQueue.filter(c => c.status === 'pending');
+    json(res, 200, pending);
+    return;
+  }
+
+  // ─── Acknowledge command execution ──────────────────────────────
+  const ackMatch = url.match(/^\/commands\/(\d+)\/done$/);
+  if (ackMatch && req.method === 'POST') {
+    if (!checkPushAuth(req)) { json(res, 401, { error: 'Invalid push token' }); return; }
+
+    const id = Number(ackMatch[1]);
+    const cmd = commandQueue.find(c => c.id === id);
+    if (!cmd) { json(res, 404, { error: 'Command not found' }); return; }
+
+    const body = await readBody(req);
+    try {
+      const { status, result } = JSON.parse(body);
+      cmd.status = status === 'error' ? 'error' : 'done';
+      cmd.result = result;
+    } catch {
+      cmd.status = 'done';
+    }
+
+    // Broadcast command result to remote clients
+    broadcastToClients('command_result', JSON.stringify({
+      entity: 'command', action: 'command_result',
+      payload: { id: cmd.id, type: cmd.type, status: cmd.status, result: cmd.result },
+    }));
+
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ACCESS TOKEN endpoints (remote app → relay)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ─── SSE stream ─────────────────────────────────────────────────
   if (url === '/stream' && req.method === 'GET') {
     if (!checkAccessAuth(req)) { json(res, 401, { error: 'Invalid access token' }); return; }
 
@@ -153,9 +203,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       'Connection': 'keep-alive',
     });
 
-    res.write(`event: connected\ndata: ${JSON.stringify({ relay: true, upstream: !!upstreamUrl })}\n\n`);
+    res.write(`event: connected\ndata: ${JSON.stringify({ relay: true })}\n\n`);
 
-    // Send buffered terminal content so client gets current state
     for (const [, data] of terminalContent) {
       res.write(`event: terminal_capture\ndata: ${data}\n\n`);
     }
@@ -165,30 +214,42 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
-  // ─── Proxy: forward API calls to local MCP ─────────────────────
-  // /proxy/* → upstream/*
-  if (url.startsWith('/proxy/') && req.method) {
+  // ─── Get state snapshot (replaces /proxy/sync) ──────────────────
+  if (url === '/state' && req.method === 'GET') {
     if (!checkAccessAuth(req)) { json(res, 401, { error: 'Invalid access token' }); return; }
-    if (!upstreamUrl) { json(res, 502, { error: 'No upstream registered' }); return; }
 
-    const targetPath = url.slice(6); // strip /proxy
-    const targetUrl = `${upstreamUrl}${targetPath}${urlObj.search}`;
+    if (!stateSnapshot) {
+      json(res, 503, { error: 'No state available yet — local server has not pushed' });
+      return;
+    }
 
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(stateSnapshot);
+    return;
+  }
+
+  // ─── Submit command (remote app queues work for local MCP) ──────
+  if (url === '/command' && req.method === 'POST') {
+    if (!checkAccessAuth(req)) { json(res, 401, { error: 'Invalid access token' }); return; }
+
+    const body = await readBody(req);
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const fetchOpts: RequestInit = { method: req.method, headers };
+      const { type, payload } = JSON.parse(body);
+      if (!type) { json(res, 400, { error: 'Missing command type' }); return; }
 
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        fetchOpts.body = await readBody(req);
-      }
+      const cmd: QueuedCommand = {
+        id: ++commandIdCounter,
+        type,
+        payload,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+      commandQueue.push(cmd);
+      pruneQueue();
 
-      const upstream = await fetch(targetUrl, fetchOpts);
-      const responseBody = await upstream.text();
-
-      res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json' });
-      res.end(responseBody);
-    } catch (err: any) {
-      json(res, 502, { error: `Upstream error: ${err.message}` });
+      json(res, 200, { id: cmd.id, status: 'pending' });
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
     }
     return;
   }
@@ -212,5 +273,4 @@ server.listen(PORT, () => {
   console.log(`[relay] listening on port ${PORT}`);
   console.log(`[relay] push token: ${PUSH_TOKEN.slice(0, 4)}...`);
   console.log(`[relay] access token: ${ACCESS_TOKEN.slice(0, 4)}...`);
-  if (upstreamUrl) console.log(`[relay] upstream: ${upstreamUrl}`);
 });

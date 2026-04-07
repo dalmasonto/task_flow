@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
-import { getApiBaseUrl, getAuthHeaders } from '@/lib/connection'
+import { getApiBaseUrl, getAuthHeaders, isRemoteMode, submitCommand } from '@/lib/connection'
 
 export function useAgentMessages(agentFilter?: string) {
   return useLiveQuery(() => {
@@ -49,6 +49,9 @@ export function useLiveAgents() {
 }
 
 export async function respondToMessage(id: number, response: string, _port: number) {
+  if (isRemoteMode()) {
+    return submitCommand('respond-message', { messageId: id, response })
+  }
   const res = await fetch(`${getApiBaseUrl()}/api/agent-messages/${id}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -62,6 +65,9 @@ export async function respondToMessage(id: number, response: string, _port: numb
 }
 
 export async function dismissMessage(id: number, _port: number) {
+  if (isRemoteMode()) {
+    return submitCommand('dismiss-message', { messageId: id })
+  }
   const res = await fetch(`${getApiBaseUrl()}/api/agent-messages/${id}/dismiss`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -74,6 +80,9 @@ export async function dismissMessage(id: number, _port: number) {
 }
 
 export async function sendToAgent(recipient: string, message: string, _port: number, projectId?: number) {
+  if (isRemoteMode()) {
+    return submitCommand('send-to-agent', { recipient, message, projectId })
+  }
   const res = await fetch(`${getApiBaseUrl()}/api/agent-messages/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },

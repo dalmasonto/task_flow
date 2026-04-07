@@ -178,6 +178,80 @@ function pollAgentTerminals(promptState: Map<string, boolean>, contentHashes: Ma
   }
 }
 
+// ─── Relay command executor ─────────────────────────────────────────
+// Executes commands received from the relay's command queue locally.
+
+async function executeRelayCommand(type: string, payload: any): Promise<{ status: string; result?: unknown }> {
+  const db = getDb();
+  try {
+    switch (type) {
+      case 'send-keys': {
+        const { agentName, keys, enter = true, literal = true } = payload;
+        const { validateKeys } = await import('./tools/terminal.js');
+        const violation = validateKeys(keys);
+        if (violation) return { status: 'error', result: violation };
+
+        const agent = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(agentName) as { tmux_pane: string | null; status: string } | undefined;
+        if (!agent?.tmux_pane) return { status: 'error', result: `Agent "${agentName}" not found or has no pane` };
+        if (agent.status !== 'connected') return { status: 'error', result: `Agent "${agentName}" is disconnected` };
+
+        const pane = agent.tmux_pane;
+        if (literal) {
+          execFileSync('tmux', ['send-keys', '-t', pane, '-l', keys], { stdio: 'ignore', timeout: 5000 });
+          if (enter) execFileSync('tmux', ['send-keys', '-t', pane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+        } else {
+          const args = ['send-keys', '-t', pane, keys];
+          if (enter) args.push('Enter');
+          execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
+        }
+        logActivity('terminal_send_keys', `[relay] Sent keys to ${agentName}: ${keys.slice(0, 50)}`, { entityType: 'agent' });
+        return { status: 'done', result: { agent: agentName, keys, sent: true } };
+      }
+
+      case 'respond-message': {
+        const { messageId, response } = payload;
+        const ts = new Date().toISOString();
+        const msg = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(messageId) as Record<string, unknown> | undefined;
+        if (!msg) return { status: 'error', result: `Message ${messageId} not found` };
+        if (msg.status !== 'pending') return { status: 'error', result: `Message ${messageId} is already ${msg.status}` };
+
+        db.prepare('UPDATE agent_messages SET response = ?, status = ?, answered_at = ? WHERE id = ?')
+          .run(response, 'answered', ts, messageId);
+        const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(messageId);
+        broadcast('agent_question_answered', { entity: 'agent_message', action: 'agent_question_answered', payload: updated });
+        return { status: 'done', result: { id: messageId, status: 'answered' } };
+      }
+
+      case 'dismiss-message': {
+        const { messageId } = payload;
+        const ts = new Date().toISOString();
+        db.prepare("UPDATE agent_messages SET status = 'dismissed', answered_at = ? WHERE id = ?").run(ts, payload.messageId);
+        const updated = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(messageId);
+        broadcast('agent_question_answered', { entity: 'agent_message', action: 'agent_question_answered', payload: updated });
+        return { status: 'done', result: { id: messageId, status: 'dismissed' } };
+      }
+
+      case 'send-to-agent': {
+        const { recipient, message, projectId } = payload;
+        const ts = new Date().toISOString();
+        const result = db.prepare(
+          `INSERT INTO agent_messages (project_id, question, sender_name, recipient_name, source, status, created_at)
+           VALUES (?, ?, 'user', ?, 'ui', 'pending', ?)`
+        ).run(projectId ?? null, message, recipient, ts);
+        const id = result.lastInsertRowid as number;
+        const msg = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
+        broadcast('agent_question', { entity: 'agent_message', action: 'agent_question', payload: msg });
+        return { status: 'done', result: { id, recipient } };
+      }
+
+      default:
+        return { status: 'error', result: `Unknown command type: ${type}` };
+    }
+  } catch (err: any) {
+    return { status: 'error', result: err.message };
+  }
+}
+
 export async function startSSEServer(): Promise<void> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     // CORS headers for all requests
@@ -645,26 +719,50 @@ export async function startSSEServer(): Promise<void> {
           console.log(`[SSE] listening on port ${port}`);
         }
 
-        // Register with remote relay so it knows where to proxy commands
+        // Relay command polling + state pushing (if relay is configured)
         if (RELAY_URL && RELAY_PUSH_TOKEN) {
-          const localUrl = `http://${cfg.host}:${port}`;
-          fetch(`${RELAY_URL}/register`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${RELAY_PUSH_TOKEN}`,
-            },
-            body: JSON.stringify({ url: localUrl }),
-          }).then(async (res) => {
-            if (res.ok) {
-              console.log(`[SSE] registered with relay at ${RELAY_URL}`);
-            } else {
-              const body = await res.text().catch(() => '');
-              console.error(`[SSE] relay registration rejected: ${res.status} ${body}`);
-            }
-          }).catch((err) => {
-            console.error(`[SSE] relay registration failed: ${err.message}`);
-          });
+          console.log(`[relay] command polling started → ${RELAY_URL}`);
+
+          // Push state snapshot on startup and every 30s
+          const pushState = () => {
+            try {
+              const db = getDb();
+              const state = {
+                tasks: db.prepare('SELECT * FROM tasks').all(),
+                projects: db.prepare('SELECT * FROM projects').all(),
+                sessions: db.prepare('SELECT * FROM sessions').all(),
+                activityLogs: db.prepare('SELECT * FROM activity_logs ORDER BY id DESC LIMIT 100').all(),
+                agentMessages: db.prepare('SELECT * FROM agent_messages ORDER BY id DESC LIMIT 200').all(),
+                agentRegistry: db.prepare('SELECT * FROM agent_registry').all(),
+              };
+              fetch(`${RELAY_URL}/push/state`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RELAY_PUSH_TOKEN}` },
+                body: JSON.stringify(state),
+              }).catch(() => {});
+            } catch { /* ignore */ }
+          };
+          pushState();
+          setInterval(pushState, 30_000);
+
+          // Poll for commands every 2s
+          setInterval(async () => {
+            try {
+              const res = await fetch(`${RELAY_URL}/commands/pending`, {
+                headers: { 'Authorization': `Bearer ${RELAY_PUSH_TOKEN}` },
+              });
+              if (!res.ok) return;
+              const commands = await res.json() as Array<{ id: number; type: string; payload: any }>;
+              for (const cmd of commands) {
+                const result = await executeRelayCommand(cmd.type, cmd.payload);
+                fetch(`${RELAY_URL}/commands/${cmd.id}/done`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RELAY_PUSH_TOKEN}` },
+                  body: JSON.stringify(result),
+                }).catch(() => {});
+              }
+            } catch { /* relay may be down */ }
+          }, 2_000);
         }
 
         resolve();
