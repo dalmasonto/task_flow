@@ -107,6 +107,9 @@ export interface SettingsMap {
   depGraphSidebarWidth: number
   depGraphActiveFilters: string[]
   terminalWidth: number
+  connectionMode: 'local' | 'remote'
+  relayUrl: string
+  relayAccessToken: string
 }
 
 export interface Setting {

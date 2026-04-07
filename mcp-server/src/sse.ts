@@ -7,6 +7,10 @@ import { getConfig } from './config.js';
 const SERVICE_ID = 'taskflow-mcp';
 const PROBE_TIMEOUT_MS = 2000;
 
+// ─── Relay upstream config (env vars) ───────────────────────────────
+const RELAY_URL = process.env.TASKFLOW_RELAY_URL || '';
+const RELAY_PUSH_TOKEN = process.env.TASKFLOW_RELAY_PUSH_TOKEN || '';
+
 const clients = new Set<ServerResponse>();
 
 // ─── Event buffer for Last-Event-ID replay ──────────────────────────
@@ -627,6 +631,24 @@ export async function startSSEServer(): Promise<void> {
         } else {
           console.log(`[SSE] listening on port ${port}`);
         }
+
+        // Register with remote relay so it knows where to proxy commands
+        if (RELAY_URL && RELAY_PUSH_TOKEN) {
+          const localUrl = `http://${cfg.host}:${port}`;
+          fetch(`${RELAY_URL}/register`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${RELAY_PUSH_TOKEN}`,
+            },
+            body: JSON.stringify({ url: localUrl }),
+          }).then(() => {
+            console.log(`[SSE] registered with relay at ${RELAY_URL}`);
+          }).catch((err) => {
+            console.error(`[SSE] relay registration failed: ${err.message}`);
+          });
+        }
+
         resolve();
       });
     }
@@ -655,6 +677,7 @@ export function markSSEActive(): void {
 /**
  * Broadcast an SSE event. If this process owns the SSE server, send directly.
  * Otherwise, relay via HTTP to the process that does.
+ * Also pushes to the remote relay server if configured.
  */
 export function broadcast(event: string, data: object): void {
   if (sseServerActive && clients.size > 0) {
@@ -669,6 +692,18 @@ export function broadcast(event: string, data: object): void {
     }).catch((err) => {
       console.error(`[SSE] broadcast relay to port ${activePort} failed: ${err.message}`);
     });
+  }
+
+  // Push to remote relay server (fire-and-forget)
+  if (RELAY_URL && RELAY_PUSH_TOKEN) {
+    fetch(`${RELAY_URL}/push`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${RELAY_PUSH_TOKEN}`,
+      },
+      body: JSON.stringify({ event, data }),
+    }).catch(() => {}); // silent — relay may be down
   }
 }
 

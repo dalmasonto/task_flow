@@ -28,6 +28,9 @@ export const DEFAULT_SETTINGS = {
   depGraphSidebarWidth: 400,
   depGraphActiveFilters: [] as string[],
   terminalWidth: 420,
+  connectionMode: 'local' as const,
+  relayUrl: '',
+  relayAccessToken: '',
 }
 
 export const FONT_OPTIONS = [

@@ -1,0 +1,20 @@
+{
+  "name": "@dalmasonto/taskflow-relay",
+  "version": "0.1.0",
+  "description": "Relay proxy server for remote TaskFlow access — bridges local MCP server to remote clients",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "taskflow-relay": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "tsx": "^4.19.4",
+    "@types/node": "^22.15.2"
+  }
+}
