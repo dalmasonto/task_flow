@@ -285,7 +285,7 @@ function PendingActions({ message, port }: { message: AgentMessage; port: number
     } finally {
       setSending(false)
       setInput('')
-      requestAnimationFrame(() => inputRef.current?.focus())
+      // requestAnimationFrame(() => inputRef.current?.focus())
     }
   }
 

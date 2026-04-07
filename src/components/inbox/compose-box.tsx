@@ -23,7 +23,7 @@ export function ComposeBox({ recipient, port }: ComposeBoxProps) {
       console.error('Failed to send:', err)
     } finally {
       setSending(false)
-      requestAnimationFrame(() => inputRef.current?.focus())
+      // requestAnimationFrame(() => inputRef.current?.focus())
     }
   }
 
