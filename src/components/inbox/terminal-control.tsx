@@ -49,6 +49,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [lastSent, setLastSent] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(true)
   const [rawMode, setRawMode] = useState(false)
+  const [expandKeys, setExpandKeys] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
   const { content, error, refresh } = useTerminalCapture(
     showPreview ? agentName : null,
@@ -238,172 +239,143 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       )}
 
       {/* Keyboard */}
-      <div className={`shrink-0 p-3 space-y-3 transition-colors ${promptHints ? 'bg-amber-500/10 border-t border-amber-500/30' : ''}`}>
-        <div className="flex items-center gap-2 mb-2">
-          {promptHints && (
-            <span className="material-symbols-outlined text-amber-500 text-sm animate-pulse">warning</span>
-          )}
-          <div className={`text-[10px] font-bold uppercase tracking-widest ${promptHints ? 'text-amber-500' : 'text-muted-foreground'}`}>
-            {promptHints ? 'Input Required' : 'Quick Response'}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {/* Choices */}
-          <div className="space-y-1.5">
-            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Choices</div>
-            <div className="flex gap-1">
-              {CHOICE_KEYS.map((k) => (
-                <Button
-                  key={k.keys}
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className={`text-[10px] font-bold h-7 w-7 p-0 ${btnBase}`}
-                  onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
-                >
-                  {k.label}
-                </Button>
-              ))}
+      <div className={`shrink-0 p-3 space-y-2 transition-colors ${promptHints ? 'bg-amber-500/10 border-t border-amber-500/30' : ''}`}>
+        {/* Header with expand toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {promptHints && (
+              <span className="material-symbols-outlined text-amber-500 text-sm animate-pulse">warning</span>
+            )}
+            <div className={`text-[10px] font-bold uppercase tracking-widest ${promptHints ? 'text-amber-500' : 'text-muted-foreground'}`}>
+              {promptHints ? 'Input Required' : 'Quick Response'}
             </div>
           </div>
+          <button
+            onClick={() => setExpandKeys(!expandKeys)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <span className="material-symbols-outlined text-sm">
+              {expandKeys ? 'expand_less' : 'expand_more'}
+            </span>
+          </button>
+        </div>
 
-          {/* Navigation */}
-          <div className="space-y-1.5">
-            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Navigation</div>
-            <div className="flex flex-col items-center gap-0.5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={sending}
-                className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
-                onClick={() => handleSend('Up', false, false)}
-              >
-                <span className="material-symbols-outlined text-xs">keyboard_arrow_up</span>
-              </Button>
-              <div className="flex gap-0.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
-                  onClick={() => handleSend('Left', false, false)}
-                >
-                  <span className="material-symbols-outlined text-xs">keyboard_arrow_left</span>
-                </Button>
-                <div className="h-6 w-7 rounded border border-border/30" />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
-                  onClick={() => handleSend('Right', false, false)}
-                >
-                  <span className="material-symbols-outlined text-xs">keyboard_arrow_right</span>
-                </Button>
+        {/* Compact strip — always visible: choices + confirm + critical in one row */}
+        <div className="flex flex-wrap gap-1">
+          {CHOICE_KEYS.map((k) => (
+            <Button key={k.keys} variant="outline" size="sm" disabled={sending}
+              className={`text-[10px] font-bold h-7 w-7 p-0 ${btnBase}`}
+              onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+            >{k.label}</Button>
+          ))}
+          <div className="w-px bg-border/50 mx-0.5" />
+          {CONFIRM_KEYS.map((k) => (
+            <Button key={k.keys} variant="outline" size="sm" disabled={sending}
+              className={`uppercase tracking-widest text-[10px] font-bold h-7 px-2 ${btnBase}`}
+              onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+            >{k.label}</Button>
+          ))}
+          <div className="w-px bg-border/50 mx-0.5" />
+          <Button variant="outline" size="sm" disabled={sending}
+            className={`text-[10px] font-bold h-7 px-2 ${btnBase}`}
+            onClick={() => handleSend('Escape', false, false)}
+          >Esc</Button>
+          <Button variant="outline" size="sm" disabled={sending}
+            className={`text-[10px] font-bold h-7 px-2 ${btnBase}`}
+            onClick={() => handleSend('Enter', false, false)}
+          >Enter</Button>
+        </div>
+
+        {/* Expanded section — navigation, control, critical */}
+        {expandKeys && (
+          <div className="space-y-2 pt-1 border-t border-border/30">
+            <div className="grid grid-cols-2 gap-2">
+              {/* Navigation */}
+              <div className="space-y-1.5">
+                <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Navigation</div>
+                <div className="flex flex-col items-center gap-0.5">
+                  <Button variant="outline" size="sm" disabled={sending}
+                    className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
+                    onClick={() => handleSend('Up', false, false)}>
+                    <span className="material-symbols-outlined text-xs">keyboard_arrow_up</span>
+                  </Button>
+                  <div className="flex gap-0.5">
+                    <Button variant="outline" size="sm" disabled={sending}
+                      className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
+                      onClick={() => handleSend('Left', false, false)}>
+                      <span className="material-symbols-outlined text-xs">keyboard_arrow_left</span>
+                    </Button>
+                    <div className="h-6 w-7 rounded border border-border/30" />
+                    <Button variant="outline" size="sm" disabled={sending}
+                      className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
+                      onClick={() => handleSend('Right', false, false)}>
+                      <span className="material-symbols-outlined text-xs">keyboard_arrow_right</span>
+                    </Button>
+                  </div>
+                  <Button variant="outline" size="sm" disabled={sending}
+                    className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
+                    onClick={() => handleSend('Down', false, false)}>
+                    <span className="material-symbols-outlined text-xs">keyboard_arrow_down</span>
+                  </Button>
+                </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={sending}
-                className={`text-[10px] font-bold h-6 w-7 p-0 ${btnBase}`}
-                onClick={() => handleSend('Down', false, false)}
-              >
-                <span className="material-symbols-outlined text-xs">keyboard_arrow_down</span>
-              </Button>
-            </div>
-          </div>
 
-          {/* Confirm */}
-          <div className="space-y-1.5">
-            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Confirm</div>
-            <div className="flex gap-1">
-              {CONFIRM_KEYS.map((k) => (
-                <Button
-                  key={k.keys}
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className={`uppercase tracking-widest text-[10px] font-bold h-7 px-2 ${btnBase}`}
-                  onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
-                >
-                  {k.label}
-                </Button>
-              ))}
+              {/* Control */}
+              <div className="space-y-1.5">
+                <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Control</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {CONTROL_KEYS.map((k) => (
+                    <Button key={k.keys} variant="outline" size="sm" disabled={sending}
+                      className={`text-[10px] font-bold h-7 px-2 ${btnBase}`}
+                      onClick={() => handleSend(k.keys, false, false)}
+                    >{k.label}</Button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Control */}
-          <div className="space-y-1.5">
-            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Control</div>
-            <div className="grid grid-cols-2 gap-1">
-              {CONTROL_KEYS.map((k) => (
-                <Button
-                  key={k.keys}
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className={`text-[10px] font-bold h-7 px-2 ${btnBase}`}
-                  onClick={() => handleSend(k.keys, false, false)}
-                >
-                  {k.label}
-                </Button>
-              ))}
+            {/* Critical */}
+            <div className="space-y-1.5">
+              <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Critical</div>
+              <div className="flex gap-1">
+                {CRITICAL_KEYS.map((k) => (
+                  <Button key={k.keys} variant="outline" size="sm" disabled={sending}
+                    className={`text-[10px] font-bold h-7 px-3 ${
+                      promptHints
+                        ? '!bg-red-500/15 !border-red-500/50 hover:!bg-red-500/30 hover:!border-red-400 text-red-300'
+                        : 'border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 text-red-400'
+                    }`}
+                    onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+                  >{k.label}</Button>
+                ))}
+              </div>
             </div>
           </div>
-
-          {/* Critical */}
-          <div className="col-span-2 space-y-1.5">
-            <div className={`text-[9px] uppercase tracking-widest ${labelColor}`}>Critical</div>
-            <div className="flex gap-1">
-              {CRITICAL_KEYS.map((k) => (
-                <Button
-                  key={k.keys}
-                  variant="outline"
-                  size="sm"
-                  disabled={sending}
-                  className={`text-[10px] font-bold h-7 px-3 ${
-                    promptHints
-                      ? '!bg-red-500/15 !border-red-500/50 hover:!bg-red-500/30 hover:!border-red-400 text-red-300'
-                      : 'border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 text-red-400'
-                  }`}
-                  onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
-                >
-                  {k.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Raw input */}
-        <div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
-            Send Raw Input
-          </div>
-          <div className="flex gap-2">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSend(input)
-                }
-              }}
-              placeholder="Type and press Enter..."
-              disabled={sending}
-              className="bg-muted/30 border-border text-xs h-8 font-mono"
-            />
-            <Button
-              onClick={() => handleSend(input)}
-              disabled={sending || !input.trim()}
-              size="sm"
-              className="uppercase tracking-widest text-[10px] font-bold h-8"
-            >
-              {sending ? '...' : 'Send'}
-            </Button>
-          </div>
+        <div className="flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSend(input)
+              }
+            }}
+            placeholder="Type and press Enter..."
+            disabled={sending}
+            className="bg-muted/30 border-border text-xs h-8 font-mono"
+          />
+          <Button
+            onClick={() => handleSend(input)}
+            disabled={sending || !input.trim()}
+            size="sm"
+            className="uppercase tracking-widest text-[10px] font-bold h-8"
+          >
+            {sending ? '...' : 'Send'}
+          </Button>
         </div>
 
         {/* Last sent indicator */}
