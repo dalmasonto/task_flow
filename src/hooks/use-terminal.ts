@@ -23,11 +23,11 @@ export async function captureTerminal(agentName: string, port: number): Promise<
   return res.json()
 }
 
-export async function sendKeys(agentName: string, keys: string, port: number, enter = true): Promise<SendKeysResult> {
+export async function sendKeys(agentName: string, keys: string, port: number, enter = true, literal = true): Promise<SendKeysResult> {
   const res = await fetch(`http://localhost:${port}/api/terminal/${encodeURIComponent(agentName)}/send-keys`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keys, enter }),
+    body: JSON.stringify({ keys, enter, literal }),
   })
   if (!res.ok) {
     const err = await res.json()

@@ -8,16 +8,33 @@ interface TerminalControlProps {
   port: number
 }
 
-const QUICK_ACTIONS = [
-  { label: 'Yes', keys: 'yes' },
-  { label: 'No', keys: 'no' },
-  { label: 'y', keys: 'y' },
-  { label: 'n', keys: 'n' },
+interface KeyAction {
+  label: string
+  keys: string
+  enter?: boolean   // default true
+  literal?: boolean // default true
+}
+
+const CHOICE_KEYS: KeyAction[] = [
   { label: '1', keys: '1' },
   { label: '2', keys: '2' },
   { label: '3', keys: '3' },
   { label: '4', keys: '4' },
   { label: '5', keys: '5' },
+]
+
+const CONFIRM_KEYS: KeyAction[] = [
+  { label: 'Yes', keys: 'yes' },
+  { label: 'No', keys: 'no' },
+  { label: 'y', keys: 'y' },
+  { label: 'n', keys: 'n' },
+]
+
+const CONTROL_KEYS: KeyAction[] = [
+  { label: 'Esc', keys: 'Escape', enter: false, literal: false },
+  { label: 'Enter', keys: 'Enter', enter: false, literal: false },
+  { label: 'Tab', keys: 'Tab', enter: false, literal: false },
+  { label: 'S-Tab', keys: 'BTab', enter: false, literal: false },
 ]
 
 export function TerminalControl({ agentName, port }: TerminalControlProps) {
@@ -39,14 +56,13 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
     }
   }, [content])
 
-  const handleSend = async (keys: string, enter = true) => {
+  const handleSend = async (keys: string, enter = true, literal = true) => {
     if (!keys && enter) return
     setSending(true)
     try {
-      await sendKeys(agentName, keys, port, enter)
+      await sendKeys(agentName, keys, port, enter, literal)
       setLastSent(keys)
       setInput('')
-      // Refresh terminal preview after sending
       setTimeout(refresh, 500)
     } catch (err) {
       console.error('Failed to send keys:', err)
@@ -103,25 +119,113 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
         </div>
       )}
 
-      {/* Quick actions */}
+      {/* Keyboard */}
       <div className="shrink-0 p-3 space-y-3">
-        <div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
-            Quick Response
+        <div className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
+          Quick Response
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {/* Choices */}
+          <div className="space-y-1.5">
+            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Choices</div>
+            <div className="flex gap-1">
+              {CHOICE_KEYS.map((k) => (
+                <Button
+                  key={k.keys}
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 w-7 p-0"
+                  onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+                >
+                  {k.label}
+                </Button>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {QUICK_ACTIONS.map((action) => (
+
+          {/* Navigation */}
+          <div className="space-y-1.5">
+            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Navigation</div>
+            <div className="flex flex-col items-center gap-0.5">
               <Button
-                key={action.keys}
                 variant="outline"
                 size="sm"
                 disabled={sending}
-                className="uppercase tracking-widest text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 min-w-[2rem]"
-                onClick={() => handleSend(action.keys)}
+                className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                onClick={() => handleSend('Up', false, false)}
               >
-                {action.label}
+                <span className="material-symbols-outlined text-xs">keyboard_arrow_up</span>
               </Button>
-            ))}
+              <div className="flex gap-0.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                  onClick={() => handleSend('Left', false, false)}
+                >
+                  <span className="material-symbols-outlined text-xs">keyboard_arrow_left</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                  onClick={() => handleSend('Down', false, false)}
+                >
+                  <span className="material-symbols-outlined text-xs">keyboard_arrow_down</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-6 w-7 p-0"
+                  onClick={() => handleSend('Right', false, false)}
+                >
+                  <span className="material-symbols-outlined text-xs">keyboard_arrow_right</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Confirm */}
+          <div className="space-y-1.5">
+            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Confirm</div>
+            <div className="flex gap-1">
+              {CONFIRM_KEYS.map((k) => (
+                <Button
+                  key={k.keys}
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="uppercase tracking-widest text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 px-2"
+                  onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+                >
+                  {k.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Control */}
+          <div className="space-y-1.5">
+            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-widest">Control</div>
+            <div className="grid grid-cols-2 gap-1">
+              {CONTROL_KEYS.map((k) => (
+                <Button
+                  key={k.keys}
+                  variant="outline"
+                  size="sm"
+                  disabled={sending}
+                  className="text-[10px] font-bold border-secondary/40 hover:bg-secondary/10 hover:border-secondary h-7 px-2"
+                  onClick={() => handleSend(k.keys, false, false)}
+                >
+                  {k.label}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
 

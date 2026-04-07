@@ -429,15 +429,22 @@ export async function startSSEServer(): Promise<void> {
       try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const keys = body.keys;
       const enter = body.enter !== false; // default: send Enter after keys
+      const literal = body.literal !== false; // default: send as literal text
 
       if (typeof keys !== 'string') { jsonResponse(res, 400, { error: 'keys must be a string' }); return; }
 
       try {
-        const args = ['send-keys', '-t', agent.tmux_pane, keys];
-        if (enter) args.push('Enter');
-        execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
+        const pane = agent.tmux_pane!;
+        if (literal) {
+          execFileSync('tmux', ['send-keys', '-t', pane, '-l', keys], { stdio: 'ignore', timeout: 5000 });
+          if (enter) execFileSync('tmux', ['send-keys', '-t', pane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+        } else {
+          const args = ['send-keys', '-t', pane, keys];
+          if (enter) args.push('Enter');
+          execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
+        }
         logActivity('terminal_send_keys', `Sent keys to ${agentName}: ${keys.slice(0, 50)}`, { entityType: 'agent' });
-        jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, keys, enter, sent: true });
+        jsonResponse(res, 200, { agent: agentName, pane: agent.tmux_pane, keys, enter, literal, sent: true });
       } catch (err: any) {
         jsonResponse(res, 500, { error: `Failed to send keys: ${err.message}` });
       }

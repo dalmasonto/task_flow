@@ -49,8 +49,9 @@ export function registerTerminalTools(server: McpServer) {
     'Send raw keystrokes to an agent\'s tmux pane. Use this to respond to interactive prompts (yes/no, numbered choices, permission approvals) displayed in an agent\'s terminal. By default appends Enter after the keys.',
     {
       agent_name: z.string().describe('Name of the agent whose terminal to send keys to'),
-      keys: z.string().describe('The keys/text to send (e.g. "yes", "1", "y")'),
+      keys: z.string().describe('The keys/text to send (e.g. "yes", "1", "y") or tmux key names (e.g. "Escape", "Up", "Down", "BTab")'),
       enter: z.boolean().optional().describe('Whether to press Enter after the keys (default: true)'),
+      literal: z.boolean().optional().describe('Send as literal text with -l flag (default: true). Set false for tmux key names like Escape, Up, Down, Left, Right, BTab'),
     },
     { destructiveHint: true },
     async (params) => {
@@ -58,13 +59,21 @@ export function registerTerminalTools(server: McpServer) {
       if (result.error) return result.error;
 
       const sendEnter = params.enter !== false;
+      const isLiteral = params.literal !== false;
 
       try {
-        // Use -l to send keys as literal text (like typing on a keyboard)
-        execFileSync('tmux', ['send-keys', '-t', result.agent.tmux_pane!, '-l', params.keys], { stdio: 'ignore', timeout: 5000 });
-        // Enter is a tmux key name, so send it separately without -l
-        if (sendEnter) {
-          execFileSync('tmux', ['send-keys', '-t', result.agent.tmux_pane!, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+        const pane = result.agent.tmux_pane!;
+        if (isLiteral) {
+          // Send as literal text (like typing on a keyboard)
+          execFileSync('tmux', ['send-keys', '-t', pane, '-l', params.keys], { stdio: 'ignore', timeout: 5000 });
+          if (sendEnter) {
+            execFileSync('tmux', ['send-keys', '-t', pane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+          }
+        } else {
+          // Send as tmux key names (Escape, Up, Down, etc.)
+          const args = ['send-keys', '-t', pane, params.keys];
+          if (sendEnter) args.push('Enter');
+          execFileSync('tmux', args, { stdio: 'ignore', timeout: 5000 });
         }
 
         logActivity('terminal_send_keys', `Sent keys to ${params.agent_name}: ${params.keys.slice(0, 50)}`, { entityType: 'agent' });
