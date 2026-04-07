@@ -641,8 +641,13 @@ export async function startSSEServer(): Promise<void> {
               'Authorization': `Bearer ${RELAY_PUSH_TOKEN}`,
             },
             body: JSON.stringify({ url: localUrl }),
-          }).then(() => {
-            console.log(`[SSE] registered with relay at ${RELAY_URL}`);
+          }).then(async (res) => {
+            if (res.ok) {
+              console.log(`[SSE] registered with relay at ${RELAY_URL}`);
+            } else {
+              const body = await res.text().catch(() => '');
+              console.error(`[SSE] relay registration rejected: ${res.status} ${body}`);
+            }
           }).catch((err) => {
             console.error(`[SSE] relay registration failed: ${err.message}`);
           });
