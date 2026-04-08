@@ -680,11 +680,11 @@ export async function startSSEServer(): Promise<void> {
           if (isTaskFlow) {
             // Another TaskFlow instance owns this port — connect to it instead
             activePort = port;
-            console.log(`[SSE] port ${port} owned by another TaskFlow instance (pid probe) — using it`);
+            console.error(`[SSE] port ${port} owned by another TaskFlow instance (pid probe) — using it`);
             resolve();
           } else {
             // Not ours — try next port
-            console.log(`[SSE] port ${port} in use by non-TaskFlow service — trying ${port + 1}`);
+            console.error(`[SSE] port ${port} in use by non-TaskFlow service — trying ${port + 1}`);
             attempt++;
             tryPort(port + 1);
           }
@@ -714,14 +714,14 @@ export async function startSSEServer(): Promise<void> {
         }, 3_000);
 
         if (port !== PREFERRED_PORT) {
-          console.log(`[SSE] listening on fallback port ${port} (preferred ${PREFERRED_PORT} was unavailable)`);
+          console.error(`[SSE] listening on fallback port ${port} (preferred ${PREFERRED_PORT} was unavailable)`);
         } else {
-          console.log(`[SSE] listening on port ${port}`);
+          console.error(`[SSE] listening on port ${port}`);
         }
 
         // Relay command polling + state pushing (if relay is configured)
         if (RELAY_URL && RELAY_PUSH_TOKEN) {
-          console.log(`[relay] command polling started → ${RELAY_URL}`);
+          console.error(`[relay] command polling started → ${RELAY_URL}`);
 
           // Push lightweight sync state — only what the remote app needs
           // SSE events handle real-time updates after this initial load
