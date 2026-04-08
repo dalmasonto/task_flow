@@ -356,6 +356,7 @@ function parseAgentMessage(raw: Record<string, unknown>) {
   return {
     id: raw.id as number,
     projectId: raw.project_id != null ? (raw.project_id as number) : undefined,
+    broadcastId: raw.broadcast_id != null ? (raw.broadcast_id as string) : undefined,
     senderName: (raw.sender_name as string) ?? 'unknown',
     recipientName: (raw.recipient_name as string) ?? 'user',
     question: raw.question as string,

@@ -125,6 +125,7 @@ export type AgentMessageSource = 'mcp' | 'terminal' | 'ui'
 export interface AgentMessage {
   id?: number
   projectId?: number
+  broadcastId?: string
   senderName: string
   recipientName: string
   question: string
