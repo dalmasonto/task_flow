@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { sendKeys, useTerminalCapture } from '@/hooks/use-terminal'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
+import { db } from '@/db/database'
 
 interface TerminalControlProps {
   agentName: string
@@ -73,10 +74,13 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
     return { awaiting: true }
   })()
 
-  // Auto-scroll preview to bottom
+  // Smart auto-scroll: only scroll to bottom if user is already near the bottom
   useEffect(() => {
-    if (previewRef.current) {
-      previewRef.current.scrollTop = previewRef.current.scrollHeight
+    const el = previewRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom < 80) {
+      el.scrollTop = el.scrollHeight
     }
   }, [content])
 
@@ -151,6 +155,9 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       setLastSent(keys)
       setInput('')
       toast.success(`Sent "${keys}" to ${agentName}`)
+      // Optimistically reset awaitingInput so UI updates immediately
+      // instead of waiting for next SSE poll cycle (~3s)
+      db.agentRegistry.where('name').equals(agentName).modify({ awaitingInput: false })
       setTimeout(refresh, 500)
     } catch (err: any) {
       toast.error(`Failed to send keys: ${err.message}`)
