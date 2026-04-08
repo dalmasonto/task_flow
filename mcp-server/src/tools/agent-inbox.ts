@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { getDb } from '../db.js';
 import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
 import { registerAgent as doRegister, getAgent, listAgents } from '../agent-registry.js';
@@ -266,6 +267,116 @@ export function registerAgentInboxTools(server: McpServer) {
     async (params) => {
       const agents = listAgents(params.status);
       return successResponse(agents);
+    },
+  );
+
+  server.tool(
+    'broadcast_agents',
+    'Send a question to multiple agents simultaneously. Creates a group message — each agent gets their own copy linked by a shared broadcast ID. Use check_broadcast to see all responses. Optional: omit agents list to broadcast to ALL connected agents.',
+    {
+      question: z.string().describe('The question to broadcast'),
+      agents: z.array(z.string()).optional().describe('Agent names to send to. If omitted, sends to all connected agents.'),
+      context: z.string().optional().describe('Markdown context shown before the question'),
+      choices: z.array(z.string()).optional().describe('Optional quick-tap choices'),
+      project_id: z.number().optional().describe('Optional project ID to attach the messages to'),
+    },
+    { readOnlyHint: false },
+    async (params) => {
+      const db = getDb();
+      const senderName = ensureRegistered();
+
+      // Resolve recipients
+      let recipients: string[];
+      if (params.agents && params.agents.length > 0) {
+        for (const name of params.agents) {
+          const agent = getAgent(name);
+          if (!agent) return errorResponse(`Agent "${name}" not found`, 'NOT_FOUND');
+        }
+        recipients = params.agents;
+      } else {
+        const connected = listAgents('connected');
+        recipients = connected
+          .map((a) => a.name)
+          .filter((n: string) => n !== senderName);
+        if (recipients.length === 0) return errorResponse('No other connected agents to broadcast to', 'VALIDATION_ERROR');
+      }
+
+      if (params.project_id) {
+        const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(params.project_id);
+        if (!project) return errorResponse(`Project ${params.project_id} not found`, 'NOT_FOUND');
+      }
+
+      const broadcastId = crypto.randomUUID();
+      const ts = now();
+      const messageIds: number[] = [];
+
+      for (const recipient of recipients) {
+        const result = db.prepare(
+          `INSERT INTO agent_messages (project_id, question, context, choices, sender_name, recipient_name, agent_pid, source, status, broadcast_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'mcp', 'pending', ?, ?)`
+        ).run(
+          params.project_id ?? null,
+          params.question,
+          params.context ?? null,
+          params.choices ? JSON.stringify(params.choices) : null,
+          senderName,
+          recipient,
+          process.ppid,
+          broadcastId,
+          ts,
+        );
+        const id = result.lastInsertRowid as number;
+        messageIds.push(id);
+
+        const msg = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id);
+        broadcastChange('agent_message', 'agent_question', msg);
+      }
+
+      logActivity('agent_broadcast', `Broadcast to ${recipients.length} agents: ${params.question.slice(0, 80)}`, { entityType: 'agent_message' });
+
+      return successResponse({
+        broadcastId,
+        recipients,
+        messageIds,
+        count: recipients.length,
+        message: `Broadcast sent to ${recipients.length} agents. Use check_broadcast("${broadcastId}") to see responses.`,
+      });
+    },
+  );
+
+  server.tool(
+    'check_broadcast',
+    'Check the status of a broadcast message — shows which agents have responded and their answers.',
+    {
+      broadcast_id: z.string().describe('The broadcast ID returned by broadcast_agents'),
+    },
+    { readOnlyHint: true },
+    async (params) => {
+      const db = getDb();
+      const messages = db.prepare(
+        'SELECT * FROM agent_messages WHERE broadcast_id = ? ORDER BY created_at ASC'
+      ).all(params.broadcast_id) as Array<Record<string, unknown>>;
+
+      if (messages.length === 0) return errorResponse(`No messages found for broadcast ${params.broadcast_id}`, 'NOT_FOUND');
+
+      const total = messages.length;
+      const answered = messages.filter(m => m.status === 'answered').length;
+      const pending = messages.filter(m => m.status === 'pending').length;
+
+      return successResponse({
+        broadcastId: params.broadcast_id,
+        question: messages[0].question,
+        total,
+        answered,
+        pending,
+        responses: messages.map(m => ({
+          id: m.id,
+          recipient: m.recipient_name,
+          status: m.status,
+          response: m.response ?? null,
+          answered_at: m.answered_at ?? null,
+        })),
+      });
     },
   );
 }

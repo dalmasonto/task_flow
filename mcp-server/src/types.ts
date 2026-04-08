@@ -27,7 +27,7 @@ export const ActivityAction = z.enum([
   'tasks_bulk_created', 'settings_saved', 'data_seeded', 'data_cleared',
   'task_linked', 'task_unlinked', 'dependency_added', 'dependency_removed',
   'link_added', 'tag_added', 'tag_removed', 'debug_log',
-  'agent_question', 'agent_question_answered',
+  'agent_question', 'agent_question_answered', 'agent_broadcast',
   'agent_connected', 'agent_disconnected',
   'terminal_send_keys', 'terminal_captured',
   'compaction_summary', 'activity_compacted',
