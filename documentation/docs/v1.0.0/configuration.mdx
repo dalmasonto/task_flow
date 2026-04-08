@@ -1,0 +1,70 @@
+---
+title: Configuration
+description: MCP server configuration, environment variables, and settings
+sidebar_position: 4
+icon: cog
+tab_group: guides
+---
+
+## Environment Variables
+
+The TaskFlow MCP server can be configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TASKFLOW_DB_PATH` | `~/.taskflow/taskflow.db` | Path to the SQLite database |
+| `TASKFLOW_SSE_PORT` | `3456` | Port for the SSE server |
+| `TASKFLOW_HOST` | `127.0.0.1` | Bind address for the SSE server |
+| `TASKFLOW_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `TASKFLOW_RELAY_URL` | - | URL of the remote relay server |
+| `TASKFLOW_RELAY_PUSH_TOKEN` | - | Auth token for pushing events to the relay |
+
+## Config File
+
+The MCP server also reads from `~/.taskflow/config.json`:
+
+```json
+{
+  "port": 3456,
+  "relayUrl": "https://your-relay.example.com",
+  "relayPushToken": "your-secure-push-token"
+}
+```
+
+Environment variables take priority over config file values.
+
+## Database
+
+TaskFlow uses SQLite with WAL (Write-Ahead Logging) mode for concurrent access. The database is stored at `~/.taskflow/taskflow.db` by default.
+
+The database creates these files:
+- `taskflow.db` - Main database
+- `taskflow.db-shm` - Shared memory file (WAL)
+- `taskflow.db-wal` - Write-ahead log
+
+### Checkpoints
+
+Task checkpoints are stored at `~/.taskflow/checkpoints/{task_id}/{timestamp}.json`. Maximum 10 checkpoints per task - oldest are pruned automatically.
+
+## SSE Server
+
+The MCP server starts an SSE (Server-Sent Events) server for real-time sync with the desktop app. If port 3456 is in use, it probes for the next available port.
+
+The SSE server broadcasts events for:
+- Task changes (created, updated, status changed)
+- Timer events (started, paused, stopped)
+- Activity log entries
+- Agent messages
+- Notifications
+
+## CLI Arguments
+
+```bash
+taskflow-mcp                 # Start with stdio MCP transport + SSE server
+taskflow-mcp --http-only     # Start SSE server only (no MCP transport)
+taskflow-mcp --port 4000     # Custom SSE port
+```
+
+## Agent Settings
+
+Agents can read and write settings via `get_setting` and `update_setting` tools. These are stored in the SQLite database and persist across sessions.

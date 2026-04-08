@@ -1,0 +1,38 @@
+---
+title: Agent Setup
+description: Configure TaskFlow with your AI coding agent
+sidebar_position: 1
+icon: cpu
+tab_group: agents
+---
+
+## Supported Agents
+
+TaskFlow works with any MCP-compatible AI agent. Install the MCP server once, then configure your agent of choice.
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Quick Comparison
+
+| Agent | Config Format | Config Path | Auto-Approve |
+|-------|-------------|-------------|--------------|
+| [Claude Code](/docs/v1.0.0/agents/claude) | JSON | `~/.mcp.json` or `.mcp.json` | `settings.json` allow list |
+| [Codex CLI](/docs/v1.0.0/agents/codex) | TOML | `~/.codex/config.toml` | Top-level `approval_policy` |
+| [Cursor](/docs/v1.0.0/agents/cursor) | JSON | `~/.cursor/mcp.json` | Settings UI toggle |
+| [Windsurf](/docs/v1.0.0/agents/windsurf) | JSON | `~/.codeium/windsurf/mcp_config.json` | `alwaysAllow` array |
+| [Cline](/docs/v1.0.0/agents/cline) | JSON | VS Code global storage | `alwaysAllow` array |
+| [Continue](/docs/v1.0.0/agents/continue) | YAML/JSON | `.continue/mcpServers/` | Agent mode only |
+| [GitHub Copilot](/docs/v1.0.0/agents/copilot) | JSON | `~/.copilot/mcp-config.json` | `tools` array |
+
+## How It Works
+
+Every agent communicates with TaskFlow via the **Model Context Protocol (MCP)** over stdio:
+
+1. Your agent starts the `taskflow-mcp` process
+2. The MCP server exposes 50 tools (tasks, projects, timers, analytics, etc.)
+3. The agent calls `get_agent_instructions` or `bootstrap` on startup to learn the workflow
+4. From there, the agent autonomously creates tasks, tracks time, and logs progress
+
+No prompt engineering needed - the instructions are built into the server.

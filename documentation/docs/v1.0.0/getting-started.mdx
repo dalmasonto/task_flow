@@ -1,0 +1,64 @@
+---
+title: Getting Started
+description: Install TaskFlow and configure your AI agent in minutes
+sidebar_position: 2
+icon: book
+tab_group: guides
+---
+
+## Quick Start
+
+Get TaskFlow running in 3 steps:
+
+### 1. Install the MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+This installs `taskflow-mcp` globally, making it available as a command for any AI agent.
+
+### 2. Configure Your Agent
+
+Choose your AI agent and follow the setup guide:
+
+- [Claude Code](/docs/v1.0.0/agents/claude) - `.mcp.json` config
+- [Codex CLI](/docs/v1.0.0/agents/codex) - `config.toml` config
+- [Cursor](/docs/v1.0.0/agents/cursor) - `.cursor/mcp.json` config
+- [Windsurf](/docs/v1.0.0/agents/windsurf) - `mcp_config.json` config
+- [Cline](/docs/v1.0.0/agents/cline) - VS Code MCP settings
+- [Continue](/docs/v1.0.0/agents/continue) - YAML or JSON config
+- [GitHub Copilot](/docs/v1.0.0/agents/copilot) - `mcp-config.json` config
+
+See the [Agent Setup](/docs/v1.0.0/agents) page for a full comparison.
+
+### 3. Start Working
+
+Launch your AI agent. It will automatically call `bootstrap` or `get_agent_instructions` to learn the TaskFlow workflow. From there, it autonomously creates tasks, tracks time, and logs progress.
+
+## Optional: Desktop App
+
+TaskFlow includes a Tauri desktop app that provides a visual dashboard for your tasks. Currently available for Linux:
+
+- [AppImage](https://tokenkit.s3.amazonaws.com/TaskFlow_1.0.0_amd64_6ff8a943c8a748ddbca99a5f0d6adb43.AppImage) - Universal, run anywhere
+- [.deb](https://tokenkit.s3.amazonaws.com/TaskFlow_1.0.0_amd64_25121113c29d4ba8a2498b4ffca6bd69.deb) - Debian / Ubuntu
+- [.rpm](https://tokenkit.s3.amazonaws.com/TaskFlow-1.0.0-1.x86_64_9348356077224db98ecb5a3b3b1418e6.rpm) - Fedora / RHEL
+
+The desktop app connects to the MCP server via SSE and updates in real-time as your AI agent works.
+
+## Optional: tmux Integration
+
+Run your AI agent inside a tmux session to enable **live agent chat**: the agent can ask you questions via the Agent Inbox, and your responses are injected directly into the agent's terminal:
+
+```bash
+tmux new -s agent
+claude  # or codex, cursor, etc.
+```
+
+Without tmux, the Agent Inbox still works - you just need to tell the agent to `check_response` manually.
+
+## Next Steps
+
+- [Features](/docs/v1.0.0/features) - Explore what TaskFlow can do
+- [Configuration](/docs/v1.0.0/configuration) - MCP server environment variables and settings
+- [Agent Setup](/docs/v1.0.0/agents) - Detailed guides for each AI agent

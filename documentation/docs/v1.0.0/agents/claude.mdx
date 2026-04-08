@@ -1,0 +1,83 @@
+---
+title: Claude Code
+description: Set up TaskFlow with Claude Code
+sidebar_position: 2
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- [Claude Code](https://claude.ai/claude-code) installed
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+Create a `.mcp.json` file in your project root (per-project) or `~/.mcp.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Claude Code auto-detects `.mcp.json` files and starts the MCP server automatically.
+
+## Step 3: Grant Permissions
+
+Add TaskFlow tools to your allow list in `~/.claude/settings.json` or `.claude/settings.local.json` (per-project):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__taskflow__*"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpServers": [
+    "taskflow"
+  ]
+}
+```
+
+This auto-approves all TaskFlow MCP tools so the agent can work autonomously.
+
+## Step 4: Verify
+
+Start Claude Code in your project:
+
+```bash
+claude
+```
+
+The agent will detect the MCP server and load all 50 tools. You can verify by asking:
+
+> "What TaskFlow tools do you have available?"
+
+## CLAUDEmd Integration
+
+Add this to your project's `CLAUDE.md` to ensure the agent uses TaskFlow on every conversation:
+
+```markdown
+## MCP Integration
+
+At the start of each conversation, call the `get_agent_instructions` tool
+from the taskflow MCP server to understand your task management workflow.
+```
+
+## Tips
+
+- Run Claude Code inside **tmux** to enable live agent chat via the TaskFlow UI
+- The agent calls `bootstrap` or `get_agent_instructions` on startup - it learns the full workflow automatically
+- Use `ask_user` for questions that should appear in the Agent Inbox for remote response

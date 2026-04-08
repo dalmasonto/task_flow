@@ -1,0 +1,74 @@
+---
+title: Features
+description: Everything TaskFlow offers for AI-powered development
+sidebar_position: 3
+icon: star
+tab_group: guides
+---
+
+## MCP Tools
+
+TaskFlow exposes **50 tools** across 10 domains via the Model Context Protocol:
+
+| Domain | Tools | Count |
+|--------|-------|-------|
+| Tasks | `create_task`, `list_tasks`, `get_task`, `update_task`, `update_task_status`, `delete_task`, `bulk_create_tasks`, `search_tasks` | 8 |
+| Projects | `create_project`, `list_projects`, `get_project`, `update_project`, `delete_project`, `search_projects` | 6 |
+| Timers | `start_timer`, `pause_timer`, `stop_timer`, `list_sessions` | 4 |
+| Activity | `get_activity_log`, `log_debug`, `clear_activity_log`, `compact_activity_log` | 4 |
+| Analytics | `get_analytics`, `get_timeline`, `get_tool_stats`, `get_task_cost` | 4 |
+| Notifications | `list_notifications`, `mark_notification_read`, `mark_all_notifications_read`, `clear_notifications` | 4 |
+| Settings | `get_setting`, `update_setting` | 2 |
+| Agent Comms | `register_agent`, `list_agents`, `send_to_agent`, `ask_agent`, `check_messages`, `respond_to_message`, `broadcast_agents`, `check_broadcast`, `ask_user`, `check_response` | 10 |
+| Terminal | `capture_terminal`, `send_keys` | 2 |
+| System | `bootstrap`, `get_agent_instructions`, `create_checkpoint`, `get_checkpoint`, `list_checkpoints`, `clear_data` | 6 |
+
+## Real-Time Live Sync
+
+Changes flow instantly from the MCP server to the desktop app:
+
+1. AI agent calls an MCP tool (e.g., `create_task`)
+2. MCP server writes to SQLite
+3. SSE event fires on port 3456
+4. Tauri app receives event and updates IndexedDB via Dexie.js
+5. React UI re-renders
+
+No polling. No delays. Sub-second updates.
+
+## Task Dependencies
+
+Tasks can declare dependencies on other tasks. TaskFlow provides:
+
+- **Dependency graph**: Interactive DAG visualization
+- **Cycle detection**: Prevents circular dependencies
+- **Blocker awareness**: Agents can query the graph to understand what's blocking them
+- **Auto-unblock**: When a blocking task completes, dependent tasks can be unblocked
+
+## Multi-Agent Collaboration
+
+Multiple AI agents can work on the same project simultaneously:
+
+- **Agent Registry**: Agents register on startup and discover each other via `list_agents`
+- **Direct Messaging**: `send_to_agent` for fire-and-forget updates, `ask_agent` for questions that need answers
+- **Broadcasts**: `broadcast_agents` sends a message to all connected agents
+- **Task Assignment**: Lead agent creates tasks and assigns work to other agents
+- **Shared Memory**: `log_debug` with `project_id` creates entries visible to all agents
+
+## Remote Control
+
+Optional relay server for controlling agents from anywhere:
+
+- **Outbound-only**: Your local machine never accepts inbound connections
+- **Works behind NAT**: No VPN or port forwarding needed
+- **Agent Inbox**: Agents ask questions, you respond from any device
+- **Terminal Capture**: See agent terminal output remotely
+- **Send Keys**: Type into agent terminals from the remote app
+
+## Token Efficiency
+
+MCP responses are optimized for AI context windows:
+
+- **61%** token reduction vs v1.0.0
+- **72%** smaller `list_tasks` payload
+- Null fields suppressed from responses
+- Compact JSON formatting

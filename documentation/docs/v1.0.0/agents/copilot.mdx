@@ -1,0 +1,51 @@
+---
+title: GitHub Copilot CLI
+description: Set up TaskFlow with GitHub Copilot CLI
+sidebar_position: 8
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) installed
+- GitHub Copilot subscription
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+Edit `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "type": "local",
+      "command": "taskflow-mcp",
+      "args": [],
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+Setting `"tools": ["*"]` exposes all TaskFlow tools. You can also list specific tool names to limit access.
+
+## Step 3: Verify
+
+Run Copilot CLI and ask:
+
+> "What TaskFlow MCP tools do you have available?"
+
+The agent should list all available tools.
+
+## Tips
+
+- Copilot CLI requires the `"type": "local"` field (unlike other agents)
+- Use `"tools": ["*"]` to expose all tools, or list specific names for fine-grained control
+- You can also add MCP servers via `copilot mcp add` CLI command

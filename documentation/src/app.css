@@ -1,0 +1,327 @@
+@import "specra/styles";
+@source "./**/*.{js,ts,svelte}";
+
+@theme inline {
+    --font-sans: "Geist", "Geist Fallback";
+    --font-mono: "Geist Mono", "Geist Mono Fallback";
+}
+
+/* =============================================
+   LIGHT THEME OVERRIDES
+   Uncomment one :root block to apply.
+   ============================================= */
+
+/* ─── Mint Light Theme Override ─── */
+:root {
+  --background: oklch(0.98 0.01 160);
+  --foreground: oklch(0.15 0.03 160);
+  --card: oklch(1.00 0.005 160);
+  --card-foreground: oklch(0.15 0.03 160);
+  --popover: oklch(1.00 0.005 160);
+  --popover-foreground: oklch(0.15 0.03 160);
+  --primary: oklch(0.45 0.18 162);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0.02 160);
+  --secondary-foreground: oklch(0.20 0.03 160);
+  --muted: oklch(0.95 0.01 160);
+  --muted-foreground: oklch(0.45 0.04 160);
+  --accent: oklch(0.95 0.02 160);
+  --accent-foreground: oklch(0.20 0.03 160);
+  --destructive: oklch(0.50 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.90 0.02 160);
+  --input: oklch(0.90 0.02 160);
+  --ring: oklch(0.45 0.18 162);
+  --sidebar: oklch(0.97 0.01 160);
+  --sidebar-foreground: oklch(0.15 0.03 160);
+  --sidebar-primary: oklch(0.20 0.03 160);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.02 160);
+  --sidebar-accent-foreground: oklch(0.20 0.03 160);
+  --sidebar-border: oklch(0.90 0.02 160);
+  --sidebar-ring: oklch(0.45 0.18 162);
+}
+
+/* ─── Ocean Light Theme Override ─── */
+/* :root {
+  --background: oklch(0.98 0.01 240);
+  --foreground: oklch(0.15 0.03 240);
+  --card: oklch(1.00 0.005 240);
+  --card-foreground: oklch(0.15 0.03 240);
+  --popover: oklch(1.00 0.005 240);
+  --popover-foreground: oklch(0.15 0.03 240);
+  --primary: oklch(0.45 0.18 240);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0.01 240);
+  --secondary-foreground: oklch(0.20 0.03 240);
+  --muted: oklch(0.95 0.01 240);
+  --muted-foreground: oklch(0.45 0.04 240);
+  --accent: oklch(0.95 0.02 240);
+  --accent-foreground: oklch(0.20 0.03 240);
+  --destructive: oklch(0.50 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.90 0.02 240);
+  --input: oklch(0.90 0.02 240);
+  --ring: oklch(0.45 0.18 240);
+  --sidebar: oklch(0.97 0.01 240);
+  --sidebar-foreground: oklch(0.15 0.03 240);
+  --sidebar-primary: oklch(0.20 0.03 240);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.02 240);
+  --sidebar-accent-foreground: oklch(0.20 0.03 240);
+  --sidebar-border: oklch(0.90 0.02 240);
+  --sidebar-ring: oklch(0.45 0.18 240);
+} */
+
+/* ─── Rose Light Theme Override ─── */
+/* :root {
+  --background: oklch(0.98 0.01 350);
+  --foreground: oklch(0.15 0.02 350);
+  --card: oklch(1.00 0.005 350);
+  --card-foreground: oklch(0.15 0.02 350);
+  --popover: oklch(1.00 0.005 350);
+  --popover-foreground: oklch(0.15 0.02 350);
+  --primary: oklch(0.50 0.20 350);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0.01 350);
+  --secondary-foreground: oklch(0.20 0.02 350);
+  --muted: oklch(0.95 0.01 350);
+  --muted-foreground: oklch(0.45 0.04 350);
+  --accent: oklch(0.95 0.02 350);
+  --accent-foreground: oklch(0.20 0.02 350);
+  --destructive: oklch(0.50 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.90 0.02 350);
+  --input: oklch(0.90 0.02 350);
+  --ring: oklch(0.50 0.20 350);
+  --sidebar: oklch(0.97 0.01 350);
+  --sidebar-foreground: oklch(0.15 0.02 350);
+  --sidebar-primary: oklch(0.20 0.02 350);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.02 350);
+  --sidebar-accent-foreground: oklch(0.20 0.02 350);
+  --sidebar-border: oklch(0.90 0.02 350);
+  --sidebar-ring: oklch(0.50 0.20 350);
+} */
+
+/* ─── Amber Light Theme Override ─── */
+/* :root {
+  --background: oklch(0.98 0.01 70);
+  --foreground: oklch(0.15 0.03 70);
+  --card: oklch(1.00 0.005 70);
+  --card-foreground: oklch(0.15 0.03 70);
+  --popover: oklch(1.00 0.005 70);
+  --popover-foreground: oklch(0.15 0.03 70);
+  --primary: oklch(0.55 0.16 70);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0.01 70);
+  --secondary-foreground: oklch(0.20 0.03 70);
+  --muted: oklch(0.95 0.01 70);
+  --muted-foreground: oklch(0.45 0.04 70);
+  --accent: oklch(0.95 0.02 70);
+  --accent-foreground: oklch(0.20 0.03 70);
+  --destructive: oklch(0.50 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.90 0.02 70);
+  --input: oklch(0.90 0.02 70);
+  --ring: oklch(0.55 0.16 70);
+  --sidebar: oklch(0.97 0.01 70);
+  --sidebar-foreground: oklch(0.15 0.03 70);
+  --sidebar-primary: oklch(0.20 0.03 70);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.02 70);
+  --sidebar-accent-foreground: oklch(0.20 0.03 70);
+  --sidebar-border: oklch(0.90 0.02 70);
+  --sidebar-ring: oklch(0.55 0.16 70);
+} */
+
+/* ─── Violet Light Theme Override ─── */
+/* :root {
+  --background: oklch(0.98 0.01 290);
+  --foreground: oklch(0.15 0.02 290);
+  --card: oklch(1.00 0.005 290);
+  --card-foreground: oklch(0.15 0.02 290);
+  --popover: oklch(1.00 0.005 290);
+  --popover-foreground: oklch(0.15 0.02 290);
+  --primary: oklch(0.48 0.22 290);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0.01 290);
+  --secondary-foreground: oklch(0.20 0.02 290);
+  --muted: oklch(0.95 0.01 290);
+  --muted-foreground: oklch(0.45 0.04 290);
+  --accent: oklch(0.95 0.02 290);
+  --accent-foreground: oklch(0.20 0.02 290);
+  --destructive: oklch(0.50 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.90 0.02 290);
+  --input: oklch(0.90 0.02 290);
+  --ring: oklch(0.48 0.22 290);
+  --sidebar: oklch(0.97 0.01 290);
+  --sidebar-foreground: oklch(0.15 0.02 290);
+  --sidebar-primary: oklch(0.20 0.02 290);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.02 290);
+  --sidebar-accent-foreground: oklch(0.20 0.02 290);
+  --sidebar-border: oklch(0.90 0.02 290);
+  --sidebar-ring: oklch(0.48 0.22 290);
+} */
+
+/* =============================================
+   DARK THEME OVERRIDES
+   Uncomment one .dark block to apply.
+   ============================================= */
+
+/* ─── Mint Dark Theme Override ─── */
+.dark {
+  --background: oklch(0.08 0.02 160);
+  --foreground: oklch(0.95 0.02 160);
+  --card: oklch(0.11 0.02 160);
+  --card-foreground: oklch(0.95 0.02 160);
+  --popover: oklch(0.11 0.02 160);
+  --popover-foreground: oklch(0.95 0.02 160);
+  --primary: oklch(0.72 0.18 162);
+  --primary-foreground: oklch(0.10 0.03 160);
+  --secondary: oklch(0.16 0.02 160);
+  --secondary-foreground: oklch(0.95 0.02 160);
+  --muted: oklch(0.16 0.02 160);
+  --muted-foreground: oklch(0.62 0.04 160);
+  --accent: oklch(0.16 0.03 160);
+  --accent-foreground: oklch(0.95 0.02 160);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.95 0 0);
+  --border: oklch(0.22 0.03 160);
+  --input: oklch(0.22 0.03 160);
+  --ring: oklch(0.72 0.18 162);
+  --sidebar: oklch(0.08 0.02 160);
+  --sidebar-foreground: oklch(0.95 0.02 160);
+  --sidebar-primary: oklch(0.72 0.18 162);
+  --sidebar-primary-foreground: oklch(0.10 0.03 160);
+  --sidebar-accent: oklch(0.16 0.03 160);
+  --sidebar-accent-foreground: oklch(0.95 0.02 160);
+  --sidebar-border: oklch(0.22 0.03 160);
+  --sidebar-ring: oklch(0.72 0.18 162);
+}
+
+/* ─── Ocean Dark Theme Override ─── */
+/* .dark {
+  --background: oklch(0.08 0.02 240);
+  --foreground: oklch(0.95 0.01 240);
+  --card: oklch(0.11 0.02 240);
+  --card-foreground: oklch(0.95 0.01 240);
+  --popover: oklch(0.11 0.02 240);
+  --popover-foreground: oklch(0.95 0.01 240);
+  --primary: oklch(0.68 0.16 240);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.16 0.02 240);
+  --secondary-foreground: oklch(0.95 0.01 240);
+  --muted: oklch(0.16 0.02 240);
+  --muted-foreground: oklch(0.60 0.04 240);
+  --accent: oklch(0.16 0.03 240);
+  --accent-foreground: oklch(0.95 0.01 240);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.95 0 0);
+  --border: oklch(0.22 0.03 240);
+  --input: oklch(0.22 0.03 240);
+  --ring: oklch(0.68 0.16 240);
+  --sidebar: oklch(0.08 0.02 240);
+  --sidebar-foreground: oklch(0.95 0.01 240);
+  --sidebar-primary: oklch(0.68 0.16 240);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.16 0.03 240);
+  --sidebar-accent-foreground: oklch(0.95 0.01 240);
+  --sidebar-border: oklch(0.22 0.03 240);
+  --sidebar-ring: oklch(0.68 0.16 240);
+} */
+
+/* ─── Rose Dark Theme Override ─── */
+/* .dark {
+  --background: oklch(0.08 0.02 350);
+  --foreground: oklch(0.95 0.01 350);
+  --card: oklch(0.11 0.02 350);
+  --card-foreground: oklch(0.95 0.01 350);
+  --popover: oklch(0.11 0.02 350);
+  --popover-foreground: oklch(0.95 0.01 350);
+  --primary: oklch(0.70 0.18 350);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.16 0.02 350);
+  --secondary-foreground: oklch(0.95 0.01 350);
+  --muted: oklch(0.16 0.02 350);
+  --muted-foreground: oklch(0.60 0.04 350);
+  --accent: oklch(0.16 0.03 350);
+  --accent-foreground: oklch(0.95 0.01 350);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.95 0 0);
+  --border: oklch(0.22 0.03 350);
+  --input: oklch(0.22 0.03 350);
+  --ring: oklch(0.70 0.18 350);
+  --sidebar: oklch(0.08 0.02 350);
+  --sidebar-foreground: oklch(0.95 0.01 350);
+  --sidebar-primary: oklch(0.70 0.18 350);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.16 0.03 350);
+  --sidebar-accent-foreground: oklch(0.95 0.01 350);
+  --sidebar-border: oklch(0.22 0.03 350);
+  --sidebar-ring: oklch(0.70 0.18 350);
+} */
+
+/* ─── Amber Dark Theme Override ─── */
+/* .dark {
+  --background: oklch(0.08 0.02 70);
+  --foreground: oklch(0.95 0.01 70);
+  --card: oklch(0.11 0.02 70);
+  --card-foreground: oklch(0.95 0.01 70);
+  --popover: oklch(0.11 0.02 70);
+  --popover-foreground: oklch(0.95 0.01 70);
+  --primary: oklch(0.75 0.16 70);
+  --primary-foreground: oklch(0.10 0.03 70);
+  --secondary: oklch(0.16 0.02 70);
+  --secondary-foreground: oklch(0.95 0.01 70);
+  --muted: oklch(0.16 0.02 70);
+  --muted-foreground: oklch(0.60 0.04 70);
+  --accent: oklch(0.16 0.03 70);
+  --accent-foreground: oklch(0.95 0.01 70);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.95 0 0);
+  --border: oklch(0.22 0.03 70);
+  --input: oklch(0.22 0.03 70);
+  --ring: oklch(0.75 0.16 70);
+  --sidebar: oklch(0.08 0.02 70);
+  --sidebar-foreground: oklch(0.95 0.01 70);
+  --sidebar-primary: oklch(0.75 0.16 70);
+  --sidebar-primary-foreground: oklch(0.10 0.03 70);
+  --sidebar-accent: oklch(0.16 0.03 70);
+  --sidebar-accent-foreground: oklch(0.95 0.01 70);
+  --sidebar-border: oklch(0.22 0.03 70);
+  --sidebar-ring: oklch(0.75 0.16 70);
+} */
+
+/* ─── Violet Dark Theme Override ─── */
+/* .dark {
+  --background: oklch(0.08 0.02 290);
+  --foreground: oklch(0.95 0.01 290);
+  --card: oklch(0.11 0.02 290);
+  --card-foreground: oklch(0.95 0.01 290);
+  --popover: oklch(0.11 0.02 290);
+  --popover-foreground: oklch(0.95 0.01 290);
+  --primary: oklch(0.70 0.20 290);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.16 0.02 290);
+  --secondary-foreground: oklch(0.95 0.01 290);
+  --muted: oklch(0.16 0.02 290);
+  --muted-foreground: oklch(0.60 0.04 290);
+  --accent: oklch(0.16 0.03 290);
+  --accent-foreground: oklch(0.95 0.01 290);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.95 0 0);
+  --border: oklch(0.22 0.03 290);
+  --input: oklch(0.22 0.03 290);
+  --ring: oklch(0.70 0.20 290);
+  --sidebar: oklch(0.08 0.02 290);
+  --sidebar-foreground: oklch(0.95 0.01 290);
+  --sidebar-primary: oklch(0.70 0.20 290);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.16 0.03 290);
+  --sidebar-accent-foreground: oklch(0.95 0.01 290);
+  --sidebar-border: oklch(0.22 0.03 290);
+  --sidebar-ring: oklch(0.70 0.20 290);
+} */

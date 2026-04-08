@@ -1,0 +1,119 @@
+---
+title: Codex CLI
+description: Set up TaskFlow with OpenAI Codex CLI
+sidebar_position: 3
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- [Codex CLI](https://github.com/openai/codex) installed
+- OpenAI API key configured
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+Edit `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.taskflow]
+command = "taskflow-mcp"
+enabled = true
+
+[mcp_servers.taskflow.env]
+TASKFLOW_DB_PATH = "/home/<your-user>/.taskflow/taskflow.db"
+```
+
+Replace `<your-user>` with your actual username.
+
+> **Note:** The `TASKFLOW_DB_PATH` environment variable tells the MCP server where to store its database. Without it, the server defaults to `~/.taskflow/taskflow.db` which may not be writable in Codex's sandbox.
+
+## Step 3: Set Sandbox and Approval Policy
+
+For TaskFlow tools to work without approval prompts, you need **two top-level settings** in `config.toml`:
+
+```toml
+# These MUST be at the top level, NOT under [apps._default]
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+```
+
+> **Common mistake:** Putting `sandbox_mode` and `approval_policy` under `[apps._default]`. Codex silently ignores them there. They must be **top-level keys** in `config.toml`.
+
+Optionally, enable destructive and open-world tools per server:
+
+```toml
+[mcp_servers.taskflow]
+command = "taskflow-mcp"
+enabled = true
+destructive_enabled = true
+open_world_enabled = true
+```
+
+### Full Example Config
+
+```toml
+# Global settings - MUST be top-level
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+
+[projects."/home/<your-user>"]
+trust_level = "trusted"
+
+[mcp_servers.taskflow]
+command = "taskflow-mcp"
+enabled = true
+destructive_enabled = true
+open_world_enabled = true
+
+[mcp_servers.taskflow.env]
+TASKFLOW_DB_PATH = "/home/<your-user>/.taskflow/taskflow.db"
+```
+
+## Step 4: Verify
+
+Run Codex and ask it to list the TaskFlow tools:
+
+```bash
+codex exec "List all available MCP tools from taskflow"
+```
+
+You should see all 50 tools listed, and `bootstrap` should auto-run.
+
+### Test Write Operations
+
+Verify write tools work without approval prompts:
+
+```bash
+codex exec "Create a task titled 'Test from Codex' with project_id 1 using taskflow create_task"
+```
+
+If you see `user cancelled MCP tool call`, your `sandbox_mode` or `approval_policy` is not at the top level of `config.toml`.
+
+## Troubleshooting
+
+### "Error reading from stream: serde error"
+
+The MCP server was writing log messages to stdout, corrupting the JSON-RPC transport. Update to `@dalmasonto/taskflow-mcp@1.0.25` or later - this was fixed by redirecting all `console.log` to `console.error`.
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp@latest
+```
+
+### "user cancelled MCP tool call"
+
+This means Codex is prompting for approval on MCP write tools, and the approval is being auto-cancelled (especially in `exec` mode). Fix:
+
+1. Ensure `sandbox_mode = "danger-full-access"` is **top-level** in `config.toml`
+2. Ensure `approval_policy = "never"` is **top-level** in `config.toml`
+3. Do NOT put these under `[apps._default]` - Codex ignores them there
+
+### Tools load but some fail
+
+Check that `TASKFLOW_DB_PATH` points to a writable location. The MCP server needs write access for its SQLite database, WAL files, and checkpoint snapshots.

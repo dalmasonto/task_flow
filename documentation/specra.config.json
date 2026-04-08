@@ -1,0 +1,149 @@
+{
+  "$schema": "https://raw.githubusercontent.com/SpecraDocs/specra-sdk/main/config/specra.config.schema.json",
+  "site": {
+    "title": "TaskFlow",
+    "description": "Local-first task and time tracking with MCP integration for AI agents",
+    "url": "https://taskflow.dalmasonto.com",
+    "baseUrl": "/",
+    "language": "en",
+    "organizationName": "dalmasonto",
+    "projectName": "task_flow",
+    "activeVersion": "v1.0.0"
+  },
+  "theme": {
+    "defaultMode": "dark",
+    "respectPrefersColorScheme": true
+  },
+  "navigation": {
+    "showSidebar": true,
+    "collapsibleSidebar": true,
+    "showBreadcrumbs": true,
+    "showTableOfContents": true,
+    "tocPosition": "right",
+    "tocMaxDepth": 3,
+    "tabGroups": [
+      {
+        "id": "guides",
+        "label": "Guides",
+        "icon": "book-open"
+      },
+      {
+        "id": "agents",
+        "label": "Agent Setup",
+        "icon": "cpu"
+      },
+      {
+        "id": "api",
+        "label": "API Reference",
+        "icon": "zap"
+      }
+    ]
+  },
+  "social": {
+    "github": "https://github.com/dalmasonto/task_flow"
+  },
+  "search": {
+    "enabled": false
+  },
+  "footer": {
+    "copyright": "Copyright © 2026 TaskFlow. All rights reserved.",
+    "links": [
+      {
+        "title": "Documentation",
+        "items": [
+          {
+            "label": "Getting Started",
+            "href": "/docs/v1.0.0/getting-started"
+          },
+          {
+            "label": "Features",
+            "href": "/docs/v1.0.0/features"
+          },
+          {
+            "label": "Configuration",
+            "href": "/docs/v1.0.0/configuration"
+          },
+          {
+            "label": "API Reference",
+            "href": "/docs/v1.0.0/api"
+          }
+        ]
+      },
+      {
+        "title": "Agent Setup",
+        "items": [
+          {
+            "label": "Claude Code",
+            "href": "/docs/v1.0.0/agents/claude"
+          },
+          {
+            "label": "Codex CLI",
+            "href": "/docs/v1.0.0/agents/codex"
+          },
+          {
+            "label": "Cursor",
+            "href": "/docs/v1.0.0/agents/cursor"
+          },
+          {
+            "label": "Windsurf",
+            "href": "/docs/v1.0.0/agents/windsurf"
+          },
+          {
+            "label": "Cline",
+            "href": "/docs/v1.0.0/agents/cline"
+          }
+        ]
+      },
+      {
+        "title": "IDE Agents",
+        "items": [
+          {
+            "label": "Continue",
+            "href": "/docs/v1.0.0/agents/continue"
+          },
+          {
+            "label": "GitHub Copilot",
+            "href": "/docs/v1.0.0/agents/copilot"
+          },
+          {
+            "label": "All Agents",
+            "href": "/docs/v1.0.0/agents"
+          }
+        ]
+      },
+      {
+        "title": "Community",
+        "items": [
+          {
+            "label": "GitHub",
+            "href": "https://github.com/dalmasonto/task_flow"
+          },
+          {
+            "label": "npm Package",
+            "href": "https://www.npmjs.com/package/@dalmasonto/taskflow-mcp"
+          },
+          {
+            "label": "Report an Issue",
+            "href": "https://github.com/dalmasonto/task_flow/issues"
+          },
+          {
+            "label": "License",
+            "href": "https://github.com/dalmasonto/task_flow/blob/main/LICENSE"
+          }
+        ]
+      }
+    ],
+    "branding": {
+      "showBranding": true
+    }
+  },
+  "features": {
+    "showLastUpdated": true,
+    "showReadingTime": true,
+    "showAuthors": false,
+    "showTags": true,
+    "versioning": true,
+    "i18n": false,
+    "editUrl": "https://github.com/dalmasonto/task_flow/tree/main/documentation"
+  }
+}
