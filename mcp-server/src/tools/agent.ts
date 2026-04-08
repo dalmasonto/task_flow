@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import { getDb } from '../db.js';
 import { logActivity, successResponse, broadcastChange } from '../helpers.js';
 
@@ -150,6 +151,72 @@ export function registerAgentTools(server: McpServer) {
     {},
     { readOnlyHint: true },
     async () => getAgentInstructions(),
+  );
+
+  server.tool(
+    'bootstrap',
+    '**CALL THIS FIRST.** One-shot startup: returns your agent instructions, active project (auto-detected from folder name), open/blocked tasks, unread notifications, and registered agents — all in one call. Replaces the need to call get_agent_instructions + search_projects + list_tasks + list_notifications + list_agents separately.',
+    {
+      project_name: z.string().optional().describe('Override project name (default: auto-detected from working directory folder name)'),
+    },
+    { readOnlyHint: true },
+    async (params) => {
+      const db = getDb();
+      const { listAgents } = await import('../agent-registry.js');
+
+      // Get instructions
+      const instructionsResult = await getAgentInstructions();
+      const instructions = (instructionsResult as any).content?.[0]?.text
+        ? JSON.parse((instructionsResult as any).content[0].text)
+        : null;
+
+      // Auto-detect project from folder name or use override
+      const { myAgentName } = await import('./agent-inbox.js');
+      const agentEntry = myAgentName
+        ? (db.prepare('SELECT project_path FROM agent_registry WHERE name = ?').get(myAgentName) as { project_path: string } | undefined)
+        : null;
+      const folderName = params.project_name
+        ?? (agentEntry?.project_path ? agentEntry.project_path.split('/').pop() : null);
+
+      let project = null;
+      let tasks: unknown[] = [];
+      if (folderName) {
+        const projects = db.prepare('SELECT * FROM projects WHERE LOWER(name) LIKE ?').all(`%${folderName.toLowerCase()}%`) as Array<Record<string, unknown>>;
+        if (projects.length === 1) {
+          project = projects[0];
+          tasks = db.prepare(
+            "SELECT id, title, status, priority, tags, estimated_time FROM tasks WHERE project_id = ? AND status IN ('not_started', 'in_progress', 'paused', 'blocked') ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END"
+          ).all(project.id as number);
+        } else if (projects.length > 1) {
+          project = { _ambiguous: true, matches: projects.map(p => ({ id: p.id, name: p.name })), message: 'Multiple projects match — ask the user which one to use.' };
+        }
+      }
+
+      // Unread notifications
+      const notifications = db.prepare("SELECT * FROM notifications WHERE read = 0 ORDER BY created_at DESC LIMIT 10").all();
+
+      // Active agents
+      const agents = listAgents('connected');
+
+      // Pending inbox messages for this agent
+      const agentName = myAgentName ?? 'unknown';
+      const pendingMessages = db.prepare(
+        "SELECT id, sender_name, question, created_at FROM agent_messages WHERE recipient_name = ? AND status = 'pending' ORDER BY created_at ASC"
+      ).all(agentName);
+
+      return successResponse({
+        instructions,
+        project,
+        tasks,
+        taskCount: tasks.length,
+        notifications,
+        unreadCount: notifications.length,
+        agents,
+        pendingMessages,
+        pendingMessageCount: pendingMessages.length,
+        agentName,
+      });
+    },
   );
 
   server.tool(

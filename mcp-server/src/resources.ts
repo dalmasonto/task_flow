@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getDb } from './db.js';
+import { getAgentInstructions } from './tools/agent.js';
 
 interface ProjectRow {
   id: number
@@ -25,6 +26,25 @@ interface TaskRow {
 }
 
 export function registerResources(server: McpServer) {
+  // ─── Agent Instructions Resource ────────────────────────────────────
+  // Auto-loaded by MCP clients on connection — ensures rules are always present
+
+  server.resource(
+    'agent-instructions',
+    'taskflow://instructions',
+    { description: 'TaskFlow agent onboarding instructions — rules, workflow, and live project context', mimeType: 'application/json' },
+    async (uri) => {
+      const instructions = await getAgentInstructions();
+      return {
+        contents: [{
+          uri: uri.href,
+          text: JSON.stringify(instructions, null, 2),
+          mimeType: 'application/json',
+        }],
+      };
+    },
+  );
+
   // ─── Projects Resource ──────────────────────────────────────────────
 
   server.resource(

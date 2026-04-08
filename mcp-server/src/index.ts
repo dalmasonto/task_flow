@@ -72,7 +72,7 @@ if (!httpOnly) {
 
   const server = new McpServer({
     name: 'taskflow',
-    version: '1.0.0',
+    version: '1.0.22',
   });
 
   // Wrap server.tool() to track execution time and log failures
