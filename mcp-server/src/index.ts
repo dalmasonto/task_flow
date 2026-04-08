@@ -71,7 +71,7 @@ if (!httpOnly) {
   const { registerCheckpointTools } = await import('./tools/checkpoint.js');
 
   const server = new McpServer(
-    { name: 'taskflow', version: '1.0.23' },
+    { name: 'taskflow', version: '1.0.24' },
     {
       instructions: [
         'You MUST call bootstrap (preferred) or get_agent_instructions before doing any work. This loads your task management rules and project context.',

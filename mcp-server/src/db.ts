@@ -133,7 +133,6 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
     CREATE INDEX IF NOT EXISTS idx_agent_messages_project_id ON agent_messages(project_id);
-    CREATE INDEX IF NOT EXISTS idx_agent_messages_broadcast_id ON agent_messages(broadcast_id);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_status ON agent_registry(status);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_name ON agent_registry(name);
     CREATE INDEX IF NOT EXISTS idx_agent_registry_project_path ON agent_registry(project_path);
@@ -170,8 +169,9 @@ function initSchema(db: Database.Database): void {
   }
   if (!colNames.has('broadcast_id')) {
     db.exec('ALTER TABLE agent_messages ADD COLUMN broadcast_id TEXT');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_agent_messages_broadcast_id ON agent_messages(broadcast_id)');
   }
+  // Always ensure the index exists (safe for both fresh and migrated databases)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_messages_broadcast_id ON agent_messages(broadcast_id)');
 
   // Migration: make agent_messages.project_id nullable if it was NOT NULL
   try {
