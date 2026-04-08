@@ -143,14 +143,26 @@ export default function AgentInbox() {
                 </p>
               </div>
             ) : (
-              visible.map(m => (
-                <ChatBubble
-                  key={m.id}
-                  message={m}
-                  project={m.projectId ? projectMap.get(m.projectId) : undefined}
-                  port={port}
-                />
-              ))
+              groupMessages(visible).map((group) => {
+                if (group.type === 'single') {
+                  return (
+                    <ChatBubble
+                      key={group.message.id}
+                      message={group.message}
+                      project={group.message.projectId ? projectMap.get(group.message.projectId) : undefined}
+                      port={port}
+                    />
+                  )
+                }
+                return (
+                  <BroadcastGroup
+                    key={group.broadcastId}
+                    messages={group.messages}
+                    projectMap={projectMap}
+                    port={port}
+                  />
+                )
+              })
             )}
           </div>
 
@@ -171,6 +183,31 @@ export default function AgentInbox() {
       </div>
     </div>
   )
+}
+
+// ─── Group broadcast messages ─────────────────────────────────────────
+
+/** Group broadcast messages by broadcastId, leaving single messages as-is */
+function groupMessages(messages: AgentMessage[]): Array<{ type: 'single'; message: AgentMessage } | { type: 'broadcast'; broadcastId: string; messages: AgentMessage[] }> {
+  const groups: Array<{ type: 'single'; message: AgentMessage } | { type: 'broadcast'; broadcastId: string; messages: AgentMessage[] }> = []
+  const broadcastMap = new Map<string, AgentMessage[]>()
+
+  for (const m of messages) {
+    if (m.broadcastId) {
+      const existing = broadcastMap.get(m.broadcastId)
+      if (existing) {
+        existing.push(m)
+      } else {
+        const group: AgentMessage[] = [m]
+        broadcastMap.set(m.broadcastId, group)
+        groups.push({ type: 'broadcast', broadcastId: m.broadcastId, messages: group })
+      }
+    } else {
+      groups.push({ type: 'single', message: m })
+    }
+  }
+
+  return groups
 }
 
 // ─── Chat Bubble ──────────────────────────────────────────────────────
@@ -263,6 +300,86 @@ function ChatBubble({
             <span className="text-[10px] uppercase tracking-widest">Answered in terminal</span>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Broadcast Group ─────────────────────────────────────────────────
+
+function BroadcastGroup({
+  messages,
+  projectMap,
+  port,
+}: {
+  messages: AgentMessage[]
+  projectMap: Map<number, { name: string; color: string }>
+  port: number
+}) {
+  const first = messages[0]
+  const project = first.projectId ? projectMap.get(first.projectId) : undefined
+  const answered = messages.filter(m => m.status === 'answered').length
+  const total = messages.length
+
+  return (
+    <div className="flex flex-col items-start">
+      {/* Broadcast header */}
+      <div className="flex items-center gap-2 mb-1">
+        {project && (
+          <span
+            className="text-[9px] uppercase tracking-widest font-bold px-1.5 py-0.5 border"
+            style={{ borderColor: project.color, color: project.color }}
+          >
+            {project.name}
+          </span>
+        )}
+        <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+          {first.senderName}
+        </span>
+        <span className="text-[9px] text-muted-foreground/50 uppercase tracking-widest flex items-center gap-1">
+          <span className="material-symbols-outlined text-xs">group</span>
+          broadcast · {answered}/{total} replied
+        </span>
+        <span className="text-[10px] text-muted-foreground/60">{getTimeAgo(first.createdAt)}</span>
+      </div>
+
+      {/* Shared question bubble */}
+      <div className="max-w-[85%] bg-card border-l-2 border-l-secondary border border-secondary/30 px-4 py-3 space-y-3">
+        {first.context && (
+          <div className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none prose-headings:text-muted-foreground prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-pre:overflow-x-auto prose-code:break-all">
+            <ReactMarkdown>{unescapeMarkdown(first.context)}</ReactMarkdown>
+          </div>
+        )}
+        <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-bold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-pre:overflow-x-auto prose-code:break-all">
+          <ReactMarkdown>{unescapeMarkdown(first.question)}</ReactMarkdown>
+        </div>
+
+        {/* Per-agent responses */}
+        <div className="border-t border-border/50 pt-2 space-y-2">
+          {messages.map(m => (
+            <div key={m.id} className="flex items-start gap-2">
+              <span className={`text-[10px] uppercase tracking-widest font-bold min-w-[80px] ${
+                m.status === 'answered' ? 'text-emerald-400' : m.status === 'dismissed' ? 'text-muted-foreground/50' : 'text-secondary'
+              }`}>
+                {m.recipientName}
+              </span>
+              {m.status === 'pending' && (
+                <span className="text-[10px] text-muted-foreground/50 uppercase tracking-widest flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
+                  waiting
+                </span>
+              )}
+              {m.status === 'answered' && m.response && (
+                <div className="text-sm prose prose-sm dark:prose-invert max-w-none min-w-0 prose-p:my-0">
+                  <ReactMarkdown>{unescapeMarkdown(m.response)}</ReactMarkdown>
+                </div>
+              )}
+              {m.status === 'dismissed' && (
+                <span className="text-[10px] text-muted-foreground/50 uppercase tracking-widest">dismissed</span>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
