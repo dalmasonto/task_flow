@@ -31,7 +31,7 @@ async function initialSync(retries = 5, delay = 1500): Promise<void> {
 }
 
 const RECONNECT_DELAY = 3000
-const MAX_RECONNECT_DELAY = 30000
+const MAX_RECONNECT_DELAY = 15000
 
 /** Attach all SSE event listeners to an EventSource */
 function attachListeners(source: EventSource, sseUrl: string) {
