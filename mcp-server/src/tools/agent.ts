@@ -120,6 +120,7 @@ export async function getAgentInstructions() {
       'list_tasks/search_tasks return compact summaries. Use get_task(id) to read full descriptions.',
       'log_debug accepts task_id OR project_id — use project_id for project-wide notes visible on the project page.',
       'Multi-agent: use register_agent to set your name, list_agents to see who is online, send_to_agent for updates, ask_agent for questions that need answers.',
+      'Multi-agent: use broadcast_agents to send a question to multiple agents at once (group chat). Omit the agents list to broadcast to ALL connected agents. Use check_broadcast(broadcast_id) to see all responses and their status.',
       'Multi-agent: task dependencies are the backbone of coordination — use them to enforce build order so agents don\'t step on each other.',
       'Multi-agent: log_debug with project_id is shared memory — other agents read it to understand decisions, gotchas, and architecture context.',
     ],
