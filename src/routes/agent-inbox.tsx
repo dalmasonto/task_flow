@@ -159,7 +159,6 @@ export default function AgentInbox() {
                     key={group.broadcastId}
                     messages={group.messages}
                     projectMap={projectMap}
-                    port={port}
                   />
                 )
               })
@@ -310,11 +309,9 @@ function ChatBubble({
 function BroadcastGroup({
   messages,
   projectMap,
-  port,
 }: {
   messages: AgentMessage[]
   projectMap: Map<number, { name: string; color: string }>
-  port: number
 }) {
   const first = messages[0]
   const project = first.projectId ? projectMap.get(first.projectId) : undefined
