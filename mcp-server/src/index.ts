@@ -70,10 +70,19 @@ if (!httpOnly) {
   const { registerResources } = await import('./resources.js');
   const { registerCheckpointTools } = await import('./tools/checkpoint.js');
 
-  const server = new McpServer({
-    name: 'taskflow',
-    version: '1.0.22',
-  });
+  const server = new McpServer(
+    { name: 'taskflow', version: '1.0.22' },
+    {
+      instructions: [
+        'You MUST call bootstrap (preferred) or get_agent_instructions before doing any work. This loads your task management rules and project context.',
+        'You MUST create a task in TaskFlow before editing files or running commands. search_tasks first to avoid duplicates.',
+        'You MUST call start_timer when beginning work and stop_timer when done. Timer lifecycle: start_timer → work → stop_timer(final_status).',
+        'Never silently fix bugs — always create or reopen a task first, then track the fix.',
+        'When you need user input, call ask_user to post it to the Agent Inbox so the user can respond remotely.',
+        'Use log_debug to document your work — it is shared memory visible to the user and other agents.',
+      ].join('\n'),
+    },
+  );
 
   // Wrap server.tool() to track execution time and log failures
   const originalTool = server.tool.bind(server);
