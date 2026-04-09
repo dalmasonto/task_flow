@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { useAgentMessages, usePendingCount, useLiveAgents, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
+import { useAgentMessages, usePendingCount, useLiveAgents, useAgentRegistry, respondToMessage, dismissMessage } from '@/hooks/use-agent-messages'
 import { useProjects } from '@/hooks/use-projects'
 import { useSetting } from '@/hooks/use-settings'
 import { Button } from '@/components/ui/button'
@@ -26,12 +26,25 @@ export default function AgentInbox() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const prevLengthRef = useRef(0)
   const liveAgents = useLiveAgents()
+  const allAgents = useAgentRegistry()
   const [mobilePanel, setMobilePanel] = useState<'agents' | 'chat' | 'terminal'>('chat')
 
   const filteredMessages = useAgentMessages(agentFilter)
 
   // Check if selected agent is live (for terminal control)
   const selectedAgentIsLive = agentFilter !== 'all' && liveAgents?.some(a => a.name === agentFilter)
+
+  // Follow renames: if selected agent no longer exists, check if a connected agent
+  // took over its project path (rename happened). Switch to the new name.
+  useEffect(() => {
+    if (agentFilter === 'all' || !allAgents) return
+    const exists = allAgents.some(a => a.name === agentFilter)
+    if (!exists) {
+      // Agent was renamed or removed — find the most recently connected agent
+      const replacement = allAgents.find(a => a.status === 'connected')
+      if (replacement) setAgentFilter(replacement.name)
+    }
+  }, [agentFilter, allAgents])
 
   // Reset visible count when switching agent filter
   useEffect(() => {
