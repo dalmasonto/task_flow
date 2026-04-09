@@ -12,8 +12,8 @@ importers:
         specifier: ^0.454.0
         version: 0.454.0(svelte@5.55.2)
       specra:
-        specifier: ^0.2.12
-        version: 0.2.12(@sveltejs/kit@2.57.0(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.55.2)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)(typescript@5.9.3)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)
+        specifier: ^0.2.13
+        version: 0.2.13(@sveltejs/kit@2.57.0(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.55.2)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)(typescript@5.9.3)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.0
@@ -1546,8 +1546,8 @@ packages:
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
 
-  specra@0.2.12:
-    resolution: {integrity: sha512-pq8CLFmPpYZWHT/o4EqVJIsp6ZScTfw26GgtWFPRNCMfgoKDrH4PYhQi5cJjTNHJ2DGVjAwf1zaStYTSKQjd+g==}
+  specra@0.2.13:
+    resolution: {integrity: sha512-gZ4FZRxp4hKKAPzkmaAeXWIRavRDfWDNe8aniIblyMbuZBittWP9MfAdvjDRAg2ZtRn3PN9XnWssGNab61Sv3A==}
     peerDependencies:
       '@sveltejs/kit': ^2.0.0
       svelte: ^5.0.0
@@ -3463,7 +3463,7 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  specra@0.2.12(@sveltejs/kit@2.57.0(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.55.2)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)(typescript@5.9.3)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2):
+  specra@0.2.13(@sveltejs/kit@2.57.0(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.55.2)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)(typescript@5.9.3)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2):
     dependencies:
       '@sveltejs/kit': 2.57.0(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.55.2)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)))(svelte@5.55.2)(typescript@5.9.3)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0))
       bits-ui: 1.8.0(svelte@5.55.2)
