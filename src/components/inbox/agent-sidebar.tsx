@@ -42,7 +42,7 @@ export function AgentSidebar({ selected, onSelect }: AgentSidebarProps) {
         <div>
           <div className="text-[10px] text-muted-foreground uppercase tracking-widest px-3 mb-2">Live</div>
           {live.map(a => (
-            <AgentItem key={a.name} agent={a} selected={selected === a.name} onSelect={onSelect} />
+            <AgentItem key={a.id} agent={a} selected={selected === a.name} onSelect={onSelect} />
           ))}
         </div>
       )}
@@ -52,7 +52,7 @@ export function AgentSidebar({ selected, onSelect }: AgentSidebarProps) {
         <div>
           <div className="text-[10px] text-muted-foreground uppercase tracking-widest px-3 mb-2">Recent</div>
           {recent.map(a => (
-            <AgentItem key={a.name} agent={a} selected={selected === a.name} onSelect={onSelect} />
+            <AgentItem key={a.id} agent={a} selected={selected === a.name} onSelect={onSelect} />
           ))}
         </div>
       )}

@@ -17,7 +17,11 @@ async function initialSync(retries = 5, delay = 1500): Promise<void> {
       if (data.sessions?.length) await db.sessions.bulkPut(data.sessions.map((s: Record<string, unknown>) => parseSession(s)))
       if (data.activityLogs?.length) await db.activityLogs.bulkPut(data.activityLogs.map((a: Record<string, unknown>) => parseActivityLog(a)))
       if (data.agentMessages?.length) await db.agentMessages.bulkPut(data.agentMessages.map((m: Record<string, unknown>) => parseAgentMessage(m)))
-      if (data.agentRegistry?.length) await db.agentRegistry.bulkPut(data.agentRegistry.map((r: Record<string, unknown>) => parseAgentRegistry(r)))
+      // Clear + replace agent registry to remove stale/orphaned entries
+      if (data.agentRegistry) {
+        await db.agentRegistry.clear()
+        if (data.agentRegistry.length) await db.agentRegistry.bulkPut(data.agentRegistry.map((r: Record<string, unknown>) => parseAgentRegistry(r)))
+      }
       if (data.notifications?.length) await db.notifications.bulkPut(data.notifications.map((n: Record<string, unknown>) => parseNotification(n)))
 
       console.log('[useSync] initial sync complete')
@@ -175,6 +179,18 @@ function attachListeners(source: EventSource, sseUrl: string) {
   source.addEventListener('agent_disconnected', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.agentRegistry.put(parseAgentRegistry(payload))
+  })
+
+  source.addEventListener('agent_renamed', (e) => {
+    const { payload } = JSON.parse(e.data)
+    if (payload) {
+      // Remove the old entry by name, then put the updated one
+      const oldName = payload.oldName as string | undefined
+      if (oldName) {
+        db.agentRegistry.where('name').equals(oldName).delete()
+      }
+      db.agentRegistry.put(parseAgentRegistry(payload))
+    }
   })
 
   source.addEventListener('notification_created', (e) => {
