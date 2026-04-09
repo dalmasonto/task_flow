@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   let { data } = $props();
   const config = data.config;
   const activeVersion = config.site.activeVersion || 'v1.0.0';
-  const docsUrl = `/docs/${activeVersion}/getting-started`;
-  const agentsUrl = `/docs/${activeVersion}/agents`;
+  const docsUrl = `${base}/docs/${activeVersion}/getting-started`;
+  const agentsUrl = `${base}/docs/${activeVersion}/agents`;
 </script>
 
 <svelte:head>
@@ -73,7 +74,7 @@
 
       <!-- Hero Screenshot -->
       <div class="mt-20 w-full max-w-5xl rounded-xl border border-neutral-800 bg-[#0a0a0a] shadow-2xl overflow-hidden animate-slide-up relative" style="box-shadow: 0 0 40px -10px rgba(105, 253, 93, 0.15); animation-delay: 0.5s; opacity: 0;">
-        <img src="/images/dashboard.png" alt="TaskFlow Dashboard — Command Center showing tasks grouped by status with live timers" class="w-full h-auto" />
+        <img src="{base}/images/dashboard.png" alt="TaskFlow Dashboard — Command Center showing tasks grouped by status with live timers" class="w-full h-auto" />
       </div>
     </div>
   </section>
@@ -214,7 +215,7 @@
             </p>
           </div>
           <div class="flex-1 rounded-lg overflow-hidden border border-neutral-800">
-            <img src="/images/dependency-graph.png" alt="TaskFlow Dependency Graph" class="w-full h-full object-cover" />
+            <img src="{base}/images/dependency-graph.png" alt="TaskFlow Dependency Graph" class="w-full h-full object-cover" />
           </div>
         </div>
 
@@ -284,7 +285,7 @@
               Analytics
             </span>
           </div>
-          <img src="/images/analytics.png" alt="TaskFlow Analytics" class="w-full h-auto" />
+          <img src="{base}/images/analytics.png" alt="TaskFlow Analytics" class="w-full h-auto" />
         </div>
         <div class="rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden group hover:border-neutral-700 transition-colors">
           <div class="px-4 py-3 border-b border-neutral-800 bg-[#050505] flex items-center justify-between">
@@ -293,7 +294,7 @@
               Terminal
             </span>
           </div>
-          <img src="/images/terminal.png" alt="TaskFlow Terminal" class="w-full h-auto" />
+          <img src="{base}/images/terminal.png" alt="TaskFlow Terminal" class="w-full h-auto" />
         </div>
         <div class="rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden group hover:border-neutral-700 transition-colors">
           <div class="px-4 py-3 border-b border-neutral-800 bg-[#050505] flex items-center justify-between">
@@ -302,7 +303,7 @@
               Activity Pulse
             </span>
           </div>
-          <img src="/images/activity-pulse.png" alt="TaskFlow Activity Pulse" class="w-full h-auto" />
+          <img src="{base}/images/activity-pulse.png" alt="TaskFlow Activity Pulse" class="w-full h-auto" />
         </div>
         <div class="rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden group hover:border-neutral-700 transition-colors">
           <div class="px-4 py-3 border-b border-neutral-800 bg-[#050505] flex items-center justify-between">
@@ -311,7 +312,7 @@
               Task Detail
             </span>
           </div>
-          <img src="/images/single_task.png" alt="TaskFlow Task Detail" class="w-full h-auto" />
+          <img src="{base}/images/single_task.png" alt="TaskFlow Task Detail" class="w-full h-auto" />
         </div>
         <div class="rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden group hover:border-neutral-700 transition-colors">
           <div class="px-4 py-3 border-b border-neutral-800 bg-[#050505] flex items-center justify-between">
@@ -321,7 +322,7 @@
             </span>
           </div>
           <div class="p-6 flex items-center justify-center bg-[#030303]">
-            <img src="/images/task-timer.png" alt="TaskFlow Floating Timer" class="w-full max-w-lg h-auto" />
+            <img src="{base}/images/task-timer.png" alt="TaskFlow Floating Timer" class="w-full max-w-lg h-auto" />
           </div>
         </div>
         <div class="rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden group hover:border-neutral-700 transition-colors">
@@ -331,7 +332,7 @@
               Settings
             </span>
           </div>
-          <img src="/images/settings.png" alt="TaskFlow Settings" class="w-full h-auto" />
+          <img src="{base}/images/settings.png" alt="TaskFlow Settings" class="w-full h-auto" />
         </div>
         <div class="md:col-span-2 rounded-xl border border-neutral-800 bg-[#0a0a0a] overflow-hidden group hover:border-neutral-700 transition-colors">
           <div class="px-4 py-3 border-b border-neutral-800 bg-[#050505] flex items-center justify-between">
@@ -340,7 +341,7 @@
               Completed Tasks
             </span>
           </div>
-          <img src="/images/archived.png" alt="TaskFlow Archive" class="w-full h-auto" />
+          <img src="{base}/images/archived.png" alt="TaskFlow Archive" class="w-full h-auto" />
         </div>
       </div>
     </div>

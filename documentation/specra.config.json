@@ -145,5 +145,9 @@
     "versioning": true,
     "i18n": false,
     "editUrl": "https://github.com/dalmasonto/task_flow/tree/main/documentation"
+  },
+  "deployment": {
+    "target": "github-pages",
+    "basePath": "task_flow"
   }
 }
