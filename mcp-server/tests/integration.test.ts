@@ -59,7 +59,7 @@ describe('Integration: Server Entry Point', () => {
     expect(toolNames).toContain('get_activity_log');
     expect(toolNames).toContain('clear_activity_log');
 
-    await server.close();
+    // Note: no server.close() needed — server has no transport connected in tests
   });
 
   it('full workflow: project -> task -> timer -> analytics -> activity', async () => {
