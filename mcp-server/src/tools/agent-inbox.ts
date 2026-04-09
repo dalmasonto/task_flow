@@ -36,6 +36,11 @@ function ensureRegistered(): string {
 
 export { myAgentName };
 
+/** Get the current agent name — used by tmux bridge to track renames */
+export function getAgentName(): string {
+  return myAgentName || 'unknown';
+}
+
 export function registerAgentInboxTools(server: McpServer) {
   server.tool(
     'register_agent',

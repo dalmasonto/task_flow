@@ -160,7 +160,7 @@ if (!httpOnly) {
   await server.connect(transport);
 
   const { registerAgent, unregisterAgent } = await import('./agent-registry.js');
-  const { setAgentName } = await import('./tools/agent-inbox.js');
+  const { setAgentName, getAgentName } = await import('./tools/agent-inbox.js');
 
   // Auto-register this agent and sync name to agent-inbox tools
   const agentName = registerAgent();
@@ -168,7 +168,7 @@ if (!httpOnly) {
   const agentPid = process.ppid;
   console.error(`[agent] registered as "${agentName}"`);
 
-  let cleanup: () => void = () => { try { unregisterAgent(agentName); } catch {} process.exit(0); };
+  let cleanup: () => void = () => { try { unregisterAgent(getAgentName()); } catch {} process.exit(0); };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
@@ -189,7 +189,7 @@ if (!httpOnly) {
   if (tmuxTarget) {
     const { startTmuxBridge } = await import('./tmux-bridge.js');
     const stopBridge = startTmuxBridge({
-      agentName,
+      getAgentName,
       agentPid,
       tmuxPane: tmuxTarget,
     });

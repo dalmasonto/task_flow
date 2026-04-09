@@ -4,7 +4,8 @@ import { getActivePort } from './sse.js';
 import http from 'http';
 
 interface BridgeOptions {
-  agentName: string;
+  /** Returns the current agent name — must be a getter so renames are picked up */
+  getAgentName: () => string;
   agentPid: number;
   tmuxPane: string;
 }
@@ -12,7 +13,6 @@ interface BridgeOptions {
 // ─── SSE Listener (replaces the 3s poller) ───────────────────────────
 
 function startSSEListener(options: BridgeOptions): void {
-  const { agentName, agentPid, tmuxPane } = options;
   const port = getActivePort();
 
   function connect() {
@@ -65,7 +65,8 @@ function startSSEListener(options: BridgeOptions): void {
 }
 
 function handleSSEEvent(event: string, data: { payload?: Record<string, unknown> }, options: BridgeOptions): void {
-  const { agentName, agentPid, tmuxPane } = options;
+  const { getAgentName, agentPid, tmuxPane } = options;
+  const agentName = getAgentName();
   const payload = data.payload;
   if (!payload) return;
 
@@ -137,7 +138,8 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string): voi
 }
 
 function deliverUndelivered(options: BridgeOptions): void {
-  const { agentName, agentPid, tmuxPane } = options;
+  const { getAgentName, agentPid, tmuxPane } = options;
+  const agentName = getAgentName();
   const db = getDb();
 
   const incoming = db.prepare(
@@ -175,7 +177,7 @@ function deliverUndelivered(options: BridgeOptions): void {
 export function startTmuxBridge(options: BridgeOptions): () => void {
   startSSEListener(options);
 
-  console.error(`[bridge] tmux bridge active for agent "${options.agentName}" on pane ${options.tmuxPane}`);
+  console.error(`[bridge] tmux bridge active for agent "${options.getAgentName()}" on pane ${options.tmuxPane}`);
 
   return () => {
     // SSE connection will close when process exits
