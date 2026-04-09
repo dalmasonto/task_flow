@@ -34,23 +34,18 @@ function detectTmuxPane(pid: number): string | null {
 }
 
 /** Generate a unique agent name from the project folder, auto-suffixing on collision.
- *  Cleans up dead entries it encounters so the name is available for INSERT. */
+ *  A name is available if no row exists or the existing row's process is dead. */
 function generateName(folderName: string): string {
   const db = getDb();
-  const check = (name: string): boolean => {
+  const isAvailable = (name: string): boolean => {
     const row = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name) as AgentRow | undefined;
-    if (!row) return true; // name is free
-    if (!isAlive(row.pid)) {
-      // Dead entry — remove it so the name can be reused via INSERT
-      db.prepare('DELETE FROM agent_registry WHERE id = ?').run(row.id);
-      return true;
-    }
-    return false; // name is taken by a live agent
+    if (!row) return true;
+    return !isAlive(row.pid);
   };
-  if (check(folderName)) return folderName;
+  if (isAvailable(folderName)) return folderName;
   for (let i = 2; i < 100; i++) {
     const candidate = `${folderName}:${i}`;
-    if (check(candidate)) return candidate;
+    if (isAvailable(candidate)) return candidate;
   }
   return `${folderName}:${Date.now()}`;
 }
@@ -135,14 +130,23 @@ export function registerAgent(options?: { customName?: string }): string {
     return newName;
   }
 
-  // Priority 3: All entries for this path are connected — this is a concurrent agent
-  // Generate a suffixed name to avoid collision
+  // Priority 3: No reusable disconnected entry — this is a new or concurrent agent
+  // Generate a suffixed name to avoid collision with live agents
   const baseName = options?.customName || folderName;
   const name = entries.length === 0 ? baseName : generateName(baseName);
 
-  db.prepare(
-    'INSERT INTO agent_registry (name, project_path, pid, tmux_pane, status, connected_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(name, projectPath, agentPid, tmuxPane, 'connected', ts);
+  // Upsert: if a dead entry with this name exists (from another project path),
+  // reuse it in-place to preserve its message history. Otherwise insert fresh.
+  const stale = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name) as AgentRow | undefined;
+  if (stale) {
+    db.prepare(
+      'UPDATE agent_registry SET project_path = ?, pid = ?, tmux_pane = ?, status = ?, connected_at = ?, disconnected_at = NULL WHERE id = ?'
+    ).run(projectPath, agentPid, tmuxPane, 'connected', ts, stale.id);
+  } else {
+    db.prepare(
+      'INSERT INTO agent_registry (name, project_path, pid, tmux_pane, status, connected_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(name, projectPath, agentPid, tmuxPane, 'connected', ts);
+  }
 
   const row = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name);
   broadcast('agent_connected', { entity: 'agent', action: 'agent_connected', payload: row });
