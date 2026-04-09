@@ -37,3 +37,8 @@ keys.txt
 *.njsproj
 *.sln
 *.sw?
+*.tgz
+*.zip
+.svelte-kit
+.svelte
+build
