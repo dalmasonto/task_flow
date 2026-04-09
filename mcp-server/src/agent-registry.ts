@@ -78,9 +78,12 @@ export function registerAgent(options?: { customName?: string }): string {
     const oldName = samePid.name;
     const newName = options.customName;
 
-    // Update agent_messages to preserve history
-    db.prepare('UPDATE agent_messages SET sender_name = ? WHERE sender_name = ?').run(newName, oldName);
-    db.prepare('UPDATE agent_messages SET recipient_name = ? WHERE recipient_name = ?').run(newName, oldName);
+    // If the target name already exists as another row (disconnected from a previous session),
+    // delete it to free the UNIQUE name. Messages stay — they're linked by name string, not FK.
+    const existing = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(newName) as AgentRow | undefined;
+    if (existing && existing.id !== samePid.id) {
+      db.prepare('DELETE FROM agent_registry WHERE id = ?').run(existing.id);
+    }
 
     db.prepare(
       'UPDATE agent_registry SET name = ?, tmux_pane = ?, connected_at = ? WHERE id = ?'
@@ -111,13 +114,6 @@ export function registerAgent(options?: { customName?: string }): string {
     || (allDisconnected.length === 1 ? allDisconnected[0] : undefined);
   if (disconnected) {
     const newName = options?.customName || disconnected.name;
-    const renamed = newName !== disconnected.name;
-
-    // Update agent_messages if renaming to preserve history
-    if (renamed) {
-      db.prepare('UPDATE agent_messages SET sender_name = ? WHERE sender_name = ?').run(newName, disconnected.name);
-      db.prepare('UPDATE agent_messages SET recipient_name = ? WHERE recipient_name = ?').run(newName, disconnected.name);
-    }
 
     db.prepare(
       'UPDATE agent_registry SET name = ?, pid = ?, tmux_pane = ?, status = ?, connected_at = ?, disconnected_at = NULL WHERE id = ?'
