@@ -33,17 +33,24 @@ function detectTmuxPane(pid: number): string | null {
   return null;
 }
 
-/** Generate a unique agent name from the project folder, auto-suffixing on collision */
+/** Generate a unique agent name from the project folder, auto-suffixing on collision.
+ *  Cleans up dead entries it encounters so the name is available for INSERT. */
 function generateName(folderName: string): string {
   const db = getDb();
-  const existing = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(folderName) as AgentRow | undefined;
-  if (!existing || !isAlive(existing.pid)) {
-    return folderName;
-  }
+  const check = (name: string): boolean => {
+    const row = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(name) as AgentRow | undefined;
+    if (!row) return true; // name is free
+    if (!isAlive(row.pid)) {
+      // Dead entry — remove it so the name can be reused via INSERT
+      db.prepare('DELETE FROM agent_registry WHERE id = ?').run(row.id);
+      return true;
+    }
+    return false; // name is taken by a live agent
+  };
+  if (check(folderName)) return folderName;
   for (let i = 2; i < 100; i++) {
     const candidate = `${folderName}:${i}`;
-    const row = db.prepare('SELECT * FROM agent_registry WHERE name = ?').get(candidate) as AgentRow | undefined;
-    if (!row || !isAlive(row.pid)) return candidate;
+    if (check(candidate)) return candidate;
   }
   return `${folderName}:${Date.now()}`;
 }
