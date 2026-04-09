@@ -64,7 +64,7 @@ const DEFAULT_MAX_LOG_ENTRIES = 500;
 const MILESTONE_ACTIONS = new Set([
   'task_created', 'task_completed', 'task_partial_done',
   'project_created', 'project_deleted',
-  'agent_connected', 'agent_disconnected',
+  'agent_connected', 'agent_disconnected', 'agent_renamed',
 ]);
 
 export async function compactActivityLog(params: {

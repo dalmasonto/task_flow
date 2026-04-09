@@ -69,12 +69,44 @@ export function registerAgent(options?: { customName?: string }): string {
     'SELECT * FROM agent_registry WHERE project_path = ? ORDER BY connected_at DESC'
   ).all(projectPath) as AgentRow[];
 
-  // Priority 1: Reuse a disconnected entry that had the SAME PID (exact session resume)
-  // Priority 2: Reuse any disconnected entry for this path (new session, same project)
-  // This prevents a reconnecting agent from stealing another agent's identity
-  // when two sessions share the same project directory.
-  const disconnected = entries.find(e => e.status === 'disconnected' && e.pid === agentPid)
-    || entries.find(e => e.status === 'disconnected');
+  // Priority 0: Same PID already connected — this agent is renaming itself
+  // (e.g. auto-registered as folder name, now calling register_agent with a custom name)
+  const samePid = entries.find(e => e.status === 'connected' && e.pid === agentPid);
+  if (samePid && options?.customName && options.customName !== samePid.name) {
+    const oldName = samePid.name;
+    const newName = options.customName;
+
+    // Update agent_messages to preserve history
+    db.prepare('UPDATE agent_messages SET sender_name = ? WHERE sender_name = ?').run(newName, oldName);
+    db.prepare('UPDATE agent_messages SET recipient_name = ? WHERE recipient_name = ?').run(newName, oldName);
+
+    db.prepare(
+      'UPDATE agent_registry SET name = ?, tmux_pane = ?, connected_at = ? WHERE id = ?'
+    ).run(newName, tmuxPane, ts, samePid.id);
+
+    const row = db.prepare('SELECT * FROM agent_registry WHERE id = ?').get(samePid.id) as AgentRow;
+    broadcast('agent_renamed', { entity: 'agent', action: 'agent_renamed', payload: { ...row, oldName } });
+    logActivity('agent_renamed', `Agent "${oldName}" renamed to "${newName}"`, { entityType: 'agent' });
+
+    return newName;
+  }
+
+  // If same PID is already connected with the right name (or no custom name), just return it
+  if (samePid) {
+    return samePid.name;
+  }
+
+  // Reconnection priority for disconnected entries:
+  //   1. Custom name matches a disconnected entry exactly — the name IS the stable identity.
+  //      This is how users resume a specific agent: register_agent({ name: "sentinmail_coder" })
+  //   2. Same PID — exact session resume (e.g. MCP server restarted, same shell)
+  //   3. Only ONE disconnected entry — unambiguous, safe to reuse
+  // When multiple disconnected entries exist and no match is found,
+  // we create a fresh entry rather than guessing wrong and mixing up histories.
+  const allDisconnected = entries.filter(e => e.status === 'disconnected');
+  const disconnected = (options?.customName ? allDisconnected.find(e => e.name === options.customName) : undefined)
+    || allDisconnected.find(e => e.pid === agentPid)
+    || (allDisconnected.length === 1 ? allDisconnected[0] : undefined);
   if (disconnected) {
     const newName = options?.customName || disconnected.name;
     const renamed = newName !== disconnected.name;
@@ -96,7 +128,7 @@ export function registerAgent(options?: { customName?: string }): string {
     return newName;
   }
 
-  // Priority 2: All entries for this path are connected — this is a concurrent agent
+  // Priority 3: All entries for this path are connected — this is a concurrent agent
   // Generate a suffixed name to avoid collision
   const baseName = options?.customName || folderName;
   const name = entries.length === 0 ? baseName : generateName(baseName);

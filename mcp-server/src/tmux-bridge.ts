@@ -111,13 +111,25 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string): voi
   const db = getDb();
   db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(id);
   try {
-    execFileSync('tmux', ['send-keys', '-t', tmuxPane, text, 'Enter'], { stdio: 'ignore', timeout: 5000 });
-    // Long text triggers tmux bracketed paste — async delay then extra Enter (non-blocking)
+    // Send text literally (-l) so special chars are safe and tmux doesn't interpret them
+    execFileSync('tmux', ['send-keys', '-t', tmuxPane, '-l', text], { stdio: 'ignore', timeout: 5000 });
+
+    // Delay before Enter — gives the CLI time to fully process the bracketed paste.
+    // Without this, Codex (and similar TUIs) may only show partial text because
+    // the Enter arrives inside the paste bracket and gets swallowed.
     setTimeout(() => {
       try {
         execFileSync('tmux', ['send-keys', '-t', tmuxPane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
       } catch { /* pane may have closed */ }
-    }, 1000);
+      // Second Enter after another delay — catches CLIs that need an extra nudge
+      // after bracketed paste ends (e.g. long messages that trigger paste mode)
+      setTimeout(() => {
+        try {
+          execFileSync('tmux', ['send-keys', '-t', tmuxPane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+        } catch { /* pane may have closed */ }
+      }, 500);
+    }, 300);
+
     console.error(`[bridge] delivered message ${id} to tmux pane ${tmuxPane}`);
   } catch (err) {
     console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);

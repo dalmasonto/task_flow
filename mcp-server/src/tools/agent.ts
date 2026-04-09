@@ -22,7 +22,7 @@ export async function getAgentInstructions() {
       'Derive the project name from the **folder name** of the current working directory (e.g. `/home/user/projects/my-app` → search for "my-app"). Use search_projects with that name. If 2–3 results match, **ask the user** which project to use — never guess.',
       'list_tasks status="in_progress" and status="blocked" for the confirmed project.',
       'list_notifications unread_only=true',
-      'register_agent with a descriptive name for your role (e.g. "backend", "frontend", "lead"). Then list_agents to see who else is online. If other agents are active on the same project, check_messages for any pending messages addressed to you.',
+      'register_agent with a descriptive name for your role (e.g. "backend", "frontend", "lead"). Then list_agents to see who else is online. If 2+ disconnected agents exist for the same project path, ask the user which name to register as — the name preserves message history from previous sessions. If other agents are active on the same project, check_messages for any pending messages addressed to you.',
     ],
 
     state: {
@@ -77,8 +77,8 @@ export async function getAgentInstructions() {
       // ── Multi-Agent Collaboration ──────────────────────────────────────
 
       // Identity & discovery
-      'On startup, call register_agent with a descriptive name that reflects your role (e.g. "backend", "frontend", "designer", "qa"). If the user assigns you a role, use that. This name is how other agents address you.',
-      'Call list_agents to discover who else is online. Before starting work, check if another agent is already working on the same project — coordinate instead of duplicating effort.',
+      'On startup, call register_agent with a descriptive name that reflects your role (e.g. "backend", "frontend", "designer", "qa"). If the user assigns you a role, use that. This name is how other agents address you and how your message history is preserved across sessions.',
+      'Call list_agents to discover who else is online. If you see 2+ disconnected agents on the same project path, ask the user which name to register as — registering with an existing name resumes that agent\'s full message history. Before starting work, check if another agent is already working on the same project — coordinate instead of duplicating effort.',
 
       // Communication
       'Use send_to_agent for fire-and-forget updates — status changes, "I finished task X", "file Y is ready for you". Use ask_agent when you need a response before proceeding — "Should I use REST or GraphQL for this endpoint?", "Is the auth middleware ready?".',
