@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { sendKeys, useTerminalCapture } from '@/hooks/use-terminal'
+import { sendToAgent } from '@/hooks/use-agent-messages'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
 import { db } from '@/db/database'
 
@@ -53,7 +54,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [rawMode, setRawMode] = useState(false)
   const [expandKeys, setExpandKeys] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const { content, error, refresh } = useTerminalCapture(
     showPreview ? agentName : null,
     port,
@@ -155,15 +156,30 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
       setLastSent(keys)
       setInput('')
       toast.success(`Sent "${keys}" to ${agentName}`)
-      // Optimistically reset awaitingInput so UI updates immediately
-      // instead of waiting for next SSE poll cycle (~3s)
       db.agentRegistry.where('name').equals(agentName).modify({ awaitingInput: false })
       setTimeout(refresh, 500)
     } catch (err: any) {
       toast.error(`Failed to send keys: ${err.message}`)
     } finally {
       setSending(false)
-      // requestAnimationFrame(() => inputRef.current?.focus())
+    }
+  }
+
+  /** Send text via agent inbox — the tmux bridge handles delivery with proper Enter key timing */
+  const handleMessage = async (message: string) => {
+    if (!message.trim()) return
+    setSending(true)
+    try {
+      await sendToAgent(agentName, message.trim(), port)
+      setLastSent(message)
+      setInput('')
+      toast.success(`Sent message to ${agentName}`)
+      db.agentRegistry.where('name').equals(agentName).modify({ awaitingInput: false })
+      setTimeout(refresh, 500)
+    } catch (err: any) {
+      toast.error(`Failed to send message: ${err.message}`)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -273,7 +289,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
           {CONFIRM_KEYS.map((k) => (
             <Button key={k.keys} variant="outline" size="sm" disabled={sending}
               className={`uppercase tracking-widest text-[10px] font-bold h-7 px-2 ${btnBase}`}
-              onClick={() => handleSend(k.keys, k.enter ?? true, k.literal ?? true)}
+              onClick={() => handleMessage(k.keys)}
             >{k.label}</Button>
           ))}
           <div className="w-px bg-border/50 mx-0.5" />
@@ -349,23 +365,24 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
         )}
 
         {/* Raw input */}
-        <div className="flex gap-2">
-          <Input
+        <div className="flex gap-2 items-end">
+          <Textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                handleSend(input)
+                handleMessage(input)
               }
             }}
-            placeholder="Type and press Enter..."
+            placeholder="Type a message... (Shift+Enter for new line)"
             disabled={sending}
-            className="bg-muted/30 border-border text-xs h-8 font-mono"
+            rows={1}
+            className="bg-muted/30 border-border text-xs min-h-8 max-h-32 font-mono resize-none"
           />
           <Button
-            onClick={() => handleSend(input)}
+            onClick={() => handleMessage(input)}
             disabled={sending || !input.trim()}
             size="sm"
             className="uppercase tracking-widest text-[10px] font-bold h-8"
