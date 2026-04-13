@@ -56,6 +56,9 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [inputMode, setInputMode] = useState<'message' | 'command'>('message')
   const previewRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // True when the user is at (or pinned to) the bottom — auto-scroll follows new content.
+  // Starts true so the terminal opens scrolled to the end.
+  const pinnedToBottom = useRef(true)
   const { content, error, refresh } = useTerminalCapture(
     showPreview ? agentName : null,
     port,
@@ -76,15 +79,20 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
     return { awaiting: true }
   })()
 
-  // Smart auto-scroll: only scroll to bottom if user is already near the bottom
+  // Auto-scroll: only follow new content when pinned to bottom.
+  // Pinned state is updated by the scroll handler below.
   useEffect(() => {
+    const el = previewRef.current
+    if (!el || !pinnedToBottom.current) return
+    el.scrollTop = el.scrollHeight
+  }, [content])
+
+  const handleScroll = () => {
     const el = previewRef.current
     if (!el) return
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distanceFromBottom < 80) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [content])
+    pinnedToBottom.current = distanceFromBottom < 60
+  }
 
   // Clean up terminal artifacts and convert indented code blocks to fenced markdown
   const cleanContent = (text: string) => {
@@ -230,6 +238,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
         <div className="flex-1 min-h-0 border-b border-border relative">
           <div
             ref={previewRef}
+            onScroll={handleScroll}
             className="h-full overflow-auto p-3"
           >
             {error ? (
@@ -247,7 +256,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
             )}
           </div>
           <button
-            onClick={refresh}
+            onClick={() => { pinnedToBottom.current = true; refresh() }}
             className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
             title="Refresh"
           >
