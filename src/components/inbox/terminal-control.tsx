@@ -53,6 +53,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
   const [showPreview, setShowPreview] = useState(true)
   const [rawMode, setRawMode] = useState(false)
   const [expandKeys, setExpandKeys] = useState(false)
+  const [inputMode, setInputMode] = useState<'message' | 'command'>('message')
   const previewRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const { content, error, refresh } = useTerminalCapture(
@@ -364,31 +365,80 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
           </div>
         )}
 
-        {/* Raw input */}
-        <div className="flex gap-2 items-end">
-          <Textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleMessage(input)
+        {/* Input mode toggle + raw input */}
+        <div className="space-y-1.5">
+          {/* Mode toggle */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setInputMode('message')}
+              className={`text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded transition-colors ${
+                inputMode === 'message'
+                  ? 'bg-secondary/20 text-secondary border border-secondary/40'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground border border-transparent'
+              }`}
+            >
+              Message
+            </button>
+            <button
+              onClick={() => setInputMode('command')}
+              className={`text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded transition-colors ${
+                inputMode === 'command'
+                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/40'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground border border-transparent'
+              }`}
+            >
+              Command
+            </button>
+            {inputMode === 'command' && (
+              <span className="text-[9px] text-amber-500/70 ml-1">raw — no prefix</span>
+            )}
+          </div>
+
+          <div className="flex gap-2 items-end">
+            <Textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  if (inputMode === 'command') {
+                    handleSend(input, true, true)
+                  } else {
+                    handleMessage(input)
+                  }
+                }
+              }}
+              placeholder={
+                inputMode === 'command'
+                  ? '> /exit, /models, /help, y, n...'
+                  : 'Type a message... (Shift+Enter for new line)'
               }
-            }}
-            placeholder="Type a message... (Shift+Enter for new line)"
-            disabled={sending}
-            rows={1}
-            className="bg-muted/30 border-border text-xs min-h-8 max-h-32 font-mono resize-none"
-          />
-          <Button
-            onClick={() => handleMessage(input)}
-            disabled={sending || !input.trim()}
-            size="sm"
-            className="uppercase tracking-widest text-[10px] font-bold h-8"
-          >
-            {sending ? '...' : 'Send'}
-          </Button>
+              disabled={sending}
+              rows={1}
+              className={`text-xs min-h-8 max-h-32 font-mono resize-none ${
+                inputMode === 'command'
+                  ? 'bg-amber-500/5 border-amber-500/30 text-amber-100 placeholder:text-amber-500/40'
+                  : 'bg-muted/30 border-border'
+              }`}
+            />
+            <Button
+              onClick={() => {
+                if (inputMode === 'command') {
+                  handleSend(input, true, true)
+                } else {
+                  handleMessage(input)
+                }
+              }}
+              disabled={sending || !input.trim()}
+              size="sm"
+              className={`uppercase tracking-widest text-[10px] font-bold h-8 ${
+                inputMode === 'command' ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40' : ''
+              }`}
+            >
+              {sending ? '...' : inputMode === 'command' ? 'Run' : 'Send'}
+            </Button>
+          </div>
         </div>
 
         {/* Last sent indicator */}

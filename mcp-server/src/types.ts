@@ -28,7 +28,7 @@ export const ActivityAction = z.enum([
   'task_linked', 'task_unlinked', 'dependency_added', 'dependency_removed',
   'link_added', 'tag_added', 'tag_removed', 'debug_log',
   'agent_question', 'agent_question_answered', 'agent_broadcast',
-  'agent_connected', 'agent_disconnected', 'agent_renamed',
+  'agent_connected', 'agent_disconnected', 'agent_renamed', 'agent_deleted',
   'terminal_send_keys', 'terminal_captured',
   'compaction_summary', 'activity_compacted',
 ]);
@@ -50,6 +50,7 @@ export type ErrorCode =
   | 'CYCLE_DETECTED'
   | 'SESSION_ALREADY_ACTIVE'
   | 'NO_ACTIVE_SESSION'
-  | 'ALREADY_ANSWERED';
+  | 'ALREADY_ANSWERED'
+  | 'CONFLICT';
 
 export const LinkSchema = z.object({ label: z.string(), url: z.string() });

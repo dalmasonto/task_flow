@@ -162,15 +162,24 @@ export function unregisterAgent(name: string): void {
   logActivity('agent_disconnected', `Agent "${name}" disconnected`, { entityType: 'agent' });
 }
 
-/** Check all registered agents and mark dead ones as disconnected */
+/** Check all registered agents and mark dead ones as disconnected.
+ *  Also purges entries that have been disconnected for more than 24 hours. */
 export function checkAgentLiveness(): void {
   const db = getDb();
+
+  // Mark dead connected agents as disconnected
   const liveAgents = db.prepare("SELECT * FROM agent_registry WHERE status = 'connected'").all() as AgentRow[];
   for (const agent of liveAgents) {
     if (!isAlive(agent.pid)) {
       unregisterAgent(agent.name);
     }
   }
+
+  // Purge entries that have been disconnected for more than 24 hours
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(
+    "DELETE FROM agent_registry WHERE status = 'disconnected' AND disconnected_at IS NOT NULL AND disconnected_at < ?"
+  ).run(cutoff);
 }
 
 /** Get a registered agent by name */

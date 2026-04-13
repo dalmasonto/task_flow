@@ -3,7 +3,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { getDb } from '../db.js';
 import { logActivity, errorResponse, successResponse, now, broadcastChange } from '../helpers.js';
-import { registerAgent as doRegister, getAgent, listAgents } from '../agent-registry.js';
+import { registerAgent as doRegister, getAgent, listAgents, unregisterAgent } from '../agent-registry.js';
 
 /** The name assigned to this agent after registration */
 let myAgentName: string | null = null;
@@ -52,6 +52,27 @@ export function registerAgentInboxTools(server: McpServer) {
     async (params) => {
       myAgentName = doRegister({ customName: params.name });
       return successResponse({ name: myAgentName, message: `Registered as "${myAgentName}"` });
+    },
+  );
+
+  server.tool(
+    'delete_agent',
+    'Delete a stale or disconnected agent entry from the registry. Only disconnected agents can be deleted. Use this to clean up ghost entries left by crashed or renamed sessions.',
+    {
+      name: z.string().describe('Name of the agent entry to delete'),
+    },
+    { destructiveHint: true },
+    async (params) => {
+      const db = getDb();
+      const agent = getAgent(params.name);
+      if (!agent) return errorResponse(`Agent "${params.name}" not found`, 'NOT_FOUND');
+      if (agent.status === 'connected') {
+        return errorResponse(`Agent "${params.name}" is currently connected. Disconnect it first or wait for it to go offline.`, 'CONFLICT');
+      }
+      db.prepare('DELETE FROM agent_registry WHERE name = ?').run(params.name);
+      broadcastChange('agent', 'agent_deleted', { name: params.name });
+      logActivity('agent_deleted', `Agent "${params.name}" deleted from registry`, { entityType: 'agent' });
+      return successResponse({ deleted: true, name: params.name });
     },
   );
 

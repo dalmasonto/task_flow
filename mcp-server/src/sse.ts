@@ -4,6 +4,7 @@ import { getDb } from './db.js';
 import { logActivity } from './helpers.js';
 import { getConfig } from './config.js';
 import { validateKeys } from './tools/terminal.js';
+import { fetchWithRetry } from './retry.js';
 
 const SERVICE_ID = 'taskflow-mcp';
 const PROBE_TIMEOUT_MS = 2000;
@@ -747,7 +748,7 @@ export async function startSSEServer(): Promise<void> {
           // Poll for commands every 2s
           setInterval(async () => {
             try {
-              const res = await fetch(`${RELAY_URL}/commands/pending`, {
+              const res = await fetchWithRetry('relay commands/pending', `${RELAY_URL}/commands/pending`, {
                 headers: { 'Authorization': `Bearer ${RELAY_PUSH_TOKEN}` },
               });
               if (!res.ok) return;
@@ -798,9 +799,9 @@ export function broadcast(event: string, data: object): void {
   if (sseServerActive && clients.size > 0) {
     broadcastLocal(event, data);
   } else {
-    // Relay to the SSE server owner via HTTP
+    // Relay to the SSE server owner via HTTP (with retry for transient failures)
     const body = JSON.stringify({ event, data });
-    fetch(`http://localhost:${activePort}/api/broadcast`, {
+    fetchWithRetry('broadcast relay', `http://localhost:${activePort}/api/broadcast`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
