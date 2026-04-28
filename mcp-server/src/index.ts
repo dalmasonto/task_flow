@@ -84,6 +84,34 @@ if (!httpOnly) {
     },
   );
 
+  // Filled in after agent registration — used by the inbox drain below
+  let agentNameGetter: () => string = () => 'unknown';
+
+  // Drain any undelivered inbox messages for this agent and prepend them to a
+  // tool result. This is the non-tmux delivery path: since we can't inject into
+  // stdin, we piggyback pending messages onto the next tool response so Claude
+  // sees them in its context without any terminal tricks.
+  function drainInboxNotice(): string {
+    try {
+      const name = agentNameGetter();
+      if (name === 'unknown') return '';
+      const db = getDb();
+      const pending = db.prepare(
+        `SELECT id, sender_name, question FROM agent_messages
+         WHERE recipient_name = ? AND status = 'pending' AND delivered IS NULL
+         ORDER BY created_at ASC`
+      ).all(name) as Array<{ id: number; sender_name: string; question: string }>;
+      if (pending.length === 0) return '';
+      for (const msg of pending) {
+        db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(msg.id);
+      }
+      const lines = pending.map(m => `  [Inbox #${m.id} from ${m.sender_name}]: ${m.question}`).join('\n');
+      return `\n⚠️ INBOX MESSAGE(S) — respond before continuing:\n${lines}\n`;
+    } catch {
+      return '';
+    }
+  }
+
   // Wrap server.tool() to track execution time and log failures
   const originalTool = server.tool.bind(server);
   (server as any).tool = function (...args: any[]) {
@@ -127,6 +155,12 @@ if (!httpOnly) {
             db.prepare('INSERT INTO tool_executions (tool_name, duration_ms, success, created_at) VALUES (?, ?, 1, ?)').run(toolName, duration, ts);
             broadcast('tool_executed', { entity: 'tool', action: 'tool_executed', payload: { tool_name: toolName, duration_ms: duration, success: true, created_at: ts } });
           } catch { /* don't break tool execution */ }
+          // Non-tmux inbox delivery: prepend any pending messages to the result
+          const notice = drainInboxNotice();
+          if (notice && result?.content) {
+            const first = result.content.find((c: any) => c.type === 'text');
+            if (first) first.text = notice + first.text;
+          }
           return result;
         } catch (err: any) {
           const duration = Date.now() - start;
@@ -165,6 +199,7 @@ if (!httpOnly) {
   // Auto-register this agent and sync name to agent-inbox tools
   const agentName = registerAgent();
   setAgentName(agentName);
+  agentNameGetter = getAgentName; // wire up inbox drain now that we have a name
   const agentPid = process.ppid;
   console.error(`[agent] registered as "${agentName}"`);
 
