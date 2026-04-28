@@ -1,7 +1,19 @@
 import { execFileSync } from 'child_process';
+import { appendFileSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { getDb } from './db.js';
 import { getActivePort } from './sse.js';
 import http from 'http';
+
+const LOG_FILE = join(homedir(), '.taskflow', 'bridge.log');
+try { mkdirSync(join(homedir(), '.taskflow'), { recursive: true }); } catch {}
+
+function blogLog(msg: string): void {
+  const line = `${new Date().toISOString()} ${msg}\n`;
+  console.error(`[bridge] ${msg}`);
+  try { appendFileSync(LOG_FILE, line); } catch {}
+}
 
 interface BridgeOptions {
   /** Returns the current agent name — must be a getter so renames are picked up */
@@ -43,18 +55,18 @@ function startSSEListener(options: BridgeOptions): void {
       });
 
       res.on('end', () => {
-        console.error('[bridge] SSE connection closed, reconnecting in 3s...');
+        blogLog('SSE connection closed, reconnecting in 3s...');
         setTimeout(connect, 3000);
       });
 
       res.on('error', () => {
-        console.error('[bridge] SSE connection error, reconnecting in 3s...');
+        blogLog('SSE connection error, reconnecting in 3s...');
         setTimeout(connect, 3000);
       });
     });
 
     req.on('error', () => {
-      console.error('[bridge] SSE connect failed, retrying in 3s...');
+      blogLog('SSE connect failed, retrying in 3s...');
       setTimeout(connect, 3000);
     });
   }
@@ -154,9 +166,9 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string | nul
         }, 500);
       }, 300);
 
-      console.error(`[bridge] delivered message ${id} to tmux pane ${tmuxPane}`);
+      blogLog(`delivered message ${id} to tmux pane ${tmuxPane}`);
     } catch (err) {
-      console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);
+      blogLog(`tmux send-keys failed for message ${id}: ${err}`);
     }
   } else {
     // Non-tmux: try TIOCSTI to inject text into the controlling terminal's input
@@ -169,9 +181,9 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string | nul
       // Last-resort visual: at least make the message visible in the terminal output.
       // The tool-response piggyback in index.ts will also deliver it on the next call.
       process.stderr.write(`\n\x1b[33m[INBOX #${id}]: ${text}\x1b[0m\n`);
-      console.error(`[bridge] TIOCSTI failed — message ${id} visible in stderr, will appear in next tool response`);
+      blogLog(`TIOCSTI failed — message ${id} visible in stderr, will appear in next tool response`);
     } else {
-      console.error(`[bridge] delivered message ${id} via TIOCSTI`);
+      blogLog(`delivered message ${id} via TIOCSTI`);
     }
   }
 }
@@ -217,7 +229,7 @@ export function startTmuxBridge(options: BridgeOptions): () => void {
   startSSEListener(options);
 
   const pane = options.tmuxPane;
-  console.error(`[bridge] bridge active for agent "${options.getAgentName()}"${pane ? ` on tmux pane ${pane}` : ' (stderr mode — no tmux pane)'}`);
+  blogLog(`bridge active for agent "${options.getAgentName()}"${pane ? ` on tmux pane ${pane}` : ' (TIOCSTI mode — no tmux pane)'}`);
 
   return () => {
     // SSE connection will close when process exits
