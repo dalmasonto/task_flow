@@ -55,10 +55,11 @@ function jsonResponse(res: ServerResponse, status: number, data: unknown) {
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let body = '';
     req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
     req.on('end', () => resolve(body));
+    req.on('error', reject);
   });
 }
 
@@ -338,7 +339,8 @@ export async function startSSEServer(): Promise<void> {
       const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
       if (!task) { jsonResponse(res, 404, { error: 'Task not found' }); return; }
 
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const fieldMap: Record<string, string> = {
         title: 'title', description: 'description', status: 'status',
         priority: 'priority', projectId: 'project_id', dueDate: 'due_date',
@@ -396,7 +398,8 @@ export async function startSSEServer(): Promise<void> {
     // POST /api/tasks — create a task
     if (req.url === '/api/tasks' && req.method === 'POST') {
       const db = getDb();
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const ts = new Date().toISOString();
       const result = db.prepare(
         `INSERT INTO tasks (title, description, status, priority, project_id, dependencies, links, tags, due_date, estimated_time, created_at, updated_at)
@@ -418,7 +421,8 @@ export async function startSSEServer(): Promise<void> {
     // POST /api/sessions — create a timer session
     if (req.url === '/api/sessions' && req.method === 'POST') {
       const db = getDb();
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const ts = new Date().toISOString();
       const result = db.prepare('INSERT INTO sessions (task_id, start, end) VALUES (?, ?, ?)').run(
         body.taskId, body.start ? new Date(body.start).toISOString() : ts, body.end ? new Date(body.end).toISOString() : null,
@@ -434,7 +438,8 @@ export async function startSSEServer(): Promise<void> {
     if (sessionPatchMatch && req.method === 'PATCH') {
       const db = getDb();
       const id = Number(sessionPatchMatch[1]);
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       if (body.end) {
         db.prepare('UPDATE sessions SET end = ? WHERE id = ?').run(new Date(body.end).toISOString(), id);
       }
@@ -451,7 +456,8 @@ export async function startSSEServer(): Promise<void> {
       const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
       if (!project) { jsonResponse(res, 404, { error: 'Project not found' }); return; }
 
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const fieldMap: Record<string, string> = {
         name: 'name', color: 'color', type: 'type', description: 'description',
       };
@@ -493,7 +499,8 @@ export async function startSSEServer(): Promise<void> {
 
     // POST /api/broadcast — relay SSE events from other processes (e.g. MCP)
     if (req.url === '/api/broadcast' && req.method === 'POST') {
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       if (body.event && body.data) {
         broadcastLocal(body.event, body.data);
       }
@@ -517,7 +524,8 @@ export async function startSSEServer(): Promise<void> {
         return;
       }
 
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const response = body.response as string;
       if (!response) {
         jsonResponse(res, 400, { error: 'Response is required' });
@@ -566,7 +574,8 @@ export async function startSSEServer(): Promise<void> {
     // POST /api/agent-messages/send — send a message (from user UI or capture system)
     if (req.url === '/api/agent-messages/send' && req.method === 'POST') {
       const db = getDb();
-      const body = JSON.parse(await readBody(req));
+      let body: any;
+      try { body = JSON.parse(await readBody(req)); } catch { jsonResponse(res, 400, { error: 'Invalid JSON body' }); return; }
       const { recipient, message: msgText, projectId, source: msgSource, senderName } = body as {
         recipient: string; message: string; projectId?: number; source?: string; senderName?: string
       };
@@ -796,7 +805,7 @@ export function markSSEActive(): void {
  * Also pushes to the remote relay server if configured.
  */
 export function broadcast(event: string, data: object): void {
-  if (sseServerActive && clients.size > 0) {
+  if (sseServerActive) {
     broadcastLocal(event, data);
   } else {
     // Relay to the SSE server owner via HTTP (with retry for transient failures)

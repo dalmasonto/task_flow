@@ -282,7 +282,7 @@ export function TerminalControl({ agentName, port }: TerminalControlProps) {
             className="text-muted-foreground hover:text-foreground"
           >
             <span className="material-symbols-outlined text-sm">
-              {expandKeys ? 'expand_more' : 'expand_less'}
+              {expandKeys ? 'expand_less' : 'expand_more'}
             </span>
           </button>
         </div>
