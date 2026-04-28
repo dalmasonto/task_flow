@@ -1,5 +1,4 @@
 import { execFileSync } from 'child_process';
-import { openSync, writeSync, closeSync } from 'fs';
 import { getDb } from './db.js';
 import { getActivePort } from './sse.js';
 import http from 'http';
@@ -110,6 +109,26 @@ function handleSSEEvent(event: string, data: { payload?: Record<string, unknown>
   }
 }
 
+// TIOCSTI Python script — injects each character of `text` + newline into the
+// controlling terminal's input queue via ioctl(TIOCSTI). Passed as a CLI arg
+// (not inline) so special characters in the message are never shell-interpreted.
+const TIOCSTI_SCRIPT = `
+import fcntl, sys
+TIOCSTI = 0x5412
+with open('/dev/tty', 'rb+', buffering=0) as tty:
+    for c in (sys.argv[1] + '\\n').encode():
+        fcntl.ioctl(tty, TIOCSTI, bytes([c]))
+`.trim();
+
+function injectViaTiocsti(text: string): boolean {
+  try {
+    execFileSync('python3', ['-c', TIOCSTI_SCRIPT, text], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function injectAndMarkDelivered(id: number, text: string, tmuxPane: string | null): void {
   const db = getDb();
   db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(id);
@@ -140,17 +159,20 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string | nul
       console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);
     }
   } else {
-    // Non-tmux fallback: write to stderr so the message is visible in the terminal.
-    // Also write to /dev/tty (the controlling terminal) when available so the text
-    // surfaces even if stderr is captured by the parent process.
-    const banner = `\n\x1b[33m╔══ [INBOX MESSAGE #${id}] ══╗\x1b[0m\n${text}\n`;
-    process.stderr.write(banner);
-    try {
-      const fd = openSync('/dev/tty', 'w');
-      writeSync(fd, banner);
-      closeSync(fd);
-    } catch { /* /dev/tty not available in all environments */ }
-    console.error(`[bridge] delivered message ${id} via stderr (no tmux pane)`);
+    // Non-tmux: try TIOCSTI to inject text into the controlling terminal's input
+    // queue. TIOCSTI (0x5412) works when the caller shares the controlling terminal
+    // with the target process — which is true here since the MCP server is a child
+    // of Claude Code and inherits its tty session.
+    // Falls back to stderr if python3 is unavailable or the ioctl is denied.
+    const injected = injectViaTiocsti(text);
+    if (!injected) {
+      // Last-resort visual: at least make the message visible in the terminal output.
+      // The tool-response piggyback in index.ts will also deliver it on the next call.
+      process.stderr.write(`\n\x1b[33m[INBOX #${id}]: ${text}\x1b[0m\n`);
+      console.error(`[bridge] TIOCSTI failed — message ${id} visible in stderr, will appear in next tool response`);
+    } else {
+      console.error(`[bridge] delivered message ${id} via TIOCSTI`);
+    }
   }
 }
 
