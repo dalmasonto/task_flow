@@ -186,7 +186,9 @@ if (!httpOnly) {
     console.error('[bridge] tmux not available');
   }
 
-  if (tmuxTarget) {
+  // Always start the bridge — tmuxPane may be null for non-tmux sessions,
+  // in which case messages are delivered via stderr instead of tmux injection.
+  {
     const { startTmuxBridge } = await import('./tmux-bridge.js');
     const stopBridge = startTmuxBridge({
       getAgentName,
@@ -194,13 +196,15 @@ if (!httpOnly) {
       tmuxPane: tmuxTarget,
     });
 
+    if (!tmuxTarget) {
+      console.error('[bridge] agent not in tmux — using stderr delivery for inbox messages');
+    }
+
     const originalCleanup = cleanup;
     cleanup = () => { stopBridge(); originalCleanup(); };
     process.removeListener('SIGINT', originalCleanup);
     process.removeListener('SIGTERM', originalCleanup);
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
-  } else {
-    console.error('[bridge] agent not in tmux — bridge disabled');
   }
 }

@@ -1,4 +1,5 @@
-import { execFileSync, exec } from 'child_process';
+import { execFileSync } from 'child_process';
+import { openSync, writeSync, closeSync } from 'fs';
 import { getDb } from './db.js';
 import { getActivePort } from './sse.js';
 import http from 'http';
@@ -7,7 +8,8 @@ interface BridgeOptions {
   /** Returns the current agent name — must be a getter so renames are picked up */
   getAgentName: () => string;
   agentPid: number;
-  tmuxPane: string;
+  /** Null when not running inside tmux — falls back to stderr delivery */
+  tmuxPane: string | null;
 }
 
 // ─── SSE Listener (replaces the 3s poller) ───────────────────────────
@@ -108,32 +110,47 @@ function handleSSEEvent(event: string, data: { payload?: Record<string, unknown>
   }
 }
 
-function injectAndMarkDelivered(id: number, text: string, tmuxPane: string): void {
+function injectAndMarkDelivered(id: number, text: string, tmuxPane: string | null): void {
   const db = getDb();
   db.prepare('UPDATE agent_messages SET delivered = 1 WHERE id = ?').run(id);
-  try {
-    // Send text literally (-l) so special chars are safe and tmux doesn't interpret them
-    execFileSync('tmux', ['send-keys', '-t', tmuxPane, '-l', text], { stdio: 'ignore', timeout: 5000 });
 
-    // Delay before Enter — gives the CLI time to fully process the bracketed paste.
-    // Without this, Codex (and similar TUIs) may only show partial text because
-    // the Enter arrives inside the paste bracket and gets swallowed.
-    setTimeout(() => {
-      try {
-        execFileSync('tmux', ['send-keys', '-t', tmuxPane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
-      } catch { /* pane may have closed */ }
-      // Second Enter after another delay — catches CLIs that need an extra nudge
-      // after bracketed paste ends (e.g. long messages that trigger paste mode)
+  if (tmuxPane) {
+    try {
+      // Send text literally (-l) so special chars are safe and tmux doesn't interpret them
+      execFileSync('tmux', ['send-keys', '-t', tmuxPane, '-l', text], { stdio: 'ignore', timeout: 5000 });
+
+      // Delay before Enter — gives the CLI time to fully process the bracketed paste.
+      // Without this, Codex (and similar TUIs) may only show partial text because
+      // the Enter arrives inside the paste bracket and gets swallowed.
       setTimeout(() => {
         try {
           execFileSync('tmux', ['send-keys', '-t', tmuxPane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
         } catch { /* pane may have closed */ }
-      }, 500);
-    }, 300);
+        // Second Enter after another delay — catches CLIs that need an extra nudge
+        // after bracketed paste ends (e.g. long messages that trigger paste mode)
+        setTimeout(() => {
+          try {
+            execFileSync('tmux', ['send-keys', '-t', tmuxPane, 'Enter'], { stdio: 'ignore', timeout: 5000 });
+          } catch { /* pane may have closed */ }
+        }, 500);
+      }, 300);
 
-    console.error(`[bridge] delivered message ${id} to tmux pane ${tmuxPane}`);
-  } catch (err) {
-    console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);
+      console.error(`[bridge] delivered message ${id} to tmux pane ${tmuxPane}`);
+    } catch (err) {
+      console.error(`[bridge] tmux send-keys failed for message ${id}:`, err);
+    }
+  } else {
+    // Non-tmux fallback: write to stderr so the message is visible in the terminal.
+    // Also write to /dev/tty (the controlling terminal) when available so the text
+    // surfaces even if stderr is captured by the parent process.
+    const banner = `\n\x1b[33m╔══ [INBOX MESSAGE #${id}] ══╗\x1b[0m\n${text}\n`;
+    process.stderr.write(banner);
+    try {
+      const fd = openSync('/dev/tty', 'w');
+      writeSync(fd, banner);
+      closeSync(fd);
+    } catch { /* /dev/tty not available in all environments */ }
+    console.error(`[bridge] delivered message ${id} via stderr (no tmux pane)`);
   }
 }
 
@@ -177,7 +194,8 @@ function deliverUndelivered(options: BridgeOptions): void {
 export function startTmuxBridge(options: BridgeOptions): () => void {
   startSSEListener(options);
 
-  console.error(`[bridge] tmux bridge active for agent "${options.getAgentName()}" on pane ${options.tmuxPane}`);
+  const pane = options.tmuxPane;
+  console.error(`[bridge] bridge active for agent "${options.getAgentName()}"${pane ? ` on tmux pane ${pane}` : ' (stderr mode — no tmux pane)'}`);
 
   return () => {
     // SSE connection will close when process exits
