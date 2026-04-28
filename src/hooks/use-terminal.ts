@@ -62,21 +62,14 @@ export const terminalStore = new TerminalStore()
 
 /** Hook that subscribes to terminal content for an agent via SSE-driven store */
 export function useTerminalCapture(agentName: string | null, _port: number, _intervalMs = 3000) {
-  const [content, setContent] = useState<string | null>(
-    agentName ? terminalStore.get(agentName) : null
-  )
+  const [content, setContent] = useState<string | null>(null)
   const [error] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!agentName) {
-      setContent(null)
-      return
-    }
-    // Read current value
-    const current = terminalStore.get(agentName)
-    if (current) setContent(current)
-
-    // Subscribe to updates
+    // Always reset to the new agent's content (null if not yet captured) to avoid
+    // showing the previous agent's terminal when switching selections.
+    setContent(agentName ? terminalStore.get(agentName) : null)
+    if (!agentName) return
     return terminalStore.subscribe(agentName, setContent)
   }, [agentName])
 

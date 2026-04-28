@@ -37,13 +37,21 @@ async function initialSync(retries = 5, delay = 1500): Promise<void> {
 const RECONNECT_DELAY = 3000
 const MAX_RECONNECT_DELAY = 15000
 
-/** Attach all SSE event listeners to an EventSource */
-function attachListeners(source: EventSource, sseUrl: string) {
-  source.addEventListener('connected', () => {
+/** Attach all SSE event listeners to an EventSource. Returns a cleanup function that removes them all. */
+function attachListeners(source: EventSource, sseUrl: string, onConnected: () => void): () => void {
+  const attached: Array<[string, EventListenerOrEventListenerObject]> = []
+
+  function on(type: string, handler: (e: MessageEvent) => void): void {
+    source.addEventListener(type, handler as EventListener)
+    attached.push([type, handler as EventListener])
+  }
+
+  on('connected', () => {
     console.log('[useSync] SSE connected to', sseUrl)
+    onConnected()
   })
 
-  source.addEventListener('task_created', (e) => {
+  on('task_created', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) {
       const task = parseTask(payload)
@@ -52,38 +60,38 @@ function attachListeners(source: EventSource, sseUrl: string) {
     }
   })
 
-  source.addEventListener('task_updated', (e) => {
+  on('task_updated', (e) => {
     console.log('[useSync] task_updated event received')
     const { payload } = JSON.parse(e.data)
     if (payload) db.tasks.put(parseTask(payload))
   })
 
-  source.addEventListener('task_status_changed', (e) => {
+  on('task_status_changed', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.tasks.put(parseTask(payload))
   })
 
-  source.addEventListener('task_completed', (e) => {
+  on('task_completed', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.tasks.put(parseTask(payload))
   })
 
-  source.addEventListener('task_partial_done', (e) => {
+  on('task_partial_done', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.tasks.put(parseTask(payload))
   })
 
-  source.addEventListener('task_deleted', (e) => {
+  on('task_deleted', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload?.id) db.tasks.delete(payload.id)
   })
 
-  source.addEventListener('tasks_bulk_created', (e) => {
+  on('tasks_bulk_created', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload?.tasks) db.tasks.bulkPut(payload.tasks.map(parseTask))
   })
 
-  source.addEventListener('project_created', async (e) => {
+  on('project_created', async (e) => {
     console.log('[useSync] project_created event received')
     const { payload } = JSON.parse(e.data)
     if (payload) {
@@ -99,18 +107,18 @@ function attachListeners(source: EventSource, sseUrl: string) {
     }
   })
 
-  source.addEventListener('project_updated', (e) => {
+  on('project_updated', (e) => {
     console.log('[useSync] project_updated event received')
     const { payload } = JSON.parse(e.data)
     if (payload) db.projects.put(parseProject(payload))
   })
 
-  source.addEventListener('project_deleted', (e) => {
+  on('project_deleted', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload?.id) db.projects.delete(payload.id)
   })
 
-  source.addEventListener('timer_started', (e) => {
+  on('timer_started', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) {
       if (payload.session) db.sessions.put(parseSession(payload.session))
@@ -118,7 +126,7 @@ function attachListeners(source: EventSource, sseUrl: string) {
     }
   })
 
-  source.addEventListener('timer_paused', (e) => {
+  on('timer_paused', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) {
       if (payload.session) db.sessions.put(parseSession(payload.session))
@@ -126,7 +134,7 @@ function attachListeners(source: EventSource, sseUrl: string) {
     }
   })
 
-  source.addEventListener('timer_stopped', (e) => {
+  on('timer_stopped', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) {
       if (payload.session) db.sessions.put(parseSession(payload.session))
@@ -136,7 +144,7 @@ function attachListeners(source: EventSource, sseUrl: string) {
     }
   })
 
-  source.addEventListener('settings_saved', (e) => {
+  on('settings_saved', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload?.key !== undefined) {
       db.settings.where('key').equals(payload.key).modify({ value: payload.value })
@@ -144,87 +152,72 @@ function attachListeners(source: EventSource, sseUrl: string) {
     }
   })
 
-  source.addEventListener('notifications_cleared', () => {
-    db.notifications.clear()
-  })
+  on('notifications_cleared', () => { db.notifications.clear() })
 
-  source.addEventListener('notifications_all_read', () => {
-    db.notifications.toCollection().modify({ read: true })
-  })
+  on('notifications_all_read', () => { db.notifications.toCollection().modify({ read: true }) })
 
-  source.addEventListener('activity_logged', (e) => {
+  on('activity_logged', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.activityLogs.put(parseActivityLog(payload))
   })
 
-  source.addEventListener('activity_cleared', () => {
-    db.activityLogs.clear()
-  })
+  on('activity_cleared', () => { db.activityLogs.clear() })
 
-  source.addEventListener('agent_question', (e) => {
+  on('agent_question', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.agentMessages.put(parseAgentMessage(payload))
   })
 
-  source.addEventListener('agent_question_answered', (e) => {
+  on('agent_question_answered', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.agentMessages.put(parseAgentMessage(payload))
   })
 
-  source.addEventListener('agent_connected', (e) => {
+  on('agent_connected', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.agentRegistry.put(parseAgentRegistry(payload))
   })
 
-  source.addEventListener('agent_disconnected', (e) => {
+  on('agent_disconnected', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.agentRegistry.put(parseAgentRegistry(payload))
   })
 
-  source.addEventListener('agent_renamed', (e) => {
+  on('agent_renamed', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) {
-      // Remove the old entry by name, then put the updated one
       const oldName = payload.oldName as string | undefined
-      if (oldName) {
-        db.agentRegistry.where('name').equals(oldName).delete()
-      }
+      if (oldName) db.agentRegistry.where('name').equals(oldName).delete()
       db.agentRegistry.put(parseAgentRegistry(payload))
     }
   })
 
-  source.addEventListener('notification_created', (e) => {
+  on('notification_created', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.notifications.put(parseNotification(payload))
   })
 
-  source.addEventListener('notification_updated', (e) => {
+  on('notification_updated', (e) => {
     const { payload } = JSON.parse(e.data)
     if (payload) db.notifications.put(parseNotification(payload))
   })
 
-  source.addEventListener('agent_awaiting_input', (e) => {
+  on('agent_awaiting_input', (e) => {
     const { payload } = JSON.parse(e.data)
-    if (payload?.name) {
-      db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: true })
-    }
+    if (payload?.name) db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: true })
   })
 
-  source.addEventListener('agent_input_resolved', (e) => {
+  on('agent_input_resolved', (e) => {
     const { payload } = JSON.parse(e.data)
-    if (payload?.name) {
-      db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: false })
-    }
+    if (payload?.name) db.agentRegistry.where('name').equals(payload.name).modify({ awaitingInput: false })
   })
 
-  source.addEventListener('terminal_capture', (e) => {
+  on('terminal_capture', (e) => {
     const { payload } = JSON.parse(e.data)
-    if (payload?.name && payload?.content != null) {
-      terminalStore.set(payload.name, payload.content)
-    }
+    if (payload?.name && payload?.content != null) terminalStore.set(payload.name, payload.content)
   })
 
-  source.addEventListener('data_cleared', async () => {
+  on('data_cleared', async () => {
     try {
       await db.tasks.clear()
       await db.projects.clear()
@@ -238,11 +231,19 @@ function attachListeners(source: EventSource, sseUrl: string) {
       console.error('[useSync] data_cleared failed:', err)
     }
   })
+
+  return () => {
+    for (const [type, handler] of attached) {
+      source.removeEventListener(type, handler)
+    }
+    attached.length = 0
+  }
 }
 
 export function useSync() {
   const [synced, setSynced] = useState(false)
   const sourceRef = useRef<EventSource | null>(null)
+  const detachRef = useRef<(() => void) | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const port = useSetting('serverPort')
   const connectionMode = useSetting('connectionMode')
@@ -256,17 +257,30 @@ export function useSync() {
     let killed = false
     let delay = RECONNECT_DELAY
 
+    function closeSource() {
+      if (detachRef.current) { detachRef.current(); detachRef.current = null }
+      if (sourceRef.current) { sourceRef.current.close(); sourceRef.current = null }
+    }
+
+    async function syncAgentRegistry() {
+      try {
+        const res = await fetch(getSyncUrl(), { headers: getAuthHeaders() })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.agentRegistry) {
+          await db.agentRegistry.clear()
+          if (data.agentRegistry.length) await db.agentRegistry.bulkPut(data.agentRegistry.map((r: Record<string, unknown>) => parseAgentRegistry(r)))
+        }
+      } catch { /* server may not be ready */ }
+    }
+
     function connect() {
       if (killed) return
 
       const sseUrl = getStreamUrl()
       const authHeaders = getAuthHeaders()
 
-      // Close previous connection if any
-      if (sourceRef.current) {
-        sourceRef.current.close()
-        sourceRef.current = null
-      }
+      closeSource()
 
       console.log('[useSync] connecting to', sseUrl)
       // EventSource doesn't support custom headers natively.
@@ -277,12 +291,7 @@ export function useSync() {
       const source = new EventSource(url)
       sourceRef.current = source
 
-      attachListeners(source, sseUrl)
-
-      source.addEventListener('connected', () => {
-        // Reset backoff on successful connection
-        delay = RECONNECT_DELAY
-      })
+      detachRef.current = attachListeners(source, sseUrl, () => { delay = RECONNECT_DELAY })
 
       source.onerror = () => {
         const state = source.readyState
@@ -291,9 +300,10 @@ export function useSync() {
 
         if (state === EventSource.CLOSED && !killed) {
           // Native EventSource won't reconnect from CLOSED — do it ourselves
-          source.close()
-          sourceRef.current = null
+          closeSource()
           console.log(`[useSync] SSE closed — reconnecting in ${delay / 1000}s`)
+          // Re-sync agent registry on reconnect to recover any renames/disconnects missed during the gap
+          syncAgentRegistry()
           reconnectTimer.current = setTimeout(connect, delay)
           // Exponential backoff capped at MAX_RECONNECT_DELAY
           delay = Math.min(delay * 2, MAX_RECONNECT_DELAY)
@@ -307,10 +317,7 @@ export function useSync() {
     return () => {
       killed = true
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-      if (sourceRef.current) {
-        sourceRef.current.close()
-        sourceRef.current = null
-      }
+      closeSource()
     }
   }, [port, connectionMode, relayUrl, relayAccessToken])
 

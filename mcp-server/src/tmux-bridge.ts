@@ -132,12 +132,16 @@ with open('/dev/tty', 'rb+', buffering=0) as tty:
         fcntl.ioctl(tty, TIOCSTI, bytes([c]))
 `.trim();
 
-function injectViaTiocsti(text: string): boolean {
+function injectViaTiocsti(text: string): string | null {
   try {
     execFileSync('python3', ['-c', TIOCSTI_SCRIPT, text], { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (err: any) {
+    // Capture stderr from the Python process (where the real error lives)
+    const stderr = err?.stderr?.toString().trim() || '';
+    const stdout = err?.stdout?.toString().trim() || '';
+    const msg = err?.message || String(err);
+    return [msg, stderr, stdout].filter(Boolean).join(' | ');
   }
 }
 
@@ -176,12 +180,13 @@ function injectAndMarkDelivered(id: number, text: string, tmuxPane: string | nul
     // with the target process — which is true here since the MCP server is a child
     // of Claude Code and inherits its tty session.
     // Falls back to stderr if python3 is unavailable or the ioctl is denied.
-    const injected = injectViaTiocsti(text);
-    if (!injected) {
+    const tiocError = injectViaTiocsti(text);
+    if (tiocError !== null) {
+      blogLog(`TIOCSTI failed for message ${id}: ${tiocError}`);
       // Last-resort visual: at least make the message visible in the terminal output.
       // The tool-response piggyback in index.ts will also deliver it on the next call.
       process.stderr.write(`\n\x1b[33m[INBOX #${id}]: ${text}\x1b[0m\n`);
-      blogLog(`TIOCSTI failed — message ${id} visible in stderr, will appear in next tool response`);
+      blogLog(`message ${id} visible in stderr, will appear in next tool response`);
     } else {
       blogLog(`delivered message ${id} via TIOCSTI`);
     }
