@@ -8,7 +8,7 @@ Pre-work restore point: 374df9d
 ## Tasks
 - [x] 1  Model changes (client_nonce, ChannelMember.project)
 - [x] 2  Send endpoint
-- [ ] 3  Realtime per-table groups
+- [x] 3  Realtime per-table groups
 - [ ] 4  Seed chat workspace
 - [ ] 5  Regenerate client
 - [ ] 6  FE api layer (groups, subs, send)
@@ -18,6 +18,12 @@ Pre-work restore point: 374df9d
 - [ ] 10 End-to-end verification
 
 ## Minor findings (for final review triage)
+- Task 3: can_join_group does not validate the {id} component is numeric, so `project:abc:messages`
+  is joinable (an empty group). Moot once row-level membership lands.
+- Task 3: ALL_SUFFIXES has no compile-time link to the .expose::<T>() calls. A newly added model
+  could emit a suffix missing from the set -- emitted but unjoinable -- with no test catching it.
+- MERGE GATE: Tasks 3 and 6 must land together. Task 3 retires the old group names, so the SPA's
+  realtime is dark between them.
 - Task 2: idempotency is read-then-insert, so two SIMULTANEOUS same-nonce posts can both insert.
   Closing it needs unique_together(channel, client_nonce) + a migration. The realistic case
   (sequential retry after a dropped response) is covered. Decide before any multi-writer use.
@@ -38,3 +44,13 @@ Task 2: complete (commits 3afddc5..9f23db4, review clean after 1 fix pass)
   Framework reality vs plan guess: Identity is not an extractor (used RequireAuth<i64>);
   user_id is String not i64; inserts are objects().create() not .save(); ForeignKey::new(id).
   backend/Cargo.toml gained [workspace] members=["plugins/*"] so plugins with dev-deps are testable.
+Task 3: complete (commits 1f8a47b..8f1bfe0, review clean, no fix pass needed)
+  ROOT CAUSE FIXED. All 14 project-scoped models now route to project:{id}:{suffix}; chat tables
+  carry field projections (client_nonce included); taskflow:agents retired; presence isolated.
+  Implementer found the brief's 4 policy tests did not discriminate (a prefix-only policy passed
+  all of them) and added 3, incl. rejects_groups_whose_suffix_is_not_a_known_label. Reviewer
+  independently sabotaged both ways: group_for ignoring suffix fails 3 tests, prefix-only policy
+  fails 1. Tests genuinely discriminate.
+  Reviewer confirmed the chat projections make NOTHING newly reachable -- auto-REST is already
+  unscoped (IsAuthenticated only), so any user can already GET any project's messages. The
+  projection converts pull to push. Real fix is the permissions sub-project.
