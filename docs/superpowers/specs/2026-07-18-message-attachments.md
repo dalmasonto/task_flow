@@ -20,20 +20,24 @@ Files are world-readable by unguessable uuid-prefixed key (acceptable for now; p
 access-gating is a tracked follow-up).
 
 ### Model — `TaskflowMessageAttachment` (taskflow-agents)
-Plain columns (explicit; the endpoint stores the file via `storage_opt().store()` and records the
-result):
+Use the framework's `FileField` for the file itself — it stores the storage key, `.url()` resolves to a
+servable URL for **any** file type (images and non-images alike), and `App::build()` validates it
+against the registered media backend. The file type is identified at save time and stored as
+`content_type`; the render decision (image vs generic file) is derived from `content_type`, not a
+separate enum.
 - `id`
 - `message: ForeignKey<TaskflowAgentMessage>` — `on_delete = cascade` (attachments die with the message)
 - `project: ForeignKey<TaskflowProject>` — `on_delete = cascade`, denormalized for scoping + realtime routing
-- `kind: TaskflowAttachmentKind` — choices `image | file` (image when content_type starts `image/`)
+- `file: FileField` — the stored file; set from `StoredFile.key`; `.url()` → `/media/<key>`
 - `name: String` — original filename (max 260)
-- `content_type: String` — declared/sniffed MIME (max 160)
+- `content_type: String` — identified at save time (max 160)
 - `size_bytes: i64` — from `StoredFile.size`
-- `storage_key: String` — `StoredFile.key` (for future cleanup)
-- `url: String` — `StoredFile.url` (`/media/<key>`), what the FE renders
 - `created_at` — auto_now_add
 
-New table → clean `CreateTable` migration (no UnsafeAlter).
+`kind` (image vs file) is **not** a column — the FE derives it from `content_type` (image when it
+starts with `image/`). The FE resolves the display URL from the serialized `file` key as `/media/<key>`
+(the same value `FileField::url()` produces); the send-endpoint response also includes the resolved
+`url` per attachment for immediate optimistic render. New table → clean `CreateTable` migration.
 
 ### Endpoint — `POST /api/taskflow/agents/messages` (multipart-capable)
 Extend the existing send endpoint to accept **either** JSON (as today, no files) **or**
