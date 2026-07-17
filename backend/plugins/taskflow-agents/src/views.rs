@@ -26,6 +26,12 @@ const ACTIVE_MEMBERSHIP: &str = "active";
 /// what would otherwise be truncation or a DB-level error into an honest 400.
 const MAX_BODY_CHARS: usize = 20_000;
 
+/// Per-file upload cap, matching the media backend's default. Checked up front,
+/// before the message is created, so an oversized file rejects the whole
+/// request (413) cleanly — the message is never saved half-formed rather than
+/// created and then left without the attachment that failed to store.
+const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
+
 pub async fn health() -> &'static str {
     "taskflow-agents:ok"
 }
@@ -198,6 +204,14 @@ pub async fn send_message(
     // message is valid, an empty text-only message is not.
     if body.is_empty() && files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Reject an oversized file BEFORE anything is written. The flow saves the
+    // message first and then the files, so validating size up front is what lets
+    // a too-large file "ignore the whole message" instead of persisting a
+    // message whose attachment then fails to store.
+    if files.iter().any(|f| f.bytes.len() > MAX_ATTACHMENT_BYTES) {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     let channel = TaskflowAgentChannel::objects()
