@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -4870,28 +4871,30 @@ function AddChannelMemberControl({
           }
         />
         <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuLabel>Add to this channel</DropdownMenuLabel>
-          {candidates.length === 0 ? (
-            <p className="px-1.5 py-2 text-xs text-muted-foreground">
-              Everyone in the project is already here.
-            </p>
-          ) : (
-            candidates.map((candidate) => (
-              <DropdownMenuItem
-                key={candidate.user}
-                closeOnClick={false}
-                disabled={busy}
-                onClick={() => {
-                  void handleSelect(candidate.user)
-                }}
-              >
-                {candidate.name}
-                {pendingUser === candidate.user ? (
-                  <span className="ml-auto text-xs text-muted-foreground">Adding…</span>
-                ) : null}
-              </DropdownMenuItem>
-            ))
-          )}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Add to this channel</DropdownMenuLabel>
+            {candidates.length === 0 ? (
+              <p className="px-1.5 py-2 text-xs text-muted-foreground">
+                Everyone in the project is already here.
+              </p>
+            ) : (
+              candidates.map((candidate) => (
+                <DropdownMenuItem
+                  key={candidate.user}
+                  closeOnClick={false}
+                  disabled={busy}
+                  onClick={() => {
+                    void handleSelect(candidate.user)
+                  }}
+                >
+                  {candidate.name}
+                  {pendingUser === candidate.user ? (
+                    <span className="ml-auto text-xs text-muted-foreground">Adding…</span>
+                  ) : null}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuGroup>
           {error ? (
             <p className="px-1.5 pt-1 pb-1.5 text-xs text-rose-600">{error}</p>
           ) : null}
