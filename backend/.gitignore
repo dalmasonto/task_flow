@@ -1,0 +1,4 @@
+/target
+/backend.db*
+.env
+Cargo.lock

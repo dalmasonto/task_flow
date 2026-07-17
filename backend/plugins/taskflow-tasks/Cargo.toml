@@ -1,0 +1,12 @@
+[package]
+name = "taskflow-tasks"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+umbral = "0.0.10"
+umbral-auth = "0.0.10"
+taskflow-projects = { path = "../taskflow-projects" }
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }

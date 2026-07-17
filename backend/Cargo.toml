@@ -1,0 +1,54 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+taskflow-agents = { path = "plugins/taskflow-agents" }
+taskflow-tasks = { path = "plugins/taskflow-tasks" }
+taskflow-projects = { path = "plugins/taskflow-projects" }
+
+# ----- Framework core (always required) ------------------------------------
+umbral         = "0.0.10"
+umbral-cli     = "0.0.10"
+
+# ----- Active by default ---------------------------------------------------
+# What the generated `src/main.rs` wires in. Comment any of these out only
+# if you also remove the matching `.plugin(...)` line.
+umbral-auth     = "0.0.10"
+umbral-sessions = "0.0.10"
+umbral-admin    = "0.0.10"
+umbral-rest     = "0.0.10"
+umbral-openapi  = "0.0.10"
+umbral-security = "0.0.10"
+umbral-realtime = "0.0.10"
+# Observability init helper (structured JSON logging). Enable the `otel`
+# feature to ALSO export OpenTelemetry traces over OTLP to a collector
+# (Jaeger/Tempo/Honeycomb): `umbral-logs = { version = "0.0.10", features = ["otel"] }`.
+umbral-logs     = "0.0.10"
+# Serves ./static at /static — including the compiled Tailwind bundle this
+# project ships. Not optional: the SecurityPlugin's CSP blocks third-party
+# script/style CDNs, so an app must serve its own assets.
+umbral-storage  = "0.0.10"
+
+# ----- Available built-ins (uncomment + register in main.rs to enable) -----
+umbral-playground   = "0.0.10"  # Interactive API playground UI (think mini-Postman) at /playground/.
+# umbral-tasks        = "0.0.10"  # DB-backed background task queue with a worker process.
+# umbral-permissions  = "0.0.10"  # ContentType + Group + Permission model.
+# umbral-rls          = "0.0.10"  # Postgres row-level security policy registration.
+# umbral-cache        = "0.0.10"  # Per-request caching helper.
+# umbral-email        = "0.0.10"  # SMTP + MIME email composer + sender.
+# umbral-signals      = "0.0.10"  # Pre/post save/delete signal dispatch.
+# umbral-livereload   = "0.0.10"  # Dev-only browser live-reload (SSE push + file watcher). Add `.plugin(LiveReloadPlugin::new())`.
+
+# ----- Third-party + framework runtime deps --------------------------------
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.8", features = ["macros", "sqlite", "postgres", "chrono", "runtime-tokio"] }
+
+# Once you `umbral startapp <plugin>` or `umbral startplugin <plugin>`, add
+# the plugin crate here:
+# backend-posts = { path = "plugins/posts" }
