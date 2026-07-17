@@ -4493,7 +4493,7 @@ function AgentsPage({
         }}
         onSendMessage={handleSendMessage}
         onRetryMessage={retryLiveMessage}
-        canManageMembers={selectedChat.liveChannelId != null}
+        canManageMembers={selectedChat.liveChannelId != null && selectedChat.mode === "channel"}
         addMemberCandidates={addMemberCandidates}
         onAddMember={handleAddMember}
       />
