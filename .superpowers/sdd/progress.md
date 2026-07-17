@@ -13,11 +13,21 @@ Pre-work restore point: 374df9d
 - [x] 5  Regenerate client
 - [x] 6  FE api layer (groups, subs, send)
 - [x] 7  Reconcile reducer + vitest
-- [ ] 8  App.tsx collapse
+- [x] 8  App.tsx collapse
 - [ ] 9  File picker
 - [ ] 10 End-to-end verification
 
 ## Minor findings (for final review triage)
+- Task 8 Minor 1: a full fetchTaskflowWorkspace refetch replaces agentMessages wholesale, dropping
+  any in-flight pending/failed optimistic bubble (and its Retry). Won't fire in normal incremental
+  operation, but a refetch mid-send loses the bubble. Consider merging unreconciled pending bubbles
+  across a refetch. VERIFY IN TASK 10.
+- Task 8 Minor 2 (backend-contract SPOT-CHECK for Task 10): the whole no-dupe/no-stranded guarantee
+  rests on the saved row carrying client_nonce back over BOTH the POST response AND the SSE echo,
+  and on `project` being present in the SSE projection (the 1971 guard rejects echoes missing it).
+  Tasks 3/6 should guarantee both -- Task 10's live run must actually observe them.
+- Task 8 Minor 3/4: React key flips pending:<nonce> -> <id> on reconcile (harmless remount);
+  send vs retry surface errors two different ways. Cosmetic.
 - REPO HYGIENE: v2_fe tracks BOTH package-lock.json and yarn.lock. A live yarn/dev process keeps
   re-touching yarn.lock on package.json changes, so it drifts uncommitted. Post-Task-7 the two
   committed lockfiles disagree (package-lock has vitest, committed yarn.lock does not) -- a yarn
@@ -95,3 +105,9 @@ Task 7: complete (commits 6ddc663..83fbb50, review clean after 1 fix pass)
   test and PROVED it fails only when the order is reversed. Ordering now genuinely pinned.
   Deviation (verified sound): vitest ^3 -> ^4.1.10, because vitest 3 caps at vite 7 while this repo
   runs vite 8, which nested a duplicate vite and broke the config typecheck. vitest 4 dedupes.
+Task 8: complete (commits f0b8cef..6d4297a, review clean, no fix pass -- 4 Minor notes deferred)
+  Three message stores + two fixture blocks collapsed to one store. All four names grep-clean.
+  Reviewer confirmed the projection payoff LANDS (realtimeEventHasInlineRow branch skips the GET for
+  chat tables, no fall-through), send is order-independent (POST response AND SSE echo both reconcile
+  by nonce), retry reuses the same nonce, sort fixed, send payload trimmed to 4 keys, createChannelMember
+  passes project. Out-of-scope (attachments display, priority, terminal, file picker) all survived.
