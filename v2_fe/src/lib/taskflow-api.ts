@@ -11,6 +11,7 @@ import type {
   TaskflowAgentMessage,
   TaskflowAgentSession,
   TaskflowAgentTerminalFrame,
+  TaskflowMessageAttachment,
   TaskflowProject,
   TaskflowProjectApiEndpoint,
   TaskflowProjectCreate,
@@ -48,6 +49,7 @@ export const taskflowTables = {
   agentChannels: "taskflow_agent_channel",
   agentChannelMembers: "taskflow_agent_channel_member",
   agentMessages: "taskflow_agent_message",
+  messageAttachments: "taskflow_message_attachment",
   terminalFrames: "taskflow_agent_terminal_frame",
 } as const
 
@@ -68,6 +70,7 @@ const realtimeGroupSuffixes = {
   [taskflowTables.agentChannels]: "channels",
   [taskflowTables.agentChannelMembers]: "channel_members",
   [taskflowTables.agentMessages]: "messages",
+  [taskflowTables.messageAttachments]: "message_attachments",
   [taskflowTables.terminalFrames]: "terminal_frames",
 } as const satisfies Record<Exclude<RealtimeTableName, typeof taskflowTables.projects>, string>
 
@@ -104,6 +107,7 @@ export type TaskflowWorkspace = {
   agentChannels: TaskflowAgentChannel[]
   agentChannelMembers: TaskflowAgentChannelMember[]
   agentMessages: ChatMessage[]
+  messageAttachments: TaskflowMessageAttachment[]
   terminalFrames: TaskflowAgentTerminalFrame[]
 }
 
@@ -134,6 +138,7 @@ type RealtimeTableName =
   | typeof taskflowTables.agentChannels
   | typeof taskflowTables.agentChannelMembers
   | typeof taskflowTables.agentMessages
+  | typeof taskflowTables.messageAttachments
   | typeof taskflowTables.terminalFrames
 
 export type TaskflowRealtimeEvent = {
@@ -156,6 +161,7 @@ const projectScopedRealtimeTables = [
   taskflowTables.agentChannels,
   taskflowTables.agentChannelMembers,
   taskflowTables.agentMessages,
+  taskflowTables.messageAttachments,
   taskflowTables.terminalFrames,
 ] satisfies RealtimeTableName[]
 
@@ -163,6 +169,7 @@ const projectScopedRealtimeTables = [
 /// carry the whole row and need no refetch. Everything else is id-only.
 export const realtimeTablesWithInlineRows = [
   taskflowTables.agentMessages,
+  taskflowTables.messageAttachments,
   taskflowTables.agentChannels,
   taskflowTables.agentChannelMembers,
 ] as const satisfies readonly RealtimeTableName[]
@@ -230,6 +237,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     agentChannels,
     agentChannelMembers,
     agentMessages,
+    messageAttachments,
     terminalFrames,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
@@ -246,6 +254,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").list(),
     taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").list(),
     taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("created_at", "id").list(),
+    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").list(),
     taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
   ])
 
@@ -266,6 +275,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     agentChannels: agentChannels.results,
     agentChannelMembers: agentChannelMembers.results.filter((member) => channelIds.has(member.channel)),
     agentMessages: agentMessages.results,
+    messageAttachments: messageAttachments.results,
     terminalFrames: terminalFrames.results,
   }
 }
@@ -300,18 +310,51 @@ export type SendMessageInput = {
   client_nonce?: string
 }
 
-export async function sendTaskflowAgentMessage(input: SendMessageInput): Promise<TaskflowAgentMessage> {
+/// The send-message response: the saved message row plus the attachments the
+/// backend stored for it. A text-only send returns `attachments: []`.
+export type SendMessageResult = TaskflowAgentMessage & {
+  attachments: TaskflowMessageAttachment[]
+}
+
+/// Send a chat message. With no files this posts JSON exactly as before; with
+/// files it posts `multipart/form-data` (same field names plus each file as a
+/// `files` part). We deliberately DON'T set Content-Type for the multipart path
+/// — the browser must set it so it can include the boundary. Both paths return
+/// `{ ...message, attachments }`.
+export async function sendTaskflowAgentMessage(
+  input: SendMessageInput,
+  files?: File[]
+): Promise<SendMessageResult> {
   const token = getStoredToken()
+  const authHeader: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {}
+  const hasFiles = !!files && files.length > 0
+
+  let body: BodyInit
+  const headers: Record<string, string> = { ...authHeader }
+  if (hasFiles) {
+    const form = new FormData()
+    form.append("channel", String(input.channel))
+    form.append("body_markdown", input.body_markdown)
+    if (input.priority) form.append("priority", input.priority)
+    if (input.client_nonce) form.append("client_nonce", input.client_nonce)
+    for (const file of files!) form.append("files", file, file.name)
+    body = form
+    // No content-type header: the browser sets multipart/form-data + boundary.
+  } else {
+    headers["content-type"] = "application/json"
+    body = JSON.stringify(input)
+  }
+
   const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/messages`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(input),
+    headers,
+    body,
   })
   if (!response.ok) {
+    if (response.status === 400 || response.status === 413) {
+      throw new Error(await readErrorDetail(response, `Could not send the message (${response.status}).`))
+    }
     throw new Error(
       response.status === 403
         ? "You are not a member of this channel."

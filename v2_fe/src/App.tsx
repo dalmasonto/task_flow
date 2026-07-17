@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react"
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import {
   ActivityIcon,
@@ -12,9 +12,13 @@ import {
   CircleDotIcon,
   Clock3Icon,
   ClipboardCheckIcon,
+  DownloadIcon,
+  FileIcon,
   FileTextIcon,
   FileJsonIcon,
   GitBranchIcon,
+  ImageIcon,
+  PaperclipIcon,
   FolderKanbanIcon,
   GripVerticalIcon,
   InboxIcon,
@@ -72,6 +76,7 @@ import {
 import type {
   TaskflowAgentMessage,
   TaskflowAgentMessagePriority,
+  TaskflowMessageAttachment,
   TaskflowProjectInviteRole,
   TaskflowProjectInviteStatus,
   TaskflowProjectUpdate,
@@ -113,6 +118,7 @@ import {
   markRetrying,
   reconcile,
   removeMessage,
+  type PendingAttachment,
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -179,16 +185,38 @@ type TaskRelation = {
 
 type MessagePriority = "normal" | "needs-response" | "blocking"
 
+/// The view model for a rendered attachment — populated from real
+/// `TaskflowMessageAttachment` rows (stored) or from staged files still being
+/// uploaded (`pending`). `url` is `/media/<key>` for stored attachments and an
+/// in-browser object URL for a pending image.
 type AgentAttachment = {
   id: string
-  kind: "image" | "markdown" | "file" | "url"
   name: string
-  detail: string
-  source: "upload" | "project-path" | "url" | "generated"
-  path?: string
-  url?: string
-  size?: string
-  mimeType?: string
+  contentType: string
+  sizeBytes: number
+  url: string
+  pending?: boolean
+}
+
+/// A file the user has staged in the composer but not yet sent. Keeps the real
+/// File for upload plus an optional object URL used to preview images.
+type StagedFile = {
+  id: string
+  file: File
+  previewUrl?: string
+}
+
+function isImageAttachment(attachment: { contentType: string }): boolean {
+  return attachment.contentType.startsWith("image/")
+}
+
+/// Human-readable byte size, e.g. 512 B, 24.0 KB, 3.1 MB.
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB"]
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / 1024 ** exponent
+  return `${exponent === 0 ? value : value.toFixed(1)} ${units[exponent]}`
 }
 
 type AgentMessage = {
@@ -975,6 +1003,7 @@ function mapLiveChannelMessages(
           body: message.body_markdown,
           status: message.status === "failed" ? "failed" : "sending",
           priority: mapLiveMessagePriority(message.priority),
+          attachments: (message.attachments ?? []).map(mapPendingAttachment),
         }
       }
       return {
@@ -985,6 +1014,9 @@ function mapLiveChannelMessages(
         body: message.body_markdown,
         status: "posted",
         priority: mapLiveMessagePriority(message.priority),
+        attachments: workspace.messageAttachments
+          .filter((attachment) => attachment.message === message.id)
+          .map(mapStoredAttachment),
       }
     })
 }
@@ -1131,18 +1163,29 @@ function mapLiveTerminalSessions(workspace: TaskflowWorkspace): AgentTerminalSes
   }))
 }
 
-function appendAttachmentMarkdown(body: string, attachments: AgentAttachment[]) {
-  if (!attachments.length) return body
+/// Resolve a stored attachment row to the display view model. The servable URL
+/// is `/media/<key>`, the same value `FileField::url()` produces on the backend.
+function mapStoredAttachment(attachment: TaskflowMessageAttachment): AgentAttachment {
+  return {
+    id: String(attachment.id),
+    name: attachment.name,
+    contentType: attachment.content_type,
+    sizeBytes: attachment.size_bytes,
+    url: `/media/${attachment.file}`,
+  }
+}
 
-  const attachmentMarkdown = attachments
-    .map((attachment) => {
-      const target = attachment.url ?? attachment.path
-      const label = target ? `[${attachment.name}](${target})` : attachment.name
-      return `- ${label}: ${attachment.detail}`
-    })
-    .join("\n")
-
-  return `${body || `Shared ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}.`}\n\n### Attachments\n${attachmentMarkdown}`
+/// A staged-but-unsent file's local preview → view model. Object URLs stand in
+/// for images until the server echoes the stored attachment back.
+function mapPendingAttachment(attachment: PendingAttachment): AgentAttachment {
+  return {
+    id: attachment.id,
+    name: attachment.name,
+    contentType: attachment.content_type,
+    sizeBytes: attachment.size_bytes,
+    url: attachment.url,
+    pending: true,
+  }
 }
 
 function realtimeEventRowId(event: TaskflowRealtimeEvent) {
@@ -1429,6 +1472,9 @@ function App() {
         case taskflowTables.agentMessages:
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentMessages: removeMessage(workspace.agentMessages, rowId) }))
           break
+        case taskflowTables.messageAttachments:
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, messageAttachments: removeById(workspace.messageAttachments, rowId) }))
+          break
         case taskflowTables.terminalFrames:
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, terminalFrames: removeById(workspace.terminalFrames, rowId) }))
           break
@@ -1542,6 +1588,15 @@ function App() {
           applyWorkspaceUpdate(projectId, (workspace) => ({
             ...workspace,
             agentMessages: reconcile(workspace.agentMessages, message),
+          }))
+          break
+        }
+        case taskflowTables.messageAttachments: {
+          const attachment = row as TaskflowMessageAttachment
+          if (attachment.project !== projectId) return
+          applyWorkspaceUpdate(projectId, (workspace) => ({
+            ...workspace,
+            messageAttachments: upsertById(workspace.messageAttachments, attachment),
           }))
           break
         }
@@ -1753,6 +1808,7 @@ function App() {
       agentChannels: [],
       agentChannelMembers: [],
       agentMessages: [],
+      messageAttachments: [],
       terminalFrames: [],
     })
   }
@@ -4340,7 +4396,7 @@ function AgentsPage({
     chat: AgentChatContext,
     body: string,
     priority: MessagePriority,
-    attachments: AgentAttachment[]
+    files: File[]
   ) => {
     const projectId = liveId(project.id)
     if (!projectId || !liveWorkspace) {
@@ -4349,35 +4405,62 @@ function AgentsPage({
 
     const channelId = await ensureLiveChannel(chat)
     const nonce = crypto.randomUUID()
-    const body_markdown = appendAttachmentMarkdown(body, attachments)
+
+    // Local previews for the optimistic bubble: object URLs for images so the
+    // thumbnail shows immediately; non-images render from name + size. These
+    // URLs are revoked once the server echo replaces the pending bubble.
+    const pendingAttachments: PendingAttachment[] = files.map((file, index) => ({
+      id: `pending:${nonce}:${index}`,
+      name: file.name,
+      content_type: file.type || "application/octet-stream",
+      size_bytes: file.size,
+      url: file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
+    }))
+    const revokePreviews = () => {
+      for (const attachment of pendingAttachments) {
+        if (attachment.url) URL.revokeObjectURL(attachment.url)
+      }
+    }
 
     onWorkspaceUpdate((workspace) => ({
       ...workspace,
       agentMessages: addPending(workspace.agentMessages, {
         client_nonce: nonce,
-        body_markdown,
+        body_markdown: body,
         priority: toLiveMessagePriority(priority),
         channel: channelId,
         status: "pending",
+        attachments: pendingAttachments,
       }),
     }))
 
     try {
-      const saved = await sendTaskflowAgentMessage({
-        channel: channelId,
-        body_markdown,
-        priority: toLiveMessagePriority(priority),
-        client_nonce: nonce,
-      })
+      const saved = await sendTaskflowAgentMessage(
+        {
+          channel: channelId,
+          body_markdown: body,
+          priority: toLiveMessagePriority(priority),
+          client_nonce: nonce,
+        },
+        files
+      )
       // Reconcile the response as well as the SSE echo. Whichever lands first
       // wins and the other is a no-op — they key on the same nonce. Relying on
       // the echo alone would strand the bubble as pending whenever SSE is down,
-      // even though the message saved fine.
+      // even though the message saved fine. The response also carries the stored
+      // attachments, which we merge so the bubble swaps its object-URL previews
+      // for the real /media links even if the attachment SSE frames never land.
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
         agentMessages: reconcile(workspace.agentMessages, saved),
+        messageAttachments: saved.attachments.reduce(
+          (rows, attachment) => upsertById(rows, attachment),
+          workspace.messageAttachments
+        ),
       }))
+      revokePreviews()
     } catch (error) {
+      // Keep the previews: the failed bubble still shows what was staged.
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
         agentMessages: markFailed(workspace.agentMessages, nonce),
@@ -4402,9 +4485,16 @@ function AgentsPage({
         priority: failed.priority,
         client_nonce: nonce,          // same nonce: the send endpoint is idempotent
       })
+      // A retry does not re-upload files (the staged File objects are gone), but
+      // an idempotent hit returns the attachments the first attempt stored, so
+      // merge them to recover the real /media links.
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
         agentMessages: reconcile(workspace.agentMessages, saved),
+        messageAttachments: saved.attachments.reduce(
+          (rows, attachment) => upsertById(rows, attachment),
+          workspace.messageAttachments
+        ),
       }))
     } catch (error) {
       onWorkspaceUpdate((workspace) => ({
@@ -4419,13 +4509,13 @@ function AgentsPage({
     chat: AgentChatContext,
     body: string,
     priority: MessagePriority,
-    attachments: AgentAttachment[]
+    files: File[]
   ) => {
     const trimmedBody = body.trim()
-    if (!trimmedBody && attachments.length === 0) return
+    if (!trimmedBody && files.length === 0) return
 
     setMessageError(null)
-    void sendLiveMessage(chat, trimmedBody, priority, attachments).catch((error) => {
+    void sendLiveMessage(chat, trimmedBody, priority, files).catch((error) => {
       setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
     })
   }
@@ -4553,7 +4643,7 @@ function AgentWorkbenchView({
   selectedChatId: string
   onSelectDirectChat: (chat: AgentChatContext) => void
   onSelectChannel: (chat: AgentChatContext) => void
-  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, attachments: AgentAttachment[]) => void
+  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[]) => void
   onRetryMessage: (nonce: string) => void
   canManageMembers: boolean
   addMemberCandidates: { user: number; name: string }[]
@@ -4561,48 +4651,64 @@ function AgentWorkbenchView({
 }) {
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
-  const [stagedAttachments, setStagedAttachments] = useState<AgentAttachment[]>([])
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
-  const canSendMessage = draftMessage.trim().length > 0 || stagedAttachments.length > 0
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const canSendMessage = draftMessage.trim().length > 0 || stagedFiles.length > 0
   const focusComposer = () => {
     composerRef.current?.focus()
   }
-  const addStagedAttachment = (attachment: AgentAttachment) => {
-    setStagedAttachments((current) => [...current, attachment])
+
+  // Revoke every staged preview URL when the composer unmounts so switching
+  // chats mid-compose doesn't leak object URLs.
+  useEffect(() => {
+    return () => {
+      setStagedFiles((current) => {
+        for (const staged of current) {
+          if (staged.previewUrl) URL.revokeObjectURL(staged.previewUrl)
+        }
+        return current
+      })
+    }
+  }, [])
+
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(event.target.files ?? [])
+    if (picked.length) {
+      setStagedFiles((current) => [
+        ...current,
+        ...picked.map((file) => ({
+          id: `staged:${Date.now()}:${file.name}:${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+        })),
+      ])
+    }
+    // Reset so picking the same file again re-fires change.
+    event.target.value = ""
   }
-  const addContextAttachment = () => {
-    addStagedAttachment({
-      id: `att-context-${Date.now()}`,
-      kind: "markdown",
-      name: `${selectedChat.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-context.md`,
-      detail: `Thread context generated for ${selectedChat.mode === "channel" ? "group" : "DM"} handoff.`,
-      source: "generated",
-      path: `/projects/${selectedChat.primaryAgent}/threads/${selectedChat.id.replace(":", "-")}/context.md`,
-      size: "Generated",
-      mimeType: "text/markdown",
+
+  const removeStagedFile = (id: string) => {
+    setStagedFiles((current) => {
+      const target = current.find((staged) => staged.id === id)
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
+      return current.filter((staged) => staged.id !== id)
     })
   }
-  const addImageUrlAttachment = () => {
-    addStagedAttachment({
-      id: `att-image-url-${Date.now()}`,
-      kind: "image",
-      name: "dashboard-reference.png",
-      detail: "URL attachment that any project member or agent can request from the server.",
-      source: "url",
-      path: "/uploads/projects/example-project/dashboard-reference.png",
-      url: "/landing/dashboard.png",
-      size: "237 KB",
-      mimeType: "image/png",
-    })
-  }
+
   const handleSendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmedMessage = draftMessage.trim()
-    if (!trimmedMessage && stagedAttachments.length === 0) return
+    if (!trimmedMessage && stagedFiles.length === 0) return
 
-    onSendMessage(selectedChat, trimmedMessage, messagePriority, stagedAttachments)
+    onSendMessage(selectedChat, trimmedMessage, messagePriority, stagedFiles.map((staged) => staged.file))
+    // Revoke the composer's own preview URLs; the optimistic bubble mints its
+    // own from the same File objects, so these are no longer needed.
+    for (const staged of stagedFiles) {
+      if (staged.previewUrl) URL.revokeObjectURL(staged.previewUrl)
+    }
     setDraftMessage("")
-    setStagedAttachments([])
+    setStagedFiles([])
     setMessagePriority("normal")
     requestAnimationFrame(focusComposer)
   }
@@ -4744,13 +4850,8 @@ function AgentWorkbenchView({
               </span>
               <span className="text-muted-foreground">{composerHint}</span>
             </div>
-            {stagedAttachments.length ? (
-              <AttachmentList
-                attachments={stagedAttachments}
-                onRemove={(attachmentId) =>
-                  setStagedAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId))
-                }
-              />
+            {stagedFiles.length ? (
+              <StagedFileList files={stagedFiles} onRemove={removeStagedFile} />
             ) : null}
             <textarea
               ref={composerRef}
@@ -4767,24 +4868,21 @@ function AgentWorkbenchView({
             />
             <div className="flex flex-wrap justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled
-                  title="File upload is coming soon"
-                  aria-label="Attach file (coming soon)"
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <FileTextIcon />
+                  <PaperclipIcon />
                   Attach File
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={addContextAttachment}>
-                  <FileJsonIcon />
-                  Context
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={addImageUrlAttachment}>
-                  <LinkIcon />
-                  Image URL
                 </Button>
                 <Button type="button" variant="outline" size="sm">Broadcast</Button>
                 <div className="flex items-center gap-2">
@@ -4935,73 +5033,127 @@ function describeMembers(members: ConversationMember[]) {
   return `${members.length} member${members.length === 1 ? "" : "s"}${parts.length ? `, ${parts.join(", ")}` : ""}`
 }
 
-function attachmentIcon(attachment: AgentAttachment) {
-  if (attachment.kind === "image") return <FileJsonIcon className="size-4" />
-  if (attachment.kind === "markdown") return <FileTextIcon className="size-4" />
-  if (attachment.kind === "url") return <LinkIcon className="size-4" />
-  return <FileJsonIcon className="size-4" />
-}
-
-function AttachmentList({
-  attachments,
-  onRemove,
-}: {
-  attachments: AgentAttachment[]
-  onRemove?: (attachmentId: string) => void
-}) {
+/// Removable chips/thumbnails for files staged in the composer before send.
+/// Images preview from their local object URL; other files show an icon + size.
+function StagedFileList({ files, onRemove }: { files: StagedFile[]; onRemove: (id: string) => void }) {
   return (
-    <div className="grid gap-2">
-      {attachments.map((attachment) => {
-        const accessPath = attachment.url ?? attachment.path
+    <div className="flex flex-wrap gap-2">
+      {files.map((staged) => {
+        const isImage = staged.file.type.startsWith("image/")
         return (
-          <div key={attachment.id} className="overflow-hidden rounded-lg border bg-background/90">
-            {attachment.kind === "image" && attachment.url ? (
+          <div
+            key={staged.id}
+            className="flex items-center gap-2 rounded-lg border bg-background/90 py-1 pl-1 pr-1.5"
+          >
+            {isImage && staged.previewUrl ? (
               <img
-                src={attachment.url}
-                alt={attachment.name}
-                className="max-h-44 w-full border-b object-cover object-left-top"
+                src={staged.previewUrl}
+                alt={staged.file.name}
+                className="size-9 shrink-0 rounded-md object-cover"
               />
-            ) : null}
-            <div className="flex gap-3 p-3">
-              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
-                {attachmentIcon(attachment)}
+            ) : (
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
+                {isImage ? <ImageIcon className="size-4" /> : <FileIcon className="size-4" />}
               </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-semibold">{attachment.name}</p>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize text-muted-foreground">
-                    {attachment.kind}
-                  </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {attachment.source}
-                  </span>
-                </div>
-                <MarkdownRenderer content={attachment.detail} compact className="mt-1" />
-                {accessPath ? (
-                  <p className="mt-2 break-all rounded-md bg-muted px-2 py-1 font-mono text-[0.7rem] leading-4 text-muted-foreground">
-                    {accessPath}
-                  </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {attachment.size ? <span>{attachment.size}</span> : null}
-                  {attachment.mimeType ? <span>{attachment.mimeType}</span> : null}
-                </div>
-              </div>
-              {onRemove ? (
-                <Button type="button" variant="ghost" size="icon-xs" onClick={() => onRemove(attachment.id)}>
-                  <XIcon />
-                </Button>
-              ) : accessPath ? (
-                <Button type="button" variant="outline" size="xs" render={<a href={accessPath} target="_blank" rel="noreferrer" />}>
-                  Open
-                </Button>
-              ) : null}
+            )}
+            <div className="min-w-0">
+              <p className="max-w-[10rem] truncate text-xs font-medium">{staged.file.name}</p>
+              <p className="text-[0.7rem] text-muted-foreground">{formatBytes(staged.file.size)}</p>
             </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Remove ${staged.file.name}`}
+              onClick={() => onRemove(staged.id)}
+            >
+              <XIcon />
+            </Button>
           </div>
         )
       })}
     </div>
   )
+}
+
+/// Renders the attachments on a chat message. Images lay out inline as a wrap
+/// of clickable thumbnails; non-image files render as compact download rows.
+/// Pending previews (staged object URLs) and stored attachments (/media URLs)
+/// render through the same path — a pending item just has no reachable download
+/// link until the server echo swaps in the real URL.
+function AttachmentList({ attachments }: { attachments: AgentAttachment[] }) {
+  const images = attachments.filter(isImageAttachment)
+  const files = attachments.filter((attachment) => !isImageAttachment(attachment))
+
+  return (
+    <div className="grid gap-2">
+      {images.length ? (
+        <div className="flex flex-wrap gap-2">
+          {images.map((attachment) =>
+            attachment.url ? (
+              <a
+                key={attachment.id}
+                href={attachment.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block overflow-hidden rounded-lg border bg-background/90"
+                title={attachment.name}
+              >
+                <img
+                  src={attachment.url}
+                  alt={attachment.name}
+                  className="max-h-64 w-auto max-w-full rounded-lg object-cover"
+                />
+              </a>
+            ) : (
+              <span
+                key={attachment.id}
+                className="flex h-32 w-32 items-center justify-center rounded-lg border bg-muted text-muted-foreground"
+                title={attachment.name}
+              >
+                <ImageIcon className="size-6 animate-pulse" />
+              </span>
+            )
+          )}
+        </div>
+      ) : null}
+      {files.map((attachment) => (
+        <div
+          key={attachment.id}
+          className="flex items-center gap-3 overflow-hidden rounded-lg border bg-background/90 p-2.5"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
+            {attachmentIcon(attachment)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{attachment.name}</p>
+            <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
+          </div>
+          {attachment.url ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              render={<a href={attachment.url} target="_blank" rel="noreferrer" download={attachment.name} />}
+            >
+              <DownloadIcon className="size-3.5" />
+              Download
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">Uploading…</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function attachmentIcon(attachment: AgentAttachment) {
+  const type = attachment.contentType
+  if (type.startsWith("image/")) return <ImageIcon className="size-4" />
+  if (type === "application/json") return <FileJsonIcon className="size-4" />
+  if (type.startsWith("text/")) return <FileTextIcon className="size-4" />
+  return <FileIcon className="size-4" />
 }
 
 function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?: (nonce: string) => void }) {

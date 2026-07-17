@@ -4,12 +4,24 @@ import type { TaskflowAgentMessage } from "@/api/client"
 /// Keyed by client_nonce, never by id — the server assigns ids, and the SSE
 /// echo frequently beats the POST response on localhost, so an id-keyed
 /// optimistic bubble cannot be matched against its own echo.
+/// A local preview of a file the user staged, shown on the optimistic bubble
+/// until the server echoes back the stored attachment. `url` is an in-browser
+/// object URL for images (empty for non-images, which render as name+size).
+export type PendingAttachment = {
+  id: string
+  name: string
+  content_type: string
+  size_bytes: number
+  url: string
+}
+
 export type PendingMessage = {
   client_nonce: string
   body_markdown: string
   priority: TaskflowAgentMessage["priority"]
   channel: number
   status: "pending" | "failed"
+  attachments?: PendingAttachment[]
 }
 
 export type ChatMessage = TaskflowAgentMessage | PendingMessage
