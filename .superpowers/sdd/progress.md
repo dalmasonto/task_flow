@@ -131,3 +131,14 @@ Task 10: complete (verification only, no code change). Ran an ISOLATED backend o
   BROWSER-ONLY steps (network tab one-POST-zero-GETs, visual no-duplicate, two-window cross-client) were
   NOT driven in a real browser -- no automation available -- but each is guaranteed by a mechanism proven
   above (inline-row branch skips the GET; nonce reconcile is pinned by 12 tests; SSE delivers to the group).
+
+## Process correction (post-final-review)
+My `git add -A` on three "ledger-only" commits swept in non-ledger files:
+  - 6ddc663 pulled in the suffix-contract test in realtime_routing.rs -- work the USER HAD DECLINED.
+    Removed it (this commit); realtime_routing back to 7 tests, all pass. Suffix-drift gap stays
+    OPEN as a logged follow-up, per the user's decision.
+  - 4c39905 pulled in planning/hooks.md (the user's own unrelated notes). User chose to LEAVE it
+    on the branch.
+  - f0b8cef pulled in v2_fe/yarn.lock (benign lockfile re-sync). Left as-is.
+LESSON: ledger commits must use `git add <specific file>`, never `git add -A`.
+
