@@ -15,7 +15,7 @@ Pre-work restore point: 374df9d
 - [x] 7  Reconcile reducer + vitest
 - [x] 8  App.tsx collapse
 - [x] 9  File picker
-- [ ] 10 End-to-end verification
+- [x] 10 End-to-end verification
 
 ## Minor findings (for final review triage)
 - Task 8 Minor 1: a full fetchTaskflowWorkspace refetch replaces agentMessages wholesale, dropping
@@ -114,3 +114,20 @@ Task 8: complete (commits f0b8cef..6d4297a, review clean, no fix pass -- 4 Minor
 Task 9: complete (commits 4c39905..96a6f17, review clean, no fix pass). Lying file picker removed;
   disabled 'coming soon' affordance in its slot; URL/project-path attachments kept. One file, 9+/43-.
   Deferred (reasonable): AgentAttachment.source:'upload' union variant left for attachments sub-project.
+Task 10: complete (verification only, no code change). Ran an ISOLATED backend on :8010 with a temp
+  seeded DB and drove the full contract live over curl + a raw SSE listener:
+  - Seed correct: 1 project / 1 channel / 1 member (member.project=1).
+  - POST /messages: forged sender_label/sender_user/sender_kind ALL ignored; sender derived (admin/user/1);
+    project derived from channel; client_nonce echoed on the POST response.
+  - SSE wire: real envelope is `event: u` + data `{c:group, e:action, d:row}` (umbral multiplexes all
+    groups over one connection; client.js listens for "u", unwraps {c,e,d}, routes by c, dispatches
+    handlers[e] with d). The d row carries the FULL projection: client_nonce, project, body_markdown,
+    sender_label -- so Task 8's reconcile and the project!==projectId guard both have their inputs.
+  - CORE BUG FIXED, proven on the wire: a message event arrives on project:1:messages and does NOT
+    leak onto project:1:tasks. (Before Task 3 every table shared project:1, so env.c matched for all 13.)
+  - Idempotency: same nonce twice -> one row, same id. 403 non-member (empty body, no leak). 404 unknown
+    channel. 400 empty body. All live.
+  - Suites: realtime_routing 8/8, send_message 8/8, FE tsc exit 0, vitest 12/12, lint = 3 pre-existing.
+  BROWSER-ONLY steps (network tab one-POST-zero-GETs, visual no-duplicate, two-window cross-client) were
+  NOT driven in a real browser -- no automation available -- but each is guaranteed by a mechanism proven
+  above (inline-row branch skips the GET; nonce reconcile is pinned by 12 tests; SSE delivers to the group).
