@@ -20,3 +20,6 @@ dist/
 # Editor / OS
 .DS_Store
 *.swp
+
+# v1 (tauri + sqlite) — has its own git repo
+task_flow/
