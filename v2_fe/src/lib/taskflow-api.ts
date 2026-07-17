@@ -329,6 +329,57 @@ export function createTaskflowAgentChannelMember(input: TaskflowAgentChannelMemb
   return taskflowApi.create(taskflowTables.agentChannelMembers, input)
 }
 
+/// Pull the first human-readable message out of a DRF-style field-error body
+/// like `{"code":"not_a_project_member","user":["That user is not ..."]}`,
+/// preferring the `user` field, then `detail`/`error`, then the fallback.
+async function readFieldErrorMessage(response: Response, fallback: string): Promise<string> {
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) return fallback
+  try {
+    const payload = (await response.json()) as Record<string, unknown>
+    const userErrors = payload.user
+    if (Array.isArray(userErrors) && typeof userErrors[0] === "string") return userErrors[0]
+    if (typeof payload.detail === "string") return payload.detail
+    if (typeof payload.error === "string") return payload.error
+    return fallback
+  } catch {
+    return fallback
+  }
+}
+
+/// Add an existing project member to an agent channel by user id. The backend
+/// derives project + membership from the authenticated caller and the channel,
+/// so the client only names the channel and the target user. Idempotent: a user
+/// who is already on the channel returns 200 with the same row (201 for a new
+/// membership). Distinct failures are surfaced with useful messages — 400
+/// `not_a_project_member` (that user isn't an active project member), 403 (the
+/// caller can't manage this channel / a DM they're not on), 404 (unknown
+/// channel).
+export async function addChannelMember(
+  channelId: number,
+  userId: number
+): Promise<TaskflowAgentChannelMember> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}/members`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ user: userId }),
+  })
+  if (!response.ok) {
+    if (response.status === 400) {
+      throw new Error(await readFieldErrorMessage(response, "That user is not an active member of this project."))
+    }
+    throw new Error(
+      response.status === 403
+        ? "You can only add members to channels you belong to."
+        : response.status === 404
+          ? "That channel no longer exists."
+          : `Could not add the member (${response.status}).`
+    )
+  }
+  return response.json()
+}
+
 /// What a client may say when creating an invite. `project` comes from the URL,
 /// and `status` / `invite_token` / `invited_by` / `expires_at` are all set
 /// server-side — the client cannot assert them. (The `taskflow_project_invite`

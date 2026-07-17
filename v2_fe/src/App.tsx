@@ -40,6 +40,13 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -71,6 +78,7 @@ import type {
   TaskflowTaskStatus,
 } from "@/api/client"
 import {
+  addChannelMember,
   archiveTaskflowProject,
   createTaskflowAgentChannel,
   createTaskflowAgentChannelMember,
@@ -2455,6 +2463,7 @@ function App() {
                     onWorkspaceUpdate={(updater) => {
                       if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
                     }}
+                    onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
                     onMessage={() => navigate("/dashboard/agents")}
                   />
                 ) : (
@@ -4203,12 +4212,14 @@ function AgentsPage({
   liveWorkspace,
   currentUser,
   onWorkspaceUpdate,
+  onRefreshWorkspace,
   onMessage,
 }: {
   project: Project
   liveWorkspace: TaskflowWorkspace | null
   currentUser: AuthUser | null
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
+  onRefreshWorkspace: () => Promise<void>
   onMessage: () => void
 }) {
   const [selectedChatId, setSelectedChatId] = useState("")
@@ -4418,6 +4429,32 @@ function AgentsPage({
     })
   }
 
+  // Active project members who are not already on the selected LIVE channel.
+  // "Already a member" is read straight from the channel's member rows (the same
+  // data mapLiveChannelMembers renders), keyed by user id so display-name
+  // collisions or a differing self-label never let someone be re-added by hand.
+  const addMemberCandidates = useMemo<{ user: number; name: string }[]>(() => {
+    const channelId = selectedChat.liveChannelId
+    if (!liveWorkspace || channelId == null) return []
+    const existingUserIds = new Set(
+      liveWorkspace.agentChannelMembers
+        .filter((member) => member.channel === channelId && member.user != null)
+        .map((member) => member.user as number)
+    )
+    return liveWorkspace.members
+      .filter((member) => member.status === "active" && member.user != null && !existingUserIds.has(member.user))
+      .map((member) => ({ user: member.user as number, name: member.display_name }))
+  }, [liveWorkspace, selectedChat.liveChannelId])
+
+  const handleAddMember = async (userId: number) => {
+    const channelId = selectedChat.liveChannelId
+    if (channelId == null) return
+    await addChannelMember(channelId, userId)
+    // Re-fetch so the roster, member counts, and candidate list all reflect the
+    // new membership (mirrors how invite-accept re-syncs the workspace).
+    await onRefreshWorkspace()
+  }
+
   return (
     <section className="flex h-full min-h-0 flex-col gap-4 p-4 sm:p-5">
       <div className="rounded-lg border bg-card p-4 shadow-sm">
@@ -4456,6 +4493,9 @@ function AgentsPage({
         }}
         onSendMessage={handleSendMessage}
         onRetryMessage={retryLiveMessage}
+        canManageMembers={selectedChat.liveChannelId != null}
+        addMemberCandidates={addMemberCandidates}
+        onAddMember={handleAddMember}
       />
     </section>
   )
@@ -4501,6 +4541,9 @@ function AgentWorkbenchView({
   onSelectChannel,
   onSendMessage,
   onRetryMessage,
+  canManageMembers,
+  addMemberCandidates,
+  onAddMember,
 }: {
   selectedChat: AgentChatContext
   selectedSession?: AgentTerminalSessionView
@@ -4511,6 +4554,9 @@ function AgentWorkbenchView({
   onSelectChannel: (chat: AgentChatContext) => void
   onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, attachments: AgentAttachment[]) => void
   onRetryMessage: (nonce: string) => void
+  canManageMembers: boolean
+  addMemberCandidates: { user: number; name: string }[]
+  onAddMember: (userId: number) => Promise<void>
 }) {
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
@@ -4672,10 +4718,15 @@ function AgentWorkbenchView({
               className="mt-1 [&_p]:text-xs"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={focusComposer}>
-            <SendIcon />
-            Compose
-          </Button>
+          <div className="flex items-center gap-2">
+            {canManageMembers ? (
+              <AddChannelMemberControl candidates={addMemberCandidates} onAddMember={onAddMember} />
+            ) : null}
+            <Button variant="outline" size="sm" onClick={focusComposer}>
+              <SendIcon />
+              Compose
+            </Button>
+          </div>
         </div>
 
         <div className="chat-thread-bg scrollbar-y min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -4767,6 +4818,86 @@ function AgentWorkbenchView({
 
       <AgentTerminalPanel selectedSession={selectedSession} onFocusComposer={focusComposer} />
     </section>
+  )
+}
+
+/// Unobtrusive "+ Add member" picker for the selected LIVE channel. Lists the
+/// real project members not yet on the channel (computed upstream from
+/// `workspace.members`); selecting one adds them and the parent re-syncs the
+/// workspace so the roster + counts update. Pending and error states are kept
+/// local so a failed add (e.g. 400 not_a_project_member, 403) shows inline
+/// without disturbing the chat.
+function AddChannelMemberControl({
+  candidates,
+  onAddMember,
+}: {
+  candidates: { user: number; name: string }[]
+  onAddMember: (userId: number) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [pendingUser, setPendingUser] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const busy = pendingUser != null
+
+  const handleSelect = async (userId: number) => {
+    setError(null)
+    setPendingUser(userId)
+    try {
+      await onAddMember(userId)
+      setOpen(false)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not add the member.")
+    } finally {
+      setPendingUser(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <DropdownMenu
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen)
+          if (!nextOpen) setError(null)
+        }}
+      >
+        <DropdownMenuTrigger
+          render={
+            <Button variant="outline" size="sm" disabled={busy}>
+              <UserRoundPlusIcon />
+              {busy ? "Adding…" : "Add member"}
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" className="min-w-56">
+          <DropdownMenuLabel>Add to this channel</DropdownMenuLabel>
+          {candidates.length === 0 ? (
+            <p className="px-1.5 py-2 text-xs text-muted-foreground">
+              Everyone in the project is already here.
+            </p>
+          ) : (
+            candidates.map((candidate) => (
+              <DropdownMenuItem
+                key={candidate.user}
+                closeOnClick={false}
+                disabled={busy}
+                onClick={() => {
+                  void handleSelect(candidate.user)
+                }}
+              >
+                {candidate.name}
+                {pendingUser === candidate.user ? (
+                  <span className="ml-auto text-xs text-muted-foreground">Adding…</span>
+                ) : null}
+              </DropdownMenuItem>
+            ))
+          )}
+          {error ? (
+            <p className="px-1.5 pt-1 pb-1.5 text-xs text-rose-600">{error}</p>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
