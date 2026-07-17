@@ -238,6 +238,39 @@ async fn admin_cannot_mint_owner_invite() {
 }
 
 #[tokio::test]
+async fn superuser_can_create_invite_without_membership() {
+    let app = TestApp::new().await;
+    // A superuser who holds NO `TaskflowProjectMember` row in this project at
+    // all — the exact live-verification failure: a superuser can see every
+    // project (SP-A) but was 403'd creating an invite for one, because
+    // `create_invite` only ever checked the membership table.
+    let root = app.create_superuser().await;
+    let project = seed_project().await;
+
+    let res = app
+        .post_body_as(
+            root.id,
+            &format!("/api/taskflow/projects/{project}/invites"),
+            json!({ "email": "invitee@example.test", "role": "owner" }),
+        )
+        .await;
+
+    assert_eq!(
+        res.status(),
+        200,
+        "a superuser must be able to create an invite even without project membership",
+    );
+    let row = res.json();
+    assert_eq!(row["project"], json!(project));
+    assert_eq!(row["email"], json!("invitee@example.test"));
+    assert_eq!(
+        row["role"],
+        json!("owner"),
+        "a superuser may mint any role, including owner",
+    );
+}
+
+#[tokio::test]
 async fn owner_can_mint_owner_invite() {
     let app = TestApp::new().await;
     let owner = app.create_user().await;

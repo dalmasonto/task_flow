@@ -1,19 +1,24 @@
 //! A minimal live chat workspace so a fresh dev DB has something real to
 //! render. The frontend has no fixtures — what you see here is what you get.
 
+use chrono::Utc;
 use taskflow_agents::models::{
     TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowChannelKind,
     TaskflowChannelMemberKind,
 };
-use taskflow_projects::models::{TaskflowProject, TaskflowProjectStatus};
+use taskflow_projects::models::{
+    TaskflowMembershipStatus, TaskflowProject, TaskflowProjectMember, TaskflowProjectRole,
+    TaskflowProjectStatus,
+};
 use umbral::Environment;
 use umbral::prelude::*;
 use umbral_auth::AuthUser;
 
-/// Idempotent: short-circuits if any channel already exists. The three
+/// Idempotent: short-circuits if any channel already exists. The four
 /// creates below run inside a single transaction, so that check can never
-/// observe a half-seeded workspace (project without a channel, etc.) —
-/// either all three rows exist or none do.
+/// observe a half-seeded workspace (project without a channel, or a project
+/// with a channel but no owner membership, etc.) — either all four rows
+/// exist or none do.
 pub async fn dev_workspace() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Never seed demo chat data outside the Dev environment — belt and
     // suspenders on top of the caller only running us on a bare launch.
@@ -81,6 +86,27 @@ pub async fn dev_workspace() -> Result<(), Box<dyn std::error::Error + Send + Sy
                     display_name: user.username.clone(),
                     role: "owner".to_string(),
                     joined_at: None,
+                })
+                .await?;
+
+            // SP-A scopes project visibility on active `TaskflowProjectMember`
+            // rows, so the seeded project also needs the dev user as an actual
+            // active owner member — not just a chat-channel member — or a
+            // non-superuser dev account would see zero projects.
+            TaskflowProjectMember::objects()
+                .on_tx(tx)
+                .create(TaskflowProjectMember {
+                    id: 0,
+                    project: ForeignKey::new(project.id),
+                    member_key: format!("user:{}", user.id),
+                    user: Some(ForeignKey::new(user.id)),
+                    display_name: user.username.clone(),
+                    email: Some(user.email.clone()),
+                    role: TaskflowProjectRole::Owner,
+                    status: TaskflowMembershipStatus::Active,
+                    invited_by: None,
+                    created_at: None,
+                    joined_at: Some(Utc::now()),
                 })
                 .await?;
 

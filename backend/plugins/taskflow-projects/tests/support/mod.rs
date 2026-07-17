@@ -70,6 +70,17 @@ impl TestApp {
 
     /// Create a real `AuthUser` + mint a real bearer token for it.
     pub async fn create_user(&self) -> TestUser {
+        self.create_user_with(false).await
+    }
+
+    /// Create a real `AuthUser` with `is_superuser = true` + mint a real
+    /// bearer token for it — for tests asserting the superuser bypass on
+    /// project-scoped authorization (e.g. `create_invite`).
+    pub async fn create_superuser(&self) -> TestUser {
+        self.create_user_with(true).await
+    }
+
+    async fn create_user_with(&self, is_superuser: bool) -> TestUser {
         let n = seq();
         let email = format!("user-{n}@example.test");
         let username = format!("user-{n}");
@@ -81,7 +92,7 @@ impl TestApp {
                 password_hash: "unused-tests-authenticate-by-token".to_string(),
                 is_active: true,
                 is_staff: false,
-                is_superuser: false,
+                is_superuser,
                 date_joined: Utc::now(),
                 last_login: None,
                 email_verified_at: None,

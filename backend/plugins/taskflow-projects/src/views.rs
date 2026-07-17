@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use umbral::orm::ForeignKey;
 use umbral::web::{Json, Path, StatusCode};
-use umbral_auth::{AuthUser, RequireAuth, auth_user};
+use umbral_auth::{AuthUser, CurrentIdentity, RequireAuth, auth_user};
 
 use crate::models::{
     TaskflowInviteStatus, TaskflowMembershipStatus, TaskflowProject, TaskflowProjectInvite,
@@ -271,17 +271,21 @@ pub struct CreateInviteInput {
 ///
 /// Authorization: the caller must be an ACTIVE member of the project whose role
 /// is `owner` or `admin`, verified server-side against `TaskflowProjectMember`
-/// — a non-member, or a viewer/reviewer/developer, gets 403.
+/// — a non-member, or a viewer/reviewer/developer, gets 403. A SUPERUSER
+/// bypasses the membership check entirely (consistent with the SP-A project
+/// visibility scope, which already lets a superuser see every project) — they
+/// may create an invite for any project without holding a membership row in it.
 ///
 /// Role cap: the invited role may not out-rank the caller's own role
 /// (owner > admin > developer > reviewer > viewer). So an admin can invite up to
-/// `admin` but never `owner`; only an owner can mint an owner invite.
+/// `admin` but never `owner`; only an owner (or a superuser) can mint an owner
+/// invite.
 ///
 /// The `invite_token` is generated server-side (unguessable UUIDv4) and never
 /// accepted from the body; `status` is forced to `pending`, `invited_by` to the
 /// caller, and `expires_at` to now + 14 days.
 pub async fn create_invite(
-    RequireAuth(user_id): RequireAuth<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
     Path(project_id): Path<i64>,
     Json(input): Json<CreateInviteInput>,
 ) -> Result<Json<TaskflowProjectInvite>, StatusCode> {
@@ -290,29 +294,39 @@ pub async fn create_invite(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // Authorization is membership, not identity: the caller must be an ACTIVE
-    // member OF THIS PROJECT. Read from the table, never trusted from the
-    // request. Absent → 403 (a non-member cannot invite).
-    let caller_member = TaskflowProjectMember::objects()
-        .filter(
-            taskflow_project_member::PROJECT.eq(project_id)
-                & taskflow_project_member::USER.eq(user_id)
-                & taskflow_project_member::STATUS.eq("active"),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let caller_rank = role_rank(caller_member.role);
+    // Authorization is membership, not identity — EXCEPT for a superuser, who
+    // is granted the top rank outright rather than being read from the
+    // membership table (there may be no row for them in this project at all).
+    // Everyone else must be an ACTIVE member OF THIS PROJECT, read from the
+    // table and never trusted from the request. Absent → 403 (a non-member,
+    // non-superuser cannot invite).
+    let caller_rank = if identity.is_superuser {
+        role_rank(TaskflowProjectRole::Owner)
+    } else {
+        let caller_member = TaskflowProjectMember::objects()
+            .filter(
+                taskflow_project_member::PROJECT.eq(project_id)
+                    & taskflow_project_member::USER.eq(user_id)
+                    & taskflow_project_member::STATUS.eq("active"),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::FORBIDDEN)?;
 
-    // Only owners and admins may invite at all.
-    if caller_rank < role_rank(TaskflowProjectRole::Admin) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+        let rank = role_rank(caller_member.role);
+        // Only owners and admins may invite at all.
+        if rank < role_rank(TaskflowProjectRole::Admin) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        rank
+    };
 
     // Cap the invited role at the caller's own level: an admin cannot mint an
-    // owner (owner-rank 4 > admin-rank 3 → 403).
+    // owner (owner-rank 4 > admin-rank 3 → 403). A superuser is capped at
+    // `Owner` too, but `Owner` is the top rank so that's no real limit.
     if role_rank(input.role) > caller_rank {
         return Err(StatusCode::FORBIDDEN);
     }
