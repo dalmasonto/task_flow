@@ -2654,7 +2654,13 @@ function LandingPage() {
           alt=""
           className="absolute inset-0 size-full object-cover object-center opacity-40 saturate-[0.92]"
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,var(--background)_0%,oklch(0.985_0.006_230_/_0.94)_46%,oklch(0.985_0.006_230_/_0.62)_100%)]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(90deg, var(--background) 0%, color-mix(in oklab, var(--background) 94%, transparent) 46%, color-mix(in oklab, var(--background) 62%, transparent) 100%)",
+          }}
+        />
         <div className="absolute inset-x-0 bottom-0 h-36 bg-[linear-gradient(180deg,transparent,var(--background))]" />
 
         <LandingNav user={landingUser} onLogout={handleLandingLogout} />
@@ -2946,7 +2952,13 @@ function AuthPage({ mode }: { mode: AuthMode }) {
           alt=""
           className="absolute inset-0 size-full object-cover object-left opacity-50 saturate-[0.9]"
         />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,oklch(0.985_0.006_230_/_0.88),oklch(0.93_0.045_238_/_0.82)),linear-gradient(90deg,var(--background),transparent)]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(180deg, color-mix(in oklab, var(--background) 88%, transparent), color-mix(in oklab, var(--primary) 24%, transparent)), linear-gradient(90deg, var(--background), transparent)",
+          }}
+        />
         <div className="relative z-10 flex h-full flex-col justify-between p-8">
           <Link to="/" className="flex items-center gap-2 text-sm font-semibold">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
