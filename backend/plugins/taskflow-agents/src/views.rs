@@ -68,6 +68,10 @@ fn message_response(
                 "id": a.id,
                 "message": a.message.id(),
                 "project": a.project.id(),
+                // Both `file` (the storage key, matching the model/realtime
+                // representation) and the resolved `url`, so the client can key
+                // off `file` uniformly regardless of which path delivered the row.
+                "file": a.file.key(),
                 "url": a.file.url(),
                 "name": a.name,
                 "content_type": a.content_type,
