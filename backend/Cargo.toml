@@ -10,6 +10,14 @@ edition = "2024"
 [workspace]
 members = ["plugins/*"]
 
+# A library target alongside the binary, so integration tests in `tests/` can
+# reach the wiring modules (`backend::realtime`). `main.rs` stays the binary
+# and keeps its own `mod` declarations; only the modules that are worth
+# testing from outside are re-exported here.
+[lib]
+name = "backend"
+path = "src/lib.rs"
+
 [dependencies]
 taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }
