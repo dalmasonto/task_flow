@@ -12,12 +12,17 @@ Pre-work restore point: 374df9d
 - [x] 4  Seed chat workspace
 - [x] 5  Regenerate client
 - [x] 6  FE api layer (groups, subs, send)
-- [ ] 7  Reconcile reducer + vitest
+- [x] 7  Reconcile reducer + vitest
 - [ ] 8  App.tsx collapse
 - [ ] 9  File picker
 - [ ] 10 End-to-end verification
 
 ## Minor findings (for final review triage)
+- REPO HYGIENE: v2_fe tracks BOTH package-lock.json and yarn.lock. A live yarn/dev process keeps
+  re-touching yarn.lock on package.json changes, so it drifts uncommitted. Post-Task-7 the two
+  committed lockfiles disagree (package-lock has vitest, committed yarn.lock does not) -- a yarn
+  install would miss the test toolchain. Pre-existing; the repo should pick ONE package manager.
+  Not fixed under any task. FOR USER DECISION.
 - SUFFIX DRIFT IS UNGUARDED (verified, not theoretical). Realtime group names are a cross-language
   contract between backend/src/realtime.rs (suffix consts + ALL_SUFFIXES) and
   v2_fe/src/lib/taskflow-api.ts (realtimeGroupSuffixes). A reviewer typo'd "task_sessions" ->
@@ -83,3 +88,10 @@ Task 6: complete (commits 9935a5e..b5c9a3e, review clean, no fix pass needed)
   FOR TASK 8: TS excess-property checking stops at the FIRST bad key, so App.tsx:4897 reports only
   `project` -- but sender_kind, sender_user, and sender_label are ALSO passed and ALSO now
   server-derived. All four must be removed in one pass, or Task 8 chases them one error at a time.
+Task 7: complete (commits 6ddc663..83fbb50, review clean after 1 fix pass)
+  Pure nonce-keyed reconcile reducer + first vitest suite (now 12 tests). Reviewer ran 4 mutations;
+  3 were caught, but reversing the key order (nonce-first -> id-first, the brief's "entire design")
+  survived green because no test built the state where the two orderings diverge. Fixer added that
+  test and PROVED it fails only when the order is reversed. Ordering now genuinely pinned.
+  Deviation (verified sound): vitest ^3 -> ^4.1.10, because vitest 3 caps at vite 7 while this repo
+  runs vite 8, which nested a duplicate vite and broke the config typecheck. vitest 4 dedupes.
