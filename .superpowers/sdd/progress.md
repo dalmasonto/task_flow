@@ -14,7 +14,7 @@ Pre-work restore point: 374df9d
 - [x] 6  FE api layer (groups, subs, send)
 - [x] 7  Reconcile reducer + vitest
 - [x] 8  App.tsx collapse
-- [ ] 9  File picker
+- [x] 9  File picker
 - [ ] 10 End-to-end verification
 
 ## Minor findings (for final review triage)
@@ -111,3 +111,6 @@ Task 8: complete (commits f0b8cef..6d4297a, review clean, no fix pass -- 4 Minor
   chat tables, no fall-through), send is order-independent (POST response AND SSE echo both reconcile
   by nonce), retry reuses the same nonce, sort fixed, send payload trimmed to 4 keys, createChannelMember
   passes project. Out-of-scope (attachments display, priority, terminal, file picker) all survived.
+Task 9: complete (commits 4c39905..96a6f17, review clean, no fix pass). Lying file picker removed;
+  disabled 'coming soon' affordance in its slot; URL/project-path attachments kept. One file, 9+/43-.
+  Deferred (reasonable): AgentAttachment.source:'upload' union variant left for attachments sub-project.
