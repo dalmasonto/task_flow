@@ -79,6 +79,7 @@ import {
   createTaskflowTaskSession,
   createTaskflowTask,
   createTaskflowProject,
+  ProjectFormError,
   fetchMyInvites,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
@@ -1705,7 +1706,13 @@ function App() {
     setOpenTaskId(null)
   }
 
-  function handleCreateProject(event: FormEvent<HTMLFormElement>) {
+  // Returns a promise that resolves once the project is created and applied to
+  // local state, and REJECTS (with a ProjectFormError carrying field errors) on
+  // failure so the dialog can show errors inline and stay open. It does NOT
+  // close the dialog — the dialog closes itself on success. The creator is now
+  // an active OWNER member, so the follow-up loadLiveWorkspace re-adds (not
+  // drops) the project when activeProjectId changes.
+  async function handleCreateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const name = String(formData.get("name") ?? "").trim()
@@ -1716,7 +1723,7 @@ function App() {
     const repositoryUrl = String(formData.get("repository_url") ?? "").trim()
     const apiBase = String(formData.get("default_api_base_url") ?? "").trim()
 
-    void createTaskflowProject({
+    const project = await createTaskflowProject({
       name,
       slug,
       description_markdown: description,
@@ -1724,35 +1731,30 @@ function App() {
       default_api_base_url: apiBase || "/api",
       status: "active",
     })
-      .then((project) => {
-        const mappedProject = mapLiveProjectRow(project, undefined, workspaceProjects.length)
-        const projectId = String(project.id)
-        setDialogMode(null)
-        setLiveSyncError(null)
-        setWorkspaceProjects((current) => [...current, mappedProject])
-        setActiveProjectId(projectId)
-        setSelectedTaskId((current) => tasks.find((task) => task.projectId === projectId)?.id ?? current)
-        setLiveWorkspace({
-          project,
-          members: [],
-          invites: [],
-          apiEndpoints: [],
-          tasks: [],
-          taskRelations: [],
-          taskActivity: [],
-          taskSessions: [],
-          agents: [],
-          agentCredentials: [],
-          agentSessions: [],
-          agentChannels: [],
-          agentChannelMembers: [],
-          agentMessages: [],
-          terminalFrames: [],
-        })
-      })
-      .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not create the project.")
-      })
+
+    const mappedProject = mapLiveProjectRow(project, undefined, workspaceProjects.length)
+    const projectId = String(project.id)
+    setLiveSyncError(null)
+    setWorkspaceProjects((current) => [...current, mappedProject])
+    setActiveProjectId(projectId)
+    setSelectedTaskId((current) => tasks.find((task) => task.projectId === projectId)?.id ?? current)
+    setLiveWorkspace({
+      project,
+      members: [],
+      invites: [],
+      apiEndpoints: [],
+      tasks: [],
+      taskRelations: [],
+      taskActivity: [],
+      taskSessions: [],
+      agents: [],
+      agentCredentials: [],
+      agentSessions: [],
+      agentChannels: [],
+      agentChannelMembers: [],
+      agentMessages: [],
+      terminalFrames: [],
+    })
   }
 
   function handleUpdateProject(event: FormEvent<HTMLFormElement>) {
@@ -1814,13 +1816,14 @@ function App() {
       })
   }
 
-  function handleCreateInvite(event: FormEvent<HTMLFormElement>) {
+  // Async + throwing so the dialog can surface the error inline and stay open;
+  // the dialog closes itself on success.
+  async function handleCreateInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!activeProject) return
     const projectId = liveId(activeProject.id)
     if (!projectId) {
-      setLiveSyncError("Select a live project before sending invites.")
-      return
+      throw new Error("Select a live project before sending invites.")
     }
 
     const formData = new FormData(event.currentTarget)
@@ -1835,19 +1838,13 @@ function App() {
         ? recipient
         : String(formData.get("display_name") ?? "").trim() || recipient.split("@")[0] || recipient
 
-    void createTaskflowProjectInvite(projectId, {
+    const invite = await createTaskflowProjectInvite(projectId, {
       email,
       display_name: displayName,
       role: toLiveInviteRole(role),
     })
-      .then((invite) => {
-        setDialogMode(null)
-        setLiveSyncError(null)
-        applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, invites: upsertById(workspace.invites, invite) }))
-      })
-      .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not create the invite.")
-      })
+    setLiveSyncError(null)
+    applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, invites: upsertById(workspace.invites, invite) }))
   }
 
   function handleArchiveProject(projectId: string) {
@@ -2578,6 +2575,7 @@ function App() {
         onStopSession={handleStopTaskSession}
       />
       <WorkspaceDialog
+        key={dialogMode ?? "closed"}
         mode={dialogMode}
         activeProject={activeProject}
         reviewTask={reviewTask}
@@ -3398,9 +3396,15 @@ function TaskDetailSheet({
         role="dialog"
         aria-modal="true"
         aria-label={`${task.title} details`}
-        className="fixed bottom-4 right-4 top-4 z-50 flex w-[min(54rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.35rem] border-x border-b bg-card shadow-2xl"
+        className="fixed inset-2 z-50 flex flex-col overflow-hidden rounded-[1.35rem] border bg-card shadow-2xl sm:inset-auto sm:bottom-4 sm:right-4 sm:top-4 sm:w-[min(54rem,calc(100vw-2rem))] sm:border-x sm:border-b"
       >
-        <header className="relative overflow-hidden bg-[radial-gradient(circle_at_18%_0%,oklch(0.84_0.09_238),transparent_34%),linear-gradient(180deg,oklch(0.94_0.04_238),oklch(0.985_0.006_230)_74%,transparent)] px-5 pb-7 pt-5">
+        <header
+          className="relative shrink-0 overflow-hidden px-5 pb-7 pt-5"
+          style={{
+            background:
+              "radial-gradient(circle at 18% 0%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 34%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 16%, transparent), transparent 74%)",
+          }}
+        >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-[linear-gradient(180deg,transparent,var(--card))]" />
           <div className="relative flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -5746,12 +5750,45 @@ function WorkspaceDialog({
   activeProject: Project | undefined
   reviewTask?: Task
   onClose: () => void
-  onCreateProject: (event: FormEvent<HTMLFormElement>) => void
+  onCreateProject: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
   onCreateTask: (event: FormEvent<HTMLFormElement>) => void
-  onCreateInvite: (event: FormEvent<HTMLFormElement>) => void
+  onCreateInvite: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onReviewDecision: (event: FormEvent<HTMLFormElement>) => void
 }) {
+  // Dialog-local submit state so create/invite errors show INLINE and the
+  // dialog stays open on failure. The dialog is keyed by `mode` at its call
+  // site, so a mode change remounts it and resets this state — no effect needed.
+  const [submitting, setSubmitting] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({})
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Wrap an async submit handler: show the spinner, clear prior errors, and on
+  // failure map ProjectFormError field errors + form message and stay open. On
+  // success, close the dialog.
+  async function runSubmit(
+    event: FormEvent<HTMLFormElement>,
+    handler: (event: FormEvent<HTMLFormElement>) => Promise<void>
+  ) {
+    event.preventDefault()
+    setSubmitting(true)
+    setFieldErrors({})
+    setFormError(null)
+    try {
+      await handler(event)
+      onClose()
+    } catch (error) {
+      if (error instanceof ProjectFormError) {
+        setFieldErrors(error.fieldErrors)
+        setFormError(error.message || "Please fix the errors below.")
+      } else {
+        setFormError(error instanceof Error ? error.message : "Something went wrong. Please try again.")
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   if (!mode) return null
   // Every mode except "new-project" acts on the active project. If there is no
   // active project, only project creation is valid.
@@ -5779,9 +5816,15 @@ function WorkspaceDialog({
         role="dialog"
         aria-modal="true"
         aria-label={titles[mode]}
-        className="fixed left-1/2 top-1/2 z-[70] w-[min(39rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border bg-card shadow-2xl"
+        className="fixed inset-2 z-[70] flex flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[90svh] sm:w-[min(39rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2"
       >
-        <header className="flex items-start justify-between gap-4 border-b bg-[linear-gradient(180deg,oklch(0.94_0.035_238),transparent)] px-5 py-4">
+        <header
+          className="flex shrink-0 items-start justify-between gap-4 border-b px-5 py-4"
+          style={{
+            background:
+              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 16%, transparent), transparent)",
+          }}
+        >
           <div>
             <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{activeProject?.name ?? "New workspace"}</p>
             <h2 className="mt-1 text-xl font-semibold">{titles[mode]}</h2>
@@ -5791,17 +5834,18 @@ function WorkspaceDialog({
           </Button>
         </header>
 
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {mode === "new-project" ? (
-          <form className="max-h-[calc(100svh-7rem)] space-y-4 overflow-y-auto p-5" onSubmit={onCreateProject}>
+          <form className="space-y-4 p-5" onSubmit={(event) => void runSubmit(event, onCreateProject)}>
             <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
-              <FormField label="Project name">
+              <FormField label="Project name" error={fieldErrors.name?.[0]}>
                 <Input name="name" required placeholder="Acme Web App" />
               </FormField>
-              <FormField label="Slug">
+              <FormField label="Slug" error={fieldErrors.slug?.[0]}>
                 <Input name="slug" placeholder="acme-web-app" />
               </FormField>
             </div>
-            <FormField label="Description, markdown">
+            <FormField label="Description, markdown" error={fieldErrors.description_markdown?.[0]}>
               <textarea
                 name="description_markdown"
                 className={textareaClass}
@@ -5809,19 +5853,20 @@ function WorkspaceDialog({
               />
             </FormField>
             <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="Repository URL">
+              <FormField label="Repository URL" error={fieldErrors.repository_url?.[0]}>
                 <Input name="repository_url" placeholder="https://github.com/org/repo" />
               </FormField>
-              <FormField label="API base">
+              <FormField label="API base" error={fieldErrors.default_api_base_url?.[0]}>
                 <Input name="default_api_base_url" defaultValue="/api" />
               </FormField>
             </div>
-            <DialogActions onClose={onClose} submitLabel="Create Project" submitIcon={<FolderKanbanIcon />} />
+            <DialogFormError message={formError} />
+            <DialogActions onClose={onClose} submitLabel="Create Project" submitIcon={<FolderKanbanIcon />} submitting={submitting} />
           </form>
         ) : null}
 
         {mode === "edit-project" ? (
-          <form className="max-h-[calc(100svh-7rem)] space-y-4 overflow-y-auto p-5" onSubmit={onUpdateProject}>
+          <form className="space-y-4 p-5" onSubmit={onUpdateProject}>
             <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
               <FormField label="Project name">
                 <Input name="name" required defaultValue={activeProject?.name ?? ""} />
@@ -5857,7 +5902,7 @@ function WorkspaceDialog({
         ) : null}
 
         {mode === "new-task" ? (
-          <form className="max-h-[calc(100svh-7rem)] space-y-4 overflow-y-auto p-5" onSubmit={onCreateTask}>
+          <form className="space-y-4 p-5" onSubmit={onCreateTask}>
             <FormField label="Task title">
               <Input name="title" required placeholder="Write the outcome, not just the activity" />
             </FormField>
@@ -5906,7 +5951,7 @@ function WorkspaceDialog({
         ) : null}
 
         {mode === "invite" ? (
-          <form className="space-y-4 p-5" onSubmit={onCreateInvite}>
+          <form className="space-y-4 p-5" onSubmit={(event) => void runSubmit(event, onCreateInvite)}>
             <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
               <FormField label="Email or agent name">
                 <Input name="recipient" required placeholder="dev@company.com or qa-agent" />
@@ -5935,7 +5980,8 @@ function WorkspaceDialog({
             <FormField label="Message">
               <textarea name="message" className={textareaClass} placeholder="Add context for the invite." />
             </FormField>
-            <DialogActions onClose={onClose} submitLabel="Send Invite" submitIcon={<UserRoundPlusIcon />} />
+            <DialogFormError message={formError} />
+            <DialogActions onClose={onClose} submitLabel="Send Invite" submitIcon={<UserRoundPlusIcon />} submitting={submitting} />
           </form>
         ) : null}
 
@@ -6011,6 +6057,7 @@ function WorkspaceDialog({
             <DialogActions onClose={onClose} submitLabel="Submit Decision" submitIcon={<ClipboardCheckIcon />} />
           </form>
         ) : null}
+        </div>
       </section>
     </>
   )
@@ -6022,12 +6069,39 @@ const textareaClass =
 const choiceClass =
   "grid cursor-pointer gap-1 rounded-xl border bg-background p-3 text-sm transition has-checked:border-primary has-checked:bg-primary/10"
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+function FormField({
+  label,
+  error,
+  children,
+}: {
+  label: string
+  error?: string
+  children: React.ReactNode
+}) {
   return (
     <label className="grid gap-1.5 text-sm font-medium">
       <span>{label}</span>
       {children}
+      {error ? (
+        <span className="text-xs font-normal text-destructive" role="alert">
+          {error}
+        </span>
+      ) : null}
     </label>
+  )
+}
+
+/// Form-level error shown near a dialog's submit button. Renders nothing when
+/// there is no message.
+function DialogFormError({ message }: { message: string | null }) {
+  if (!message) return null
+  return (
+    <p
+      role="alert"
+      className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    >
+      {message}
+    </p>
   )
 }
 
@@ -6062,19 +6136,21 @@ function DialogActions({
   onClose,
   submitLabel,
   submitIcon,
+  submitting = false,
 }: {
   onClose: () => void
   submitLabel: string
   submitIcon: React.ReactNode
+  submitting?: boolean
 }) {
   return (
     <div className="flex items-center justify-end gap-2 border-t pt-4">
-      <Button type="button" variant="outline" size="sm" onClick={onClose}>
+      <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={submitting}>
         Cancel
       </Button>
-      <Button type="submit" size="sm">
+      <Button type="submit" size="sm" disabled={submitting}>
         {submitIcon}
-        {submitLabel}
+        {submitting ? "Working…" : submitLabel}
       </Button>
     </div>
   )

@@ -493,8 +493,88 @@ export async function updateUserSettings(input: UpdateUserSettingsInput): Promis
   return response.json()
 }
 
-export function createTaskflowProject(input: TaskflowProjectCreate) {
-  return taskflowApi.create(taskflowTables.projects, input)
+/// A named error carrying parsed DRF-style field errors so the create-project
+/// dialog can show them inline. `fieldErrors` maps a field name (e.g. "slug")
+/// to its messages; `message` is the human-facing form-level summary.
+export class ProjectFormError extends Error {
+  readonly status: number
+  readonly fieldErrors: Record<string, string[]>
+
+  constructor(message: string, status: number, fieldErrors: Record<string, string[]> = {}) {
+    super(message)
+    this.name = "ProjectFormError"
+    this.status = status
+    this.fieldErrors = fieldErrors
+  }
+}
+
+/// Parse a non-2xx project response into a form-level message + per-field
+/// errors. Field errors are `{field: ["msg", ...]}` entries (the shape the
+/// backend returns for e.g. a duplicate slug: `{"code":"unique_constraint",
+/// "slug":["A project with this slug already exists."]}`). `code`/`detail`/
+/// `error`/`message` are treated as metadata, and `non_field_errors` becomes
+/// the form-level message rather than a field error.
+async function parseProjectFormError(
+  response: Response
+): Promise<{ message: string; fieldErrors: Record<string, string[]> }> {
+  const fallback =
+    response.status === 409
+      ? "A project with that slug already exists."
+      : `Could not create the project (${response.status}).`
+
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) return { message: fallback, fieldErrors: {} }
+
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    return { message: fallback, fieldErrors: {} }
+  }
+  if (!payload || typeof payload !== "object") return { message: fallback, fieldErrors: {} }
+
+  const body = payload as Record<string, unknown>
+  const metadataKeys = new Set(["code", "detail", "error", "message"])
+  const fieldErrors: Record<string, string[]> = {}
+  for (const [key, value] of Object.entries(body)) {
+    if (metadataKeys.has(key) || key === "non_field_errors") continue
+    if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      fieldErrors[key] = value as string[]
+    }
+  }
+
+  const nonField = Array.isArray(body.non_field_errors)
+    ? (body.non_field_errors.find((item) => typeof item === "string") as string | undefined)
+    : undefined
+  const detail =
+    typeof body.detail === "string"
+      ? body.detail
+      : typeof body.error === "string"
+        ? body.error
+        : typeof body.message === "string"
+          ? body.message
+          : undefined
+  const firstFieldMessage = Object.values(fieldErrors)[0]?.[0]
+
+  return { message: detail ?? nonField ?? firstFieldMessage ?? fallback, fieldErrors }
+}
+
+/// Create a project via the bearer-authed REST route. The backend also makes
+/// the caller an active OWNER member, so the new project is immediately visible
+/// in the scoped list. On failure a ProjectFormError carries parsed field
+/// errors (e.g. a duplicate slug → 409) for inline display in the dialog.
+export async function createTaskflowProject(input: TaskflowProjectCreate): Promise<TaskflowProject> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    const { message, fieldErrors } = await parseProjectFormError(response)
+    throw new ProjectFormError(message, response.status, fieldErrors)
+  }
+  return response.json()
 }
 
 export function updateTaskflowProject(projectId: number, input: TaskflowProjectUpdate) {
