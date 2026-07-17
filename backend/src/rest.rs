@@ -32,7 +32,6 @@ use umbral_rest::{Action, Identity, ResourceConfig, ScopeDecision};
 /// The server-managed / access-granting tables are NOT here — they are locked
 /// read-only via [`READ_ONLY_PROJECT_SCOPED_TABLES`].
 const PROJECT_SCOPED_TABLES: &[&str] = &[
-    "taskflow_project_invite",
     "taskflow_project_api_endpoint",
     "taskflow_task",
     "taskflow_task_relation",
@@ -60,13 +59,26 @@ const PROJECT_SCOPED_TABLES: &[&str] = &[
 /// - **`taskflow_agent_credential`** — holds `key_hash`; only ever minted
 ///   server-side.
 /// - **`taskflow_agent_session`** — managed by the agent runtime.
+/// - **`taskflow_project_invite`** — the invite is the thing project membership
+///   is minted from (SP-B's accept endpoint only checks that the invite's
+///   `email` matches the caller). Left writable, any authenticated user could
+///   `POST {project:<any>, email:<self>, role:"owner", status:"pending",
+///   invite_token:"x"}` (create is unscoped → 201) and then accept it (email
+///   matches their own account) to become an active OWNER of a project they
+///   were never part of — a full takeover that defeats the read-scope. Invites
+///   are now minted only by the authorized `POST
+///   /api/taskflow/projects/{project}/invites` endpoint (owner/admin-gated,
+///   server-generated token); an invitee reads their own invites through the
+///   separate `/api/taskflow/projects/invites/mine` endpoint, so read-only here
+///   costs the app nothing.
 ///
-/// The frontend only ever `.list()`s these three (see `v2_fe/src/lib/
+/// The frontend only ever `.list()`s these tables (see `v2_fe/src/lib/
 /// taskflow-api.ts`), so read-only is a no-op for the app and closes the hole.
 const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_project_member",
     "taskflow_agent_credential",
     "taskflow_agent_session",
+    "taskflow_project_invite",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the

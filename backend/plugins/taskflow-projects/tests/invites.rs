@@ -6,8 +6,10 @@ use chrono::{Duration, Utc};
 use serde_json::json;
 
 mod support;
-use support::{TestApp, seed_invite, seed_project};
-use taskflow_projects::models::TaskflowInviteStatus;
+use support::{TestApp, seed_invite, seed_member, seed_project};
+use taskflow_projects::models::{
+    TaskflowInviteStatus, TaskflowMembershipStatus, TaskflowProjectRole,
+};
 
 // --- accept -----------------------------------------------------------------
 
@@ -97,6 +99,205 @@ async fn accept_unknown_token_is_404() {
         .await;
 
     assert_eq!(res.status(), 404);
+}
+
+// --- create (authorized mint) -----------------------------------------------
+
+#[tokio::test]
+async fn owner_creates_invite_with_server_minted_token() {
+    let app = TestApp::new().await;
+    let owner = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(
+        project,
+        owner.id,
+        TaskflowProjectRole::Owner,
+        TaskflowMembershipStatus::Active,
+    )
+    .await;
+
+    let res = app
+        .post_body_as(
+            owner.id,
+            &format!("/api/taskflow/projects/{project}/invites"),
+            json!({
+                "email": "invitee@example.test",
+                "role": "developer",
+                // A body-supplied token must be ignored — the server mints its own.
+                "invite_token": "attacker-chosen",
+                "status": "accepted",
+            }),
+        )
+        .await;
+
+    assert_eq!(res.status(), 200);
+    let row = res.json();
+    assert_eq!(row["project"], json!(project));
+    assert_eq!(row["email"], json!("invitee@example.test"));
+    assert_eq!(row["role"], json!("developer"));
+    assert_eq!(row["status"], json!("pending"), "status is forced to pending");
+    assert_eq!(row["invited_by"], json!(owner.id));
+    assert!(
+        row["expires_at"].is_string(),
+        "an expiry window must be set server-side; got {row}",
+    );
+    let token = row["invite_token"].as_str().expect("token string");
+    assert_ne!(token, "attacker-chosen", "the body token must be ignored");
+    assert!(
+        token.starts_with("inv_") && token.len() > 8,
+        "token must be a server-minted, unguessable value; got {token}",
+    );
+}
+
+#[tokio::test]
+async fn admin_can_create_invite() {
+    let app = TestApp::new().await;
+    let admin = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(
+        project,
+        admin.id,
+        TaskflowProjectRole::Admin,
+        TaskflowMembershipStatus::Active,
+    )
+    .await;
+
+    let res = app
+        .post_body_as(
+            admin.id,
+            &format!("/api/taskflow/projects/{project}/invites"),
+            json!({ "email": "dev@example.test", "role": "developer" }),
+        )
+        .await;
+
+    assert_eq!(res.status(), 200);
+}
+
+#[tokio::test]
+async fn non_member_cannot_create_invite() {
+    let app = TestApp::new().await;
+    let stranger = app.create_user().await;
+    let project = seed_project().await;
+
+    let res = app
+        .post_body_as(
+            stranger.id,
+            &format!("/api/taskflow/projects/{project}/invites"),
+            json!({ "email": "x@example.test", "role": "developer" }),
+        )
+        .await;
+
+    assert_eq!(res.status(), 403);
+}
+
+#[tokio::test]
+async fn viewer_and_developer_cannot_create_invite() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+
+    for role in [TaskflowProjectRole::Viewer, TaskflowProjectRole::Developer] {
+        let user = app.create_user().await;
+        seed_member(project, user.id, role, TaskflowMembershipStatus::Active).await;
+        let res = app
+            .post_body_as(
+                user.id,
+                &format!("/api/taskflow/projects/{project}/invites"),
+                json!({ "email": "x@example.test", "role": "viewer" }),
+            )
+            .await;
+        assert_eq!(res.status(), 403, "role {role:?} must not be able to invite");
+    }
+}
+
+#[tokio::test]
+async fn admin_cannot_mint_owner_invite() {
+    let app = TestApp::new().await;
+    let admin = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(
+        project,
+        admin.id,
+        TaskflowProjectRole::Admin,
+        TaskflowMembershipStatus::Active,
+    )
+    .await;
+
+    let res = app
+        .post_body_as(
+            admin.id,
+            &format!("/api/taskflow/projects/{project}/invites"),
+            json!({ "email": "boss@example.test", "role": "owner" }),
+        )
+        .await;
+
+    assert_eq!(
+        res.status(),
+        403,
+        "an admin may not invite at a role above its own (owner)",
+    );
+}
+
+#[tokio::test]
+async fn owner_can_mint_owner_invite() {
+    let app = TestApp::new().await;
+    let owner = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(
+        project,
+        owner.id,
+        TaskflowProjectRole::Owner,
+        TaskflowMembershipStatus::Active,
+    )
+    .await;
+
+    let res = app
+        .post_body_as(
+            owner.id,
+            &format!("/api/taskflow/projects/{project}/invites"),
+            json!({ "email": "co-owner@example.test", "role": "owner" }),
+        )
+        .await;
+
+    assert_eq!(res.status(), 200, "an owner may invite another owner");
+}
+
+// --- suspended-member self-reactivation (MEDIUM) ----------------------------
+
+#[tokio::test]
+async fn suspended_member_accepting_invite_is_not_reactivated() {
+    let app = TestApp::new().await;
+    let user = app.create_user().await;
+    let project = seed_project().await;
+    // The user was suspended by an admin — a terminal state.
+    seed_member(
+        project,
+        user.id,
+        TaskflowProjectRole::Developer,
+        TaskflowMembershipStatus::Suspended,
+    )
+    .await;
+    // A fresh pending invite addressed to their own email.
+    let token = seed_invite(project, &user.email, TaskflowInviteStatus::Pending, None).await;
+
+    let res = app
+        .post_as(user.id, &format!("/api/taskflow/projects/invites/{token}/accept"))
+        .await;
+
+    assert_eq!(
+        res.status(),
+        403,
+        "a suspended member must not self-reactivate by accepting an invite",
+    );
+    assert_eq!(
+        app.member_status(project, user.id).await.as_deref(),
+        Some("suspended"),
+        "the membership must stay suspended",
+    );
+    assert_eq!(
+        app.count_active_members(project, user.id).await,
+        0,
+        "no active membership may result",
+    );
 }
 
 // --- decline ----------------------------------------------------------------

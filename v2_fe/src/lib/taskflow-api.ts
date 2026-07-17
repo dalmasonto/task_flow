@@ -15,7 +15,6 @@ import type {
   TaskflowProjectApiEndpoint,
   TaskflowProjectCreate,
   TaskflowProjectInvite,
-  TaskflowProjectInviteCreate,
   TaskflowProjectMember,
   TaskflowProjectUpdate,
   TaskflowTask,
@@ -328,8 +327,38 @@ export function createTaskflowAgentChannelMember(input: TaskflowAgentChannelMemb
   return taskflowApi.create(taskflowTables.agentChannelMembers, input)
 }
 
-export function createTaskflowProjectInvite(input: TaskflowProjectInviteCreate) {
-  return taskflowApi.create(taskflowTables.invites, input)
+/// What a client may say when creating an invite. `project` comes from the URL,
+/// and `status` / `invite_token` / `invited_by` / `expires_at` are all set
+/// server-side — the client cannot assert them. (The `taskflow_project_invite`
+/// auto-REST endpoint is read-only; this is the only mint path.)
+export type CreateInviteInput = {
+  email: string
+  role: TaskflowProjectInvite["role"]
+  display_name?: string | null
+}
+
+export async function createTaskflowProjectInvite(
+  projectId: number,
+  input: CreateInviteInput
+): Promise<TaskflowProjectInvite> {
+  const token = getStoredToken()
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}/invites`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "You must be an owner or admin of this project to invite members."
+        : `Could not create the invite (${response.status}).`
+    )
+  }
+  return response.json()
 }
 
 export function createTaskflowProject(input: TaskflowProjectCreate) {

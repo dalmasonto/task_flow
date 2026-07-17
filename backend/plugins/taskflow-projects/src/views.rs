@@ -7,10 +7,11 @@
 //! is the same "trust the identity, not the payload" shape as the agents
 //! `send_message` endpoint.
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use umbral::orm::ForeignKey;
 use umbral::web::{Json, Path, StatusCode};
@@ -18,8 +19,8 @@ use umbral_auth::{AuthUser, RequireAuth, auth_user};
 
 use crate::models::{
     TaskflowInviteStatus, TaskflowMembershipStatus, TaskflowProject, TaskflowProjectInvite,
-    TaskflowProjectMember, TaskflowTheme, TaskflowUserSettings, taskflow_project,
-    taskflow_project_invite, taskflow_project_member, taskflow_user_settings,
+    TaskflowProjectMember, TaskflowProjectRole, TaskflowTheme, TaskflowUserSettings,
+    taskflow_project, taskflow_project_invite, taskflow_project_member, taskflow_user_settings,
 };
 
 pub async fn health() -> &'static str {
@@ -118,6 +119,25 @@ pub async fn accept_invite(
         }
     }
 
+    // MEDIUM: suspension is terminal until an admin clears it. A suspended
+    // member must NOT be able to self-reactivate by accepting a fresh invite —
+    // only prior `invited` / `left` (or the idempotent already-`active`) states
+    // are reactivatable below. Checked before the transaction so a suspended
+    // caller never consumes the invite either.
+    if let Some(existing) = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::MEMBER_KEY.eq(member_key.as_str()),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        if existing.status == TaskflowMembershipStatus::Suspended {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     let display_name = caller.username.clone();
     let email = caller.email.clone();
     let role = invite.role;
@@ -211,6 +231,114 @@ pub async fn accept_invite(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(member))
+}
+
+/// The privilege rank of a role, high to low: owner > admin > developer >
+/// reviewer > viewer. Used to cap the role a caller may hand out at their own
+/// level, so an admin can never mint an `owner`.
+fn role_rank(role: TaskflowProjectRole) -> u8 {
+    match role {
+        TaskflowProjectRole::Owner => 4,
+        TaskflowProjectRole::Admin => 3,
+        TaskflowProjectRole::Developer => 2,
+        TaskflowProjectRole::Reviewer => 1,
+        TaskflowProjectRole::Viewer => 0,
+    }
+}
+
+/// How long a freshly minted invite stays valid.
+const INVITE_TTL_DAYS: i64 = 14;
+
+/// What a client may say when creating an invite: who to invite, at what role,
+/// and an optional display name. Everything security-relevant — `project`
+/// (path), `invited_by`/`status`/`invite_token` (server) — is deliberately
+/// ABSENT so there is no field to forge, exactly like the agents `send_message`
+/// endpoint.
+#[derive(Debug, Deserialize)]
+pub struct CreateInviteInput {
+    pub email: String,
+    pub role: TaskflowProjectRole,
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
+/// `POST /api/taskflow/projects/{project}/invites`
+///
+/// Create an invite into `{project}` (id from the PATH, never the body). This is
+/// the ONLY authorized way to mint an invite — the `taskflow_project_invite`
+/// table is read-only over auto-REST precisely so a caller cannot self-author
+/// one and then accept it into an ownership takeover.
+///
+/// Authorization: the caller must be an ACTIVE member of the project whose role
+/// is `owner` or `admin`, verified server-side against `TaskflowProjectMember`
+/// — a non-member, or a viewer/reviewer/developer, gets 403.
+///
+/// Role cap: the invited role may not out-rank the caller's own role
+/// (owner > admin > developer > reviewer > viewer). So an admin can invite up to
+/// `admin` but never `owner`; only an owner can mint an owner invite.
+///
+/// The `invite_token` is generated server-side (unguessable UUIDv4) and never
+/// accepted from the body; `status` is forced to `pending`, `invited_by` to the
+/// caller, and `expires_at` to now + 14 days.
+pub async fn create_invite(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<CreateInviteInput>,
+) -> Result<Json<TaskflowProjectInvite>, StatusCode> {
+    let email = input.email.trim();
+    if email.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Authorization is membership, not identity: the caller must be an ACTIVE
+    // member OF THIS PROJECT. Read from the table, never trusted from the
+    // request. Absent → 403 (a non-member cannot invite).
+    let caller_member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq("active"),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    let caller_rank = role_rank(caller_member.role);
+
+    // Only owners and admins may invite at all.
+    if caller_rank < role_rank(TaskflowProjectRole::Admin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Cap the invited role at the caller's own level: an admin cannot mint an
+    // owner (owner-rank 4 > admin-rank 3 → 403).
+    if role_rank(input.role) > caller_rank {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let now = Utc::now();
+    // Server-minted, unguessable token — never read from the body.
+    let token = format!("inv_{}", Uuid::new_v4().simple());
+
+    let invite = TaskflowProjectInvite::objects()
+        .create(TaskflowProjectInvite {
+            id: 0,
+            project: ForeignKey::new(project_id),
+            email: email.to_string(),
+            display_name: input.display_name.clone(),
+            role: input.role,
+            status: TaskflowInviteStatus::Pending,
+            invite_token: token,
+            invited_by: Some(ForeignKey::new(user_id)),
+            expires_at: Some(now + Duration::days(INVITE_TTL_DAYS)),
+            accepted_at: None,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(invite))
 }
 
 /// `POST /api/taskflow/projects/invites/{token}/decline`

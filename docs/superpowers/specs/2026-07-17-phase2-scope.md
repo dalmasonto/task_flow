@@ -53,6 +53,8 @@ group policy the same way. This is the live security bug and the foundation the 
 `admin` (seeded member of TaskFlow v2) sees exactly that project.
 
 ### SP-B — Account, Settings & Invitations — SECOND
+> **RELEASE-BLOCKER (HIGH):** invite-accept must require `email_verified_at` once an email-verification flow exists; until then, an attacker who signs up as `victim@email` can claim a real invite sent to that address. Not hard-gated now because signup sets `email_verified_at=None` and no verification email is ever sent, so a gate would make every invite unacceptable in dev.
+
 Backend:
 - **Invite accept/deny.** Add `Declined` to `TaskflowInviteStatus` (migration). New endpoints:
   `POST /api/taskflow/projects/invites/{token}/accept` and `.../decline`. Accept: verify the

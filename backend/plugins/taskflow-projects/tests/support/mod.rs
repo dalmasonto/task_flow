@@ -22,8 +22,8 @@ use umbral_testing::{TestClient, boot, seq};
 
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
-    TaskflowInviteStatus, TaskflowProject, TaskflowProjectInvite, TaskflowProjectMember,
-    TaskflowProjectRole, TaskflowProjectStatus, taskflow_project_member,
+    TaskflowInviteStatus, TaskflowMembershipStatus, TaskflowProject, TaskflowProjectInvite,
+    TaskflowProjectMember, TaskflowProjectRole, TaskflowProjectStatus, taskflow_project_member,
 };
 
 /// A seeded, authenticated user plus the account details a test needs to line
@@ -155,6 +155,54 @@ impl TestApp {
             .await
             .expect("count members")
     }
+
+    /// The stored `status` of a (project, user) membership, or `None` if there
+    /// is no such row. Lets a test assert a suspended member was NOT reactivated.
+    pub async fn member_status(&self, project: i64, user_id: i64) -> Option<String> {
+        TaskflowProjectMember::objects()
+            .filter(
+                taskflow_project_member::PROJECT.eq(project)
+                    & taskflow_project_member::USER.eq(user_id),
+            )
+            .first()
+            .await
+            .expect("load member")
+            .map(|m| {
+                serde_json::to_value(m.status)
+                    .expect("serialize status")
+                    .as_str()
+                    .expect("status serializes to a string")
+                    .to_string()
+            })
+    }
+}
+
+/// Seed a membership row with an explicit role and status (the create-invite
+/// authorization boundary and the suspended-reactivation guard both key on
+/// these). Links `user` and `member_key: user:{id}` so the accept flow's
+/// `unique_together` lookup finds it.
+pub async fn seed_member(
+    project: i64,
+    user_id: i64,
+    role: TaskflowProjectRole,
+    status: TaskflowMembershipStatus,
+) {
+    TaskflowProjectMember::objects()
+        .create(TaskflowProjectMember {
+            id: 0,
+            project: ForeignKey::new(project),
+            member_key: format!("user:{user_id}"),
+            user: Some(ForeignKey::new(user_id)),
+            display_name: format!("user-{user_id}"),
+            email: None,
+            role,
+            status,
+            invited_by: None,
+            created_at: None,
+            joined_at: None,
+        })
+        .await
+        .expect("create member");
 }
 
 pub async fn seed_project() -> i64 {

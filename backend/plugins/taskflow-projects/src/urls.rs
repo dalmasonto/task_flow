@@ -15,6 +15,14 @@ use crate::views;
 pub fn router() -> Router {
     Router::new()
         .route("/api/taskflow/projects/health", get(views::health))
+        // Create an invite — the ONLY authorized mint path. Project id from the
+        // path; owner/admin-gated; token generated server-side. The
+        // `taskflow_project_invite` auto-REST resource is read-only so this is
+        // the sole way a row is created.
+        .route(
+            "/api/taskflow/projects/{project}/invites",
+            post(views::create_invite),
+        )
         // Invite accept/decline — token in the path, caller from the auth token.
         .route(
             "/api/taskflow/projects/invites/{token}/accept",

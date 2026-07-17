@@ -379,6 +379,54 @@ async fn non_member_cannot_self_grant_membership() {
     );
 }
 
+/// THE invite-takeover regression. `taskflow_project_invite` was left writable,
+/// and the SP-B accept endpoint mints membership from an invite whose only check
+/// is that its `email` matches the caller. So a non-member could self-author an
+/// invite (`role:"owner"`) addressed to their own account, POST it (create is
+/// unscoped → 201), then accept it (email matches) to become an active OWNER of
+/// a project they were never part of — a full takeover that defeats the
+/// read-scope. Locking the table read-only (`.views([List, Retrieve])`) removes
+/// the create route, killing the chain at step one.
+///
+/// This FAILS against the old code (the POST returns 201) and PASSES after the
+/// fix (the POST is rejected 405 and bob still sees zero projects).
+#[tokio::test]
+async fn non_member_cannot_self_mint_invite() {
+    let (_, seed) = app().await;
+
+    // bob@example.test is bob's account email (see `make_user`). He tries to
+    // author his own owner-invite into project P.
+    let (status, body) = post_as(
+        seed.bob,
+        "/api/taskflow_project_invite/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "email": "bob@example.test",
+            "role": "owner",
+            "status": "pending",
+            "invite_token": "x",
+        }),
+    )
+    .await;
+
+    assert!(
+        status == 405 || status == 403 || status == 404,
+        "a self-authored invite POST must be REJECTED (read-only resource → \
+         405); a 201 here is the takeover primitive, got {status}: {body}",
+    );
+
+    // With the create route gone the takeover chain is dead at step one: there
+    // is no invite for the SP-B accept endpoint to consume, so bob still belongs
+    // to nothing. (The accept endpoint itself — under real token auth — is
+    // covered in the taskflow-projects `invites` test suite.)
+    let (pstatus, projects) = get_as(seed.bob, false, "/api/taskflow_project/").await;
+    assert_eq!(pstatus, 200);
+    assert!(
+        result_ids(&projects).is_empty(),
+        "after the rejected self-mint, bob must STILL see zero projects; got {projects}",
+    );
+}
+
 /// The credential table holds `key_hash` and is never client-created; locking it
 /// read-only means a non-member cannot POST into it either.
 #[tokio::test]

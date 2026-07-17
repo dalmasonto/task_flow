@@ -1296,15 +1296,6 @@ function mapLiveInviteStatus(status: TaskflowProjectInviteStatus): InviteRecord[
   return "Pending"
 }
 
-function generateInviteToken() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
-  return `invite-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-function formatInviteExpiry(days: number) {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
-}
-
 function formatInviteWindow(invite: TaskflowWorkspace["invites"][number]) {
   const status = mapLiveInviteStatus(invite.status)
   if (status === "Accepted") return "Accepted"
@@ -2249,15 +2240,10 @@ function App() {
         ? recipient
         : String(formData.get("display_name") ?? "").trim() || recipient.split("@")[0] || recipient
 
-    void createTaskflowProjectInvite({
-      project: projectId,
+    void createTaskflowProjectInvite(projectId, {
       email,
       display_name: displayName,
       role: toLiveInviteRole(role),
-      status: "pending",
-      invite_token: generateInviteToken(),
-      invited_by: currentUser?.id ?? null,
-      expires_at: formatInviteExpiry(7),
     })
       .then((invite) => {
         setDialogMode(null)
