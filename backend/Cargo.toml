@@ -67,3 +67,10 @@ sqlx = { version = "0.8", features = ["macros", "sqlite", "postgres", "chrono", 
 # Once you `umbral startapp <plugin>` or `umbral startplugin <plugin>`, add
 # the plugin crate here:
 # backend-posts = { path = "plugins/posts" }
+
+# ----- Test-only deps ------------------------------------------------------
+# Integration tests under `tests/` boot an in-process app and drive its router.
+[dev-dependencies]
+umbral-testing = "0.0.10"
+axum           = "0.8"
+http           = "1"

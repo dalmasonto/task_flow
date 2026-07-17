@@ -110,26 +110,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 Arc::new(BearerAuthentication::default()),
             ]);
 
-            RestPlugin::default()
+            // Every project-scoped resource is restricted to the caller's
+            // active-membership rows in `backend::rest` — a bare
+            // `ResourceConfig::new` here would let any logged-in user list
+            // EVERY project's data by id. `Post` (the demo model) and other
+            // non-project resources stay unscoped on purpose.
+            let mut rest = RestPlugin::default()
                 .authenticate(auth)
                 .default_permission(IsAuthenticated)
                 .default_throttle(UserRateThrottle::new("600/min"))
                 .resource(ResourceConfig::new(Post::table_name()))
-                .resource(ResourceConfig::new("taskflow_project"))
-                .resource(ResourceConfig::new("taskflow_project_member"))
-                .resource(ResourceConfig::new("taskflow_project_invite"))
-                .resource(ResourceConfig::new("taskflow_project_api_endpoint"))
-                .resource(ResourceConfig::new("taskflow_task"))
-                .resource(ResourceConfig::new("taskflow_task_relation"))
-                .resource(ResourceConfig::new("taskflow_task_activity"))
-                .resource(ResourceConfig::new("taskflow_task_session"))
-                .resource(ResourceConfig::new("taskflow_agent"))
-                .resource(ResourceConfig::new("taskflow_agent_credential"))
-                .resource(ResourceConfig::new("taskflow_agent_session"))
-                .resource(ResourceConfig::new("taskflow_agent_channel"))
-                .resource(ResourceConfig::new("taskflow_agent_channel_member"))
-                .resource(ResourceConfig::new("taskflow_agent_message"))
-                .resource(ResourceConfig::new("taskflow_agent_terminal_frame"))
+                .resource(backend::rest::project_resource());
+            for resource in backend::rest::project_scoped_resources() {
+                rest = rest.resource(resource);
+            }
+            rest
         })
         .plugin(PlaygroundPlugin::new("taskflow"))
         // OpenAPI: Swagger UI at /openapi/ (override with

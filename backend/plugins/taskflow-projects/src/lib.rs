@@ -19,6 +19,7 @@
 //! convention — the framework only needs a type that impls `Plugin`.
 
 pub mod models;
+pub mod scope;
 pub mod urls;
 pub mod views;
 

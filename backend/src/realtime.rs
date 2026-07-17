@@ -12,8 +12,9 @@
 //!
 //! Chat tables project their fields so the frontend renders straight from the
 //! event. Everything else stays id-only and is refetched over authenticated
-//! REST — projected columns reach every group member, and the group policy
-//! below still admits any authenticated user to any project room.
+//! REST. Projected columns reach every group member, so the group policy below
+//! admits a caller to `project:{id}:*` only when they are an active member of
+//! project `{id}` (superuser: any) — see `may_join`.
 
 use serde_json::Value;
 use taskflow_agents::models::{
@@ -97,9 +98,12 @@ pub fn plugin() -> RealtimePlugin {
                 .await
                 .map(|identity| identity.user_id)
         })
-        // Still permissive: any authenticated user may join any project room.
-        // Row-level membership checks land with the permissions sub-project.
-        .group_policy_fn(|user, group| user.is_some() && can_join_group(group))
+        // Membership-gated: a caller may join `project:{id}:*` only if they are
+        // an active member of project `{id}` (or a superuser). The projects-list
+        // group stays open to any authenticated user — it carries id-only
+        // events and the details behind them are refetched over REST, which is
+        // itself membership-scoped. See `may_join`.
+        .group_policy_fn(|user, group| may_join(user, group))
         // Presence gets its own group. Matching every `project:` prefix would
         // now spin up one presence set per table.
         .with_presence(PresenceSpec::matching(|group| {
@@ -160,8 +164,72 @@ pub fn group_for(suffix: &str, instance: &Value) -> String {
         .unwrap_or_else(|| PROJECTS_GROUP.to_string())
 }
 
-/// Which groups a client may join. Extracted so it is testable without a
-/// running server.
+/// The full join policy: a well-formed group name (see [`can_join_group`]) AND,
+/// for a project room, an active membership in that project.
+///
+/// `user` is the caller's pk string (or `None` for anonymous). Split from
+/// [`can_join_group`] so the pure name-shape checks stay synchronous and
+/// trivially unit-testable, while the membership check — which needs a DB
+/// round-trip — is isolated here.
+///
+/// ## Why a blocking DB call
+///
+/// `GroupPolicy::can_join` is **synchronous** in `umbral-realtime`, so the
+/// membership query cannot be `.await`ed directly. The server runs on the
+/// multi-threaded Tokio runtime (`#[tokio::main]`), where
+/// [`tokio::task::block_in_place`] + a runtime handle is the sanctioned way to
+/// drive a future to completion from a sync context: it hands the worker's other
+/// tasks to a sibling thread first, so it does not stall the executor. It would
+/// **panic** on a current-thread runtime, which is why the membership tests run
+/// under `#[tokio::test(flavor = "multi_thread")]`.
+///
+/// The clean long-term fix is an async `GroupPolicy` upstream in
+/// `umbral-realtime`; until then this closes the leak (a non-member receiving
+/// projected `body_markdown` over SSE) without a per-join thread stall in
+/// production.
+pub fn may_join(user: Option<&str>, group: &str) -> bool {
+    // Reject malformed / unknown group names up front — no DB work for them.
+    if !can_join_group(group) {
+        return false;
+    }
+    // Anonymous callers get nothing (the projects-list group included: SSE
+    // needs an identity to be useful, and REST is the scoped source of truth).
+    let Some(uid) = user else {
+        return false;
+    };
+    // The projects-list group is not project-specific; any authenticated user
+    // may listen to id-only project events.
+    if group == PROJECTS_GROUP {
+        return true;
+    }
+    // `project:{id}:{suffix}` — `can_join_group` already validated the shape,
+    // so the split and the non-empty id are guaranteed here.
+    let Some((id, _suffix)) = group
+        .strip_prefix("project:")
+        .and_then(|rest| rest.split_once(':'))
+    else {
+        return false;
+    };
+    let (Ok(user_id), Ok(project_id)) = (uid.parse::<i64>(), id.parse::<i64>()) else {
+        return false; // non-integer pk or project id: fail closed
+    };
+    membership_gate(user_id, project_id)
+}
+
+/// Run the async membership check from `can_join`'s synchronous context. Safe
+/// only on the multi-threaded runtime — see [`may_join`].
+fn membership_gate(user_id: i64, project_id: i64) -> bool {
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current()
+            .block_on(async move {
+                taskflow_projects::scope::can_access_project(user_id, project_id).await
+            })
+    })
+}
+
+/// Which groups are well-formed and known — a pure name-shape check with no
+/// membership component. Extracted so it is testable without a running server;
+/// [`may_join`] layers the membership gate on top.
 pub fn can_join_group(group: &str) -> bool {
     if group == PROJECTS_GROUP {
         return true;

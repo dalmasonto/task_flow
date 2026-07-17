@@ -6,3 +6,4 @@
 //! declared here; `seed`, `views`, and `widgets` stay private to the binary.
 
 pub mod realtime;
+pub mod rest;
