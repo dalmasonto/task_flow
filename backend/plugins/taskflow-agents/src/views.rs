@@ -1,15 +1,21 @@
 //! HTTP handlers for the `taskflow-agents` plugin.
 
 use serde::Deserialize;
+use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
 use umbral::orm::ForeignKey;
 use umbral::web::{Json, StatusCode};
 use umbral_auth::RequireAuth;
 
 use crate::models::{
-    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage,
+    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
     TaskflowChannelMemberKind, TaskflowMessagePriority, taskflow_agent_channel,
     taskflow_agent_channel_member, taskflow_agent_message,
 };
+
+/// The stored value of `TaskflowMembershipStatus::Active` — the status column is
+/// a string at the DB layer, so we compare against this literal (same convention
+/// as `taskflow_projects::scope`).
+const ACTIVE_MEMBERSHIP: &str = "active";
 
 /// The model caps `body_markdown` at 20000 chars. Rejecting at the edge turns
 /// what would otherwise be truncation or a DB-level error into an honest 400.
@@ -63,7 +69,23 @@ pub async fn send_message(
     // nonce is scoped to (channel, nonce) and carries no sender, so replaying
     // a guessed nonce ahead of this gate would hand a non-member back the
     // contents of a message they are not allowed to read.
-    let member = TaskflowAgentChannelMember::objects()
+    //
+    // Two membership concepts can authorize a post:
+    //   1. An explicit channel-roster row (`TaskflowAgentChannelMember`) — the
+    //      caller was added to this specific channel.
+    //   2. For SHARED project rooms only (Project / Task / Incident), active
+    //      membership of the channel's project. Project membership already
+    //      grants READ access to a project's shared rooms via SP-A scoping, so
+    //      it should grant POST access to those same rooms — otherwise a
+    //      legitimate project member can see and read a room but not speak in
+    //      it. DMs (`Direct`) are exempt: they stay private to their explicit
+    //      roster, so a project member is NOT let into a DM they weren't added
+    //      to.
+    //
+    // The roster row is not auto-created here (there is no unique_together on
+    // (channel, user), so a concurrent auto-insert could duplicate the row).
+    // The fallback authorizes the post; it does not join the roster.
+    let sender_label = match TaskflowAgentChannelMember::objects()
         .filter(
             taskflow_agent_channel_member::CHANNEL.eq(channel.id)
                 & taskflow_agent_channel_member::USER.eq(user_id),
@@ -71,7 +93,27 @@ pub async fn send_message(
         .first()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    {
+        Some(channel_member) => channel_member.display_name,
+        None => {
+            // No roster row. DMs are private to their explicit roster.
+            if channel.kind == TaskflowChannelKind::Direct {
+                return Err(StatusCode::FORBIDDEN);
+            }
+            // Shared project room: an active project member may post.
+            let project_member = TaskflowProjectMember::objects()
+                .filter(
+                    taskflow_project_member::PROJECT.eq(channel.project.id())
+                        & taskflow_project_member::USER.eq(user_id)
+                        & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+                )
+                .first()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .ok_or(StatusCode::FORBIDDEN)?;
+            project_member.display_name
+        }
+    };
 
     // Idempotency: the same nonce in the same channel is the same message.
     // A retry after a dropped response must not double-post.
@@ -101,7 +143,7 @@ pub async fn send_message(
             sender_kind: TaskflowChannelMemberKind::User,
             sender_user: Some(ForeignKey::new(user_id)),
             sender_agent: None,
-            sender_label: member.display_name.clone(),
+            sender_label,
             body_markdown: body.to_string(),
             priority: input.priority.unwrap_or(TaskflowMessagePriority::Normal),
             client_nonce: input.client_nonce.clone(),

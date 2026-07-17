@@ -27,7 +27,10 @@ use taskflow_agents::models::{
     TaskflowChannelMemberKind, taskflow_agent_channel, taskflow_agent_message,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
-use taskflow_projects::models::{TaskflowProject, TaskflowProjectStatus};
+use taskflow_projects::models::{
+    TaskflowMembershipStatus, TaskflowProject, TaskflowProjectMember, TaskflowProjectRole,
+    TaskflowProjectStatus,
+};
 use taskflow_tasks::TaskflowTasksPlugin;
 
 /// One round trip. Thin wrapper over `umbral_testing::TestResponse` that
@@ -165,6 +168,10 @@ async fn seed_project() -> i64 {
 }
 
 async fn seed_channel(project: i64) -> i64 {
+    seed_channel_of_kind(project, TaskflowChannelKind::Project).await
+}
+
+async fn seed_channel_of_kind(project: i64, kind: TaskflowChannelKind) -> i64 {
     let n = seq();
     TaskflowAgentChannel::objects()
         .create(TaskflowAgentChannel {
@@ -172,7 +179,7 @@ async fn seed_channel(project: i64) -> i64 {
             project: ForeignKey::new(project),
             title: format!("Channel {n}"),
             topic: None,
-            kind: TaskflowChannelKind::Project,
+            kind,
             task: None,
             created_by_user: None,
             created_by_agent: None,
@@ -182,6 +189,52 @@ async fn seed_channel(project: i64) -> i64 {
         .await
         .expect("create channel")
         .id
+}
+
+/// Seed a `TaskflowProjectMember` linking `user_id` to `project` with the given
+/// status. Returns the member's `display_name` so a test can assert the derived
+/// `sender_label` matches it.
+async fn seed_project_member(
+    project: i64,
+    user_id: i64,
+    status: TaskflowMembershipStatus,
+) -> String {
+    let display_name = format!("Project Member {user_id}");
+    TaskflowProjectMember::objects()
+        .create(TaskflowProjectMember {
+            id: 0,
+            project: ForeignKey::new(project),
+            member_key: format!("user:{user_id}"),
+            user: Some(ForeignKey::new(user_id)),
+            display_name: display_name.clone(),
+            email: None,
+            role: TaskflowProjectRole::Developer,
+            status,
+            invited_by: None,
+            created_at: None,
+            joined_at: None,
+        })
+        .await
+        .expect("create project member");
+    display_name
+}
+
+/// A channel of `kind` plus a user who is a project member of that channel's
+/// project (with the given membership `status`) but is NOT on the channel
+/// roster. Returns `(channel, user, project_member_display_name)`.
+///
+/// This is the exact shape of the reported bug: joining via invite creates a
+/// `TaskflowProjectMember` but never a `TaskflowAgentChannelMember`.
+pub async fn seed_project_member_off_roster(
+    app: &TestApp,
+    kind: TaskflowChannelKind,
+    status: TaskflowMembershipStatus,
+) -> (i64, i64, String) {
+    let project = seed_project().await;
+    let channel = seed_channel_of_kind(project, kind).await;
+    let user = app.create_user().await;
+    let display_name = seed_project_member(project, user, status).await;
+    (channel, user, display_name)
 }
 
 /// A channel plus a user who HAS joined it.

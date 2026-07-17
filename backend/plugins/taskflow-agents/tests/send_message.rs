@@ -4,7 +4,11 @@
 use serde_json::json;
 
 mod support;
-use support::{TestApp, seed_channel_with_member, seed_channel_without_member};
+use support::{
+    TestApp, seed_channel_with_member, seed_channel_without_member, seed_project_member_off_roster,
+};
+use taskflow_agents::models::TaskflowChannelKind;
+use taskflow_projects::models::TaskflowMembershipStatus;
 
 #[tokio::test]
 async fn derives_sender_from_identity_and_ignores_client_claims() {
@@ -47,6 +51,91 @@ async fn rejects_non_member_with_403() {
             json!({
                 "channel": channel,
                 "body_markdown": "let me in",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 403);
+}
+
+// A user who joined a project via invite gets a `TaskflowProjectMember` but no
+// channel-roster row. They can see and read the project's shared rooms (SP-A
+// scoping), so they must be able to POST in them too — this is the reported bug.
+#[tokio::test]
+async fn active_project_member_off_roster_can_post_in_project_channel() {
+    let app = TestApp::new().await;
+    let (channel, user, display_name) = seed_project_member_off_roster(
+        &app,
+        TaskflowChannelKind::Project,
+        TaskflowMembershipStatus::Active,
+    )
+    .await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "posting as a project member",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
+    let row = response.json().await;
+    assert_eq!(row["sender_user"], json!(user));
+    assert_eq!(row["sender_kind"], json!("user"));
+    // The label is the project-member display_name — a real, non-empty value,
+    // not "" and not a fabricated one.
+    assert_eq!(row["sender_label"], json!(display_name));
+}
+
+// DMs stay private to their explicit roster. Project membership must NOT let a
+// user into a Direct channel they were never added to.
+#[tokio::test]
+async fn active_project_member_off_roster_cannot_post_in_direct_channel() {
+    let app = TestApp::new().await;
+    let (channel, user, _) = seed_project_member_off_roster(
+        &app,
+        TaskflowChannelKind::Direct,
+        TaskflowMembershipStatus::Active,
+    )
+    .await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "let me into this DM",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 403);
+}
+
+// A non-active (suspended) project member has no live access to the project, so
+// the fallback must not authorize them even in a shared room.
+#[tokio::test]
+async fn suspended_project_member_cannot_post_in_project_channel() {
+    let app = TestApp::new().await;
+    let (channel, user, _) = seed_project_member_off_roster(
+        &app,
+        TaskflowChannelKind::Project,
+        TaskflowMembershipStatus::Suspended,
+    )
+    .await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "suspended but trying",
             }),
         )
         .await;
