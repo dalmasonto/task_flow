@@ -30,7 +30,9 @@ async fn derives_sender_from_identity_and_ignores_client_claims() {
     let row = response.json().await;
     assert_eq!(row["sender_user"], json!(user));
     assert_eq!(row["sender_kind"], json!("user"));
-    assert_ne!(row["sender_label"], json!("Totally The CEO"));
+    // Pin the actual derived value, not merely "not the client's lie" — the
+    // latter would also pass for null, "", or any other wrong value.
+    assert_eq!(row["sender_label"], json!(format!("Member {user}")));
 }
 
 #[tokio::test]
@@ -91,6 +93,25 @@ async fn rejects_empty_body_with_400() {
 }
 
 #[tokio::test]
+async fn rejects_body_over_max_chars_with_400() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "a".repeat(20_001),
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
 async fn same_nonce_twice_inserts_once_and_returns_the_stored_row() {
     let app = TestApp::new().await;
     let (channel, user) = seed_channel_with_member(&app).await;
@@ -130,6 +151,45 @@ async fn derives_project_from_the_channel() {
         )
         .await;
 
+    assert_eq!(response.status(), 200);
     let row = response.json().await;
     assert_eq!(row["project"], json!(app.project_of_channel(channel).await));
+}
+
+// The 403 check MUST run before the idempotency lookup. The nonce is scoped
+// to (channel, nonce) only — it carries no sender — so an outsider who
+// guesses or observes a nonce must not be able to replay it and have the
+// idempotency branch hand back the stored message body. If a future
+// refactor "tidies" the handler by moving the idempotency check earlier,
+// this test must fail.
+#[tokio::test]
+async fn non_member_replaying_a_nonce_gets_403_not_the_stored_row() {
+    let app = TestApp::new().await;
+    let (channel, member) = seed_channel_with_member(&app).await;
+    let outsider = app.create_user().await;
+
+    app.post_as(
+        member,
+        "/api/taskflow/agents/messages",
+        json!({
+            "channel": channel,
+            "body_markdown": "secret plans",
+            "client_nonce": "n-1",
+        }),
+    )
+    .await;
+
+    let replay = app
+        .post_as(
+            outsider,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "gimme",
+                "client_nonce": "n-1",
+            }),
+        )
+        .await;
+
+    assert_eq!(replay.status(), 403, "leaked: {:?}", replay.json().await);
 }

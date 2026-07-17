@@ -8,7 +8,7 @@ edition = "2024"
 # cannot be tested because it requires dev-dependencies and is not a member
 # of the workspace"), which is what a plugin's `tests/` directory needs.
 [workspace]
-members = ["plugins/taskflow-agents", "plugins/taskflow-projects", "plugins/taskflow-tasks"]
+members = ["plugins/*"]
 
 [dependencies]
 taskflow-agents = { path = "plugins/taskflow-agents" }
