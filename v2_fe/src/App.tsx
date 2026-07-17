@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react"
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import {
   ActivityIcon,
@@ -4817,32 +4817,12 @@ function AgentWorkbenchView({
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
   const [stagedAttachments, setStagedAttachments] = useState<AgentAttachment[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const canSendMessage = draftMessage.trim().length > 0 || stagedAttachments.length > 0
   const focusComposer = () => {
     composerRef.current?.focus()
   }
   const addStagedAttachment = (attachment: AgentAttachment) => {
     setStagedAttachments((current) => [...current, attachment])
-  }
-  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? [])
-    if (!files.length) return
-
-    setStagedAttachments((current) => [
-      ...current,
-      ...files.map((file) => ({
-        id: `att-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        kind: attachmentKindFromFile(file),
-        name: file.name,
-        detail: "Local file queued for API upload and agent download.",
-        source: "upload" as const,
-        path: `/uploads/pending/${encodeURIComponent(file.name)}`,
-        size: formatBytes(file.size),
-        mimeType: file.type || "application/octet-stream",
-      })),
-    ])
-    event.target.value = ""
   }
   const addContextAttachment = () => {
     addStagedAttachment({
@@ -5013,14 +4993,6 @@ function AgentWorkbenchView({
               </span>
               <span className="text-muted-foreground">{composerHint}</span>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              accept="image/*,.md,.markdown,.txt,.json,.pdf"
-              onChange={handleFileSelect}
-            />
             {stagedAttachments.length ? (
               <AttachmentList
                 attachments={stagedAttachments}
@@ -5044,7 +5016,14 @@ function AgentWorkbenchView({
             />
             <div className="flex flex-wrap justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  title="File upload is coming soon"
+                  aria-label="Attach file (coming soon)"
+                >
                   <FileTextIcon />
                   Attach File
                 </Button>
@@ -5121,19 +5100,6 @@ function describeMembers(members: ConversationMember[]) {
   ].filter(Boolean)
 
   return `${members.length} member${members.length === 1 ? "" : "s"}${parts.length ? `, ${parts.join(", ")}` : ""}`
-}
-
-function attachmentKindFromFile(file: File): AgentAttachment["kind"] {
-  if (file.type.startsWith("image/")) return "image"
-  if (file.name.toLowerCase().endsWith(".md") || file.name.toLowerCase().endsWith(".markdown")) return "markdown"
-  if (file.type === "text/uri-list") return "url"
-  return "file"
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function attachmentIcon(attachment: AgentAttachment) {
