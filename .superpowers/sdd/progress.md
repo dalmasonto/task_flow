@@ -9,7 +9,7 @@ Pre-work restore point: 374df9d
 - [x] 1  Model changes (client_nonce, ChannelMember.project)
 - [x] 2  Send endpoint
 - [x] 3  Realtime per-table groups
-- [ ] 4  Seed chat workspace
+- [x] 4  Seed chat workspace
 - [ ] 5  Regenerate client
 - [ ] 6  FE api layer (groups, subs, send)
 - [ ] 7  Reconcile reducer + vitest
@@ -54,3 +54,10 @@ Task 3: complete (commits 1f8a47b..8f1bfe0, review clean, no fix pass needed)
   Reviewer confirmed the chat projections make NOTHING newly reachable -- auto-REST is already
   unscoped (IsAuthenticated only), so any user can already GET any project's messages. The
   projection converts pull to push. Real fix is the permissions sub-project.
+Task 4: complete (commits 1e443a7..d5e4b8c, review clean after 1 fix pass)
+  Reviewer caught two Important defects the report missed: (1) no Environment::Dev guard, so the
+  seed would inject a demo project into a Prod DB with real users and hand it to the lowest-id
+  user; (2) non-transactional inserts + channel-only idempotency guard meant a crash between the
+  project and channel inserts permanently crashed boot on the unique slug constraint. Both fixed
+  (guard matches credentials.rs; umbral::transaction wraps all three creates, rollback verified
+  against umbral-core). Prod guard verified empirically: UMBRAL_ENVIRONMENT=prod seeds 0 rows.
