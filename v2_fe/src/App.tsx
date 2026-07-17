@@ -116,7 +116,7 @@ type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
 
 type Priority = "P0" | "P1" | "P2"
 
-type DialogMode = "new-project" | "edit-project" | "new-task" | "invite" | "api-contract" | "agent-message" | "review-decision" | null
+type DialogMode = "new-project" | "edit-project" | "new-task" | "invite" | "api-contract" | "review-decision" | null
 
 type AuthMode = "login" | "signup" | "reset" | "confirm"
 
@@ -349,15 +349,6 @@ const syncModeOptions = [
   { value: "manual", label: "Manual" },
 ]
 
-const recipientOptions = [
-  { value: "all", label: "All project agents" },
-  { value: "frontend-ui", label: "frontend-ui" },
-  { value: "backend", label: "backend" },
-  { value: "qa-agent", label: "qa-agent" },
-  { value: "channel-project-ui", label: "Channel: Project UI delivery" },
-  { value: "channel-verification", label: "Channel: Verification lane" },
-  { value: "channel-agent-ops", label: "Channel: Agent operations" },
-]
 
 const messagePriorityOptions = [
   { value: "normal", label: "Normal" },
@@ -2308,7 +2299,7 @@ function App() {
                       <GitBranchIcon />
                       API Contract
                     </Button>
-                    <Button size="sm" onClick={() => setDialogMode("agent-message")}>
+                    <Button size="sm" onClick={() => navigate("/dashboard/agents")}>
                       <PlayIcon />
                       Start Work
                     </Button>
@@ -2440,7 +2431,7 @@ function App() {
                 onInvite={() => setDialogMode("invite")}
                 onContract={() => setDialogMode("api-contract")}
               />
-              <AgentRoom agents={activeLiveWorkspace?.agents ?? []} onMessage={() => setDialogMode("agent-message")} />
+              <AgentRoom agents={activeLiveWorkspace?.agents ?? []} onMessage={() => navigate("/dashboard/agents")} />
               <ReviewQueue
                 tasks={projectTasks.filter((task) => task.status === "review")}
                 onReview={(taskId) => {
@@ -2464,7 +2455,7 @@ function App() {
                     onWorkspaceUpdate={(updater) => {
                       if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
                     }}
-                    onMessage={() => setDialogMode("agent-message")}
+                    onMessage={() => navigate("/dashboard/agents")}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
@@ -2560,7 +2551,7 @@ function App() {
             setReviewTaskId(openTask.id)
             setDialogMode("review-decision")
           }}
-          onOpenMessage={() => setDialogMode("agent-message")}
+          onOpenMessage={() => navigate("/dashboard/agents")}
           onStartSession={handleStartTaskSession}
           onPauseSession={handlePauseTaskSession}
           onStopSession={handleStopTaskSession}
@@ -5800,7 +5791,6 @@ function WorkspaceDialog({
     "new-task": "Create Task",
     invite: "Invite User Or Agent",
     "api-contract": "API Contract",
-    "agent-message": "Message Agents",
     "review-decision": "Human Review",
   }
 
@@ -5914,13 +5904,13 @@ function WorkspaceDialog({
                 <SelectField name="priority" defaultValue="P1" options={priorityOptions} />
               </FormField>
               <FormField label="Owner">
-                <Input name="owner" placeholder="Mina Stone" />
+                <Input name="owner" placeholder="Name, or leave unassigned" />
               </FormField>
               <FormField label="Operator">
-                <Input name="operatorName" placeholder="frontend-ui, backend, human" />
+                <Input name="operatorName" placeholder="Agent or human" />
               </FormField>
               <FormField label="Due">
-                <Input name="due" placeholder="Today, Friday, Sprint 2" />
+                <Input name="due" placeholder="Date or milestone" />
               </FormField>
               <FormField label="Estimate">
                 <Input name="estimate" placeholder="2h" />
@@ -5954,7 +5944,7 @@ function WorkspaceDialog({
           <form className="space-y-4 p-5" onSubmit={(event) => void runSubmit(event, onCreateInvite)}>
             <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
               <FormField label="Email or agent name">
-                <Input name="recipient" required placeholder="dev@company.com or qa-agent" />
+                <Input name="recipient" required placeholder="teammate@example.com" />
               </FormField>
               <FormField label="Type">
                 <SelectField name="type" defaultValue="user" options={inviteTypeOptions} />
@@ -6011,29 +6001,6 @@ function WorkspaceDialog({
               />
             </FormField>
             <DialogActions onClose={onClose} submitLabel="Save Contract" submitIcon={<CheckIcon />} />
-          </form>
-        ) : null}
-
-        {mode === "agent-message" ? (
-          <form
-            className="space-y-4 p-5"
-            onSubmit={(event) => {
-              event.preventDefault()
-              onClose()
-            }}
-          >
-            <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
-              <FormField label="Recipient">
-                <SelectField name="recipient" defaultValue="all" options={recipientOptions} />
-              </FormField>
-              <FormField label="Priority">
-                <SelectField name="messagePriority" defaultValue="normal" options={messagePriorityOptions} />
-              </FormField>
-            </div>
-            <FormField label="Message">
-              <textarea className={textareaClass} required placeholder="Write the handoff, question, or review request." />
-            </FormField>
-            <DialogActions onClose={onClose} submitLabel="Send Message" submitIcon={<SendIcon />} />
           </form>
         ) : null}
 
