@@ -9,7 +9,6 @@ import type {
   TaskflowAgentChannelMemberCreate,
   TaskflowAgentCredential,
   TaskflowAgentMessage,
-  TaskflowAgentMessageCreate,
   TaskflowAgentSession,
   TaskflowAgentTerminalFrame,
   TaskflowProject,
@@ -50,10 +49,31 @@ export const taskflowTables = {
   terminalFrames: "taskflow_agent_terminal_frame",
 } as const
 
+/// Group suffixes are a contract with backend/src/realtime.rs — short labels,
+/// not table names. A mismatch fails silently: the subscription opens and
+/// simply never fires.
+const realtimeGroupSuffixes = {
+  [taskflowTables.members]: "project_members",
+  [taskflowTables.invites]: "project_invites",
+  [taskflowTables.apiEndpoints]: "api_endpoints",
+  [taskflowTables.tasks]: "tasks",
+  [taskflowTables.taskRelations]: "task_relations",
+  [taskflowTables.taskActivity]: "task_activity",
+  [taskflowTables.taskSessions]: "task_sessions",
+  [taskflowTables.agents]: "agents",
+  [taskflowTables.agentCredentials]: "agent_credentials",
+  [taskflowTables.agentSessions]: "agent_sessions",
+  [taskflowTables.agentChannels]: "channels",
+  [taskflowTables.agentChannelMembers]: "channel_members",
+  [taskflowTables.agentMessages]: "messages",
+  [taskflowTables.terminalFrames]: "terminal_frames",
+} as const satisfies Record<Exclude<RealtimeTableName, typeof taskflowTables.projects>, string>
+
 export const taskflowGroups = {
   projects: "taskflow:projects",
-  agents: "taskflow:agents",
-  project: (projectId: number | string) => `project:${projectId}`,
+  presence: (projectId: number | string) => `project:${projectId}:presence`,
+  forTable: (table: keyof typeof realtimeGroupSuffixes, projectId: number | string) =>
+    `project:${projectId}:${realtimeGroupSuffixes[table]}`,
 } as const
 
 export const taskflowApi = new Umbral(API_BASE_URL, {
@@ -132,13 +152,22 @@ const projectScopedRealtimeTables = [
   taskflowTables.agentCredentials,
   taskflowTables.agentSessions,
   taskflowTables.agentChannels,
+  taskflowTables.agentChannelMembers,
   taskflowTables.agentMessages,
   taskflowTables.terminalFrames,
 ] satisfies RealtimeTableName[]
 
-const agentGlobalRealtimeTables = [
+/// Chat tables project their fields (backend/src/realtime.rs), so their events
+/// carry the whole row and need no refetch. Everything else is id-only.
+export const realtimeTablesWithInlineRows = [
+  taskflowTables.agentMessages,
+  taskflowTables.agentChannels,
   taskflowTables.agentChannelMembers,
-] satisfies RealtimeTableName[]
+] as const satisfies readonly RealtimeTableName[]
+
+export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {
+  return (realtimeTablesWithInlineRows as readonly string[]).includes(table)
+}
 
 function onAnyModelChange(onChange: () => void): ModelEvents<Record<string, unknown>> {
   return {
@@ -259,8 +288,35 @@ export function updateTaskflowTaskSession(sessionId: number, input: TaskflowTask
   return taskflowApi.update(taskflowTables.taskSessions, sessionId, input)
 }
 
-export function sendTaskflowAgentMessage(input: TaskflowAgentMessageCreate) {
-  return taskflowApi.create(taskflowTables.agentMessages, input)
+/// What the client is allowed to say. sender_kind/sender_user/sender_label and
+/// project are derived server-side from the authenticated identity and the
+/// channel — the client cannot assert them.
+export type SendMessageInput = {
+  channel: number
+  body_markdown: string
+  priority?: TaskflowAgentMessage["priority"]
+  client_nonce?: string
+}
+
+export async function sendTaskflowAgentMessage(input: SendMessageInput): Promise<TaskflowAgentMessage> {
+  const token = getStoredToken()
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/messages`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "You are not a member of this channel."
+        : `Could not send the message (${response.status}).`
+    )
+  }
+  return response.json()
 }
 
 export function createTaskflowAgentChannel(input: TaskflowAgentChannelCreate) {
@@ -300,26 +356,21 @@ export function subscribeToTaskflowProjectEvents(onEvent: (event: TaskflowRealti
 }
 
 export function subscribeToTaskflowWorkspace(projectId: number, onChange: () => void) {
-  const projectGroup = taskflowGroups.project(projectId)
-  const handlers = onAnyModelChange(onChange)
-  const subscriptions = [
-    ...projectScopedRealtimeTables.map((table) => taskflowApi.on(table as TableName, handlers, { group: projectGroup })),
-    ...agentGlobalRealtimeTables.map((table) => taskflowApi.on(table as TableName, handlers, { group: taskflowGroups.agents })),
-  ]
+  const subscriptions = projectScopedRealtimeTables.map((table) =>
+    taskflowApi.on(table as TableName, onAnyModelChange(onChange), {
+      group: taskflowGroups.forTable(table, projectId),
+    })
+  )
 
   return () => closeAll(subscriptions)
 }
 
 export function subscribeToTaskflowWorkspaceEvents(projectId: number, onEvent: (event: TaskflowRealtimeEvent) => void) {
-  const projectGroup = taskflowGroups.project(projectId)
-  const subscriptions = [
-    ...projectScopedRealtimeTables.map((table) =>
-      taskflowApi.on(table as TableName, onRealtimeModelChange(table, onEvent), { group: projectGroup })
-    ),
-    ...agentGlobalRealtimeTables.map((table) =>
-      taskflowApi.on(table as TableName, onRealtimeModelChange(table, onEvent), { group: taskflowGroups.agents })
-    ),
-  ]
+  const subscriptions = projectScopedRealtimeTables.map((table) =>
+    taskflowApi.on(table as TableName, onRealtimeModelChange(table, onEvent), {
+      group: taskflowGroups.forTable(table, projectId),
+    })
+  )
 
   return () => closeAll(subscriptions)
 }
