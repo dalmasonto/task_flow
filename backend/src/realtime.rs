@@ -20,6 +20,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentTerminalFrame,
+    TaskflowMessageAttachment,
 };
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
@@ -35,6 +36,7 @@ const PROJECTS_GROUP: &str = "taskflow:projects";
 /// `taskflowGroups` builder in `v2_fe/src/lib/taskflow-api.ts` — they are short
 /// labels, not table names, and the two lists must stay identical.
 const MESSAGES: &str = "messages";
+const MESSAGE_ATTACHMENTS: &str = "message_attachments";
 const CHANNELS: &str = "channels";
 const CHANNEL_MEMBERS: &str = "channel_members";
 const TASKS: &str = "tasks";
@@ -87,6 +89,19 @@ const CHANNEL_MEMBER_FIELDS: &[&str] = &[
     "role",
     "joined_at",
 ];
+/// Attachment columns the frontend needs to render an inline image or a
+/// download row. `file` is the storage key; the client resolves the display URL
+/// as `/media/<key>` (the same value `FileField::url()` produces).
+const MESSAGE_ATTACHMENT_FIELDS: &[&str] = &[
+    "id",
+    "message",
+    "project",
+    "file",
+    "name",
+    "content_type",
+    "size_bytes",
+    "created_at",
+];
 
 /// Build the configured realtime plugin.
 pub fn plugin() -> RealtimePlugin {
@@ -121,6 +136,12 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowAgentChannelMember>(
             Expose::to_group_with(|ev| group_for(CHANNEL_MEMBERS, &ev.instance))
                 .fields(CHANNEL_MEMBER_FIELDS),
+        )
+        // Attachments: fields projected so other clients merge new files by
+        // their `message` FK without a refetch (same posture as chat).
+        .expose::<TaskflowMessageAttachment>(
+            Expose::to_group_with(|ev| group_for(MESSAGE_ATTACHMENTS, &ev.instance))
+                .fields(MESSAGE_ATTACHMENT_FIELDS),
         )
         // Everything else: id-only, client refetches the one row that changed.
         .expose::<TaskflowProjectMember>(Expose::to_group_with(|ev| {
@@ -245,6 +266,7 @@ pub fn can_join_group(group: &str) -> bool {
 
 const ALL_SUFFIXES: &[&str] = &[
     MESSAGES,
+    MESSAGE_ATTACHMENTS,
     CHANNELS,
     CHANNEL_MEMBERS,
     TASKS,

@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use taskflow_projects::models::TaskflowProject;
 use taskflow_tasks::models::TaskflowTask;
-use umbral::orm::{Choices, ForeignKey};
+use umbral::orm::{Choices, FileField, ForeignKey};
 use umbral_auth::AuthUser;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
@@ -235,6 +235,36 @@ pub struct TaskflowAgentMessage {
     /// re-posting the same nonce to the same channel returns the stored row.
     #[umbral(string, max_length = 64)]
     pub client_nonce: Option<String>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// A file attached to a chat message. One row per uploaded file; the file
+/// itself lives in the ambient storage backend (a `FileField` holds only the
+/// storage key). `project` is denormalized from `message.channel.project` for
+/// realtime routing and read scoping, exactly like `TaskflowAgentMessage`.
+///
+/// Created only through the trusted send endpoint (`POST
+/// /api/taskflow/agents/messages`), never client REST — see
+/// `backend::rest::READ_ONLY_PROJECT_SCOPED_TABLES`.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowMessageAttachment {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    /// The stored file — serializes as the bare storage key; `.url()` resolves
+    /// to `/media/<key>`.
+    pub file: FileField,
+    /// Original filename the client sent.
+    #[umbral(string, max_length = 260)]
+    pub name: String,
+    /// MIME type identified at save time. The frontend derives image-vs-file
+    /// from this (`image/` prefix → inline image).
+    #[umbral(string, max_length = 160)]
+    pub content_type: String,
+    pub size_bytes: i64,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

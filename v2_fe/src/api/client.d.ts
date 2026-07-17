@@ -121,6 +121,20 @@ export interface AuthToken {
   last_used_at: string | null;
 }
 
+/**
+ * Media file
+ * Table `media_file`, from the `app` plugin.
+ */
+export interface MediaFile {
+  id: number;
+  key: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string;
+  status: string;
+}
+
 /** Table `post`, from the `app` plugin. */
 export interface Post {
   id: number;
@@ -261,6 +275,20 @@ export interface TaskflowAgentTerminalFrame {
   stream: TaskflowAgentTerminalFrameStream;
   sequence: number;
   content: string;
+  created_at: string | null;
+}
+
+/** Table `taskflow_message_attachment`, from the `app` plugin. */
+export interface TaskflowMessageAttachment {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowAgentMessage (`taskflow_agent_message`). */
+  message: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  file: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
   created_at: string | null;
 }
 
@@ -594,6 +622,61 @@ export interface AuthTokenUpdate {
   name?: string;
   created_at?: string;
   last_used_at?: string | null;
+}
+
+/** Filterable query parameters for `media_file`. Every key is optional and AND-combined server-side. */
+export interface MediaFileFilters {
+  "key"?: string;
+  "key__ne"?: string;
+  "key__contains"?: string;
+  "key__icontains"?: string;
+  "key__startswith"?: string;
+  "key__in"?: string[];
+  "filename"?: string;
+  "filename__ne"?: string;
+  "filename__contains"?: string;
+  "filename__icontains"?: string;
+  "filename__startswith"?: string;
+  "filename__in"?: string[];
+  "content_type"?: string;
+  "content_type__ne"?: string;
+  "content_type__contains"?: string;
+  "content_type__icontains"?: string;
+  "content_type__startswith"?: string;
+  "content_type__in"?: string[];
+  "size"?: number;
+  "size__ne"?: number;
+  "size__gte"?: number;
+  "size__lte"?: number;
+  "size__gt"?: number;
+  "size__lt"?: number;
+  "size__in"?: number[];
+  "uploaded_at"?: string;
+  "uploaded_at__ne"?: string;
+  "uploaded_at__gte"?: string;
+  "uploaded_at__lte"?: string;
+  "uploaded_at__gt"?: string;
+  "uploaded_at__lt"?: string;
+  "uploaded_at__in"?: string[];
+  "status"?: string;
+  "status__ne"?: string;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: string[];
+}
+export type MediaFileOrdering = "id" | "-id" | "key" | "-key" | "filename" | "-filename" | "content_type" | "-content_type" | "size" | "-size" | "uploaded_at" | "-uploaded_at" | "status" | "-status";
+/** Body for creating a `media_file`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface MediaFileCreate {
+  key: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string;
+  status?: string;
+}
+/** Body for updating a `media_file` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface MediaFileUpdate {
 }
 
 /** Filterable query parameters for `post`. Every key is optional and AND-combined server-side. */
@@ -1255,6 +1338,68 @@ export interface TaskflowAgentTerminalFrameUpdate {
   stream?: TaskflowAgentTerminalFrameStream;
   sequence?: number;
   content?: string;
+}
+
+/** Filterable query parameters for `taskflow_message_attachment`. Every key is optional and AND-combined server-side. */
+export interface TaskflowMessageAttachmentFilters {
+  "message"?: number;
+  "message__ne"?: number;
+  "message__in"?: number[];
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "file"?: string;
+  "file__ne"?: string;
+  "file__contains"?: string;
+  "file__icontains"?: string;
+  "file__startswith"?: string;
+  "file__in"?: string[];
+  "name"?: string;
+  "name__ne"?: string;
+  "name__contains"?: string;
+  "name__icontains"?: string;
+  "name__startswith"?: string;
+  "name__in"?: string[];
+  "content_type"?: string;
+  "content_type__ne"?: string;
+  "content_type__contains"?: string;
+  "content_type__icontains"?: string;
+  "content_type__startswith"?: string;
+  "content_type__in"?: string[];
+  "size_bytes"?: number;
+  "size_bytes__ne"?: number;
+  "size_bytes__gte"?: number;
+  "size_bytes__lte"?: number;
+  "size_bytes__gt"?: number;
+  "size_bytes__lt"?: number;
+  "size_bytes__in"?: number[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowMessageAttachmentOrdering = "id" | "-id" | "message" | "-message" | "project" | "-project" | "file" | "-file" | "name" | "-name" | "content_type" | "-content_type" | "size_bytes" | "-size_bytes" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_message_attachment`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowMessageAttachmentCreate {
+  message: number;
+  project: number;
+  file: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
+}
+/** Body for updating a `taskflow_message_attachment` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowMessageAttachmentUpdate {
+  message?: number;
+  project?: number;
+  file?: string;
+  name?: string;
+  content_type?: string;
+  size_bytes?: number;
 }
 
 /** Filterable query parameters for `taskflow_project`. Every key is optional and AND-combined server-side. */
@@ -2031,6 +2176,7 @@ export interface UmbralResources {
   "admin_user_pref": { row: AdminUserPref; filters: AdminUserPrefFilters; ordering: AdminUserPrefOrdering; create: AdminUserPrefCreate; update: AdminUserPrefUpdate; id: number };
   "auth_challenge": { row: AuthChallenge; filters: AuthChallengeFilters; ordering: AuthChallengeOrdering; create: AuthChallengeCreate; update: AuthChallengeUpdate; id: number };
   "auth_token": { row: AuthToken; filters: AuthTokenFilters; ordering: AuthTokenOrdering; create: AuthTokenCreate; update: AuthTokenUpdate; id: number };
+  "media_file": { row: MediaFile; filters: MediaFileFilters; ordering: MediaFileOrdering; create: MediaFileCreate; update: MediaFileUpdate; id: number };
   "post": { row: Post; filters: PostFilters; ordering: PostOrdering; create: PostCreate; update: PostUpdate; id: number };
   "taskflow_agent": { row: TaskflowAgent; filters: TaskflowAgentFilters; ordering: TaskflowAgentOrdering; create: TaskflowAgentCreate; update: TaskflowAgentUpdate; id: number };
   "taskflow_agent_channel": { row: TaskflowAgentChannel; filters: TaskflowAgentChannelFilters; ordering: TaskflowAgentChannelOrdering; create: TaskflowAgentChannelCreate; update: TaskflowAgentChannelUpdate; id: number };
@@ -2039,6 +2185,7 @@ export interface UmbralResources {
   "taskflow_agent_message": { row: TaskflowAgentMessage; filters: TaskflowAgentMessageFilters; ordering: TaskflowAgentMessageOrdering; create: TaskflowAgentMessageCreate; update: TaskflowAgentMessageUpdate; id: number };
   "taskflow_agent_session": { row: TaskflowAgentSession; filters: TaskflowAgentSessionFilters; ordering: TaskflowAgentSessionOrdering; create: TaskflowAgentSessionCreate; update: TaskflowAgentSessionUpdate; id: number };
   "taskflow_agent_terminal_frame": { row: TaskflowAgentTerminalFrame; filters: TaskflowAgentTerminalFrameFilters; ordering: TaskflowAgentTerminalFrameOrdering; create: TaskflowAgentTerminalFrameCreate; update: TaskflowAgentTerminalFrameUpdate; id: number };
+  "taskflow_message_attachment": { row: TaskflowMessageAttachment; filters: TaskflowMessageAttachmentFilters; ordering: TaskflowMessageAttachmentOrdering; create: TaskflowMessageAttachmentCreate; update: TaskflowMessageAttachmentUpdate; id: number };
   "taskflow_project": { row: TaskflowProject; filters: TaskflowProjectFilters; ordering: TaskflowProjectOrdering; create: TaskflowProjectCreate; update: TaskflowProjectUpdate; id: number };
   "taskflow_project_api_endpoint": { row: TaskflowProjectApiEndpoint; filters: TaskflowProjectApiEndpointFilters; ordering: TaskflowProjectApiEndpointOrdering; create: TaskflowProjectApiEndpointCreate; update: TaskflowProjectApiEndpointUpdate; id: number };
   "taskflow_project_invite": { row: TaskflowProjectInvite; filters: TaskflowProjectInviteFilters; ordering: TaskflowProjectInviteOrdering; create: TaskflowProjectInviteCreate; update: TaskflowProjectInviteUpdate; id: number };

@@ -17,19 +17,115 @@
 //! than a stub. A test cannot accidentally assert against a fake identity.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use http::header::{AUTHORIZATION, HeaderValue};
+use axum::body::Body;
+use http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use serde_json::Value;
 use umbral::orm::ForeignKey;
+use umbral::plugin::{AppContext, Plugin, PluginError};
+use umbral::storage::{Storage, StorageError, StoredFile, set_storage};
 use umbral_auth::{AuthPlugin, AuthUser, token::AuthToken};
 use umbral_testing::{TestClient, boot, seq};
 
+/// An in-memory `Storage` backend for the test harness. `TaskflowMessageAttachment`
+/// carries a `FileField`, so `App::build()`'s `field.storage_backend` system
+/// check fails unless *some* plugin provides a backend — this is that plugin.
+///
+/// `store` keeps the bytes only long enough to hand back a unique key + size;
+/// the tests assert on the returned key/size and the attachment row, never on
+/// re-reading the blob, so a real filesystem write would only litter the crate
+/// dir. `url(key)` returns `/media/<key>` — the exact shape production serves.
+#[derive(Debug, Default)]
+struct MemoryStorage;
+
+#[umbral::storage::async_trait]
+impl Storage for MemoryStorage {
+    async fn store(
+        &self,
+        filename: &str,
+        _content_type: &str,
+        bytes: &[u8],
+    ) -> Result<StoredFile, StorageError> {
+        // A fresh, collision-resistant key per call, mirroring a real backend.
+        let key = format!("{}-{}", seq(), filename);
+        let url = format!("/media/{key}");
+        Ok(StoredFile {
+            key,
+            url,
+            size: bytes.len() as u64,
+        })
+    }
+    async fn retrieve(&self, _key: &str) -> Result<Vec<u8>, StorageError> {
+        Err(StorageError::NotFound)
+    }
+    async fn delete(&self, _key: &str) -> Result<(), StorageError> {
+        Ok(())
+    }
+    fn url(&self, key: &str) -> String {
+        format!("/media/{key}")
+    }
+}
+
+/// Reports `provides_storage()` so the boot storage check passes, and registers
+/// [`MemoryStorage`] in `on_ready` (where production backends register too).
+struct MediaTestPlugin;
+
+impl Plugin for MediaTestPlugin {
+    fn name(&self) -> &'static str {
+        "mem_media_test"
+    }
+    fn provides_storage(&self) -> bool {
+        true
+    }
+    fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+        set_storage(Arc::new(MemoryStorage));
+        Ok(())
+    }
+}
+
+/// One part of a multipart request body: `(field_name, filename, content_type,
+/// bytes)`. A file part carries a filename; a plain field passes `None`.
+pub struct MultipartPart {
+    pub field_name: String,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+/// Encode `parts` as a `multipart/form-data` body, returning the raw bytes and
+/// the `Content-Type` header (with the boundary) to send alongside them.
+pub fn encode_multipart(parts: &[MultipartPart]) -> (String, Vec<u8>) {
+    let boundary = format!("----umbraltestboundary{}", seq());
+    let mut body: Vec<u8> = Vec::new();
+    for part in parts {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        let mut disp = format!("Content-Disposition: form-data; name=\"{}\"", part.field_name);
+        if let Some(fname) = &part.filename {
+            disp.push_str(&format!("; filename=\"{fname}\""));
+        }
+        body.extend_from_slice(disp.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        if let Some(ct) = &part.content_type {
+            body.extend_from_slice(format!("Content-Type: {ct}\r\n").as_bytes());
+        }
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(&part.bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    (
+        format!("multipart/form-data; boundary={boundary}"),
+        body,
+    )
+}
+
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
-    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
-    TaskflowChannelMemberKind, taskflow_agent_channel, taskflow_agent_channel_member,
-    taskflow_agent_message,
+    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage,
+    TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowMessageAttachment,
+    taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
+    taskflow_message_attachment,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
@@ -73,6 +169,9 @@ impl TestApp {
                 .plugin(TaskflowProjectsPlugin)
                 .plugin(TaskflowTasksPlugin)
                 .plugin(TaskflowAgentsPlugin)
+                // Required now that `TaskflowMessageAttachment` has a `FileField`:
+                // the boot storage check fails without a registered backend.
+                .plugin(MediaTestPlugin)
         })
         .await;
 
@@ -130,6 +229,47 @@ impl TestApp {
         TestResponse {
             inner: self.client.post_json(path, &body).await,
         }
+    }
+
+    /// POST a raw `multipart/form-data` body as `user_id`, with the given
+    /// `content_type` (boundary included) — the multipart counterpart of
+    /// [`post_as`]. Builds a real multipart request so the handler's own
+    /// `parse_multipart` path is exercised end-to-end.
+    pub async fn post_multipart_as(
+        &self,
+        user_id: i64,
+        path: &str,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> TestResponse {
+        let token = self
+            .tokens
+            .lock()
+            .expect("tokens poisoned")
+            .get(&user_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no bearer token seeded for user {user_id}"));
+
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"),
+        );
+        self.client.set_default_header(
+            CONTENT_TYPE,
+            HeaderValue::from_str(content_type).expect("content-type header"),
+        );
+
+        TestResponse {
+            inner: self.client.post(path, Body::from(body)).await,
+        }
+    }
+
+    pub async fn count_attachments(&self, message: i64) -> i64 {
+        TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::MESSAGE.eq(message))
+            .count()
+            .await
+            .expect("count attachments")
     }
 
     pub async fn count_messages(&self, channel: i64) -> i64 {

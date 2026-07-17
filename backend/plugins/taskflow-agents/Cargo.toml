@@ -10,6 +10,9 @@ taskflow-projects = { path = "../taskflow-projects" }
 taskflow-tasks = { path = "../taskflow-tasks" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The send endpoint reads a raw request body (`axum::body::Bytes`) so it can
+# branch on content-type between JSON and multipart/form-data.
+axum = "0.8"
 sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 

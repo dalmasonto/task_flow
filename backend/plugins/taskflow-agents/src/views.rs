@@ -1,16 +1,20 @@
 //! HTTP handlers for the `taskflow-agents` plugin.
 
+use axum::body::Bytes;
 use serde::Deserialize;
 use serde_json::json;
 use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
-use umbral::orm::ForeignKey;
-use umbral::web::{IntoResponse, Json, Path, Response, StatusCode};
+use umbral::orm::{FileField, ForeignKey};
+use umbral::storage::storage_opt;
+use umbral::web::multipart::{FilePart, is_multipart, parse_multipart};
+use umbral::web::{HeaderMap, IntoResponse, Json, Path, Response, StatusCode, header};
 use umbral_auth::RequireAuth;
 
 use crate::models::{
     TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
-    TaskflowChannelMemberKind, TaskflowMessagePriority, taskflow_agent_channel,
-    taskflow_agent_channel_member, taskflow_agent_message,
+    TaskflowChannelMemberKind, TaskflowMessageAttachment, TaskflowMessagePriority,
+    taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
+    taskflow_message_attachment,
 };
 
 /// The stored value of `TaskflowMembershipStatus::Active` — the status column is
@@ -43,23 +47,157 @@ pub struct SendMessageInput {
     pub client_nonce: Option<String>,
 }
 
+/// Serialize a message plus its attachments into the endpoint's response body.
+///
+/// The message's own fields are emitted exactly as the JSON path always
+/// returned them (so the frontend's optimistic reconcile keeps working), with
+/// an `attachments` array appended. Each attachment carries the resolved `url`
+/// (`FileField::url()` → `/media/<key>`) so the sender can render it
+/// immediately without waiting for the SSE echo. Text-only sends emit
+/// `attachments: []`.
+fn message_response(
+    message: &TaskflowAgentMessage,
+    attachments: &[TaskflowMessageAttachment],
+) -> Result<Response, StatusCode> {
+    let mut value =
+        serde_json::to_value(message).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let items: Vec<serde_json::Value> = attachments
+        .iter()
+        .map(|a| {
+            json!({
+                "id": a.id,
+                "message": a.message.id(),
+                "project": a.project.id(),
+                "url": a.file.url(),
+                "name": a.name,
+                "content_type": a.content_type,
+                "size_bytes": a.size_bytes,
+                "created_at": a.created_at,
+            })
+        })
+        .collect();
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert("attachments".to_string(), json!(items));
+    }
+    Ok((StatusCode::OK, Json(value)).into_response())
+}
+
+/// The 500 body when a file part is present but no storage backend is
+/// registered. A file/image model requires `StoragePlugin::media(...)`, so this
+/// only fires in a misconfigured deploy — a clear message beats a bare 500.
+fn storage_unavailable_response() -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({
+            "error": "file upload requires a storage backend, but none is registered",
+        })),
+    )
+        .into_response()
+}
+
 /// `POST /api/taskflow/agents/messages` — the only trusted write path for
 /// messages.
 ///
+/// Accepts **either** `application/json` (text-only, as it always has) **or**
+/// `multipart/form-data` (the same message fields plus file parts). Sender
+/// identity, project scope, and membership are resolved server-side in both
+/// cases — the transport changes nothing about the trust model.
+///
 /// `RequireAuth<i64>` is the authentication gate: it hands back the caller's
 /// user id already typed and rejects anonymous callers with a 401, so there is
-/// no unauthenticated code path here to forget.
+/// no unauthenticated code path here to forget. The body is read raw
+/// (`Bytes` + `HeaderMap`) so the handler can branch on content-type rather
+/// than committing to one extractor.
 pub async fn send_message(
     RequireAuth(user_id): RequireAuth<i64>,
-    Json(input): Json<SendMessageInput>,
-) -> Result<Json<TaskflowAgentMessage>, StatusCode> {
-    let body = input.body_markdown.trim();
-    if body.is_empty() || body.chars().count() > MAX_BODY_CHARS {
+    headers: HeaderMap,
+    raw_body: Bytes,
+) -> Result<Response, StatusCode> {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+
+    // Normalise both transports to the same logical input: the message fields
+    // plus any uploaded file parts (JSON posts carry none).
+    let (channel_id, body_markdown, priority, client_nonce, files): (
+        i64,
+        String,
+        Option<TaskflowMessagePriority>,
+        Option<String>,
+        Vec<FilePart>,
+    ) = if is_multipart(content_type) {
+        let form = parse_multipart(content_type, raw_body)
+            .await
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        let mut channel_field: Option<String> = None;
+        let mut body_field: Option<String> = None;
+        let mut priority_field: Option<String> = None;
+        let mut nonce_field: Option<String> = None;
+        for (name, value) in form.fields {
+            match name.as_str() {
+                "channel" => channel_field = Some(value),
+                "body_markdown" => body_field = Some(value),
+                "priority" => priority_field = Some(value),
+                "client_nonce" => nonce_field = Some(value),
+                _ => {}
+            }
+        }
+
+        let channel_id: i64 = channel_field
+            .as_deref()
+            .and_then(|s| s.trim().parse().ok())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+
+        // An unrecognised priority string is dropped, not rejected — the create
+        // below defaults it to `Normal`, same as an absent JSON `priority`.
+        let priority = priority_field
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| serde_json::from_value::<TaskflowMessagePriority>(json!(s)).ok());
+
+        // A "file part" is one that carried a filename; bodyless text parts are
+        // fields, not attachments.
+        let files: Vec<FilePart> = form
+            .files
+            .into_iter()
+            .filter(|f| f.filename.as_deref().is_some_and(|n| !n.is_empty()))
+            .collect();
+
+        (
+            channel_id,
+            body_field.unwrap_or_default(),
+            priority,
+            nonce_field,
+            files,
+        )
+    } else {
+        // JSON path: preserve the original behaviour exactly. A malformed body
+        // is a 400 (the old `Json` extractor rejected with a 4xx too).
+        let input: SendMessageInput =
+            serde_json::from_slice(&raw_body).map_err(|_| StatusCode::BAD_REQUEST)?;
+        (
+            input.channel,
+            input.body_markdown,
+            input.priority,
+            input.client_nonce,
+            Vec::new(),
+        )
+    };
+
+    let body = body_markdown.trim();
+    if body.chars().count() > MAX_BODY_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Body may be empty ONLY when at least one file is attached — a file-only
+    // message is valid, an empty text-only message is not.
+    if body.is_empty() && files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
     let channel = TaskflowAgentChannel::objects()
-        .filter(taskflow_agent_channel::ID.eq(input.channel))
+        .filter(taskflow_agent_channel::ID.eq(channel_id))
         .first()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -117,8 +255,10 @@ pub async fn send_message(
     };
 
     // Idempotency: the same nonce in the same channel is the same message.
-    // A retry after a dropped response must not double-post.
-    if let Some(nonce) = input.client_nonce.as_deref().filter(|n| !n.is_empty()) {
+    // A retry after a dropped response must not double-post — and must not
+    // re-store the files either, so we hand back the existing message with the
+    // attachments it already owns.
+    if let Some(nonce) = client_nonce.as_deref().filter(|n| !n.is_empty()) {
         let existing = TaskflowAgentMessage::objects()
             .filter(
                 taskflow_agent_message::CHANNEL.eq(channel.id)
@@ -128,7 +268,12 @@ pub async fn send_message(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         if let Some(row) = existing {
-            return Ok(Json(row));
+            let attachments = TaskflowMessageAttachment::objects()
+                .filter(taskflow_message_attachment::MESSAGE.eq(row.id))
+                .fetch()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            return message_response(&row, &attachments);
         }
     }
 
@@ -146,14 +291,54 @@ pub async fn send_message(
             sender_agent: None,
             sender_label,
             body_markdown: body.to_string(),
-            priority: input.priority.unwrap_or(TaskflowMessagePriority::Normal),
-            client_nonce: input.client_nonce.clone(),
+            priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
+            client_nonce: client_nonce.clone(),
             created_at: None,
         })
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(message))
+    // Store each uploaded file through the ambient backend and record a
+    // `TaskflowMessageAttachment` row. The `project` is denormalized from the
+    // channel (never accepted from the client), matching the message itself.
+    let mut attachments = Vec::with_capacity(files.len());
+    if !files.is_empty() {
+        let Some(storage) = storage_opt() else {
+            return Ok(storage_unavailable_response());
+        };
+        for part in files {
+            let filename = part
+                .filename
+                .as_deref()
+                .filter(|n| !n.is_empty())
+                .unwrap_or("upload")
+                .to_string();
+            let content_type = part
+                .content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            let stored = storage
+                .store(&filename, &content_type, &part.bytes)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let attachment = TaskflowMessageAttachment::objects()
+                .create(TaskflowMessageAttachment {
+                    id: 0,
+                    message: ForeignKey::new(message.id),
+                    project: channel.project.clone(),
+                    file: FileField::from(stored.key),
+                    name: filename,
+                    content_type,
+                    size_bytes: stored.size as i64,
+                    created_at: None,
+                })
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            attachments.push(attachment);
+        }
+    }
+
+    message_response(&message, &attachments)
 }
 
 /// The role stamped on a roster row minted through this endpoint. The channel

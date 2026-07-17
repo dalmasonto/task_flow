@@ -82,6 +82,9 @@ async fn app() -> &'static (Router, Seed) {
             .plugin(TaskflowProjectsPlugin)
             .plugin(TaskflowTasksPlugin)
             .plugin(TaskflowAgentsPlugin)
+            // `TaskflowMessageAttachment` carries a `FileField`, so the boot
+            // storage check requires a registered backend — same as main.rs.
+            .plugin(umbral_storage::StoragePlugin::new().media("/media", "./media"))
             .plugin(rest)
             .build()
             .expect("App::build");

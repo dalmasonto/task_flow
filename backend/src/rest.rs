@@ -79,6 +79,11 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_agent_credential",
     "taskflow_agent_session",
     "taskflow_project_invite",
+    // Attachments are minted only by the trusted send endpoint (which stores
+    // the file and denormalizes `project` from the channel); a client REST
+    // create would insert a row pointing at a file it never uploaded. Read-only
+    // so the frontend can still `.list()` them, scoped by project.
+    "taskflow_message_attachment",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the

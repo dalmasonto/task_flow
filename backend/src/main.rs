@@ -144,7 +144,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         //
         // The same plugin also gives you uploaded-file storage (local FS or S3)
         // when you add a FileField / ImageField: `.media("/media", "./media")`.
-        .plugin(StoragePlugin::new().static_files("/static", "./static"))
+        .plugin(
+            StoragePlugin::new()
+                .static_files("/static", "./static")
+                // Uploaded-file storage for message attachments (FileField):
+                // registers the ambient backend, serves files at /media/<key>,
+                // and enforces the 25 MiB media cap.
+                .media("/media", "./media"),
+        )
         // Security (on by default): CSRF + clickjacking/HSTS hardening
         // headers across the app. `/api` is exempt so token-authenticated
         // JSON clients can POST without a browser form CSRF cookie.
