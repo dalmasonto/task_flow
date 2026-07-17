@@ -11,13 +11,25 @@ Pre-work restore point: 374df9d
 - [x] 3  Realtime per-table groups
 - [x] 4  Seed chat workspace
 - [x] 5  Regenerate client
-- [ ] 6  FE api layer (groups, subs, send)
+- [x] 6  FE api layer (groups, subs, send)
 - [ ] 7  Reconcile reducer + vitest
 - [ ] 8  App.tsx collapse
 - [ ] 9  File picker
 - [ ] 10 End-to-end verification
 
 ## Minor findings (for final review triage)
+- SUFFIX DRIFT IS UNGUARDED (verified, not theoretical). Realtime group names are a cross-language
+  contract between backend/src/realtime.rs (suffix consts + ALL_SUFFIXES) and
+  v2_fe/src/lib/taskflow-api.ts (realtimeGroupSuffixes). A reviewer typo'd "task_sessions" ->
+  "task_sessons" in the FE map and got ZERO TypeScript errors. The `satisfies` guard catches a
+  MISSING suffix but not a WRONG one, and a wrong one fails SILENTLY -- the subscription opens and
+  never fires. A Rust test reading the TS file and asserting each suffix passes the already-public
+  can_join_group() would close it (~15 lines). Deliberately not built; decide at final review.
+- Task 6: taskflowGroups.presence and realtimeEventHasInlineRow are exported but unconsumed until
+  Task 8 branches on them. If Task 8 does not, the field projections buy nothing.
+- Task 6: fetchTaskflowWorkspace still fetches agentChannelMembers unfiltered and filters
+  client-side, though the model now has a project FK. Over-fetch only, not a correctness bug
+  (this backend registers no paginator, so .list() cannot silently truncate). Cheap follow-up.
 - Task 3: can_join_group does not validate the {id} component is numeric, so `project:abc:messages`
   is joinable (an empty group). Moot once row-level membership lands.
 - Task 3: ALL_SUFFIXES has no compile-time link to the .expose::<T>() calls. A newly added model
@@ -64,3 +76,10 @@ Task 4: complete (commits 1e443a7..d5e4b8c, review clean after 1 fix pass)
 Task 5: complete (commits f2f29df..0a28660, review clean). client.d.ts only; client.js zero diff;
   no churn. One expected typecheck error left for Task 6: App.tsx:4816 createTaskflowAgentChannelMember
   missing required `project`.
+Task 6: complete (commits 9935a5e..b5c9a3e, review clean, no fix pass needed)
+  All 14 suffixes verified byte-for-byte against backend/src/realtime.rs by both implementer and
+  reviewer independently. taskflow:agents retired FE-side. sendTaskflowAgentMessage posts to the
+  trusted endpoint with only {channel, body_markdown, priority?, client_nonce?}.
+  FOR TASK 8: TS excess-property checking stops at the FIRST bad key, so App.tsx:4897 reports only
+  `project` -- but sender_kind, sender_user, and sender_label are ALSO passed and ALSO now
+  server-derived. All four must be removed in one pass, or Task 8 chases them one error at a time.
