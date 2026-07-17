@@ -6,7 +6,7 @@ Merge base: main
 Pre-work restore point: 374df9d
 
 ## Tasks
-- [ ] 1  Model changes (client_nonce, ChannelMember.project)
+- [x] 1  Model changes (client_nonce, ChannelMember.project)
 - [ ] 2  Send endpoint
 - [ ] 3  Realtime per-table groups
 - [ ] 4  Seed chat workspace
@@ -20,3 +20,8 @@ Pre-work restore point: 374df9d
 ## Minor findings (for final review triage)
 
 ## Log
+Task 1: complete (commits d644e80..2c00d0c, review clean — both verdicts PASS)
+  Deviation (reviewer-validated): plan's "recreate dev DB" was wrong. makemigrations rejects a
+  NOT NULL FK ALTER via a static UnsafeAlter check regardless of row count. Fix: regenerated the
+  plugin's only migration (0001_auto.json) so both columns land in the initial CREATE TABLE.
+  Sound only pre-production; spec updated to say so.

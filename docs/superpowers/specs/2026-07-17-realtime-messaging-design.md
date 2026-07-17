@@ -128,11 +128,19 @@ and produce 14 presence sets per project instead of one.
 - `TaskflowAgentChannelMember.project: ForeignKey<TaskflowProject>` — `on_delete = "cascade"`,
   matching `TaskflowAgentMessage`.
 
-`project` is NOT NULL with no default, which SQLite cannot add to a populated table. Rather than
-carrying a backfill migration for it, the dev DB (`backend/backend.db`, gitignored, holding seed data
-and throwaway rows only) is recreated. This is a deliberate dev-only shortcut: the first real
-deployment will need a proper backfill, and that is a migration to write when there is production data
-worth preserving — not now, against a database whose entire contents `seed::all()` regenerates.
+`project` is NOT NULL with no default. `makemigrations` rejects it with `UnsafeAlter` — a **static
+diff-time check** on adding a NOT NULL column via `ALTER` to an established table, independent of
+whether the table holds any rows. Recreating the dev DB therefore does not help: `migrate` only applies
+migration *files*, so the check fires regardless of database state.
+
+Resolution: regenerate `backend/migrations/taskflow_agents/0001_auto.json`, the plugin's only
+migration, so both new columns land in the initial `CREATE TABLE` rather than a later `ALTER`. This is
+sound only because of where this project sits — that migration has exactly one prior commit (the
+pre-work snapshot), no other plugin declares `depends_on` it, and the only database it has ever
+produced is a gitignored dev DB whose entire contents `seed::all()` regenerates. **In a shipped system
+this would be an anti-pattern**; rewriting applied migration history breaks every existing deployment.
+The first real deployment needs a proper additive migration with a backfill, and that is work to do
+when there is production data worth preserving.
 
 **Send endpoint.** `POST /api/taskflow/agents/messages`, registered in
 `plugins/taskflow-agents/src/urls.rs` — the first domain route in the plugin (the existing three are
