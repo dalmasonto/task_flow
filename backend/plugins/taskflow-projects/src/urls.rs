@@ -15,6 +15,12 @@ use crate::views;
 pub fn router() -> Router {
     Router::new()
         .route("/api/taskflow/projects/health", get(views::health))
+        // Create a project — the ONLY authorized create path. Auto-REST `create`
+        // on `taskflow_project` is stripped (see `backend/src/rest.rs`) because it
+        // produced an orphan project the SP-A scope then hid from its own creator.
+        // This endpoint atomically creates the project AND an active owner
+        // membership for the caller.
+        .route("/api/taskflow/projects", post(views::create_project))
         // Create an invite — the ONLY authorized mint path. Project id from the
         // path; owner/admin-gated; token generated server-side. The
         // `taskflow_project_invite` auto-REST resource is read-only so this is

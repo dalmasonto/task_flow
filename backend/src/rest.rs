@@ -113,8 +113,24 @@ pub fn project_scope(column: &'static str) -> impl Fn(Option<Identity>) -> Scope
 
 /// The `taskflow_project` resource, scoped by its own primary key to the
 /// caller's active projects.
+///
+/// `create` is deliberately STRIPPED (`.views([List, Retrieve, Update, Delete])`):
+/// an auto-REST create inserts a `taskflow_project` row but NO
+/// `TaskflowProjectMember` row, and the SP-A scope above hides any project the
+/// caller isn't an active member of — so an auto-REST-created project was an
+/// orphan invisible to its own creator. Projects are now created only through the
+/// authorized `POST /api/taskflow/projects` endpoint, which atomically creates
+/// the project and an active owner membership. Update/Delete stay — the frontend
+/// edits projects via PATCH, still governed by the `scope_async` row scope.
 pub fn project_resource() -> ResourceConfig {
-    ResourceConfig::new("taskflow_project").scope_async(project_scope("id"))
+    ResourceConfig::new("taskflow_project")
+        .scope_async(project_scope("id"))
+        .views([
+            Action::List,
+            Action::Retrieve,
+            Action::Update,
+            Action::Delete,
+        ])
 }
 
 /// Per-user settings — READ-ONLY over REST, owner-scoped.

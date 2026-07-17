@@ -14,13 +14,14 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use umbral::orm::ForeignKey;
-use umbral::web::{Json, Path, StatusCode};
+use umbral::web::{IntoResponse, Json, Path, Response, StatusCode};
 use umbral_auth::{AuthUser, CurrentIdentity, RequireAuth, auth_user};
 
 use crate::models::{
     TaskflowInviteStatus, TaskflowMembershipStatus, TaskflowProject, TaskflowProjectInvite,
-    TaskflowProjectMember, TaskflowProjectRole, TaskflowTheme, TaskflowUserSettings,
-    taskflow_project, taskflow_project_invite, taskflow_project_member, taskflow_user_settings,
+    TaskflowProjectMember, TaskflowProjectRole, TaskflowProjectStatus, TaskflowTheme,
+    TaskflowUserSettings, taskflow_project, taskflow_project_invite, taskflow_project_member,
+    taskflow_user_settings,
 };
 
 pub async fn health() -> &'static str {
@@ -353,6 +354,195 @@ pub async fn create_invite(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(invite))
+}
+
+/// Turn a human name (or a client-supplied slug) into a URL-safe slug: lowercase,
+/// every run of non-alphanumeric characters collapsed to a single `-`, and
+/// leading/trailing dashes trimmed. `"My New Project!"` → `"my-new-project"`.
+///
+/// No slugify helper ships with the framework, so this is the one place slugs are
+/// derived — kept deliberately simple (ASCII-only) to stay predictable.
+fn slugify(input: &str) -> String {
+    let mut slug = String::new();
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash && !slug.is_empty() {
+            slug.push('-');
+            prev_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+/// The 409 body for a duplicate slug, shaped like the framework's auto-REST
+/// field-error envelope (`code` + a flattened per-field message array) so the
+/// frontend can render it inline against the `slug` input exactly as it would a
+/// unique-constraint rejection from auto-REST. Auto-REST reports the same
+/// `code: "unique_constraint"` for a UNIQUE violation (as a 400); we surface it
+/// as a 409 because the slug conflict is the entire meaning of the request
+/// failing.
+fn duplicate_slug_response() -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "code": "unique_constraint",
+            "slug": ["A project with this slug already exists."],
+        })),
+    )
+        .into_response()
+}
+
+/// What a client may say when creating a project. `owner`, `status`, and every
+/// timestamp are deliberately ABSENT — the owner is the authenticated caller
+/// (never the body), the status is forced `active`, and timestamps are
+/// server-managed. `slug` is optional: derived from `name` when omitted.
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectInput {
+    pub name: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub description_markdown: Option<String>,
+    #[serde(default)]
+    pub repository_url: Option<String>,
+    #[serde(default)]
+    pub default_api_base_url: Option<String>,
+}
+
+/// Normalize an optional free-text field: trim, and treat an empty string the
+/// same as absent (`None`). Keeps a blank `repository_url: ""` from being stored.
+fn non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// `POST /api/taskflow/projects`
+///
+/// Create a project AND, atomically, an ACTIVE OWNER membership for the caller.
+/// This is the ONLY way the app creates a project: auto-REST `create` on
+/// `taskflow_project` is stripped (see `backend/src/rest.rs`) precisely because
+/// it produced an ORPHAN project — one with no `TaskflowProjectMember` row — and
+/// the SP-A visibility scope hides any project the caller isn't an active member
+/// of, so an auto-REST-created project was invisible to its own creator.
+///
+/// The caller is the authenticated identity; `owner` is forced to the caller and
+/// `status` to `active` — there is no body field to forge either. The membership
+/// mirrors the seed and the invite-accept flow: `member_key = "user:{id}"`,
+/// role `owner`, status `active`.
+///
+/// A slug collision returns **409** with a field-error body the frontend can
+/// render inline against the `slug` input (see [`duplicate_slug_response`]).
+pub async fn create_project(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Json(input): Json<CreateProjectInput>,
+) -> Result<Response, StatusCode> {
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let caller = load_caller(user_id).await?;
+
+    // A client-supplied slug is honoured (but still normalized so it can't smuggle
+    // spaces/uppercase past the unique index); otherwise derive it from the name.
+    let slug = match input.slug {
+        Some(ref s) if !s.trim().is_empty() => slugify(s),
+        _ => slugify(&name),
+    };
+    if slug.is_empty() {
+        // A name of only punctuation slugifies to "" — nothing to key on.
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Friendly pre-check so the common duplicate case is a clean 409 field error
+    // rather than a DB-constraint 500. The unique index is still the source of
+    // truth — a race between this read and the insert is caught below.
+    let already_exists = TaskflowProject::objects()
+        .filter(taskflow_project::SLUG.eq(slug.as_str()))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some();
+    if already_exists {
+        return Ok(duplicate_slug_response());
+    }
+
+    let description_markdown =
+        non_empty(input.description_markdown).unwrap_or_else(|| "New project.".to_string());
+    let default_api_base_url =
+        Some(non_empty(input.default_api_base_url).unwrap_or_else(|| "/api".to_string()));
+    let repository_url = non_empty(input.repository_url);
+
+    let display_name = caller.username.clone();
+    let email = caller.email.clone();
+    let now = Utc::now();
+    let slug_for_tx = slug.clone();
+
+    // Atomic: the project and the owner membership land together or not at all —
+    // no orphan project (the bug), and no membership dangling without its project.
+    let created = umbral::transaction(move |tx| {
+        Box::pin(async move {
+            let project = TaskflowProject::objects()
+                .on_tx(tx)
+                .create(TaskflowProject {
+                    id: 0,
+                    name: name.clone(),
+                    slug: slug_for_tx.clone(),
+                    description_markdown: description_markdown.clone(),
+                    repository_url: repository_url.clone(),
+                    default_api_base_url: default_api_base_url.clone(),
+                    status: TaskflowProjectStatus::Active,
+                    owner: Some(ForeignKey::new(user_id)),
+                    created_at: None,
+                    updated_at: None,
+                })
+                .await?;
+
+            TaskflowProjectMember::objects()
+                .on_tx(tx)
+                .create(TaskflowProjectMember {
+                    id: 0,
+                    project: ForeignKey::new(project.id),
+                    member_key: format!("user:{user_id}"),
+                    user: Some(ForeignKey::new(user_id)),
+                    display_name: display_name.clone(),
+                    email: Some(email.clone()),
+                    role: TaskflowProjectRole::Owner,
+                    status: TaskflowMembershipStatus::Active,
+                    invited_by: None,
+                    created_at: None,
+                    joined_at: Some(now),
+                })
+                .await?;
+
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(project)
+        })
+    })
+    .await;
+
+    match created {
+        Ok(project) => Ok((StatusCode::CREATED, Json(project)).into_response()),
+        Err(_) => {
+            // The most likely failure is the unique index firing on a slug that
+            // was inserted between the pre-check and this insert. Re-read: if the
+            // slug now exists, it's a duplicate (409); otherwise a real 500.
+            let now_exists = TaskflowProject::objects()
+                .filter(taskflow_project::SLUG.eq(slug.as_str()))
+                .first()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .is_some();
+            if now_exists {
+                Ok(duplicate_slug_response())
+            } else {
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
 }
 
 /// `POST /api/taskflow/projects/invites/{token}/decline`
