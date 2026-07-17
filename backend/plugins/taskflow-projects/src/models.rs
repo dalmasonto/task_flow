@@ -44,8 +44,21 @@ pub enum TaskflowMembershipStatus {
 pub enum TaskflowInviteStatus {
     Pending,
     Accepted,
+    Declined,
     Revoked,
     Expired,
+}
+
+/// UI theme preference for a user. Stored as TEXT (snake_case) like every other
+/// `#[umbral(choices)]` field — no CHECK constraint, so the set is validated at
+/// the form/serde layer, not by the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowTheme {
+    Light,
+    Dark,
+    System,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
@@ -162,4 +175,26 @@ pub struct TaskflowProjectApiEndpoint {
     pub last_checked_at: Option<DateTime<Utc>>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
+}
+
+/// Per-user application preferences. Exactly one row per user (`user` is
+/// unique), created lazily on first read. Kept as its own small model so app
+/// prefs stay out of the framework's `admin_user_pref` table.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowUserSettings {
+    pub id: i64,
+    /// One settings row per user. `unique` makes get-or-create race-safe (a
+    /// duplicate insert hits the constraint, not a second row).
+    #[umbral(on_delete = "cascade", unique)]
+    pub user: ForeignKey<AuthUser>,
+    #[umbral(choices, default = "system")]
+    pub theme: TaskflowTheme,
+    #[umbral(default = "true")]
+    pub email_notifications: bool,
+    #[umbral(on_delete = "set_null")]
+    pub default_project: Option<ForeignKey<TaskflowProject>>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[umbral(noedit)]
+    pub updated_at: Option<DateTime<Utc>>,
 }

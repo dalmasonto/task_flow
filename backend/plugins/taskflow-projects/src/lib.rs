@@ -44,6 +44,7 @@ impl Plugin for TaskflowProjectsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowProjectMember>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowProjectInvite>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowProjectApiEndpoint>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowUserSettings>(),
         ]
     }
 

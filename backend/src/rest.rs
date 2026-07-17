@@ -105,6 +105,25 @@ pub fn project_resource() -> ResourceConfig {
     ResourceConfig::new("taskflow_project").scope_async(project_scope("id"))
 }
 
+/// Per-user settings — READ-ONLY over REST, owner-scoped.
+///
+/// `owned_by("user")` restricts list/retrieve to the caller's own row (another
+/// user's settings 404, never leak), and `.views([List, Retrieve])` strips the
+/// write actions entirely. Writes are deliberately NOT exposed through auto-REST:
+/// `owner_field` only guards the *create* path, so a client could otherwise
+/// `PATCH /taskflow_user_settings/{id}` with a body-supplied `user` and reassign
+/// its own row to another account (a write-side IDOR that `owned_by` alone does
+/// not close — the scope governs *which* row, not the *new* `user` value).
+///
+/// Reads use the plugin's get-or-create `GET /api/taskflow/user/settings`; writes
+/// use `POST /api/taskflow/user/settings`, both keyed purely on the authenticated
+/// identity — there is no `user` field for a client to lie in.
+pub fn user_settings_resource() -> ResourceConfig {
+    ResourceConfig::new("taskflow_user_settings")
+        .owned_by("user")
+        .views([Action::List, Action::Retrieve])
+}
+
 /// Every project-scoped resource (all tables carrying a `project` FK), each
 /// restricted to the caller's active projects.
 ///

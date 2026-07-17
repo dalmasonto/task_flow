@@ -49,8 +49,8 @@ export type TaskflowProjectApiEndpointHealth = "unknown" | "healthy" | "degraded
 /** `owner` = Owner, `admin` = Admin, `developer` = Developer, `reviewer` = Reviewer, `viewer` = Viewer */
 export type TaskflowProjectInviteRole = "owner" | "admin" | "developer" | "reviewer" | "viewer";
 
-/** `pending` = Pending, `accepted` = Accepted, `revoked` = Revoked, `expired` = Expired */
-export type TaskflowProjectInviteStatus = "pending" | "accepted" | "revoked" | "expired";
+/** `pending` = Pending, `accepted` = Accepted, `declined` = Declined, `revoked` = Revoked, `expired` = Expired */
+export type TaskflowProjectInviteStatus = "pending" | "accepted" | "declined" | "revoked" | "expired";
 
 /** `owner` = Owner, `admin` = Admin, `developer` = Developer, `reviewer` = Reviewer, `viewer` = Viewer */
 export type TaskflowProjectMemberRole = "owner" | "admin" | "developer" | "reviewer" | "viewer";
@@ -78,6 +78,9 @@ export type TaskflowTaskSessionState = "running" | "paused" | "stopped" | "faile
 
 /** `not_started` = NotStarted, `in_progress` = InProgress, `paused` = Paused, `blocked` = Blocked, `partial_done` = PartialDone, `done` = Done, `archived` = Archived */
 export type TaskflowTaskStatus = "not_started" | "in_progress" | "paused" | "blocked" | "partial_done" | "done" | "archived";
+
+/** `light` = Light, `dark` = Dark, `system` = System */
+export type TaskflowUserSettingsTheme = "light" | "dark" | "system";
 
 /**
  * User preference
@@ -398,6 +401,19 @@ export interface TaskflowTaskSession {
   duration_seconds: number | null;
   summary_markdown: string | null;
   created_at: string | null;
+}
+
+/** Table `taskflow_user_settings`, from the `app` plugin. */
+export interface TaskflowUserSettings {
+  id: number;
+  /** Foreign key into `auth_user`. */
+  user: number;
+  theme: TaskflowUserSettingsTheme;
+  email_notifications: boolean;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  default_project: number | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 /** Filterable query parameters for `admin_user_pref`. Every key is optional and AND-combined server-side. */
@@ -1952,6 +1968,58 @@ export interface TaskflowTaskSessionUpdate {
   summary_markdown?: string | null;
 }
 
+/** Filterable query parameters for `taskflow_user_settings`. Every key is optional and AND-combined server-side. */
+export interface TaskflowUserSettingsFilters {
+  "user"?: number;
+  "user__ne"?: number;
+  "user__in"?: number[];
+  "theme"?: TaskflowUserSettingsTheme;
+  "theme__ne"?: TaskflowUserSettingsTheme;
+  "theme__contains"?: string;
+  "theme__icontains"?: string;
+  "theme__startswith"?: string;
+  "theme__in"?: TaskflowUserSettingsTheme[];
+  "email_notifications"?: boolean;
+  "email_notifications__ne"?: boolean;
+  "email_notifications__in"?: boolean[];
+  "default_project"?: number;
+  "default_project__ne"?: number;
+  "default_project__in"?: number[];
+  "default_project__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type TaskflowUserSettingsOrdering = "id" | "-id" | "user" | "-user" | "theme" | "-theme" | "email_notifications" | "-email_notifications" | "default_project" | "-default_project" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_user_settings`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowUserSettingsCreate {
+  user: number;
+  theme?: TaskflowUserSettingsTheme;
+  email_notifications?: boolean;
+  default_project?: number | null;
+  updated_at?: string | null;
+}
+/** Body for updating a `taskflow_user_settings` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowUserSettingsUpdate {
+  user?: number;
+  theme?: TaskflowUserSettingsTheme;
+  email_notifications?: boolean;
+  default_project?: number | null;
+}
+
 /** A list response. `results` + `count` are always present; the rest depend on the paginator. */
 export interface Paginated<T> {
   results: T[];
@@ -1979,6 +2047,7 @@ export interface UmbralResources {
   "taskflow_task_activity": { row: TaskflowTaskActivity; filters: TaskflowTaskActivityFilters; ordering: TaskflowTaskActivityOrdering; create: TaskflowTaskActivityCreate; update: TaskflowTaskActivityUpdate; id: number };
   "taskflow_task_relation": { row: TaskflowTaskRelation; filters: TaskflowTaskRelationFilters; ordering: TaskflowTaskRelationOrdering; create: TaskflowTaskRelationCreate; update: TaskflowTaskRelationUpdate; id: number };
   "taskflow_task_session": { row: TaskflowTaskSession; filters: TaskflowTaskSessionFilters; ordering: TaskflowTaskSessionOrdering; create: TaskflowTaskSessionCreate; update: TaskflowTaskSessionUpdate; id: number };
+  "taskflow_user_settings": { row: TaskflowUserSettings; filters: TaskflowUserSettingsFilters; ordering: TaskflowUserSettingsOrdering; create: TaskflowUserSettingsCreate; update: TaskflowUserSettingsUpdate; id: number };
 }
 
 export interface UmbralOptions {

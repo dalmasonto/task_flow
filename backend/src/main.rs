@@ -120,7 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .default_permission(IsAuthenticated)
                 .default_throttle(UserRateThrottle::new("600/min"))
                 .resource(ResourceConfig::new(Post::table_name()))
-                .resource(backend::rest::project_resource());
+                .resource(backend::rest::project_resource())
+                .resource(backend::rest::user_settings_resource());
             for resource in backend::rest::project_scoped_resources() {
                 rest = rest.resource(resource);
             }

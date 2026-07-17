@@ -7,5 +7,11 @@ edition = "2024"
 umbral = "0.0.10"
 umbral-auth = "0.0.10"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+umbral-testing = "0.0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+http = "1"
