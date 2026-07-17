@@ -3,6 +3,13 @@ name = "backend"
 version = "0.1.0"
 edition = "2024"
 
+# The plugins are workspace members, not just path dependencies. A path dep
+# that is not a member cannot be tested with dev-dependencies ("package X
+# cannot be tested because it requires dev-dependencies and is not a member
+# of the workspace"), which is what a plugin's `tests/` directory needs.
+[workspace]
+members = ["plugins/taskflow-agents", "plugins/taskflow-projects", "plugins/taskflow-tasks"]
+
 [dependencies]
 taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }

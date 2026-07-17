@@ -6,12 +6,17 @@
 //! Map each path to a handler in `views.rs` so this file reads as the
 //! single index of everything the plugin serves.
 
-use umbral::web::{Router, get};
+use umbral::web::{Router, get, post};
 
 use crate::views;
 
 /// Build this plugin's route table. Add one `.route(path, method(handler))`
 /// line per endpoint.
 pub fn router() -> Router {
-    Router::new().route("/api/taskflow/agents/health", get(views::health))
+    Router::new()
+        .route("/api/taskflow/agents/health", get(views::health))
+        // The only trusted write path for messages. Auto-REST's
+        // POST /api/taskflow_agent_message/ lets the client assert its own
+        // sender fields; this route derives them.
+        .route("/api/taskflow/agents/messages", post(views::send_message))
 }

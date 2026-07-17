@@ -1,0 +1,135 @@
+//! The send endpoint is the only trusted write path for messages: it derives
+//! the sender from the authenticated identity and refuses non-members.
+
+use serde_json::json;
+
+mod support;
+use support::{TestApp, seed_channel_with_member, seed_channel_without_member};
+
+#[tokio::test]
+async fn derives_sender_from_identity_and_ignores_client_claims() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    // The client lies about who it is. The server must not believe it.
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "hello",
+                "sender_label": "Totally The CEO",
+                "sender_user": 9999,
+                "sender_kind": "agent",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let row = response.json().await;
+    assert_eq!(row["sender_user"], json!(user));
+    assert_eq!(row["sender_kind"], json!("user"));
+    assert_ne!(row["sender_label"], json!("Totally The CEO"));
+}
+
+#[tokio::test]
+async fn rejects_non_member_with_403() {
+    let app = TestApp::new().await;
+    let (channel, outsider) = seed_channel_without_member(&app).await;
+
+    let response = app
+        .post_as(
+            outsider,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "let me in",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 403);
+}
+
+#[tokio::test]
+async fn rejects_unknown_channel_with_404() {
+    let app = TestApp::new().await;
+    let (_, user) = seed_channel_with_member(&app).await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": 999999,
+                "body_markdown": "into the void",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
+async fn rejects_empty_body_with_400() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "   ",
+            }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
+async fn same_nonce_twice_inserts_once_and_returns_the_stored_row() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+    let body = json!({
+        "channel": channel,
+        "body_markdown": "only once",
+        "client_nonce": "nonce-abc-123",
+    });
+
+    let first = app
+        .post_as(user, "/api/taskflow/agents/messages", body.clone())
+        .await;
+    let second = app
+        .post_as(user, "/api/taskflow/agents/messages", body)
+        .await;
+
+    assert_eq!(first.status(), 200);
+    assert_eq!(second.status(), 200);
+    assert_eq!(first.json().await["id"], second.json().await["id"]);
+    assert_eq!(app.count_messages(channel).await, 1);
+}
+
+#[tokio::test]
+async fn derives_project_from_the_channel() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({
+                "channel": channel,
+                "body_markdown": "scoped",
+                "project": 4242,          // client-supplied project is ignored
+            }),
+        )
+        .await;
+
+    let row = response.json().await;
+    assert_eq!(row["project"], json!(app.project_of_channel(channel).await));
+}
