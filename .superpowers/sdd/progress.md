@@ -10,7 +10,7 @@ Pre-work restore point: 374df9d
 - [x] 2  Send endpoint
 - [x] 3  Realtime per-table groups
 - [x] 4  Seed chat workspace
-- [ ] 5  Regenerate client
+- [x] 5  Regenerate client
 - [ ] 6  FE api layer (groups, subs, send)
 - [ ] 7  Reconcile reducer + vitest
 - [ ] 8  App.tsx collapse
@@ -61,3 +61,6 @@ Task 4: complete (commits 1e443a7..d5e4b8c, review clean after 1 fix pass)
   project and channel inserts permanently crashed boot on the unique slug constraint. Both fixed
   (guard matches credentials.rs; umbral::transaction wraps all three creates, rollback verified
   against umbral-core). Prod guard verified empirically: UMBRAL_ENVIRONMENT=prod seeds 0 rows.
+Task 5: complete (commits f2f29df..0a28660, review clean). client.d.ts only; client.js zero diff;
+  no churn. One expected typecheck error left for Task 6: App.tsx:4816 createTaskflowAgentChannelMember
+  missing required `project`.
