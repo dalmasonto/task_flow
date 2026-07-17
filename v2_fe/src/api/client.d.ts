@@ -170,6 +170,8 @@ export interface TaskflowAgentChannel {
 /** Table `taskflow_agent_channel_member`, from the `app` plugin. */
 export interface TaskflowAgentChannelMember {
   id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
   /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
   channel: number;
   member_kind: TaskflowAgentChannelMemberMemberKind;
@@ -217,6 +219,7 @@ export interface TaskflowAgentMessage {
   sender_label: string;
   body_markdown: string;
   priority: TaskflowAgentMessagePriority;
+  client_nonce: string | null;
   created_at: string | null;
 }
 
@@ -816,6 +819,9 @@ export interface TaskflowAgentChannelUpdate {
 
 /** Filterable query parameters for `taskflow_agent_channel_member`. Every key is optional and AND-combined server-side. */
 export interface TaskflowAgentChannelMemberFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
   "channel"?: number;
   "channel__ne"?: number;
   "channel__in"?: number[];
@@ -854,9 +860,10 @@ export interface TaskflowAgentChannelMemberFilters {
   "joined_at__in"?: string[];
   "joined_at__isnull"?: boolean;
 }
-export type TaskflowAgentChannelMemberOrdering = "id" | "-id" | "channel" | "-channel" | "member_kind" | "-member_kind" | "user" | "-user" | "agent" | "-agent" | "display_name" | "-display_name" | "role" | "-role" | "joined_at" | "-joined_at";
+export type TaskflowAgentChannelMemberOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "member_kind" | "-member_kind" | "user" | "-user" | "agent" | "-agent" | "display_name" | "-display_name" | "role" | "-role" | "joined_at" | "-joined_at";
 /** Body for creating a `taskflow_agent_channel_member`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentChannelMemberCreate {
+  project: number;
   channel: number;
   member_kind?: TaskflowAgentChannelMemberMemberKind;
   user?: number | null;
@@ -866,6 +873,7 @@ export interface TaskflowAgentChannelMemberCreate {
 }
 /** Body for updating a `taskflow_agent_channel_member` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowAgentChannelMemberUpdate {
+  project?: number;
   channel?: number;
   member_kind?: TaskflowAgentChannelMemberMemberKind;
   user?: number | null;
@@ -1006,6 +1014,13 @@ export interface TaskflowAgentMessageFilters {
   "priority__icontains"?: string;
   "priority__startswith"?: string;
   "priority__in"?: TaskflowAgentMessagePriority[];
+  "client_nonce"?: string;
+  "client_nonce__ne"?: string;
+  "client_nonce__contains"?: string;
+  "client_nonce__icontains"?: string;
+  "client_nonce__startswith"?: string;
+  "client_nonce__in"?: string[];
+  "client_nonce__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1015,7 +1030,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1027,6 +1042,7 @@ export interface TaskflowAgentMessageCreate {
   sender_label: string;
   body_markdown: string;
   priority?: TaskflowAgentMessagePriority;
+  client_nonce?: string | null;
 }
 /** Body for updating a `taskflow_agent_message` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowAgentMessageUpdate {
@@ -1039,6 +1055,7 @@ export interface TaskflowAgentMessageUpdate {
   sender_label?: string;
   body_markdown?: string;
   priority?: TaskflowAgentMessagePriority;
+  client_nonce?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_agent_session`. Every key is optional and AND-combined server-side. */
