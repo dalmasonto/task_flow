@@ -79,6 +79,7 @@ import {
   createTaskflowTaskSession,
   createTaskflowTask,
   createTaskflowProject,
+  fetchMyInvites,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
   realtimeEventHasInlineRow,
@@ -1670,6 +1671,17 @@ function App() {
   const [authGateStatus, setAuthGateStatus] = useState<AuthGateStatus>(
     () => (hasStoredAuthSession() ? "checking" : "anonymous")
   )
+  // The signed-in user's own invite inbox count (GET .../invites/mine), distinct
+  // from `pendingInvites` below which counts the ACTIVE PROJECT's outgoing invites.
+  const [myInviteCount, setMyInviteCount] = useState(0)
+  const refreshMyInviteCount = useCallback(async () => {
+    try {
+      const rows = await fetchMyInvites()
+      setMyInviteCount(rows.length)
+    } catch {
+      // Transient failure — keep showing the last known count.
+    }
+  }, [])
 
   const activeProject = workspaceProjects.find((project) => project.id === activeProjectId) ?? workspaceProjects[0] ?? projects[0]
   const activeLiveProjectId = liveId(activeProject.id)
@@ -2078,6 +2090,21 @@ function App() {
     if (authGateStatus !== "authenticated") return
     void loadLiveWorkspace(activeProjectId)
   }, [activeProjectId, authGateStatus, loadLiveWorkspace])
+
+  useEffect(() => {
+    if (authGateStatus !== "authenticated") return
+    let active = true
+    fetchMyInvites()
+      .then((rows) => {
+        if (active) setMyInviteCount(rows.length)
+      })
+      .catch(() => {
+        // Transient failure — keep showing the last known count.
+      })
+    return () => {
+      active = false
+    }
+  }, [authGateStatus])
 
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
@@ -2645,6 +2672,7 @@ function App() {
         currentUser={currentUser}
         pendingReviews={pendingReviews}
         pendingInvites={pendingInvites}
+        myInviteCount={myInviteCount}
         onlineAgents={activeProject.agentsOnline}
         onProjectChange={handleProjectChange}
         onNewProject={() => setDialogMode("new-project")}
@@ -2917,13 +2945,21 @@ function App() {
               }
             />
             <Route path="/dashboard/*" element={<Navigate to="/dashboard/board" replace />} />
-            <Route path="/account" element={<AccountLayout pendingInvites={pendingInvites} />}>
+            <Route path="/account" element={<AccountLayout pendingInvites={myInviteCount} />}>
               <Route index element={<Navigate to="/account/profile" replace />} />
               <Route path="profile" element={<ProfilePage currentUser={currentUser} projects={accountProjects} />} />
               <Route path="settings" element={<SettingsPage projects={accountProjects} />} />
               <Route
                 path="invitations"
-                element={<InvitationsPage onAccepted={() => void loadLiveWorkspace(activeProjectId)} />}
+                element={
+                  <InvitationsPage
+                    onAccepted={() => {
+                      void loadLiveWorkspace(activeProjectId)
+                      void refreshMyInviteCount()
+                    }}
+                    onDeclined={() => void refreshMyInviteCount()}
+                  />
+                }
               />
               <Route path="security" element={<SecurityPage />} />
               <Route path="*" element={<Navigate to="/account/profile" replace />} />

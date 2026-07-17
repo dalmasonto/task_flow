@@ -13,35 +13,43 @@ import { AccountPageHeader } from "./AccountLayout"
 
 type RowState = { busy: "accept" | "decline" | null; error: string | null }
 
-export function InvitationsPage({ onAccepted }: { onAccepted?: () => void }) {
+/// Fetches the inbox and normalizes failures to a display message. Pulled out
+/// of the component so both the mount effect and the post-action reload can
+/// share it without either routing state updates through the other.
+async function loadInviteInbox(): Promise<{ rows: InviteInboxEntry[]; error: string | null }> {
+  try {
+    const rows = await fetchMyInvites()
+    return { rows, error: null }
+  } catch (err) {
+    return { rows: [], error: err instanceof Error ? err.message : "Could not load your invitations." }
+  }
+}
+
+export function InvitationsPage({
+  onAccepted,
+  onDeclined,
+}: {
+  onAccepted?: () => void
+  onDeclined?: () => void
+}) {
   const [invites, setInvites] = React.useState<InviteInboxEntry[] | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [rowState, setRowState] = React.useState<Record<string, RowState>>({})
   const [notice, setNotice] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
-    setLoadError(null)
-    try {
-      const rows = await fetchMyInvites()
-      setInvites(rows)
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Could not load your invitations.")
-      setInvites([])
-    }
+    const { rows, error } = await loadInviteInbox()
+    setLoadError(error)
+    setInvites(rows)
   }, [])
 
   React.useEffect(() => {
     let active = true
-    void (async () => {
-      try {
-        const rows = await fetchMyInvites()
-        if (active) setInvites(rows)
-      } catch (err) {
-        if (!active) return
-        setLoadError(err instanceof Error ? err.message : "Could not load your invitations.")
-        setInvites([])
-      }
-    })()
+    loadInviteInbox().then(({ rows, error }) => {
+      if (!active) return
+      setLoadError(error)
+      setInvites(rows)
+    })
     return () => {
       active = false
     }
@@ -79,6 +87,7 @@ export function InvitationsPage({ onAccepted }: { onAccepted?: () => void }) {
     try {
       await declineInvite(entry.invite_token)
       setNotice(`Invitation to ${entry.project_name ?? "the project"} declined.`)
+      onDeclined?.()
       await load()
     } catch (err) {
       setRow(entry.invite_token, {

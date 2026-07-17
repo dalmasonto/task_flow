@@ -31,6 +31,9 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   currentUser: AuthUser | null
   pendingReviews: number
   pendingInvites: number
+  /// The signed-in user's own invite inbox count (not the active project's
+  /// outgoing invites) — shown on the account-facing NavUser badge only.
+  myInviteCount: number
   onlineAgents: number
   onProjectChange: (projectId: string) => void
   onNewProject: () => void
@@ -46,6 +49,7 @@ export function AppSidebar({
   currentUser,
   pendingReviews,
   pendingInvites,
+  myInviteCount,
   onlineAgents,
   onProjectChange,
   onNewProject,
@@ -154,7 +158,7 @@ export function AppSidebar({
       <SidebarFooter>
         <NavUser
           user={currentUser ? { name: currentUser.username, email: currentUser.email } : null}
-          pendingInvites={pendingInvites}
+          pendingInvites={myInviteCount}
           onNavigate={onNavigate}
           onLogout={onLogout}
         />
