@@ -4883,9 +4883,6 @@ function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?
       >
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
           <span className="font-semibold">{fromUser ? "You" : message.from}</span>
-          {message.to ? (
-            <span className="text-muted-foreground">to {message.to}</span>
-          ) : null}
           <span className={cn("text-muted-foreground", message.status === "failed" && "text-rose-600 dark:text-rose-300")}>
             {message.time}
           </span>
