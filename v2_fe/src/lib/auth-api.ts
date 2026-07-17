@@ -151,6 +151,27 @@ export async function confirmPasswordReset(input: { token: string; newPassword: 
   }
 }
 
+/// Rotate the caller's password. Backend route: `POST /api/auth/change-password`
+/// with `{current_password, new_password}` (umbral-auth). 204 on success; 400
+/// `invalid_credentials` (wrong current password) or `weak_password` otherwise.
+export async function changePassword(input: {
+  currentPassword: string
+  newPassword: string
+}): Promise<AuthResult> {
+  try {
+    await authRequest<void>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: input.currentPassword,
+        new_password: input.newPassword,
+      }),
+    })
+    return { ok: true, message: "Password updated." }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not update password." }
+  }
+}
+
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
   try {
     return await authRequest<AuthUser>("/api/auth/me")

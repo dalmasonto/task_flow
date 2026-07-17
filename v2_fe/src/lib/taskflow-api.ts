@@ -26,6 +26,8 @@ import type {
   TaskflowTaskSessionCreate,
   TaskflowTaskSessionUpdate,
   TaskflowTaskUpdate,
+  TaskflowUserSettings,
+  TaskflowUserSettingsTheme,
   UmbralResources,
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken } from "@/lib/auth-api"
@@ -357,6 +359,136 @@ export async function createTaskflowProjectInvite(
         ? "You must be an owner or admin of this project to invite members."
         : `Could not create the invite (${response.status}).`
     )
+  }
+  return response.json()
+}
+
+/// The caller's invite inbox row: the invite plus the resolved project name the
+/// backend flattens onto it (see `my_invites`/`InviteInboxEntry` in views.rs).
+export type InviteInboxEntry = TaskflowProjectInvite & {
+  project_name: string | null
+}
+
+function bearerHeaders(): Record<string, string> {
+  const token = getStoredToken()
+  return {
+    "content-type": "application/json",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+async function readErrorDetail(response: Response, fallback: string): Promise<string> {
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!contentType.includes("application/json")) return fallback
+  try {
+    const payload = (await response.json()) as { detail?: string; error?: string }
+    return payload.detail ?? payload.error ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+/// The caller's pending invites (addressed to their account email), each with
+/// the project name resolved server-side.
+export async function fetchMyInvites(): Promise<InviteInboxEntry[]> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/invites/mine`, {
+    method: "GET",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not load your invitations (${response.status}).`))
+  }
+  return response.json()
+}
+
+/// A named error so the UI can react to the terminal invite states distinctly.
+export class InviteActionError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "InviteActionError"
+    this.status = status
+  }
+}
+
+function inviteActionMessage(action: "accept" | "decline", status: number): string {
+  switch (status) {
+    case 403:
+      return "This invitation is addressed to a different account."
+    case 404:
+      return "This invitation no longer exists."
+    case 409:
+      return action === "accept"
+        ? "This invitation can no longer be accepted (it was already declined, revoked, or expired)."
+        : "This invitation can no longer be declined (it was already accepted, revoked, or expired)."
+    case 410:
+      return "This invitation has expired."
+    default:
+      return action === "accept"
+        ? `Could not accept the invitation (${status}).`
+        : `Could not decline the invitation (${status}).`
+  }
+}
+
+/// Accept an invite by token. On success the backend creates/activates the
+/// caller's membership and returns it. Distinct statuses (403/404/409/410) are
+/// surfaced via InviteActionError so the inbox can explain what happened.
+export async function acceptInvite(token: string): Promise<TaskflowProjectMember> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/taskflow/projects/invites/${encodeURIComponent(token)}/accept`,
+    { method: "POST", credentials: "include", headers: bearerHeaders() }
+  )
+  if (!response.ok) {
+    throw new InviteActionError(inviteActionMessage("accept", response.status), response.status)
+  }
+  return response.json()
+}
+
+/// Decline an invite by token. Returns the updated invite row.
+export async function declineInvite(token: string): Promise<TaskflowProjectInvite> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/taskflow/projects/invites/${encodeURIComponent(token)}/decline`,
+    { method: "POST", credentials: "include", headers: bearerHeaders() }
+  )
+  if (!response.ok) {
+    throw new InviteActionError(inviteActionMessage("decline", response.status), response.status)
+  }
+  return response.json()
+}
+
+/// The caller's own settings row, created with defaults on first read. Keyed on
+/// the authenticated identity server-side — no user id is sent.
+export async function fetchUserSettings(): Promise<TaskflowUserSettings> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/user/settings`, {
+    method: "GET",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not load your settings (${response.status}).`))
+  }
+  return response.json()
+}
+
+/// What the client may change on its own settings. `default_project: null`
+/// clears it; omit a field to leave it untouched.
+export type UpdateUserSettingsInput = {
+  theme?: TaskflowUserSettingsTheme
+  email_notifications?: boolean
+  default_project?: number | null
+}
+
+export async function updateUserSettings(input: UpdateUserSettingsInput): Promise<TaskflowUserSettings> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/user/settings`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not save your settings (${response.status}).`))
   }
   return response.json()
 }

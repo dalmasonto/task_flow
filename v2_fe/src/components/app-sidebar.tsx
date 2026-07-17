@@ -6,6 +6,7 @@ import { NavMain } from "@/components/nav-main"
 import { NavProjects, type SidebarProject } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
 import { ProjectSwitcher, type SwitcherProject } from "@/components/team-switcher"
+import type { AuthUser } from "@/lib/auth-api"
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +28,7 @@ import {
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   projects: (SidebarProject & SwitcherProject)[]
   activeProjectId: string
+  currentUser: AuthUser | null
   pendingReviews: number
   pendingInvites: number
   onlineAgents: number
@@ -34,18 +36,14 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   onNewProject: () => void
   onInviteProject: (projectId: string) => void
   onArchiveProject: (projectId: string) => void
+  onNavigate: (to: string) => void
   onLogout: () => void
-}
-
-const user = {
-  name: "Dalmas",
-  email: "workspace@taskflow.local",
-  avatar: "",
 }
 
 export function AppSidebar({
   projects,
   activeProjectId,
+  currentUser,
   pendingReviews,
   pendingInvites,
   onlineAgents,
@@ -53,6 +51,7 @@ export function AppSidebar({
   onNewProject,
   onInviteProject,
   onArchiveProject,
+  onNavigate,
   onLogout,
   ...props
 }: AppSidebarProps) {
@@ -153,7 +152,12 @@ export function AppSidebar({
         />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={user} onLogout={onLogout} />
+        <NavUser
+          user={currentUser ? { name: currentUser.username, email: currentUser.email } : null}
+          pendingInvites={pendingInvites}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+        />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

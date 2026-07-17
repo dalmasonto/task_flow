@@ -104,6 +104,11 @@ import {
   removeMessage,
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
+import { AccountLayout } from "@/pages/account/AccountLayout"
+import { ProfilePage } from "@/pages/account/ProfilePage"
+import { SettingsPage } from "@/pages/account/SettingsPage"
+import { InvitationsPage } from "@/pages/account/InvitationsPage"
+import { SecurityPage } from "@/pages/account/SecurityPage"
 
 type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
 
@@ -1725,7 +1730,21 @@ function App() {
     "/api": "/dashboard/api",
   }
   const isDashboardRoute = publicPath.startsWith("/dashboard")
+  const isAccountRoute = publicPath.startsWith("/account")
+  // Both areas live inside the authenticated dashboard shell and share the same
+  // auth gate and current-user fetch.
+  const isAppRoute = isDashboardRoute || isAccountRoute
   const hasAuthSession = hasStoredAuthSession()
+  const accountProjects = useMemo(
+    () =>
+      workspaceProjects
+        .map((project) => {
+          const id = liveId(project.id)
+          return id ? { id, name: project.name } : null
+        })
+        .filter((project): project is { id: number; name: string } => project !== null),
+    [workspaceProjects]
+  )
 
   const loadLiveWorkspace = useCallback(
     async (preferredProjectId = activeProjectId) => {
@@ -2041,7 +2060,7 @@ function App() {
   )
 
   useEffect(() => {
-    if (!isDashboardRoute || !hasAuthSession) return
+    if (!isAppRoute || !hasAuthSession) return
 
     let active = true
     fetchCurrentUser().then((user) => {
@@ -2053,7 +2072,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [hasAuthSession, isDashboardRoute, location.pathname])
+  }, [hasAuthSession, isAppRoute, location.pathname])
 
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
@@ -2090,7 +2109,7 @@ function App() {
     return <Navigate to={legacyDashboardRoutes[publicPath]} replace />
   }
 
-  if (!isDashboardRoute) {
+  if (!isAppRoute) {
     return <Navigate to="/" replace />
   }
 
@@ -2623,6 +2642,7 @@ function App() {
       <AppSidebar
         projects={sidebarProjects}
         activeProjectId={activeProject.id}
+        currentUser={currentUser}
         pendingReviews={pendingReviews}
         pendingInvites={pendingInvites}
         onlineAgents={activeProject.agentsOnline}
@@ -2633,6 +2653,7 @@ function App() {
           setDialogMode("invite")
         }}
         onArchiveProject={handleArchiveProject}
+        onNavigate={(to) => navigate(to)}
         onLogout={handleLogout}
       />
       <SidebarInset className="h-svh min-w-0 overflow-hidden">
@@ -2896,6 +2917,17 @@ function App() {
               }
             />
             <Route path="/dashboard/*" element={<Navigate to="/dashboard/board" replace />} />
+            <Route path="/account" element={<AccountLayout pendingInvites={pendingInvites} />}>
+              <Route index element={<Navigate to="/account/profile" replace />} />
+              <Route path="profile" element={<ProfilePage currentUser={currentUser} projects={accountProjects} />} />
+              <Route path="settings" element={<SettingsPage projects={accountProjects} />} />
+              <Route
+                path="invitations"
+                element={<InvitationsPage onAccepted={() => void loadLiveWorkspace(activeProjectId)} />}
+              />
+              <Route path="security" element={<SecurityPage />} />
+              <Route path="*" element={<Navigate to="/account/profile" replace />} />
+            </Route>
           </Routes>
         </main>
       </SidebarInset>
