@@ -24,3 +24,7 @@ dist/
 # v1 (tauri + sqlite) — has its own git repo
 task_flow/
 .screenshots/
+
+# Uploaded media (runtime data, served from ./media)
+backend/media/
+media/
