@@ -28,7 +28,8 @@ use umbral_testing::{TestClient, boot, seq};
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
     TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
-    TaskflowChannelMemberKind, taskflow_agent_channel, taskflow_agent_message,
+    TaskflowChannelMemberKind, taskflow_agent_channel, taskflow_agent_channel_member,
+    taskflow_agent_message,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
@@ -137,6 +138,14 @@ impl TestApp {
             .count()
             .await
             .expect("count messages")
+    }
+
+    pub async fn count_channel_members(&self, channel: i64) -> i64 {
+        TaskflowAgentChannelMember::objects()
+            .filter(taskflow_agent_channel_member::CHANNEL.eq(channel))
+            .count()
+            .await
+            .expect("count channel members")
     }
 
     pub async fn project_of_channel(&self, channel: i64) -> i64 {
@@ -273,4 +282,64 @@ pub async fn seed_channel_without_member(app: &TestApp) -> (i64, i64) {
     let channel = seed_channel(project).await;
     let outsider = app.create_user().await;
     (channel, outsider)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for the add-channel-member endpoint. These give a test fine-grained
+// control over the (project, channel, project-membership, roster) graph, which
+// the higher-level `seed_*` helpers above bundle together.
+// ---------------------------------------------------------------------------
+
+/// A bare project of the given channel `kind`: returns `(project, channel)` with
+/// no members and no roster rows yet.
+pub async fn new_project_and_channel(kind: TaskflowChannelKind) -> (i64, i64) {
+    let project = seed_project().await;
+    let channel = seed_channel_of_kind(project, kind).await;
+    (project, channel)
+}
+
+/// Make `user` an ACTIVE `TaskflowProjectMember` of `project`; returns the
+/// project-member `display_name` so a test can assert the roster row copies it.
+pub async fn make_active_project_member(project: i64, user: i64) -> String {
+    seed_project_member(project, user, TaskflowMembershipStatus::Active).await
+}
+
+/// Put `user` on `channel`'s roster directly (bypassing the endpoint). Used to
+/// stand up a DM the caller is already in, and to pre-seed the duplicate for the
+/// unique-constraint test.
+pub async fn add_channel_roster_row(project: i64, channel: i64, user: i64) {
+    TaskflowAgentChannelMember::objects()
+        .create(TaskflowAgentChannelMember {
+            id: 0,
+            project: ForeignKey::new(project),
+            channel: ForeignKey::new(channel),
+            member_kind: TaskflowChannelMemberKind::User,
+            user: Some(ForeignKey::new(user)),
+            agent: None,
+            display_name: format!("Roster {user}"),
+            role: "member".to_string(),
+            joined_at: None,
+        })
+        .await
+        .expect("create channel roster row");
+}
+
+/// Attempt a raw duplicate roster insert for `(channel, user)` WITHOUT going
+/// through the endpoint. Returns whether the DB accepted it — the unique index
+/// on `(channel, user)` must make the second insert fail.
+pub async fn try_insert_channel_roster_row(project: i64, channel: i64, user: i64) -> bool {
+    TaskflowAgentChannelMember::objects()
+        .create(TaskflowAgentChannelMember {
+            id: 0,
+            project: ForeignKey::new(project),
+            channel: ForeignKey::new(channel),
+            member_kind: TaskflowChannelMemberKind::User,
+            user: Some(ForeignKey::new(user)),
+            agent: None,
+            display_name: format!("Dup {user}"),
+            role: "member".to_string(),
+            joined_at: None,
+        })
+        .await
+        .is_ok()
 }

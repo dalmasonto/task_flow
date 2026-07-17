@@ -184,6 +184,7 @@ pub struct TaskflowAgentChannel {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["channel", "user"]])]
 pub struct TaskflowAgentChannelMember {
     pub id: i64,
     /// Denormalized from `channel.project` so realtime can route membership

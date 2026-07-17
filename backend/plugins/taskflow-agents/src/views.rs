@@ -1,9 +1,10 @@
 //! HTTP handlers for the `taskflow-agents` plugin.
 
 use serde::Deserialize;
+use serde_json::json;
 use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
 use umbral::orm::ForeignKey;
-use umbral::web::{Json, StatusCode};
+use umbral::web::{IntoResponse, Json, Path, Response, StatusCode};
 use umbral_auth::RequireAuth;
 
 use crate::models::{
@@ -153,4 +154,157 @@ pub async fn send_message(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(message))
+}
+
+/// The role stamped on a roster row minted through this endpoint. The channel
+/// roster carries its own `role` string independent of the project role — a
+/// person's standing in a channel is "member" regardless of whether they are a
+/// developer or a viewer of the project. Kept deliberately constant so the value
+/// is predictable and this endpoint never leaks a project's role hierarchy into
+/// the channel roster.
+const CHANNEL_ROLE_MEMBER: &str = "member";
+
+/// The only field a client may assert: which person to add. The channel comes
+/// from the PATH and the caller's identity from the auth token — neither is a
+/// body field, so there is nothing to forge. Agents are out of scope: this
+/// endpoint adds people (`user`), never agents.
+#[derive(Debug, Deserialize)]
+pub struct AddChannelMemberInput {
+    pub user: i64,
+}
+
+/// The 400 body for "the target isn't a project member", shaped like auto-REST's
+/// field-error envelope (`code` + a per-field message array) so the frontend can
+/// render it inline against the `user` input exactly as it would any validation
+/// rejection.
+fn not_a_project_member_response() -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "code": "not_a_project_member",
+            "user": ["That user is not an active member of this project."],
+        })),
+    )
+        .into_response()
+}
+
+/// `POST /api/taskflow/channels/{channel}/members`
+///
+/// Explicitly add a person to a channel's roster (`TaskflowAgentChannelMember`).
+/// Channel rosters were previously only ever created client-side when a channel
+/// was first made, so a project member who joined later was on no channel's
+/// roster and there was no way to put them on one. This is that missing write
+/// path — needed for the member list and required for DMs.
+///
+/// AUTHORIZATION mirrors `send_message`'s membership logic:
+///   * The CALLER must be an ACTIVE `TaskflowProjectMember` of the channel's
+///     project (else 403). Active project membership already grants read/post
+///     access to a project's shared rooms, so it also authorizes managing their
+///     rosters.
+///   * ADDITIONALLY, for a `Direct` channel the caller must ALSO already be on
+///     that channel's roster (else 403): a DM stays private to its explicit
+///     roster, so only someone already in the DM may pull another person in.
+///     Shared rooms (Project / Task / Incident) need only active project
+///     membership.
+///
+/// The TARGET must be an ACTIVE `TaskflowProjectMember` of the same project —
+/// you cannot add someone who isn't in the project (400, field-error body).
+///
+/// IDEMPOTENT: the `(channel, user)` unique index makes a roster row unique per
+/// person; if one already exists this returns it (200) rather than inserting a
+/// duplicate. A fresh add returns the created row (201).
+pub async fn add_channel_member(
+    RequireAuth(caller_id): RequireAuth<i64>,
+    Path(channel_id): Path<i64>,
+    Json(input): Json<AddChannelMemberInput>,
+) -> Result<Response, StatusCode> {
+    let channel = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::ID.eq(channel_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let project_id = channel.project.id();
+
+    // Caller gate: an active project member of THIS project. Read from the table,
+    // never trusted from the request. Absent → 403.
+    TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(caller_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    // DM carve-out: a Direct channel stays private to its explicit roster, so the
+    // caller must already be ON that roster to add anyone. Active project
+    // membership is not enough for a DM (mirrors the `send_message` Direct
+    // exemption).
+    if channel.kind == TaskflowChannelKind::Direct {
+        TaskflowAgentChannelMember::objects()
+            .filter(
+                taskflow_agent_channel_member::CHANNEL.eq(channel.id)
+                    & taskflow_agent_channel_member::USER.eq(caller_id),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::FORBIDDEN)?;
+    }
+
+    // Target gate: the person being added must be an active project member too —
+    // you cannot add an outsider. A clear field error the frontend can render
+    // inline, not a bare 400.
+    let target_member = match TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(input.user)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        Some(member) => member,
+        None => return Ok(not_a_project_member_response()),
+    };
+
+    // Idempotent: the roster row is unique per (channel, user). If it already
+    // exists, hand it back (200) rather than inserting a duplicate — the same
+    // guarantee the DB's unique index enforces, surfaced as a clean 200.
+    if let Some(existing) = TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(channel.id)
+                & taskflow_agent_channel_member::USER.eq(input.user),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        return Ok((StatusCode::OK, Json(existing)).into_response());
+    }
+
+    // Every identity-bearing field is derived, never accepted: `project` from the
+    // channel, the display name from the target's own project membership, the
+    // member kind fixed to `User` (agents are out of scope for this endpoint).
+    let created = TaskflowAgentChannelMember::objects()
+        .create(TaskflowAgentChannelMember {
+            id: 0,
+            project: ForeignKey::new(project_id),
+            channel: ForeignKey::new(channel.id),
+            member_kind: TaskflowChannelMemberKind::User,
+            user: Some(ForeignKey::new(input.user)),
+            agent: None,
+            display_name: target_member.display_name.clone(),
+            role: CHANNEL_ROLE_MEMBER.to_string(),
+            joined_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::CREATED, Json(created)).into_response())
 }

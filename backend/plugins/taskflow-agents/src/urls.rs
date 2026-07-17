@@ -19,4 +19,10 @@ pub fn router() -> Router {
         // POST /api/taskflow_agent_message/ lets the client assert its own
         // sender fields; this route derives them.
         .route("/api/taskflow/agents/messages", post(views::send_message))
+        // The only authorized way to add a person to a channel roster. Membership
+        // and identity are resolved server-side; the channel comes from the path.
+        .route(
+            "/api/taskflow/channels/{channel}/members",
+            post(views::add_channel_member),
+        )
 }
