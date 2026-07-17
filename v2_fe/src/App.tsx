@@ -9,6 +9,8 @@ import {
   BotIcon,
   CheckIcon,
   CheckCircle2Icon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CircleDotIcon,
   Clock3Icon,
   ClipboardCheckIcon,
@@ -35,6 +37,7 @@ import {
   ShieldCheckIcon,
   TerminalIcon,
   TimerIcon,
+  UserIcon,
   UserRoundPlusIcon,
   UsersIcon,
   XIcon,
@@ -244,6 +247,10 @@ type AgentChatContext = {
   mode: "direct" | "channel"
   liveChannelId?: number
   liveAgentId?: number
+  /// Set only on a human (member-to-member) DM: the target member's auth user id.
+  /// Presence of this field (vs. liveAgentId) is how we tell a human DM from an
+  /// agent DM — it drives the roster we create and whether the terminal appears.
+  liveMemberUserId?: number
   title: string
   detail: string
   status: string
@@ -1088,8 +1095,47 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
       messages: mapLiveChannelMessages(workspace, channel.id, primaryAgent, currentUser),
     }
   })
-  const coveredAgentIds = new Set(chats.map((chat) => chat.liveAgentId).filter((id): id is number => Boolean(id)))
-  const placeholders = workspace.agents
+  // A direct channel already covers a member/agent when its roster holds that
+  // user/agent besides the current user, so we don't double-list it as a
+  // placeholder. Keyed by user id / agent id read straight off the roster rows.
+  const coveredAgentIds = new Set<number>()
+  const coveredUserIds = new Set<number>()
+  for (const channelChat of chats) {
+    const rawMembers = workspace.agentChannelMembers.filter((member) => member.channel === channelChat.liveChannelId)
+    for (const member of rawMembers) {
+      if (member.member_kind === "agent" && member.agent) coveredAgentIds.add(member.agent)
+      if (member.member_kind === "user" && member.user && member.user !== currentUser?.id) coveredUserIds.add(member.user)
+    }
+  }
+
+  const selfMember: ConversationMember = currentUser
+    ? { name: currentUser.username, type: "human" }
+    : { name: "You", type: "human" }
+
+  // Every active project member (except me) becomes a DM target. The live
+  // channel is created lazily on first send (see ensureLiveChannel).
+  const memberPlaceholders = workspace.members
+    .filter(
+      (member) =>
+        member.status === "active" &&
+        member.user != null &&
+        member.user !== currentUser?.id &&
+        !coveredUserIds.has(member.user)
+    )
+    .map((member) => ({
+      id: `live:member:${member.user}`,
+      mode: "direct" as const,
+      liveMemberUserId: member.user as number,
+      title: member.display_name,
+      detail: member.role || "Direct message",
+      status: "Direct",
+      members: uniqueMembers([selfMember, { name: member.display_name, type: "human" as const }]),
+      primaryAgent: member.display_name,
+      unread: 0,
+      messages: [],
+    }))
+
+  const agentPlaceholders = workspace.agents
     .filter((agent) => !coveredAgentIds.has(agent.id))
     .map((agent) => ({
       id: `live:agent:${agent.id}`,
@@ -1098,16 +1144,13 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
       title: agent.display_name,
       detail: agent.project_root || agent.identifier,
       status: agent.status,
-      members: uniqueMembers([
-        ...(currentUser ? [{ name: currentUser.username, type: "human" as const }] : [{ name: "You", type: "human" as const }]),
-        { name: agent.display_name, type: "agent" as const },
-      ]),
+      members: uniqueMembers([selfMember, { name: agent.display_name, type: "agent" as const }]),
       primaryAgent: agent.display_name,
       unread: 0,
       messages: [],
     }))
 
-  return [...chats, ...placeholders]
+  return [...chats, ...memberPlaceholders, ...agentPlaceholders]
 }
 
 function mapLiveTerminalStatus(status: TaskflowWorkspace["agentSessions"][number]["status"]) {
@@ -4319,9 +4362,17 @@ function AgentsPage({
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
     [liveWorkspace]
   )
-  const selectedSession =
-    terminalSessions.find((session) => session.agent === selectedChat.primaryAgent || session.agent === selectedChat.title) ??
-    terminalSessions[0]
+  // The terminal is an agent-only surface: resolve a session only when the
+  // selected chat is an agent DM, and only for THAT agent (matched by the
+  // agent's display name, which is how mapLiveTerminalSessions labels each
+  // session). Non-agent conversations get no session, so the terminal shows its
+  // honest empty state rather than some other agent's global first session.
+  const selectedSession = useMemo(() => {
+    if (!selectedChat.liveAgentId) return undefined
+    const agent = liveWorkspace?.agents.find((candidate) => candidate.id === selectedChat.liveAgentId)
+    const agentName = agent?.display_name ?? selectedChat.primaryAgent
+    return terminalSessions.find((session) => session.agent === agentName)
+  }, [liveWorkspace, selectedChat.liveAgentId, selectedChat.primaryAgent, terminalSessions])
 
   useEffect(() => {
     if (!allChats.length) return
@@ -4381,7 +4432,11 @@ function AgentsPage({
 
     addUser(currentUser?.id, currentUser?.username ?? "You", "member")
 
-    if (chat.mode === "direct") {
+    if (chat.mode === "direct" && chat.liveMemberUserId) {
+      // Human DM: just me + the target member. Do NOT fan out to the whole roster.
+      const member = liveWorkspace.members.find((candidate) => candidate.user === chat.liveMemberUserId)
+      addUser(chat.liveMemberUserId, member?.display_name ?? chat.title, member?.role ?? "member")
+    } else if (chat.mode === "direct") {
       const agent = liveWorkspace.agents.find((candidate) => candidate.id === chat.liveAgentId)
       addAgent(agent?.id ?? chat.liveAgentId, agent?.display_name ?? chat.primaryAgent, "agent")
     } else {
@@ -4671,6 +4726,21 @@ function AgentWorkbenchView({
     composerRef.current?.focus()
   }
 
+  // The terminal is only meaningful for agent DMs, so it defaults to EXPANDED
+  // there and MINIMIZED for the group room and human DMs. A manual toggle
+  // (terminalOverride) wins until the user switches conversations, at which
+  // point we clear it so the new chat's default applies. Resetting the override
+  // during render (rather than in an effect) is the React-blessed "adjust state
+  // when a prop changes" pattern and avoids a set-state-in-effect lint error.
+  const isAgentChat = Boolean(selectedChat.liveAgentId)
+  const [terminalOverride, setTerminalOverride] = useState<boolean | null>(null)
+  const [terminalChatId, setTerminalChatId] = useState(selectedChat.id)
+  if (terminalChatId !== selectedChat.id) {
+    setTerminalChatId(selectedChat.id)
+    setTerminalOverride(null)
+  }
+  const terminalOpen = terminalOverride ?? isAgentChat
+
   // Revoke every staged preview URL when the composer unmounts so switching
   // chats mid-compose doesn't leak object URLs.
   useEffect(() => {
@@ -4732,7 +4802,14 @@ function AgentWorkbenchView({
       : `Visible to ${selectedChat.members.map((member) => member.name).join(" and ")}`
 
   return (
-    <section className="grid min-h-0 flex-1 grid-rows-[minmax(9rem,12rem)_minmax(0,1fr)_minmax(18rem,0.72fr)] overflow-hidden rounded-lg border bg-card shadow-sm xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_minmax(18rem,0.85fr)] xl:grid-rows-none">
+    <section
+      className={cn(
+        "grid min-h-0 flex-1 overflow-hidden rounded-lg border bg-card shadow-sm xl:grid-rows-none",
+        terminalOpen
+          ? "grid-rows-[minmax(9rem,12rem)_minmax(0,1fr)_minmax(18rem,0.72fr)] xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_minmax(18rem,0.85fr)]"
+          : "grid-rows-[minmax(9rem,12rem)_minmax(0,1fr)_auto] xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_auto]"
+      )}
+    >
       <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b bg-muted/35 p-3 xl:border-b-0 xl:border-r">
         <div className="flex shrink-0 items-center gap-2 text-sm font-semibold">
           <InboxIcon className="size-4 text-primary" />
@@ -4783,41 +4860,56 @@ function AgentWorkbenchView({
             <span>DMs</span>
             <span>{directChats.length}</span>
           </div>
-          {directChats.map((chat) => (
-            <button
-              key={chat.id}
-              type="button"
-              className={cn(
-                "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
-                selectedChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
-              )}
-              onClick={() => onSelectDirectChat(chat)}
-            >
-              <div className="flex min-w-0 items-center justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
-                {chat.unread ? (
-                  <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                    {chat.unread}
+          {directChats.map((chat) => {
+            // An agent DM carries liveAgentId; a human (member) DM carries
+            // liveMemberUserId. Existing direct channels created against an
+            // agent still carry liveAgentId, so the icon stays correct there too.
+            const isAgentDm = Boolean(chat.liveAgentId)
+            return (
+              <button
+                key={chat.id}
+                type="button"
+                className={cn(
+                  "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
+                  selectedChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
+                )}
+                onClick={() => onSelectDirectChat(chat)}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex size-7 shrink-0 items-center justify-center rounded-full ring-1",
+                      isAgentDm
+                        ? "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900/60"
+                        : "bg-sky-100 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60"
+                    )}
+                    aria-hidden
+                  >
+                    {isAgentDm ? <BotIcon className="size-4" /> : <UserIcon className="size-4" />}
                   </span>
-                ) : null}
-              </div>
-              <MarkdownRenderer
-                content={chat.detail}
-                compact
-                className="mt-1 w-full [&_p]:truncate [&_p]:text-xs"
-              />
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
-                  {chat.status}
-                </span>
-                <span className="min-w-0 max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {countMemberType(chat.members, "agent")} agents · {chat.members.length} members
-                </span>
-              </div>
-            </button>
-          ))}
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
+                  <span className="shrink-0 text-[0.65rem] font-medium uppercase tracking-normal text-muted-foreground">
+                    {isAgentDm ? "Agent" : "Member"}
+                  </span>
+                  {chat.unread ? (
+                    <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                      {chat.unread}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{chat.detail}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
+                    {chat.status}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
           {directChats.length === 0 ? (
-            <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">No agents to DM yet.</p>
+            <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
+              No members or agents to DM yet.
+            </p>
           ) : null}
         </div>
       </div>
@@ -4927,8 +5019,44 @@ function AgentWorkbenchView({
         </form>
       </div>
 
-      <AgentTerminalPanel selectedSession={selectedSession} onFocusComposer={focusComposer} />
+      {terminalOpen ? (
+        <AgentTerminalPanel
+          selectedSession={selectedSession}
+          onFocusComposer={focusComposer}
+          onMinimize={() => setTerminalOverride(false)}
+        />
+      ) : (
+        <TerminalRail isAgentChat={isAgentChat} onExpand={() => setTerminalOverride(true)} />
+      )}
     </section>
+  )
+}
+
+/// The collapsed terminal: a slim rail (a horizontal bar below the chat on small
+/// screens, a narrow vertical bar to its right on xl) that keeps the terminal
+/// one click away without stealing space from the chat. Shown for the group room
+/// and human DMs, and whenever the user has minimized an agent's terminal.
+function TerminalRail({ isAgentChat, onExpand }: { isAgentChat: boolean; onExpand: () => void }) {
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-2 border-t bg-muted/30 px-3 py-2 xl:w-12 xl:flex-col xl:items-center xl:justify-start xl:gap-3 xl:border-l xl:border-t-0 xl:py-4">
+      <button
+        type="button"
+        onClick={onExpand}
+        title="Expand terminal"
+        aria-label="Expand terminal"
+        className="flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground xl:flex-col xl:gap-2 xl:px-1"
+      >
+        <TerminalIcon className="size-4 text-primary" />
+        <span className="xl:[writing-mode:vertical-rl] xl:rotate-180">Terminal</span>
+      </button>
+      <div className="flex items-center gap-2 xl:mt-auto xl:flex-col">
+        <span className="hidden text-[0.65rem] text-muted-foreground xl:block xl:[writing-mode:vertical-rl] xl:rotate-180">
+          {isAgentChat ? "Agent session" : "No session"}
+        </span>
+        <ChevronLeftIcon className="hidden size-4 text-muted-foreground xl:block" aria-hidden />
+        <ChevronRightIcon className="size-4 text-muted-foreground xl:hidden" aria-hidden />
+      </div>
+    </div>
   )
 }
 
@@ -5230,10 +5358,17 @@ function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?
 function AgentTerminalPanel({
   selectedSession,
   onFocusComposer,
+  onMinimize,
 }: {
   selectedSession?: AgentTerminalSessionView
   onFocusComposer: () => void
+  onMinimize: () => void
 }) {
+  const minimizeButton = (
+    <Button variant="ghost" size="icon" onClick={onMinimize} title="Minimize terminal" aria-label="Minimize terminal">
+      <ChevronRightIcon />
+    </Button>
+  )
   if (!selectedSession) {
     return (
       <div className="flex min-h-0 min-w-0 flex-col bg-muted/20">
@@ -5242,6 +5377,7 @@ function AgentTerminalPanel({
             <TerminalIcon className="size-4 text-primary" />
             <h2 className="text-sm font-semibold">Terminal</h2>
           </div>
+          {minimizeButton}
         </div>
         <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
           No terminal session yet. Connected agents and their terminal frames will appear here.
@@ -5263,7 +5399,7 @@ function AgentTerminalPanel({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">{selectedSession.cwd}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={onFocusComposer}>
             <MessageSquareIcon />
             Message
@@ -5272,6 +5408,7 @@ function AgentTerminalPanel({
             <TerminalIcon />
             Refresh
           </Button>
+          {minimizeButton}
         </div>
       </div>
 
