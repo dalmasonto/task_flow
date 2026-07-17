@@ -120,13 +120,19 @@ authenticated user can already join any project room. Hardening is the permissio
 this design must simply not make it worse.
 
 **Presence** is pinned to a dedicated `project:{id}:presence` group carrying no model events. Today's
-`PresenceSpec::matching(|g| g.starts_with("project:"))` would otherwise match all 15 per-table groups
-and produce 15 presence sets per project.
+`PresenceSpec::matching(|g| g.starts_with("project:"))` would otherwise match every per-table group
+and produce 14 presence sets per project instead of one.
 
 **Migrations** (two model changes):
 - `TaskflowAgentMessage.client_nonce: Option<String>` — nullable, `max_length = 64`.
 - `TaskflowAgentChannelMember.project: ForeignKey<TaskflowProject>` — `on_delete = "cascade"`,
-  matching `TaskflowAgentMessage`. Backfilled from `channel.project`.
+  matching `TaskflowAgentMessage`.
+
+`project` is NOT NULL with no default, which SQLite cannot add to a populated table. Rather than
+carrying a backfill migration for it, the dev DB (`backend/backend.db`, gitignored, holding seed data
+and throwaway rows only) is recreated. This is a deliberate dev-only shortcut: the first real
+deployment will need a proper backfill, and that is a migration to write when there is production data
+worth preserving — not now, against a database whose entire contents `seed::all()` regenerates.
 
 **Send endpoint.** `POST /api/taskflow/agents/messages`, registered in
 `plugins/taskflow-agents/src/urls.rs` — the first domain route in the plugin (the existing three are
@@ -217,7 +223,9 @@ Backend (Rust, via `umbral-testing`):
 - Idempotency: same `(channel, client_nonce)` twice → one row, both calls return it
 - Realtime routing: a message event reaches `project:{id}:messages` and **not** `project:{id}:tasks`
   — the regression test for the root-cause bug
-- Migration: `ChannelMember.project` backfills correctly from `channel.project`
+- Group policy: accepts every per-table suffix and `presence`; rejects `project:` with an empty id and
+  the retired `taskflow:agents`
+- Seed: `seed::chat()` is idempotent — booting twice does not double-insert
 
 Frontend — no test framework exists today. Add **vitest** for the reconcile reducer only. It is a pure
 function, it is where the subtle race lives, and it is cheap to cover:
