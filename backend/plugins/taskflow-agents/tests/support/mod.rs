@@ -1,5 +1,9 @@
 //! Test harness for the taskflow-agents plugin — the app's first one.
 //!
+//! Shared across test binaries; each uses a different subset of the helpers,
+//! so unused-in-one-binary is expected, not dead code.
+#![allow(dead_code)]
+//!
 //! `umbral-testing` already provides the two halves this needs: `boot()`
 //! (one in-process app per test binary, backed by a throwaway SQLite
 //! database that is never `backend.db`) and `TestClient` (drives the
