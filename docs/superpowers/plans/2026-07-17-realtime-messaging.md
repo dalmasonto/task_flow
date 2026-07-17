@@ -1399,14 +1399,20 @@ In `applyRealtimeDeletion`, the `agentMessages` case must switch from the generi
     }))
 
     try {
-      // The response is deliberately dropped: reconcile() folds in whichever
-      // of the SSE echo or this response lands first, keyed by nonce.
-      await sendTaskflowAgentMessage({
+      const saved = await sendTaskflowAgentMessage({
         channel: channelId,
         body_markdown,
         priority: toLiveMessagePriority(priority),
         client_nonce: nonce,
       })
+      // Reconcile the response as well as the SSE echo. Whichever lands first
+      // wins and the other is a no-op — they key on the same nonce. Relying on
+      // the echo alone would strand the bubble as pending whenever SSE is down,
+      // even though the message saved fine.
+      onWorkspaceUpdate((workspace) => ({
+        ...workspace,
+        agentMessages: reconcile(workspace.agentMessages, saved),
+      }))
     } catch (error) {
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
@@ -1417,7 +1423,7 @@ In `applyRealtimeDeletion`, the `agentMessages` case must switch from the generi
   }
 ```
 
-Note: the POST response *is* awaited (so failures surface) but its body is discarded. If SSE is down the message would stay pending forever, so also reconcile the response — call `reconcile(workspace.agentMessages, response)` on success. It is a no-op when the echo already won, which is exactly what Task 7's second test proves.
+The double-reconcile is safe by construction — Task 7's "no-op when the POST response arrives after the echo already reconciled" test is exactly this path.
 
 - [ ] **Step 4: Set `project` on created channel members (~4847)**
 
