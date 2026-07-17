@@ -30,6 +30,7 @@ import type {
   UmbralResources,
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken } from "@/lib/auth-api"
+import type { ChatMessage } from "@/lib/message-store"
 
 export const taskflowTables = {
   projects: "taskflow_project",
@@ -101,7 +102,7 @@ export type TaskflowWorkspace = {
   agentSessions: TaskflowAgentSession[]
   agentChannels: TaskflowAgentChannel[]
   agentChannelMembers: TaskflowAgentChannelMember[]
-  agentMessages: TaskflowAgentMessage[]
+  agentMessages: ChatMessage[]
   terminalFrames: TaskflowAgentTerminalFrame[]
 }
 
@@ -243,7 +244,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").list(),
     taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").list(),
     taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").list(),
-    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("created_at", "id").list(),
     taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
   ])
 
