@@ -1163,15 +1163,27 @@ function mapLiveTerminalSessions(workspace: TaskflowWorkspace): AgentTerminalSes
   }))
 }
 
-/// Resolve a stored attachment row to the display view model. The servable URL
-/// is `/media/<key>`, the same value `FileField::url()` produces on the backend.
+/// The FileField value reaches the client in three shapes depending on the
+/// delivery path: the send-response returns a bare storage key (plus an explicit
+/// resolved `url`), a REST read resolves it to `/media/<key>`, and realtime
+/// projects the bare key. Normalize them: honor a value that is already an
+/// absolute URL/path (or a local blob preview), and only prepend the media mount
+/// to a bare storage key. Never double-prefix a value the backend already
+/// resolved.
+function resolveAttachmentUrl(raw: string | null | undefined): string {
+  if (!raw) return ""
+  if (/^(https?:|blob:|\/)/.test(raw)) return raw
+  return `/media/${raw}`
+}
+
+/// Resolve a stored attachment row to the display view model.
 function mapStoredAttachment(attachment: TaskflowMessageAttachment): AgentAttachment {
   return {
     id: String(attachment.id),
     name: attachment.name,
     contentType: attachment.content_type,
     sizeBytes: attachment.size_bytes,
-    url: `/media/${attachment.file}`,
+    url: resolveAttachmentUrl((attachment as { url?: string | null }).url ?? attachment.file),
   }
 }
 
