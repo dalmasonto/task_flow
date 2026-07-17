@@ -4886,9 +4886,8 @@ function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?
           {message.to ? (
             <span className="text-muted-foreground">to {message.to}</span>
           ) : null}
-          <span className="text-muted-foreground">{message.time}</span>
-          <span className={cn("rounded-full px-2 py-0.5 font-medium", fromUser ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-            {message.status}
+          <span className={cn("text-muted-foreground", message.status === "failed" && "text-rose-600 dark:text-rose-300")}>
+            {message.time}
           </span>
           {message.priority && message.priority !== "normal" ? (
             <span className={cn("rounded-full px-2 py-0.5 font-medium ring-1", messagePriorityBadgeClass(message.priority))}>
