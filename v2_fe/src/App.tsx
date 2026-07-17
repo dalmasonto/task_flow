@@ -238,23 +238,6 @@ type InviteRecord = {
   nextAction: string
 }
 
-type AgentSessionRecord = {
-  id: string
-  displayName: string
-  identifier: string
-  shortKey: string
-  projectKey: string
-  linkedBy: string
-  linkedAt: string
-  status: "Connected" | "Waiting" | "Stale" | "Revoked"
-  lastSeen: string
-  root: string
-  markerFile: string
-  scope: string
-  runtime: string
-  session: string
-}
-
 type TaskLink = {
   label: string
   value: string
@@ -385,144 +368,6 @@ const reviewDecisionOptions = [
   { value: "approve", label: "Approve and mark done" },
   { value: "changes", label: "Request changes" },
   { value: "blocked", label: "Block until clarified" },
-]
-
-const agentDirectory = [
-  {
-    name: "frontend-ui",
-    status: "Active",
-    detail: "Editing board surface and UI workflows.",
-    scope: "Project UI",
-    pending: 1,
-    live: true,
-  },
-  {
-    name: "backend",
-    status: "Review",
-    detail: "Waiting on API contract confirmation.",
-    scope: "Live API",
-    pending: 2,
-    live: true,
-  },
-  {
-    name: "qa-agent",
-    status: "Queued",
-    detail: "Ready to run route and form coverage checks.",
-    scope: "Verification",
-    pending: 0,
-    live: false,
-  },
-]
-
-const agentTerminalSessions: AgentTerminalSessionView[] = [
-  {
-    agent: "frontend-ui",
-    status: "Awaiting input",
-    task: "Add agent chat and terminal views",
-    cwd: "/home/dalmas/E/projects/local_task_tracker/v2_fe",
-    updated: "Just now",
-    lines: [
-      "$ npm run lint",
-      "eslint .",
-      "",
-      "No issues found.",
-      "",
-      "Prompt: implement /agents chat and terminal views",
-      "Awaiting operator decision: Build it / Keep chat only / Open terminal first",
-    ],
-  },
-  {
-    agent: "backend",
-    status: "Running",
-    task: "Draft API contract",
-    cwd: "/api/v2/agents",
-    updated: "7 min ago",
-    lines: [
-      "$ curl /api/v2/agents?include=messages,terminal",
-      "200 OK",
-      "agents: 3",
-      "pendingPrompts: 2",
-      "terminalSessions: 2",
-    ],
-  },
-  {
-    agent: "qa-agent",
-    status: "Idle",
-    task: "Verification queue",
-    cwd: "/checks/v2_fe",
-    updated: "Queued",
-    lines: [
-      "$ waiting for implementation",
-      "Next: build, lint, route smoke checks",
-    ],
-  },
-]
-
-const agentSessionRecords: AgentSessionRecord[] = [
-  {
-    id: "sess-frontend-ui-main",
-    displayName: "frontend-ui",
-    identifier: "agt_local_task_tracker_frontend_ui_01",
-    shortKey: "AGT-FE-01",
-    projectKey: "tfk_prj_ltt_7HT9...W2N",
-    linkedBy: "Dalmas",
-    linkedAt: "Today, 09:48",
-    status: "Connected",
-    lastSeen: "Now",
-    root: "/home/dalmas/E/projects/local_task_tracker/v2_fe",
-    markerFile: "taskflow.json",
-    scope: "UI, invites, agents chat",
-    runtime: "Codex CLI",
-    session: "pid 15096",
-  },
-  {
-    id: "sess-backend-main",
-    displayName: "backend",
-    identifier: "agt_local_task_tracker_backend_01",
-    shortKey: "AGT-BE-01",
-    projectKey: "tfk_prj_ltt_D9K4...P8Q",
-    linkedBy: "Mina Stone",
-    linkedAt: "Today, 10:21",
-    status: "Connected",
-    lastSeen: "3 min ago",
-    root: "/home/dalmas/E/projects/local_task_tracker/api",
-    markerFile: "taskflow.json",
-    scope: "API contracts, task mutations",
-    runtime: "Codex CLI",
-    session: "pid 16422",
-  },
-  {
-    id: "sess-qa-staging",
-    displayName: "qa-agent",
-    identifier: "agt_local_task_tracker_qa_01",
-    shortKey: "AGT-QA-01",
-    projectKey: "tfk_prj_ltt_Q2VL...R6M",
-    linkedBy: "Dalmas",
-    linkedAt: "Yesterday, 16:30",
-    status: "Waiting",
-    lastSeen: "Queued",
-    root: "/home/dalmas/E/projects/local_task_tracker/checks",
-    markerFile: "taskflow.json",
-    scope: "Route checks, review verification",
-    runtime: "TaskFlow MCP",
-    session: "not attached",
-  },
-  {
-    id: "sess-frontend-old",
-    displayName: "frontend-ui",
-    identifier: "agt_local_task_tracker_frontend_ui_00",
-    shortKey: "AGT-FE-00",
-    projectKey: "tfk_prj_ltt_OLD7...K3X",
-    linkedBy: "Dalmas",
-    linkedAt: "Jul 14, 18:02",
-    status: "Stale",
-    lastSeen: "22h ago",
-    root: "/home/dalmas/E/projects/local_task_tracker/v2_fe",
-    markerFile: "taskflow.json",
-    scope: "Previous UI session",
-    runtime: "Codex CLI",
-    session: "disconnected",
-  },
 ]
 
 function nextStatus(status: ColumnId): ColumnId {
@@ -747,6 +592,25 @@ function getLiveTaskActivity(task: Task, workspace: TaskflowWorkspace): TaskActi
       time: formatLiveDate(event.created_at, "Live"),
       detail: event.body_markdown || event.action.replace(/_/g, " "),
     }))
+}
+
+/// The project-wide activity feed, sourced from taskflow_task_activity. Rows
+/// arrive newest-first from the API; each is resolved to its task title when the
+/// task is loaded, otherwise labelled by its numeric id or the project name.
+function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[]): ActivityEvent[] {
+  return workspace.taskActivity.map((event) => {
+    const relatedTask =
+      event.task != null ? projectTasks.find((task) => liveId(task.id) === event.task) : undefined
+    return {
+      id: String(event.id),
+      title: relatedTask?.title ?? (event.task != null ? `Task #${event.task}` : workspace.project.name),
+      detail: event.body_markdown || event.action.replace(/_/g, " "),
+      actor: event.actor_label,
+      action: event.action,
+      entity: relatedTask?.id ?? (event.task != null ? `Task #${event.task}` : "Project"),
+      time: formatLiveDate(event.created_at, "Live"),
+    }
+  })
 }
 
 function getFallbackTaskActivity(task: Task): TaskActivityItem[] {
@@ -1391,19 +1255,8 @@ function App() {
     taskCount: tasks.filter((task) => task.projectId === project.id).length,
   }))
   const activityEvents = useMemo<ActivityEvent[]>(
-    () =>
-      projectTasks.flatMap((task) =>
-        task.history.map((event, index) => ({
-          id: `${task.id}-${index}`,
-          title: task.title,
-          detail: event,
-          actor: task.operatorName,
-          action: index === 0 ? "latest_update" : "activity_logged",
-          entity: task.id,
-          time: index === 0 ? task.updated : `${index + 1} events ago`,
-        }))
-      ),
-    [projectTasks]
+    () => (activeLiveWorkspace ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks) : []),
+    [activeLiveWorkspace, projectTasks]
   )
   const publicPath = location.pathname.replace(/\/$/, "") || "/"
   const authMode =
@@ -2590,7 +2443,7 @@ function App() {
                 onInvite={() => setDialogMode("invite")}
                 onContract={() => setDialogMode("api-contract")}
               />
-              <AgentRoom project={activeProject} onMessage={() => setDialogMode("agent-message")} />
+              <AgentRoom agents={activeLiveWorkspace?.agents ?? []} onMessage={() => setDialogMode("agent-message")} />
               <ReviewQueue
                 tasks={projectTasks.filter((task) => task.status === "review")}
                 onReview={(taskId) => {
@@ -2599,7 +2452,7 @@ function App() {
                 }}
               />
               <InvitePanel invites={projectInviteRecords} onInvite={() => setDialogMode("invite")} />
-              <ActivityPanel task={selectedTask} />
+              <ActivityPanel events={activityEvents} />
             </aside>
           </section>
         )} />
@@ -2665,6 +2518,7 @@ function App() {
                 activeProject ? (
                   <ApiBasePage
                     project={activeProject}
+                    workspace={activeLiveWorkspace}
                     onContract={() => setDialogMode("api-contract")}
                     onUpdateProject={handleUpdateProject}
                   />
@@ -4089,7 +3943,17 @@ function ProjectControls({
   )
 }
 
-function AgentRoom({ project, onMessage }: { project: Project; onMessage: () => void }) {
+function agentRoomState(status: TaskflowWorkspace["agents"][number]["status"]): "active" | "review" | "idle" {
+  if (status === "connected" || status === "idle" || status === "busy") return "active"
+  if (status === "blocked") return "review"
+  return "idle"
+}
+
+function AgentRoom({ agents, onMessage }: { agents: TaskflowWorkspace["agents"]; onMessage: () => void }) {
+  const onlineCount = agents.filter(
+    (agent) => agent.status === "connected" || agent.status === "idle" || agent.status === "busy"
+  ).length
+
   return (
     <section className="rounded-lg border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between">
@@ -4098,37 +3962,29 @@ function AgentRoom({ project, onMessage }: { project: Project; onMessage: () => 
           <h2 className="font-semibold">Agent Room</h2>
         </div>
         <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
-          {project.agentsOnline} online
+          {onlineCount} online
         </span>
       </div>
-      <div className="mt-4 rounded-lg border bg-muted/40 p-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <LockIcon className="size-4 text-primary" />
-          Authentication required
-        </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Sign in before linking agents, Git providers, or workspace credentials.
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button size="sm">
-            <ShieldCheckIcon />
-            Sign In
-          </Button>
-          <Button variant="outline" size="sm" disabled>
-            <BotIcon />
-            Link Agent
-          </Button>
-        </div>
-      </div>
       <div className="mt-4 space-y-3">
-        <AgentLine name="frontend-ui" detail="Editing board surface" state="active" />
-        <AgentLine name="backend" detail="Waiting on contract approval" state="review" />
-        <AgentLine name="qa-agent" detail="Build checks queued" state="idle" />
+        {agents.length === 0 ? (
+          <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">
+            No agents in this project yet.
+          </p>
+        ) : (
+          agents.map((agent) => (
+            <AgentLine
+              key={agent.id}
+              name={agent.display_name}
+              detail={agent.project_root || agent.identifier}
+              state={agentRoomState(agent.status)}
+            />
+          ))
+        )}
       </div>
-      <div className="mt-4 flex gap-2">
-        <Input className="h-9" placeholder="Message project agents" />
-        <Button size="icon" onClick={onMessage}>
+      <div className="mt-4">
+        <Button size="sm" className="w-full" onClick={onMessage}>
           <SendIcon />
+          Message agents
         </Button>
       </div>
     </section>
@@ -4221,7 +4077,10 @@ function InvitePanel({ invites, onInvite }: { invites: InviteRecord[]; onInvite:
   )
 }
 
-function ActivityPanel({ task }: { task?: Task }) {
+function ActivityPanel({ events }: { events: ActivityEvent[] }) {
+  const recent = events.slice(0, 4)
+  const uniqueActors = Array.from(new Set(recent.map((event) => event.actor)))
+
   return (
     <section className="rounded-lg border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between">
@@ -4229,19 +4088,33 @@ function ActivityPanel({ task }: { task?: Task }) {
           <ActivityIcon className="size-4 text-primary" />
           <h2 className="font-semibold">Activity</h2>
         </div>
-        <AvatarGroup>
-          <Avatar size="sm"><AvatarFallback>DU</AvatarFallback></Avatar>
-          <Avatar size="sm"><AvatarFallback>CX</AvatarFallback></Avatar>
-          <AvatarGroupCount>+3</AvatarGroupCount>
-        </AvatarGroup>
+        {uniqueActors.length ? (
+          <AvatarGroup>
+            {uniqueActors.slice(0, 2).map((actor) => (
+              <Avatar key={actor} size="sm">
+                <AvatarFallback>{toInitials(actor)}</AvatarFallback>
+              </Avatar>
+            ))}
+            {uniqueActors.length > 2 ? <AvatarGroupCount>+{uniqueActors.length - 2}</AvatarGroupCount> : null}
+          </AvatarGroup>
+        ) : null}
       </div>
       <div className="mt-4 space-y-3">
-        {(task?.history ?? ["Project opened."]).slice(0, 4).map((event) => (
-          <div key={event} className="flex gap-3">
-            <Clock3Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <MarkdownRenderer content={event} compact className="[&_p]:text-sm" />
-          </div>
-        ))}
+        {recent.length === 0 ? (
+          <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">No activity yet.</p>
+        ) : (
+          recent.map((event) => (
+            <div key={event.id} className="flex gap-3">
+              <Clock3Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <MarkdownRenderer content={event.detail} compact className="[&_p]:text-sm" />
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {event.actor} · {event.time}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </section>
   )
@@ -4356,13 +4229,12 @@ function AgentsPage({
   const selectedChat =
     allChats.find((chat) => chat.id === selectedChatId) ?? allChats[0] ?? fallbackChat
   const terminalSessions = useMemo(
-    () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : agentTerminalSessions),
+    () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
     [liveWorkspace]
   )
   const selectedSession =
     terminalSessions.find((session) => session.agent === selectedChat.primaryAgent || session.agent === selectedChat.title) ??
-    terminalSessions[0] ??
-    agentTerminalSessions[0]
+    terminalSessions[0]
 
   useEffect(() => {
     if (!allChats.length) return
@@ -4624,7 +4496,7 @@ function AgentWorkbenchView({
   onRetryMessage,
 }: {
   selectedChat: AgentChatContext
-  selectedSession: AgentTerminalSessionView
+  selectedSession?: AgentTerminalSessionView
   directChats: AgentChatContext[]
   channelChats: AgentChatContext[]
   selectedChatId: string
@@ -4663,7 +4535,7 @@ function AgentWorkbenchView({
       name: "dashboard-reference.png",
       detail: "URL attachment that any project member or agent can request from the server.",
       source: "url",
-      path: "/uploads/projects/taskflow-v2/dashboard-reference.png",
+      path: "/uploads/projects/example-project/dashboard-reference.png",
       url: "/landing/dashboard.png",
       size: "237 KB",
       mimeType: "image/png",
@@ -4739,42 +4611,42 @@ function AgentWorkbenchView({
             <span>DMs</span>
             <span>{directChats.length}</span>
           </div>
-          {directChats.map((chat) => {
-            const agent = agentDirectory.find((item) => item.name === chat.primaryAgent)
-            return (
-              <button
-                key={chat.id}
-                type="button"
-                className={cn(
-                  "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
-                  selectedChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
-                )}
-                onClick={() => onSelectDirectChat(chat)}
-              >
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
-                  {chat.unread ? (
-                    <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                      {chat.unread}
-                    </span>
-                  ) : null}
-                </div>
-                <MarkdownRenderer
-                  content={agent?.detail ?? chat.detail}
-                  compact
-                  className="mt-1 w-full [&_p]:truncate [&_p]:text-xs"
-                />
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(agent?.status ?? "Queued"))}>
-                    {agent?.status ?? chat.status}
+          {directChats.map((chat) => (
+            <button
+              key={chat.id}
+              type="button"
+              className={cn(
+                "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
+                selectedChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
+              )}
+              onClick={() => onSelectDirectChat(chat)}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
+                {chat.unread ? (
+                  <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                    {chat.unread}
                   </span>
-                  <span className="min-w-0 max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {agent?.scope ?? chat.status}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
+                ) : null}
+              </div>
+              <MarkdownRenderer
+                content={chat.detail}
+                compact
+                className="mt-1 w-full [&_p]:truncate [&_p]:text-xs"
+              />
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
+                  {chat.status}
+                </span>
+                <span className="min-w-0 max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {countMemberType(chat.members, "agent")} agents · {chat.members.length} members
+                </span>
+              </div>
+            </button>
+          ))}
+          {directChats.length === 0 ? (
+            <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">No agents to DM yet.</p>
+          ) : null}
         </div>
       </div>
 
@@ -5058,9 +4930,25 @@ function AgentTerminalPanel({
   selectedSession,
   onFocusComposer,
 }: {
-  selectedSession: AgentTerminalSessionView
+  selectedSession?: AgentTerminalSessionView
   onFocusComposer: () => void
 }) {
+  if (!selectedSession) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-col bg-muted/20">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <TerminalIcon className="size-4 text-primary" />
+            <h2 className="text-sm font-semibold">Terminal</h2>
+          </div>
+        </div>
+        <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
+          No terminal session yet. Connected agents and their terminal frames will appear here.
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-0 min-w-0 flex-col bg-muted/20">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -5491,17 +5379,22 @@ function inviteRoleClass(role: InviteRecord["role"]) {
 
 function ApiBasePage({
   project,
+  workspace,
   onContract,
   onUpdateProject,
 }: {
   project: Project
+  workspace: TaskflowWorkspace | null
   onContract: () => void
   onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
 }) {
-  const connectedSessions = agentSessionRecords.filter((session) => session.status === "Connected").length
-  const waitingSessions = agentSessionRecords.filter((session) => session.status === "Waiting").length
-  const staleSessions = agentSessionRecords.filter((session) => session.status === "Stale").length
-  const activeKeys = new Set(agentSessionRecords.filter((session) => session.status !== "Revoked").map((session) => session.projectKey)).size
+  const sessions = workspace?.agentSessions ?? []
+  const credentials = workspace?.agentCredentials ?? []
+  const agents = workspace?.agents ?? []
+  const connectedSessions = sessions.filter((session) => session.status === "connected").length
+  const disconnectedSessions = sessions.filter((session) => session.status === "disconnected").length
+  const expiredSessions = sessions.filter((session) => session.status === "expired").length
+  const activeKeys = credentials.filter((credential) => credential.status === "active").length
   const restBase = "/api"
   const realtimeBase = "/realtime"
 
@@ -5525,9 +5418,9 @@ function ApiBasePage({
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <InfoCard icon={<TerminalIcon />} title="Connected sessions" value={`${connectedSessions} live`} />
-        <InfoCard icon={<Clock3Icon />} title="Waiting sessions" value={`${waitingSessions} pending`} />
-        <InfoCard icon={<AlertCircleIcon />} title="Stale sessions" value={`${staleSessions} stale`} />
-        <InfoCard icon={<LockIcon />} title="Project keys" value={`${activeKeys} issued`} />
+        <InfoCard icon={<Clock3Icon />} title="Disconnected sessions" value={`${disconnectedSessions} idle`} />
+        <InfoCard icon={<AlertCircleIcon />} title="Expired sessions" value={`${expiredSessions} expired`} />
+        <InfoCard icon={<LockIcon />} title="Active keys" value={`${activeKeys} active`} />
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_21rem]">
@@ -5611,14 +5504,22 @@ function ApiBasePage({
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <AgentSessionsTable sessions={agentSessionRecords} />
-        <AgentIdentityPanel project={project} />
+        <AgentSessionsTable sessions={sessions} agents={agents} credentials={credentials} />
+        <AgentIdentityPanel project={project} agents={agents} />
       </div>
     </PageShell>
   )
 }
 
-function AgentSessionsTable({ sessions }: { sessions: AgentSessionRecord[] }) {
+function AgentSessionsTable({
+  sessions,
+  agents,
+  credentials,
+}: {
+  sessions: TaskflowWorkspace["agentSessions"]
+  agents: TaskflowWorkspace["agents"]
+  credentials: TaskflowWorkspace["agentCredentials"]
+}) {
   return (
     <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -5628,93 +5529,117 @@ function AgentSessionsTable({ sessions }: { sessions: AgentSessionRecord[] }) {
             Agent Sessions
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Every connected agent gets a display name, stable identifier, generated project key, and linked-by owner.
+            Live sessions from taskflow_agent_session, with each agent's stable identifier and the credential prefix it authenticated with.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm">
-            <ActivityIcon />
-            Session Log
-          </Button>
-          <Button size="sm">
-            <BotIcon />
-            Link Agent
-          </Button>
+      </div>
+      {sessions.length === 0 ? (
+        <div className="p-8 text-center text-sm text-muted-foreground">
+          No agent sessions yet. Connected agents will appear here once they link to this project.
         </div>
-      </div>
-      <div className="scrollbar-y overflow-x-auto">
-        <table className="w-full min-w-[1240px] border-collapse text-sm">
-          <thead className="bg-muted/55 text-xs text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2.5 text-left font-semibold">Agent</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Stable identifier</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Short key</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Project key</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Linked by</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Session</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((session) => (
-              <tr key={session.id} className="border-t">
-                <td className="px-4 py-3 align-top">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-                      <BotIcon className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{session.displayName}</p>
-                        <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", agentSessionStatusClass(session.status))}>
-                          {session.status}
-                        </span>
-                      </div>
-                      <MarkdownRenderer
-                        content={session.scope}
-                        compact
-                        className="mt-1 max-w-[16rem] [&_p]:truncate [&_p]:text-xs"
-                      />
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3 align-top">
-                  <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{session.identifier}</code>
-                  <p className="mt-2 text-xs text-muted-foreground">{session.markerFile} in project root</p>
-                </td>
-                <td className="px-4 py-3 align-top">
-                  <code className="rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold text-primary ring-1 ring-primary/20">
-                    {session.shortKey}
-                  </code>
-                  <p className="mt-2 text-xs text-muted-foreground">Operator-safe handle for prompts and DMs</p>
-                </td>
-                <td className="px-4 py-3 align-top">
-                  <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{session.projectKey}</code>
-                  <p className="mt-2 max-w-[15rem] truncate text-xs text-muted-foreground">{session.root}</p>
-                </td>
-                <td className="px-4 py-3 align-top">
-                  <p className="font-medium">{session.linkedBy}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{session.linkedAt}</p>
-                </td>
-                <td className="px-4 py-3 align-top">
-                  <p className="font-medium">{session.runtime}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{session.session} · {session.lastSeen}</p>
-                </td>
-                <td className="px-4 py-3 text-right align-top">
-                  <Button variant={session.status === "Connected" ? "outline" : "default"} size="sm">
-                    {session.status === "Connected" ? "Rotate Key" : session.status === "Stale" ? "Reclaim" : "Complete Link"}
-                  </Button>
-                </td>
+      ) : (
+        <div className="scrollbar-y overflow-x-auto">
+          <table className="w-full min-w-[1080px] border-collapse text-sm">
+            <thead className="bg-muted/55 text-xs text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2.5 text-left font-semibold">Agent</th>
+                <th className="px-4 py-2.5 text-left font-semibold">Stable identifier</th>
+                <th className="px-4 py-2.5 text-left font-semibold">Credential</th>
+                <th className="px-4 py-2.5 text-left font-semibold">Linked by</th>
+                <th className="px-4 py-2.5 text-left font-semibold">Session</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sessions.map((session) => {
+                const agent = agents.find((candidate) => candidate.id === session.agent)
+                const credential =
+                  credentials.find((item) => item.agent === session.agent && item.status === "active") ??
+                  credentials.find((item) => item.agent === session.agent)
+                const linkedBy =
+                  agent?.linked_user_label ??
+                  (session.connected_by != null ? `User #${session.connected_by}` : "Unlinked")
+                return (
+                  <tr key={session.id} className="border-t">
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                          <BotIcon className="size-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{agent?.display_name ?? `Agent #${session.agent}`}</p>
+                            <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", agentSessionStatusClass(session.status))}>
+                              {session.status}
+                            </span>
+                          </div>
+                          <p className="mt-1 max-w-[16rem] truncate text-xs text-muted-foreground">
+                            {agent?.runtime ? `${agent.runtime}${agent.version ? ` · ${agent.version}` : ""}` : "Runtime not reported"}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{agent?.identifier ?? "—"}</code>
+                      <p className="mt-2 max-w-[16rem] truncate text-xs text-muted-foreground">
+                        {agent?.taskflow_file_path ?? agent?.project_root ?? "No marker file recorded"}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      {credential ? (
+                        <>
+                          <code className="rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold text-primary ring-1 ring-primary/20">
+                            {credential.key_prefix}
+                          </code>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            {credential.name} · {credential.status}
+                          </p>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No credential linked</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <p className="font-medium">{linkedBy}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{formatLiveDate(session.connected_at, "—")}</p>
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{session.session_identifier}</code>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {[session.host, session.pid != null ? `pid ${session.pid}` : null].filter(Boolean).join(" · ") || "No host reported"}
+                        {" · "}
+                        {formatLiveDate(session.last_seen_at ?? session.connected_at, "—")}
+                      </p>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
 
-function AgentIdentityPanel({ project }: { project: Project }) {
+function AgentIdentityPanel({ project, agents }: { project: Project; agents: TaskflowWorkspace["agents"] }) {
+  const agent = agents[0]
+  const identity = agent
+    ? {
+        project_id: agent.project,
+        display_name: agent.display_name,
+        agent_identifier: agent.identifier,
+        fingerprint: agent.fingerprint,
+        status: agent.status,
+        runtime: agent.runtime,
+        version: agent.version,
+        linked_by: agent.linked_user_label,
+        project_root: agent.project_root,
+        taskflow_file_path: agent.taskflow_file_path,
+        last_seen_at: agent.last_seen_at,
+        api_base: project.apiBase,
+      }
+    : null
+
   return (
     <aside className="space-y-3">
       <section className="rounded-lg border bg-card p-4 shadow-sm">
@@ -5723,23 +5648,18 @@ function AgentIdentityPanel({ project }: { project: Project }) {
           Identity Handshake
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          The UI assumes every agent writes a project-local identity marker before it can join sessions, channels, tasks, or activity.
+          Every agent writes a project-local identity marker before it can join sessions, channels, tasks, or activity.
         </p>
         <div className="mt-4 rounded-lg border bg-background p-3">
-          <code className="block whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
-{`{
-  "project_id": "${project.id}",
-  "display_name": "frontend-ui",
-  "agent_identifier": "agt_local_task_tracker_frontend_ui_01",
-  "short_key": "AGT-FE-01",
-  "project_key_ref": "tfk_prj_ltt_...",
-  "linked_by": "user:dalmas",
-  "linked_user_id": "usr_dalmas",
-  "role": "main_agent",
-  "project_root": "/home/dalmas/E/projects/local_task_tracker",
-  "api_base": "${project.apiBase}"
-}`}
-          </code>
+          {identity ? (
+            <code className="block whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
+              {JSON.stringify(identity, null, 2)}
+            </code>
+          ) : (
+            <p className="text-xs leading-5 text-muted-foreground">
+              No agents connected yet. Once an agent links to this project, its identity marker shows up here.
+            </p>
+          )}
         </div>
       </section>
 
@@ -5751,9 +5671,9 @@ function AgentIdentityPanel({ project }: { project: Project }) {
         <div className="mt-4 space-y-3">
           <IdentityRule title="Display name is human readable" detail="It can be reused across sessions, so the stable identifier decides identity." />
           <IdentityRule title="Identifier survives restarts" detail="Returning agents should resume the same identity instead of creating duplicates." />
-          <IdentityRule title="Short key is prompt friendly" detail="Humans can address AGT-FE-01 or AGT-QA-01 without copying the full stable identifier." />
-          <IdentityRule title="Project key is scoped" detail="Keys are generated per project and can be rotated or reclaimed from stale sessions." />
-          <IdentityRule title="Linked by is explicit" detail="Every agent session records the human or owner that connected it to the project." />
+          <IdentityRule title="Credential prefix is safe to show" detail="Only the key prefix and label are ever displayed — the full key is never surfaced in the UI." />
+          <IdentityRule title="Credentials are scoped" detail="Keys are issued per project and can be rotated or revoked without touching the agent identity." />
+          <IdentityRule title="Linked by is explicit" detail="Every agent records the human or owner that connected it to the project." />
         </div>
       </section>
     </aside>
@@ -5769,11 +5689,10 @@ function IdentityRule({ title, detail }: { title: string; detail: string }) {
   )
 }
 
-function agentSessionStatusClass(status: AgentSessionRecord["status"]) {
-  if (status === "Connected") return "bg-emerald-100 text-emerald-800 ring-emerald-200"
-  if (status === "Waiting") return "bg-amber-100 text-amber-800 ring-amber-200"
-  if (status === "Stale") return "bg-slate-100 text-slate-700 ring-slate-200"
-  return "bg-rose-100 text-rose-800 ring-rose-200"
+function agentSessionStatusClass(status: TaskflowWorkspace["agentSessions"][number]["status"]) {
+  if (status === "connected") return "bg-emerald-100 text-emerald-800 ring-emerald-200"
+  if (status === "expired") return "bg-rose-100 text-rose-800 ring-rose-200"
+  return "bg-slate-100 text-slate-700 ring-slate-200"
 }
 
 function IntegrationLink({ label, value }: { label: string; value: string }) {
@@ -5864,10 +5783,10 @@ function WorkspaceDialog({
           <form className="max-h-[calc(100svh-7rem)] space-y-4 overflow-y-auto p-5" onSubmit={onCreateProject}>
             <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
               <FormField label="Project name">
-                <Input name="name" required placeholder="TaskFlow V2" />
+                <Input name="name" required placeholder="Acme Web App" />
               </FormField>
               <FormField label="Slug">
-                <Input name="slug" placeholder="taskflow-v2" />
+                <Input name="slug" placeholder="acme-web-app" />
               </FormField>
             </div>
             <FormField label="Description, markdown">
