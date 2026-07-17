@@ -61,8 +61,6 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowAgentChannel>(Expose::to_group_with(project_group))
         .expose::<TaskflowAgentMessage>(Expose::to_group_with(project_group))
         .expose::<TaskflowAgentTerminalFrame>(Expose::to_group_with(project_group))
-        // Channel members only carry `channel`, not `project`, so they use the
-        // authenticated agent-wide feed until channel-scoped rooms exist.
         .expose::<TaskflowAgentChannelMember>(Expose::to_group(AGENTS_GROUP))
 }
 
