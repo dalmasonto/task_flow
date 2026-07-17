@@ -137,7 +137,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .plugin(OpenApiPlugin::new())
         // Realtime: SSE/WS model-change notifications + project-room presence.
         // Frontend clients subscribe to `/realtime/client.js` and groups such
-        // as `taskflow:projects` or `project:{id}`.
+        // as `taskflow:projects`, `project:{id}:messages`, or
+        // `project:{id}:presence` — one group per model, because the event name
+        // carries the action, not the table. See `realtime.rs`.
         .plugin(realtime::plugin())
         // Static files: serves ./static at /static, which is where the compiled
         // Tailwind bundle lives. Use `{ static('css/app.css') }` in templates

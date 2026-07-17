@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react"
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import {
   ActivityIcon,
@@ -62,6 +62,7 @@ import {
   type AuthResult,
 } from "@/lib/auth-api"
 import type {
+  TaskflowAgentMessage,
   TaskflowAgentMessagePriority,
   TaskflowProjectInviteRole,
   TaskflowProjectInviteStatus,
@@ -80,6 +81,7 @@ import {
   createTaskflowProject,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
+  realtimeEventHasInlineRow,
   subscribeToTaskflowProjectEvents,
   subscribeToTaskflowWorkspaceEvents,
   sendTaskflowAgentMessage,
@@ -92,6 +94,15 @@ import {
   type TaskflowProjectSummary,
   type TaskflowWorkspace,
 } from "@/lib/taskflow-api"
+import {
+  addPending,
+  findPending,
+  isPending,
+  markFailed,
+  markRetrying,
+  reconcile,
+  removeMessage,
+} from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 
 type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
@@ -174,28 +185,14 @@ type AgentMessage = {
   priority?: MessagePriority
   choices?: string[]
   attachments?: AgentAttachment[]
-}
-
-type AgentThread = {
-  agent: string
-  unread: number
-  messages: AgentMessage[]
+  /// Set only on optimistic bubbles the server has not acknowledged. Carries the
+  /// client_nonce so a failed bubble can be retried against the idempotent send.
+  nonce?: string
 }
 
 type ConversationMember = {
   name: string
   type: "human" | "agent"
-}
-
-type AgentChannelThread = {
-  id: string
-  title: string
-  members: ConversationMember[]
-  topic: string
-  status: string
-  primaryAgent: string
-  unread: number
-  messages: AgentMessage[]
 }
 
 type AgentChatContext = {
@@ -725,236 +722,6 @@ const agentDirectory = [
     scope: "Verification",
     pending: 0,
     live: false,
-  },
-]
-
-const agentThreads: AgentThread[] = [
-  {
-    agent: "frontend-ui",
-    unread: 1,
-    messages: [
-      {
-        id: "msg-1",
-        from: "frontend-ui",
-        time: "9 min ago",
-        body: "Task sheet now renders markdown descriptions and notes. Next check is whether agent chat should live beside terminal controls.",
-        status: "answered",
-      },
-      {
-        id: "msg-2",
-        from: "user",
-        time: "5 min ago",
-        body: "Link chat and terminal into `/agents` so project operators can talk to the working agent without leaving the page.",
-        status: "sent",
-      },
-      {
-        id: "msg-3",
-        from: "frontend-ui",
-        time: "Just now",
-        body: "### Proposed agent workbench\n\n- [x] Keep **chat** and `terminal` in one place\n- [x] Keep the composer pinned while the thread scrolls\n- [ ] Wire messages to the live API\n\n| Surface | State |\n| --- | --- |\n| Chat | Ready |\n| Terminal | Mocked |\n\n```ts\nsendToAgent(selectedAgent, message)\n```",
-        status: "pending",
-        choices: ["Build it", "Keep chat only", "Open terminal first"],
-        attachments: [
-          {
-            id: "att-plan-md",
-            kind: "markdown",
-            name: "agent-workbench-plan.md",
-            detail: "Generated plan attached by frontend-ui for review.",
-            source: "project-path",
-            path: "/plans/v2/agent-workbench-plan.md",
-            size: "8 KB",
-            mimeType: "text/markdown",
-          },
-          {
-            id: "att-board-image",
-            kind: "image",
-            name: "current-dashboard.png",
-            detail: "Current board screenshot exposed by URL for visual context.",
-            source: "url",
-            path: "/uploads/projects/taskflow-v2/current-dashboard.png",
-            url: "/landing/dashboard.png",
-            size: "237 KB",
-            mimeType: "image/png",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    agent: "backend",
-    unread: 2,
-    messages: [
-      {
-        id: "msg-4",
-        from: "backend",
-        time: "18 min ago",
-        body: "API contract needs `agents[].terminalSession`, `messages[]`, and `pendingPrompts[]` for the live version.",
-        status: "pending",
-        choices: ["Approve shape", "Revise fields"],
-        attachments: [
-          {
-            id: "att-contract-json",
-            kind: "file",
-            name: "agent-message-contract.json",
-            detail: "Draft message and attachment payload for the live API.",
-            source: "project-path",
-            path: "/specs/api/agent-message-contract.json",
-            size: "12 KB",
-            mimeType: "application/json",
-          },
-        ],
-      },
-      {
-        id: "msg-5",
-        from: "user",
-        time: "14 min ago",
-        body: "Keep it API-first and make the UI obvious about what is live versus not connected.",
-        status: "sent",
-      },
-    ],
-  },
-  {
-    agent: "qa-agent",
-    unread: 0,
-    messages: [
-      {
-        id: "msg-6",
-        from: "qa-agent",
-        time: "Queued",
-        body: "Waiting for the agents page to land before running route, dialog, and keyboard checks.",
-        status: "queued",
-      },
-    ],
-  },
-]
-
-const agentChannelThreads: AgentChannelThread[] = [
-  {
-    id: "channel-project-ui",
-    title: "Project UI delivery",
-    members: [
-      { name: "Mina Stone", type: "human" },
-      { name: "frontend-ui", type: "agent" },
-      { name: "backend", type: "agent" },
-    ],
-    topic: "Live API contract and task mutations",
-    status: "Contract handoff",
-    primaryAgent: "frontend-ui",
-    unread: 2,
-    messages: [
-      {
-        id: "pair-1",
-        from: "frontend-ui",
-        to: "Project UI delivery",
-        time: "11 min ago",
-        body: "I need the task mutation contract to preserve markdown fields: `description`, `notes`, `review`, and relation metadata.",
-        status: "sent",
-        priority: "needs-response",
-        attachments: [
-          {
-            id: "att-task-fields",
-            kind: "markdown",
-            name: "task-mutation-fields.md",
-            detail: "Spec excerpt sent from the agent workspace into the group thread.",
-            source: "project-path",
-            path: "/specs/v2/task-mutation-fields.md",
-            size: "6 KB",
-            mimeType: "text/markdown",
-          },
-        ],
-      },
-      {
-        id: "pair-2",
-        from: "backend",
-        to: "Project UI delivery",
-        time: "8 min ago",
-        body: "Shape looks fine. I will expose `PATCH /projects/:id/tasks/:taskId` with partial task payloads and append an activity event for every state change.",
-        status: "answered",
-      },
-      {
-        id: "pair-3",
-        from: "Mina Stone",
-        to: "Project UI delivery",
-        time: "4 min ago",
-        body: "Add `actor_type` and `actor_name` to activity rows so the UI can distinguish human actions from agent actions.",
-        status: "pending",
-      },
-    ],
-  },
-  {
-    id: "channel-verification",
-    title: "Verification lane",
-    members: [
-      { name: "Mina Stone", type: "human" },
-      { name: "backend", type: "agent" },
-      { name: "qa-agent", type: "agent" },
-    ],
-    topic: "Route coverage and sync validation",
-    status: "Verification queue",
-    primaryAgent: "backend",
-    unread: 1,
-    messages: [
-      {
-        id: "pair-4",
-        from: "backend",
-        to: "Verification lane",
-        time: "21 min ago",
-        body: "Once the mock UI stabilizes, validate the API assumptions against task create, update, invite, and message flows.",
-        status: "queued",
-        attachments: [
-          {
-            id: "att-route-checklist",
-            kind: "markdown",
-            name: "route-smoke-checklist.md",
-            detail: "Checklist for route, dialog, and message attachment verification.",
-            source: "generated",
-            path: "/checks/v2_fe/route-smoke-checklist.md",
-            size: "5 KB",
-            mimeType: "text/markdown",
-          },
-        ],
-      },
-      {
-        id: "pair-5",
-        from: "qa-agent",
-        to: "Verification lane",
-        time: "17 min ago",
-        body: "Queued. I will check that direct messages, channel messages, and terminal session links can be represented without route ambiguity.",
-        status: "ready",
-      },
-    ],
-  },
-  {
-    id: "channel-agent-ops",
-    title: "Agent operations",
-    members: [
-      { name: "frontend-ui", type: "agent" },
-      { name: "backend", type: "agent" },
-      { name: "qa-agent", type: "agent" },
-    ],
-    topic: "Cross-agent coordination without a human owner in every loop",
-    status: "Open coordination",
-    primaryAgent: "frontend-ui",
-    unread: 0,
-    messages: [
-      {
-        id: "pair-6",
-        from: "frontend-ui",
-        to: "Agent operations",
-        time: "12 min ago",
-        body: "I am keeping the chat and terminal surfaces together. Backend, flag any API shape that would make this hard to persist.",
-        status: "sent",
-      },
-      {
-        id: "pair-7",
-        from: "qa-agent",
-        to: "Agent operations",
-        time: "9 min ago",
-        body: "I need channel membership in the payload so tests can assert that humans and agents see the same thread.",
-        status: "needs response",
-        priority: "needs-response",
-      },
-    ],
   },
 ]
 
@@ -1643,19 +1410,38 @@ function mapLiveChannelMessages(
     .filter((message) => message.channel === channelId)
     .slice()
     .sort((a, b) => {
+      // Pending bubbles have no created_at — they are the newest thing in the
+      // room, so they sort last.
+      if (isPending(a) && isPending(b)) return 0
+      if (isPending(a)) return 1
+      if (isPending(b)) return -1
       const aTime = a.created_at ? new Date(a.created_at).getTime() : 0
       const bTime = b.created_at ? new Date(b.created_at).getTime() : 0
       return aTime - bTime || a.id - b.id
     })
-    .map((message) => ({
-      id: String(message.id),
-      from: message.sender_kind === "user" && currentUser && message.sender_user === currentUser.id ? "user" : message.sender_label,
-      to: channelTitle,
-      time: formatLiveDate(message.created_at, "Live"),
-      body: message.body_markdown,
-      status: "posted",
-      priority: mapLiveMessagePriority(message.priority),
-    }))
+    .map((message) => {
+      if (isPending(message)) {
+        return {
+          id: `pending:${message.client_nonce}`,
+          nonce: message.client_nonce,
+          from: "user",
+          to: channelTitle,
+          time: message.status === "failed" ? "Failed to send" : "Sending…",
+          body: message.body_markdown,
+          status: message.status === "failed" ? "failed" : "sending",
+          priority: mapLiveMessagePriority(message.priority),
+        }
+      }
+      return {
+        id: String(message.id),
+        from: message.sender_kind === "user" && currentUser && message.sender_user === currentUser.id ? "user" : message.sender_label,
+        to: channelTitle,
+        time: formatLiveDate(message.created_at, "Live"),
+        body: message.body_markdown,
+        status: "posted",
+        priority: mapLiveMessagePriority(message.priority),
+      }
+    })
 }
 
 function liveChannelStatus(channel: TaskflowWorkspace["agentChannels"][number]) {
@@ -2071,7 +1857,7 @@ function App() {
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentChannelMembers: removeById(workspace.agentChannelMembers, rowId) }))
           break
         case taskflowTables.agentMessages:
-          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentMessages: removeById(workspace.agentMessages, rowId) }))
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentMessages: removeMessage(workspace.agentMessages, rowId) }))
           break
         case taskflowTables.terminalFrames:
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, terminalFrames: removeById(workspace.terminalFrames, rowId) }))
@@ -2181,9 +1967,12 @@ function App() {
           break
         }
         case taskflowTables.agentMessages: {
-          const message = row as TaskflowWorkspace["agentMessages"][number]
+          const message = row as TaskflowAgentMessage
           if (message.project !== projectId) return
-          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentMessages: upsertById(workspace.agentMessages, message) }))
+          applyWorkspaceUpdate(projectId, (workspace) => ({
+            ...workspace,
+            agentMessages: reconcile(workspace.agentMessages, message),
+          }))
           break
         }
         case taskflowTables.terminalFrames: {
@@ -2204,6 +1993,13 @@ function App() {
 
       if (event.action === "deleted") {
         applyRealtimeDeletion(event, rowId, projectId)
+        return
+      }
+
+      // Chat tables project their fields server-side, so the event already
+      // carries the row. Refetching it would be a round-trip for data we hold.
+      if (realtimeEventHasInlineRow(event.table)) {
+        applyRealtimeRow(event, event.row as never, projectId)
         return
       }
 
@@ -2241,15 +2037,6 @@ function App() {
             break
           case taskflowTables.agentSessions:
             applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentSessions, rowId), projectId)
-            break
-          case taskflowTables.agentChannels:
-            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentChannels, rowId), projectId)
-            break
-          case taskflowTables.agentChannelMembers:
-            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentChannelMembers, rowId), projectId)
-            break
-          case taskflowTables.agentMessages:
-            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentMessages, rowId), projectId)
             break
           case taskflowTables.terminalFrames:
             applyRealtimeRow(event, await taskflowApi.get(taskflowTables.terminalFrames, rowId), projectId)
@@ -4724,60 +4511,15 @@ function AgentsPage({
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
   onMessage: () => void
 }) {
-  const [selectedChatId, setSelectedChatId] = useState(agentChannelThreads[0].id)
+  const [selectedChatId, setSelectedChatId] = useState("")
   const [messageError, setMessageError] = useState<string | null>(null)
-  const [threadMessagesByAgent, setThreadMessagesByAgent] = useState<Record<string, AgentMessage[]>>(() =>
-    Object.fromEntries(agentThreads.map((thread) => [thread.agent, thread.messages])) as Record<string, AgentMessage[]>
-  )
-  const [channelMessagesById, setChannelMessagesById] = useState<Record<string, AgentMessage[]>>(() =>
-    Object.fromEntries(agentChannelThreads.map((thread) => [thread.id, thread.messages])) as Record<string, AgentMessage[]>
-  )
-  const liveDirectChats = useMemo(
-    () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser) : null),
-    [currentUser, liveWorkspace]
-  )
-  const liveChannelChats = useMemo(
-    () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser) : null),
-    [currentUser, liveWorkspace]
-  )
   const directChats = useMemo<AgentChatContext[]>(
-    () => {
-      if (liveDirectChats) return liveDirectChats
-
-      return agentThreads.map((thread) => ({
-        id: `direct:${thread.agent}`,
-        mode: "direct",
-        title: thread.agent,
-        detail: "Private channel",
-        status: "Direct",
-        members: [
-          { name: "You", type: "human" },
-          { name: thread.agent, type: "agent" },
-        ],
-        primaryAgent: thread.agent,
-        unread: thread.unread,
-        messages: threadMessagesByAgent[thread.agent] ?? thread.messages,
-      }))
-    },
-    [liveDirectChats, threadMessagesByAgent]
+    () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser) : []),
+    [currentUser, liveWorkspace]
   )
   const channelChats = useMemo<AgentChatContext[]>(
-    () => {
-      if (liveChannelChats) return liveChannelChats
-
-      return agentChannelThreads.map((thread) => ({
-        id: thread.id,
-        mode: "channel",
-        title: thread.title,
-        detail: thread.topic,
-        status: thread.status,
-        members: thread.members,
-        primaryAgent: thread.primaryAgent,
-        unread: thread.unread,
-        messages: channelMessagesById[thread.id] ?? thread.messages,
-      }))
-    },
-    [channelMessagesById, liveChannelChats]
+    () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser) : []),
+    [currentUser, liveWorkspace]
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
   const fallbackChat: AgentChatContext = channelChats[0] ?? directChats[0] ?? {
@@ -4810,10 +4552,12 @@ function AgentsPage({
   }, [allChats, selectedChatId])
 
   const createChannelMember = async (
+    projectId: number,
     channelId: number,
     member: { kind: "user"; user: number; name: string; role: string } | { kind: "agent"; agent: number; name: string; role: string }
   ) => {
     return createTaskflowAgentChannelMember({
+      project: projectId,
       channel: channelId,
       member_kind: member.kind,
       user: member.kind === "user" ? member.user : null,
@@ -4846,14 +4590,14 @@ function AgentsPage({
       const key = `user:${user}`
       if (added.has(key)) return
       added.add(key)
-      memberWrites.push(createChannelMember(channel.id, { kind: "user", user, name, role }))
+      memberWrites.push(createChannelMember(projectId, channel.id, { kind: "user", user, name, role }))
     }
     const addAgent = (agent: number | null | undefined, name: string, role: string) => {
       if (!agent) return
       const key = `agent:${agent}`
       if (added.has(key)) return
       added.add(key)
-      memberWrites.push(createChannelMember(channel.id, { kind: "agent", agent, name, role }))
+      memberWrites.push(createChannelMember(projectId, channel.id, { kind: "agent", agent, name, role }))
     }
 
     addUser(currentUser?.id, currentUser?.username ?? "You", "member")
@@ -4893,16 +4637,71 @@ function AgentsPage({
     }
 
     const channelId = await ensureLiveChannel(chat)
-    const message = await sendTaskflowAgentMessage({
-      project: projectId,
-      channel: channelId,
-      sender_kind: "user",
-      sender_user: currentUser?.id ?? null,
-      sender_label: currentUser?.username ?? currentUser?.email ?? "You",
-      body_markdown: appendAttachmentMarkdown(body, attachments),
-      priority: toLiveMessagePriority(priority),
-    })
-    onWorkspaceUpdate((workspace) => ({ ...workspace, agentMessages: upsertById(workspace.agentMessages, message) }))
+    const nonce = crypto.randomUUID()
+    const body_markdown = appendAttachmentMarkdown(body, attachments)
+
+    onWorkspaceUpdate((workspace) => ({
+      ...workspace,
+      agentMessages: addPending(workspace.agentMessages, {
+        client_nonce: nonce,
+        body_markdown,
+        priority: toLiveMessagePriority(priority),
+        channel: channelId,
+        status: "pending",
+      }),
+    }))
+
+    try {
+      const saved = await sendTaskflowAgentMessage({
+        channel: channelId,
+        body_markdown,
+        priority: toLiveMessagePriority(priority),
+        client_nonce: nonce,
+      })
+      // Reconcile the response as well as the SSE echo. Whichever lands first
+      // wins and the other is a no-op — they key on the same nonce. Relying on
+      // the echo alone would strand the bubble as pending whenever SSE is down,
+      // even though the message saved fine.
+      onWorkspaceUpdate((workspace) => ({
+        ...workspace,
+        agentMessages: reconcile(workspace.agentMessages, saved),
+      }))
+    } catch (error) {
+      onWorkspaceUpdate((workspace) => ({
+        ...workspace,
+        agentMessages: markFailed(workspace.agentMessages, nonce),
+      }))
+      throw error
+    }
+  }
+
+  const retryLiveMessage = async (nonce: string) => {
+    const failed = findPending(liveWorkspace?.agentMessages ?? [], nonce)
+    if (!failed) return
+
+    onWorkspaceUpdate((workspace) => ({
+      ...workspace,
+      agentMessages: markRetrying(workspace.agentMessages, nonce),
+    }))
+
+    try {
+      const saved = await sendTaskflowAgentMessage({
+        channel: failed.channel,
+        body_markdown: failed.body_markdown,
+        priority: failed.priority,
+        client_nonce: nonce,          // same nonce: the send endpoint is idempotent
+      })
+      onWorkspaceUpdate((workspace) => ({
+        ...workspace,
+        agentMessages: reconcile(workspace.agentMessages, saved),
+      }))
+    } catch (error) {
+      onWorkspaceUpdate((workspace) => ({
+        ...workspace,
+        agentMessages: markFailed(workspace.agentMessages, nonce),
+      }))
+      setMessageError(error instanceof Error ? error.message : "Could not send the message.")
+    }
   }
 
   const handleSendMessage = (
@@ -4914,44 +4713,9 @@ function AgentsPage({
     const trimmedBody = body.trim()
     if (!trimmedBody && attachments.length === 0) return
 
-    if (liveWorkspace) {
-      setMessageError(null)
-      void sendLiveMessage(chat, trimmedBody, priority, attachments).catch((error) => {
-        setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
-      })
-      return
-    }
-
-    const message: AgentMessage = {
-      id: `msg-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      from: "user",
-      to: chat.title,
-      time: "Just now",
-      body: trimmedBody || `Shared ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}.`,
-      status: chat.mode === "channel" ? "posted" : "sent",
-      priority,
-      attachments,
-    }
-
-    if (chat.mode === "direct") {
-      setThreadMessagesByAgent((current) => {
-        const currentMessages =
-          current[chat.primaryAgent] ?? agentThreads.find((thread) => thread.agent === chat.primaryAgent)?.messages ?? []
-        return {
-          ...current,
-          [chat.primaryAgent]: [...currentMessages, message],
-        }
-      })
-      return
-    }
-
-    setChannelMessagesById((current) => {
-      const currentMessages =
-        current[chat.id] ?? agentChannelThreads.find((thread) => thread.id === chat.id)?.messages ?? []
-      return {
-        ...current,
-        [chat.id]: [...currentMessages, message],
-      }
+    setMessageError(null)
+    void sendLiveMessage(chat, trimmedBody, priority, attachments).catch((error) => {
+      setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
     })
   }
 
@@ -4992,6 +4756,7 @@ function AgentsPage({
           setSelectedChatId(chat.id)
         }}
         onSendMessage={handleSendMessage}
+        onRetryMessage={retryLiveMessage}
       />
     </section>
   )
@@ -5036,6 +4801,7 @@ function AgentWorkbenchView({
   onSelectDirectChat,
   onSelectChannel,
   onSendMessage,
+  onRetryMessage,
 }: {
   selectedChat: AgentChatContext
   selectedSession: AgentTerminalSessionView
@@ -5045,37 +4811,18 @@ function AgentWorkbenchView({
   onSelectDirectChat: (chat: AgentChatContext) => void
   onSelectChannel: (chat: AgentChatContext) => void
   onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, attachments: AgentAttachment[]) => void
+  onRetryMessage: (nonce: string) => void
 }) {
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
   const [stagedAttachments, setStagedAttachments] = useState<AgentAttachment[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const canSendMessage = draftMessage.trim().length > 0 || stagedAttachments.length > 0
   const focusComposer = () => {
     composerRef.current?.focus()
   }
   const addStagedAttachment = (attachment: AgentAttachment) => {
     setStagedAttachments((current) => [...current, attachment])
-  }
-  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? [])
-    if (!files.length) return
-
-    setStagedAttachments((current) => [
-      ...current,
-      ...files.map((file) => ({
-        id: `att-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        kind: attachmentKindFromFile(file),
-        name: file.name,
-        detail: "Local file queued for API upload and agent download.",
-        source: "upload" as const,
-        path: `/uploads/pending/${encodeURIComponent(file.name)}`,
-        size: formatBytes(file.size),
-        mimeType: file.type || "application/octet-stream",
-      })),
-    ])
-    event.target.value = ""
   }
   const addContextAttachment = () => {
     addStagedAttachment({
@@ -5234,7 +4981,7 @@ function AgentWorkbenchView({
 
         <div className="chat-thread-bg scrollbar-y min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {selectedChat.messages.map((message) => (
-            <AgentChatBubble key={message.id} message={message} />
+            <AgentChatBubble key={message.id} message={message} onRetry={onRetryMessage} />
           ))}
         </div>
 
@@ -5246,14 +4993,6 @@ function AgentWorkbenchView({
               </span>
               <span className="text-muted-foreground">{composerHint}</span>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              accept="image/*,.md,.markdown,.txt,.json,.pdf"
-              onChange={handleFileSelect}
-            />
             {stagedAttachments.length ? (
               <AttachmentList
                 attachments={stagedAttachments}
@@ -5277,7 +5016,14 @@ function AgentWorkbenchView({
             />
             <div className="flex flex-wrap justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  title="File upload is coming soon"
+                  aria-label="Attach file (coming soon)"
+                >
                   <FileTextIcon />
                   Attach File
                 </Button>
@@ -5356,19 +5102,6 @@ function describeMembers(members: ConversationMember[]) {
   return `${members.length} member${members.length === 1 ? "" : "s"}${parts.length ? `, ${parts.join(", ")}` : ""}`
 }
 
-function attachmentKindFromFile(file: File): AgentAttachment["kind"] {
-  if (file.type.startsWith("image/")) return "image"
-  if (file.name.toLowerCase().endsWith(".md") || file.name.toLowerCase().endsWith(".markdown")) return "markdown"
-  if (file.type === "text/uri-list") return "url"
-  return "file"
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function attachmentIcon(attachment: AgentAttachment) {
   if (attachment.kind === "image") return <FileJsonIcon className="size-4" />
   if (attachment.kind === "markdown") return <FileTextIcon className="size-4" />
@@ -5438,7 +5171,7 @@ function AttachmentList({
   )
 }
 
-function AgentChatBubble({ message }: { message: AgentMessage }) {
+function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?: (nonce: string) => void }) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
   return (
@@ -5480,6 +5213,20 @@ function AgentChatBubble({ message }: { message: AgentMessage }) {
                 {choice}
               </Button>
             ))}
+          </div>
+        ) : null}
+        {message.status === "failed" && message.nonce && onRetry ? (
+          <div className="mt-3 flex items-center gap-2 text-xs text-rose-700 dark:text-rose-300">
+            <span>Message failed to send.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="bg-background/85"
+              onClick={() => onRetry(message.nonce!)}
+            >
+              Retry
+            </Button>
           </div>
         ) : null}
       </div>

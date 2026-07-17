@@ -3,6 +3,21 @@ name = "backend"
 version = "0.1.0"
 edition = "2024"
 
+# The plugins are workspace members, not just path dependencies. A path dep
+# that is not a member cannot be tested with dev-dependencies ("package X
+# cannot be tested because it requires dev-dependencies and is not a member
+# of the workspace"), which is what a plugin's `tests/` directory needs.
+[workspace]
+members = ["plugins/*"]
+
+# A library target alongside the binary, so integration tests in `tests/` can
+# reach the wiring modules (`backend::realtime`). `main.rs` stays the binary
+# and keeps its own `mod` declarations; only the modules that are worth
+# testing from outside are re-exported here.
+[lib]
+name = "backend"
+path = "src/lib.rs"
+
 [dependencies]
 taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }

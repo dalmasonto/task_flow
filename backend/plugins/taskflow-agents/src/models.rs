@@ -186,6 +186,11 @@ pub struct TaskflowAgentChannel {
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
 pub struct TaskflowAgentChannelMember {
     pub id: i64,
+    /// Denormalized from `channel.project` so realtime can route membership
+    /// events to a per-project group. `TaskflowAgentMessage` denormalizes
+    /// `project` for the same reason.
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
     #[umbral(on_delete = "cascade")]
     pub channel: ForeignKey<TaskflowAgentChannel>,
     #[umbral(choices, default = "user")]
@@ -223,6 +228,12 @@ pub struct TaskflowAgentMessage {
     pub body_markdown: String,
     #[umbral(choices, default = "normal")]
     pub priority: TaskflowMessagePriority,
+    /// Client-generated correlation id. The sender renders its bubble
+    /// optimistically keyed by this value, then reconciles whichever arrives
+    /// first — the SSE echo or the POST response. Also the idempotency key:
+    /// re-posting the same nonce to the same channel returns the stored row.
+    #[umbral(string, max_length = 64)]
+    pub client_nonce: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

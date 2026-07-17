@@ -616,6 +616,18 @@
           "max_length": 0
         },
         {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
           "name": "channel",
           "ty": "ForeignKey",
           "primary_key": false,
@@ -837,6 +849,16 @@
             "Urgent"
           ],
           "default": "normal"
+        },
+        {
+          "name": "client_nonce",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 64
         },
         {
           "name": "created_at",
@@ -1293,6 +1315,18 @@
             "max_length": 0
           },
           {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
             "name": "channel",
             "ty": "ForeignKey",
             "primary_key": false,
@@ -1655,6 +1689,16 @@
               "Urgent"
             ],
             "default": "normal"
+          },
+          {
+            "name": "client_nonce",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 64
           },
           {
             "name": "created_at",
