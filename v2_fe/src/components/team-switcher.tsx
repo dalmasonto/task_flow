@@ -40,7 +40,23 @@ export function ProjectSwitcher({
   const { isMobile } = useSidebar()
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0]
   if (!activeProject) {
-    return null
+    // No projects yet — keep a visible way to create the first one so a
+    // first-time user is never stranded with an empty sidebar.
+    return (
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton size="lg" onClick={onNewProject}>
+            <div className="flex aspect-square size-8 items-center justify-center rounded-lg border bg-transparent">
+              <PlusIcon className="size-4" />
+            </div>
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-medium">New project</span>
+              <span className="truncate text-xs text-muted-foreground">No projects yet</span>
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    )
   }
   return (
     <SidebarMenu>

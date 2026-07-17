@@ -335,268 +335,6 @@ const columns: {
   },
 ]
 
-const projects: Project[] = [
-  {
-    id: "taskflow-v2",
-    name: "TaskFlow V2",
-    code: "TF",
-    status: "seeded",
-    health: "API-first rebuild",
-    tint: "oklch(0.58 0.16 238)",
-    owner: "Dalmas",
-    cadence: "Weekly delivery",
-    objective: "A single operating view for humans, agents, project work, and activity.",
-    members: 8,
-    agentsOnline: 4,
-    apiBase: "/api/v2/taskflow",
-  },
-  {
-    id: "agent-runtime",
-    name: "Agent Runtime",
-    code: "AR",
-    status: "seeded",
-    health: "2 review gates",
-    tint: "oklch(0.55 0.13 155)",
-    owner: "Backend",
-    cadence: "Daily handoff",
-    objective: "Coordinate coding agents through messages, claims, session state, and approvals.",
-    members: 5,
-    agentsOnline: 3,
-    apiBase: "/api/v2/agents",
-  },
-  {
-    id: "hosted-api",
-    name: "Hosted API",
-    code: "HA",
-    status: "seeded",
-    health: "Vercel recovery",
-    tint: "oklch(0.57 0.14 30)",
-    owner: "Platform",
-    cadence: "Incident queue",
-    objective: "Restore the hosted TaskFlow surface while keeping local-first guarantees intact.",
-    members: 4,
-    agentsOnline: 2,
-    apiBase: "/api/v2/hosted",
-  },
-]
-
-const initialTasks: Task[] = [
-  {
-    id: "task-101",
-    projectId: "taskflow-v2",
-    title: "Define project workspace API contract",
-    status: "review",
-    priority: "P0",
-    owner: "Mina",
-    ownerInitials: "MS",
-    operator: "pair",
-    operatorName: "frontend-ui + backend",
-    estimate: "4h",
-    updated: "9 min ago",
-    due: "Today",
-    tags: ["API", "contracts", "workspace"],
-    blockers: [],
-    review: "Approve response shape for project, members, tasks, agents, and activity feed.",
-    history: [
-      "frontend-ui mapped the board payload to one project-scoped response.",
-      "backend suggested keeping activity cursor-based for replay and audit views.",
-      "Mina requested user invitation state on the same endpoint.",
-    ],
-  },
-  {
-    id: "task-102",
-    projectId: "taskflow-v2",
-    title: "Ship Kanban task movement",
-    description:
-      "### Goal\nMake task movement feel stable, obvious, and project-scoped.\n\n### Acceptance Criteria\n- [x] Dragged tasks show the exact drop location.\n- [x] Moving a task updates status and activity.\n- [ ] Persist ordering through the live API.\n\n### API Shape\n`PATCH /tasks/:id/status` should accept the next status and board order.",
-    notes:
-      "### Implementation Notes\n- Keep the board predictable under rapid drag movement.\n- The task sheet should remain the canonical place for reading full context.\n- Keyboard-accessible move controls stay on each card.",
-    status: "in_progress",
-    priority: "P0",
-    owner: "Codex",
-    ownerInitials: "CX",
-    operator: "agent",
-    operatorName: "frontend-ui",
-    estimate: "6h",
-    updated: "Just now",
-    due: "Today",
-    tags: ["kanban", "drag-drop", "tasks"],
-    blockers: [],
-    review: "Human check on column semantics before connecting the live API.",
-    history: [
-      "Created status columns for ready, progress, review, blocked, and done.",
-      "Added drag state and direct move controls for keyboard-friendly operation.",
-      "Selected task panel now follows project scope.",
-    ],
-  },
-  {
-    id: "task-103",
-    projectId: "taskflow-v2",
-    title: "Model invitation roles",
-    status: "not_started",
-    priority: "P1",
-    owner: "Nia",
-    ownerInitials: "NA",
-    operator: "human",
-    operatorName: "Product",
-    estimate: "2h",
-    updated: "31 min ago",
-    due: "Tomorrow",
-    tags: ["roles", "invite", "access"],
-    blockers: [],
-    review: "Confirm role names: owner, maintainer, developer, viewer.",
-    history: [
-      "Invite flow should allow users and dev agents in one workspace.",
-      "Permission audit should be visible in the activity stream.",
-    ],
-  },
-  {
-    id: "task-104",
-    projectId: "taskflow-v2",
-    title: "Recover Vercel deployment notes",
-    status: "blocked",
-    priority: "P1",
-    owner: "Ruth",
-    ownerInitials: "RK",
-    operator: "agent",
-    operatorName: "platform-agent",
-    estimate: "3h",
-    updated: "1h ago",
-    due: "Friday",
-    tags: ["vercel", "hosting", "incident"],
-    blockers: ["Missing production env inventory"],
-    review: "Needs operator approval before touching hosted configuration.",
-    history: [
-      "Deployment failure reproduced from the hosted app.",
-      "Platform agent is waiting for env diff and project ownership confirmation.",
-    ],
-  },
-  {
-    id: "task-105",
-    projectId: "taskflow-v2",
-    title: "Persist project activity timeline",
-    status: "done",
-    priority: "P2",
-    owner: "Eli",
-    ownerInitials: "EB",
-    operator: "agent",
-    operatorName: "activity-agent",
-    estimate: "5h",
-    updated: "Yesterday",
-    due: "Done",
-    tags: ["activity", "audit", "events"],
-    blockers: [],
-    review: "Event types are ready for UI wiring.",
-    history: [
-      "Added event envelope for task moved, agent messaged, review requested, and invite sent.",
-      "Activity can be filtered by project, actor, task, and event type.",
-    ],
-  },
-  {
-    id: "task-201",
-    projectId: "agent-runtime",
-    title: "Add agent claim and release flow",
-    status: "in_progress",
-    priority: "P0",
-    owner: "Sam",
-    ownerInitials: "SL",
-    operator: "agent",
-    operatorName: "runtime-agent",
-    estimate: "4h",
-    updated: "12 min ago",
-    due: "Today",
-    tags: ["claims", "agents", "locks"],
-    blockers: [],
-    review: "Verify abandoned claims expire without losing task activity.",
-    history: [
-      "Runtime agent claimed the task API routes.",
-      "Lead requested visible claim ownership in the board card.",
-    ],
-  },
-  {
-    id: "task-202",
-    projectId: "agent-runtime",
-    title: "Agent-to-agent inbox protocol",
-    status: "review",
-    priority: "P1",
-    owner: "Jo",
-    ownerInitials: "JW",
-    operator: "pair",
-    operatorName: "backend + qa-agent",
-    estimate: "3h",
-    updated: "40 min ago",
-    due: "Tomorrow",
-    tags: ["messages", "handoff", "agent-inbox"],
-    blockers: [],
-    review: "Human needs to approve message retention and replay policy.",
-    history: [
-      "Broadcast and direct messages share one thread model.",
-      "QA agent asked for session evidence references in every handoff.",
-    ],
-  },
-  {
-    id: "task-203",
-    projectId: "agent-runtime",
-    title: "Session evidence audit view",
-    status: "not_started",
-    priority: "P2",
-    owner: "Ayo",
-    ownerInitials: "AO",
-    operator: "agent",
-    operatorName: "audit-agent",
-    estimate: "5h",
-    updated: "2h ago",
-    due: "Next week",
-    tags: ["sessions", "audit", "evidence"],
-    blockers: [],
-    review: "Tie captured session evidence to task activity.",
-    history: [
-      "Session evidence should be stored as evidence, not only a chat attachment.",
-    ],
-  },
-  {
-    id: "task-301",
-    projectId: "hosted-api",
-    title: "Map hosted app failure modes",
-    status: "blocked",
-    priority: "P0",
-    owner: "Ken",
-    ownerInitials: "KM",
-    operator: "human",
-    operatorName: "Platform",
-    estimate: "2h",
-    updated: "17 min ago",
-    due: "Today",
-    tags: ["vercel", "diagnostics", "routes"],
-    blockers: ["Need latest deployment logs"],
-    review: "Confirm whether the API or frontend route is the broken layer.",
-    history: [
-      "Hosted instance is broken while local TaskFlow remains usable.",
-      "Recovery plan should keep the new UI API-first and deployable independently.",
-    ],
-  },
-  {
-    id: "task-302",
-    projectId: "hosted-api",
-    title: "Create environment readiness checklist",
-    status: "done",
-    priority: "P2",
-    owner: "Lena",
-    ownerInitials: "LG",
-    operator: "agent",
-    operatorName: "ops-agent",
-    estimate: "1h",
-    updated: "Yesterday",
-    due: "Done",
-    tags: ["env", "checklist", "release"],
-    blockers: [],
-    review: "Checklist ready to attach to production deploys.",
-    history: [
-      "Captured API base URL, database path, auth mode, and notification permissions.",
-    ],
-  },
-]
-
 const flow: ColumnId[] = ["not_started", "in_progress", "review", "done"]
 
 const statusOptions = columns.map((column) => ({
@@ -647,61 +385,6 @@ const reviewDecisionOptions = [
   { value: "approve", label: "Approve and mark done" },
   { value: "changes", label: "Request changes" },
   { value: "blocked", label: "Block until clarified" },
-]
-
-const inviteRecords: InviteRecord[] = [
-  {
-    id: "inv-101",
-    recipient: "mina@company.dev",
-    type: "Human",
-    role: "Owner",
-    scope: "All project settings",
-    status: "Accepted",
-    requestedBy: "Dalmas",
-    sent: "Today, 10:12",
-    expires: "Accepted",
-    lastEvent: "Authenticated and joined Project UI delivery",
-    nextAction: "Open member",
-  },
-  {
-    id: "inv-102",
-    recipient: "backend",
-    type: "Agent",
-    role: "Developer",
-    scope: "API Base, task mutations",
-    status: "Pending",
-    requestedBy: "frontend-ui",
-    sent: "Today, 11:04",
-    expires: "23h left",
-    lastEvent: "Invite delivered, waiting for link confirmation",
-    nextAction: "Resend",
-  },
-  {
-    id: "inv-103",
-    recipient: "qa-agent",
-    type: "Agent",
-    role: "Developer",
-    scope: "Reviews, route checks",
-    status: "Needs auth",
-    requestedBy: "Dalmas",
-    sent: "Yesterday, 16:30",
-    expires: "2d left",
-    lastEvent: "Agent accepted, user identity still missing",
-    nextAction: "Request auth",
-  },
-  {
-    id: "inv-104",
-    recipient: "viewer@client.dev",
-    type: "Human",
-    role: "Viewer",
-    scope: "Board, activity, reviews",
-    status: "Expired",
-    requestedBy: "Mina Stone",
-    sent: "Jul 11, 09:20",
-    expires: "Expired",
-    lastEvent: "Invite link expired before first login",
-    nextAction: "Reissue",
-  },
 ]
 
 const agentDirectory = [
@@ -1652,10 +1335,10 @@ function reorderTasks(tasks: Task[], taskId: string, target: DropTarget) {
 function App() {
   const location = useLocation()
   const navigate = useNavigate()
-  const [workspaceProjects, setWorkspaceProjects] = useState(projects)
-  const [activeProjectId, setActiveProjectId] = useState(projects[0].id)
-  const [tasks, setTasks] = useState(initialTasks)
-  const [selectedTaskId, setSelectedTaskId] = useState("task-102")
+  const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([])
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
@@ -1683,19 +1366,21 @@ function App() {
     }
   }, [])
 
-  const activeProject = workspaceProjects.find((project) => project.id === activeProjectId) ?? workspaceProjects[0] ?? projects[0]
-  const activeLiveProjectId = liveId(activeProject.id)
-  const activeLiveWorkspace = liveWorkspace?.project.id === activeLiveProjectId ? liveWorkspace : null
+  const activeProject: Project | undefined =
+    workspaceProjects.find((project) => project.id === activeProjectId) ?? workspaceProjects[0]
+  const activeLiveProjectId = activeProject ? liveId(activeProject.id) : null
+  const activeLiveWorkspace =
+    activeLiveProjectId && liveWorkspace?.project.id === activeLiveProjectId ? liveWorkspace : null
   const projectTasks = useMemo(
-    () => tasks.filter((task) => task.projectId === activeProject.id),
-    [activeProject.id, tasks]
+    () => (activeProject ? tasks.filter((task) => task.projectId === activeProject.id) : []),
+    [activeProject, tasks]
   )
   const selectedTask =
     projectTasks.find((task) => task.id === selectedTaskId) ?? projectTasks[0]
   const openTask = openTaskId ? tasks.find((task) => task.id === openTaskId) : undefined
   const reviewTask = reviewTaskId ? tasks.find((task) => task.id === reviewTaskId) : selectedTask
   const pendingReviews = tasks.filter((task) => task.status === "review").length
-  const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : inviteRecords
+  const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : []
   const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
   const blockedCount = projectTasks.filter((task) => task.status === "blocked").length
   const activeCount = projectTasks.filter((task) => task.status === "in_progress").length
@@ -1759,23 +1444,32 @@ function App() {
   )
 
   const loadLiveWorkspace = useCallback(
-    async (preferredProjectId = activeProjectId) => {
+    async (preferredProjectId: string | null = activeProjectId) => {
       setIsLiveSyncing(true)
 
       try {
         const summary = await fetchTaskflowProjectSummary()
 
+        // The API responded successfully. Zero projects is a valid, honest state
+        // (a first-time user, or someone with no accepted invites yet) — NOT an
+        // error and NOT a reason to show fixture data. Clear everything and let
+        // the dashboard render its empty state.
         if (!summary.projects.length) {
-          setUsesLiveApi(false)
+          setUsesLiveApi(true)
+          setWorkspaceProjects([])
+          setActiveProjectId(null)
+          setTasks([])
+          setSelectedTaskId(null)
           setLiveWorkspace(null)
-          setLiveSyncError("No live projects yet. Showing the seeded workspace until one is created.")
+          setLiveSyncError(null)
           return
         }
 
         const nextProjects = mapLiveProjects(summary)
-        const nextActiveProjectId = nextProjects.some((project) => project.id === preferredProjectId)
-          ? preferredProjectId
-          : nextProjects[0].id
+        const nextActiveProjectId =
+          preferredProjectId && nextProjects.some((project) => project.id === preferredProjectId)
+            ? preferredProjectId
+            : nextProjects[0].id
         const nextProjectId = liveId(nextActiveProjectId) ?? summary.projects[0].id
         const summaryTasks = mapLiveTasks(summary.tasks)
 
@@ -2109,7 +1803,7 @@ function App() {
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
 
-    const projectId = liveId(activeProjectId)
+    const projectId = activeProjectId ? liveId(activeProjectId) : null
     const handleRealtimeEvent = (event: TaskflowRealtimeEvent) => {
       void fetchAndApplyRealtimeEvent(event, projectId)
     }
@@ -2210,6 +1904,7 @@ function App() {
 
   function handleUpdateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!activeProject) return
     const projectId = liveId(activeProject.id)
     if (!projectId) {
       setLiveSyncError("This project is seeded demo data. Create or select a live project before saving changes.")
@@ -2268,6 +1963,7 @@ function App() {
 
   function handleCreateInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!activeProject) return
     const projectId = liveId(activeProject.id)
     if (!projectId) {
       setLiveSyncError("Select a live project before sending invites.")
@@ -2324,6 +2020,7 @@ function App() {
   }
 
   function placeTask(taskId: string, target: DropTarget) {
+    if (!activeProject) return
     const nextTasks = reorderTasks(tasks, taskId, target)
     const nextProjectTasks = nextTasks.filter((task) => task.projectId === activeProject.id)
     const nextSortOrder = Math.max(0, nextProjectTasks.findIndex((task) => task.id === taskId))
@@ -2369,6 +2066,7 @@ function App() {
 
   function handleCreateTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!activeProject) return
     const formData = new FormData(event.currentTarget)
     const title = String(formData.get("title") ?? "").trim()
     if (!title) return
@@ -2668,12 +2366,12 @@ function App() {
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         projects={sidebarProjects}
-        activeProjectId={activeProject.id}
+        activeProjectId={activeProject?.id ?? ""}
         currentUser={currentUser}
         pendingReviews={pendingReviews}
         pendingInvites={pendingInvites}
         myInviteCount={myInviteCount}
-        onlineAgents={activeProject.agentsOnline}
+        onlineAgents={activeProject?.agentsOnline ?? 0}
         onProjectChange={handleProjectChange}
         onNewProject={() => setDialogMode("new-project")}
         onInviteProject={(projectId) => {
@@ -2692,27 +2390,31 @@ function App() {
               <KanbanSquareIcon className="size-4" />
               <span>Projects</span>
               <span>/</span>
-              <span className="font-medium text-foreground">{activeProject.name}</span>
+              <span className="font-medium text-foreground">{activeProject?.name ?? "No project"}</span>
             </div>
             <div className="relative ml-auto hidden w-full max-w-80 md:block">
               <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input className="h-9 pl-8" placeholder="Search tasks, agents, activity" />
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => void loadLiveWorkspace(activeProject.id)} disabled={isLiveSyncing}>
+          <Button variant="outline" size="sm" onClick={() => void loadLiveWorkspace(activeProjectId)} disabled={isLiveSyncing}>
             <BellIcon />
             {isLiveSyncing ? "Syncing" : usesLiveApi ? "Live" : "Sync"}
           </Button>
-          <Button size="sm" onClick={() => setDialogMode("new-task")}>
-            <PlusIcon />
-            New Task
-          </Button>
+          {activeProject ? (
+            <Button size="sm" onClick={() => setDialogMode("new-task")}>
+              <PlusIcon />
+              New Task
+            </Button>
+          ) : null}
         </header>
 
         <main className="h-[calc(100svh-3.5rem)] min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,var(--background),var(--muted))]">
           <Routes>
             <Route path="/dashboard" element={<Navigate to="/dashboard/board" replace />} />
-            <Route path="/dashboard/board" element={(
+            <Route path="/dashboard/board" element={!activeProject ? (
+          <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+        ) : (
           <section className="grid gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
             <div className="min-w-0 space-y-5">
               <div className="rounded-lg border bg-card p-4 shadow-sm">
@@ -2900,48 +2602,75 @@ function App() {
               <ActivityPanel task={selectedTask} />
             </aside>
           </section>
-            )} />
+        )} />
             <Route
               path="/dashboard/agents"
               element={
-                <AgentsPage
-                  project={activeProject}
-                  liveWorkspace={activeLiveWorkspace}
-                  currentUser={currentUser}
-                  onWorkspaceUpdate={(updater) => {
-                    if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
-                  }}
-                  onMessage={() => setDialogMode("agent-message")}
-                />
+                activeProject ? (
+                  <AgentsPage
+                    project={activeProject}
+                    liveWorkspace={activeLiveWorkspace}
+                    currentUser={currentUser}
+                    onWorkspaceUpdate={(updater) => {
+                      if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
+                    }}
+                    onMessage={() => setDialogMode("agent-message")}
+                  />
+                ) : (
+                  <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+                )
               }
             />
             <Route
               path="/dashboard/reviews"
               element={
-                <ReviewsPage
-                  tasks={projectTasks.filter((task) => task.status === "review")}
-                  onReview={(taskId) => {
-                    setReviewTaskId(taskId)
-                    setDialogMode("review-decision")
-                  }}
-                />
+                activeProject ? (
+                  <ReviewsPage
+                    tasks={projectTasks.filter((task) => task.status === "review")}
+                    onReview={(taskId) => {
+                      setReviewTaskId(taskId)
+                      setDialogMode("review-decision")
+                    }}
+                  />
+                ) : (
+                  <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+                )
               }
             />
             <Route path="/dashboard/history" element={<Navigate to="/dashboard/activity" replace />} />
-            <Route path="/dashboard/activity" element={<ActivityLogPage title="Activity" events={activityEvents} />} />
+            <Route
+              path="/dashboard/activity"
+              element={
+                activeProject ? (
+                  <ActivityLogPage title="Activity" events={activityEvents} />
+                ) : (
+                  <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+                )
+              }
+            />
             <Route
               path="/dashboard/invites"
-              element={<InvitesPage project={activeProject} invites={projectInviteRecords} onInvite={() => setDialogMode("invite")} />}
+              element={
+                activeProject ? (
+                  <InvitesPage project={activeProject} invites={projectInviteRecords} onInvite={() => setDialogMode("invite")} />
+                ) : (
+                  <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+                )
+              }
             />
             <Route path="/dashboard/settings" element={<Navigate to="/dashboard/api" replace />} />
             <Route
               path="/dashboard/api"
               element={
-                <ApiBasePage
-                  project={activeProject}
-                  onContract={() => setDialogMode("api-contract")}
-                  onUpdateProject={handleUpdateProject}
-                />
+                activeProject ? (
+                  <ApiBasePage
+                    project={activeProject}
+                    onContract={() => setDialogMode("api-contract")}
+                    onUpdateProject={handleUpdateProject}
+                  />
+                ) : (
+                  <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+                )
               }
             />
             <Route path="/dashboard/*" element={<Navigate to="/dashboard/board" replace />} />
@@ -2967,12 +2696,12 @@ function App() {
           </Routes>
         </main>
       </SidebarInset>
-      {openTask ? (
+      {openTask && activeProject ? (
         <TaskDetailSheet
           task={openTask}
           project={activeProject}
           projectTasks={projectTasks}
-          liveWorkspace={liveWorkspace?.project.id === liveId(activeProject.id) ? liveWorkspace : null}
+          liveWorkspace={activeLiveWorkspace}
           onClose={() => setOpenTaskId(null)}
           onMove={(status) => moveTask(openTask.id, status)}
           onOpenTask={(taskId) => openTaskDetails(taskId)}
@@ -4552,6 +4281,43 @@ function PageShell({
   )
 }
 
+// Honest empty state shown across the dashboard when the signed-in user has no
+// projects yet (a first-time account, or someone whose invites are still
+// pending). This replaces the old fixture fallback — no fake project, no error.
+function NoProjectEmptyState({
+  onNewProject,
+  syncing,
+}: {
+  onNewProject: () => void
+  syncing?: boolean
+}) {
+  return (
+    <section className="grid place-items-center p-4 sm:p-8">
+      <div className="w-full max-w-xl rounded-xl border bg-card p-8 text-center shadow-sm">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
+          <FolderKanbanIcon className="size-6" />
+        </div>
+        <h1 className="mt-4 text-xl font-semibold">No projects yet</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+          {syncing
+            ? "Loading your workspace…"
+            : "You'll see a project here once you create one or accept an invitation to join one."}
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          <Button onClick={onNewProject}>
+            <PlusIcon />
+            New Project
+          </Button>
+          <Button variant="outline" render={<Link to="/account/invitations" />}>
+            <InboxIcon />
+            View Invitations
+          </Button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function AgentsPage({
   project,
   liveWorkspace,
@@ -5491,6 +5257,11 @@ function ActivityLogPage({ title, events }: { title: string; events: ActivityEve
           </div>
           <span className="text-xs text-muted-foreground">{events.length} entries</span>
         </div>
+        {events.length === 0 ? (
+          <div className="mt-4 rounded-lg border border-dashed bg-muted/40 p-8 text-center text-sm text-muted-foreground">
+            No activity yet. Task moves, agent work, and review decisions will show up here.
+          </div>
+        ) : (
         <div className="relative mt-4">
           <div className="absolute bottom-0 left-3 top-0 w-px bg-border" />
           <div className="space-y-4">
@@ -5521,6 +5292,7 @@ function ActivityLogPage({ title, events }: { title: string; events: ActivityEve
             ))}
           </div>
         </div>
+        )}
       </section>
     </PageShell>
   )
@@ -6040,7 +5812,7 @@ function WorkspaceDialog({
   onReviewDecision,
 }: {
   mode: DialogMode
-  activeProject: Project
+  activeProject: Project | undefined
   reviewTask?: Task
   onClose: () => void
   onCreateProject: (event: FormEvent<HTMLFormElement>) => void
@@ -6050,6 +5822,9 @@ function WorkspaceDialog({
   onReviewDecision: (event: FormEvent<HTMLFormElement>) => void
 }) {
   if (!mode) return null
+  // Every mode except "new-project" acts on the active project. If there is no
+  // active project, only project creation is valid.
+  if (mode !== "new-project" && !activeProject) return null
 
   const titles: Record<Exclude<DialogMode, null>, string> = {
     "new-project": "Create Project",
@@ -6077,7 +5852,7 @@ function WorkspaceDialog({
       >
         <header className="flex items-start justify-between gap-4 border-b bg-[linear-gradient(180deg,oklch(0.94_0.035_238),transparent)] px-5 py-4">
           <div>
-            <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{activeProject.name}</p>
+            <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{activeProject?.name ?? "New workspace"}</p>
             <h2 className="mt-1 text-xl font-semibold">{titles[mode]}</h2>
           </div>
           <Button variant="ghost" size="icon-sm" onClick={onClose}>
@@ -6118,17 +5893,17 @@ function WorkspaceDialog({
           <form className="max-h-[calc(100svh-7rem)] space-y-4 overflow-y-auto p-5" onSubmit={onUpdateProject}>
             <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
               <FormField label="Project name">
-                <Input name="name" required defaultValue={activeProject.name} />
+                <Input name="name" required defaultValue={activeProject?.name ?? ""} />
               </FormField>
               <FormField label="Slug">
-                <Input name="slug" defaultValue={slugifyProjectName(activeProject.name)} />
+                <Input name="slug" defaultValue={slugifyProjectName(activeProject?.name ?? "")} />
               </FormField>
             </div>
             <FormField label="Description, markdown">
               <textarea
                 name="description_markdown"
                 className={textareaClass}
-                defaultValue={activeProject.objective}
+                defaultValue={activeProject?.objective ?? ""}
               />
             </FormField>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -6136,12 +5911,12 @@ function WorkspaceDialog({
                 <Input name="repository_url" placeholder="https://github.com/org/repo" />
               </FormField>
               <FormField label="API base">
-                <Input name="default_api_base_url" defaultValue={activeProject.apiBase} />
+                <Input name="default_api_base_url" defaultValue={activeProject?.apiBase ?? ""} />
               </FormField>
               <FormField label="Status">
                 <SelectField
                   name="status"
-                  defaultValue={activeProject.status === "seeded" ? "active" : activeProject.status}
+                  defaultValue={activeProject?.status === "seeded" ? "active" : activeProject?.status ?? "active"}
                   options={projectStatusOptions}
                 />
               </FormField>
@@ -6241,12 +6016,12 @@ function WorkspaceDialog({
                 Live API Preview
               </div>
               <code className="mt-3 block overflow-auto rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-                GET {activeProject.apiBase}/workspace?include=tasks,agents,reviews,activity
+                GET {activeProject?.apiBase ?? ""}/workspace?include=tasks,agents,reviews,activity
               </code>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="API base">
-                <Input name="default_api_base_url" defaultValue={activeProject.apiBase} />
+                <Input name="default_api_base_url" defaultValue={activeProject?.apiBase ?? ""} />
               </FormField>
               <FormField label="Sync mode">
                 <SelectField name="syncMode" defaultValue="realtime" options={syncModeOptions} />
