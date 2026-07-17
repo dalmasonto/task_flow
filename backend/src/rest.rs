@@ -21,12 +21,17 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use umbral_rest::{Identity, ResourceConfig, ScopeDecision};
+use umbral_rest::{Action, Identity, ResourceConfig, ScopeDecision};
 
 /// Every project-scoped table, keyed by its `project` FK. `taskflow_project`
 /// itself is scoped separately (by its own `id`) via [`project_resource`].
+///
+/// These are the tables the app legitimately *writes* from the client (create a
+/// task, post a message, invite a teammate, …), so they keep the full CRUD
+/// surface — restricted to the caller's active-project rows by [`project_scope`].
+/// The server-managed / access-granting tables are NOT here — they are locked
+/// read-only via [`READ_ONLY_PROJECT_SCOPED_TABLES`].
 const PROJECT_SCOPED_TABLES: &[&str] = &[
-    "taskflow_project_member",
     "taskflow_project_invite",
     "taskflow_project_api_endpoint",
     "taskflow_task",
@@ -34,12 +39,34 @@ const PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_task_activity",
     "taskflow_task_session",
     "taskflow_agent",
-    "taskflow_agent_credential",
-    "taskflow_agent_session",
     "taskflow_agent_channel",
     "taskflow_agent_channel_member",
     "taskflow_agent_message",
     "taskflow_agent_terminal_frame",
+];
+
+/// Project-scoped tables the client may only ever READ, never create/update/
+/// delete through auto-REST. Each is server-managed and access-granting, so a
+/// direct client write is both unnecessary and a privilege-escalation vector:
+///
+/// - **`taskflow_project_member`** — the escalation vector. `scope_async` only
+///   governs reads (list/retrieve/update/delete), NOT create, and `status` is a
+///   client-writable column. Left writable, any authenticated non-member could
+///   `POST {project:P, user:<self>, status:"active", …}` to grant themselves an
+///   ACTIVE membership, which the read-scope then honours — opening project P's
+///   tasks, messages, `agent_credential.key_hash`, and every `project:P:*`
+///   realtime room. Membership must come from the seed and the (SP-B)
+///   invite-accept endpoint, never from client REST.
+/// - **`taskflow_agent_credential`** — holds `key_hash`; only ever minted
+///   server-side.
+/// - **`taskflow_agent_session`** — managed by the agent runtime.
+///
+/// The frontend only ever `.list()`s these three (see `v2_fe/src/lib/
+/// taskflow-api.ts`), so read-only is a no-op for the app and closes the hole.
+const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
+    "taskflow_project_member",
+    "taskflow_agent_credential",
+    "taskflow_agent_session",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -80,9 +107,23 @@ pub fn project_resource() -> ResourceConfig {
 
 /// Every project-scoped resource (all tables carrying a `project` FK), each
 /// restricted to the caller's active projects.
+///
+/// The server-managed / access-granting tables in
+/// [`READ_ONLY_PROJECT_SCOPED_TABLES`] additionally have their write actions
+/// (create/update/delete) stripped via `.views([List, Retrieve])`, so a caller
+/// cannot `POST` a row into them at all — closing the self-service membership
+/// escalation that `scope_async` alone leaves open (it governs reads, not
+/// creates).
 pub fn project_scoped_resources() -> Vec<ResourceConfig> {
-    PROJECT_SCOPED_TABLES
+    let writable = PROJECT_SCOPED_TABLES
         .iter()
-        .map(|table| ResourceConfig::new(*table).scope_async(project_scope("project")))
-        .collect()
+        .map(|table| ResourceConfig::new(*table).scope_async(project_scope("project")));
+
+    let read_only = READ_ONLY_PROJECT_SCOPED_TABLES.iter().map(|table| {
+        ResourceConfig::new(*table)
+            .scope_async(project_scope("project"))
+            .views([Action::List, Action::Retrieve])
+    });
+
+    writable.chain(read_only).collect()
 }

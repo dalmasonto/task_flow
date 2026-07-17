@@ -221,6 +221,19 @@ async fn get_as(user: i64, is_super: bool, path: &str) -> (u16, Value) {
     (res.status().as_u16(), res.body_json())
 }
 
+/// POST `body` to `path` as `user`. Fresh client per call so the per-user
+/// header never races across concurrent tests.
+async fn post_as(user: i64, path: &str, body: Value) -> (u16, Value) {
+    let (router, _) = app().await;
+    let client = TestClient::new(router.clone());
+    client.set_default_header(
+        HeaderName::from_static("x-user"),
+        HeaderValue::from_str(&user.to_string()).unwrap(),
+    );
+    let res = client.post_json(path, &body).await;
+    (res.status().as_u16(), res.body_json())
+}
+
 /// The `id`s in a list response's `results`.
 fn result_ids(body: &Value) -> Vec<i64> {
     body["results"]
@@ -319,6 +332,68 @@ async fn no_membership_sees_nothing() {
     )
     .await;
     assert_eq!(status, 404, "an out-of-scope row must 404, never 200/403");
+}
+
+/// THE escalation regression. `scope_async` governs reads, NOT creates, and
+/// `taskflow_project_member.status` is client-writable — so before the fix a
+/// non-member could `POST` themselves an ACTIVE membership and the read-scope
+/// would then open the whole project to them. Locking the table read-only
+/// (`.views([List, Retrieve])`) removes the create route entirely.
+///
+/// This test FAILS against the old code (the POST succeeds with 201, and bob
+/// then sees project P) and PASSES after the fix (the POST is rejected and bob
+/// still sees zero projects).
+#[tokio::test]
+async fn non_member_cannot_self_grant_membership() {
+    let (_, seed) = app().await;
+
+    // bob has zero memberships. He tries to grant himself an active membership
+    // in project P — the exact self-service escalation from the report.
+    let (status, body) = post_as(
+        seed.bob,
+        "/api/taskflow_project_member/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "user": seed.bob,
+            "member_key": format!("user:{}", seed.bob),
+            "display_name": "bob",
+            "email": null,
+            "role": "developer",
+            "status": "active",
+        }),
+    )
+    .await;
+
+    assert!(
+        status == 405 || status == 403 || status == 404,
+        "a non-member's POST to taskflow_project_member must be REJECTED \
+         (read-only resource → 405), got {status}: {body}",
+    );
+
+    // The escalation must not have taken effect: bob still belongs to nothing.
+    let (pstatus, projects) = get_as(seed.bob, false, "/api/taskflow_project/").await;
+    assert_eq!(pstatus, 200);
+    assert!(
+        result_ids(&projects).is_empty(),
+        "after the rejected self-grant, bob must STILL see zero projects; got {projects}",
+    );
+}
+
+/// The credential table holds `key_hash` and is never client-created; locking it
+/// read-only means a non-member cannot POST into it either.
+#[tokio::test]
+async fn non_member_cannot_create_agent_credential() {
+    let (_, seed) = app().await;
+    let (status, body) = post_as(
+        seed.bob,
+        "/api/taskflow_agent_credential/",
+        serde_json::json!({ "project": seed.project_p }),
+    )
+    .await;
+    assert!(
+        status == 405 || status == 403 || status == 404,
+        "taskflow_agent_credential must be read-only via REST; got {status}: {body}",
+    );
 }
 
 #[tokio::test]
