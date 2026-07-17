@@ -85,6 +85,21 @@ describe("reconcile", () => {
     expect(next).toHaveLength(1)
     expect((next[0] as TaskflowAgentMessage).body_markdown).toBe("edited")
   })
+
+  it("matches by client_nonce over id when a different saved row shares the incoming id", () => {
+    // Pins the ordering: nonce match must win over id match. An unrelated saved
+    // row happens to carry the id the incoming row will use, while a pending
+    // bubble carries its nonce — only nonce-first resolves this correctly.
+    const savedRow = row(10, null)
+    const messages: ChatMessage[] = [savedRow, pending("n1")]
+
+    const next = reconcile(messages, row(10, "n1"))
+
+    expect(next).toHaveLength(2)
+    expect(next.some((m) => isPending(m) && m.client_nonce === "n1")).toBe(false)
+    expect(next[0]).toEqual(savedRow)
+    expect((next[1] as TaskflowAgentMessage).client_nonce).toBe("n1")
+  })
 })
 
 describe("markFailed", () => {
