@@ -390,9 +390,7 @@ function AttachmentPreviewDialog({
   const previewRef = React.useRef<HTMLDivElement>(null)
   const active = attachments[activeIndex]
   const kind = active ? kindOf(active) : "file"
-  // Images are shown at their natural dimensions and scrolled freely (no zoom
-  // scaling); only the PDF viewer keeps the zoom controls.
-  const canZoom = kind === "pdf"
+  const canZoom = kind === "image" || kind === "pdf"
   const canNavigate = attachments.length > 1
   const zoomKey = active?.id ?? ""
   const zoom = zoomState?.id === zoomKey ? zoomState.value : 1
@@ -537,20 +535,7 @@ function AttachmentPreviewContent({
     return <GenericFilePreview attachment={attachment} kind={kind} pending />
   }
 
-  if (kind === "image") {
-    // Natural dimensions, no zoom scaling. The container scrolls in both axes so
-    // an image larger than the viewport can be roamed freely; `m-auto` centers a
-    // smaller image and collapses to let scrolling reach every edge of a larger
-    // one (the classic flex-overflow centering fix).
-    return (
-      <div className="flex h-full min-h-0 w-full overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
-        <AttachmentImage
-          attachment={attachment}
-          className="m-auto block max-w-none rounded-xl shadow-2xl"
-        />
-      </div>
-    )
-  }
+  if (kind === "image") return <ImagePreview attachment={attachment} zoom={zoom} />
 
   if (kind === "pdf") return <PdfPreview attachment={attachment} zoom={zoom} />
   if (kind === "spreadsheet") return <ScrollPanel><SpreadsheetPreview attachment={attachment} /></ScrollPanel>
@@ -596,6 +581,43 @@ function AttachmentPreviewContent({
   }
 
   return <GenericFilePreview attachment={attachment} kind={kind} />
+}
+
+/// Popup image view. The base (zoom = 1) is the image's NATURAL size — not
+/// scaled to fit — and the container scrolls in both axes so a large image can
+/// be roamed freely. The zoom control scales up from natural (2×, 3× …), growing
+/// the scroll area accordingly. `m-auto` centers a small image and collapses to
+/// let scrolling reach every edge of one larger than the viewport (the classic
+/// flex-overflow centering fix).
+function ImagePreview({ attachment, zoom }: { attachment: MessageAttachmentItem; zoom: number }) {
+  const [natural, setNatural] = React.useState<{ w: number; h: number } | null>(null)
+  const [failed, setFailed] = React.useState(false)
+
+  if (failed) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-6 text-muted-foreground">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <ImageIcon className="size-8" />
+          <span className="text-sm font-medium">Preview unavailable</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full min-h-0 w-full overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
+      <img
+        src={attachment.url}
+        alt={attachment.name}
+        onLoad={(event) =>
+          setNatural({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight })
+        }
+        onError={() => setFailed(true)}
+        style={natural ? { width: natural.w * zoom, height: natural.h * zoom } : undefined}
+        className="m-auto block max-w-none rounded-xl shadow-2xl"
+      />
+    </div>
+  )
 }
 
 /// Scrollable host for the card-shaped renderers (spreadsheet/code/text) reused
