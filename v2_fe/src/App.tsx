@@ -124,7 +124,7 @@ import {
   type PendingAttachment,
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
 import { ProfilePage } from "@/pages/account/ProfilePage"
 import { SettingsPage } from "@/pages/account/SettingsPage"
@@ -4431,7 +4431,7 @@ function AgentsPage({
 }) {
   const navigate = useNavigate()
   const { conversationId } = useParams()
-  const isMobile = useIsMobile()
+  const isBelowLg = useIsBelowLg()
   const [messageError, setMessageError] = useState<string | null>(null)
   const directChats = useMemo<AgentChatContext[]>(
     () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser) : []),
@@ -4459,10 +4459,10 @@ function AgentsPage({
   // full-screen conversation LIST so the user taps in deliberately (jumping
   // straight into a thread would hide the list behind a back button).
   useEffect(() => {
-    if (conversationId || isMobile) return
+    if (conversationId || isBelowLg) return
     const first = channelChats[0] ?? directChats[0]
     if (first) navigate(encodeURIComponent(first.id), { replace: true })
-  }, [conversationId, isMobile, channelChats, directChats, navigate])
+  }, [conversationId, isBelowLg, channelChats, directChats, navigate])
   const terminalSessions = useMemo(
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
     [liveWorkspace]
