@@ -4382,6 +4382,14 @@ function AgentsPage({
     const decodedId = decodeURIComponent(conversationId)
     return allChats.find((chat) => chat.id === decodedId) ?? null
   }, [allChats, conversationId])
+  // Default to the project room (the first group chat) on the index route, so
+  // the page opens on a conversation rather than the empty state. Falls back to
+  // the first DM; the empty state shows only when there are no conversations.
+  useEffect(() => {
+    if (conversationId) return
+    const first = channelChats[0] ?? directChats[0]
+    if (first) navigate(encodeURIComponent(first.id), { replace: true })
+  }, [conversationId, channelChats, directChats, navigate])
   const terminalSessions = useMemo(
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
     [liveWorkspace]
@@ -4697,9 +4705,6 @@ function AgentsPage({
                   <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900/60">
                     {countMemberType(chat.members, "agent")} agents
                   </span>
-                  <span className="min-w-0 max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {chat.status}
-                  </span>
                 </div>
               </button>
             ))}
@@ -4745,11 +4750,16 @@ function AgentsPage({
                     ) : null}
                   </div>
                   <p className="mt-1 truncate text-xs text-muted-foreground">{chat.detail}</p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
-                      {chat.status}
-                    </span>
-                  </div>
+                  {/* Only an agent DM carries a meaningful status (connected/offline/…).
+                      A human DM's status is just "Direct" — redundant under the DMS
+                      header — so it's dropped. */}
+                  {isAgentDm ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
+                        {chat.status}
+                      </span>
+                    </div>
+                  ) : null}
                 </button>
               )
             })}
@@ -4808,6 +4818,7 @@ function AgentsConversationView() {
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
   const canSendMessage = draftMessage.trim().length > 0 || stagedFiles.length > 0
   const focusComposer = () => {
     composerRef.current?.focus()
@@ -4828,6 +4839,15 @@ function AgentsConversationView() {
     setTerminalOverride(null)
   }
   const terminalOpen = terminalOverride ?? isAgentChat
+
+  // Keep the thread pinned to the latest message: scroll to the bottom when the
+  // conversation changes or a new message arrives (optimistic send, echo, or a
+  // realtime message from someone else).
+  const messageCount = selectedChat?.messages.length ?? 0
+  useEffect(() => {
+    const el = threadRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [chatKey, messageCount])
 
   // Revoke every staged preview URL when the composer unmounts so switching
   // chats mid-compose doesn't leak object URLs.
@@ -4932,7 +4952,7 @@ function AgentsConversationView() {
           </div>
         </div>
 
-        <div className="chat-thread-bg scrollbar-y min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <div ref={threadRef} className="chat-thread-bg scrollbar-y min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {selectedChat.messages.map((message) => (
             <AgentChatBubble key={message.id} message={message} onRetry={onRetryMessage} />
           ))}
