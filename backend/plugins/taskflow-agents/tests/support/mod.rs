@@ -122,10 +122,10 @@ pub fn encode_multipart(parts: &[MultipartPart]) -> (String, Vec<u8>) {
 
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
-    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage,
-    TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowMessageAttachment,
-    taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
-    taskflow_message_attachment,
+    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
+    TaskflowAgentMessage, TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowCredentialStatus,
+    TaskflowMessageAttachment, taskflow_agent_channel, taskflow_agent_channel_member,
+    taskflow_agent_credential, taskflow_agent_message, taskflow_message_attachment,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
@@ -231,6 +231,55 @@ impl TestApp {
         }
     }
 
+    /// POST JSON authenticated as an AGENT — sets `Authorization: Agent <key>`,
+    /// the header `RequireAgent` reads. The counterpart of [`post_as`] for the
+    /// agent-auth path.
+    pub async fn post_as_agent(&self, key: &str, path: &str, body: Value) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        TestResponse {
+            inner: self.client.post_json(path, &body).await,
+        }
+    }
+
+    /// Revoke every credential belonging to `agent_id` (flip status to
+    /// `Revoked`). Used to prove `RequireAgent` rejects a revoked key with 401.
+    pub async fn revoke_agent_credentials(&self, agent_id: i64) {
+        let creds = TaskflowAgentCredential::objects()
+            .filter(taskflow_agent_credential::AGENT.eq(agent_id))
+            .fetch()
+            .await
+            .expect("load credentials");
+        for mut cred in creds {
+            cred.status = TaskflowCredentialStatus::Revoked;
+            TaskflowAgentCredential::objects()
+                .save(cred)
+                .await
+                .expect("revoke credential");
+        }
+    }
+
+    /// Add `agent_id` to `channel`'s roster (a `member_kind = agent` row), so the
+    /// agent membership gate authorizes a post in a DM it was explicitly added to.
+    pub async fn add_agent_to_channel_roster(&self, project: i64, channel: i64, agent_id: i64) {
+        TaskflowAgentChannelMember::objects()
+            .create(TaskflowAgentChannelMember {
+                id: 0,
+                project: ForeignKey::new(project),
+                channel: ForeignKey::new(channel),
+                member_kind: TaskflowChannelMemberKind::Agent,
+                user: None,
+                agent: Some(ForeignKey::new(agent_id)),
+                display_name: format!("Agent {agent_id}"),
+                role: "member".to_string(),
+                joined_at: None,
+            })
+            .await
+            .expect("create agent roster row");
+    }
+
     /// POST a raw `multipart/form-data` body as `user_id`, with the given
     /// `content_type` (boundary included) — the multipart counterpart of
     /// [`post_as`]. Builds a real multipart request so the handler's own
@@ -300,7 +349,7 @@ impl TestApp {
     }
 }
 
-async fn seed_project() -> i64 {
+pub async fn seed_project() -> i64 {
     let n = seq();
     TaskflowProject::objects()
         .create(TaskflowProject {
@@ -324,7 +373,7 @@ async fn seed_channel(project: i64) -> i64 {
     seed_channel_of_kind(project, TaskflowChannelKind::Project).await
 }
 
-async fn seed_channel_of_kind(project: i64, kind: TaskflowChannelKind) -> i64 {
+pub async fn seed_channel_of_kind(project: i64, kind: TaskflowChannelKind) -> i64 {
     let n = seq();
     TaskflowAgentChannel::objects()
         .create(TaskflowAgentChannel {

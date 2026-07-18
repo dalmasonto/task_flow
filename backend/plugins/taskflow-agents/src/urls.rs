@@ -37,4 +37,13 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/members",
             post(views::add_channel_member),
         )
+        // Mint an agent identity (human-authed): create/reuse a stable
+        // `TaskflowAgent` + a fresh credential; returns the raw key once.
+        .route("/api/taskflow/agents/link", post(views::link_agent))
+        // Agent-authored send (agent-authed via `RequireAgent`). JSON only and
+        // small, so the framework's default body limit is fine.
+        .route(
+            "/api/taskflow/agents/agent/messages",
+            post(views::send_message_as_agent),
+        )
 }

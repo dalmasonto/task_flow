@@ -18,6 +18,7 @@
 //! what each `Plugin` method does. This layout is a recommended
 //! convention — the framework only needs a type that impls `Plugin`.
 
+pub mod agent_auth;
 pub mod models;
 pub mod urls;
 pub mod views;

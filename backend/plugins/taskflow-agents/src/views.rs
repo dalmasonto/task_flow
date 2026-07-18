@@ -8,11 +8,14 @@ use umbral::orm::{FileField, ForeignKey};
 use umbral::storage::storage_opt;
 use umbral::web::multipart::{FilePart, is_multipart, parse_multipart};
 use umbral::web::{HeaderMap, IntoResponse, Json, Path, Response, StatusCode, header};
-use umbral_auth::RequireAuth;
+use umbral_auth::{AuthUser, RequireAuth, auth_user};
+use uuid::Uuid;
 
+use crate::agent_auth::{RequireAgent, hash_key};
 use crate::models::{
-    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
-    TaskflowChannelMemberKind, TaskflowMessageAttachment, TaskflowMessagePriority,
+    TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
+    TaskflowAgentMessage, TaskflowAgentStatus, TaskflowChannelKind, TaskflowChannelMemberKind,
+    TaskflowCredentialStatus, TaskflowMessageAttachment, TaskflowMessagePriority, taskflow_agent,
     taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
     taskflow_message_attachment,
 };
@@ -516,4 +519,308 @@ pub async fn add_channel_member(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Agent identity: mint a stable, credentialed agent (human-authed) and let an
+// agent authenticate as itself to send messages (agent-authed).
+// ---------------------------------------------------------------------------
+
+/// A stable, URL-safe slug: ASCII alphanumerics pass through lowercased, every
+/// other character becomes `-`. Deterministic so the same display name always
+/// produces the same `identifier`, which is what lets re-linking a profile reuse
+/// the same `TaskflowAgent` (and its history) rather than mint a new one.
+fn slug(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// The body of `POST /api/taskflow/agents/link`. `project`, `display_name`, and
+/// `profile` are required; the rest are optional metadata copied onto the agent.
+/// The caller cannot assert any credential/agent identity field — the key, the
+/// hash, the `identifier`, and the `linked_by` are all derived server-side.
+#[derive(Debug, Deserialize)]
+pub struct LinkAgentInput {
+    pub project: i64,
+    pub display_name: String,
+    pub profile: String,
+    #[serde(default)]
+    pub project_root: Option<String>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+/// `POST /api/taskflow/agents/link` (human-authed) — mint an agent identity.
+///
+/// Creates (or reuses, by a stable computed `identifier`) a `TaskflowAgent` and
+/// ALWAYS mints a fresh `TaskflowAgentCredential` for it, returning the raw
+/// `tfk_…` key EXACTLY ONCE. The credential stores only the non-secret
+/// `key_prefix` and `sha256(raw_key)` — the raw key is never persisted and
+/// cannot be recovered, so the response is the single opportunity to capture it.
+///
+/// AUTHORIZATION: `RequireAuth<i64>` authenticates the human caller, who must be
+/// an ACTIVE member of `project` (else 403) — you can only link an agent into a
+/// project you belong to. The agent + credential land together in one
+/// transaction so a failure never leaves an agent without a key or vice versa.
+pub async fn link_agent(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Json(input): Json<LinkAgentInput>,
+) -> Result<Response, StatusCode> {
+    let display_name = input.display_name.trim().to_string();
+    let profile = input.profile.trim().to_string();
+    if display_name.is_empty() || profile.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let project_id = input.project;
+
+    // Caller gate: an ACTIVE project member of THIS project, read from the table,
+    // never trusted from the request. Absent → 403. Mirrors `send_message`.
+    let caller_member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    // A human-readable label for who linked the agent. Prefer the caller's
+    // project-member display name; fall back to their account username.
+    let linked_user_label = if caller_member.display_name.trim().is_empty() {
+        AuthUser::objects()
+            .filter(auth_user::ID.eq(user_id))
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .map(|u| u.username)
+            .unwrap_or_default()
+    } else {
+        caller_member.display_name.clone()
+    };
+
+    // Stable identity: the same (project, display_name, profile) always maps to
+    // the same `identifier`, so re-linking reuses the agent id + history.
+    let identifier = format!("agent:{project_id}:{}:{}", slug(&display_name), profile);
+
+    // Key material. The prefix is a non-secret, UNIQUE lookup handle; the secret
+    // is a full uuid-v4 (CSPRNG-backed). We store the prefix + sha256(raw) only.
+    let prefix12: String = Uuid::new_v4().simple().to_string().chars().take(12).collect();
+    let secret = Uuid::new_v4().simple().to_string();
+    let key_prefix = format!("tfk_{prefix12}");
+    let raw_key = format!("tfk_{prefix12}_{secret}");
+    let key_hash = hash_key(&raw_key);
+    let credential_name = format!("{profile} key");
+
+    // Reuse an existing agent with this identifier, else create it. The lookup is
+    // outside the transaction (a read); the create-if-missing + credential mint
+    // are inside it so the two rows land together.
+    let existing_agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::IDENTIFIER.eq(identifier.as_str()))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let tx_display_name = display_name.clone();
+    let tx_identifier = identifier.clone();
+    let project_root = input.project_root.clone();
+    let runtime = input.runtime.clone();
+    let version = input.version.clone();
+
+    let agent_id = umbral::transaction(move |tx| {
+        Box::pin(async move {
+            let agent = match existing_agent {
+                Some(agent) => agent,
+                None => {
+                    TaskflowAgent::objects()
+                        .on_tx(tx)
+                        .create(TaskflowAgent {
+                            id: 0,
+                            project: ForeignKey::new(project_id),
+                            display_name: tx_display_name.clone(),
+                            identifier: tx_identifier.clone(),
+                            fingerprint: None,
+                            project_root: project_root.clone(),
+                            taskflow_file_path: None,
+                            runtime: runtime.clone(),
+                            version: version.clone(),
+                            status: TaskflowAgentStatus::Offline,
+                            linked_by: Some(ForeignKey::new(user_id)),
+                            linked_user_label: Some(linked_user_label.clone()),
+                            last_seen_at: None,
+                            created_at: None,
+                        })
+                        .await?
+                }
+            };
+
+            TaskflowAgentCredential::objects()
+                .on_tx(tx)
+                .create(TaskflowAgentCredential {
+                    id: 0,
+                    project: ForeignKey::new(project_id),
+                    agent: Some(ForeignKey::new(agent.id)),
+                    issued_by: Some(ForeignKey::new(user_id)),
+                    name: credential_name.clone(),
+                    key_prefix: key_prefix.clone(),
+                    key_hash: key_hash.clone(),
+                    status: TaskflowCredentialStatus::Active,
+                    expires_at: None,
+                    revoked_at: None,
+                    created_at: None,
+                })
+                .await?;
+
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(agent.id)
+        })
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // The raw key appears here and NOWHERE else. `taskflow_profile` is the block
+    // the caller pastes into `.taskflow.json` under `profiles.<profile>`.
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "agent_id": agent_id,
+            "identifier": identifier,
+            "display_name": display_name,
+            "project": project_id,
+            "profile": profile,
+            "key": raw_key,
+            "taskflow_profile": {
+                "agent_id": agent_id,
+                "key": raw_key,
+                "display_name": display_name,
+            },
+        })),
+    )
+        .into_response())
+}
+
+/// The body of `POST /api/taskflow/agents/agent/messages`. Identical to the
+/// human `SendMessageInput` — the difference is purely who is authenticated, not
+/// what they may say. The sender identity is never a body field.
+#[derive(Debug, Deserialize)]
+pub struct AgentSendMessageInput {
+    pub channel: i64,
+    pub body_markdown: String,
+    #[serde(default)]
+    pub priority: Option<TaskflowMessagePriority>,
+    #[serde(default)]
+    pub client_nonce: Option<String>,
+}
+
+/// `POST /api/taskflow/agents/agent/messages` (agent-authed) — the trusted write
+/// path for an agent to speak AS ITSELF.
+///
+/// Mirrors `send_message` exactly except for the sender: `RequireAgent` resolves
+/// the credential to a stable `TaskflowAgent`, and every stored message stamps
+/// `sender_kind = agent`, `sender_agent = <id>`, `sender_user = None`,
+/// `sender_label = <display_name>`. JSON only — agent sends carry no
+/// attachments in Stage 1.
+///
+/// MEMBERSHIP GATE (agent counterpart of the human one):
+///   1. An explicit channel-roster row for this agent authorizes the post.
+///   2. Otherwise, for SHARED project rooms (Project / Task / Incident) the
+///      channel's project must equal the agent's project — agents are
+///      project-scoped by their credential, so project scope grants posting to
+///      that project's shared rooms. DMs (`Direct`) stay private to their
+///      explicit roster.
+pub async fn send_message_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentSendMessageInput>,
+) -> Result<Response, StatusCode> {
+    let body = input.body_markdown.trim();
+    if body.chars().count() > MAX_BODY_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if body.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let channel = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::ID.eq(input.channel))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Membership is the authorization boundary. Checked BEFORE the idempotency
+    // lookup for the same reason as the human path: a guessed nonce must not let
+    // a non-member read back a stored message.
+    let is_roster_member = TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(channel.id)
+                & taskflow_agent_channel_member::AGENT.eq(agent.agent_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some();
+
+    if !is_roster_member {
+        // No roster row. DMs are private to their explicit roster.
+        if channel.kind == TaskflowChannelKind::Direct {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        // Shared project room: the agent may post only in its own project's rooms.
+        if channel.project.id() != agent.project_id {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    // Idempotency: the same nonce in the same channel is the same message.
+    if let Some(nonce) = input.client_nonce.as_deref().filter(|n| !n.is_empty()) {
+        let existing = TaskflowAgentMessage::objects()
+            .filter(
+                taskflow_agent_message::CHANNEL.eq(channel.id)
+                    & taskflow_agent_message::CLIENT_NONCE.eq(nonce),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(row) = existing {
+            let attachments = TaskflowMessageAttachment::objects()
+                .filter(taskflow_message_attachment::MESSAGE.eq(row.id))
+                .fetch()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            return message_response(&row, &attachments);
+        }
+    }
+
+    // The sender trio is derived from the authenticated agent, never accepted:
+    // `sender_kind = agent`, the agent id, and its display name as the label.
+    let message = TaskflowAgentMessage::objects()
+        .create(TaskflowAgentMessage {
+            id: 0,
+            project: channel.project.clone(),
+            channel: ForeignKey::new(channel.id),
+            task: channel.task.clone(),
+            sender_kind: TaskflowChannelMemberKind::Agent,
+            sender_user: None,
+            sender_agent: Some(ForeignKey::new(agent.agent_id)),
+            sender_label: agent.display_name.clone(),
+            body_markdown: body.to_string(),
+            priority: input.priority.unwrap_or(TaskflowMessagePriority::Normal),
+            client_nonce: input.client_nonce.clone(),
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    message_response(&message, &[])
 }

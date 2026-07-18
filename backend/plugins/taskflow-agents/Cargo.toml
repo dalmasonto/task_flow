@@ -15,6 +15,10 @@ serde_json = "1"
 axum = "0.8"
 sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
+# API-key hashing: credentials store only sha256(raw_key), never the raw key.
+sha2 = "0.10"
+# Key material: prefix + secret are uuid-v4 (CSPRNG-backed) hex.
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 umbral-testing = "0.0.10"
