@@ -1,0 +1,5 @@
+node_modules/
+dist/
+
+# The credential file is per-repo and secret — never commit it.
+.taskflow.json

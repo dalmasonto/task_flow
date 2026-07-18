@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "node",
+      "args": ["./mcp/dist/index.js"],
+      "env": {
+        "TASKFLOW_PROFILE": "main"
+      }
+    }
+  }
+}

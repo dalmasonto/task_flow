@@ -1,0 +1,404 @@
+/**
+ * The TaskFlow MCP server (stdio transport).
+ *
+ * Loads `.taskflow.json` once, then registers one tool per meaningful agent
+ * operation. Each tool validates its arguments with zod, resolves a profile
+ * (per-call `profile` arg > `TASKFLOW_PROFILE` > `default_profile` > `main`),
+ * builds a {@link TaskflowClient} for that profile, calls the backend, and
+ * returns a concise text/JSON result. Errors are returned as tool errors
+ * (`isError: true`) with the backend's detail — never thrown out of the tool.
+ */
+
+import { hostname } from "node:os";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+
+import {
+  loadConfigFile,
+  findConfigPath,
+  resolveProfile,
+  type TaskflowConfig,
+} from "./config.js";
+import { TaskflowClient, TaskflowApiError } from "./client.js";
+
+/** Build the default session identifier from host + process id. */
+function defaultSessionIdentifier(): string {
+  return `${hostname()}:${process.pid}`;
+}
+
+/** Wrap a value as a successful text tool result (JSON-pretty for objects). */
+function ok(value: unknown): CallToolResult {
+  const text =
+    typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return { content: [{ type: "text", text }] };
+}
+
+/** Wrap an error as a tool error result carrying the backend detail. */
+function fail(err: unknown): CallToolResult {
+  const message =
+    err instanceof TaskflowApiError
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+}
+
+export interface BuildServerOptions {
+  configPath?: string;
+  startDir?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Construct the MCP server with all tools registered. The config is loaded
+ * eagerly so a broken `.taskflow.json` fails fast at startup with a clear error.
+ */
+export function buildServer(options: BuildServerOptions = {}): McpServer {
+  const configPath = findConfigPath({
+    configPath: options.configPath,
+    startDir: options.startDir,
+    env: options.env,
+  });
+  const config: TaskflowConfig = loadConfigFile(configPath);
+  const env = options.env ?? process.env;
+
+  // Per-profile registered session id, so `heartbeat` / `capture_terminal`
+  // don't need the caller to thread a session id through every call.
+  const sessions = new Map<string, number>();
+
+  const server = new McpServer({
+    name: "taskflow-mcp",
+    version: "0.1.0",
+  });
+
+  const clientFor = (profile?: string) => {
+    const resolved = resolveProfile(config, { profile, env, configPath });
+    return { resolved, client: new TaskflowClient({ server: resolved.server, key: resolved.key }) };
+  };
+
+  /** Ensure a live session exists for a profile; register one if not. */
+  const ensureSession = async (
+    client: TaskflowClient,
+    profileName: string,
+  ): Promise<number> => {
+    const existing = sessions.get(profileName);
+    if (existing !== undefined) return existing;
+    const session = await client.registerSession({
+      session_identifier: defaultSessionIdentifier(),
+      host: hostname(),
+      pid: process.pid,
+      cwd: process.cwd(),
+      transport: "mcp",
+    });
+    sessions.set(profileName, session.id);
+    return session.id;
+  };
+
+  const profileArg = { profile: z.string().optional().describe("Profile name to act as (default: main).") };
+
+  // ---- identity / discovery ----
+
+  server.tool(
+    "whoami",
+    "Confirm which TaskFlow agent identity and project this credential maps to. Call first to verify the connection.",
+    { ...profileArg },
+    async ({ profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.whoami());
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "list_tasks",
+    "List tasks in the agent's project. Optional filters: status (e.g. not_started, in_progress, partial_done, done) and assigned='me' for tasks this agent has claimed.",
+    {
+      status: z.string().optional().describe("Filter by task status string."),
+      assigned: z.string().optional().describe("'me' to show only tasks claimed by this agent."),
+      ...profileArg,
+    },
+    async ({ status, assigned, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.listTasks({ status, assigned }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "list_channels",
+    "List the chat channels this agent can see in its project (shared rooms plus any DMs it is on the roster of).",
+    { ...profileArg },
+    async ({ profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.listChannels());
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "list_agents",
+    "List the other agents in this project so you know who to address.",
+    { ...profileArg },
+    async ({ profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.listAgents());
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // ---- tasks ----
+
+  server.tool(
+    "create_task",
+    "Create a task in the agent's project. Optionally self-claim it. Returns the created task.",
+    {
+      title: z.string().min(1).describe("Short task title."),
+      description: z.string().optional().describe("Markdown description."),
+      priority: z.string().optional().describe("Priority string (e.g. low, normal, high, urgent)."),
+      claim: z.boolean().optional().describe("If true, assign the new task to this agent."),
+      ...profileArg,
+    },
+    async ({ title, description, priority, claim, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(
+          await client.createTask({
+            title,
+            description_markdown: description,
+            priority,
+            claim,
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "update_task_status",
+    "Advance a task's status (e.g. to partial_done to request review, or in_progress). Returns the updated task.",
+    {
+      task: z.number().int().describe("Task id."),
+      status: z.string().describe("New status string (not_started, in_progress, partial_done, done, blocked, ...)."),
+      ...profileArg,
+    },
+    async ({ task, status, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.updateTaskStatus(task, status));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "claim_task",
+    "Self-assign a task in this agent's project. Returns the updated task.",
+    { task: z.number().int().describe("Task id."), ...profileArg },
+    async ({ task, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.claimTask(task));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "report_review",
+    "Record a review verdict on a task (decision: approved | changes_requested). Reports back to the assigned agent and transitions the task. Consider the 'reviewer' profile for review work.",
+    {
+      task: z.number().int().describe("Task id under review."),
+      decision: z.enum(["approved", "changes_requested"]).describe("The review verdict."),
+      body: z.string().optional().describe("Optional review note (markdown)."),
+      ...profileArg,
+    },
+    async ({ task, decision, body, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.reportReview(task, decision, body));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // ---- messaging ----
+
+  server.tool(
+    "send_message",
+    "Send a chat message as this agent into a channel. Use list_channels to find channel ids.",
+    {
+      channel: z.number().int().describe("Channel id to post in."),
+      body: z.string().min(1).describe("Message body (markdown)."),
+      priority: z.string().optional().describe("Optional priority (normal, high, urgent)."),
+      ...profileArg,
+    },
+    async ({ channel, body, priority, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.sendMessage({ channel, body_markdown: body, priority }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "check_messages",
+    "Read messages in a channel. Pass since=<message id> to page forward past messages you've already seen. Returns { messages, read_cursor }.",
+    {
+      channel: z.number().int().describe("Channel id to read."),
+      since: z.number().int().optional().describe("Only return messages with id greater than this."),
+      limit: z.number().int().optional().describe("Max messages (default 50, max 200)."),
+      ...profileArg,
+    },
+    async ({ channel, since, limit, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.listMessages({ channel, since, limit }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "mark_read",
+    "Mark how far this agent has read in a channel (advance the read cursor forward).",
+    {
+      channel: z.number().int().describe("Channel id."),
+      last_read_message: z.number().int().describe("The furthest message id now read."),
+      ...profileArg,
+    },
+    async ({ channel, last_read_message, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.markRead(channel, last_read_message));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // ---- sessions / terminal / activity ----
+
+  server.tool(
+    "register_session",
+    "Register (or reconnect) a live session so humans see this agent online. Defaults the identifier to host:pid and cwd to the current directory.",
+    {
+      session_identifier: z.string().optional().describe("Stable session id (default host:pid)."),
+      cwd: z.string().optional().describe("Working directory (default process.cwd())."),
+      ...profileArg,
+    },
+    async ({ session_identifier, cwd, profile }) => {
+      try {
+        const { client, resolved } = clientFor(profile);
+        const session = await client.registerSession({
+          session_identifier: session_identifier?.trim() || defaultSessionIdentifier(),
+          host: hostname(),
+          pid: process.pid,
+          cwd: cwd ?? process.cwd(),
+          transport: "mcp",
+        });
+        sessions.set(resolved.profileName, session.id);
+        return ok(session);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "heartbeat",
+    "Send a liveness heartbeat for the current session (auto-registers one if needed). Optional status hint: idle | busy.",
+    {
+      status: z.enum(["idle", "busy", "connected"]).optional().describe("Activity hint."),
+      ...profileArg,
+    },
+    async ({ status, profile }) => {
+      try {
+        const { client, resolved } = clientFor(profile);
+        const sessionId = await ensureSession(client, resolved.profileName);
+        return ok(await client.heartbeat(sessionId, status));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "capture_terminal",
+    "Stream a chunk of terminal output into the current session (auto-registers one if needed). Humans can watch it live.",
+    {
+      content: z.string().min(1).describe("Terminal text to append."),
+      stream: z.enum(["stdout", "stderr"]).optional().describe("Which stream (default stdout)."),
+      ...profileArg,
+    },
+    async ({ content, stream, profile }) => {
+      try {
+        const { client, resolved } = clientFor(profile);
+        const sessionId = await ensureSession(client, resolved.profileName);
+        return ok(await client.appendFrame(sessionId, { content, stream }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "log_activity",
+    "Log a real activity event (e.g. an action you took). Optionally attach it to a task.",
+    {
+      action: z.string().min(1).describe("Short verb (e.g. Read, Edit, Bash, note)."),
+      body: z.string().optional().describe("Optional detail (markdown)."),
+      task: z.number().int().optional().describe("Optional task id to link."),
+      ...profileArg,
+    },
+    async ({ action, body, task, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.logActivity({ action, body_markdown: body, task }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "get_activity",
+    "Read recent activity in the project (newest first). Optional task filter and limit.",
+    {
+      task: z.number().int().optional().describe("Filter to one task's activity."),
+      limit: z.number().int().optional().describe("Max events (default 50, max 200)."),
+      ...profileArg,
+    },
+    async ({ task, limit, profile }) => {
+      try {
+        const { client } = clientFor(profile);
+        return ok(await client.listActivity({ task, limit }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  return server;
+}

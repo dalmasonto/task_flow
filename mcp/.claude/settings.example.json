@@ -1,0 +1,57 @@
+{
+  "//": "Copy the relevant parts into your project's .claude/settings.json. Replace ABS_PATH with the absolute path to this mcp/ directory. The hook is best-effort and never blocks the agent.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}
