@@ -210,8 +210,14 @@ pub async fn send_message(
     // message first and then the files, so validating size up front is what lets
     // a too-large file "ignore the whole message" instead of persisting a
     // message whose attachment then fails to store.
-    if files.iter().any(|f| f.bytes.len() > MAX_ATTACHMENT_BYTES) {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    if let Some(oversized) = files.iter().find(|f| f.bytes.len() > MAX_ATTACHMENT_BYTES) {
+        // Return the reason in the body so the client can show the user WHY the
+        // send failed, rather than a bare status the UI can only render as
+        // "something went wrong".
+        let max_mb = MAX_ATTACHMENT_BYTES / (1024 * 1024);
+        let name = oversized.filename.as_deref().unwrap_or("This file");
+        let detail = format!("\"{name}\" is too large. The maximum attachment size is {max_mb} MB.");
+        return Ok((StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "detail": detail }))).into_response());
     }
 
     let channel = TaskflowAgentChannel::objects()
