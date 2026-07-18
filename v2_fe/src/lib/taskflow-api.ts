@@ -710,3 +710,19 @@ export function subscribeToTaskflowWorkspaceEvents(projectId: number, onEvent: (
 
   return () => closeAll(subscriptions)
 }
+
+/// Cheap liveness probe against the unauthenticated agents health route. Used by
+/// the realtime reconnect watchdog to notice when the backend has come back
+/// after being unreachable (e.g. a dev restart), since the realtime EventSource
+/// itself doesn't surface that. Resolves true iff the server answered 2xx.
+export async function pingTaskflowBackend(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/health`, {
+      cache: "no-store",
+      signal,
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
