@@ -408,8 +408,61 @@ function AttachmentImage({
 // PDF
 // ---------------------------------------------------------------------------
 
+// Cap on how large a PDF we'll pull into memory to embed. Bigger ones fall
+// back to Open/Download so a huge file never stalls the thread.
+const PDF_EMBED_MAX_BYTES = 20 * 1024 * 1024
+
+type PdfState =
+  | { status: "loading" }
+  | { status: "ready"; src: string }
+  | { status: "error" }
+  | { status: "too-large" }
+
 function PdfInline({ attachment }: { attachment: MessageAttachmentItem }) {
-  const embeddable = canEmbedUrl(attachment.url)
+  // The media backend serves files with `X-Frame-Options: DENY`, which blocks
+  // embedding the raw URL in an <iframe> (Chrome shows "refused to connect").
+  // Fetch the bytes and embed a same-document blob: URL instead — blob URLs
+  // aren't subject to X-Frame-Options, so this works regardless of that header
+  // or cross-origin media hosting.
+  const [state, setState] = React.useState<PdfState>(() =>
+    canEmbedUrl(attachment.url) ? { status: "loading" } : { status: "error" }
+  )
+
+  React.useEffect(() => {
+    if (!canEmbedUrl(attachment.url)) {
+      setState({ status: "error" })
+      return
+    }
+    if (attachment.pending) return
+    if (attachment.sizeBytes && attachment.sizeBytes > PDF_EMBED_MAX_BYTES) {
+      setState({ status: "too-large" })
+      return
+    }
+
+    const controller = new AbortController()
+    let objectUrl: string | null = null
+    setState({ status: "loading" })
+
+    fetch(attachment.url, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.blob()
+      })
+      .then((blob) => {
+        if (controller.signal.aborted) return
+        objectUrl = URL.createObjectURL(blob)
+        setState({ status: "ready", src: objectUrl })
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setState({ status: "error" })
+      })
+
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [attachment.url, attachment.pending, attachment.sizeBytes])
 
   return (
     <div className="overflow-hidden rounded-xl border bg-background/90 shadow-sm">
@@ -431,15 +484,21 @@ function PdfInline({ attachment }: { attachment: MessageAttachmentItem }) {
         </a>
         <DownloadButton attachment={attachment} compact />
       </div>
-      {embeddable ? (
+      {state.status === "ready" ? (
         <iframe
-          src={attachment.url}
+          src={state.src}
           title={attachment.name}
           className="h-[70vh] max-h-[70vh] w-full bg-background"
         />
+      ) : state.status === "loading" ? (
+        <div className="flex h-40 items-center justify-center text-muted-foreground">
+          <Loader2Icon className="size-5 animate-spin" />
+        </div>
       ) : (
         <div className="p-4 text-sm text-muted-foreground">
-          This PDF can't be embedded here. Use Open or Download above.
+          {state.status === "too-large"
+            ? "This PDF is too large to preview here. Use Open or Download above."
+            : "This PDF can't be embedded here. Use Open or Download above."}
         </div>
       )}
     </div>
