@@ -754,6 +754,34 @@ function formatLiveDate(value: string | null | undefined, fallback = "Live") {
   }).format(date)
 }
 
+/// Time-only stamp for chat bubbles. The thread groups messages under sticky
+/// date separators, so the per-message stamp carries just the clock time to
+/// avoid repeating the date on every bubble.
+function formatMessageTime(value: string | null | undefined, fallback = "Live") {
+  if (!value) return fallback
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return fallback
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)
+}
+
+/// Conversation ids are structured like `live:channel:1` / `live:project-room`.
+/// Colons must be percent-encoded in a URL path segment (ugly `%3A`), so map to
+/// and from a clean slug for the route: strip the `live:` prefix and swap the
+/// remaining colons for dashes (`channel-1`, `project-room`).
+function chatIdToSlug(id: string): string {
+  return id.replace(/^live:/, "").replace(/:/g, "-")
+}
+
+function slugToChatId(slug: string): string {
+  const typed = /^(channel|direct|member|agent)-(\d+)$/.exec(slug)
+  if (typed) return `live:${typed[1]}:${typed[2]}`
+  return `live:${slug}`
+}
+
 /// How many messages a conversation renders at once. The thread windows to the
 /// last N messages and reveals another page of N as the user scrolls to the top
 /// (reverse-infinite-scroll). One constant serves both DMs and rooms — it's a
@@ -1089,7 +1117,7 @@ function mapLiveChannelMessages(
         id: String(message.id),
         from: message.sender_kind === "user" && currentUser && message.sender_user === currentUser.id ? "user" : message.sender_label,
         to: channelTitle,
-        time: formatLiveDate(message.created_at, "Live"),
+        time: formatMessageTime(message.created_at, "Live"),
         createdAt: message.created_at,
         body: message.body_markdown,
         status: "posted",
@@ -4448,13 +4476,13 @@ function AgentsPage({
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
   // The active conversation is addressed by the route param, not local state.
-  // Ids can contain colons (e.g. "live:direct:2"), so they round-trip through
-  // encodeURIComponent in the URL. null on the index route (no param) or when
-  // the param doesn't resolve to a real chat — the message area shows an empty
-  // state in both cases.
+  // Ids contain colons (e.g. "live:direct:2"); they map to a clean URL slug
+  // (`direct-2`) via chatIdToSlug/slugToChatId so the address bar stays readable.
+  // null on the index route (no param) or when the param doesn't resolve to a
+  // real chat — the message area shows an empty state in both cases.
   const selectedChat = useMemo<AgentChatContext | null>(() => {
     if (!conversationId) return null
-    const decodedId = decodeURIComponent(conversationId)
+    const decodedId = slugToChatId(conversationId)
     return allChats.find((chat) => chat.id === decodedId) ?? null
   }, [allChats, conversationId])
   // Default to the project room (the first group chat) on the index route, so
@@ -4466,7 +4494,7 @@ function AgentsPage({
   useEffect(() => {
     if (conversationId || isBelowLg) return
     const first = channelChats[0] ?? directChats[0]
-    if (first) navigate(encodeURIComponent(first.id), { replace: true })
+    if (first) navigate(chatIdToSlug(first.id), { replace: true })
   }, [conversationId, isBelowLg, channelChats, directChats, navigate])
   const terminalSessions = useMemo(
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
@@ -4733,7 +4761,7 @@ function AgentsPage({
   // The active conversation is addressed by the URL; clicking navigates so the
   // conversation is deep-linkable and the browser Back button works.
   const activeChatId = selectedChat?.id ?? ""
-  const openChat = (chat: AgentChatContext) => navigate(encodeURIComponent(chat.id))
+  const openChat = (chat: AgentChatContext) => navigate(chatIdToSlug(chat.id))
 
   const outletContext: AgentsOutletContext = {
     selectedChat,
