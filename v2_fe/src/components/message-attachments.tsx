@@ -132,8 +132,17 @@ function InlineAttachment({
 }
 
 // ---------------------------------------------------------------------------
-// Images: natural-size inline gallery
+// Images: inline gallery
 // ---------------------------------------------------------------------------
+
+// The gallery is capped so images never dominate the bubble. A lone image shows
+// at its own aspect ratio (contained, not cropped); several images tile into a
+// compact grid of cropped thumbnails with a "+N" overflow. Either way, clicking
+// opens the full-size popup.
+const GALLERY_MAX_WIDTH = "min(22rem, 100%)"
+// How many thumbnails a multi-image gallery shows before collapsing the rest
+// into a "+N" tile.
+const GALLERY_VISIBLE_TILES = 4
 
 function ImageAttachmentGrid({
   images,
@@ -142,32 +151,69 @@ function ImageAttachmentGrid({
   images: { attachment: MessageAttachmentItem; index: number }[]
   onOpen: (index: number) => void
 }) {
+  // Single image: render contained at its natural aspect ratio (no crop, no
+  // upscale past its own size), capped so a large image can't fill the bubble.
+  if (images.length === 1) {
+    const { attachment, index } = images[0]
+    return (
+      <div style={{ maxWidth: GALLERY_MAX_WIDTH }}>
+        <button
+          type="button"
+          className="group relative block overflow-hidden rounded-xl border bg-muted outline-none transition-[border-color,box-shadow] hover:border-primary/40 focus-visible:ring-3 focus-visible:ring-ring/40"
+          title={attachment.name}
+          onClick={() => onOpen(index)}
+        >
+          {attachment.url ? (
+            <AttachmentImage
+              attachment={attachment}
+              className="max-h-72 w-auto max-w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+            />
+          ) : (
+            <span className="flex h-40 w-40 items-center justify-center text-muted-foreground">
+              <ImageIcon className="size-6 animate-pulse" />
+            </span>
+          )}
+        </button>
+      </div>
+    )
+  }
+
+  // Several images: a compact tiled gallery. Two columns, square thumbnails
+  // (cropped just for the tile; the popup shows the whole image), with the
+  // overflow past GALLERY_VISIBLE_TILES collapsed into a "+N" last tile.
+  const visible = images.slice(0, GALLERY_VISIBLE_TILES)
+  const overflow = images.length - visible.length
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {images.map(({ attachment, index }) =>
-        attachment.url ? (
+    <div className="grid grid-cols-2 gap-1.5" style={{ maxWidth: GALLERY_MAX_WIDTH }}>
+      {visible.map(({ attachment, index }, tileIndex) => {
+        const isLastVisible = tileIndex === visible.length - 1
+        return (
           <button
             key={attachment.id}
             type="button"
-            className="group relative block max-w-full overflow-hidden rounded-lg border bg-muted text-left outline-none transition-[border-color,box-shadow] hover:border-primary/40 focus-visible:ring-3 focus-visible:ring-ring/40"
+            className="group relative block aspect-square overflow-hidden rounded-lg border bg-muted outline-none transition-[border-color,box-shadow] hover:border-primary/40 focus-visible:ring-3 focus-visible:ring-ring/40"
             title={attachment.name}
             onClick={() => onOpen(index)}
           >
-            <AttachmentImage
-              attachment={attachment}
-              className="max-h-80 w-auto max-w-full rounded-lg transition-transform duration-200 group-hover:scale-[1.02]"
-            />
+            {attachment.url ? (
+              <AttachmentImage
+                attachment={attachment}
+                className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+              />
+            ) : (
+              <span className="flex size-full items-center justify-center text-muted-foreground">
+                <ImageIcon className="size-6 animate-pulse" />
+              </span>
+            )}
+            {isLastVisible && overflow > 0 ? (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-lg font-semibold text-white">
+                +{overflow}
+              </span>
+            ) : null}
           </button>
-        ) : (
-          <span
-            key={attachment.id}
-            className="flex h-32 w-32 items-center justify-center rounded-lg border bg-muted text-muted-foreground"
-            title={attachment.name}
-          >
-            <ImageIcon className="size-6 animate-pulse" />
-          </span>
         )
-      )}
+      })}
     </div>
   )
 }
