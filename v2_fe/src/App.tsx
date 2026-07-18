@@ -9,8 +9,6 @@ import {
   BotIcon,
   CheckIcon,
   CheckCircle2Icon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CircleDotIcon,
   Clock3Icon,
   ClipboardCheckIcon,
@@ -4985,26 +4983,25 @@ function AgentsConversationView() {
     textarea?.focus()
   }
 
-  // The terminal is only meaningful for agent DMs, so it defaults to EXPANDED
-  // there and MINIMIZED for the group room and human DMs. A manual toggle
-  // (terminalOverride) wins until the user switches conversations, at which
-  // point we clear it so the new chat's default applies. Resetting the override
-  // during render (rather than in an effect) is the React-blessed "adjust state
-  // when a prop changes" pattern and avoids a set-state-in-effect lint error.
+  // The terminal is only meaningful for agent DMs. It stays CLOSED by default
+  // and is opened on demand from the header terminal icon, showing as an overlay
+  // over the chat area. Switching conversations closes it so the new chat starts
+  // clean. Resetting during render (rather than in an effect) is the
+  // React-blessed "adjust state when a prop changes" pattern and avoids a
+  // set-state-in-effect lint error.
   const isAgentChat = Boolean(selectedChat?.liveAgentId)
   const chatKey = selectedChat?.id ?? ""
-  const [terminalOverride, setTerminalOverride] = useState<boolean | null>(null)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const [terminalChatId, setTerminalChatId] = useState(chatKey)
   // Client-side window: the thread renders only the last `visibleCount` messages
   // and reveals another page of MESSAGE_PAGE_SIZE as the user scrolls to the top.
   const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
   if (terminalChatId !== chatKey) {
     setTerminalChatId(chatKey)
-    setTerminalOverride(null)
+    setTerminalOpen(false)
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
-  const terminalOpen = terminalOverride ?? isAgentChat
 
   // Keep the thread pinned to the latest message: scroll to the bottom when the
   // conversation changes or a new message arrives (optimistic send, echo, or a
@@ -5111,23 +5108,11 @@ function AgentsConversationView() {
   }
 
   const chatLabel = selectedChat.mode === "channel" ? "Group chat" : "DM"
-  const memberSummary = describeMembers(selectedChat.members)
-  const composerHint =
-    selectedChat.mode === "channel"
-      ? `Visible to ${memberSummary}`
-      : `Visible to ${selectedChat.members.map((member) => member.name).join(" and ")}`
 
   return (
-    <section
-      className={cn(
-        "relative grid min-h-0 min-w-0 flex-1 overflow-hidden",
-        terminalOpen
-          ? "grid-rows-[minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(18rem,20rem)] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]"
-          : "grid-rows-[minmax(0,1fr)_auto] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_auto]"
-      )}
-    >
-      <div className="flex min-h-0 min-w-0 flex-col border-b xl:border-b-0 xl:border-r">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+    <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             {/* Mobile-only back control: returns to the full-screen list. On
                 lg+ the list is always visible beside the thread, so it's hidden. */}
@@ -5140,24 +5125,59 @@ function AgentsConversationView() {
               <ArrowLeftIcon />
               <span className="sr-only">Back to conversations</span>
             </Button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold">{selectedChat.title}</h2>
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
-                  {chatLabel}
-                </span>
-              </div>
-              <MarkdownRenderer
-                content={`${selectedChat.detail} · ${memberSummary}`}
-                compact
-                className="mt-1 [&_p]:text-xs"
-              />
-            </div>
+            <h2 className="truncate text-sm font-semibold">{selectedChat.title}</h2>
+            <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
+              {chatLabel}
+            </span>
           </div>
-          <div className="flex items-center gap-2">
-            {canManageMembers ? (
-              <AddChannelMemberControl candidates={addMemberCandidates} onAddMember={onAddMember} />
+          <div className="flex shrink-0 items-center gap-1">
+            {isAgentChat ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setTerminalOpen((open) => !open)}
+                aria-label="Toggle terminal"
+                title="Terminal"
+              >
+                <TerminalIcon />
+              </Button>
             ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="ghost" size="icon-sm" aria-label="More actions" title="More actions">
+                    <MoreHorizontalIcon />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" className="min-w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Add member</DropdownMenuLabel>
+                  {canManageMembers ? (
+                    addMemberCandidates.length === 0 ? (
+                      <p className="px-1.5 py-2 text-xs text-muted-foreground">
+                        Everyone in the project is already here.
+                      </p>
+                    ) : (
+                      addMemberCandidates.map((candidate) => (
+                        <DropdownMenuItem
+                          key={candidate.user}
+                          onClick={() => {
+                            void onAddMember(candidate.user).catch(() => {})
+                          }}
+                        >
+                          {candidate.name}
+                        </DropdownMenuItem>
+                      ))
+                    )
+                  ) : (
+                    <p className="px-1.5 py-2 text-xs text-muted-foreground">
+                      You can't manage members here.
+                    </p>
+                  )}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -5195,28 +5215,40 @@ function AgentsConversationView() {
         </div>
 
         <form className="shrink-0 border-t bg-background p-3" onSubmit={handleSendMessage}>
-          <p className="mb-2 px-1 text-xs text-muted-foreground">
-            To {selectedChat.title} · {composerHint}
-          </p>
-          <div className="relative flex items-end gap-2">
-            {emojiPickerOpen ? (
-              <button
-                type="button"
-                className="fixed inset-0 z-20 cursor-default"
-                aria-label="Close emoji picker"
-                onClick={() => setEmojiPickerOpen(false)}
-              />
+          {emojiPickerOpen ? (
+            <button
+              type="button"
+              className="fixed inset-0 z-20 cursor-default"
+              aria-label="Close emoji picker"
+              onClick={() => setEmojiPickerOpen(false)}
+            />
+          ) : null}
+
+          <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border/75 bg-background/90 px-2 py-2 shadow-inner transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25">
+            {stagedFiles.length ? (
+              <div className="px-1">
+                <StagedFileList files={stagedFiles} onRemove={removeStagedFile} />
+              </div>
             ) : null}
 
-            <div className="relative flex min-w-0 flex-1 flex-col gap-1 rounded-2xl border border-border/75 bg-background/90 px-2 py-1.5 shadow-inner transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25">
-              {stagedFiles.length ? (
-                <div className="px-1 pt-1">
-                  <StagedFileList files={stagedFiles} onRemove={removeStagedFile} />
-                </div>
-              ) : null}
+            <textarea
+              ref={composerRef}
+              rows={1}
+              className="max-h-[8.5rem] min-h-9 w-full resize-none bg-transparent px-1 py-1.5 text-sm leading-5 outline-none placeholder:text-muted-foreground"
+              placeholder={`Message ${selectedChat.title}…`}
+              value={draftMessage}
+              onChange={(event) => setDraftMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
+            />
 
-              <div className="flex min-w-0 items-end gap-1.5">
-                <span className="flex shrink-0 items-center gap-0.5">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-0.5">
+                <div className="relative">
                   <Button
                     type="button"
                     variant="ghost"
@@ -5228,75 +5260,60 @@ function AgentsConversationView() {
                     <SmileIcon />
                   </Button>
 
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleFileSelect}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="rounded-xl"
-                    aria-label="Attach file"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <PaperclipIcon />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="rounded-xl"
-                    aria-label="Broadcast"
-                  >
-                    <RadioIcon />
-                  </Button>
-                </span>
-
-                {emojiPickerOpen ? (
-                  <div className="absolute bottom-full left-0 z-30 mb-2 w-[21rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
-                    <div className="grid gap-3">
-                      {composerEmojiGroups.map((group) => (
-                        <div key={group.label}>
-                          <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            {group.label}
+                  {emojiPickerOpen ? (
+                    <div className="absolute bottom-full left-0 z-30 mb-2 w-[21rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+                      <div className="grid gap-3">
+                        {composerEmojiGroups.map((group) => (
+                          <div key={group.label}>
+                            <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                              {group.label}
+                            </div>
+                            <div className="grid grid-cols-8 gap-1">
+                              {group.emojis.map((emoji) => (
+                                <button
+                                  key={`${group.label}-${emoji}`}
+                                  type="button"
+                                  className="flex size-8 items-center justify-center rounded-lg text-lg transition-colors hover:bg-accent"
+                                  onClick={() => insertEmoji(emoji)}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <div className="grid grid-cols-8 gap-1">
-                            {group.emojis.map((emoji) => (
-                              <button
-                                key={`${group.label}-${emoji}`}
-                                type="button"
-                                className="flex size-8 items-center justify-center rounded-lg text-lg transition-colors hover:bg-accent"
-                                onClick={() => insertEmoji(emoji)}
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
 
-                <textarea
-                  ref={composerRef}
-                  rows={1}
-                  className="max-h-[8.5rem] min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground"
-                  placeholder={`Message ${selectedChat.title}…`}
-                  value={draftMessage}
-                  onChange={(event) => setDraftMessage(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault()
-                      event.currentTarget.form?.requestSubmit()
-                    }
-                  }}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
                 />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-xl"
+                  aria-label="Attach file"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <PaperclipIcon />
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-xl"
+                  aria-label="Broadcast"
+                >
+                  <RadioIcon />
+                </Button>
 
                 <Select
                   value={messagePriority}
@@ -5317,146 +5334,33 @@ function AgentsConversationView() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
 
-            <Button
-              type="submit"
-              size="icon-lg"
-              className="rounded-2xl"
-              disabled={!canSendMessage}
-              aria-label="Send"
-            >
-              <SendIcon />
-            </Button>
+              <Button
+                type="submit"
+                size="icon-lg"
+                className="rounded-2xl"
+                disabled={!canSendMessage}
+                aria-label="Send"
+              >
+                <SendIcon />
+              </Button>
+            </div>
           </div>
         </form>
       </div>
 
       {terminalOpen ? (
+        // Opened from the header terminal icon: an overlay the size of the chat
+        // column (anchored to the relative <section>), dismissable via its own
+        // close (X) control, on every screen size.
         <AgentTerminalPanel
           selectedSession={selectedSession}
           onFocusComposer={focusComposer}
-          onMinimize={() => setTerminalOverride(false)}
-          // Below lg the rail is too cramped: expand to a full-width panel that
-          // overlays the chat area (flowing in from the right) and sits above the
-          // composer, dismissable via its own minimize control. At lg+ it drops
-          // back into the normal stacked/side-by-side grid cell.
-          className="absolute inset-0 z-30 bg-card shadow-xl max-lg:animate-in max-lg:slide-in-from-right max-lg:duration-200 lg:static lg:inset-auto lg:z-auto lg:bg-muted/20 lg:shadow-none"
+          onClose={() => setTerminalOpen(false)}
+          className="absolute inset-0 z-30 bg-card shadow-xl animate-in slide-in-from-right duration-200"
         />
-      ) : (
-        <TerminalRail isAgentChat={isAgentChat} onExpand={() => setTerminalOverride(true)} />
-      )}
+      ) : null}
     </section>
-  )
-}
-
-/// The collapsed terminal: a slim rail (a horizontal bar below the chat on small
-/// screens, a narrow vertical bar to its right on xl) that keeps the terminal
-/// one click away without stealing space from the chat. Shown for the group room
-/// and human DMs, and whenever the user has minimized an agent's terminal.
-function TerminalRail({ isAgentChat, onExpand }: { isAgentChat: boolean; onExpand: () => void }) {
-  return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-t bg-muted/30 px-3 py-2 xl:w-12 xl:flex-col xl:items-center xl:justify-start xl:gap-3 xl:border-l xl:border-t-0 xl:py-4">
-      <button
-        type="button"
-        onClick={onExpand}
-        title="Expand terminal"
-        aria-label="Expand terminal"
-        className="flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground xl:flex-col xl:gap-2 xl:px-1"
-      >
-        <TerminalIcon className="size-4 text-primary" />
-        <span className="xl:[writing-mode:vertical-rl] xl:rotate-180">Terminal</span>
-      </button>
-      <div className="flex items-center gap-2 xl:mt-auto xl:flex-col">
-        <span className="hidden text-[0.65rem] text-muted-foreground xl:block xl:[writing-mode:vertical-rl] xl:rotate-180">
-          {isAgentChat ? "Agent session" : "No session"}
-        </span>
-        <ChevronLeftIcon className="hidden size-4 text-muted-foreground xl:block" aria-hidden />
-        <ChevronRightIcon className="size-4 text-muted-foreground xl:hidden" aria-hidden />
-      </div>
-    </div>
-  )
-}
-
-/// Unobtrusive "+ Add member" picker for the selected LIVE channel. Lists the
-/// real project members not yet on the channel (computed upstream from
-/// `workspace.members`); selecting one adds them and the parent re-syncs the
-/// workspace so the roster + counts update. Pending and error states are kept
-/// local so a failed add (e.g. 400 not_a_project_member, 403) shows inline
-/// without disturbing the chat.
-function AddChannelMemberControl({
-  candidates,
-  onAddMember,
-}: {
-  candidates: { user: number; name: string }[]
-  onAddMember: (userId: number) => Promise<void>
-}) {
-  const [open, setOpen] = useState(false)
-  const [pendingUser, setPendingUser] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const busy = pendingUser != null
-
-  const handleSelect = async (userId: number) => {
-    setError(null)
-    setPendingUser(userId)
-    try {
-      await onAddMember(userId)
-      setOpen(false)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not add the member.")
-    } finally {
-      setPendingUser(null)
-    }
-  }
-
-  return (
-    <div className="flex flex-col items-end gap-1">
-      <DropdownMenu
-        open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen)
-          if (!nextOpen) setError(null)
-        }}
-      >
-        <DropdownMenuTrigger
-          render={
-            <Button variant="outline" size="sm" disabled={busy}>
-              <UserRoundPlusIcon />
-              {busy ? "Adding…" : "Add member"}
-            </Button>
-          }
-        />
-        <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>Add to this channel</DropdownMenuLabel>
-            {candidates.length === 0 ? (
-              <p className="px-1.5 py-2 text-xs text-muted-foreground">
-                Everyone in the project is already here.
-              </p>
-            ) : (
-              candidates.map((candidate) => (
-                <DropdownMenuItem
-                  key={candidate.user}
-                  closeOnClick={false}
-                  disabled={busy}
-                  onClick={() => {
-                    void handleSelect(candidate.user)
-                  }}
-                >
-                  {candidate.name}
-                  {pendingUser === candidate.user ? (
-                    <span className="ml-auto text-xs text-muted-foreground">Adding…</span>
-                  ) : null}
-                </DropdownMenuItem>
-              ))
-            )}
-          </DropdownMenuGroup>
-          {error ? (
-            <p className="px-1.5 pt-1 pb-1.5 text-xs text-rose-600">{error}</p>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
   )
 }
 
@@ -5478,17 +5382,6 @@ function messagePriorityBadgeClass(priority: MessagePriority) {
 
 function countMemberType(members: ConversationMember[], type: ConversationMember["type"]) {
   return members.filter((member) => member.type === type).length
-}
-
-function describeMembers(members: ConversationMember[]) {
-  const humanCount = countMemberType(members, "human")
-  const agentCount = countMemberType(members, "agent")
-  const parts = [
-    humanCount ? `${humanCount} human${humanCount === 1 ? "" : "s"}` : null,
-    agentCount ? `${agentCount} agent${agentCount === 1 ? "" : "s"}` : null,
-  ].filter(Boolean)
-
-  return `${members.length} member${members.length === 1 ? "" : "s"}${parts.length ? `, ${parts.join(", ")}` : ""}`
 }
 
 /// Removable chips/thumbnails for files staged in the composer before send.
@@ -5622,17 +5515,17 @@ function AgentChatBubble({
 function AgentTerminalPanel({
   selectedSession,
   onFocusComposer,
-  onMinimize,
+  onClose,
   className,
 }: {
   selectedSession?: AgentTerminalSessionView
   onFocusComposer: () => void
-  onMinimize: () => void
+  onClose: () => void
   className?: string
 }) {
-  const minimizeButton = (
-    <Button variant="ghost" size="icon" onClick={onMinimize} title="Minimize terminal" aria-label="Minimize terminal">
-      <ChevronRightIcon />
+  const closeButton = (
+    <Button variant="ghost" size="icon" onClick={onClose} title="Close terminal" aria-label="Close terminal">
+      <XIcon />
     </Button>
   )
   if (!selectedSession) {
@@ -5643,7 +5536,7 @@ function AgentTerminalPanel({
             <TerminalIcon className="size-4 text-primary" />
             <h2 className="text-sm font-semibold">Terminal</h2>
           </div>
-          {minimizeButton}
+          {closeButton}
         </div>
         <div className="grid flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">
           No terminal session yet. Connected agents and their terminal frames will appear here.
@@ -5674,7 +5567,7 @@ function AgentTerminalPanel({
             <TerminalIcon />
             Refresh
           </Button>
-          {minimizeButton}
+          {closeButton}
         </div>
       </div>
 
