@@ -1,10 +1,8 @@
 import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import {
-  CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  CopyIcon,
   DownloadIcon,
   FileAudioIcon,
   FileCodeIcon,
@@ -29,7 +27,6 @@ import {
   getCodeLanguage,
   getFileExtension,
   INLINE_TEXT_MAX_BYTES,
-  removeFileExtension,
   type AttachmentKind,
 } from "@/lib/attachment-kind"
 import { highlightCode } from "@/lib/shiki-highlighter"
@@ -538,13 +535,13 @@ function AttachmentPreviewContent({
   if (kind === "image") return <ImagePreview attachment={attachment} zoom={zoom} />
 
   if (kind === "pdf") return <PdfPreview attachment={attachment} zoom={zoom} />
-  if (kind === "spreadsheet") return <ScrollPanel><SpreadsheetPreview attachment={attachment} /></ScrollPanel>
+  if (kind === "spreadsheet") return <SpreadsheetPreview attachment={attachment} />
 
   if (kind === "code" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
-    return <ScrollPanel><CodePreview attachment={attachment} /></ScrollPanel>
+    return <CodePreview attachment={attachment} />
   }
   if (kind === "text" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
-    return <ScrollPanel><TextPreview attachment={attachment} /></ScrollPanel>
+    return <TextPreview attachment={attachment} />
   }
 
   if (kind === "video") {
@@ -616,16 +613,6 @@ function ImagePreview({ attachment, zoom }: { attachment: MessageAttachmentItem;
         style={natural ? { width: natural.w * zoom, height: natural.h * zoom } : undefined}
         className="m-auto block max-w-none rounded-xl shadow-2xl"
       />
-    </div>
-  )
-}
-
-/// Scrollable host for the card-shaped renderers (spreadsheet/code/text) reused
-/// from the inline path — centers the card and lets its own scroll regions work.
-function ScrollPanel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="h-full min-h-0 overflow-auto p-3 overscroll-contain [scrollbar-width:thin] sm:p-6">
-      <div className="mx-auto max-w-4xl">{children}</div>
     </div>
   )
 }
@@ -887,12 +874,10 @@ function SpreadsheetPreview({ attachment }: { attachment: MessageAttachmentItem 
 
   if (state.status === "loading") {
     return (
-      <SpreadsheetShell attachment={attachment}>
-        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-          <Loader2Icon className="size-4 animate-spin" />
-          Reading worksheet…
-        </div>
-      </SpreadsheetShell>
+      <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+        <Loader2Icon className="size-4 animate-spin" />
+        Reading worksheet…
+      </div>
     )
   }
 
@@ -908,10 +893,12 @@ function SpreadsheetPreview({ attachment }: { attachment: MessageAttachmentItem 
   const rows = active?.rows ?? []
   const minTableWidth = Math.max(480, columns.length * 148)
 
+  // Bare: fills the dialog body (sheet tabs + scrollable table). The dialog
+  // header already carries the name + download, so no inner card here.
   return (
-    <SpreadsheetShell attachment={attachment} rowCount={rows.length}>
+    <div className="flex h-full min-h-0 w-full flex-col">
       {state.sheets.length > 1 ? (
-        <div className="flex gap-1 overflow-x-auto border-b px-3 py-2 [scrollbar-width:thin]">
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2 [scrollbar-width:thin]">
           {state.sheets.map((sheet) => (
             <button
               key={sheet.name}
@@ -930,7 +917,7 @@ function SpreadsheetPreview({ attachment }: { attachment: MessageAttachmentItem 
         </div>
       ) : null}
       {rows.length && columns.length ? (
-        <div className="max-h-[60vh] overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
           <table className="w-full text-left text-sm" style={{ minWidth: minTableWidth }}>
             <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
               <tr>
@@ -963,37 +950,6 @@ function SpreadsheetPreview({ attachment }: { attachment: MessageAttachmentItem 
       ) : (
         <div className="p-4 text-sm text-muted-foreground">This sheet has no rows.</div>
       )}
-    </SpreadsheetShell>
-  )
-}
-
-function SpreadsheetShell({
-  attachment,
-  rowCount,
-  children,
-}: {
-  attachment: MessageAttachmentItem
-  rowCount?: number
-  children: React.ReactNode
-}) {
-  return (
-    <div className="overflow-hidden rounded-xl border bg-background/90 shadow-sm">
-      <div className="flex items-center gap-2 border-b bg-card/70 px-3 py-2">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-          <FileSpreadsheetIcon className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{removeFileExtension(attachment.name)}</p>
-          <p className="text-xs text-muted-foreground">
-            {typeof rowCount === "number"
-              ? `${rowCount} ${rowCount === 1 ? "row" : "rows"} previewed`
-              : "Spreadsheet"}
-            {attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
-          </p>
-        </div>
-        <DownloadButton attachment={attachment} compact />
-      </div>
-      {children}
     </div>
   )
 }
@@ -1103,22 +1059,24 @@ function CodePreview({ attachment }: { attachment: MessageAttachmentItem }) {
 
   const raw = content.status === "ready" ? content.text : ""
 
+  // Bare: the content fills the dialog body; the dialog header already carries
+  // the name + download + close, so no inner card/header here.
   return (
-    <TextShell attachment={attachment} icon={<FileCodeIcon className="size-4" />} raw={raw}>
+    <div className="h-full min-h-0 w-full overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
       {content.status === "loading" || (!html && !highlightFailed) ? (
         <TextSkeleton />
       ) : html && !highlightFailed ? (
         <div
-          className="shiki-scroll max-h-[60vh] overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]"
+          className="shiki-scroll min-h-full text-[13px]"
           // Shiki output is generated from the file text on the client; safe to inject.
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-3 text-[13px] leading-6 [scrollbar-width:thin]">
+        <pre className="min-h-full whitespace-pre-wrap break-words p-4 text-[13px] leading-6">
           {raw}
         </pre>
       )}
-    </TextShell>
+    </div>
   )
 }
 
@@ -1132,53 +1090,21 @@ function TextPreview({ attachment }: { attachment: MessageAttachmentItem }) {
   const raw = content.status === "ready" ? content.text : ""
 
   return (
-    <TextShell attachment={attachment} icon={<FileTextIcon className="size-4" />} raw={raw}>
+    <div className="h-full min-h-0 w-full overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
       {content.status === "loading" ? (
         <TextSkeleton />
       ) : (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-3 text-[13px] leading-6 [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+        <pre className="min-h-full whitespace-pre-wrap break-words p-4 text-[13px] leading-6">
           {raw}
         </pre>
       )}
-    </TextShell>
-  )
-}
-
-function TextShell({
-  attachment,
-  icon,
-  raw,
-  children,
-}: {
-  attachment: MessageAttachmentItem
-  icon: React.ReactNode
-  raw: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="overflow-hidden rounded-xl border bg-background/90 shadow-sm">
-      <div className="flex items-center gap-2 border-b bg-card/70 px-3 py-2">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{attachment.name}</p>
-          <p className="text-xs text-muted-foreground">
-            {getFileExtension(attachment.name).toUpperCase() || "TEXT"}
-            {attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
-          </p>
-        </div>
-        <CopyButton text={raw} />
-        <DownloadButton attachment={attachment} compact />
-      </div>
-      {children}
     </div>
   )
 }
 
 function TextSkeleton() {
   return (
-    <div className="space-y-2 p-3">
+    <div className="space-y-2 p-4">
       {[80, 62, 71, 45].map((width, index) => (
         <div
           key={index}
@@ -1187,42 +1113,6 @@ function TextSkeleton() {
         />
       ))}
     </div>
-  )
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = React.useState(false)
-  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  React.useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [])
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-      timeoutRef.current = setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard may be unavailable (insecure context); ignore.
-    }
-  }
-
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      className="rounded-lg"
-      disabled={!text}
-      onClick={() => void copy()}
-    >
-      {copied ? <CheckIcon className="text-emerald-600" /> : <CopyIcon />}
-      <span className="sr-only">{copied ? "Copied" : "Copy contents"}</span>
-    </Button>
   )
 }
 
