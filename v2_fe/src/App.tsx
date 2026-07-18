@@ -4983,13 +4983,11 @@ function AgentsConversationView() {
     textarea?.focus()
   }
 
-  // The terminal is only meaningful for agent DMs. It stays CLOSED by default
-  // and is opened on demand from the header terminal icon, showing as an overlay
-  // over the chat area. Switching conversations closes it so the new chat starts
-  // clean. Resetting during render (rather than in an effect) is the
-  // React-blessed "adjust state when a prop changes" pattern and avoids a
-  // set-state-in-effect lint error.
-  const isAgentChat = Boolean(selectedChat?.liveAgentId)
+  // The terminal stays CLOSED by default and is opened on demand from the header
+  // terminal icon, showing as an overlay over the chat area. Switching
+  // conversations closes it so the new chat starts clean. Resetting during
+  // render (rather than in an effect) is the React-blessed "adjust state when a
+  // prop changes" pattern and avoids a set-state-in-effect lint error.
   const chatKey = selectedChat?.id ?? ""
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [terminalChatId, setTerminalChatId] = useState(chatKey)
@@ -5131,17 +5129,15 @@ function AgentsConversationView() {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {isAgentChat ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setTerminalOpen((open) => !open)}
-                aria-label="Toggle terminal"
-                title="Terminal"
-              >
-                <TerminalIcon />
-              </Button>
-            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setTerminalOpen((open) => !open)}
+              aria-label="Toggle terminal"
+              title="Terminal"
+            >
+              <TerminalIcon />
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
