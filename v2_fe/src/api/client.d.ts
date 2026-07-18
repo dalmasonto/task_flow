@@ -40,6 +40,9 @@ export type TaskflowAgentStatus = "offline" | "connected" | "idle" | "busy" | "b
 /** `stdout` = Stdout, `stderr` = Stderr, `stdin` = Stdin, `system` = System */
 export type TaskflowAgentTerminalFrameStream = "stdout" | "stderr" | "stdin" | "system";
 
+/** `user` = User, `agent` = Agent */
+export type TaskflowChannelReadCursorMemberKind = "user" | "agent";
+
 /** `local` = Local, `preview` = Preview, `staging` = Staging, `production` = Production */
 export type TaskflowProjectApiEndpointEnvironment = "local" | "preview" | "staging" | "production";
 
@@ -69,6 +72,12 @@ export type TaskflowTaskPriority = "low" | "normal" | "high" | "critical";
 
 /** `blocks` = Blocks, `related_to` = RelatedTo, `duplicates` = Duplicates, `parent_child` = ParentChild */
 export type TaskflowTaskRelationKind = "blocks" | "related_to" | "duplicates" | "parent_child";
+
+/** `approved` = Approved, `changes_requested` = ChangesRequested */
+export type TaskflowTaskReviewDecision = "approved" | "changes_requested";
+
+/** `user` = User, `agent` = Agent */
+export type TaskflowTaskReviewReviewerKind = "user" | "agent";
 
 /** `user` = User, `agent` = Agent, `system` = System */
 export type TaskflowTaskSessionActorKind = "user" | "agent" | "system";
@@ -278,6 +287,24 @@ export interface TaskflowAgentTerminalFrame {
   created_at: string | null;
 }
 
+/** Table `taskflow_channel_read_cursor`, from the `app` plugin. */
+export interface TaskflowChannelReadCursor {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  channel: number;
+  member_kind: TaskflowChannelReadCursorMemberKind;
+  /** Foreign key into `auth_user`. */
+  member_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  member_agent: number | null;
+  /** Foreign key: the `id` of a TaskflowAgentMessage (`taskflow_agent_message`). */
+  last_read_message: number | null;
+  last_read_at: string;
+  created_at: string | null;
+}
+
 /** Table `taskflow_message_attachment`, from the `app` plugin. */
 export interface TaskflowMessageAttachment {
   id: number;
@@ -408,6 +435,24 @@ export interface TaskflowTaskRelation {
   target_task: number;
   kind: TaskflowTaskRelationKind;
   detail_markdown: string | null;
+  created_at: string | null;
+}
+
+/** Table `taskflow_task_review`, from the `app` plugin. */
+export interface TaskflowTaskReview {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowTask (`taskflow_task`). */
+  task: number;
+  reviewer_kind: TaskflowTaskReviewReviewerKind;
+  /** Foreign key into `auth_user`. */
+  reviewer_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  reviewer_agent: number | null;
+  reviewer_label: string;
+  decision: TaskflowTaskReviewDecision;
+  body_markdown: string | null;
   created_at: string | null;
 }
 
@@ -1340,6 +1385,70 @@ export interface TaskflowAgentTerminalFrameUpdate {
   content?: string;
 }
 
+/** Filterable query parameters for `taskflow_channel_read_cursor`. Every key is optional and AND-combined server-side. */
+export interface TaskflowChannelReadCursorFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "channel"?: number;
+  "channel__ne"?: number;
+  "channel__in"?: number[];
+  "member_kind"?: TaskflowChannelReadCursorMemberKind;
+  "member_kind__ne"?: TaskflowChannelReadCursorMemberKind;
+  "member_kind__contains"?: string;
+  "member_kind__icontains"?: string;
+  "member_kind__startswith"?: string;
+  "member_kind__in"?: TaskflowChannelReadCursorMemberKind[];
+  "member_user"?: number;
+  "member_user__ne"?: number;
+  "member_user__in"?: number[];
+  "member_user__isnull"?: boolean;
+  "member_agent"?: number;
+  "member_agent__ne"?: number;
+  "member_agent__in"?: number[];
+  "member_agent__isnull"?: boolean;
+  "last_read_message"?: number;
+  "last_read_message__ne"?: number;
+  "last_read_message__in"?: number[];
+  "last_read_message__isnull"?: boolean;
+  "last_read_at"?: string;
+  "last_read_at__ne"?: string;
+  "last_read_at__gte"?: string;
+  "last_read_at__lte"?: string;
+  "last_read_at__gt"?: string;
+  "last_read_at__lt"?: string;
+  "last_read_at__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowChannelReadCursorOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "member_kind" | "-member_kind" | "member_user" | "-member_user" | "member_agent" | "-member_agent" | "last_read_message" | "-last_read_message" | "last_read_at" | "-last_read_at" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_channel_read_cursor`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowChannelReadCursorCreate {
+  project: number;
+  channel: number;
+  member_kind?: TaskflowChannelReadCursorMemberKind;
+  member_user?: number | null;
+  member_agent?: number | null;
+  last_read_message?: number | null;
+  last_read_at: string;
+}
+/** Body for updating a `taskflow_channel_read_cursor` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowChannelReadCursorUpdate {
+  project?: number;
+  channel?: number;
+  member_kind?: TaskflowChannelReadCursorMemberKind;
+  member_user?: number | null;
+  member_agent?: number | null;
+  last_read_message?: number | null;
+  last_read_at?: string;
+}
+
 /** Filterable query parameters for `taskflow_message_attachment`. Every key is optional and AND-combined server-side. */
 export interface TaskflowMessageAttachmentFilters {
   "message"?: number;
@@ -2006,6 +2115,80 @@ export interface TaskflowTaskRelationUpdate {
   detail_markdown?: string | null;
 }
 
+/** Filterable query parameters for `taskflow_task_review`. Every key is optional and AND-combined server-side. */
+export interface TaskflowTaskReviewFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "task"?: number;
+  "task__ne"?: number;
+  "task__in"?: number[];
+  "reviewer_kind"?: TaskflowTaskReviewReviewerKind;
+  "reviewer_kind__ne"?: TaskflowTaskReviewReviewerKind;
+  "reviewer_kind__contains"?: string;
+  "reviewer_kind__icontains"?: string;
+  "reviewer_kind__startswith"?: string;
+  "reviewer_kind__in"?: TaskflowTaskReviewReviewerKind[];
+  "reviewer_user"?: number;
+  "reviewer_user__ne"?: number;
+  "reviewer_user__in"?: number[];
+  "reviewer_user__isnull"?: boolean;
+  "reviewer_agent"?: number;
+  "reviewer_agent__ne"?: number;
+  "reviewer_agent__in"?: number[];
+  "reviewer_agent__isnull"?: boolean;
+  "reviewer_label"?: string;
+  "reviewer_label__ne"?: string;
+  "reviewer_label__contains"?: string;
+  "reviewer_label__icontains"?: string;
+  "reviewer_label__startswith"?: string;
+  "reviewer_label__in"?: string[];
+  "decision"?: TaskflowTaskReviewDecision;
+  "decision__ne"?: TaskflowTaskReviewDecision;
+  "decision__contains"?: string;
+  "decision__icontains"?: string;
+  "decision__startswith"?: string;
+  "decision__in"?: TaskflowTaskReviewDecision[];
+  "body_markdown"?: string;
+  "body_markdown__ne"?: string;
+  "body_markdown__contains"?: string;
+  "body_markdown__icontains"?: string;
+  "body_markdown__startswith"?: string;
+  "body_markdown__in"?: string[];
+  "body_markdown__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowTaskReviewOrdering = "id" | "-id" | "project" | "-project" | "task" | "-task" | "reviewer_kind" | "-reviewer_kind" | "reviewer_user" | "-reviewer_user" | "reviewer_agent" | "-reviewer_agent" | "reviewer_label" | "-reviewer_label" | "decision" | "-decision" | "body_markdown" | "-body_markdown" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_task_review`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowTaskReviewCreate {
+  project: number;
+  task: number;
+  reviewer_kind?: TaskflowTaskReviewReviewerKind;
+  reviewer_user?: number | null;
+  reviewer_agent?: number | null;
+  reviewer_label: string;
+  decision?: TaskflowTaskReviewDecision;
+  body_markdown?: string | null;
+}
+/** Body for updating a `taskflow_task_review` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowTaskReviewUpdate {
+  project?: number;
+  task?: number;
+  reviewer_kind?: TaskflowTaskReviewReviewerKind;
+  reviewer_user?: number | null;
+  reviewer_agent?: number | null;
+  reviewer_label?: string;
+  decision?: TaskflowTaskReviewDecision;
+  body_markdown?: string | null;
+}
+
 /** Filterable query parameters for `taskflow_task_session`. Every key is optional and AND-combined server-side. */
 export interface TaskflowTaskSessionFilters {
   "project"?: number;
@@ -2185,6 +2368,7 @@ export interface UmbralResources {
   "taskflow_agent_message": { row: TaskflowAgentMessage; filters: TaskflowAgentMessageFilters; ordering: TaskflowAgentMessageOrdering; create: TaskflowAgentMessageCreate; update: TaskflowAgentMessageUpdate; id: number };
   "taskflow_agent_session": { row: TaskflowAgentSession; filters: TaskflowAgentSessionFilters; ordering: TaskflowAgentSessionOrdering; create: TaskflowAgentSessionCreate; update: TaskflowAgentSessionUpdate; id: number };
   "taskflow_agent_terminal_frame": { row: TaskflowAgentTerminalFrame; filters: TaskflowAgentTerminalFrameFilters; ordering: TaskflowAgentTerminalFrameOrdering; create: TaskflowAgentTerminalFrameCreate; update: TaskflowAgentTerminalFrameUpdate; id: number };
+  "taskflow_channel_read_cursor": { row: TaskflowChannelReadCursor; filters: TaskflowChannelReadCursorFilters; ordering: TaskflowChannelReadCursorOrdering; create: TaskflowChannelReadCursorCreate; update: TaskflowChannelReadCursorUpdate; id: number };
   "taskflow_message_attachment": { row: TaskflowMessageAttachment; filters: TaskflowMessageAttachmentFilters; ordering: TaskflowMessageAttachmentOrdering; create: TaskflowMessageAttachmentCreate; update: TaskflowMessageAttachmentUpdate; id: number };
   "taskflow_project": { row: TaskflowProject; filters: TaskflowProjectFilters; ordering: TaskflowProjectOrdering; create: TaskflowProjectCreate; update: TaskflowProjectUpdate; id: number };
   "taskflow_project_api_endpoint": { row: TaskflowProjectApiEndpoint; filters: TaskflowProjectApiEndpointFilters; ordering: TaskflowProjectApiEndpointOrdering; create: TaskflowProjectApiEndpointCreate; update: TaskflowProjectApiEndpointUpdate; id: number };
@@ -2193,6 +2377,7 @@ export interface UmbralResources {
   "taskflow_task": { row: TaskflowTask; filters: TaskflowTaskFilters; ordering: TaskflowTaskOrdering; create: TaskflowTaskCreate; update: TaskflowTaskUpdate; id: number };
   "taskflow_task_activity": { row: TaskflowTaskActivity; filters: TaskflowTaskActivityFilters; ordering: TaskflowTaskActivityOrdering; create: TaskflowTaskActivityCreate; update: TaskflowTaskActivityUpdate; id: number };
   "taskflow_task_relation": { row: TaskflowTaskRelation; filters: TaskflowTaskRelationFilters; ordering: TaskflowTaskRelationOrdering; create: TaskflowTaskRelationCreate; update: TaskflowTaskRelationUpdate; id: number };
+  "taskflow_task_review": { row: TaskflowTaskReview; filters: TaskflowTaskReviewFilters; ordering: TaskflowTaskReviewOrdering; create: TaskflowTaskReviewCreate; update: TaskflowTaskReviewUpdate; id: number };
   "taskflow_task_session": { row: TaskflowTaskSession; filters: TaskflowTaskSessionFilters; ordering: TaskflowTaskSessionOrdering; create: TaskflowTaskSessionCreate; update: TaskflowTaskSessionUpdate; id: number };
   "taskflow_user_settings": { row: TaskflowUserSettings; filters: TaskflowUserSettingsFilters; ordering: TaskflowUserSettingsOrdering; create: TaskflowUserSettingsCreate; update: TaskflowUserSettingsUpdate; id: number };
 }
