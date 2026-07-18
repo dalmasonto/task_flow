@@ -5,6 +5,7 @@ export type AttachmentKind =
   | "image"
   | "pdf"
   | "spreadsheet"
+  | "markdown"
   | "video"
   | "audio"
   | "code"
@@ -131,6 +132,10 @@ export function getAttachmentKind(contentType: string, name: string): Attachment
   ) {
     return "spreadsheet"
   }
+
+  // Markdown gets its own kind (before code) so the popup can offer a rendered
+  // preview + raw toggle rather than only syntax-highlighting the source.
+  if (extension === "md" || extension === "markdown") return "markdown"
 
   // Extension-driven code detection runs before the generic mime buckets so an
   // ambiguous/wrong mime on a source file doesn't misroute it.

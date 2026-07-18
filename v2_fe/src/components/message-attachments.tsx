@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
+import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { cn } from "@/lib/utils"
 import {
   formatBytes,
@@ -537,6 +538,9 @@ function AttachmentPreviewContent({
   if (kind === "pdf") return <PdfPreview attachment={attachment} zoom={zoom} />
   if (kind === "spreadsheet") return <SpreadsheetPreview attachment={attachment} />
 
+  if (kind === "markdown" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
+    return <MarkdownPreview attachment={attachment} />
+  }
   if (kind === "code" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
     return <CodePreview attachment={attachment} />
   }
@@ -1032,6 +1036,78 @@ function useTextContent(url: string): TextFetchState {
   return state
 }
 
+/// Markdown gets a rendered Preview with a Raw toggle (defaults to Preview).
+/// Preview renders the markdown; Raw shows the source Shiki-highlighted (the
+/// same "monaco-like" view code files get), not a plain <pre>. Content fills the
+/// dialog body; the small segmented switch is functional (not duplicated chrome).
+function MarkdownPreview({ attachment }: { attachment: MessageAttachmentItem }) {
+  const content = useTextContent(attachment.url)
+  const [mode, setMode] = React.useState<"preview" | "raw">("preview")
+  const [html, setHtml] = React.useState<string | null>(null)
+  const [highlightFailed, setHighlightFailed] = React.useState(false)
+
+  React.useEffect(() => {
+    if (content.status !== "ready") return
+    let alive = true
+    highlightCode(content.text, "markdown")
+      .then((result) => {
+        if (alive) setHtml(result)
+      })
+      .catch(() => {
+        if (alive) setHighlightFailed(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [content])
+
+  if (content.status === "error") {
+    return <FileCard attachment={attachment} kind="markdown" />
+  }
+
+  const raw = content.status === "ready" ? content.text : ""
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b px-3 py-2">
+        {(["preview", "raw"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            className={cn(
+              "rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+              mode === value
+                ? "bg-primary/10 text-primary ring-1 ring-primary/25"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+            onClick={() => setMode(value)}
+          >
+            {value}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+        {content.status === "loading" ? (
+          <TextSkeleton />
+        ) : mode === "preview" ? (
+          <MarkdownRenderer content={raw} className="max-w-3xl space-y-3 p-4 sm:p-6" />
+        ) : html && !highlightFailed ? (
+          <div
+            className="shiki-scroll min-h-full text-[13px]"
+            // Shiki output is generated from the file text on the client; safe to inject.
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        ) : (
+          <pre className="min-h-full whitespace-pre-wrap break-words p-4 text-[13px] leading-6">
+            {raw}
+          </pre>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function CodePreview({ attachment }: { attachment: MessageAttachmentItem }) {
   const content = useTextContent(attachment.url)
   const [html, setHtml] = React.useState<string | null>(null)
@@ -1195,7 +1271,7 @@ function KindIcon({ kind, large = false }: { kind: AttachmentKind; large?: boole
   if (kind === "video") return <FileVideoIcon className={className} />
   if (kind === "audio") return <FileAudioIcon className={className} />
   if (kind === "code") return <FileCodeIcon className={className} />
-  if (kind === "text") return <FileTextIcon className={className} />
+  if (kind === "markdown" || kind === "text") return <FileTextIcon className={className} />
   return <FileIcon className={className} />
 }
 
@@ -1209,6 +1285,7 @@ function kindLabel(attachment: MessageAttachmentItem): string {
   if (kind === "video") return "Video"
   if (kind === "audio") return "Audio"
   if (kind === "code") return "Code"
+  if (kind === "markdown") return "Markdown"
   if (kind === "text") return "Text"
   return "File"
 }
