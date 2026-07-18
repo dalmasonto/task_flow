@@ -274,13 +274,18 @@ type AgentChatContext = {
   messages: AgentMessage[]
 }
 
+/// One streamed terminal frame, kept structured (stream + content) so the
+/// transcript can colour by stream instead of flattening to prefixed text.
+type TerminalLine = { stream: string; content: string }
+
 type AgentTerminalSessionView = {
   agent: string
   status: string
+  connected: boolean
   task: string
   cwd: string
   updated: string
-  lines: string[]
+  frames: TerminalLine[]
 }
 
 type InviteRecord = {
@@ -1405,51 +1410,45 @@ function mapLiveTerminalStatus(status: TaskflowWorkspace["agentSessions"][number
   return "Disconnected"
 }
 
-function formatTerminalFrame(frame: TaskflowWorkspace["terminalFrames"][number]) {
-  if (frame.stream === "stderr") return `[stderr] ${frame.content}`
-  if (frame.stream === "stdin") return `$ ${frame.content}`
-  if (frame.stream === "system") return `[system] ${frame.content}`
-  return frame.content
-}
-
 function mapLiveTerminalSessions(workspace: TaskflowWorkspace): AgentTerminalSessionView[] {
   const sessions = workspace.agentSessions.map((session) => {
     const agent = workspace.agents.find((candidate) => candidate.id === session.agent)
-    const frames = workspace.terminalFrames
+    const rows = workspace.terminalFrames
       .filter((frame) => frame.session === session.id || (!frame.session && frame.agent === session.agent))
       .slice()
       .sort((a, b) => a.sequence - b.sequence || a.id - b.id)
-    const lines = frames.length
-      ? frames.map(formatTerminalFrame)
+    const frames: TerminalLine[] = rows.length
+      ? rows.map((frame) => ({ stream: frame.stream, content: frame.content }))
       : [
-          `$ taskflow agent session ${session.session_identifier}`,
-          `status: ${session.status}`,
-          "No terminal frames recorded yet.",
+          { stream: "system", content: `agent session ${session.session_identifier}` },
+          { stream: "system", content: "Waiting for terminal output…" },
         ]
 
     return {
       agent: agent?.display_name ?? `Agent #${session.agent}`,
       status: mapLiveTerminalStatus(session.status),
+      connected: session.status === "connected",
       task: agent?.status ? `Agent is ${agent.status}` : "Live agent session",
       cwd: session.cwd || agent?.project_root || "/",
       updated: formatLiveDate(session.last_seen_at ?? session.connected_at, "Live"),
-      lines,
+      frames,
     }
   })
 
   if (sessions.length) return sessions
 
-  return workspace.agents.map((agent) => ({
-    agent: agent.display_name,
-    status: agent.status === "connected" || agent.status === "idle" || agent.status === "busy" ? "Connected" : "Disconnected",
-    task: `Agent is ${agent.status}`,
-    cwd: agent.project_root || "/",
-    updated: formatLiveDate(agent.last_seen_at, "No session"),
-    lines: [
-      `$ taskflow agent ${agent.identifier}`,
-      "No live terminal session has been linked yet.",
-    ],
-  }))
+  return workspace.agents.map((agent) => {
+    const online = agent.status === "connected" || agent.status === "idle" || agent.status === "busy"
+    return {
+      agent: agent.display_name,
+      status: online ? "Connected" : "Disconnected",
+      connected: online,
+      task: `Agent is ${agent.status}`,
+      cwd: agent.project_root || "/",
+      updated: formatLiveDate(agent.last_seen_at, "No session"),
+      frames: [{ stream: "system", content: "No live terminal session has been linked yet." }],
+    }
+  })
 }
 
 /// The FileField value reaches the client in three shapes depending on the
@@ -5593,67 +5592,80 @@ function AgentTerminalPanel({
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-col bg-muted/20", className)}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <TerminalIcon className="size-4 text-primary" />
-            <h2 className="text-sm font-semibold">{selectedSession.agent}</h2>
-            <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium ring-1", terminalStatusClass(selectedSession.status))}>
+            <h2 className="truncate text-sm font-semibold">{selectedSession.agent}</h2>
+            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1", terminalStatusClass(selectedSession.status))}>
+              {selectedSession.connected ? (
+                <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" aria-hidden />
+              ) : null}
               {selectedSession.status}
             </span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{selectedSession.cwd}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{selectedSession.cwd}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={onFocusComposer}>
             <MessageSquareIcon />
             Message
           </Button>
-          <Button size="sm">
-            <TerminalIcon />
-            Refresh
-          </Button>
           {closeButton}
         </div>
       </div>
 
-      <div className="scrollbar-y min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 p-3 sm:p-4">
         <TerminalTranscript session={selectedSession} />
-      </div>
-
-      <div className="shrink-0 border-t bg-background p-3">
-        <div className="flex flex-wrap gap-2">
-          {["Esc", "Enter", "Tab", "Ctrl+C"].map((key) => (
-            <Button key={key} variant="outline" size="sm">
-              {key}
-            </Button>
-          ))}
-        </div>
-        <div className="mt-3 flex gap-2">
-          <Input className="h-9 font-mono" placeholder="Send keys or command to selected session" />
-          <Button size="sm">
-            <SendIcon />
-            Send
-          </Button>
-        </div>
       </div>
     </div>
   )
 }
 
+/// Live terminal transcript: a dark, monospace stream that colours frames by
+/// their source and follows the tail (auto-scrolls to the bottom as new frames
+/// arrive, unless the reader has scrolled up to look back).
 function TerminalTranscript({ session }: { session: AgentTerminalSessionView }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const pinnedRef = useRef(true)
+  const frameCount = session.frames.length
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight
+  }, [frameCount])
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  }
+
   return (
-    <div className="rounded-lg bg-[oklch(0.18_0.015_238)] p-4 font-mono text-xs leading-6 text-[oklch(0.88_0.018_238)] shadow-inner">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2">
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="scrollbar-y h-full overflow-y-auto rounded-lg bg-[oklch(0.16_0.014_238)] p-4 font-mono text-xs leading-6 text-[oklch(0.88_0.018_238)] shadow-inner"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2 text-[oklch(0.72_0.02_238)]">
         <span>{session.task}</span>
-        <span className="text-[oklch(0.72_0.02_238)]">{session.updated}</span>
+        <span>{session.updated}</span>
       </div>
-      {session.lines.map((line, index) => (
-        <div key={`${session.agent}-${index}`} className="whitespace-pre-wrap">
-          {line || " "}
+      {session.frames.map((frame, index) => (
+        <div key={index} className={cn("whitespace-pre-wrap break-words", terminalStreamClass(frame.stream))}>
+          {frame.stream === "stdin" ? <span className="text-emerald-400">$ </span> : null}
+          {frame.content || " "}
         </div>
       ))}
     </div>
   )
+}
+
+/// Per-stream colour for a terminal frame — stdout stays neutral, stderr reads
+/// red, system output is dimmed/italic, stdin is the input prompt colour.
+function terminalStreamClass(stream: string): string {
+  if (stream === "stderr") return "text-rose-400"
+  if (stream === "system") return "italic text-[oklch(0.7_0.03_238)]"
+  if (stream === "stdin") return "text-emerald-300"
+  return ""
 }
 
 function agentStatusClass(status: string) {
