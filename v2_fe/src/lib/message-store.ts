@@ -21,6 +21,9 @@ export type PendingMessage = {
   priority: TaskflowAgentMessage["priority"]
   channel: number
   status: "pending" | "failed"
+  /// Why the last send attempt failed (server `detail` or a network message),
+  /// shown on the failed bubble. Cleared on retry.
+  error?: string
   attachments?: PendingAttachment[]
 }
 
@@ -48,27 +51,31 @@ export function reconcile(messages: ChatMessage[], row: TaskflowAgentMessage): C
   return [...messages.slice(0, index), row, ...messages.slice(index + 1)]
 }
 
-export function markFailed(messages: ChatMessage[], nonce: string): ChatMessage[] {
-  return setPendingStatus(messages, nonce, "failed")
+export function markFailed(messages: ChatMessage[], nonce: string, error?: string): ChatMessage[] {
+  return messages.map((m) =>
+    isPending(m) && m.client_nonce === nonce ? { ...m, status: "failed", error } : m
+  )
 }
 
 /// Flip a failed bubble back to pending for a retry. The retry reuses the same
 /// nonce, so the send endpoint's idempotency means a first attempt that
-/// actually landed returns its stored row rather than posting twice.
+/// actually landed returns its stored row rather than posting twice. Clears the
+/// prior failure reason so the retrying bubble doesn't still show a stale error.
 export function markRetrying(messages: ChatMessage[], nonce: string): ChatMessage[] {
-  return setPendingStatus(messages, nonce, "pending")
+  return messages.map((m) =>
+    isPending(m) && m.client_nonce === nonce ? { ...m, status: "pending", error: undefined } : m
+  )
+}
+
+/// Drop a failed optimistic bubble from the view — the user chose to cancel it
+/// rather than retry. Only matches a pending/failed bubble by nonce; saved rows
+/// are untouched.
+export function dismissPending(messages: ChatMessage[], nonce: string): ChatMessage[] {
+  return messages.filter((m) => !(isPending(m) && m.client_nonce === nonce))
 }
 
 export function findPending(messages: ChatMessage[], nonce: string): PendingMessage | undefined {
   return messages.find((m): m is PendingMessage => isPending(m) && m.client_nonce === nonce)
-}
-
-function setPendingStatus(
-  messages: ChatMessage[],
-  nonce: string,
-  status: PendingMessage["status"]
-): ChatMessage[] {
-  return messages.map((m) => (isPending(m) && m.client_nonce === nonce ? { ...m, status } : m))
 }
 
 export function removeMessage(messages: ChatMessage[], id: number): ChatMessage[] {

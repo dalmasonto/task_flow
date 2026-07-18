@@ -32,6 +32,7 @@ import {
   PlayIcon,
   PlusIcon,
   RadioIcon,
+  RotateCcwIcon,
   SearchIcon,
   SendIcon,
   ShieldCheckIcon,
@@ -116,6 +117,7 @@ import {
 } from "@/lib/taskflow-api"
 import {
   addPending,
+  dismissPending,
   findPending,
   isPending,
   markFailed,
@@ -230,6 +232,9 @@ type AgentMessage = {
   /// Set only on optimistic bubbles the server has not acknowledged. Carries the
   /// client_nonce so a failed bubble can be retried against the idempotent send.
   nonce?: string
+  /// On a failed bubble, the reason the send was rejected (server `detail`, e.g.
+  /// a too-large-file message) so the user sees WHY, not just that it failed.
+  error?: string
 }
 
 type ConversationMember = {
@@ -1075,6 +1080,7 @@ function mapLiveChannelMessages(
           createdAt: null,
           body: message.body_markdown,
           status: message.status === "failed" ? "failed" : "sending",
+          error: message.error,
           priority: mapLiveMessagePriority(message.priority),
           attachments: (message.attachments ?? []).map(mapPendingAttachment),
         }
@@ -4404,6 +4410,7 @@ export type AgentsOutletContext = {
   selectedSession?: AgentTerminalSessionView
   onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[]) => void
   onRetryMessage: (nonce: string) => void
+  onCancelMessage: (nonce: string) => void
   canManageMembers: boolean
   addMemberCandidates: { user: number; name: string }[]
   onAddMember: (userId: number) => Promise<void>
@@ -4623,10 +4630,13 @@ function AgentsPage({
       }))
       revokePreviews()
     } catch (error) {
-      // Keep the previews: the failed bubble still shows what was staged.
+      // Keep the previews: the failed bubble still shows what was staged. Carry
+      // the server's reason (e.g. "…too large…") onto the bubble so the user
+      // learns WHY, not just that it failed.
+      const reason = error instanceof Error ? error.message : undefined
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
-        agentMessages: markFailed(workspace.agentMessages, nonce),
+        agentMessages: markFailed(workspace.agentMessages, nonce, reason),
       }))
       throw error
     }
@@ -4660,12 +4670,23 @@ function AgentsPage({
         ),
       }))
     } catch (error) {
+      const reason = error instanceof Error ? error.message : undefined
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
-        agentMessages: markFailed(workspace.agentMessages, nonce),
+        agentMessages: markFailed(workspace.agentMessages, nonce, reason),
       }))
-      setMessageError(error instanceof Error ? error.message : "Could not send the message.")
+      setMessageError(reason ?? "Could not send the message.")
     }
+  }
+
+  // Drop a failed optimistic bubble from the view. The message never reached the
+  // server (or was rejected), so there is nothing to delete server-side — just
+  // remove the local pending row keyed by its nonce.
+  const cancelLiveMessage = (nonce: string) => {
+    onWorkspaceUpdate((workspace) => ({
+      ...workspace,
+      agentMessages: dismissPending(workspace.agentMessages, nonce),
+    }))
   }
 
   const handleSendMessage = (
@@ -4719,6 +4740,7 @@ function AgentsPage({
     selectedSession,
     onSendMessage: handleSendMessage,
     onRetryMessage: retryLiveMessage,
+    onCancelMessage: cancelLiveMessage,
     canManageMembers: selectedChat?.liveChannelId != null && selectedChat.mode === "channel",
     addMemberCandidates,
     onAddMember: handleAddMember,
@@ -4891,6 +4913,7 @@ function AgentsConversationView() {
     selectedSession,
     onSendMessage,
     onRetryMessage,
+    onCancelMessage,
     canManageMembers,
     addMemberCandidates,
     onAddMember,
@@ -5130,7 +5153,12 @@ function AgentsConversationView() {
                 </span>
               </div>
             ) : (
-              <AgentChatBubble key={item.message.id} message={item.message} onRetry={onRetryMessage} />
+              <AgentChatBubble
+                key={item.message.id}
+                message={item.message}
+                onRetry={onRetryMessage}
+                onCancel={onCancelMessage}
+              />
             )
           )}
         </div>
@@ -5470,7 +5498,15 @@ function StagedFileList({ files, onRemove }: { files: StagedFile[]; onRemove: (i
   )
 }
 
-function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?: (nonce: string) => void }) {
+function AgentChatBubble({
+  message,
+  onRetry,
+  onCancel,
+}: {
+  message: AgentMessage
+  onRetry?: (nonce: string) => void
+  onCancel?: (nonce: string) => void
+}) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
   return (
@@ -5510,18 +5546,36 @@ function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?
             ))}
           </div>
         ) : null}
-        {message.status === "failed" && message.nonce && onRetry ? (
-          <div className="mt-3 flex items-center gap-2 text-xs text-rose-700 dark:text-rose-300">
-            <span>Message failed to send.</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              className="bg-background/85"
-              onClick={() => onRetry(message.nonce!)}
-            >
-              Retry
-            </Button>
+        {message.status === "failed" && message.nonce ? (
+          <div className="mt-3 flex flex-col gap-2 text-xs text-rose-700 dark:text-rose-300">
+            {/* Show the server's reason (e.g. a too-large-file message) so the
+                user knows what to fix, falling back to a generic line. */}
+            <span>{message.error ?? "Message failed to send."}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {onRetry ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="bg-background/85"
+                  onClick={() => onRetry(message.nonce!)}
+                >
+                  <RotateCcwIcon />
+                  Retry
+                </Button>
+              ) : null}
+              {onCancel ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => onCancel(message.nonce!)}
+                >
+                  <XIcon />
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

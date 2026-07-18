@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   addPending,
+  dismissPending,
   findPending,
   isPending,
   markFailed,
@@ -108,6 +109,37 @@ describe("markFailed", () => {
 
     expect(next).toHaveLength(1)
     expect((next[0] as PendingMessage).status).toBe("failed")
+  })
+
+  it("records the failure reason on the bubble", () => {
+    const next = markFailed(addPending([], pending("n1")), "n1", "File too large")
+
+    expect((next[0] as PendingMessage).error).toBe("File too large")
+  })
+
+  it("clears the reason when the bubble retries", () => {
+    const failed = markFailed(addPending([], pending("n1")), "n1", "File too large")
+    const next = markRetrying(failed, "n1")
+
+    expect((next[0] as PendingMessage).error).toBeUndefined()
+  })
+})
+
+describe("dismissPending", () => {
+  it("drops a failed bubble from the view by nonce", () => {
+    const failed = markFailed(addPending(addPending([], pending("n1")), pending("n2")), "n1", "nope")
+    const next = dismissPending(failed, "n1")
+
+    expect(next).toHaveLength(1)
+    expect((next[0] as PendingMessage).client_nonce).toBe("n2")
+  })
+
+  it("leaves saved rows untouched", () => {
+    const messages: ChatMessage[] = [row(1, null), pending("n1")]
+    const next = dismissPending(messages, "n1")
+
+    expect(next).toHaveLength(1)
+    expect((next[0] as TaskflowAgentMessage).id).toBe(1)
   })
 })
 
