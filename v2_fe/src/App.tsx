@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react"
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom"
 import {
   ActivityIcon,
   AlertCircleIcon,
@@ -2584,13 +2584,15 @@ function App() {
                       if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
                     }}
                     onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
-                    onMessage={() => navigate("/dashboard/agents")}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
                 )
               }
-            />
+            >
+              <Route index element={<AgentsConversationEmpty />} />
+              <Route path=":conversationId" element={<AgentsConversationView />} />
+            </Route>
             <Route
               path="/dashboard/reviews"
               element={
@@ -4327,22 +4329,39 @@ function NoProjectEmptyState({
   )
 }
 
+/// The data + handlers the layout hands to whichever conversation route renders
+/// in its <Outlet/>. `selectedChat` is resolved from the route param upstream;
+/// it is null on the index route or when the param doesn't match a real chat.
+export type AgentsOutletContext = {
+  selectedChat: AgentChatContext | null
+  selectedSession?: AgentTerminalSessionView
+  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[]) => void
+  onRetryMessage: (nonce: string) => void
+  canManageMembers: boolean
+  addMemberCandidates: { user: number; name: string }[]
+  onAddMember: (userId: number) => Promise<void>
+  currentUser: AuthUser | null
+}
+
+function useAgentsOutletContext() {
+  return useOutletContext<AgentsOutletContext>()
+}
+
 function AgentsPage({
   project,
   liveWorkspace,
   currentUser,
   onWorkspaceUpdate,
   onRefreshWorkspace,
-  onMessage,
 }: {
   project: Project
   liveWorkspace: TaskflowWorkspace | null
   currentUser: AuthUser | null
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
   onRefreshWorkspace: () => Promise<void>
-  onMessage: () => void
 }) {
-  const [selectedChatId, setSelectedChatId] = useState("")
+  const navigate = useNavigate()
+  const { conversationId } = useParams()
   const [messageError, setMessageError] = useState<string | null>(null)
   const directChats = useMemo<AgentChatContext[]>(
     () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser) : []),
@@ -4353,19 +4372,16 @@ function AgentsPage({
     [currentUser, liveWorkspace]
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
-  const fallbackChat: AgentChatContext = channelChats[0] ?? directChats[0] ?? {
-    id: "empty-chat",
-    mode: "channel",
-    title: "Project room",
-    detail: "No channels or agents are available yet.",
-    status: "Waiting",
-    members: currentUser ? [{ name: currentUser.username, type: "human" }] : [],
-    primaryAgent: "project",
-    unread: 0,
-    messages: [],
-  }
-  const selectedChat =
-    allChats.find((chat) => chat.id === selectedChatId) ?? allChats[0] ?? fallbackChat
+  // The active conversation is addressed by the route param, not local state.
+  // Ids can contain colons (e.g. "live:direct:2"), so they round-trip through
+  // encodeURIComponent in the URL. null on the index route (no param) or when
+  // the param doesn't resolve to a real chat — the message area shows an empty
+  // state in both cases.
+  const selectedChat = useMemo<AgentChatContext | null>(() => {
+    if (!conversationId) return null
+    const decodedId = decodeURIComponent(conversationId)
+    return allChats.find((chat) => chat.id === decodedId) ?? null
+  }, [allChats, conversationId])
   const terminalSessions = useMemo(
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
     [liveWorkspace]
@@ -4376,18 +4392,11 @@ function AgentsPage({
   // session). Non-agent conversations get no session, so the terminal shows its
   // honest empty state rather than some other agent's global first session.
   const selectedSession = useMemo(() => {
-    if (!selectedChat.liveAgentId) return undefined
+    if (!selectedChat?.liveAgentId) return undefined
     const agent = liveWorkspace?.agents.find((candidate) => candidate.id === selectedChat.liveAgentId)
     const agentName = agent?.display_name ?? selectedChat.primaryAgent
     return terminalSessions.find((session) => session.agent === agentName)
-  }, [liveWorkspace, selectedChat.liveAgentId, selectedChat.primaryAgent, terminalSessions])
-
-  useEffect(() => {
-    if (!allChats.length) return
-    if (!allChats.some((chat) => chat.id === selectedChatId)) {
-      setSelectedChatId(allChats[0].id)
-    }
-  }, [allChats, selectedChatId])
+  }, [liveWorkspace, selectedChat, terminalSessions])
 
   const createChannelMember = async (
     projectId: number,
@@ -4600,7 +4609,7 @@ function AgentsPage({
   // data mapLiveChannelMembers renders), keyed by user id so display-name
   // collisions or a differing self-label never let someone be re-added by hand.
   const addMemberCandidates = useMemo<{ user: number; name: string }[]>(() => {
-    const channelId = selectedChat.liveChannelId
+    const channelId = selectedChat?.liveChannelId
     if (!liveWorkspace || channelId == null) return []
     const existingUserIds = new Set(
       liveWorkspace.agentChannelMembers
@@ -4610,10 +4619,10 @@ function AgentsPage({
     return liveWorkspace.members
       .filter((member) => member.status === "active" && member.user != null && !existingUserIds.has(member.user))
       .map((member) => ({ user: member.user as number, name: member.display_name }))
-  }, [liveWorkspace, selectedChat.liveChannelId])
+  }, [liveWorkspace, selectedChat?.liveChannelId])
 
   const handleAddMember = async (userId: number) => {
-    const channelId = selectedChat.liveChannelId
+    const channelId = selectedChat?.liveChannelId
     if (channelId == null) return
     await addChannelMember(channelId, userId)
     // Re-fetch so the roster, member counts, and candidate list all reflect the
@@ -4621,109 +4630,179 @@ function AgentsPage({
     await onRefreshWorkspace()
   }
 
+  // The active conversation is addressed by the URL; clicking navigates so the
+  // conversation is deep-linkable and the browser Back button works.
+  const activeChatId = selectedChat?.id ?? ""
+  const openChat = (chat: AgentChatContext) => navigate(encodeURIComponent(chat.id))
+
+  const outletContext: AgentsOutletContext = {
+    selectedChat,
+    selectedSession,
+    onSendMessage: handleSendMessage,
+    onRetryMessage: retryLiveMessage,
+    canManageMembers: selectedChat?.liveChannelId != null && selectedChat.mode === "channel",
+    addMemberCandidates,
+    onAddMember: handleAddMember,
+    currentUser,
+  }
+
   return (
     <section className="flex h-full min-h-0 flex-col gap-4 p-4 sm:p-5">
-      <div className="rounded-lg border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{project.name}</p>
-            <h1 className="mt-1 text-2xl font-semibold">Agents</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Coordinate through group chats and DMs, send files or image references, and inspect the active terminal session from one place.
-            </p>
-          </div>
-          <Button size="sm" onClick={onMessage}>
-            <SendIcon />
-            Message Agents
-          </Button>
-        </div>
-      </div>
-      <AgentAuthBanner />
       {messageError ? (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
           {messageError}
         </p>
       ) : null}
 
-      <AgentWorkbenchView
-        selectedChat={selectedChat}
-        selectedSession={selectedSession}
-        directChats={directChats}
-        channelChats={channelChats}
-        selectedChatId={selectedChat.id}
-        onSelectDirectChat={(chat) => {
-          setSelectedChatId(chat.id)
-        }}
-        onSelectChannel={(chat) => {
-          setSelectedChatId(chat.id)
-        }}
-        onSendMessage={handleSendMessage}
-        onRetryMessage={retryLiveMessage}
-        canManageMembers={selectedChat.liveChannelId != null && selectedChat.mode === "channel"}
-        addMemberCandidates={addMemberCandidates}
-        onAddMember={handleAddMember}
-      />
-    </section>
-  )
-}
-
-function AgentAuthBanner() {
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-start gap-3">
-          <span className="inline-flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-            <LockIcon className="size-4" />
-          </span>
-          <div>
-            <h2 className="text-sm font-semibold">Workspace identity</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Users authenticate first, then link coding agents, providers, inbox messages, and terminal sessions to this project.
-            </p>
+      <section className="grid min-h-0 flex-1 grid-rows-[minmax(9rem,13rem)_minmax(0,1fr)] overflow-hidden rounded-lg border bg-card shadow-sm xl:grid-rows-none xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)]">
+        {/* Conversation list — a persistent layout panel that stays mounted
+            while the message area swaps via the <Outlet/> below. */}
+        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b bg-muted/35 p-3 xl:border-b-0 xl:border-r">
+          <div className="flex shrink-0 items-center gap-2 text-sm font-semibold">
+            <InboxIcon className="size-4 text-primary" />
+            Groups And DMs
+          </div>
+          <div className="scrollbar-y mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+            <div className="flex items-center justify-between gap-2 px-1 text-[0.7rem] font-semibold uppercase tracking-normal text-muted-foreground">
+              <span>Group chats</span>
+              <span>{channelChats.length}</span>
+            </div>
+            {channelChats.map((chat) => (
+              <button
+                key={chat.id}
+                type="button"
+                className={cn(
+                  "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
+                  activeChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
+                )}
+                onClick={() => openChat(chat)}
+              >
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
+                  {chat.unread ? (
+                    <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                      {chat.unread}
+                    </span>
+                  ) : null}
+                </div>
+                <MarkdownRenderer
+                  content={chat.detail}
+                  compact
+                  className="mt-1 w-full [&_p]:truncate [&_p]:text-xs"
+                />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60">
+                    {chat.members.length} members
+                  </span>
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900/60">
+                    {countMemberType(chat.members, "agent")} agents
+                  </span>
+                  <span className="min-w-0 max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    {chat.status}
+                  </span>
+                </div>
+              </button>
+            ))}
+            <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3 px-1 text-[0.7rem] font-semibold uppercase tracking-normal text-muted-foreground">
+              <span>DMs</span>
+              <span>{directChats.length}</span>
+            </div>
+            {directChats.map((chat) => {
+              // An agent DM carries liveAgentId; a human (member) DM carries
+              // liveMemberUserId. Existing direct channels created against an
+              // agent still carry liveAgentId, so the icon stays correct there too.
+              const isAgentDm = Boolean(chat.liveAgentId)
+              return (
+                <button
+                  key={chat.id}
+                  type="button"
+                  className={cn(
+                    "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
+                    activeChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
+                  )}
+                  onClick={() => openChat(chat)}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "inline-flex size-7 shrink-0 items-center justify-center rounded-full ring-1",
+                        isAgentDm
+                          ? "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900/60"
+                          : "bg-sky-100 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60"
+                      )}
+                      aria-hidden
+                    >
+                      {isAgentDm ? <BotIcon className="size-4" /> : <UserIcon className="size-4" />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
+                    <span className="shrink-0 text-[0.65rem] font-medium uppercase tracking-normal text-muted-foreground">
+                      {isAgentDm ? "Agent" : "Member"}
+                    </span>
+                    {chat.unread ? (
+                      <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                        {chat.unread}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">{chat.detail}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
+                      {chat.status}
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+            {directChats.length === 0 ? (
+              <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
+                No members or agents to DM yet.
+              </p>
+            ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm">
-            <ShieldCheckIcon />
-            Authenticate
-          </Button>
-          <Button variant="outline" size="sm" disabled>
-            <BotIcon />
-            Link Agent
-          </Button>
-        </div>
-      </div>
+
+        {/* Message area — route-addressable: index shows the empty state, a
+            :conversationId child renders that conversation's messages. */}
+        <Outlet context={outletContext} />
+      </section>
     </section>
   )
 }
 
-function AgentWorkbenchView({
-  selectedChat,
-  selectedSession,
-  directChats,
-  channelChats,
-  selectedChatId,
-  onSelectDirectChat,
-  onSelectChannel,
-  onSendMessage,
-  onRetryMessage,
-  canManageMembers,
-  addMemberCandidates,
-  onAddMember,
-}: {
-  selectedChat: AgentChatContext
-  selectedSession?: AgentTerminalSessionView
-  directChats: AgentChatContext[]
-  channelChats: AgentChatContext[]
-  selectedChatId: string
-  onSelectDirectChat: (chat: AgentChatContext) => void
-  onSelectChannel: (chat: AgentChatContext) => void
-  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[]) => void
-  onRetryMessage: (nonce: string) => void
-  canManageMembers: boolean
-  addMemberCandidates: { user: number; name: string }[]
-  onAddMember: (userId: number) => Promise<void>
-}) {
+/// Index-route element for /dashboard/agents: an honest empty state shown in the
+/// message area before any conversation is opened. No message content loads here.
+function AgentsConversationEmpty() {
+  return (
+    <div className="grid min-h-0 min-w-0 place-items-center p-8 text-center">
+      <div className="max-w-sm">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
+          <InboxIcon className="size-6" />
+        </div>
+        <h2 className="mt-4 text-lg font-semibold">Select a conversation</h2>
+        <p className="mx-auto mt-2 text-sm leading-6 text-muted-foreground">
+          Pick a group chat or a DM from the list to start messaging, share files, and inspect the active terminal session.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/// Child route element for /dashboard/agents/:conversationId. Reads the resolved
+/// conversation + handlers from the layout's <Outlet/> context and renders the
+/// message thread, composer, and the agent-DM-aware minimizable terminal. When
+/// the route param doesn't resolve to a real chat it falls back to the empty
+/// state, so a stale or hand-typed id never renders a broken conversation.
+function AgentsConversationView() {
+  const {
+    selectedChat,
+    selectedSession,
+    onSendMessage,
+    onRetryMessage,
+    canManageMembers,
+    addMemberCandidates,
+    onAddMember,
+  } = useAgentsOutletContext()
+
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
@@ -4740,11 +4819,12 @@ function AgentWorkbenchView({
   // point we clear it so the new chat's default applies. Resetting the override
   // during render (rather than in an effect) is the React-blessed "adjust state
   // when a prop changes" pattern and avoids a set-state-in-effect lint error.
-  const isAgentChat = Boolean(selectedChat.liveAgentId)
+  const isAgentChat = Boolean(selectedChat?.liveAgentId)
+  const chatKey = selectedChat?.id ?? ""
   const [terminalOverride, setTerminalOverride] = useState<boolean | null>(null)
-  const [terminalChatId, setTerminalChatId] = useState(selectedChat.id)
-  if (terminalChatId !== selectedChat.id) {
-    setTerminalChatId(selectedChat.id)
+  const [terminalChatId, setTerminalChatId] = useState(chatKey)
+  if (terminalChatId !== chatKey) {
+    setTerminalChatId(chatKey)
     setTerminalOverride(null)
   }
   const terminalOpen = terminalOverride ?? isAgentChat
@@ -4788,6 +4868,7 @@ function AgentWorkbenchView({
 
   const handleSendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!selectedChat) return
     const trimmedMessage = draftMessage.trim()
     if (!trimmedMessage && stagedFiles.length === 0) return
 
@@ -4802,6 +4883,13 @@ function AgentWorkbenchView({
     setMessagePriority("normal")
     requestAnimationFrame(focusComposer)
   }
+
+  // A hand-typed or stale conversation id doesn't resolve to a chat — show the
+  // same empty state as the index route rather than a broken thread.
+  if (!selectedChat) {
+    return <AgentsConversationEmpty />
+  }
+
   const chatLabel = selectedChat.mode === "channel" ? "Group chat" : "DM"
   const memberSummary = describeMembers(selectedChat.members)
   const composerHint =
@@ -4812,116 +4900,12 @@ function AgentWorkbenchView({
   return (
     <section
       className={cn(
-        "grid min-h-0 flex-1 overflow-hidden rounded-lg border bg-card shadow-sm xl:grid-rows-none",
+        "grid min-h-0 min-w-0 overflow-hidden",
         terminalOpen
-          ? "grid-rows-[minmax(9rem,12rem)_minmax(0,1fr)_minmax(18rem,0.72fr)] xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_minmax(18rem,0.85fr)]"
-          : "grid-rows-[minmax(9rem,12rem)_minmax(0,1fr)_auto] xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_auto]"
+          ? "grid-rows-[minmax(0,1fr)_minmax(18rem,20rem)] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]"
+          : "grid-rows-[minmax(0,1fr)_auto] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_auto]"
       )}
     >
-      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b bg-muted/35 p-3 xl:border-b-0 xl:border-r">
-        <div className="flex shrink-0 items-center gap-2 text-sm font-semibold">
-          <InboxIcon className="size-4 text-primary" />
-          Groups And DMs
-        </div>
-        <div className="scrollbar-y mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-          <div className="flex items-center justify-between gap-2 px-1 text-[0.7rem] font-semibold uppercase tracking-normal text-muted-foreground">
-            <span>Group chats</span>
-            <span>{channelChats.length}</span>
-          </div>
-          {channelChats.map((chat) => (
-            <button
-              key={chat.id}
-              type="button"
-              className={cn(
-                "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
-                selectedChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
-              )}
-              onClick={() => onSelectChannel(chat)}
-            >
-              <div className="flex min-w-0 items-center justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
-                {chat.unread ? (
-                  <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                    {chat.unread}
-                  </span>
-                ) : null}
-              </div>
-              <MarkdownRenderer
-                content={chat.detail}
-                compact
-                className="mt-1 w-full [&_p]:truncate [&_p]:text-xs"
-              />
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60">
-                  {chat.members.length} members
-                </span>
-                <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900/60">
-                  {countMemberType(chat.members, "agent")} agents
-                </span>
-                <span className="min-w-0 max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {chat.status}
-                </span>
-              </div>
-            </button>
-          ))}
-          <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3 px-1 text-[0.7rem] font-semibold uppercase tracking-normal text-muted-foreground">
-            <span>DMs</span>
-            <span>{directChats.length}</span>
-          </div>
-          {directChats.map((chat) => {
-            // An agent DM carries liveAgentId; a human (member) DM carries
-            // liveMemberUserId. Existing direct channels created against an
-            // agent still carry liveAgentId, so the icon stays correct there too.
-            const isAgentDm = Boolean(chat.liveAgentId)
-            return (
-              <button
-                key={chat.id}
-                type="button"
-                className={cn(
-                  "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
-                  selectedChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
-                )}
-                onClick={() => onSelectDirectChat(chat)}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className={cn(
-                      "inline-flex size-7 shrink-0 items-center justify-center rounded-full ring-1",
-                      isAgentDm
-                        ? "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900/60"
-                        : "bg-sky-100 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60"
-                    )}
-                    aria-hidden
-                  >
-                    {isAgentDm ? <BotIcon className="size-4" /> : <UserIcon className="size-4" />}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
-                  <span className="shrink-0 text-[0.65rem] font-medium uppercase tracking-normal text-muted-foreground">
-                    {isAgentDm ? "Agent" : "Member"}
-                  </span>
-                  {chat.unread ? (
-                    <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                      {chat.unread}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{chat.detail}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1", agentStatusClass(chat.status))}>
-                    {chat.status}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
-          {directChats.length === 0 ? (
-            <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-              No members or agents to DM yet.
-            </p>
-          ) : null}
-        </div>
-      </div>
-
       <div className="flex min-h-0 min-w-0 flex-col border-b xl:border-b-0 xl:border-r">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div>
