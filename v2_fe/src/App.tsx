@@ -1078,21 +1078,29 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
     const rawMembers = workspace.agentChannelMembers.filter((member) => member.channel === channel.id)
     const agentMember = rawMembers.find((member) => member.member_kind === "agent" && member.agent)
     const agent = workspace.agents.find((candidate) => candidate.id === agentMember?.agent)
+    // The other human on the roster (not me) — the counterpart of a human DM.
+    const otherUserMember = rawMembers.find(
+      (member) => member.member_kind === "user" && member.user != null && member.user !== currentUser?.id
+    )
     const members = mapLiveChannelMembers(workspace, channel.id, currentUser)
-    const primaryAgent = agent?.display_name ?? primaryAgentName(workspace, members)
+    // Identity follows the roster: an agent DM is named for its agent (and drives
+    // the terminal); a human DM is named for the other person — NOT the first
+    // agent in the project, which the old fallback wrongly used.
+    const title = agent?.display_name ?? otherUserMember?.display_name ?? channel.title
 
     return {
       id: `live:direct:${channel.id}`,
       mode: "direct" as const,
       liveChannelId: channel.id,
       liveAgentId: agent?.id,
-      title: primaryAgent,
-      detail: channel.topic || "Private channel",
+      liveMemberUserId: agent ? undefined : (otherUserMember?.user ?? undefined),
+      title,
+      detail: channel.topic || (agent ? agent.project_root || agent.identifier : "Direct message"),
       status: liveChannelStatus(channel),
       members,
-      primaryAgent,
+      primaryAgent: title,
       unread: 0,
-      messages: mapLiveChannelMessages(workspace, channel.id, primaryAgent, currentUser),
+      messages: mapLiveChannelMessages(workspace, channel.id, title, currentUser),
     }
   })
   // A direct channel already covers a member/agent when its roster holds that
