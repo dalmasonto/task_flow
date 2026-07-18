@@ -91,6 +91,12 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // backwards. Read-only so clients can still `.list()` them to compute unread
     // counts, scoped by project.
     "taskflow_channel_read_cursor",
+    // Task reviews are minted only by the trusted review endpoints
+    // (`POST /api/taskflow/tasks/{task}/review` and its agent variant), which
+    // derive the reviewer identity server-side and transition the task. A client
+    // REST create could forge a reviewer or a decision. Read-only so the frontend
+    // can still `.list()` them, scoped by project.
+    "taskflow_task_review",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the

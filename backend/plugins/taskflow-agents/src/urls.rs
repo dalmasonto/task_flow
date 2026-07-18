@@ -76,4 +76,31 @@ pub fn router() -> Router {
             "/api/taskflow/agents/sessions/{session}/close",
             post(views::close_session),
         )
+        // Agent-authored tasks (agent-authed via `RequireAgent`). Create a task
+        // in the agent's own project (optionally self-claiming it), advance its
+        // status, or claim it. Each emits a task activity as the agent.
+        .route(
+            "/api/taskflow/agents/tasks",
+            post(views::create_task_as_agent),
+        )
+        .route(
+            "/api/taskflow/agents/tasks/{task}/status",
+            post(views::update_task_status_as_agent),
+        )
+        .route(
+            "/api/taskflow/agents/tasks/{task}/claim",
+            post(views::claim_task_as_agent),
+        )
+        // Review workflow. The human path is auth-gated (active project member);
+        // the agent path is `RequireAgent`-gated (task in the agent's project).
+        // Both record a review, transition the task, report back to the assigned
+        // agent via a project-room message, and log a `reviewed` activity.
+        .route(
+            "/api/taskflow/tasks/{task}/review",
+            post(views::review_task),
+        )
+        .route(
+            "/api/taskflow/tasks/{task}/agent/review",
+            post(views::review_task_as_agent),
+        )
 }

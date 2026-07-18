@@ -49,6 +49,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAttachment>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelReadCursor>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentTerminalFrame>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),
         ]
     }
 

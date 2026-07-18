@@ -4,6 +4,10 @@ use axum::body::Bytes;
 use serde::Deserialize;
 use serde_json::json;
 use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
+use taskflow_tasks::models::{
+    TaskflowActorKind, TaskflowTask, TaskflowTaskActivity, TaskflowTaskPriority, TaskflowTaskStatus,
+    taskflow_task,
+};
 use umbral::orm::{FileField, ForeignKey};
 use umbral::storage::storage_opt;
 use umbral::web::multipart::{FilePart, is_multipart, parse_multipart};
@@ -17,9 +21,10 @@ use crate::models::{
     TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentSessionStatus, TaskflowAgentStatus,
     TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
     TaskflowChannelReadCursor, TaskflowCredentialStatus, TaskflowMessageAttachment,
-    TaskflowMessagePriority, TaskflowTerminalStream, taskflow_agent, taskflow_agent_channel,
-    taskflow_agent_channel_member, taskflow_agent_message, taskflow_agent_session,
-    taskflow_agent_terminal_frame, taskflow_channel_read_cursor, taskflow_message_attachment,
+    TaskflowMessagePriority, TaskflowReviewDecision, TaskflowTaskReview, TaskflowTerminalStream,
+    taskflow_agent, taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
+    taskflow_agent_session, taskflow_agent_terminal_frame, taskflow_channel_read_cursor,
+    taskflow_message_attachment,
 };
 
 /// The stored value of `TaskflowMembershipStatus::Active` — the status column is
@@ -1401,4 +1406,448 @@ pub async fn close_session(
     }
 
     Ok((StatusCode::OK, Json(session)).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4 — agent-authored tasks + the review workflow (reviewer identity,
+// reported back to the assigned agent).
+//
+// Agents create/claim/advance tasks AS THEMSELVES (`RequireAgent`, project =
+// the agent's own project). A review (by a human OR an agent reviewer) records
+// a decision, transitions the task, posts a report-back message into the
+// project room so the assigned agent surfaces it, and logs an activity. The
+// review model + these endpoints live here (not `taskflow-tasks`) so a row can
+// FK both `TaskflowTask` and `TaskflowAgent` without a plugin cycle.
+// ---------------------------------------------------------------------------
+
+/// A task title/description/notes are markdown fields capped at 12000 chars in
+/// the model (title at 220). Reject at the edge (400) rather than let the DB
+/// truncate or error.
+const MAX_TASK_TITLE_CHARS: usize = 220;
+const MAX_TASK_TEXT_CHARS: usize = 12_000;
+
+/// Load a task by id, or 404 if it does not exist. The caller then decides
+/// whether the reviewer/agent may act on it (project scope).
+async fn load_task(task_id: i64) -> Result<TaskflowTask, StatusCode> {
+    TaskflowTask::objects()
+        .filter(taskflow_task::ID.eq(task_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Emit one `TaskflowTaskActivity` row for `task`. The activity stream is the
+/// single history feed the frontend renders; every task write here appends to
+/// it. Identity fields are derived by the caller, never accepted from a body.
+async fn emit_task_activity(
+    project_id: i64,
+    task_id: i64,
+    actor_kind: TaskflowActorKind,
+    actor_user: Option<i64>,
+    actor_agent_id: Option<i64>,
+    actor_label: String,
+    action: &str,
+    body: Option<String>,
+) -> Result<(), StatusCode> {
+    TaskflowTaskActivity::objects()
+        .create(TaskflowTaskActivity {
+            id: 0,
+            project: ForeignKey::new(project_id),
+            task: Some(ForeignKey::new(task_id)),
+            actor_kind,
+            actor_user: actor_user.map(ForeignKey::new),
+            actor_agent_id,
+            actor_label,
+            action: action.to_string(),
+            body_markdown: body,
+            metadata_json: None,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(())
+}
+
+/// The body of `POST /api/taskflow/agents/tasks` (agent-authed). Only content
+/// fields — `project` (the agent's own), `created_by`, and the assignee trio are
+/// all derived server-side, so there is nothing to forge. `claim` self-assigns
+/// the new task to the creating agent.
+#[derive(Debug, Deserialize)]
+pub struct AgentCreateTaskInput {
+    pub title: String,
+    #[serde(default)]
+    pub description_markdown: Option<String>,
+    #[serde(default)]
+    pub priority: Option<TaskflowTaskPriority>,
+    #[serde(default)]
+    pub notes_markdown: Option<String>,
+    #[serde(default)]
+    pub claim: Option<bool>,
+}
+
+/// `POST /api/taskflow/agents/tasks` (agent-authed) — an agent authors a task in
+/// ITS OWN project. `created_by` is `None` (no human author); when `claim` is
+/// true the task is self-assigned (`assigned_agent_id` + `assignee_label` from
+/// the authenticated agent). Emits a `created_task` activity and returns the task.
+pub async fn create_task_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentCreateTaskInput>,
+) -> Result<Response, StatusCode> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() || title.chars().count() > MAX_TASK_TITLE_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let description = input.description_markdown.unwrap_or_default();
+    if description.chars().count() > MAX_TASK_TEXT_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some(notes) = input.notes_markdown.as_deref() {
+        if notes.chars().count() > MAX_TASK_TEXT_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
+    let claim = input.claim.unwrap_or(false);
+    let (assigned_agent_id, assignee_label) = if claim {
+        (Some(agent.agent_id), Some(agent.display_name.clone()))
+    } else {
+        (None, None)
+    };
+
+    let task = TaskflowTask::objects()
+        .create(TaskflowTask {
+            id: 0,
+            // Scope is the agent's own project, never accepted from the body.
+            project: ForeignKey::new(agent.project_id),
+            title,
+            description_markdown: description,
+            notes_markdown: input.notes_markdown,
+            status: TaskflowTaskStatus::NotStarted,
+            priority: input.priority.unwrap_or(TaskflowTaskPriority::Normal),
+            sort_order: 0,
+            created_by: None,
+            assigned_user: None,
+            assigned_agent_id,
+            assignee_label,
+            due_at: None,
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    emit_task_activity(
+        agent.project_id,
+        task.id,
+        TaskflowActorKind::Agent,
+        None,
+        Some(agent.agent_id),
+        agent.display_name.clone(),
+        "created_task",
+        None,
+    )
+    .await?;
+
+    Ok((StatusCode::OK, Json(task)).into_response())
+}
+
+/// Load a task and prove it belongs to `project_id`. 404 if the task does not
+/// exist; 403 if it belongs to a DIFFERENT project — an agent may only touch
+/// tasks in its own project. The project check is the authorization boundary for
+/// the agent status/claim endpoints.
+async fn load_task_in_project(task_id: i64, project_id: i64) -> Result<TaskflowTask, StatusCode> {
+    let task = load_task(task_id).await?;
+    if task.project.id() != project_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(task)
+}
+
+/// The body of `POST /api/taskflow/agents/tasks/{task}/status`. Only the target
+/// status; the task comes from the path and the actor from the auth gate.
+#[derive(Debug, Deserialize)]
+pub struct AgentUpdateStatusInput {
+    pub status: TaskflowTaskStatus,
+}
+
+/// `POST /api/taskflow/agents/tasks/{task}/status` (agent-authed) — an agent
+/// moves its work along (e.g. to `partial_done` to request review). Validates the
+/// task is in the agent's project (404 unknown, 403 foreign), sets `status` +
+/// `updated_at`, and emits a `status_changed` activity (`old → new`).
+pub async fn update_task_status_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Path(task_id): Path<i64>,
+    Json(input): Json<AgentUpdateStatusInput>,
+) -> Result<Response, StatusCode> {
+    let mut task = load_task_in_project(task_id, agent.project_id).await?;
+    let old_status = task.status;
+    task.status = input.status;
+    task.updated_at = Some(chrono::Utc::now());
+    let task = TaskflowTask::objects()
+        .save(task)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let old = serde_json::to_value(old_status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let new = serde_json::to_value(input.status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    emit_task_activity(
+        agent.project_id,
+        task.id,
+        TaskflowActorKind::Agent,
+        None,
+        Some(agent.agent_id),
+        agent.display_name.clone(),
+        "status_changed",
+        Some(format!("{old} → {new}")),
+    )
+    .await?;
+
+    Ok((StatusCode::OK, Json(task)).into_response())
+}
+
+/// `POST /api/taskflow/agents/tasks/{task}/claim` (agent-authed) — an agent
+/// self-assigns a task in its own project: `assigned_agent_id` + `assignee_label`
+/// from the authenticated agent. Emits a `claimed_task` activity. Takes no body.
+pub async fn claim_task_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Path(task_id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let mut task = load_task_in_project(task_id, agent.project_id).await?;
+    task.assigned_agent_id = Some(agent.agent_id);
+    task.assignee_label = Some(agent.display_name.clone());
+    task.updated_at = Some(chrono::Utc::now());
+    let task = TaskflowTask::objects()
+        .save(task)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    emit_task_activity(
+        agent.project_id,
+        task.id,
+        TaskflowActorKind::Agent,
+        None,
+        Some(agent.agent_id),
+        agent.display_name.clone(),
+        "claimed_task",
+        None,
+    )
+    .await?;
+
+    Ok((StatusCode::OK, Json(task)).into_response())
+}
+
+/// The review body's cap — the model stores it in a 12000-char column. Reject at
+/// the edge (400) rather than let the DB truncate or error.
+const MAX_REVIEW_BODY_CHARS: usize = 12_000;
+
+/// The body of both review routes. `decision` is required; `body_markdown` is an
+/// optional note. The reviewer identity comes from the auth gate (human vs
+/// agent), never a body field — there is nothing to forge.
+#[derive(Debug, Deserialize)]
+pub struct ReviewInput {
+    pub decision: TaskflowReviewDecision,
+    #[serde(default)]
+    pub body_markdown: Option<String>,
+}
+
+/// Find the shared room to report a review back into: prefer the project's
+/// `Project`-kind channel, else the first non-`Direct` channel in the project.
+/// Returns `None` when the project has no shared room (the review still records;
+/// the report-back is skipped).
+async fn find_project_room(project_id: i64) -> Result<Option<TaskflowAgentChannel>, StatusCode> {
+    let channels = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::PROJECT.eq(project_id))
+        .order_by(taskflow_agent_channel::ID.asc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Prefer a dedicated project room; otherwise any non-DM shared channel.
+    if let Some(room) = channels
+        .iter()
+        .find(|c| c.kind == TaskflowChannelKind::Project)
+    {
+        return Ok(Some(room.clone()));
+    }
+    Ok(channels
+        .into_iter()
+        .find(|c| c.kind != TaskflowChannelKind::Direct))
+}
+
+/// The shared core of both review routes. Records the review, transitions the
+/// task, reports back to the assigned agent, and logs the activity — the only
+/// difference between the human and agent routes is the resolved reviewer
+/// identity, which the caller passes in already derived from its auth gate.
+async fn apply_review(
+    task: TaskflowTask,
+    reviewer_kind: TaskflowChannelMemberKind,
+    reviewer_user: Option<i64>,
+    reviewer_agent: Option<i64>,
+    reviewer_label: String,
+    input: ReviewInput,
+) -> Result<Response, StatusCode> {
+    let body = input
+        .body_markdown
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    if let Some(b) = &body {
+        if b.chars().count() > MAX_REVIEW_BODY_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
+    let project_id = task.project.id();
+    let decision = input.decision;
+
+    // 1/2. Record the review with the resolved reviewer identity.
+    let review = TaskflowTaskReview::objects()
+        .create(TaskflowTaskReview {
+            id: 0,
+            project: task.project.clone(),
+            task: ForeignKey::new(task.id),
+            reviewer_kind,
+            reviewer_user: reviewer_user.map(ForeignKey::new),
+            reviewer_agent: reviewer_agent.map(ForeignKey::new),
+            reviewer_label: reviewer_label.clone(),
+            decision,
+            body_markdown: body.clone(),
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 3. Transition the task: approved → done, changes_requested → in_progress.
+    let new_status = match decision {
+        TaskflowReviewDecision::Approved => TaskflowTaskStatus::Done,
+        TaskflowReviewDecision::ChangesRequested => TaskflowTaskStatus::InProgress,
+    };
+    let mut task = task;
+    task.status = new_status;
+    task.updated_at = Some(chrono::Utc::now());
+    let task = TaskflowTask::objects()
+        .save(task)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // A human-readable verdict for both the report-back message and the activity.
+    let decision_label = match decision {
+        TaskflowReviewDecision::Approved => "approved",
+        TaskflowReviewDecision::ChangesRequested => "changes requested",
+    };
+
+    // 4. Report back to the assigned agent: a message in the project room
+    // referencing the task, so the assigned agent surfaces it (live via SSE or
+    // through check_messages). Only when the task has an assigned agent AND a
+    // shared room exists — otherwise the review still stands, the message is
+    // skipped. The create auto-emits the realtime event (the message model is
+    // Exposed), exactly like `send_message`.
+    if task.assigned_agent_id.is_some() {
+        if let Some(channel) = find_project_room(project_id).await? {
+            let mut message_body = format!("Review: **{decision_label}** on _{}_.", task.title);
+            if let Some(b) = &body {
+                message_body.push_str("\n\n");
+                message_body.push_str(b);
+            }
+            TaskflowAgentMessage::objects()
+                .create(TaskflowAgentMessage {
+                    id: 0,
+                    project: channel.project.clone(),
+                    channel: ForeignKey::new(channel.id),
+                    task: Some(ForeignKey::new(task.id)),
+                    sender_kind: reviewer_kind,
+                    sender_user: reviewer_user.map(ForeignKey::new),
+                    sender_agent: reviewer_agent.map(ForeignKey::new),
+                    sender_label: reviewer_label.clone(),
+                    body_markdown: message_body,
+                    priority: TaskflowMessagePriority::Normal,
+                    client_nonce: None,
+                    created_at: None,
+                })
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+    }
+
+    // 5. Log the review on the task's activity stream.
+    let actor_kind = match reviewer_kind {
+        TaskflowChannelMemberKind::User => TaskflowActorKind::User,
+        TaskflowChannelMemberKind::Agent => TaskflowActorKind::Agent,
+    };
+    emit_task_activity(
+        project_id,
+        task.id,
+        actor_kind,
+        reviewer_user,
+        reviewer_agent,
+        reviewer_label,
+        "reviewed",
+        Some(decision_label.to_string()),
+    )
+    .await?;
+
+    Ok((StatusCode::OK, Json(review)).into_response())
+}
+
+/// `POST /api/taskflow/tasks/{task}/review` (human-authed) — a human reviews a
+/// task. The caller must be an ACTIVE member of the task's project (else 403).
+/// Records the review (reviewer_kind = user), transitions the task, reports back
+/// to the assigned agent, and logs the activity.
+pub async fn review_task(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(task_id): Path<i64>,
+    Json(input): Json<ReviewInput>,
+) -> Result<Response, StatusCode> {
+    let task = load_task(task_id).await?;
+
+    // Access gate: an ACTIVE project member of the task's project, read from the
+    // table, never trusted from the request. Absent → 403. Mirrors `send_message`.
+    let member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(task.project.id())
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    apply_review(
+        task,
+        TaskflowChannelMemberKind::User,
+        Some(user_id),
+        None,
+        member.display_name,
+        input,
+    )
+    .await
+}
+
+/// `POST /api/taskflow/tasks/{task}/agent/review` (agent-authed) — the agent
+/// counterpart of [`review_task`]. The task must be in the agent's project (else
+/// 403). Records the review (reviewer_kind = agent), transitions the task, reports
+/// back to the assigned agent, and logs the activity.
+pub async fn review_task_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Path(task_id): Path<i64>,
+    Json(input): Json<ReviewInput>,
+) -> Result<Response, StatusCode> {
+    let task = load_task_in_project(task_id, agent.project_id).await?;
+    apply_review(
+        task,
+        TaskflowChannelMemberKind::Agent,
+        None,
+        Some(agent.agent_id),
+        agent.display_name.clone(),
+        input,
+    )
+    .await
 }

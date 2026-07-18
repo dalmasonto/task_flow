@@ -77,6 +77,17 @@ pub enum TaskflowTerminalStream {
     System,
 }
 
+/// A reviewer's verdict on a task. `approved` moves the task to `done`;
+/// `changes_requested` moves it back to `in_progress` (see the review endpoints
+/// in `views.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowReviewDecision {
+    Approved,
+    ChangesRequested,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
 pub struct TaskflowAgent {
     pub id: i64,
@@ -318,6 +329,39 @@ pub struct TaskflowAgentTerminalFrame {
     pub sequence: i64,
     #[umbral(string, max_length = 20000, widget = "textarea")]
     pub content: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// A review of a task by a human OR an agent reviewer. Lives in this plugin (not
+/// `taskflow-tasks`) so it can FK BOTH `TaskflowTask` and `TaskflowAgent` — the
+/// tasks plugin does not depend on this one, so the reverse would be a cycle.
+///
+/// Exactly one of `reviewer_user` / `reviewer_agent` is set, matching
+/// `reviewer_kind`. `project` is denormalized from the task for realtime routing
+/// and read scoping, exactly like the chat tables. Created only through the
+/// trusted review endpoints (`POST /api/taskflow/tasks/{task}/review` and its
+/// agent variant), never client REST — see
+/// `backend::rest::READ_ONLY_PROJECT_SCOPED_TABLES`.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowTaskReview {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub task: ForeignKey<TaskflowTask>,
+    #[umbral(choices, default = "user")]
+    pub reviewer_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub reviewer_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub reviewer_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub reviewer_label: String,
+    #[umbral(choices, default = "approved")]
+    pub decision: TaskflowReviewDecision,
+    #[umbral(string, max_length = 12000, widget = "textarea")]
+    pub body_markdown: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

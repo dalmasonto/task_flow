@@ -20,7 +20,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAttachment,
+    TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview,
 };
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
@@ -44,6 +44,7 @@ const TASKS: &str = "tasks";
 const TASK_RELATIONS: &str = "task_relations";
 const TASK_ACTIVITY: &str = "task_activity";
 const TASK_SESSIONS: &str = "task_sessions";
+const TASK_REVIEWS: &str = "task_reviews";
 const AGENTS: &str = "agents";
 const AGENT_SESSIONS: &str = "agent_sessions";
 const AGENT_CREDENTIALS: &str = "agent_credentials";
@@ -180,6 +181,11 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowTaskSession>(Expose::to_group_with(|ev| {
             group_for(TASK_SESSIONS, &ev.instance)
         }))
+        // Task reviews: id-only ping so subscribers refetch the reviewed task
+        // and its new review row over authenticated REST.
+        .expose::<TaskflowTaskReview>(Expose::to_group_with(|ev| {
+            group_for(TASK_REVIEWS, &ev.instance)
+        }))
         .expose::<TaskflowAgent>(Expose::to_group_with(|ev| group_for(AGENTS, &ev.instance)))
         .expose::<TaskflowAgentCredential>(Expose::to_group_with(|ev| {
             group_for(AGENT_CREDENTIALS, &ev.instance)
@@ -299,6 +305,7 @@ const ALL_SUFFIXES: &[&str] = &[
     TASK_RELATIONS,
     TASK_ACTIVITY,
     TASK_SESSIONS,
+    TASK_REVIEWS,
     AGENTS,
     AGENT_SESSIONS,
     AGENT_CREDENTIALS,
