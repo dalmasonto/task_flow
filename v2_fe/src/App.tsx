@@ -5379,7 +5379,7 @@ function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?
     <article className={cn("flex", alignRight ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[42rem] rounded-lg border p-3 shadow-sm",
+          "max-w-[88%] rounded-lg border p-3 shadow-sm sm:max-w-[82%]",
           fromUser ? "agent-sent-bubble" : alignRight ? "bg-accent/75" : "bg-background/95"
         )}
       >

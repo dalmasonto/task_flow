@@ -47,47 +47,57 @@ const minPreviewZoom = 1
 const maxPreviewZoom = 3
 const previewZoomStep = 0.25
 
-/// Rich inline renderer for a chat message's attachments. Images lay out as a
-/// wrapping thumbnail grid with a zoomable/carousel lightbox; every other kind
-/// renders inline (PDF iframe, spreadsheet table, code/text blocks, media
-/// players) with a download card as the last-resort fallback.
+/// Chat message attachment renderer. Inline shows only lightweight content: an
+/// image gallery at natural size, full-width file cards, and inline video/audio
+/// players. Every rich preview (image zoom, PDF, spreadsheet, Shiki code, text)
+/// lives in a single popup carousel that pages across ALL of the message's
+/// attachments in their original order.
 export function MessageAttachments({
   attachments,
 }: {
   attachments: MessageAttachmentItem[]
 }) {
   const items = React.useMemo(() => attachments ?? [], [attachments])
-  const [activeImageIndex, setActiveImageIndex] = React.useState<number | null>(null)
+  const [activeIndex, setActiveIndex] = React.useState<number | null>(null)
 
   if (!items.length) return null
 
-  const images = items.filter((item) => kindOf(item) === "image")
-  const others = items.filter((item) => kindOf(item) !== "image")
+  const images = items
+    .map((attachment, index) => ({ attachment, index }))
+    .filter(({ attachment }) => kindOf(attachment) === "image")
+  const others = items
+    .map((attachment, index) => ({ attachment, index }))
+    .filter(({ attachment }) => kindOf(attachment) !== "image")
 
   return (
     <>
       <div className="grid gap-2">
         {images.length ? (
-          <ImageAttachmentGrid
-            images={images}
-            onOpen={(index) => setActiveImageIndex(index)}
-          />
+          <ImageAttachmentGrid images={images} onOpen={setActiveIndex} />
         ) : null}
 
-        {others.map((item) => (
-          <InlineAttachment key={item.id} attachment={item} />
-        ))}
+        {others.length ? (
+          <div className="grid gap-2">
+            {others.map(({ attachment, index }) => (
+              <InlineAttachment
+                key={attachment.id}
+                attachment={attachment}
+                onOpen={() => setActiveIndex(index)}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      {images.length ? (
-        <ImageLightbox
-          images={images}
-          activeIndex={activeImageIndex ?? 0}
-          open={activeImageIndex !== null}
-          onIndexChange={setActiveImageIndex}
-          onClose={() => setActiveImageIndex(null)}
-        />
-      ) : null}
+      <AttachmentPreviewDialog
+        attachments={items}
+        activeIndex={activeIndex ?? 0}
+        open={activeIndex !== null}
+        onIndexChange={setActiveIndex}
+        onOpenChange={(open) => {
+          if (!open) setActiveIndex(null)
+        }}
+      />
     </>
   )
 }
@@ -97,10 +107,16 @@ function kindOf(attachment: MessageAttachmentItem): AttachmentKind {
 }
 
 // ---------------------------------------------------------------------------
-// Dispatch for non-image attachments
+// Inline dispatch for non-image attachments
 // ---------------------------------------------------------------------------
 
-function InlineAttachment({ attachment }: { attachment: MessageAttachmentItem }) {
+function InlineAttachment({
+  attachment,
+  onOpen,
+}: {
+  attachment: MessageAttachmentItem
+  onOpen: () => void
+}) {
   const kind = kindOf(attachment)
 
   // Optimistic (not-yet-stored) non-image attachment: no reachable URL to fetch
@@ -109,46 +125,37 @@ function InlineAttachment({ attachment }: { attachment: MessageAttachmentItem })
     return <PendingCard attachment={attachment} kind={kind} />
   }
 
-  if (kind === "pdf") return <PdfInline attachment={attachment} />
-  if (kind === "spreadsheet") return <SpreadsheetPreview attachment={attachment} />
-  if (kind === "video") return <VideoInline attachment={attachment} />
-  if (kind === "audio") return <AudioInline attachment={attachment} />
+  if (kind === "video") return <VideoInline attachment={attachment} onOpen={onOpen} />
+  if (kind === "audio") return <AudioInline attachment={attachment} onOpen={onOpen} />
 
-  if (kind === "code" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
-    return <CodePreview attachment={attachment} />
-  }
-  if (kind === "text" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
-    return <TextPreview attachment={attachment} />
-  }
-
-  return <FileCard attachment={attachment} kind={kind} />
+  return <FileCard attachment={attachment} kind={kind} onOpen={onOpen} />
 }
 
 // ---------------------------------------------------------------------------
-// Images: thumbnail grid + lightbox
+// Images: natural-size inline gallery
 // ---------------------------------------------------------------------------
 
 function ImageAttachmentGrid({
   images,
   onOpen,
 }: {
-  images: MessageAttachmentItem[]
+  images: { attachment: MessageAttachmentItem; index: number }[]
   onOpen: (index: number) => void
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {images.map((attachment, index) =>
+      {images.map(({ attachment, index }) =>
         attachment.url ? (
           <button
             key={attachment.id}
             type="button"
-            className="group relative block overflow-hidden rounded-lg border bg-muted text-left outline-none transition-[border-color,box-shadow] hover:border-primary/40 focus-visible:ring-3 focus-visible:ring-ring/40"
+            className="group relative block max-w-full overflow-hidden rounded-lg border bg-muted text-left outline-none transition-[border-color,box-shadow] hover:border-primary/40 focus-visible:ring-3 focus-visible:ring-ring/40"
             title={attachment.name}
             onClick={() => onOpen(index)}
           >
             <AttachmentImage
               attachment={attachment}
-              className="max-h-64 w-auto max-w-full rounded-lg object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+              className="max-h-80 w-auto max-w-full rounded-lg transition-transform duration-200 group-hover:scale-[1.02]"
             />
           </button>
         ) : (
@@ -165,25 +172,180 @@ function ImageAttachmentGrid({
   )
 }
 
-function ImageLightbox({
-  images,
+// ---------------------------------------------------------------------------
+// Inline media players
+// ---------------------------------------------------------------------------
+
+function VideoInline({
+  attachment,
+  onOpen,
+}: {
+  attachment: MessageAttachmentItem
+  onOpen: () => void
+}) {
+  return (
+    <div className="w-full overflow-hidden rounded-xl border bg-background/90 shadow-sm">
+      <video
+        src={attachment.url}
+        controls
+        preload="metadata"
+        className="aspect-video w-full bg-[oklch(0.12_0.003_255)]"
+      />
+      <div className="flex items-center gap-2 px-3 py-2">
+        <FileVideoIcon className="size-4 shrink-0 text-primary" />
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left outline-none"
+          onClick={onOpen}
+        >
+          <span className="block truncate text-sm font-medium">{attachment.name}</span>
+          <span className="block text-xs font-normal text-muted-foreground">
+            Video{attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
+          </span>
+        </button>
+        <DownloadButton attachment={attachment} compact />
+      </div>
+    </div>
+  )
+}
+
+function AudioInline({
+  attachment,
+  onOpen,
+}: {
+  attachment: MessageAttachmentItem
+  onOpen: () => void
+}) {
+  return (
+    <div className="w-full rounded-xl border bg-background/90 p-3 shadow-sm">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-700 dark:text-violet-300">
+          <FileAudioIcon className="size-4" />
+        </span>
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left outline-none"
+          onClick={onOpen}
+        >
+          <span className="block truncate text-sm font-medium">{attachment.name}</span>
+          <span className="block text-xs font-normal text-muted-foreground">
+            Audio{attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
+          </span>
+        </button>
+        <DownloadButton attachment={attachment} compact />
+      </div>
+      <audio src={attachment.url} controls preload="metadata" className="w-full" />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Full-width file card (non-image, non-media)
+// ---------------------------------------------------------------------------
+
+function FileCard({
+  attachment,
+  kind,
+  onOpen,
+}: {
+  attachment: MessageAttachmentItem
+  kind: AttachmentKind
+  onOpen?: () => void
+}) {
+  return (
+    <div className="flex w-full items-center gap-3 overflow-hidden rounded-lg border bg-background/90 p-2.5">
+      {onOpen ? (
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+          onClick={onOpen}
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
+            <KindIcon kind={kind} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{attachment.name}</span>
+            <span className="block text-xs text-muted-foreground">
+              {getFileExtension(attachment.name).toUpperCase() || "FILE"}
+              {attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
+            </span>
+          </span>
+        </button>
+      ) : (
+        <>
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
+            <KindIcon kind={kind} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{attachment.name}</p>
+            <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
+          </div>
+        </>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        render={
+          <a href={attachment.url} target="_blank" rel="noreferrer" download={attachment.name} />
+        }
+        onClick={(event) => event.stopPropagation()}
+      >
+        <DownloadIcon className="size-3.5" />
+        Download
+      </Button>
+    </div>
+  )
+}
+
+function PendingCard({
+  attachment,
+  kind,
+}: {
+  attachment: MessageAttachmentItem
+  kind: AttachmentKind
+}) {
+  return (
+    <div className="flex w-full items-center gap-3 overflow-hidden rounded-lg border bg-background/90 p-2.5">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <KindIcon kind={kind} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{attachment.name}</p>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2Icon className="size-3 animate-spin" />
+          Uploading…
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Popup carousel — hosts ALL rich content
+// ---------------------------------------------------------------------------
+
+function AttachmentPreviewDialog({
+  attachments,
   activeIndex,
   open,
   onIndexChange,
-  onClose,
+  onOpenChange,
 }: {
-  images: MessageAttachmentItem[]
+  attachments: MessageAttachmentItem[]
   activeIndex: number
   open: boolean
   onIndexChange: (index: number) => void
-  onClose: () => void
+  onOpenChange: (open: boolean) => void
 }) {
   const [zoomState, setZoomState] = React.useState<{ id: string; value: number } | null>(
     null
   )
   const previewRef = React.useRef<HTMLDivElement>(null)
-  const active = images[activeIndex]
-  const canNavigate = images.length > 1
+  const active = attachments[activeIndex]
+  const kind = active ? kindOf(active) : "file"
+  const canZoom = kind === "image" || kind === "pdf"
+  const canNavigate = attachments.length > 1
   const zoomKey = active?.id ?? ""
   const zoom = zoomState?.id === zoomKey ? zoomState.value : 1
 
@@ -195,7 +357,7 @@ function ImageLightbox({
   }
 
   function goTo(offset: number) {
-    onIndexChange((activeIndex + offset + images.length) % images.length)
+    onIndexChange((activeIndex + offset + attachments.length) % attachments.length)
   }
 
   async function toggleFullscreen() {
@@ -209,10 +371,8 @@ function ImageLightbox({
   }
 
   function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen) {
-      setZoomState(null)
-      onClose()
-    }
+    if (!nextOpen) setZoomState(null)
+    onOpenChange(nextOpen)
   }
 
   return (
@@ -227,15 +387,17 @@ function ImageLightbox({
             <DialogPrimitive.Title className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{active.name}</span>
               <span className="block truncate text-[11px] font-normal text-muted-foreground">
-                {getFileExtension(active.name).toUpperCase() || "Image"}
+                {kindLabel(active)}
                 {active.sizeBytes ? ` · ${formatBytes(active.sizeBytes)}` : ""}
-                {canNavigate ? ` · ${activeIndex + 1} of ${images.length}` : ""}
+                {canNavigate ? ` · ${activeIndex + 1} of ${attachments.length}` : ""}
               </span>
             </DialogPrimitive.Title>
 
-            <div className="hidden items-center gap-1 sm:flex">
-              <PreviewZoomControls zoom={zoom} onZoomChange={updateZoom} />
-            </div>
+            {canZoom ? (
+              <div className="hidden items-center gap-1 sm:flex">
+                <PreviewZoomControls zoom={zoom} onZoomChange={updateZoom} />
+              </div>
+            ) : null}
 
             <Button
               type="button"
@@ -267,7 +429,7 @@ function ImageLightbox({
                   onClick={() => goTo(-1)}
                 >
                   <ChevronLeftIcon />
-                  <span className="sr-only">Previous image</span>
+                  <span className="sr-only">Previous attachment</span>
                 </Button>
                 <Button
                   type="button"
@@ -277,28 +439,20 @@ function ImageLightbox({
                   onClick={() => goTo(1)}
                 >
                   <ChevronRightIcon />
-                  <span className="sr-only">Next image</span>
+                  <span className="sr-only">Next attachment</span>
                 </Button>
               </>
             ) : null}
 
-            <div className="h-full min-h-0 overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
-              <div
-                className="flex min-h-full min-w-full items-center justify-center"
-                style={{ height: `${zoom * 100}%`, width: `${zoom * 100}%` }}
-              >
-                <AttachmentImage
-                  attachment={active}
-                  className="h-full w-full rounded-xl object-contain shadow-2xl transition-[height,width] duration-150"
-                />
-              </div>
-            </div>
+            <AttachmentPreviewContent attachment={active} zoom={zoom} />
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3 sm:hidden">
-              <div className="pointer-events-auto rounded-xl border border-border/70 bg-background/95 p-1 shadow-2xl backdrop-blur">
-                <PreviewZoomControls zoom={zoom} onZoomChange={updateZoom} />
+            {canZoom ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3 sm:hidden">
+                <div className="pointer-events-auto rounded-xl border border-border/70 bg-background/95 p-1 shadow-2xl backdrop-blur">
+                  <PreviewZoomControls zoom={zoom} onZoomChange={updateZoom} />
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
           {canNavigate ? (
@@ -308,7 +462,7 @@ function ImageLightbox({
                 Previous
               </Button>
               <span className="text-xs text-muted-foreground">
-                {activeIndex + 1} / {images.length}
+                {activeIndex + 1} / {attachments.length}
               </span>
               <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => goTo(1)}>
                 Next
@@ -319,6 +473,91 @@ function ImageLightbox({
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  )
+}
+
+function AttachmentPreviewContent({
+  attachment,
+  zoom,
+}: {
+  attachment: MessageAttachmentItem
+  zoom: number
+}) {
+  const kind = kindOf(attachment)
+
+  if (attachment.pending || !attachment.url) {
+    return <GenericFilePreview attachment={attachment} kind={kind} pending />
+  }
+
+  if (kind === "image") {
+    return (
+      <div className="h-full min-h-0 overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
+        <div
+          className="flex min-h-full min-w-full items-center justify-center"
+          style={{ height: `${zoom * 100}%`, width: `${zoom * 100}%` }}
+        >
+          <AttachmentImage
+            attachment={attachment}
+            className="h-full w-full rounded-xl object-contain shadow-2xl transition-[height,width] duration-150"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === "pdf") return <PdfPreview attachment={attachment} zoom={zoom} />
+  if (kind === "spreadsheet") return <ScrollPanel><SpreadsheetPreview attachment={attachment} /></ScrollPanel>
+
+  if (kind === "code" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
+    return <ScrollPanel><CodePreview attachment={attachment} /></ScrollPanel>
+  }
+  if (kind === "text" && attachment.sizeBytes <= INLINE_TEXT_MAX_BYTES) {
+    return <ScrollPanel><TextPreview attachment={attachment} /></ScrollPanel>
+  }
+
+  if (kind === "video") {
+    return (
+      <div className="flex h-full items-center justify-center p-3 sm:p-6">
+        <video
+          src={attachment.url}
+          controls
+          className="max-h-full max-w-full rounded-xl bg-[oklch(0.12_0.003_255)] shadow-2xl"
+        />
+      </div>
+    )
+  }
+
+  if (kind === "audio") {
+    return (
+      <div className="flex h-full items-center justify-center p-4">
+        <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-4 shadow-xl">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="flex size-12 items-center justify-center rounded-xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              <FileAudioIcon className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">{attachment.name}</div>
+              <div className="text-xs text-muted-foreground">
+                {attachment.sizeBytes ? formatBytes(attachment.sizeBytes) : "Audio"}
+              </div>
+            </div>
+          </div>
+          <audio src={attachment.url} controls className="w-full" />
+        </div>
+      </div>
+    )
+  }
+
+  return <GenericFilePreview attachment={attachment} kind={kind} />
+}
+
+/// Scrollable host for the card-shaped renderers (spreadsheet/code/text) reused
+/// from the inline path — centers the card and lets its own scroll regions work.
+function ScrollPanel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="h-full min-h-0 overflow-auto p-3 overscroll-contain [scrollbar-width:thin] sm:p-6">
+      <div className="mx-auto max-w-4xl">{children}</div>
+    </div>
   )
 }
 
@@ -405,11 +644,11 @@ function AttachmentImage({
 }
 
 // ---------------------------------------------------------------------------
-// PDF
+// PDF (blob-URL embed — bypasses the media backend's X-Frame-Options: DENY)
 // ---------------------------------------------------------------------------
 
 // Cap on how large a PDF we'll pull into memory to embed. Bigger ones fall
-// back to Open/Download so a huge file never stalls the thread.
+// back to Open/Download so a huge file never stalls the popup.
 const PDF_EMBED_MAX_BYTES = 20 * 1024 * 1024
 
 type PdfState =
@@ -418,12 +657,10 @@ type PdfState =
   | { status: "error" }
   | { status: "too-large" }
 
-function PdfInline({ attachment }: { attachment: MessageAttachmentItem }) {
-  // The media backend serves files with `X-Frame-Options: DENY`, which blocks
-  // embedding the raw URL in an <iframe> (Chrome shows "refused to connect").
-  // Fetch the bytes and embed a same-document blob: URL instead — blob URLs
-  // aren't subject to X-Frame-Options, so this works regardless of that header
-  // or cross-origin media hosting.
+/// Fetch the PDF bytes and expose a same-document `blob:` URL. Blob URLs aren't
+/// subject to `X-Frame-Options`, so the embed works regardless of that header
+/// or cross-origin media hosting. This is the load-bearing approach — keep it.
+function usePdfObjectUrl(attachment: MessageAttachmentItem): PdfState {
   const [state, setState] = React.useState<PdfState>(() =>
     canEmbedUrl(attachment.url) ? { status: "loading" } : { status: "error" }
   )
@@ -464,43 +701,75 @@ function PdfInline({ attachment }: { attachment: MessageAttachmentItem }) {
     }
   }, [attachment.url, attachment.pending, attachment.sizeBytes])
 
-  return (
-    <div className="overflow-hidden rounded-xl border bg-background/90 shadow-sm">
-      <div className="flex items-center gap-2 border-b bg-card/70 px-3 py-2">
-        <FileTextIcon className="size-4 shrink-0 text-red-700 dark:text-red-300" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{attachment.name}</p>
-          <p className="text-xs text-muted-foreground">
-            PDF{attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
-          </p>
-        </div>
-        <a
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer"
-          className={cn(buttonVariants({ variant: "outline", size: "xs" }), "rounded-lg")}
+  return state
+}
+
+function PdfPreview({
+  attachment,
+  zoom,
+}: {
+  attachment: MessageAttachmentItem
+  zoom: number
+}) {
+  const state = usePdfObjectUrl(attachment)
+
+  if (state.status === "ready") {
+    return (
+      <div className="h-full min-h-0 overflow-auto p-2 overscroll-contain [touch-action:pan-x_pan-y] sm:p-4">
+        <div
+          className="min-h-full min-w-full"
+          style={{ height: `${zoom * 100}%`, width: `${zoom * 100}%` }}
         >
-          Open
-        </a>
-        <DownloadButton attachment={attachment} compact />
+          <iframe
+            src={state.src}
+            title={attachment.name}
+            className="h-full w-full rounded-xl border border-border bg-background"
+          />
+        </div>
       </div>
-      {state.status === "ready" ? (
-        <iframe
-          src={state.src}
-          title={attachment.name}
-          className="h-[70vh] max-h-[70vh] w-full bg-background"
-        />
-      ) : state.status === "loading" ? (
-        <div className="flex h-40 items-center justify-center text-muted-foreground">
-          <Loader2Icon className="size-5 animate-spin" />
-        </div>
-      ) : (
-        <div className="p-4 text-sm text-muted-foreground">
+    )
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <Loader2Icon className="size-6 animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 text-center shadow-xl">
+        <span className="mx-auto flex size-14 items-center justify-center rounded-xl bg-red-500/10 text-red-700 dark:text-red-300">
+          <FileTextIcon className="size-6" />
+        </span>
+        <h3 className="mt-4 truncate text-sm font-semibold">{attachment.name}</h3>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
           {state.status === "too-large"
-            ? "This PDF is too large to preview here. Use Open or Download above."
-            : "This PDF can't be embedded here. Use Open or Download above."}
+            ? "This PDF is too large to preview here."
+            : "This PDF can't be embedded here."}
+        </p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <a
+            href={attachment.url}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "rounded-lg")}
+          >
+            Open PDF
+          </a>
+          <a
+            href={attachment.url}
+            download={attachment.name}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "rounded-lg")}
+          >
+            Download
+          </a>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -592,7 +861,7 @@ function SpreadsheetPreview({ attachment }: { attachment: MessageAttachmentItem 
         </div>
       ) : null}
       {rows.length && columns.length ? (
-        <div className="max-h-96 overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+        <div className="max-h-[60vh] overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
           <table className="w-full text-left text-sm" style={{ minWidth: minTableWidth }}>
             <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
               <tr>
@@ -699,7 +968,7 @@ async function parseSpreadsheet(
 }
 
 // ---------------------------------------------------------------------------
-// Code + text (net-new)
+// Code + text
 // ---------------------------------------------------------------------------
 
 type TextFetchState =
@@ -771,12 +1040,12 @@ function CodePreview({ attachment }: { attachment: MessageAttachmentItem }) {
         <TextSkeleton />
       ) : html && !highlightFailed ? (
         <div
-          className="shiki-scroll max-h-96 overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]"
+          className="shiki-scroll max-h-[60vh] overflow-auto overscroll-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]"
           // Shiki output is generated from the file text on the client; safe to inject.
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words p-3 text-[13px] leading-6 [scrollbar-width:thin]">
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-3 text-[13px] leading-6 [scrollbar-width:thin]">
           {raw}
         </pre>
       )}
@@ -798,7 +1067,7 @@ function TextPreview({ attachment }: { attachment: MessageAttachmentItem }) {
       {content.status === "loading" ? (
         <TextSkeleton />
       ) : (
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words p-3 text-[13px] leading-6 [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-3 text-[13px] leading-6 [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
           {raw}
         </pre>
       )}
@@ -889,109 +1158,50 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Media
+// Generic / fallback popup preview
 // ---------------------------------------------------------------------------
 
-function VideoInline({ attachment }: { attachment: MessageAttachmentItem }) {
+function GenericFilePreview({
+  attachment,
+  kind,
+  pending = false,
+}: {
+  attachment: MessageAttachmentItem
+  kind: AttachmentKind
+  pending?: boolean
+}) {
   return (
-    <div className="max-w-[28rem] overflow-hidden rounded-xl border bg-background/90 shadow-sm">
-      <video
-        src={attachment.url}
-        controls
-        preload="metadata"
-        className="aspect-video w-full bg-[oklch(0.12_0.003_255)]"
-      />
-      <div className="flex items-center gap-2 px-3 py-2">
-        <FileVideoIcon className="size-4 shrink-0 text-primary" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{attachment.name}</p>
-          <p className="text-xs text-muted-foreground">
-            Video{attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
-          </p>
-        </div>
-        <DownloadButton attachment={attachment} compact />
-      </div>
-    </div>
-  )
-}
-
-function AudioInline({ attachment }: { attachment: MessageAttachmentItem }) {
-  return (
-    <div className="max-w-[28rem] rounded-xl border bg-background/90 p-3 shadow-sm">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-700 dark:text-violet-300">
-          <FileAudioIcon className="size-4" />
+    <div className="flex h-full items-center justify-center p-4">
+      <div className="max-w-sm rounded-2xl border border-border bg-card p-5 text-center shadow-xl">
+        <span className="mx-auto flex size-14 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          <KindIcon kind={kind} large />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{attachment.name}</p>
-          <p className="text-xs text-muted-foreground">
-            Audio{attachment.sizeBytes ? ` · ${formatBytes(attachment.sizeBytes)}` : ""}
-          </p>
-        </div>
-        <DownloadButton attachment={attachment} compact />
-      </div>
-      <audio src={attachment.url} controls preload="metadata" className="w-full" />
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Fallbacks
-// ---------------------------------------------------------------------------
-
-function FileCard({
-  attachment,
-  kind,
-}: {
-  attachment: MessageAttachmentItem
-  kind: AttachmentKind
-}) {
-  return (
-    <div className="flex items-center gap-3 overflow-hidden rounded-lg border bg-background/90 p-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
-        <KindIcon kind={kind} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{attachment.name}</p>
-        <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        render={
-          <a href={attachment.url} target="_blank" rel="noreferrer" download={attachment.name} />
-        }
-      >
-        <DownloadIcon className="size-3.5" />
-        Download
-      </Button>
-    </div>
-  )
-}
-
-function PendingCard({
-  attachment,
-  kind,
-}: {
-  attachment: MessageAttachmentItem
-  kind: AttachmentKind
-}) {
-  return (
-    <div className="flex items-center gap-3 overflow-hidden rounded-lg border bg-background/90 p-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        <KindIcon kind={kind} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{attachment.name}</p>
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2Icon className="size-3 animate-spin" />
-          Uploading…
+        <h3 className="mt-4 truncate text-sm font-semibold">{attachment.name}</h3>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {pending
+            ? "This attachment is still uploading."
+            : "A preview is not available for this file type. Download remains available from the header."}
         </p>
+        {!pending ? (
+          <a
+            href={attachment.url}
+            download={attachment.name}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-4 rounded-lg")}
+          >
+            <DownloadIcon className="size-4" />
+            Download
+          </a>
+        ) : null}
       </div>
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Shared bits
+// ---------------------------------------------------------------------------
 
 function DownloadButton({
   attachment,
@@ -1018,20 +1228,31 @@ function DownloadButton({
   )
 }
 
-function KindIcon({ kind }: { kind: AttachmentKind }) {
-  if (kind === "image") return <ImageIcon className="size-4" />
-  if (kind === "pdf") return <FileTextIcon className="size-4" />
-  if (kind === "spreadsheet") return <FileSpreadsheetIcon className="size-4" />
-  if (kind === "video") return <FileVideoIcon className="size-4" />
-  if (kind === "audio") return <FileAudioIcon className="size-4" />
-  if (kind === "code") return <FileCodeIcon className="size-4" />
-  if (kind === "text") return <FileTextIcon className="size-4" />
-  return <FileIcon className="size-4" />
+function KindIcon({ kind, large = false }: { kind: AttachmentKind; large?: boolean }) {
+  const className = large ? "size-6" : "size-4"
+  if (kind === "image") return <ImageIcon className={className} />
+  if (kind === "pdf") return <FileTextIcon className={className} />
+  if (kind === "spreadsheet") return <FileSpreadsheetIcon className={className} />
+  if (kind === "video") return <FileVideoIcon className={className} />
+  if (kind === "audio") return <FileAudioIcon className={className} />
+  if (kind === "code") return <FileCodeIcon className={className} />
+  if (kind === "text") return <FileTextIcon className={className} />
+  return <FileIcon className={className} />
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+function kindLabel(attachment: MessageAttachmentItem): string {
+  const extension = getFileExtension(attachment.name).toUpperCase()
+  if (extension) return extension
+  const kind = kindOf(attachment)
+  if (kind === "image") return "Image"
+  if (kind === "pdf") return "PDF"
+  if (kind === "spreadsheet") return "Spreadsheet"
+  if (kind === "video") return "Video"
+  if (kind === "audio") return "Audio"
+  if (kind === "code") return "Code"
+  if (kind === "text") return "Text"
+  return "File"
+}
 
 function clampZoom(value: number): number {
   return Math.min(maxPreviewZoom, Math.max(minPreviewZoom, value))
