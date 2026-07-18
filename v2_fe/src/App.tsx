@@ -4748,7 +4748,7 @@ function AgentsPage({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-4 p-4 sm:p-5">
+    <section className="flex h-full min-h-0 flex-col gap-4 lg:p-4 xl:p-5">
       {messageError ? (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
           {messageError}
@@ -4760,7 +4760,7 @@ function AgentsPage({
           conversation is open (the thread takes over, with a back button). On
           lg+ both panes sit side-by-side as columns. The list stays mounted
           across the swap so its scroll position survives. */}
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm lg:grid lg:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)]">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)] lg:rounded-lg lg:border lg:bg-card lg:shadow-sm">
         {/* Conversation list — a persistent layout panel that stays mounted
             while the message area swaps via the <Outlet/> below. */}
         <div
@@ -4783,8 +4783,8 @@ function AgentsPage({
                 key={chat.id}
                 type="button"
                 className={cn(
-                  "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
-                  activeChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
+                  "w-full min-w-0 overflow-hidden p-3 text-left transition max-lg:border-b max-lg:border-border/60 max-lg:hover:bg-muted/40 lg:rounded-lg lg:border lg:border-border lg:bg-background lg:hover:border-primary/35",
+                  activeChatId === chat.id && "max-lg:bg-muted lg:border-primary/50 lg:ring-2 lg:ring-primary/15"
                 )}
                 onClick={() => openChat(chat)}
               >
@@ -4825,8 +4825,8 @@ function AgentsPage({
                   key={chat.id}
                   type="button"
                   className={cn(
-                    "w-full min-w-0 overflow-hidden rounded-lg border bg-background p-3 text-left transition hover:border-primary/35",
-                    activeChatId === chat.id && "border-primary/50 ring-2 ring-primary/15"
+                    "w-full min-w-0 overflow-hidden p-3 text-left transition max-lg:border-b max-lg:border-border/60 max-lg:hover:bg-muted/40 lg:rounded-lg lg:border lg:border-border lg:bg-background lg:hover:border-primary/35",
+                    activeChatId === chat.id && "max-lg:bg-muted lg:border-primary/50 lg:ring-2 lg:ring-primary/15"
                   )}
                   onClick={() => openChat(chat)}
                 >
@@ -5092,9 +5092,9 @@ function AgentsConversationView() {
   return (
     <section
       className={cn(
-        "grid min-h-0 min-w-0 flex-1 overflow-hidden",
+        "relative grid min-h-0 min-w-0 flex-1 overflow-hidden",
         terminalOpen
-          ? "grid-rows-[minmax(0,1fr)_minmax(18rem,20rem)] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]"
+          ? "grid-rows-[minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_minmax(18rem,20rem)] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]"
           : "grid-rows-[minmax(0,1fr)_auto] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_auto]"
       )}
     >
@@ -5147,7 +5147,10 @@ function AgentsConversationView() {
           ) : null}
           {buildThreadItems(windowedMessages).map((item) =>
             item.type === "date" ? (
-              <div key={item.key} className="flex items-center justify-center py-1">
+              <div
+                key={item.key}
+                className="sticky top-0 z-10 -mx-4 flex items-center justify-center bg-gradient-to-b from-background via-background/85 to-transparent px-4 py-1"
+              >
                 <span className="rounded-full bg-muted px-3 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border">
                   {item.label}
                 </span>
@@ -5306,6 +5309,11 @@ function AgentsConversationView() {
           selectedSession={selectedSession}
           onFocusComposer={focusComposer}
           onMinimize={() => setTerminalOverride(false)}
+          // Below lg the rail is too cramped: expand to a full-width panel that
+          // overlays the chat area (flowing in from the right) and sits above the
+          // composer, dismissable via its own minimize control. At lg+ it drops
+          // back into the normal stacked/side-by-side grid cell.
+          className="absolute inset-0 z-30 bg-card shadow-xl max-lg:animate-in max-lg:slide-in-from-right max-lg:duration-200 lg:static lg:inset-auto lg:z-auto lg:bg-muted/20 lg:shadow-none"
         />
       ) : (
         <TerminalRail isAgentChat={isAgentChat} onExpand={() => setTerminalOverride(true)} />
@@ -5587,10 +5595,12 @@ function AgentTerminalPanel({
   selectedSession,
   onFocusComposer,
   onMinimize,
+  className,
 }: {
   selectedSession?: AgentTerminalSessionView
   onFocusComposer: () => void
   onMinimize: () => void
+  className?: string
 }) {
   const minimizeButton = (
     <Button variant="ghost" size="icon" onClick={onMinimize} title="Minimize terminal" aria-label="Minimize terminal">
@@ -5599,7 +5609,7 @@ function AgentTerminalPanel({
   )
   if (!selectedSession) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-col bg-muted/20">
+      <div className={cn("flex min-h-0 min-w-0 flex-col bg-muted/20", className)}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <TerminalIcon className="size-4 text-primary" />
@@ -5615,7 +5625,7 @@ function AgentTerminalPanel({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-col bg-muted/20">
+    <div className={cn("flex min-h-0 min-w-0 flex-col bg-muted/20", className)}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div>
           <div className="flex items-center gap-2">

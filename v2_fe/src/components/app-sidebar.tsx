@@ -13,6 +13,7 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import {
   ActivityIcon,
@@ -60,39 +61,51 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0]
+  // On mobile the sidebar is a Sheet overlay; navigating away should dismiss it
+  // so the destination isn't left behind the overlay. On desktop it stays put.
+  const { isMobile, setOpenMobile } = useSidebar()
+  const closeMobileSidebar = React.useCallback(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [isMobile, setOpenMobile])
   const navMain = [
     {
       title: "Board",
       url: "/dashboard/board",
       icon: <KanbanSquareIcon />,
+      onSelect: closeMobileSidebar,
     },
     {
       title: "Agents",
       url: "/dashboard/agents",
       icon: <BotIcon />,
       badge: String(onlineAgents),
+      onSelect: closeMobileSidebar,
     },
     {
       title: "Reviews",
       url: "/dashboard/reviews",
       icon: <ShieldCheckIcon />,
       badge: String(pendingReviews),
+      onSelect: closeMobileSidebar,
     },
     {
       title: "Activity",
       url: "/dashboard/activity",
       icon: <ActivityIcon />,
+      onSelect: closeMobileSidebar,
     },
     {
       title: "Invites",
       url: "/dashboard/invites",
       icon: <UserRoundPlusIcon />,
       badge: pendingInvites ? String(pendingInvites) : undefined,
+      onSelect: closeMobileSidebar,
     },
     {
       title: "API Base",
       url: "/dashboard/api",
       icon: <FileJsonIcon />,
+      onSelect: closeMobileSidebar,
     },
   ]
 
@@ -102,7 +115,10 @@ export function AppSidebar({
         <ProjectSwitcher
           projects={projects}
           activeProjectId={activeProjectId}
-          onProjectChange={onProjectChange}
+          onProjectChange={(projectId) => {
+            closeMobileSidebar()
+            onProjectChange(projectId)
+          }}
           onNewProject={onNewProject}
         />
       </SidebarHeader>
@@ -150,7 +166,10 @@ export function AppSidebar({
         <NavProjects
           projects={projects}
           activeProjectId={activeProjectId}
-          onProjectChange={onProjectChange}
+          onProjectChange={(projectId) => {
+            closeMobileSidebar()
+            onProjectChange(projectId)
+          }}
           onInviteProject={onInviteProject}
           onArchiveProject={onArchiveProject}
         />
@@ -159,7 +178,10 @@ export function AppSidebar({
         <NavUser
           user={currentUser ? { name: currentUser.username, email: currentUser.email } : null}
           pendingInvites={myInviteCount}
-          onNavigate={onNavigate}
+          onNavigate={(to) => {
+            closeMobileSidebar()
+            onNavigate(to)
+          }}
           onLogout={onLogout}
         />
       </SidebarFooter>
