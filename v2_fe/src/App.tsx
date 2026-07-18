@@ -45,7 +45,7 @@ import {
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
-import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -2540,7 +2540,7 @@ function App() {
             <Route path="/dashboard/board" element={!activeProject ? (
           <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
         ) : (
-          <section className="grid gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <section className="p-4 sm:p-5">
             <div className="min-w-0 space-y-5">
               <div className="rounded-lg border bg-card p-4 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2583,6 +2583,10 @@ function App() {
                       <GitBranchIcon />
                       API Contract
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => setDialogMode("new-task")}>
+                      <PlusIcon />
+                      Create Task
+                    </Button>
                     <Button size="sm" onClick={() => navigate("/dashboard/agents")}>
                       <PlayIcon />
                       Start Work
@@ -2604,19 +2608,18 @@ function App() {
                   <p className="text-sm text-muted-foreground">{activeProject.apiBase}</p>
                 </div>
                 <div className="hidden items-center gap-2 md:flex">
-                  <Button variant="outline" size="sm">
-                    <TimerIcon />
-                    Focus
-                  </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/activity")}>
                     <ActivityIcon />
                     Activity
                   </Button>
                 </div>
               </div>
 
-              <div className="min-h-[34rem] overflow-x-auto pb-2">
-                <div className="grid min-w-[1040px] grid-cols-5 gap-3">
+              {/* Board columns scroll horizontally. On small screens each column
+                  snaps to ~full screen width (one at a time); from lg up the five
+                  columns flex to fill the row. */}
+              <div className="min-h-[34rem] snap-x snap-mandatory overflow-x-auto pb-2 lg:snap-none">
+                <div className="flex gap-3">
                   {columns.map((column) => {
                     const columnTasks = projectTasks.filter((task) => task.status === column.id)
                     const ColumnIcon = column.icon
@@ -2624,7 +2627,7 @@ function App() {
                       <div
                         key={column.id}
                         className={cn(
-                          "flex min-h-[32rem] flex-col rounded-lg border bg-card/75 transition",
+                          "flex min-h-[32rem] w-[85vw] shrink-0 snap-center flex-col rounded-lg border bg-card/75 transition sm:w-[20rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
                           draggedTaskId && dropTarget?.columnId === column.id && "border-primary/60 bg-primary/5 ring-2 ring-primary/25"
                         )}
                         onDragEnter={() => setDropTarget({ columnId: column.id, taskId: null, position: "after" })}
@@ -2706,26 +2709,6 @@ function App() {
                 </div>
               </div>
             </div>
-
-            <aside className="space-y-4">
-              <ProjectControls
-                project={activeProject}
-                onEditProject={() => setDialogMode("edit-project")}
-                onNewTask={() => setDialogMode("new-task")}
-                onInvite={() => setDialogMode("invite")}
-                onContract={() => setDialogMode("api-contract")}
-              />
-              <AgentRoom agents={activeLiveWorkspace?.agents ?? []} onMessage={() => navigate("/dashboard/agents")} />
-              <ReviewQueue
-                tasks={projectTasks.filter((task) => task.status === "review")}
-                onReview={(taskId) => {
-                  setReviewTaskId(taskId)
-                  setDialogMode("review-decision")
-                }}
-              />
-              <InvitePanel invites={projectInviteRecords} onInvite={() => setDialogMode("invite")} />
-              <ActivityPanel events={activityEvents} />
-            </aside>
           </section>
         )} />
             <Route
@@ -4190,227 +4173,6 @@ function Info({ label, value }: { label: string; value: string }) {
       <p className="text-[0.68rem] font-medium uppercase tracking-normal text-muted-foreground">{label}</p>
       <p className="mt-1 truncate text-sm font-medium">{value}</p>
     </div>
-  )
-}
-
-function ProjectControls({
-  project,
-  onEditProject,
-  onNewTask,
-  onInvite,
-  onContract,
-}: {
-  project: Project
-  onEditProject: () => void
-  onNewTask: () => void
-  onInvite: () => void
-  onContract: () => void
-}) {
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center gap-2">
-        <FileJsonIcon className="size-4 text-primary" />
-        <h2 className="font-semibold">Workspace Actions</h2>
-      </div>
-      <p className="mt-2 text-sm leading-5 text-muted-foreground">
-        {project.owner} owns this project. Forms below are API-ready surfaces for the live backend.
-      </p>
-      <div className="mt-4 grid gap-2">
-        <Button size="sm" onClick={onNewTask}>
-          <PlusIcon />
-          Create Task
-        </Button>
-        <Button variant="outline" size="sm" onClick={onEditProject}>
-          <FileTextIcon />
-          Edit Project
-        </Button>
-        <Button variant="outline" size="sm" onClick={onInvite}>
-          <UserRoundPlusIcon />
-          Invite User Or Agent
-        </Button>
-        <Button variant="outline" size="sm" onClick={onContract}>
-          <FileJsonIcon />
-          API Contract
-        </Button>
-      </div>
-    </section>
-  )
-}
-
-function agentRoomState(status: TaskflowWorkspace["agents"][number]["status"]): "active" | "review" | "idle" {
-  if (status === "connected" || status === "idle" || status === "busy") return "active"
-  if (status === "blocked") return "review"
-  return "idle"
-}
-
-function AgentRoom({ agents, onMessage }: { agents: TaskflowWorkspace["agents"]; onMessage: () => void }) {
-  const onlineCount = agents.filter(
-    (agent) => agent.status === "connected" || agent.status === "idle" || agent.status === "busy"
-  ).length
-
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BotIcon className="size-4 text-primary" />
-          <h2 className="font-semibold">Agent Room</h2>
-        </div>
-        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
-          {onlineCount} online
-        </span>
-      </div>
-      <div className="mt-4 space-y-3">
-        {agents.length === 0 ? (
-          <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">
-            No agents in this project yet.
-          </p>
-        ) : (
-          agents.map((agent) => (
-            <AgentLine
-              key={agent.id}
-              name={agent.display_name}
-              detail={agent.project_root || agent.identifier}
-              state={agentRoomState(agent.status)}
-            />
-          ))
-        )}
-      </div>
-      <div className="mt-4">
-        <Button size="sm" className="w-full" onClick={onMessage}>
-          <SendIcon />
-          Message agents
-        </Button>
-      </div>
-    </section>
-  )
-}
-
-function AgentLine({ name, detail, state }: { name: string; detail: string; state: "active" | "review" | "idle" }) {
-  const color =
-    state === "active"
-      ? "bg-emerald-500"
-      : state === "review"
-        ? "bg-amber-500"
-        : "bg-slate-400"
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-muted/60 p-2.5">
-      <span className={cn("size-2.5 rounded-full", color)} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{name}</p>
-        <p className="truncate text-xs text-muted-foreground">{detail}</p>
-      </div>
-      <MessageSquareIcon className="size-4 text-muted-foreground" />
-    </div>
-  )
-}
-
-function ReviewQueue({ tasks, onReview }: { tasks: Task[]; onReview: (taskId: string) => void }) {
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <InboxIcon className="size-4 text-amber-700" />
-          <h2 className="font-semibold">Human Reviews</h2>
-        </div>
-        <span className="text-sm text-muted-foreground">{tasks.length}</span>
-      </div>
-      <div className="mt-3 space-y-2">
-        {tasks.slice(0, 3).map((task) => (
-          <div key={task.id} className="rounded-lg bg-muted/60 p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{task.title}</p>
-                <MarkdownRenderer
-                  content={task.review}
-                  compact
-                  className="mt-1 [&_p]:line-clamp-2"
-                />
-              </div>
-              <Button variant="outline" size="xs" onClick={() => onReview(task.id)}>
-                Decide
-              </Button>
-            </div>
-          </div>
-        ))}
-        {tasks.length === 0 ? (
-          <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">No pending reviews</p>
-        ) : null}
-      </div>
-    </section>
-  )
-}
-
-function InvitePanel({ invites, onInvite }: { invites: InviteRecord[]; onInvite: () => void }) {
-  const pendingCount = invites.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
-  const agentCount = invites.filter((invite) => invite.type === "Agent").length
-
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <UserRoundPlusIcon className="size-4 text-primary" />
-          <h2 className="font-semibold">Invites</h2>
-        </div>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-          {pendingCount} pending
-        </span>
-      </div>
-      <div className="mt-4 flex gap-2">
-        <Input className="h-9" readOnly value={invites[0]?.recipient ?? ""} placeholder="No pending invite" />
-        <Button size="sm" onClick={onInvite}>
-          <UsersIcon />
-          Add
-        </Button>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Button variant="outline" size="sm">{invites.filter((invite) => invite.role === "Owner").length} Owner</Button>
-        <Button variant="outline" size="sm">{invites.filter((invite) => invite.role === "Developer").length} Dev</Button>
-        <Button variant="outline" size="sm">{agentCount} Agent</Button>
-      </div>
-    </section>
-  )
-}
-
-function ActivityPanel({ events }: { events: ActivityEvent[] }) {
-  const recent = events.slice(0, 4)
-  const uniqueActors = Array.from(new Set(recent.map((event) => event.actor)))
-
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ActivityIcon className="size-4 text-primary" />
-          <h2 className="font-semibold">Activity</h2>
-        </div>
-        {uniqueActors.length ? (
-          <AvatarGroup>
-            {uniqueActors.slice(0, 2).map((actor) => (
-              <Avatar key={actor} size="sm">
-                <AvatarFallback>{toInitials(actor)}</AvatarFallback>
-              </Avatar>
-            ))}
-            {uniqueActors.length > 2 ? <AvatarGroupCount>+{uniqueActors.length - 2}</AvatarGroupCount> : null}
-          </AvatarGroup>
-        ) : null}
-      </div>
-      <div className="mt-4 space-y-3">
-        {recent.length === 0 ? (
-          <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">No activity yet.</p>
-        ) : (
-          recent.map((event) => (
-            <div key={event.id} className="flex gap-3">
-              <Clock3Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0">
-                <MarkdownRenderer content={event.detail} compact className="[&_p]:text-sm" />
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {event.actor} · {event.time}
-                </p>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
   )
 }
 
