@@ -390,7 +390,9 @@ function AttachmentPreviewDialog({
   const previewRef = React.useRef<HTMLDivElement>(null)
   const active = attachments[activeIndex]
   const kind = active ? kindOf(active) : "file"
-  const canZoom = kind === "image" || kind === "pdf"
+  // Images are shown at their natural dimensions and scrolled freely (no zoom
+  // scaling); only the PDF viewer keeps the zoom controls.
+  const canZoom = kind === "pdf"
   const canNavigate = attachments.length > 1
   const zoomKey = active?.id ?? ""
   const zoom = zoomState?.id === zoomKey ? zoomState.value : 1
@@ -536,17 +538,16 @@ function AttachmentPreviewContent({
   }
 
   if (kind === "image") {
+    // Natural dimensions, no zoom scaling. The container scrolls in both axes so
+    // an image larger than the viewport can be roamed freely; `m-auto` centers a
+    // smaller image and collapses to let scrolling reach every edge of a larger
+    // one (the classic flex-overflow centering fix).
     return (
-      <div className="h-full min-h-0 overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
-        <div
-          className="flex min-h-full min-w-full items-center justify-center"
-          style={{ height: `${zoom * 100}%`, width: `${zoom * 100}%` }}
-        >
-          <AttachmentImage
-            attachment={attachment}
-            className="h-full w-full rounded-xl object-contain shadow-2xl transition-[height,width] duration-150"
-          />
-        </div>
+      <div className="flex h-full min-h-0 w-full overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
+        <AttachmentImage
+          attachment={attachment}
+          className="m-auto block max-w-none rounded-xl shadow-2xl"
+        />
       </div>
     )
   }
