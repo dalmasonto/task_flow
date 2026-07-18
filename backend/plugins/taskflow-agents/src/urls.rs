@@ -103,4 +103,12 @@ pub fn router() -> Router {
             "/api/taskflow/tasks/{task}/agent/review",
             post(views::review_task_as_agent),
         )
+        // Agent activity ingest (agent-authed via `RequireAgent`). An agent posts
+        // its real actions — single or batch — as `TaskflowTaskActivity` stamped
+        // with the agent; a task link is kept only if the task is in the agent's
+        // project. JSON only and modestly sized, so the default body limit is fine.
+        .route(
+            "/api/taskflow/agents/activity",
+            post(views::post_activity_as_agent),
+        )
 }

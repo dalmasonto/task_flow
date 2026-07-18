@@ -234,6 +234,16 @@ impl TestApp {
         }
     }
 
+    /// POST JSON with NO authentication header at all — for asserting an
+    /// agent-gated route 401s a caller who presents no key. Sets no default
+    /// header, so it must be the FIRST request on a fresh client (the client has
+    /// no header-removal API; `set_default_header` only ever adds).
+    pub async fn post_json_noauth(&self, path: &str, body: Value) -> TestResponse {
+        TestResponse {
+            inner: self.client.post_json(path, &body).await,
+        }
+    }
+
     /// POST JSON authenticated as an AGENT — sets `Authorization: Agent <key>`,
     /// the header `RequireAgent` reads. The counterpart of [`post_as`] for the
     /// agent-auth path.

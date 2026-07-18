@@ -1851,3 +1851,150 @@ pub async fn review_task_as_agent(
     )
     .await
 }
+
+// ---------------------------------------------------------------------------
+// Stage 5 — agent-authed activity ingest. An agent (via Claude Code hooks)
+// posts its REAL actions (tool calls, session start/stop, ...) as
+// `TaskflowTaskActivity` rows stamped with the agent's identity. Unlike the
+// legacy system that only saw MCP tool calls, every row here is derived
+// server-side from the authenticated credential — a trustworthy log the client
+// cannot forge. Hooks fire rapidly, so the endpoint accepts either a single
+// event or a batch (one request per tool call would be wasteful).
+// ---------------------------------------------------------------------------
+
+/// The model caps `action` at 120 chars, `body_markdown` at 12000, and
+/// `metadata_json` at 8000. Reject at the edge (400) rather than let the DB
+/// truncate or error.
+const MAX_ACTION_CHARS: usize = 120;
+const MAX_ACTIVITY_BODY_CHARS: usize = 12_000;
+const MAX_METADATA_CHARS: usize = 8_000;
+
+/// Upper bound on events per batch. Hooks fire rapidly and coalesce many tool
+/// calls into one request; the cap bounds a single request's write amplification
+/// so a runaway or hostile client cannot flood the activity stream in one call.
+const MAX_ACTIVITY_BATCH: usize = 200;
+
+/// One activity event the agent reports. `action` is required (a short verb like
+/// `Read`, `Edit`, `Bash`, `session_start`); the rest is optional detail. The
+/// actor identity, project, and timestamp are all derived server-side from the
+/// authenticated agent — never accepted here, so there is nothing to forge.
+#[derive(Debug, Deserialize)]
+pub struct ActivityEventInput {
+    pub action: String,
+    #[serde(default)]
+    pub body_markdown: Option<String>,
+    #[serde(default)]
+    pub metadata_json: Option<String>,
+    #[serde(default)]
+    pub task: Option<i64>,
+}
+
+/// The activity endpoint accepts EITHER a single event (`{action, ...}`) OR a
+/// batch (`{events: [ ... ]}`). Untagged: a body carrying `events` is a batch,
+/// otherwise it is parsed as one event — the same shape as the frames endpoint.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum PostActivityInput {
+    Batch { events: Vec<ActivityEventInput> },
+    Single(ActivityEventInput),
+}
+
+/// Validate one event's text fields against the model caps. Empty (or
+/// whitespace-only) `action` and any over-cap field is a 400 — the whole batch
+/// is validated up front so it either lands whole or not at all (no partial
+/// write before a bad event is discovered). Returns the trimmed action.
+fn validate_activity_event(event: &ActivityEventInput) -> Result<(), StatusCode> {
+    let action = event.action.trim();
+    if action.is_empty() || action.chars().count() > MAX_ACTION_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some(body) = event.body_markdown.as_deref() {
+        if body.chars().count() > MAX_ACTIVITY_BODY_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+    if let Some(meta) = event.metadata_json.as_deref() {
+        if meta.chars().count() > MAX_METADATA_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+    Ok(())
+}
+
+/// Resolve an optional task id to a link the activity may keep. The link is kept
+/// ONLY IF the task exists AND belongs to `project_id` — a stale, unknown, or
+/// foreign-project id drops to `None` rather than failing the event, so one bad
+/// id never sinks a whole batch. Absent id stays `None` without a query.
+async fn scoped_task_link(
+    task_id: Option<i64>,
+    project_id: i64,
+) -> Result<Option<i64>, StatusCode> {
+    let Some(task_id) = task_id else {
+        return Ok(None);
+    };
+    let task = TaskflowTask::objects()
+        .filter(taskflow_task::ID.eq(task_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(match task {
+        Some(task) if task.project.id() == project_id => Some(task_id),
+        _ => None,
+    })
+}
+
+/// `POST /api/taskflow/agents/activity` (agent-authed) — ingest the agent's real
+/// activity. Accepts a single event or a batch (cap [`MAX_ACTIVITY_BATCH`]). Each
+/// event becomes a `TaskflowTaskActivity` stamped `actor_kind=agent`,
+/// `actor_agent_id=<id>`, `actor_user=None`, `actor_label=<display_name>`,
+/// `project=<agent's project>`. The `task` link is kept only if that task is in
+/// the agent's project (else dropped to `None` — a stale id never fails the
+/// batch). Empty or over-long `action` is a 400. Returns `{ created: <count> }`.
+///
+/// Realtime already exposes `task_activity` (id-only), so subscribers see each
+/// new row without any change here.
+pub async fn post_activity_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<PostActivityInput>,
+) -> Result<Response, StatusCode> {
+    let events = match input {
+        PostActivityInput::Batch { events } => events,
+        PostActivityInput::Single(event) => vec![event],
+    };
+    if events.is_empty() || events.len() > MAX_ACTIVITY_BATCH {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Validate every event up front so the batch lands whole or not at all — a
+    // bad action in event 3 must not leave events 1–2 already written.
+    for event in &events {
+        validate_activity_event(event)?;
+    }
+
+    let mut created = 0i64;
+    for event in events {
+        // Task scoping is per event: keep the link only for a task in the agent's
+        // own project, else drop it (never a 400 — a stale id is not a failure).
+        let task_link = scoped_task_link(event.task, agent.project_id).await?;
+
+        TaskflowTaskActivity::objects()
+            .create(TaskflowTaskActivity {
+                id: 0,
+                // Scope is the agent's own project, never accepted from the body.
+                project: ForeignKey::new(agent.project_id),
+                task: task_link.map(ForeignKey::new),
+                actor_kind: TaskflowActorKind::Agent,
+                actor_user: None,
+                actor_agent_id: Some(agent.agent_id),
+                actor_label: agent.display_name.clone(),
+                action: event.action.trim().to_string(),
+                body_markdown: event.body_markdown,
+                metadata_json: event.metadata_json,
+                created_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        created += 1;
+    }
+
+    Ok((StatusCode::OK, Json(json!({ "created": created }))).into_response())
+}
