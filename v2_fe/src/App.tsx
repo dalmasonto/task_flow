@@ -124,6 +124,7 @@ import {
   type PendingAttachment,
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
 import { ProfilePage } from "@/pages/account/ProfilePage"
 import { SettingsPage } from "@/pages/account/SettingsPage"
@@ -4430,6 +4431,7 @@ function AgentsPage({
 }) {
   const navigate = useNavigate()
   const { conversationId } = useParams()
+  const isMobile = useIsMobile()
   const [messageError, setMessageError] = useState<string | null>(null)
   const directChats = useMemo<AgentChatContext[]>(
     () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser) : []),
@@ -4453,11 +4455,14 @@ function AgentsPage({
   // Default to the project room (the first group chat) on the index route, so
   // the page opens on a conversation rather than the empty state. Falls back to
   // the first DM; the empty state shows only when there are no conversations.
+  // Only auto-open on DESKTOP: on mobile the index route must land on the
+  // full-screen conversation LIST so the user taps in deliberately (jumping
+  // straight into a thread would hide the list behind a back button).
   useEffect(() => {
-    if (conversationId) return
+    if (conversationId || isMobile) return
     const first = channelChats[0] ?? directChats[0]
     if (first) navigate(encodeURIComponent(first.id), { replace: true })
-  }, [conversationId, channelChats, directChats, navigate])
+  }, [conversationId, isMobile, channelChats, directChats, navigate])
   const terminalSessions = useMemo(
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
     [liveWorkspace]
@@ -4730,10 +4735,20 @@ function AgentsPage({
         </p>
       ) : null}
 
-      <section className="grid min-h-0 flex-1 grid-rows-[minmax(9rem,13rem)_minmax(0,1fr)] overflow-hidden rounded-lg border bg-card shadow-sm xl:grid-rows-none xl:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)]">
+      {/* Responsive master/detail. On mobile it's a single full-height pane:
+          the list fills the screen on the index route and hides once a
+          conversation is open (the thread takes over, with a back button). On
+          lg+ both panes sit side-by-side as columns. The list stays mounted
+          across the swap so its scroll position survives. */}
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm lg:grid lg:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)]">
         {/* Conversation list — a persistent layout panel that stays mounted
             while the message area swaps via the <Outlet/> below. */}
-        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b bg-muted/35 p-3 xl:border-b-0 xl:border-r">
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-muted/35 p-3 lg:border-r",
+            conversationId ? "hidden lg:flex" : "flex"
+          )}
+        >
           <div className="flex shrink-0 items-center gap-2 text-sm font-semibold">
             <InboxIcon className="size-4 text-primary" />
             Groups And DMs
@@ -4851,7 +4866,9 @@ function AgentsPage({
 /// message area before any conversation is opened. No message content loads here.
 function AgentsConversationEmpty() {
   return (
-    <div className="grid min-h-0 min-w-0 place-items-center p-8 text-center">
+    // Desktop-only: on mobile the index route shows the full-screen conversation
+    // list, so this empty state (the outlet's index element) is hidden there.
+    <div className="hidden min-h-0 min-w-0 place-items-center p-8 text-center lg:grid">
       <div className="max-w-sm">
         <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
           <InboxIcon className="size-6" />
@@ -4880,6 +4897,7 @@ function AgentsConversationView() {
     addMemberCandidates,
     onAddMember,
   } = useAgentsOutletContext()
+  const navigate = useNavigate()
 
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
@@ -5026,7 +5044,7 @@ function AgentsConversationView() {
   return (
     <section
       className={cn(
-        "grid min-h-0 min-w-0 overflow-hidden",
+        "grid min-h-0 min-w-0 flex-1 overflow-hidden",
         terminalOpen
           ? "grid-rows-[minmax(0,1fr)_minmax(18rem,20rem)] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]"
           : "grid-rows-[minmax(0,1fr)_auto] xl:grid-rows-none xl:grid-cols-[minmax(0,1fr)_auto]"
@@ -5034,18 +5052,31 @@ function AgentsConversationView() {
     >
       <div className="flex min-h-0 min-w-0 flex-col border-b xl:border-b-0 xl:border-r">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold">{selectedChat.title}</h2>
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
-                {chatLabel}
-              </span>
+          <div className="flex min-w-0 items-center gap-2">
+            {/* Mobile-only back control: returns to the full-screen list. On
+                lg+ the list is always visible beside the thread, so it's hidden. */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="-ml-1 shrink-0 lg:hidden"
+              onClick={() => navigate("/dashboard/agents")}
+            >
+              <ArrowLeftIcon />
+              <span className="sr-only">Back to conversations</span>
+            </Button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold">{selectedChat.title}</h2>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
+                  {chatLabel}
+                </span>
+              </div>
+              <MarkdownRenderer
+                content={`${selectedChat.detail} · ${memberSummary}`}
+                compact
+                className="mt-1 [&_p]:text-xs"
+              />
             </div>
-            <MarkdownRenderer
-              content={`${selectedChat.detail} · ${memberSummary}`}
-              compact
-              className="mt-1 [&_p]:text-xs"
-            />
           </div>
           <div className="flex items-center gap-2">
             {canManageMembers ? (
