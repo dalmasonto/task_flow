@@ -29,8 +29,22 @@ pub fn router() -> Router {
         // sender fields; this route derives them.
         .route(
             "/api/taskflow/agents/messages",
-            post(views::send_message).layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
+            post(views::send_message)
+                // Agent-authed read of a channel's messages (Stage 6). Shares the
+                // path with the human send; the GET is `RequireAgent`-gated.
+                .get(views::list_messages_as_agent)
+                .layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
         )
+        // Stage 6 — agent-authed READ surface the MCP needs. Every handler is
+        // `RequireAgent`-gated and scopes its query to the agent's own project.
+        // `whoami`, `channels`, `agents` are new paths; `tasks`, `messages`, and
+        // `activity` add a GET alongside their existing agent-authed POST.
+        .route("/api/taskflow/agents/whoami", get(views::whoami_as_agent))
+        .route(
+            "/api/taskflow/agents/channels",
+            get(views::list_channels_as_agent),
+        )
+        .route("/api/taskflow/agents/agents", get(views::list_agents_as_agent))
         // The only authorized way to add a person to a channel roster. Membership
         // and identity are resolved server-side; the channel comes from the path.
         .route(
@@ -81,7 +95,7 @@ pub fn router() -> Router {
         // status, or claim it. Each emits a task activity as the agent.
         .route(
             "/api/taskflow/agents/tasks",
-            post(views::create_task_as_agent),
+            post(views::create_task_as_agent).get(views::list_tasks_as_agent),
         )
         .route(
             "/api/taskflow/agents/tasks/{task}/status",
@@ -109,6 +123,6 @@ pub fn router() -> Router {
         // project. JSON only and modestly sized, so the default body limit is fine.
         .route(
             "/api/taskflow/agents/activity",
-            post(views::post_activity_as_agent),
+            post(views::post_activity_as_agent).get(views::list_activity_as_agent),
         )
 }

@@ -6,12 +6,12 @@ use serde_json::json;
 use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
 use taskflow_tasks::models::{
     TaskflowActorKind, TaskflowTask, TaskflowTaskActivity, TaskflowTaskPriority, TaskflowTaskStatus,
-    taskflow_task,
+    taskflow_task, taskflow_task_activity,
 };
 use umbral::orm::{FileField, ForeignKey};
 use umbral::storage::storage_opt;
 use umbral::web::multipart::{FilePart, is_multipart, parse_multipart};
-use umbral::web::{HeaderMap, IntoResponse, Json, Path, Response, StatusCode, header};
+use umbral::web::{HeaderMap, IntoResponse, Json, Path, Query, Response, StatusCode, header};
 use umbral_auth::{AuthUser, RequireAuth, auth_user};
 use uuid::Uuid;
 
@@ -1997,4 +1997,304 @@ pub async fn post_activity_as_agent(
     }
 
     Ok((StatusCode::OK, Json(json!({ "created": created }))).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// Stage 6 — agent-authed READ endpoints the MCP needs. REST is human-authed, so
+// these give an agent a project-scoped read surface using its own credential
+// (`RequireAgent`). Every query is filtered to the agent's `project_id`, exactly
+// as the write paths scope their writes — an agent can only ever see its own
+// project. No new model/migration; these are pure reads over existing tables.
+// ---------------------------------------------------------------------------
+
+/// The default and hard-cap page sizes shared by the paginated read endpoints
+/// (`messages`, `activity`). A request may ask for fewer, never more; a missing
+/// or non-positive value falls back to the default.
+const READ_LIMIT_DEFAULT: i64 = 50;
+const READ_LIMIT_MAX: i64 = 200;
+
+/// Resolve a client-supplied `?limit=` to an effective page size: clamp to
+/// `[1, READ_LIMIT_MAX]`, defaulting to `READ_LIMIT_DEFAULT` when absent or
+/// non-positive. Returned as `u64` for the ORM's `.limit`.
+fn effective_limit(requested: Option<i64>) -> u64 {
+    match requested {
+        Some(n) if n > 0 => n.min(READ_LIMIT_MAX) as u64,
+        _ => READ_LIMIT_DEFAULT as u64,
+    }
+}
+
+/// Whether `agent_id` is on `channel`'s explicit roster (a `member_kind = agent`
+/// row). The building block of channel visibility for an agent.
+async fn agent_on_channel_roster(channel_id: i64, agent_id: i64) -> Result<bool, StatusCode> {
+    Ok(TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(channel_id)
+                & taskflow_agent_channel_member::AGENT.eq(agent_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some())
+}
+
+/// Whether the agent may see `channel` — the same rule the write paths enforce:
+/// an explicit agent roster row, OR a shared (non-`Direct`) room in the agent's
+/// own project. A DM the agent isn't on the roster of, or any room in another
+/// project, is invisible.
+async fn agent_can_see_channel(
+    channel: &TaskflowAgentChannel,
+    agent_id: i64,
+    project_id: i64,
+) -> Result<bool, StatusCode> {
+    if agent_on_channel_roster(channel.id, agent_id).await? {
+        return Ok(true);
+    }
+    Ok(channel.kind != TaskflowChannelKind::Direct && channel.project.id() == project_id)
+}
+
+/// `GET /api/taskflow/agents/whoami` (agent-authed) — the identity behind the
+/// presented credential. Loads the authenticated `TaskflowAgent` row and returns
+/// its stable identity fields, so an agent (or the MCP acting for it) can confirm
+/// who it is and which project it is scoped to before doing anything else.
+pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Response, StatusCode> {
+    let row = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent.agent_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "agent_id": row.id,
+            "display_name": row.display_name,
+            "identifier": row.identifier,
+            "project": row.project.id(),
+            "status": row.status,
+        })),
+    )
+        .into_response())
+}
+
+/// Query for `GET /api/taskflow/agents/tasks`. Both filters are optional:
+/// `status` narrows to one `TaskflowTaskStatus` (the stored snake_case string),
+/// `assigned=me` narrows to tasks claimed by THIS agent.
+#[derive(Debug, Deserialize)]
+pub struct ListTasksQuery {
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub assigned: Option<String>,
+}
+
+/// `GET /api/taskflow/agents/tasks` (agent-authed) — the tasks in the agent's
+/// project, ordered `sort_order, id` (the board order). `?status=` filters to one
+/// status; `?assigned=me` filters to tasks this agent has claimed. Returns the
+/// full task rows as a flat array.
+pub async fn list_tasks_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Query(params): Query<ListTasksQuery>,
+) -> Result<Response, StatusCode> {
+    let mut query =
+        TaskflowTask::objects().filter(taskflow_task::PROJECT.eq(agent.project_id));
+
+    // The status column is a string at the DB layer (same convention as the
+    // credential/membership gates); filter on the trimmed value directly. An
+    // unknown status simply matches no rows.
+    if let Some(status) = params.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        query = query.filter(taskflow_task::STATUS.eq(status));
+    }
+
+    // `assigned=me` narrows to tasks this agent has claimed. Any other value is
+    // ignored (no assignee filter), matching the lenient query-param style
+    // elsewhere in this file.
+    if params.assigned.as_deref() == Some("me") {
+        query = query.filter(taskflow_task::ASSIGNED_AGENT_ID.eq(agent.agent_id));
+    }
+
+    let tasks = query
+        .order_by(taskflow_task::SORT_ORDER.asc())
+        .order_by(taskflow_task::ID.asc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::OK, Json(json!(tasks))).into_response())
+}
+
+/// `GET /api/taskflow/agents/channels` (agent-authed) — the channels the agent
+/// may see in its project: every shared (non-`Direct`) room PLUS the `Direct`
+/// channels the agent is explicitly on the roster of. Returns a flat array of
+/// `{ id, title, kind, topic }`, ordered by id.
+pub async fn list_channels_as_agent(
+    RequireAgent(agent): RequireAgent,
+) -> Result<Response, StatusCode> {
+    // The channels this agent is explicitly rostered into — the only DMs it may
+    // see. One query, then an in-memory membership test per channel.
+    let roster_channel_ids: Vec<i64> = TaskflowAgentChannelMember::objects()
+        .filter(taskflow_agent_channel_member::AGENT.eq(agent.agent_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(|m| m.channel.id())
+        .collect();
+
+    let channels = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::PROJECT.eq(agent.project_id))
+        .order_by(taskflow_agent_channel::ID.asc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let visible: Vec<serde_json::Value> = channels
+        .into_iter()
+        // A shared room is visible to any in-project agent; a DM only if rostered.
+        .filter(|c| {
+            c.kind != TaskflowChannelKind::Direct || roster_channel_ids.contains(&c.id)
+        })
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "title": c.title,
+                "kind": c.kind,
+                "topic": c.topic,
+            })
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(json!(visible))).into_response())
+}
+
+/// Query for `GET /api/taskflow/agents/messages`. `channel` is required; `since`
+/// pages forward (`id > since`); `limit` caps the page (default 50, max 200).
+#[derive(Debug, Deserialize)]
+pub struct ListMessagesQuery {
+    pub channel: i64,
+    #[serde(default)]
+    pub since: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// `GET /api/taskflow/agents/messages?channel=&since=&limit=` (agent-authed) —
+/// the messages in a channel the agent may see. Verifies channel visibility
+/// (same rule as the send path: roster row, or a shared room in the agent's
+/// project) — 404 if the channel is unknown, 403 if it exists but the agent
+/// cannot see it. Orders by id, pages forward with `id > since`, and caps the
+/// page. Returns `{ messages: [...], read_cursor: <message_id|null> }`, where
+/// `read_cursor` is how far THIS agent has read (so the client knows unread).
+pub async fn list_messages_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Query(params): Query<ListMessagesQuery>,
+) -> Result<Response, StatusCode> {
+    let channel = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::ID.eq(params.channel))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Visibility is the authorization boundary — a channel the agent can't see
+    // must never leak its messages.
+    if !agent_can_see_channel(&channel, agent.agent_id, agent.project_id).await? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let mut query = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::CHANNEL.eq(channel.id));
+    if let Some(since) = params.since {
+        query = query.filter(taskflow_agent_message::ID.gt(since));
+    }
+    let messages = query
+        .order_by(taskflow_agent_message::ID.asc())
+        .limit(effective_limit(params.limit))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // The agent's own read cursor for this channel, if it has one — the id of the
+    // furthest message it has read. `null` when the agent has never marked read.
+    let read_cursor = TaskflowChannelReadCursor::objects()
+        .filter(
+            taskflow_channel_read_cursor::CHANNEL.eq(channel.id)
+                & taskflow_channel_read_cursor::MEMBER_AGENT.eq(agent.agent_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .and_then(|c| c.last_read_message.as_ref().map(|fk| fk.id()));
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "messages": messages,
+            "read_cursor": read_cursor,
+        })),
+    )
+        .into_response())
+}
+
+/// `GET /api/taskflow/agents/agents` (agent-authed) — the other agents in the
+/// caller's project, so an agent can discover who to address. Returns a flat
+/// array of `{ id, display_name, identifier, status, last_seen_at }`, ordered by
+/// id.
+pub async fn list_agents_as_agent(
+    RequireAgent(agent): RequireAgent,
+) -> Result<Response, StatusCode> {
+    let agents = TaskflowAgent::objects()
+        .filter(taskflow_agent::PROJECT.eq(agent.project_id))
+        .order_by(taskflow_agent::ID.asc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let items: Vec<serde_json::Value> = agents
+        .into_iter()
+        .map(|a| {
+            json!({
+                "id": a.id,
+                "display_name": a.display_name,
+                "identifier": a.identifier,
+                "status": a.status,
+                "last_seen_at": a.last_seen_at,
+            })
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(json!(items))).into_response())
+}
+
+/// Query for `GET /api/taskflow/agents/activity`. `task` optionally narrows to
+/// one task's activity; `limit` caps the page (default 50, max 200).
+#[derive(Debug, Deserialize)]
+pub struct ListActivityQuery {
+    #[serde(default)]
+    pub task: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// `GET /api/taskflow/agents/activity?task=&limit=` (agent-authed) — the recent
+/// `TaskflowTaskActivity` in the agent's project, newest first, capped. `?task=`
+/// narrows to one task's stream. Returns the full activity rows as a flat array.
+pub async fn list_activity_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Query(params): Query<ListActivityQuery>,
+) -> Result<Response, StatusCode> {
+    let mut query = TaskflowTaskActivity::objects()
+        .filter(taskflow_task_activity::PROJECT.eq(agent.project_id));
+    if let Some(task_id) = params.task {
+        query = query.filter(taskflow_task_activity::TASK.eq(task_id));
+    }
+
+    let activity = query
+        .order_by(taskflow_task_activity::ID.desc())
+        .limit(effective_limit(params.limit))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::OK, Json(json!(activity))).into_response())
 }

@@ -257,6 +257,29 @@ impl TestApp {
         }
     }
 
+    /// GET authenticated as an AGENT — sets `Authorization: Agent <key>`, the
+    /// header `RequireAgent` reads. The read-path counterpart of
+    /// [`post_as_agent`].
+    pub async fn get_as_agent(&self, key: &str, path: &str) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        TestResponse {
+            inner: self.client.get(path).await,
+        }
+    }
+
+    /// GET with NO authentication header at all — for asserting an agent-gated
+    /// read route 401s a caller who presents no key. Sets no default header, so it
+    /// must be the FIRST request on a fresh client (the client has no
+    /// header-removal API; `set_default_header` only ever adds).
+    pub async fn get_noauth(&self, path: &str) -> TestResponse {
+        TestResponse {
+            inner: self.client.get(path).await,
+        }
+    }
+
     /// Revoke every credential belonging to `agent_id` (flip status to
     /// `Revoked`). Used to prove `RequireAgent` rejects a revoked key with 401.
     pub async fn revoke_agent_credentials(&self, agent_id: i64) {
