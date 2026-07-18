@@ -232,3 +232,80 @@ async fn agent_send_is_idempotent_per_nonce() {
     assert_eq!(first.json().await["id"], second.json().await["id"]);
     assert_eq!(app.count_messages(channel).await, 1);
 }
+
+// Linking into a project with NO channels creates the shared room and rosters
+// the agent into it. Without this the agent is mute (nowhere to post) and deaf
+// (review report-back silently skips when no room exists) until a human happens
+// to open the chat UI, which is what lazily created the room before.
+#[tokio::test]
+async fn linking_bootstraps_a_shared_room() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+
+    let minted = mint(&app, user, project, "Builder", "main").await;
+    let key = minted["key"].as_str().unwrap().to_string();
+
+    // The freshly linked agent can see a room without anyone having sent a thing.
+    let resp = app.get_as_agent(&key, "/api/taskflow/agents/channels").await;
+    assert_eq!(resp.status(), 200);
+    let channels = resp.json().await;
+    let rooms = channels.as_array().expect("channels array");
+    assert_eq!(rooms.len(), 1, "expected exactly one bootstrapped room, got {channels:?}");
+
+    // ...and can actually post into it, which is the whole point.
+    let room = rooms[0]["id"].as_i64().expect("room id");
+    let sent = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/agent/messages",
+            json!({ "channel": room, "body_markdown": "linked and ready" }),
+        )
+        .await;
+    assert_eq!(sent.status(), 200, "agent should be able to post in its bootstrapped room");
+}
+
+// The bootstrap is idempotent: re-linking (which mints a fresh key) must not
+// pile up duplicate rooms or duplicate roster rows. The `(channel, user)` unique
+// index does NOT cover agent rows -- `user` is NULL for them and SQL treats
+// NULLs as distinct -- so nothing at the schema level would catch a regression.
+#[tokio::test]
+async fn linking_twice_reuses_one_room() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+
+    mint(&app, user, project, "Builder", "main").await;
+    let second = mint(&app, user, project, "Builder", "main").await;
+    let key = second["key"].as_str().unwrap().to_string();
+
+    let resp = app.get_as_agent(&key, "/api/taskflow/agents/channels").await;
+    let channels = resp.json().await;
+    assert_eq!(
+        channels.as_array().expect("channels array").len(),
+        1,
+        "re-linking must reuse the existing room, got {channels:?}"
+    );
+}
+
+// An existing shared room is adopted rather than duplicated -- the human
+// frontend may well have created one already.
+#[tokio::test]
+async fn linking_adopts_an_existing_room() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let existing = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+
+    let minted = mint(&app, user, project, "Builder", "main").await;
+    let key = minted["key"].as_str().unwrap().to_string();
+
+    let resp = app.get_as_agent(&key, "/api/taskflow/agents/channels").await;
+    let channels = resp.json().await;
+    let rooms = channels.as_array().expect("channels array");
+    assert_eq!(rooms.len(), 1, "should adopt the existing room, got {channels:?}");
+    assert_eq!(rooms[0]["id"].as_i64().unwrap(), existing);
+}

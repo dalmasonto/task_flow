@@ -194,7 +194,21 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     "Advance a task's status (e.g. to partial_done to request review, or in_progress). Returns the updated task.",
     {
       task: z.number().int().describe("Task id."),
-      status: z.string().describe("New status string (not_started, in_progress, partial_done, done, blocked, ...)."),
+      // An enum, not a free string: the backend rejects anything outside this set
+      // with a 422 the agent only discovers at call time. Plausible-sounding
+      // guesses ("in_review", "todo") are exactly what a model reaches for, so
+      // the valid set belongs in the schema where it can't be guessed wrong.
+      status: z
+        .enum([
+          "not_started",
+          "in_progress",
+          "paused",
+          "blocked",
+          "partial_done",
+          "done",
+          "archived",
+        ])
+        .describe("New status. Use partial_done to request review."),
       ...profileArg,
     },
     async ({ task, status, profile }) => {
@@ -263,9 +277,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "check_messages",
-    "Read messages in a channel. Pass since=<message id> to page forward past messages you've already seen. Returns { messages, read_cursor }.",
+    "Read messages. Omit channel to check every channel you're in — the usual 'anything for me?' poll. Pass since=<message id> to page forward past messages you've already seen.",
     {
-      channel: z.number().int().describe("Channel id to read."),
+      // Optional on purpose: an agent polling for new work has no channel id to
+      // start from, and requiring one made "do I have any messages?"
+      // unanswerable without first guessing an id.
+      channel: z
+        .number()
+        .int()
+        .optional()
+        .describe("Channel id to read. Omit to check all channels you're in."),
       since: z.number().int().optional().describe("Only return messages with id greater than this."),
       limit: z.number().int().optional().describe("Max messages (default 50, max 200)."),
       ...profileArg,
@@ -273,7 +294,24 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ channel, since, limit, profile }) => {
       try {
         const { client } = clientFor(profile);
-        return ok(await client.listMessages({ channel, since, limit }));
+        if (channel !== undefined) {
+          return ok(await client.listMessages({ channel, since, limit }));
+        }
+        // Fan out across the roster. Channels are few (a project room plus a
+        // handful of DMs), so this stays one small burst rather than a paged
+        // crawl. A per-channel failure must not sink the whole poll.
+        const channels = await client.listChannels();
+        const pages = await Promise.all(
+          channels.map(async (c) => {
+            try {
+              const page = await client.listMessages({ channel: c.id, since, limit });
+              return { channel: c.id, title: c.title, ...page };
+            } catch (err) {
+              return { channel: c.id, title: c.title, error: (err as Error).message };
+            }
+          }),
+        );
+        return ok({ channels: pages });
       } catch (err) {
         return fail(err);
       }
@@ -349,7 +387,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     "Stream a chunk of terminal output into the current session (auto-registers one if needed). Humans can watch it live.",
     {
       content: z.string().min(1).describe("Terminal text to append."),
-      stream: z.enum(["stdout", "stderr"]).optional().describe("Which stream (default stdout)."),
+      // All four backend variants: the UI colours stdin and system distinctly
+      // (prompt green / dimmed italic), so narrowing this to stdout|stderr made
+      // those styles unreachable through the only supported write path.
+      stream: z
+        .enum(["stdout", "stderr", "stdin", "system"])
+        .optional()
+        .describe("Which stream (default stdout). stdin echoes a command, system marks session notices."),
       ...profileArg,
     },
     async ({ content, stream, profile }) => {

@@ -17,6 +17,9 @@ dist/
 .env.*
 !.env.example
 
+# Agent credentials — holds a raw `tfk_` key per profile. Never commit.
+.taskflow.json
+
 # Editor / OS
 .DS_Store
 *.swp

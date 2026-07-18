@@ -696,6 +696,12 @@ pub async fn link_agent(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Guarantee the agent has somewhere to talk (and somewhere reviews can be
+    // reported back to) the moment it is linked. Best-effort: a failure here
+    // must not lose the freshly-minted key, which is unrecoverable after this
+    // response — the agent can still be rostered later.
+    let _ = ensure_project_room(project_id, agent_id, &display_name, Some(user_id)).await;
+
     // The raw key appears here and NOWHERE else. `taskflow_profile` is the block
     // the caller pastes into `.taskflow.json` under `profiles.<profile>`.
     Ok((
@@ -1657,6 +1663,75 @@ pub struct ReviewInput {
     pub body_markdown: Option<String>,
 }
 
+/// Ensure the project has a shared room, creating one if it has none, and make
+/// `agent_id` a member of it.
+///
+/// Without this an agent linked into a fresh project is BOTH mute and deaf: it
+/// has no channel to post into, and `apply_review`'s report-back silently skips
+/// (no room → no message), so review feedback never reaches it. The human
+/// frontend creates the room lazily on first send, which leaves the agent
+/// stranded until a human happens to type — so linking, not sending, is the
+/// right moment to guarantee the room exists.
+///
+/// Idempotent: an existing shared room is reused, and the roster row is only
+/// inserted when absent. (The `(channel, user)` unique index does NOT dedupe
+/// agent rows — `user` is NULL for them, and SQL treats NULLs as distinct — so
+/// the existence check here is load-bearing, not just an optimization.)
+async fn ensure_project_room(
+    project_id: i64,
+    agent_id: i64,
+    agent_label: &str,
+    created_by_user: Option<i64>,
+) -> Result<TaskflowAgentChannel, StatusCode> {
+    let room = match find_project_room(project_id).await? {
+        Some(room) => room,
+        None => TaskflowAgentChannel::objects()
+            .create(TaskflowAgentChannel {
+                id: 0,
+                project: ForeignKey::new(project_id),
+                title: "Project room".to_string(),
+                topic: Some("Shared room for humans and agents in this project.".to_string()),
+                kind: TaskflowChannelKind::Project,
+                task: None,
+                created_by_user: created_by_user.map(ForeignKey::new),
+                created_by_agent: None,
+                archived: false,
+                created_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    };
+
+    let already_rostered = TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(room.id)
+                & taskflow_agent_channel_member::AGENT.eq(agent_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some();
+
+    if !already_rostered {
+        TaskflowAgentChannelMember::objects()
+            .create(TaskflowAgentChannelMember {
+                id: 0,
+                project: ForeignKey::new(project_id),
+                channel: ForeignKey::new(room.id),
+                member_kind: TaskflowChannelMemberKind::Agent,
+                user: None,
+                agent: Some(ForeignKey::new(agent_id)),
+                display_name: agent_label.to_string(),
+                role: "agent".to_string(),
+                joined_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    Ok(room)
+}
+
 /// Find the shared room to report a review back into: prefer the project's
 /// `Project`-kind channel, else the first non-`Direct` channel in the project.
 /// Returns `None` when the project has no shared room (the review still records;
@@ -1789,7 +1864,13 @@ async fn apply_review(
         reviewer_agent,
         reviewer_label,
         "reviewed",
-        Some(decision_label.to_string()),
+        // Carry the reviewer's note, not just the verdict: the activity stream is
+        // the agent's fallback channel for discovering a review, and "changes
+        // requested" without the note tells it nothing about what to change.
+        Some(match &body {
+            Some(b) => format!("{decision_label}: {b}"),
+            None => decision_label.to_string(),
+        }),
     )
     .await?;
 

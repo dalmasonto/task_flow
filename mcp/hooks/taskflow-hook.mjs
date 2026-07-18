@@ -210,15 +210,21 @@ async function main() {
       });
     } else if (eventName === "PreToolUse" || eventName === "PostToolUse") {
       const toolName = event.tool_name || event.toolName || "tool";
-      const phase = eventName === "PreToolUse" ? "pre" : "post";
-      await post(profile, "/api/taskflow/agents/activity", {
-        action: `tool:${toolName}`,
-        body_markdown: phase === "pre" ? undefined : "completed",
-        metadata_json: compactMetadata({
-          phase,
-          input: event.tool_input || event.toolInput,
-        }),
-      });
+      const isPre = eventName === "PreToolUse";
+      // Log ONCE per tool call, on completion. Logging both phases doubled every
+      // row in the activity feed (a 50-tool session read as 100 events), and the
+      // pre/post distinction lived only in metadata the UI never surfaces.
+      // PreToolUse still heartbeats — that's what keeps the agent showing as
+      // busy while a long tool runs.
+      if (!isPre) {
+        await post(profile, "/api/taskflow/agents/activity", {
+          action: `tool:${toolName}`,
+          body_markdown: "completed",
+          metadata_json: compactMetadata({
+            input: event.tool_input || event.toolInput,
+          }),
+        });
+      }
       const sessionId = readSessionId(claudeSessionId);
       if (sessionId != null) {
         await post(profile, `/api/taskflow/agents/sessions/${sessionId}/heartbeat`, {
