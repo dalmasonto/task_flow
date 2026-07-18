@@ -12,6 +12,7 @@ import {
   CircleDotIcon,
   Clock3Icon,
   ClipboardCheckIcon,
+  CopyIcon,
   FileIcon,
   FileTextIcon,
   FileJsonIcon,
@@ -100,6 +101,7 @@ import {
   fetchMyInvites,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
+  linkAgent,
   pingTaskflowBackend,
   realtimeEventHasInlineRow,
   subscribeToTaskflowProjectEvents,
@@ -110,6 +112,7 @@ import {
   updateTaskflowProject,
   updateTaskflowTask,
   updateTaskflowTaskSession,
+  type LinkAgentResult,
   type TaskflowRealtimeEvent,
   type TaskflowProjectSummary,
   type TaskflowWorkspace,
@@ -5809,12 +5812,13 @@ function ApiBasePage({
   const activeKeys = credentials.filter((credential) => credential.status === "active").length
   const restBase = "/api"
   const realtimeBase = "/realtime"
+  const numericProjectId = liveId(project.id)
 
   return (
     <PageShell
       eyebrow={project.name}
       title="API Base"
-      description="Configure the live API target, agent session identity, authentication handshake, callback links, and project integration surfaces."
+      description="Configure the live API target, link coding agents, and inspect agent session identity."
       actions={
         <Button size="sm" onClick={onContract}>
           <FileJsonIcon />
@@ -5835,39 +5839,19 @@ function ApiBasePage({
         <InfoCard icon={<LockIcon />} title="Active keys" value={`${activeKeys} active`} />
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_21rem]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <form className="rounded-lg border bg-card p-4 shadow-sm" onSubmit={onUpdateProject}>
           <div className="flex items-center gap-2 text-sm font-semibold">
             <FileJsonIcon className="size-4 text-primary" />
             Runtime API
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            The base URL agents and the dashboard use to reach this project's REST and realtime endpoints.
+          </p>
+          <div className="mt-4 grid gap-3">
             <label className="grid gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">Base URL</span>
               <Input name="default_api_base_url" defaultValue={project.apiBase || restBase} />
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Sync mode</span>
-              <Select defaultValue="realtime">
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose sync mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  {syncModeOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Auth callback</span>
-              <Input defaultValue={`${restBase}/auth/login`} readOnly />
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Realtime stream</span>
-              <Input defaultValue={`${realtimeBase}/sse`} readOnly />
             </label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -5875,51 +5859,230 @@ function ApiBasePage({
               <CheckIcon />
               Save API Base
             </Button>
-            <Button variant="outline" size="sm" onClick={onContract}>
+            <Button variant="outline" size="sm" type="button" onClick={onContract}>
               <FileJsonIcon />
               View Contract
             </Button>
           </div>
         </form>
 
-        <section className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <LockIcon className="size-4 text-primary" />
-            Auth And Links
-          </div>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            The user identity links the project, agents, repositories, and API credentials before collaboration starts.
-          </p>
-          <div className="mt-4 grid gap-2">
-            <Button size="sm">
-              <ShieldCheckIcon />
-              Authenticate User
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              <BotIcon />
-              Link Coding Agent
-            </Button>
-          </div>
-          <div className="mt-4 space-y-2">
-            <IntegrationLink label="OpenAPI schema" value="/openapi/openapi.json" />
-            <IntegrationLink label="Projects REST" value={`${restBase}/taskflow_project/`} />
-            <IntegrationLink label="Active project" value={`${restBase}/taskflow_project/${project.id}`} />
-            <IntegrationLink label="Tasks REST" value={`${restBase}/taskflow_task/?project=${project.id}`} />
-            <IntegrationLink label="Agents REST" value={`${restBase}/taskflow_agent/?project=${project.id}`} />
-            <IntegrationLink label="Agent messages" value={`${restBase}/taskflow_agent_message/?project=${project.id}`} />
-            <IntegrationLink label="Terminal frames" value={`${restBase}/taskflow_agent_terminal_frame/?project=${project.id}`} />
-            <IntegrationLink label="Realtime runtime" value={`${realtimeBase}/client.js`} />
-            <IntegrationLink label="Realtime SSE" value={`${realtimeBase}/sse`} />
-            <IntegrationLink label="Realtime WS" value={`${realtimeBase}/ws`} />
-          </div>
-        </section>
+        <LinkAgentCard projectId={numericProjectId} />
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <AgentSessionsTable sessions={sessions} agents={agents} credentials={credentials} />
         <AgentIdentityPanel project={project} agents={agents} />
       </div>
+
+      <DeveloperEndpoints projectId={project.id} restBase={restBase} realtimeBase={realtimeBase} />
     </PageShell>
+  )
+}
+
+/// Copies `value` to the clipboard and briefly flips to a "Copied" state so the
+/// user gets feedback. Falls back silently if the Clipboard API is unavailable.
+function CopyButton({ value, label = "Copy", className }: { value: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      setCopied(false)
+    }
+  }, [value])
+
+  return (
+    <Button type="button" variant="outline" size="sm" className={className} onClick={handleCopy}>
+      {copied ? <ClipboardCheckIcon /> : <CopyIcon />}
+      {copied ? "Copied" : label}
+    </Button>
+  )
+}
+
+/// The real "link a coding agent" flow. Collects a display name + profile, calls
+/// `linkAgent` with the NUMERIC project id, then shows the one-time key and a
+/// ready-to-paste `.taskflow.json` snippet. `projectId` is null when the FE
+/// project has no resolvable numeric id (not yet synced) — the form is disabled.
+function LinkAgentCard({ projectId }: { projectId: number | null }) {
+  const [displayName, setDisplayName] = useState("")
+  const [profile, setProfile] = useState("main")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<LinkAgentResult | null>(null)
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (projectId == null) {
+        setError("This project is still syncing — try again in a moment.")
+        return
+      }
+      const name = displayName.trim()
+      const role = profile.trim() || "main"
+      if (!name) {
+        setError("Enter a display name for the agent.")
+        return
+      }
+      setPending(true)
+      setError(null)
+      try {
+        const linked = await linkAgent({ project: projectId, display_name: name, profile: role })
+        setResult(linked)
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Could not link the agent.")
+      } finally {
+        setPending(false)
+      }
+    },
+    [projectId, displayName, profile]
+  )
+
+  const handleReset = useCallback(() => {
+    setResult(null)
+    setError(null)
+    setDisplayName("")
+    setProfile("main")
+  }, [])
+
+  const snippet = result
+    ? JSON.stringify(
+        {
+          server: window.location.origin,
+          project: result.project,
+          default_profile: "main",
+          profiles: {
+            [result.profile]: {
+              agent_id: result.taskflow_profile.agent_id,
+              key: result.taskflow_profile.key,
+              display_name: result.taskflow_profile.display_name,
+            },
+          },
+        },
+        null,
+        2
+      )
+    : ""
+
+  return (
+    <section className="rounded-lg border bg-card p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <BotIcon className="size-4 text-primary" />
+        Link a coding agent
+      </div>
+
+      {result ? (
+        <div className="mt-3 space-y-3">
+          <p className="text-sm leading-6 text-muted-foreground">
+            Linked <span className="font-semibold text-foreground">{result.display_name}</span> as{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{result.identifier}</code> (profile{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{result.profile}</code>).
+          </p>
+
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-amber-800">
+              <LockIcon className="size-3.5" />
+              Copy this key now — it is shown only once and cannot be recovered.
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-md bg-background px-2 py-1.5 font-mono text-xs">
+                {result.key}
+              </code>
+              <CopyButton value={result.key} label="Copy key" />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">.taskflow.json</span>
+              <CopyButton value={snippet} label="Copy snippet" />
+            </div>
+            <pre className="mt-1.5 overflow-x-auto rounded-lg border bg-background p-3 font-mono text-xs leading-5">
+              {snippet}
+            </pre>
+          </div>
+
+          <p className="text-xs leading-5 text-muted-foreground">
+            Save this as <code className="rounded bg-muted px-1 py-0.5">.taskflow.json</code> in your repo root and add
+            it to <code className="rounded bg-muted px-1 py-0.5">.gitignore</code> (it holds a secret). The MCP/agent
+            uses the <code className="rounded bg-muted px-1 py-0.5">main</code> profile by default; link a{" "}
+            <code className="rounded bg-muted px-1 py-0.5">reviewer</code> profile the same way to add that role.
+          </p>
+
+          <Button type="button" variant="outline" size="sm" onClick={handleReset}>
+            <RotateCcwIcon />
+            Link another
+          </Button>
+        </div>
+      ) : (
+        <form className="mt-3 space-y-3" onSubmit={handleSubmit}>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Mint a per-agent credential for this project. The role you pick is the profile key written into{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">.taskflow.json</code>.
+          </p>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Display name</span>
+            <Input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="Builder"
+              disabled={pending}
+            />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Profile</span>
+            <Input
+              value={profile}
+              onChange={(event) => setProfile(event.target.value)}
+              placeholder="main"
+              list="taskflow-agent-profiles"
+              disabled={pending}
+            />
+            <datalist id="taskflow-agent-profiles">
+              <option value="main" />
+              <option value="reviewer" />
+            </datalist>
+          </label>
+          {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
+          <Button type="submit" size="sm" disabled={pending || projectId == null}>
+            <BotIcon />
+            {pending ? "Linking…" : "Link agent"}
+          </Button>
+        </form>
+      )}
+    </section>
+  )
+}
+
+/// The genuinely useful REST/realtime entrypoints, collapsed by default so the
+/// page reads as a settings surface rather than an endpoint dump.
+function DeveloperEndpoints({
+  projectId,
+  restBase,
+  realtimeBase,
+}: {
+  projectId: string
+  restBase: string
+  realtimeBase: string
+}) {
+  return (
+    <details className="group rounded-lg border bg-card p-4 shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+        <LinkIcon className="size-4 text-primary" />
+        Developer endpoints
+        <span className="ml-auto text-xs font-normal text-muted-foreground">Show</span>
+      </summary>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <IntegrationLink label="OpenAPI schema" value="/openapi/openapi.json" />
+        <IntegrationLink label="Projects REST" value={`${restBase}/taskflow_project/`} />
+        <IntegrationLink label="Tasks REST" value={`${restBase}/taskflow_task/?project=${projectId}`} />
+        <IntegrationLink label="Agents REST" value={`${restBase}/taskflow_agent/?project=${projectId}`} />
+        <IntegrationLink label="Realtime runtime" value={`${realtimeBase}/client.js`} />
+        <IntegrationLink label="Realtime SSE" value={`${realtimeBase}/sse`} />
+      </div>
+    </details>
   )
 }
 

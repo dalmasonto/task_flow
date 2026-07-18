@@ -364,6 +364,56 @@ export async function sendTaskflowAgentMessage(
   return response.json()
 }
 
+/// What a human caller sends to link a coding agent to a project. `project` MUST
+/// be the numeric project id; membership is checked server-side against the
+/// authenticated caller. `profile` is the role key written into `.taskflow.json`
+/// (e.g. "main" or "reviewer").
+export type LinkAgentInput = {
+  project: number
+  display_name: string
+  profile: string
+  project_root?: string
+  runtime?: string
+  version?: string
+}
+
+/// The link response. `key` (a `tfk_…` string) is returned ONCE and is never
+/// recoverable — surface it to the user immediately and don't persist it. The
+/// nested `taskflow_profile` is the ready-to-paste profile entry.
+export type LinkAgentResult = {
+  agent_id: number
+  identifier: string
+  display_name: string
+  project: number
+  profile: string
+  key: string
+  taskflow_profile: {
+    agent_id: number
+    key: string
+    display_name: string
+  }
+}
+
+/// Link a coding agent to a project (agent identity Stage 1). Bearer-authed as
+/// the human caller. Returns the freshly-minted credential whose raw `key` is
+/// shown once. 403 means the caller isn't an active member of the project.
+export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/link`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "You must be a member of this project to link an agent."
+        : await readErrorDetail(response, `Could not link the agent (${response.status}).`)
+    )
+  }
+  return response.json()
+}
+
 export function createTaskflowAgentChannel(input: TaskflowAgentChannelCreate) {
   return taskflowApi.create(taskflowTables.agentChannels, input)
 }
