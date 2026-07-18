@@ -14,7 +14,6 @@ import {
   CircleDotIcon,
   Clock3Icon,
   ClipboardCheckIcon,
-  DownloadIcon,
   FileIcon,
   FileTextIcon,
   FileJsonIcon,
@@ -124,6 +123,8 @@ import {
   type PendingAttachment,
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
+import { formatBytes } from "@/lib/attachment-kind"
+import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
 import { ProfilePage } from "@/pages/account/ProfilePage"
@@ -208,19 +209,6 @@ type StagedFile = {
   id: string
   file: File
   previewUrl?: string
-}
-
-function isImageAttachment(attachment: { contentType: string }): boolean {
-  return attachment.contentType.startsWith("image/")
-}
-
-/// Human-readable byte size, e.g. 512 B, 24.0 KB, 3.1 MB.
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB"]
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const value = bytes / 1024 ** exponent
-  return `${exponent === 0 ? value : value.toFixed(1)} ${units[exponent]}`
 }
 
 type AgentMessage = {
@@ -5384,86 +5372,6 @@ function StagedFileList({ files, onRemove }: { files: StagedFile[]; onRemove: (i
   )
 }
 
-/// Renders the attachments on a chat message. Images lay out inline as a wrap
-/// of clickable thumbnails; non-image files render as compact download rows.
-/// Pending previews (staged object URLs) and stored attachments (/media URLs)
-/// render through the same path — a pending item just has no reachable download
-/// link until the server echo swaps in the real URL.
-function AttachmentList({ attachments }: { attachments: AgentAttachment[] }) {
-  const images = attachments.filter(isImageAttachment)
-  const files = attachments.filter((attachment) => !isImageAttachment(attachment))
-
-  return (
-    <div className="grid gap-2">
-      {images.length ? (
-        <div className="flex flex-wrap gap-2">
-          {images.map((attachment) =>
-            attachment.url ? (
-              <a
-                key={attachment.id}
-                href={attachment.url}
-                target="_blank"
-                rel="noreferrer"
-                className="block overflow-hidden rounded-lg border bg-background/90"
-                title={attachment.name}
-              >
-                <img
-                  src={attachment.url}
-                  alt={attachment.name}
-                  className="max-h-64 w-auto max-w-full rounded-lg object-cover"
-                />
-              </a>
-            ) : (
-              <span
-                key={attachment.id}
-                className="flex h-32 w-32 items-center justify-center rounded-lg border bg-muted text-muted-foreground"
-                title={attachment.name}
-              >
-                <ImageIcon className="size-6 animate-pulse" />
-              </span>
-            )
-          )}
-        </div>
-      ) : null}
-      {files.map((attachment) => (
-        <div
-          key={attachment.id}
-          className="flex items-center gap-3 overflow-hidden rounded-lg border bg-background/90 p-2.5"
-        >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
-            {attachmentIcon(attachment)}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{attachment.name}</p>
-            <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
-          </div>
-          {attachment.url ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              render={<a href={attachment.url} target="_blank" rel="noreferrer" download={attachment.name} />}
-            >
-              <DownloadIcon className="size-3.5" />
-              Download
-            </Button>
-          ) : (
-            <span className="text-xs text-muted-foreground">Uploading…</span>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function attachmentIcon(attachment: AgentAttachment) {
-  const type = attachment.contentType
-  if (type.startsWith("image/")) return <ImageIcon className="size-4" />
-  if (type === "application/json") return <FileJsonIcon className="size-4" />
-  if (type.startsWith("text/")) return <FileTextIcon className="size-4" />
-  return <FileIcon className="size-4" />
-}
-
 function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?: (nonce: string) => void }) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
@@ -5492,7 +5400,7 @@ function AgentChatBubble({ message, onRetry }: { message: AgentMessage; onRetry?
         />
         {message.attachments?.length ? (
           <div className="mt-3">
-            <AttachmentList attachments={message.attachments} />
+            <MessageAttachments attachments={message.attachments} />
           </div>
         ) : null}
         {message.choices ? (
