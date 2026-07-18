@@ -57,4 +57,23 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/agent/read",
             post(views::mark_channel_read_as_agent),
         )
+        // Live sessions (agent-authed via `RequireAgent`). Register/reconnect a
+        // session, heartbeat its liveness, stream terminal frames, and close it.
+        // Every op after register verifies the session belongs to the caller.
+        .route(
+            "/api/taskflow/agents/sessions",
+            post(views::register_session),
+        )
+        .route(
+            "/api/taskflow/agents/sessions/{session}/heartbeat",
+            post(views::session_heartbeat),
+        )
+        .route(
+            "/api/taskflow/agents/sessions/{session}/frames",
+            post(views::append_session_frames),
+        )
+        .route(
+            "/api/taskflow/agents/sessions/{session}/close",
+            post(views::close_session),
+        )
 }

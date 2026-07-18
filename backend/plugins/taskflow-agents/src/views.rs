@@ -14,10 +14,12 @@ use uuid::Uuid;
 use crate::agent_auth::{RequireAgent, hash_key};
 use crate::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
-    TaskflowAgentMessage, TaskflowAgentStatus, TaskflowChannelKind, TaskflowChannelMemberKind,
+    TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentSessionStatus, TaskflowAgentStatus,
+    TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
     TaskflowChannelReadCursor, TaskflowCredentialStatus, TaskflowMessageAttachment,
-    TaskflowMessagePriority, taskflow_agent, taskflow_agent_channel, taskflow_agent_channel_member,
-    taskflow_agent_message, taskflow_channel_read_cursor, taskflow_message_attachment,
+    TaskflowMessagePriority, TaskflowTerminalStream, taskflow_agent, taskflow_agent_channel,
+    taskflow_agent_channel_member, taskflow_agent_message, taskflow_agent_session,
+    taskflow_agent_terminal_frame, taskflow_channel_read_cursor, taskflow_message_attachment,
 };
 
 /// The stored value of `TaskflowMembershipStatus::Active` — the status column is
@@ -1043,4 +1045,360 @@ pub async fn mark_channel_read_as_agent(
     };
 
     upsert_cursor_forward(existing, new_row, input.last_read_message).await
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3 — live sessions + streamed terminal frames. An agent runtime
+// registers a session, heartbeats its liveness, streams terminal output, and
+// closes it. Every op is agent-authed via `RequireAgent`; every op that names a
+// session verifies the session belongs to the authed agent (403 otherwise).
+//
+// "Online" is derived from recency, not a background sweeper: these endpoints
+// keep `status` / `last_seen_at` accurate and the FE computes liveness as
+// `now - last_seen_at < ~2x heartbeat`. Suggested cadence: 30s heartbeat, 90s
+// stale threshold.
+// ---------------------------------------------------------------------------
+
+/// The model caps a terminal frame's `content` at 20000 chars. Reject at the
+/// edge (400) rather than let the DB truncate or error.
+const MAX_FRAME_CHARS: usize = 20_000;
+
+/// The stored value of `TaskflowAgentSessionStatus::Connected` — the status
+/// column is a string at the DB layer, so we compare against this literal (same
+/// convention as the membership/credential gates).
+const CONNECTED_SESSION: &str = "connected";
+
+/// Set an agent row's liveness: `status` (a hint from the caller, or
+/// `connected`) and `last_seen_at = now`. The agent is guaranteed to exist —
+/// `RequireAgent` resolved it — so a missing row here is a 500, not a 404.
+async fn touch_agent(
+    agent_id: i64,
+    status: TaskflowAgentStatus,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), StatusCode> {
+    let mut agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    agent.status = status;
+    agent.last_seen_at = Some(now);
+    TaskflowAgent::objects()
+        .save(agent)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(())
+}
+
+/// Load a session by id and prove it belongs to `agent_id`. 404 if the session
+/// does not exist; 403 if it belongs to a DIFFERENT agent — an agent may only
+/// touch its own sessions. The ownership check is the authorization boundary for
+/// heartbeat / frames / close.
+async fn load_owned_session(
+    session_id: i64,
+    agent_id: i64,
+) -> Result<TaskflowAgentSession, StatusCode> {
+    let session = TaskflowAgentSession::objects()
+        .filter(taskflow_agent_session::ID.eq(session_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if session.agent.id() != agent_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(session)
+}
+
+/// The body of `POST /api/taskflow/agents/sessions`. `session_identifier` is the
+/// only required field; the rest is optional runtime metadata. The caller cannot
+/// assert `project`, `agent`, `status`, or any timestamp — those are all derived
+/// from the authenticated agent and the server clock.
+#[derive(Debug, Deserialize)]
+pub struct RegisterSessionInput {
+    pub session_identifier: String,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub pid: Option<i64>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub transport: Option<String>,
+}
+
+/// `POST /api/taskflow/agents/sessions` (agent-authed) — register or reconnect a
+/// live session, keyed by the globally-unique `session_identifier`.
+///
+/// Upsert semantics:
+///   * A row for this identifier that belongs to THIS agent is reconnected:
+///     `status=connected`, `disconnected_at` cleared, `last_seen_at=now`, and any
+///     supplied metadata (host/pid/cwd/transport) updated.
+///   * A row that belongs to a DIFFERENT agent → 409: the identifier is globally
+///     unique and an agent may not claim another's session.
+///   * No row → create one in the agent's own project, `status=connected`.
+///
+/// Either way the AGENT row is marked `status=connected`, `last_seen_at=now`, so
+/// registering a session is what brings an agent online.
+pub async fn register_session(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<RegisterSessionInput>,
+) -> Result<Response, StatusCode> {
+    let session_identifier = input.session_identifier.trim().to_string();
+    if session_identifier.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let now = chrono::Utc::now();
+
+    let existing = TaskflowAgentSession::objects()
+        .filter(taskflow_agent_session::SESSION_IDENTIFIER.eq(session_identifier.as_str()))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let session = match existing {
+        Some(mut row) => {
+            // The identifier is globally unique: a row owned by another agent is
+            // not ours to reconnect. 409 CONFLICT — the caller cannot claim it.
+            if row.agent.id() != agent.agent_id {
+                return Err(StatusCode::CONFLICT);
+            }
+            row.status = TaskflowAgentSessionStatus::Connected;
+            row.disconnected_at = None;
+            row.last_seen_at = Some(now);
+            // Only overwrite metadata the caller actually supplied, so a bare
+            // reconnect keeps whatever the session already recorded.
+            if input.host.is_some() {
+                row.host = input.host.clone();
+            }
+            if input.pid.is_some() {
+                row.pid = input.pid;
+            }
+            if input.cwd.is_some() {
+                row.cwd = input.cwd.clone();
+            }
+            if input.transport.is_some() {
+                row.transport = input.transport.clone();
+            }
+            TaskflowAgentSession::objects()
+                .save(row)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        }
+        None => TaskflowAgentSession::objects()
+            .create(TaskflowAgentSession {
+                id: 0,
+                // Scope is the agent's own project, never accepted from the body.
+                project: ForeignKey::new(agent.project_id),
+                agent: ForeignKey::new(agent.agent_id),
+                connected_by: None,
+                session_identifier: session_identifier.clone(),
+                host: input.host.clone(),
+                pid: input.pid,
+                cwd: input.cwd.clone(),
+                transport: input.transport.clone(),
+                status: TaskflowAgentSessionStatus::Connected,
+                connected_at: now,
+                last_seen_at: Some(now),
+                disconnected_at: None,
+                created_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    };
+
+    // Registering a session brings the agent online.
+    touch_agent(agent.agent_id, TaskflowAgentStatus::Connected, now).await?;
+
+    Ok((StatusCode::OK, Json(session)).into_response())
+}
+
+/// The body of `POST .../sessions/{session}/heartbeat`. `status` is an OPTIONAL
+/// activity hint — `idle` or `busy`; anything else (or absent) keeps the agent
+/// `connected`. It is a hint about the agent's own activity, not a field that
+/// can move the agent to an arbitrary status.
+#[derive(Debug, Deserialize)]
+pub struct HeartbeatInput {
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+/// `POST /api/taskflow/agents/sessions/{session}/heartbeat` (agent-authed) —
+/// bump liveness. Sets `session.last_seen_at=now` and `agent.last_seen_at=now`,
+/// and moves the agent to the hinted activity (`idle`/`busy`) or back to
+/// `connected`. 404 if the session is unknown, 403 if it is not this agent's.
+pub async fn session_heartbeat(
+    RequireAgent(agent): RequireAgent,
+    Path(session_id): Path<i64>,
+    Json(input): Json<HeartbeatInput>,
+) -> Result<Response, StatusCode> {
+    let mut session = load_owned_session(session_id, agent.agent_id).await?;
+    let now = chrono::Utc::now();
+    session.last_seen_at = Some(now);
+    let session = TaskflowAgentSession::objects()
+        .save(session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // The hint may only ever select idle/busy; anything else means "still here",
+    // i.e. plain connected. An agent cannot drive itself offline/revoked here.
+    let status = match input.status.as_deref() {
+        Some("idle") => TaskflowAgentStatus::Idle,
+        Some("busy") => TaskflowAgentStatus::Busy,
+        _ => TaskflowAgentStatus::Connected,
+    };
+    touch_agent(agent.agent_id, status, now).await?;
+
+    Ok((StatusCode::OK, Json(session)).into_response())
+}
+
+/// One terminal frame in a frames request. `content` is required; `stream`
+/// defaults to `stdout`; `task` optionally ties the frame to a task. The
+/// `sequence`, `project`, `agent`, and `session` are all assigned server-side.
+#[derive(Debug, Deserialize)]
+pub struct FrameInput {
+    #[serde(default)]
+    pub stream: Option<TaskflowTerminalStream>,
+    pub content: String,
+    #[serde(default)]
+    pub task: Option<i64>,
+}
+
+/// The frames endpoint accepts EITHER a single frame (`{stream?, content, task?}`)
+/// OR a batch (`{frames: [ ... ]}`). Untagged: a body carrying `frames` is a
+/// batch, otherwise it is parsed as one frame.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum AppendFramesInput {
+    Batch { frames: Vec<FrameInput> },
+    Single(FrameInput),
+}
+
+/// `POST /api/taskflow/agents/sessions/{session}/frames` (agent-authed) — append
+/// terminal output to a session. Each frame gets `sequence = (max existing
+/// sequence for this session) + 1`, incrementing across a batch, so frames are
+/// totally ordered per session. `content` over the 20000-char model cap is a
+/// 400. Also bumps `session.last_seen_at`. 404/403 as for heartbeat.
+///
+/// Returns the created frame (single form) or `{frames: [...]}` (batch form).
+/// The realtime layer projects each frame's fields inline (see
+/// `backend/src/realtime.rs`), so a subscribed terminal panel renders straight
+/// from the event without a REST round-trip per line.
+pub async fn append_session_frames(
+    RequireAgent(agent): RequireAgent,
+    Path(session_id): Path<i64>,
+    Json(input): Json<AppendFramesInput>,
+) -> Result<Response, StatusCode> {
+    let mut session = load_owned_session(session_id, agent.agent_id).await?;
+
+    let (frames, is_batch) = match input {
+        AppendFramesInput::Batch { frames } => (frames, true),
+        AppendFramesInput::Single(frame) => (vec![frame], false),
+    };
+    if frames.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Validate every frame up front so a batch either lands whole or not at all
+    // (no partial write before an oversized frame is discovered).
+    if frames.iter().any(|f| f.content.chars().count() > MAX_FRAME_CHARS) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // The next sequence is one past the highest existing one for THIS session.
+    // Ordering by sequence desc and taking the first is robust to gaps (a deleted
+    // frame never lets a sequence be reused).
+    let last = TaskflowAgentTerminalFrame::objects()
+        .filter(taskflow_agent_terminal_frame::SESSION.eq(session.id))
+        .order_by(taskflow_agent_terminal_frame::SEQUENCE.desc())
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut next_sequence = last.map(|f| f.sequence).unwrap_or(0) + 1;
+
+    let now = chrono::Utc::now();
+    let mut created = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let row = TaskflowAgentTerminalFrame::objects()
+            .create(TaskflowAgentTerminalFrame {
+                id: 0,
+                // Denormalized from the session for realtime routing, exactly like
+                // the chat tables; never accepted from the body.
+                project: session.project.clone(),
+                agent: ForeignKey::new(agent.agent_id),
+                session: Some(ForeignKey::new(session.id)),
+                task: frame.task.map(ForeignKey::new),
+                stream: frame.stream.unwrap_or(TaskflowTerminalStream::Stdout),
+                sequence: next_sequence,
+                content: frame.content,
+                created_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        created.push(row);
+        next_sequence += 1;
+    }
+
+    // Producing output is a sign of life: bump the session's recency.
+    session.last_seen_at = Some(now);
+    TaskflowAgentSession::objects()
+        .save(session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if is_batch {
+        Ok((StatusCode::OK, Json(json!({ "frames": created }))).into_response())
+    } else {
+        // `created` holds exactly one row for the single form.
+        let frame = created
+            .into_iter()
+            .next()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok((StatusCode::OK, Json(frame)).into_response())
+    }
+}
+
+/// `POST /api/taskflow/agents/sessions/{session}/close` (agent-authed) —
+/// disconnect a session: `status=disconnected`, `disconnected_at=now`. Then, if
+/// the agent has NO other `connected` session, the agent row is flipped to
+/// `offline`; if another session is still live the agent stays online. 404/403
+/// as for heartbeat. Takes no body.
+pub async fn close_session(
+    RequireAgent(agent): RequireAgent,
+    Path(session_id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let mut session = load_owned_session(session_id, agent.agent_id).await?;
+    let now = chrono::Utc::now();
+    session.status = TaskflowAgentSessionStatus::Disconnected;
+    session.disconnected_at = Some(now);
+    let session = TaskflowAgentSession::objects()
+        .save(session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Count is taken AFTER this session was saved disconnected, so it excludes
+    // the one we just closed. Zero remaining connected sessions → agent offline.
+    let still_connected = TaskflowAgentSession::objects()
+        .filter(
+            taskflow_agent_session::AGENT.eq(agent.agent_id)
+                & taskflow_agent_session::STATUS.eq(CONNECTED_SESSION),
+        )
+        .count()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if still_connected == 0 {
+        let mut agent_row = TaskflowAgent::objects()
+            .filter(taskflow_agent::ID.eq(agent.agent_id))
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        agent_row.status = TaskflowAgentStatus::Offline;
+        TaskflowAgent::objects()
+            .save(agent_row)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    Ok((StatusCode::OK, Json(session)).into_response())
 }

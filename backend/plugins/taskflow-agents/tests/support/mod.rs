@@ -122,11 +122,13 @@ pub fn encode_multipart(parts: &[MultipartPart]) -> (String, Vec<u8>) {
 
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
-    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
-    TaskflowAgentMessage, TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowChannelReadCursor,
-    TaskflowCredentialStatus, TaskflowMessagePriority, TaskflowMessageAttachment,
-    taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_credential,
-    taskflow_agent_message, taskflow_channel_read_cursor, taskflow_message_attachment,
+    TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
+    TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentTerminalFrame, TaskflowChannelKind,
+    TaskflowChannelMemberKind, TaskflowChannelReadCursor, TaskflowCredentialStatus,
+    TaskflowMessagePriority, TaskflowMessageAttachment, taskflow_agent, taskflow_agent_channel,
+    taskflow_agent_channel_member, taskflow_agent_credential, taskflow_agent_message,
+    taskflow_agent_session, taskflow_agent_terminal_frame, taskflow_channel_read_cursor,
+    taskflow_message_attachment,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
@@ -344,6 +346,36 @@ impl TestApp {
             .count()
             .await
             .expect("count read cursors")
+    }
+
+    /// Load an agent row (for asserting `status` / `last_seen_at` after a
+    /// session op — there is no read endpoint for it).
+    pub async fn agent(&self, agent_id: i64) -> TaskflowAgent {
+        TaskflowAgent::objects()
+            .filter(taskflow_agent::ID.eq(agent_id))
+            .first()
+            .await
+            .expect("load agent")
+            .expect("agent exists")
+    }
+
+    /// Load a session row by id.
+    pub async fn session(&self, session_id: i64) -> TaskflowAgentSession {
+        TaskflowAgentSession::objects()
+            .filter(taskflow_agent_session::ID.eq(session_id))
+            .first()
+            .await
+            .expect("load session")
+            .expect("session exists")
+    }
+
+    /// Count terminal frames recorded for a session.
+    pub async fn count_frames(&self, session_id: i64) -> i64 {
+        TaskflowAgentTerminalFrame::objects()
+            .filter(taskflow_agent_terminal_frame::SESSION.eq(session_id))
+            .count()
+            .await
+            .expect("count frames")
     }
 
     pub async fn project_of_channel(&self, channel: i64) -> i64 {

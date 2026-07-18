@@ -103,6 +103,22 @@ const MESSAGE_ATTACHMENT_FIELDS: &[&str] = &[
     "size_bytes",
     "created_at",
 ];
+/// Terminal frames stream live: a producing agent posts one frame per line, and
+/// refetching each over REST would be a round-trip per line. So the frame's
+/// fields are projected inline (like the chat tables) and the frontend renders
+/// straight from the event. Every column named here is visible to every member
+/// of the room — terminal output is already shared workspace state.
+const TERMINAL_FRAME_FIELDS: &[&str] = &[
+    "id",
+    "project",
+    "agent",
+    "session",
+    "task",
+    "stream",
+    "sequence",
+    "content",
+    "created_at",
+];
 
 /// Build the configured realtime plugin.
 pub fn plugin() -> RealtimePlugin {
@@ -171,9 +187,12 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowAgentSession>(Expose::to_group_with(|ev| {
             group_for(AGENT_SESSIONS, &ev.instance)
         }))
-        .expose::<TaskflowAgentTerminalFrame>(Expose::to_group_with(|ev| {
-            group_for(TERMINAL_FRAMES, &ev.instance)
-        }))
+        // Terminal frames: fields projected so a subscribed terminal panel
+        // renders each line straight from the event (no per-frame REST refetch).
+        .expose::<TaskflowAgentTerminalFrame>(
+            Expose::to_group_with(|ev| group_for(TERMINAL_FRAMES, &ev.instance))
+                .fields(TERMINAL_FRAME_FIELDS),
+        )
         // Read cursors: id-only ping so the other side learns a read happened and
         // refetches the cursor rows to recompute unread counts.
         .expose::<TaskflowChannelReadCursor>(Expose::to_group_with(|ev| {
