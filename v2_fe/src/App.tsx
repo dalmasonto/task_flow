@@ -88,6 +88,7 @@ import type {
   TaskflowProjectInviteStatus,
   TaskflowProjectUpdate,
   TaskflowTaskPriority,
+  TaskflowTaskReviewDecision,
   TaskflowTaskStatus,
 } from "@/api/client"
 import {
@@ -293,7 +294,6 @@ type InviteRecord = {
   sent: string
   expires: string
   lastEvent: string
-  nextAction: string
 }
 
 type TaskLink = {
@@ -668,6 +668,37 @@ function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[
       time: formatLiveDate(event.created_at, "Live"),
     }
   })
+}
+
+type ReviewFeedItem = {
+  id: string
+  taskId: string
+  taskTitle: string
+  reviewerLabel: string
+  decision: TaskflowTaskReviewDecision
+  body: string
+  time: string
+}
+
+/// Maps the live workspace's real task reviews (from taskflow_task_review) into a
+/// display feed, newest-first, resolving each review to its task title when the
+/// task is loaded. Feeds both the Reviews queue "Latest review" column and the
+/// "Recent reviews" panel.
+function mapLiveReviews(workspace: TaskflowWorkspace, projectTasks: Task[]): ReviewFeedItem[] {
+  return [...workspace.taskReviews]
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+    .map((review) => {
+      const relatedTask = projectTasks.find((task) => liveId(task.id) === review.task)
+      return {
+        id: String(review.id),
+        taskId: String(review.task),
+        taskTitle: relatedTask?.title ?? `Task #${review.task}`,
+        reviewerLabel: review.reviewer_label,
+        decision: review.decision,
+        body: review.body_markdown?.trim() ?? "",
+        time: formatLiveDate(review.created_at, "Live"),
+      }
+    })
 }
 
 function getFallbackTaskActivity(task: Task): TaskActivityItem[] {
@@ -1095,7 +1126,6 @@ function mapLiveInvites(workspace: TaskflowWorkspace, currentUser: AuthUser | nu
           : status === "Pending"
             ? "Invite is pending. The recipient must authenticate before access is activated."
             : `Invite is ${status.toLowerCase()} and no longer grants access.`,
-      nextAction: status === "Accepted" ? "Open member" : status === "Pending" ? "Resend" : "Reissue",
     }
   })
 }
@@ -1585,6 +1615,10 @@ function App() {
   }))
   const activityEvents = useMemo<ActivityEvent[]>(
     () => (activeLiveWorkspace ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks) : []),
+    [activeLiveWorkspace, projectTasks]
+  )
+  const reviewFeed = useMemo<ReviewFeedItem[]>(
+    () => (activeLiveWorkspace ? mapLiveReviews(activeLiveWorkspace, projectTasks) : []),
     [activeLiveWorkspace, projectTasks]
   )
   const publicPath = location.pathname.replace(/\/$/, "") || "/"
@@ -2892,6 +2926,7 @@ function App() {
                 activeProject ? (
                   <ReviewsPage
                     tasks={projectTasks.filter((task) => task.status === "review")}
+                    reviews={reviewFeed}
                     onReview={(taskId) => {
                       setReviewTaskId(taskId)
                       setDialogMode("review-decision")
@@ -5637,7 +5672,32 @@ function terminalStatusClass(status: string) {
   return "bg-slate-100 text-slate-700 ring-slate-200"
 }
 
-function ReviewsPage({ tasks, onReview }: { tasks: Task[]; onReview: (taskId: string) => void }) {
+function reviewDecisionClass(decision: TaskflowTaskReviewDecision) {
+  return decision === "approved"
+    ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
+    : "bg-amber-100 text-amber-800 ring-amber-200"
+}
+
+function reviewDecisionLabel(decision: TaskflowTaskReviewDecision) {
+  return decision === "approved" ? "Approved" : "Changes requested"
+}
+
+function ReviewsPage({
+  tasks,
+  reviews,
+  onReview,
+}: {
+  tasks: Task[]
+  reviews: ReviewFeedItem[]
+  onReview: (taskId: string) => void
+}) {
+  // reviews arrives newest-first, so the first match per task id is the latest
+  // real review for that task.
+  const latestReviewByTask = new Map<string, ReviewFeedItem>()
+  for (const review of reviews) {
+    if (!latestReviewByTask.has(review.taskId)) latestReviewByTask.set(review.taskId, review)
+  }
+
   return (
     <PageShell
       eyebrow="Human in the loop"
@@ -5649,12 +5709,8 @@ function ReviewsPage({ tasks, onReview }: { tasks: Task[]; onReview: (taskId: st
           <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold">Pending Decisions</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{tasks.length} review gates need a human response.</p>
+              <p className="mt-1 text-xs text-muted-foreground">{tasks.length} tasks are waiting for a human decision.</p>
             </div>
-            <Button variant="outline" size="sm">
-              <ActivityIcon />
-              Export Queue
-            </Button>
           </div>
           {tasks.length ? (
             <div className="scrollbar-y overflow-x-auto">
@@ -5663,13 +5719,15 @@ function ReviewsPage({ tasks, onReview }: { tasks: Task[]; onReview: (taskId: st
                   <tr>
                     <th className="px-4 py-2.5 text-left font-semibold">Task</th>
                     <th className="px-4 py-2.5 text-left font-semibold">Owner</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Gate</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Latest review</th>
                     <th className="px-4 py-2.5 text-left font-semibold">Due</th>
                     <th className="px-4 py-2.5 text-right font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.map((task) => (
+                  {tasks.map((task) => {
+                    const latest = latestReviewByTask.get(task.id)
+                    return (
                     <tr key={task.id} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-wrap items-center gap-2">
@@ -5687,11 +5745,21 @@ function ReviewsPage({ tasks, onReview }: { tasks: Task[]; onReview: (taskId: st
                         <p className="mt-1 text-xs">{task.operatorName}</p>
                       </td>
                       <td className="max-w-md px-4 py-3 align-top text-muted-foreground">
-                        <MarkdownRenderer
-                          content={task.review}
-                          compact
-                          className="[&_p]:line-clamp-2 [&_p]:text-sm"
-                        />
+                        {latest ? (
+                          <div className="space-y-1.5">
+                            <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1", reviewDecisionClass(latest.decision))}>
+                              {reviewDecisionLabel(latest.decision)}
+                            </span>
+                            {latest.body ? (
+                              <MarkdownRenderer content={latest.body} compact className="[&_p]:line-clamp-2 [&_p]:text-sm" />
+                            ) : null}
+                            <p className="text-xs text-muted-foreground">{latest.reviewerLabel} · {latest.time}</p>
+                          </div>
+                        ) : task.description?.trim() ? (
+                          <MarkdownRenderer content={task.description} compact className="[&_p]:line-clamp-2 [&_p]:text-sm" />
+                        ) : (
+                          <span className="text-xs">No review recorded yet.</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 align-top text-muted-foreground">{task.due}</td>
                       <td className="px-4 py-3 text-right align-top">
@@ -5701,28 +5769,51 @@ function ReviewsPage({ tasks, onReview }: { tasks: Task[]; onReview: (taskId: st
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
-          ) : null}
+          ) : (
+            <div className="p-8 text-center text-sm text-muted-foreground">No pending human reviews.</div>
+          )}
         </section>
-        <section className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <ShieldCheckIcon className="size-4 text-primary" />
-            Review Rules
-          </div>
-          <div className="mt-4 space-y-3">
-            <ReviewRule title="Approve" detail="Marks the task done and writes the decision into activity." />
-            <ReviewRule title="Request changes" detail="Returns the task to active work with the reviewer note attached." />
-            <ReviewRule title="Block" detail="Moves the task into blocked until the project owner resolves it." />
-          </div>
-        </section>
-        {tasks.length === 0 ? (
-          <section className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground xl:col-span-2">
-            No pending human reviews.
+        <aside className="space-y-3">
+          <section className="rounded-lg border bg-card p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ClipboardCheckIcon className="size-4 text-primary" />
+              Recent reviews
+            </div>
+            {reviews.length ? (
+              <ul className="mt-4 space-y-3">
+                {reviews.slice(0, 8).map((review) => (
+                  <li key={review.id} className="rounded-lg bg-muted/55 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1", reviewDecisionClass(review.decision))}>
+                        {reviewDecisionLabel(review.decision)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{review.time}</span>
+                    </div>
+                    <p className="mt-2 truncate text-sm font-medium">{review.taskTitle}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{review.reviewerLabel}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-4 text-sm text-muted-foreground">No review decisions recorded yet.</p>
+            )}
           </section>
-        ) : null}
+          <section className="rounded-lg border bg-card p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldCheckIcon className="size-4 text-primary" />
+              How reviews work
+            </div>
+            <div className="mt-4 space-y-3">
+              <ReviewRule title="Approve" detail="Records an approval and marks the task done." />
+              <ReviewRule title="Request changes" detail="Sends the task back to active work with the reviewer note attached." />
+            </div>
+          </section>
+        </aside>
       </div>
     </PageShell>
   )
@@ -5827,16 +5918,10 @@ function InvitesPage({ project, invites, onInvite }: { project: Project; invites
                 {invites.length} access requests for {project.name}.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm">
-                <ShieldCheckIcon />
-                Audit Access
-              </Button>
-              <Button size="sm" onClick={onInvite}>
-                <UserRoundPlusIcon />
-                Invite
-              </Button>
-            </div>
+            <Button size="sm" onClick={onInvite}>
+              <UserRoundPlusIcon />
+              Invite
+            </Button>
           </div>
           <div className="scrollbar-y overflow-x-auto">
             <table className="w-full min-w-[980px] border-collapse text-sm">
@@ -5847,7 +5932,6 @@ function InvitesPage({ project, invites, onInvite }: { project: Project; invites
                   <th className="px-4 py-2.5 text-left font-semibold">Scope</th>
                   <th className="px-4 py-2.5 text-left font-semibold">Status</th>
                   <th className="px-4 py-2.5 text-left font-semibold">Lifecycle</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -5889,11 +5973,6 @@ function InvitesPage({ project, invites, onInvite }: { project: Project; invites
                       />
                       <p className="mt-1 text-xs text-muted-foreground">Sent {invite.sent} · {invite.expires}</p>
                     </td>
-                    <td className="px-4 py-3 text-right align-top">
-                      <Button variant={invite.status === "Accepted" ? "outline" : "default"} size="sm">
-                        {invite.nextAction}
-                      </Button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -5910,25 +5989,16 @@ function InvitesPage({ project, invites, onInvite }: { project: Project; invites
           <section className="rounded-lg border bg-card p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <UserRoundPlusIcon className="size-4 text-primary" />
-              What Happens
+              How invites work
             </div>
             <div className="mt-4 space-y-3">
-              <InviteFlowStep index="1" title="Invite is created" detail="A pending project invite stores the recipient, role, token, sender, and expiry." />
-              <InviteFlowStep index="2" title="Identity is verified" detail="Humans authenticate. Agents link through the API base before they can act." />
-              <InviteFlowStep index="3" title="Access is activated" detail="Acceptance should create or activate the project member and add them to the right rooms." />
-              <InviteFlowStep index="4" title="History is preserved" detail="Resends, expirations, revocations, and acceptances stay visible in project activity." />
+              <InviteFlowStep index="1" title="Invite is created" detail="A pending invite stores the recipient email, role, token, and expiry." />
+              <InviteFlowStep index="2" title="Recipient accepts" detail="The invited person signs in and accepts from their Invitations page, which activates their membership." />
             </div>
-          </section>
-
-          <section className="rounded-lg border bg-card p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <ShieldCheckIcon className="size-4 text-primary" />
-              Role Policy
-            </div>
-            <div className="mt-4 space-y-2">
-              <InviteRole title="Owner" detail="Can manage API base, access, and production decisions." />
-              <InviteRole title="Developer" detail="Can claim tasks, coordinate with agents, and update work state." />
-              <InviteRole title="Viewer" detail="Can read board state, logs, reviews, and activity without editing." />
+            <div className="mt-4 space-y-2 border-t pt-4">
+              <InviteRole title="Owner" detail="Manage API base, access, and project settings." />
+              <InviteRole title="Developer" detail="Claim tasks, work with agents, and update task state." />
+              <InviteRole title="Viewer" detail="Read board, logs, reviews, and activity without editing." />
             </div>
           </section>
         </aside>
