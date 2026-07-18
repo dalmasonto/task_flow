@@ -31,9 +31,11 @@ import {
   PauseIcon,
   PlayIcon,
   PlusIcon,
+  RadioIcon,
   SearchIcon,
   SendIcon,
   ShieldCheckIcon,
+  SmileIcon,
   TerminalIcon,
   TimerIcon,
   UserIcon,
@@ -392,6 +394,14 @@ const messagePriorityOptions = [
   { value: "needs-response", label: "Needs response" },
   { value: "blocking", label: "Blocking" },
 ] satisfies Array<{ value: MessagePriority; label: string }>
+
+// Hand-rolled emoji picker data for the chat composer — a tiny inline set (no
+// dependency) grouped into generic buckets. Insertion splices at the caret.
+const composerEmojiGroups = [
+  { label: "Recent", emojis: ["👍", "✅", "🎯", "🚀", "⏱️", "🙏", "💪", "🔥"] },
+  { label: "Smileys", emojis: ["😀", "😄", "😂", "🙂", "😎", "🤝", "🙌", "👏"] },
+  { label: "Objects", emojis: ["📦", "🧾", "📌", "⚠️", "🐛", "💡", "📸", "💵"] },
+]
 
 const reviewDecisionOptions = [
   { value: "approve", label: "Approve and mark done" },
@@ -4893,9 +4903,35 @@ function AgentsConversationView() {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
+  const pendingCaret = useRef<number | null>(null)
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const canSendMessage = draftMessage.trim().length > 0 || stagedFiles.length > 0
   const focusComposer = () => {
     composerRef.current?.focus()
+  }
+
+  // Auto-grow the single-line pill textarea with its content, up to ~136px.
+  useEffect(() => {
+    const textarea = composerRef.current
+    if (!textarea) return
+    textarea.style.height = "auto"
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 136)}px`
+  }, [draftMessage])
+
+  // Restore the caret after an emoji is spliced into the draft.
+  useEffect(() => {
+    if (pendingCaret.current === null || !composerRef.current) return
+    composerRef.current.setSelectionRange(pendingCaret.current, pendingCaret.current)
+    pendingCaret.current = null
+  }, [draftMessage])
+
+  const insertEmoji = (emoji: string) => {
+    const textarea = composerRef.current
+    const start = textarea?.selectionStart ?? draftMessage.length
+    const end = textarea?.selectionEnd ?? draftMessage.length
+    pendingCaret.current = start + emoji.length
+    setDraftMessage(draftMessage.slice(0, start) + emoji + draftMessage.slice(end))
+    textarea?.focus()
   }
 
   // The terminal is only meaningful for agent DMs, so it defaults to EXPANDED
@@ -5013,6 +5049,7 @@ function AgentsConversationView() {
     setDraftMessage("")
     setStagedFiles([])
     setMessagePriority("normal")
+    setEmojiPickerOpen(false)
     requestAnimationFrame(focusComposer)
   }
 
@@ -5070,10 +5107,6 @@ function AgentsConversationView() {
             {canManageMembers ? (
               <AddChannelMemberControl candidates={addMemberCandidates} onAddMember={onAddMember} />
             ) : null}
-            <Button variant="outline" size="sm" onClick={focusComposer}>
-              <SendIcon />
-              Compose
-            </Button>
           </div>
         </div>
 
@@ -5103,74 +5136,139 @@ function AgentsConversationView() {
         </div>
 
         <form className="shrink-0 border-t bg-background p-3" onSubmit={handleSendMessage}>
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="inline-flex items-center rounded-full bg-muted px-2 py-1 font-medium text-muted-foreground">
-                To {selectedChat.title}
-              </span>
-              <span className="text-muted-foreground">{composerHint}</span>
-            </div>
-            {stagedFiles.length ? (
-              <StagedFileList files={stagedFiles} onRemove={removeStagedFile} />
+          <p className="mb-2 px-1 text-xs text-muted-foreground">
+            To {selectedChat.title} · {composerHint}
+          </p>
+          <div className="relative flex items-end gap-2">
+            {emojiPickerOpen ? (
+              <button
+                type="button"
+                className="fixed inset-0 z-20 cursor-default"
+                aria-label="Close emoji picker"
+                onClick={() => setEmojiPickerOpen(false)}
+              />
             ) : null}
-            <textarea
-              ref={composerRef}
-              className={cn(textareaClass, "max-h-44 min-h-24")}
-              placeholder={`Message ${selectedChat.title}. Shift+Enter for a new line.`}
-              value={draftMessage}
-              onChange={(event) => setDraftMessage(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault()
-                  event.currentTarget.form?.requestSubmit()
-                }
-              }}
-            />
-            <div className="flex flex-wrap justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <PaperclipIcon />
-                  Attach File
-                </Button>
-                <Button type="button" variant="outline" size="sm">Broadcast</Button>
-                <div className="flex items-center gap-2">
-                  <span id="agent-message-priority-label" className="text-xs font-medium text-muted-foreground">
-                    Priority
-                  </span>
-                  <Select
-                    value={messagePriority}
-                    onValueChange={(value) => setMessagePriority(value as MessagePriority)}
-                  >
-                    <SelectTrigger className="w-48" aria-labelledby="agent-message-priority-label">
-                      <SelectValue placeholder="Priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {messagePriorityOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+
+            <div className="relative flex min-w-0 flex-1 flex-col gap-1 rounded-2xl border border-border/75 bg-background/90 px-2 py-1.5 shadow-inner transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25">
+              {stagedFiles.length ? (
+                <div className="px-1 pt-1">
+                  <StagedFileList files={stagedFiles} onRemove={removeStagedFile} />
                 </div>
+              ) : null}
+
+              <div className="flex min-w-0 items-end gap-1.5">
+                <span className="flex shrink-0 items-center gap-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="rounded-xl"
+                    aria-label="Emoji"
+                    onClick={() => setEmojiPickerOpen((open) => !open)}
+                  >
+                    <SmileIcon />
+                  </Button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="rounded-xl"
+                    aria-label="Attach file"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <PaperclipIcon />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="rounded-xl"
+                    aria-label="Broadcast"
+                  >
+                    <RadioIcon />
+                  </Button>
+                </span>
+
+                {emojiPickerOpen ? (
+                  <div className="absolute bottom-full left-0 z-30 mb-2 w-[21rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+                    <div className="grid gap-3">
+                      {composerEmojiGroups.map((group) => (
+                        <div key={group.label}>
+                          <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                            {group.label}
+                          </div>
+                          <div className="grid grid-cols-8 gap-1">
+                            {group.emojis.map((emoji) => (
+                              <button
+                                key={`${group.label}-${emoji}`}
+                                type="button"
+                                className="flex size-8 items-center justify-center rounded-lg text-lg transition-colors hover:bg-accent"
+                                onClick={() => insertEmoji(emoji)}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <textarea
+                  ref={composerRef}
+                  rows={1}
+                  className="max-h-[8.5rem] min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground"
+                  placeholder={`Message ${selectedChat.title}…`}
+                  value={draftMessage}
+                  onChange={(event) => setDraftMessage(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault()
+                      event.currentTarget.form?.requestSubmit()
+                    }
+                  }}
+                />
+
+                <Select
+                  value={messagePriority}
+                  onValueChange={(value) => setMessagePriority(value as MessagePriority)}
+                >
+                  <SelectTrigger
+                    className="w-auto gap-1 border-0 bg-transparent text-xs shadow-none"
+                    aria-label="Message priority"
+                  >
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {messagePriorityOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <Button size="sm" type="submit" disabled={!canSendMessage}>
-                <SendIcon />
-                Send Message
-              </Button>
             </div>
+
+            <Button
+              type="submit"
+              size="icon-lg"
+              className="rounded-2xl"
+              disabled={!canSendMessage}
+              aria-label="Send"
+            >
+              <SendIcon />
+            </Button>
           </div>
         </form>
       </div>
