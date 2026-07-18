@@ -15,9 +15,9 @@ use crate::agent_auth::{RequireAgent, hash_key};
 use crate::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentStatus, TaskflowChannelKind, TaskflowChannelMemberKind,
-    TaskflowCredentialStatus, TaskflowMessageAttachment, TaskflowMessagePriority, taskflow_agent,
-    taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
-    taskflow_message_attachment,
+    TaskflowChannelReadCursor, TaskflowCredentialStatus, TaskflowMessageAttachment,
+    TaskflowMessagePriority, taskflow_agent, taskflow_agent_channel, taskflow_agent_channel_member,
+    taskflow_agent_message, taskflow_channel_read_cursor, taskflow_message_attachment,
 };
 
 /// The stored value of `TaskflowMembershipStatus::Active` — the status column is
@@ -823,4 +823,224 @@ pub async fn send_message_as_agent(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     message_response(&message, &[])
+}
+
+// ---------------------------------------------------------------------------
+// Read receipts / unread cursors: a member (user OR agent) records how far it
+// has read in a channel. Two routes mirror the send split — human `RequireAuth`
+// and agent `RequireAgent` — but both derive the member identity server-side and
+// upsert the caller's own cursor FORWARD only.
+// ---------------------------------------------------------------------------
+
+/// The one field either read endpoint accepts: the furthest message the caller
+/// has now read. The channel comes from the PATH and the member identity from
+/// the auth gate — neither is a body field, so there is nothing to forge.
+#[derive(Debug, Deserialize)]
+pub struct MarkReadInput {
+    pub last_read_message: i64,
+}
+
+/// Load the channel a read targets, or 404 if it does not exist.
+async fn load_channel(channel_id: i64) -> Result<TaskflowAgentChannel, StatusCode> {
+    TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::ID.eq(channel_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Validate that `message_id` exists AND lives in `channel`. A cursor may only
+/// point at a message the member could actually have read here — a missing
+/// message or one from a foreign channel is a 400, not a silent accept. Called
+/// AFTER the membership gate so a non-member never learns anything about a
+/// channel's messages.
+async fn validate_message_in_channel(
+    channel: &TaskflowAgentChannel,
+    message_id: i64,
+) -> Result<(), StatusCode> {
+    let message = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::ID.eq(message_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    if message.channel.id() != channel.id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
+/// Upsert the caller's cursor, advancing FORWARD only. `existing` is the current
+/// cursor for this (channel, member) if any; `new_row` is the fully-formed row to
+/// insert when none exists (and the source of the `last_read_at` to stamp on an
+/// advance). A read at an id `<=` the stored one leaves the cursor untouched — a
+/// cursor never moves backwards — and returns the unchanged row (200).
+async fn upsert_cursor_forward(
+    existing: Option<TaskflowChannelReadCursor>,
+    new_row: TaskflowChannelReadCursor,
+    new_message_id: i64,
+) -> Result<Response, StatusCode> {
+    let cursor = match existing {
+        Some(mut row) => {
+            let current = row.last_read_message.as_ref().map(|fk| fk.id());
+            // Advance only when the new message is strictly ahead of the stored
+            // one (or the cursor had none yet). Never move backwards.
+            if current.map_or(true, |id| new_message_id > id) {
+                row.last_read_message = Some(ForeignKey::new(new_message_id));
+                row.last_read_at = new_row.last_read_at;
+                TaskflowChannelReadCursor::objects()
+                    .save(row)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            } else {
+                row
+            }
+        }
+        None => TaskflowChannelReadCursor::objects()
+            .create(new_row)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    };
+    Ok((StatusCode::OK, Json(cursor)).into_response())
+}
+
+/// `POST /api/taskflow/channels/{channel}/read` (human-authed) — record how far
+/// the authenticated user has read in a channel.
+///
+/// AUTHORIZATION mirrors `send_message`'s membership gate exactly: an explicit
+/// channel-roster row authorizes it, otherwise (for shared Project/Task/Incident
+/// rooms only) an active membership of the channel's project does. A DM the
+/// caller isn't on the roster of, or a project they aren't an active member of,
+/// is a 403 — you cannot mark read a channel you cannot read.
+pub async fn mark_channel_read(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(channel_id): Path<i64>,
+    Json(input): Json<MarkReadInput>,
+) -> Result<Response, StatusCode> {
+    let channel = load_channel(channel_id).await?;
+
+    // (a) Membership is the authorization boundary (same gate as `send_message`).
+    // Checked BEFORE message validation so a non-member never learns whether a
+    // given message id belongs to this channel.
+    let is_roster_member = TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(channel.id)
+                & taskflow_agent_channel_member::USER.eq(user_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some();
+
+    if !is_roster_member {
+        // No roster row. DMs stay private to their explicit roster.
+        if channel.kind == TaskflowChannelKind::Direct {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        // Shared project room: an active project member may read it.
+        TaskflowProjectMember::objects()
+            .filter(
+                taskflow_project_member::PROJECT.eq(channel.project.id())
+                    & taskflow_project_member::USER.eq(user_id)
+                    & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::FORBIDDEN)?;
+    }
+
+    // (b) The message must belong to this channel.
+    validate_message_in_channel(&channel, input.last_read_message).await?;
+
+    // One cursor per (channel, user). The `member_agent` half is null.
+    let existing = TaskflowChannelReadCursor::objects()
+        .filter(
+            taskflow_channel_read_cursor::CHANNEL.eq(channel.id)
+                & taskflow_channel_read_cursor::MEMBER_USER.eq(user_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let new_row = TaskflowChannelReadCursor {
+        id: 0,
+        project: channel.project.clone(),
+        channel: ForeignKey::new(channel.id),
+        member_kind: TaskflowChannelMemberKind::User,
+        member_user: Some(ForeignKey::new(user_id)),
+        member_agent: None,
+        last_read_message: Some(ForeignKey::new(input.last_read_message)),
+        last_read_at: chrono::Utc::now(),
+        created_at: None,
+    };
+
+    upsert_cursor_forward(existing, new_row, input.last_read_message).await
+}
+
+/// `POST /api/taskflow/channels/{channel}/agent/read` (agent-authed) — the agent
+/// counterpart of [`mark_channel_read`]. `RequireAgent` resolves the credential
+/// to a stable agent; the cursor stamps `member_kind = agent`, `member_agent =
+/// <id>`, `member_user = None`.
+///
+/// AUTHORIZATION mirrors `send_message_as_agent`: an explicit channel-roster row
+/// authorizes it, otherwise (for shared rooms only) the channel's project must
+/// equal the agent's project. A DM off-roster, or a foreign-project room, is 403.
+pub async fn mark_channel_read_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Path(channel_id): Path<i64>,
+    Json(input): Json<MarkReadInput>,
+) -> Result<Response, StatusCode> {
+    let channel = load_channel(channel_id).await?;
+
+    // (a) Membership gate (same as `send_message_as_agent`), before message
+    // validation so a foreign-project agent never probes this channel's messages.
+    let is_roster_member = TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(channel.id)
+                & taskflow_agent_channel_member::AGENT.eq(agent.agent_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some();
+
+    if !is_roster_member {
+        // No roster row. DMs stay private to their explicit roster.
+        if channel.kind == TaskflowChannelKind::Direct {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        // Shared project room: the agent may read only its own project's rooms.
+        if channel.project.id() != agent.project_id {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    // (b) The message must belong to this channel.
+    validate_message_in_channel(&channel, input.last_read_message).await?;
+
+    // One cursor per (channel, agent). The `member_user` half is null.
+    let existing = TaskflowChannelReadCursor::objects()
+        .filter(
+            taskflow_channel_read_cursor::CHANNEL.eq(channel.id)
+                & taskflow_channel_read_cursor::MEMBER_AGENT.eq(agent.agent_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let new_row = TaskflowChannelReadCursor {
+        id: 0,
+        project: channel.project.clone(),
+        channel: ForeignKey::new(channel.id),
+        member_kind: TaskflowChannelMemberKind::Agent,
+        member_user: None,
+        member_agent: Some(ForeignKey::new(agent.agent_id)),
+        last_read_message: Some(ForeignKey::new(input.last_read_message)),
+        last_read_at: chrono::Utc::now(),
+        created_at: None,
+    };
+
+    upsert_cursor_forward(existing, new_row, input.last_read_message).await
 }

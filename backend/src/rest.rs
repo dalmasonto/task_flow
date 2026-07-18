@@ -84,6 +84,13 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // create would insert a row pointing at a file it never uploaded. Read-only
     // so the frontend can still `.list()` them, scoped by project.
     "taskflow_message_attachment",
+    // Read cursors are written ONLY through the trusted read endpoints
+    // (`POST /api/taskflow/channels/{channel}/read` and its agent variant),
+    // which derive the member identity server-side and advance forward only. A
+    // client REST create/update could forge another member's cursor or move one
+    // backwards. Read-only so clients can still `.list()` them to compute unread
+    // counts, scoped by project.
+    "taskflow_channel_read_cursor",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the

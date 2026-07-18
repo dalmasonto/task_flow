@@ -123,9 +123,10 @@ pub fn encode_multipart(parts: &[MultipartPart]) -> (String, Vec<u8>) {
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
     TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
-    TaskflowAgentMessage, TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowCredentialStatus,
-    TaskflowMessageAttachment, taskflow_agent_channel, taskflow_agent_channel_member,
-    taskflow_agent_credential, taskflow_agent_message, taskflow_message_attachment,
+    TaskflowAgentMessage, TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowChannelReadCursor,
+    TaskflowCredentialStatus, TaskflowMessagePriority, TaskflowMessageAttachment,
+    taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_credential,
+    taskflow_agent_message, taskflow_channel_read_cursor, taskflow_message_attachment,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
@@ -337,6 +338,14 @@ impl TestApp {
             .expect("count channel members")
     }
 
+    pub async fn count_read_cursors(&self, channel: i64) -> i64 {
+        TaskflowChannelReadCursor::objects()
+            .filter(taskflow_channel_read_cursor::CHANNEL.eq(channel))
+            .count()
+            .await
+            .expect("count read cursors")
+    }
+
     pub async fn project_of_channel(&self, channel: i64) -> i64 {
         TaskflowAgentChannel::objects()
             .filter(taskflow_agent_channel::ID.eq(channel))
@@ -390,6 +399,31 @@ pub async fn seed_channel_of_kind(project: i64, kind: TaskflowChannelKind) -> i6
         })
         .await
         .expect("create channel")
+        .id
+}
+
+/// Seed a bare message directly in `channel` (bypassing the send endpoint), so a
+/// test has a real message id to point a read cursor at — including one in a
+/// FOREIGN channel for the 400 path. Returns the new message id.
+pub async fn seed_message(project: i64, channel: i64) -> i64 {
+    let n = seq();
+    TaskflowAgentMessage::objects()
+        .create(TaskflowAgentMessage {
+            id: 0,
+            project: ForeignKey::new(project),
+            channel: ForeignKey::new(channel),
+            task: None,
+            sender_kind: TaskflowChannelMemberKind::User,
+            sender_user: None,
+            sender_agent: None,
+            sender_label: format!("Seeder {n}"),
+            body_markdown: format!("seeded message {n}"),
+            priority: TaskflowMessagePriority::Normal,
+            client_nonce: None,
+            created_at: None,
+        })
+        .await
+        .expect("create message")
         .id
 }
 

@@ -20,7 +20,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowMessageAttachment,
+    TaskflowChannelReadCursor, TaskflowMessageAttachment,
 };
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
@@ -39,6 +39,7 @@ const MESSAGES: &str = "messages";
 const MESSAGE_ATTACHMENTS: &str = "message_attachments";
 const CHANNELS: &str = "channels";
 const CHANNEL_MEMBERS: &str = "channel_members";
+const READ_CURSORS: &str = "read_cursors";
 const TASKS: &str = "tasks";
 const TASK_RELATIONS: &str = "task_relations";
 const TASK_ACTIVITY: &str = "task_activity";
@@ -173,6 +174,11 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowAgentTerminalFrame>(Expose::to_group_with(|ev| {
             group_for(TERMINAL_FRAMES, &ev.instance)
         }))
+        // Read cursors: id-only ping so the other side learns a read happened and
+        // refetches the cursor rows to recompute unread counts.
+        .expose::<TaskflowChannelReadCursor>(Expose::to_group_with(|ev| {
+            group_for(READ_CURSORS, &ev.instance)
+        }))
 }
 
 /// `project:{id}:{suffix}` for a row carrying a `project` FK, else the
@@ -269,6 +275,7 @@ const ALL_SUFFIXES: &[&str] = &[
     MESSAGE_ATTACHMENTS,
     CHANNELS,
     CHANNEL_MEMBERS,
+    READ_CURSORS,
     TASKS,
     TASK_RELATIONS,
     TASK_ACTIVITY,

@@ -46,4 +46,15 @@ pub fn router() -> Router {
             "/api/taskflow/agents/agent/messages",
             post(views::send_message_as_agent),
         )
+        // Read receipts / unread cursors. The human path is auth-gated; the agent
+        // path is `RequireAgent`-gated. Both upsert the caller's own cursor
+        // forward-only; the channel comes from the path.
+        .route(
+            "/api/taskflow/channels/{channel}/read",
+            post(views::mark_channel_read),
+        )
+        .route(
+            "/api/taskflow/channels/{channel}/agent/read",
+            post(views::mark_channel_read_as_agent),
+        )
 }

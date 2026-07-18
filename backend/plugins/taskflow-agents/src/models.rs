@@ -269,6 +269,38 @@ pub struct TaskflowMessageAttachment {
     pub created_at: Option<DateTime<Utc>>,
 }
 
+/// Tracks how far a single member (a user OR an agent) has read in a channel —
+/// the "read receipt" / unread-cursor primitive. One row per (channel, member):
+/// the `unique_together` pairs enforce it at the DB layer, and the read
+/// endpoints upsert forward-only (a cursor never moves backwards).
+///
+/// `project` is denormalized from `channel.project` for realtime routing and
+/// read scoping, exactly like `TaskflowAgentMessage` / `TaskflowAgentChannelMember`.
+/// Exactly one of `member_user` / `member_agent` is set, matching `member_kind`.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["channel", "member_user"], ["channel", "member_agent"]])]
+pub struct TaskflowChannelReadCursor {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(choices, default = "user")]
+    pub member_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub member_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub member_agent: Option<ForeignKey<TaskflowAgent>>,
+    /// The furthest message this member has read. Only ever advanced forward.
+    #[umbral(on_delete = "set_null")]
+    pub last_read_message: Option<ForeignKey<TaskflowAgentMessage>>,
+    /// When the cursor last advanced. Set explicitly on every write (not
+    /// `auto_now`) so the value is the read time, independent of row creation.
+    pub last_read_at: DateTime<Utc>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
 pub struct TaskflowAgentTerminalFrame {
     pub id: i64,
