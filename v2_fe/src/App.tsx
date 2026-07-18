@@ -7,6 +7,7 @@ import {
   ArrowRightIcon,
   BellIcon,
   BotIcon,
+  CheckCheckIcon,
   CheckIcon,
   CheckCircle2Icon,
   CircleDotIcon,
@@ -78,8 +79,10 @@ import {
   type AuthResult,
 } from "@/lib/auth-api"
 import type {
+  TaskflowAgent,
   TaskflowAgentMessage,
   TaskflowAgentMessagePriority,
+  TaskflowAgentSession,
   TaskflowMessageAttachment,
   TaskflowProjectInviteRole,
   TaskflowProjectInviteStatus,
@@ -102,8 +105,10 @@ import {
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
   linkAgent,
+  markChannelRead,
   pingTaskflowBackend,
   realtimeEventHasInlineRow,
+  reviewTask as submitTaskReview,
   subscribeToTaskflowProjectEvents,
   subscribeToTaskflowWorkspaceEvents,
   sendTaskflowAgentMessage,
@@ -237,6 +242,9 @@ type AgentMessage = {
   /// On a failed bubble, the reason the send was rejected (server `detail`, e.g.
   /// a too-large-file message) so the user sees WHY, not just that it failed.
   error?: string
+  /// Set on the user's OWN last posted message once ANOTHER channel member's
+  /// (user or agent) read cursor has advanced past it — drives the "Seen" caption.
+  seen?: boolean
 }
 
 type ConversationMember = {
@@ -259,6 +267,9 @@ type AgentChatContext = {
   members: ConversationMember[]
   primaryAgent: string
   unread: number
+  /// Live presence for an agent DM (live session + heartbeat within 90s).
+  /// Undefined for channels and human DMs, which have no agent presence.
+  online?: boolean
   messages: AgentMessage[]
 }
 
@@ -870,12 +881,56 @@ function toLivePriority(priority: Priority): TaskflowTaskPriority {
   return "normal"
 }
 
+/// An agent heartbeats while it holds a live session; a stale heartbeat means it
+/// went away without a clean disconnect. 90s is the backend's liveness window.
+const AGENT_HEARTBEAT_WINDOW_MS = 90_000
+
+function isRecentHeartbeat(timestamp: string | null | undefined, now: number): boolean {
+  if (!timestamp) return false
+  const parsed = Date.parse(timestamp)
+  return Number.isFinite(parsed) && now - parsed <= AGENT_HEARTBEAT_WINDOW_MS
+}
+
+/// Live online state for an agent: it must have a CONNECTED session heartbeated
+/// within the window, or (fallback) the agent row itself must be in a live status
+/// and heartbeated within the window. A disconnected/expired session, or a status
+/// row that stopped heartbeating, reads as offline.
+function isAgentOnline(
+  agentId: number,
+  agents: Pick<TaskflowAgent, "id" | "status" | "last_seen_at">[],
+  sessions: Pick<TaskflowAgentSession, "agent" | "status" | "last_seen_at">[],
+  now: number
+): boolean {
+  const hasLiveSession = sessions.some(
+    (session) =>
+      session.agent === agentId && session.status === "connected" && isRecentHeartbeat(session.last_seen_at, now)
+  )
+  if (hasLiveSession) return true
+  const agent = agents.find((item) => item.id === agentId)
+  return (
+    !!agent &&
+    ["connected", "idle", "busy"].includes(agent.status) &&
+    isRecentHeartbeat(agent.last_seen_at, now)
+  )
+}
+
+/// Count of agents in a workspace that are online right now (live sessions +
+/// heartbeat window). Reads the wall clock itself so callers can invoke it from a
+/// memo without an impure `Date.now()` in the render body.
+function countOnlineAgents(workspace: TaskflowWorkspace): number {
+  const now = Date.now()
+  return workspace.agents.filter((agent) =>
+    isAgentOnline(agent.id, workspace.agents, workspace.agentSessions, now)
+  ).length
+}
+
 function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
+  const now = Date.now()
   return summary.projects.map((project, index) => {
     const members = summary.members.filter((member) => member.project === project.id && member.status === "active").length
-    const agents = summary.agents.filter(
-      (agent) => agent.project === project.id && ["connected", "idle", "busy"].includes(agent.status)
-    )
+    const onlineAgents = summary.agents.filter(
+      (agent) => agent.project === project.id && isAgentOnline(agent.id, summary.agents, summary.sessions, now)
+    ).length
     const connectedSessions = summary.sessions.filter(
       (session) => session.project === project.id && session.status === "connected"
     ).length
@@ -891,7 +946,7 @@ function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
       cadence: connectedSessions ? `${connectedSessions} sessions live` : "Realtime ready",
       objective: project.description_markdown || "Live TaskFlow project.",
       members,
-      agentsOnline: agents.length,
+      agentsOnline: onlineAgents,
       apiBase: project.default_api_base_url || "/api",
     }
   })
@@ -1086,6 +1141,30 @@ function mapLiveChannelMessages(
   channelTitle: string,
   currentUser: AuthUser | null
 ): AgentMessage[] {
+  // Read receipt: the highest message id any OTHER member (user or agent) has
+  // read in this channel. The user's own last message counts as "Seen" once it
+  // sits at or below that watermark.
+  const otherCursorWatermark = workspace.channelReadCursors
+    .filter(
+      (cursor) =>
+        cursor.channel === channelId &&
+        !(cursor.member_kind === "user" && currentUser != null && cursor.member_user === currentUser.id)
+    )
+    .reduce((max, cursor) => Math.max(max, cursor.last_read_message ?? 0), 0)
+  const ownMessageIds = workspace.agentMessages
+    .filter(
+      (message): message is TaskflowAgentMessage =>
+        !isPending(message) &&
+        message.channel === channelId &&
+        message.sender_kind === "user" &&
+        currentUser != null &&
+        message.sender_user === currentUser.id
+    )
+    .map((message) => message.id)
+  const lastOwnMessageId = ownMessageIds.length ? Math.max(...ownMessageIds) : null
+  const seenOwnMessageId =
+    lastOwnMessageId != null && lastOwnMessageId <= otherCursorWatermark ? lastOwnMessageId : null
+
   return workspace.agentMessages
     .filter((message) => message.channel === channelId)
     .slice()
@@ -1124,6 +1203,7 @@ function mapLiveChannelMessages(
         body: message.body_markdown,
         status: "posted",
         priority: mapLiveMessagePriority(message.priority),
+        seen: seenOwnMessageId != null && message.id === seenOwnMessageId,
         attachments: workspace.messageAttachments
           .filter((attachment) => attachment.message === message.id)
           .map(mapStoredAttachment),
@@ -1139,6 +1219,28 @@ function liveChannelStatus(channel: TaskflowWorkspace["agentChannels"][number]) 
   return "Project room"
 }
 
+/// Unread count for the current user in a channel: saved messages newer than
+/// the user's own read cursor that the user did NOT author. With no cursor, it's
+/// every message not authored by the user. Pending (unsent) bubbles never count.
+function channelUnreadCount(
+  workspace: TaskflowWorkspace,
+  channelId: number,
+  currentUser: AuthUser | null
+): number {
+  if (!currentUser) return 0
+  const cursor = workspace.channelReadCursors.find(
+    (row) => row.channel === channelId && row.member_kind === "user" && row.member_user === currentUser.id
+  )
+  const lastRead = cursor?.last_read_message ?? 0
+  return workspace.agentMessages.filter(
+    (message) =>
+      !isPending(message) &&
+      message.channel === channelId &&
+      message.id > lastRead &&
+      !(message.sender_kind === "user" && message.sender_user === currentUser.id)
+  ).length
+}
+
 function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null): AgentChatContext[] {
   const projectChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind !== "direct")
   const chats = projectChannels.map((channel) => {
@@ -1152,7 +1254,7 @@ function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser
       status: liveChannelStatus(channel),
       members,
       primaryAgent: primaryAgentName(workspace, members),
-      unread: 0,
+      unread: channelUnreadCount(workspace, channel.id, currentUser),
       messages: mapLiveChannelMessages(workspace, channel.id, channel.title, currentUser),
     }
   })
@@ -1176,6 +1278,7 @@ function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser
 }
 
 function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null): AgentChatContext[] {
+  const now = Date.now()
   const directChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind === "direct")
   const chats = directChannels.map((channel) => {
     const rawMembers = workspace.agentChannelMembers.filter((member) => member.channel === channel.id)
@@ -1202,7 +1305,8 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
       status: liveChannelStatus(channel),
       members,
       primaryAgent: title,
-      unread: 0,
+      unread: channelUnreadCount(workspace, channel.id, currentUser),
+      online: agent ? isAgentOnline(agent.id, workspace.agents, workspace.agentSessions, now) : undefined,
       messages: mapLiveChannelMessages(workspace, channel.id, title, currentUser),
     }
   })
@@ -1258,6 +1362,7 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
       members: uniqueMembers([selfMember, { name: agent.display_name, type: "agent" as const }]),
       primaryAgent: agent.display_name,
       unread: 0,
+      online: isAgentOnline(agent.id, workspace.agents, workspace.agentSessions, now),
       messages: [],
     }))
 
@@ -1443,11 +1548,22 @@ function App() {
     }
   }, [])
 
-  const activeProject: Project | undefined =
+  const activeProjectBase: Project | undefined =
     workspaceProjects.find((project) => project.id === activeProjectId) ?? workspaceProjects[0]
-  const activeLiveProjectId = activeProject ? liveId(activeProject.id) : null
+  const activeLiveProjectId = activeProjectBase ? liveId(activeProjectBase.id) : null
   const activeLiveWorkspace =
     activeLiveProjectId && liveWorkspace?.project.id === activeLiveProjectId ? liveWorkspace : null
+  // The snapshot count from mapLiveProjects can go stale between summary fetches;
+  // when we hold the live workspace, recompute online agents from its sessions +
+  // heartbeats so the dashboard/sidebar/API Base reflect real presence. Recomputes
+  // whenever the workspace changes — which is exactly when heartbeat events land.
+  const activeProject: Project | undefined = useMemo(
+    () =>
+      activeProjectBase && activeLiveWorkspace
+        ? { ...activeProjectBase, agentsOnline: countOnlineAgents(activeLiveWorkspace) }
+        : activeProjectBase,
+    [activeProjectBase, activeLiveWorkspace]
+  )
   const projectTasks = useMemo(
     () => (activeProject ? tasks.filter((task) => task.projectId === activeProject.id) : []),
     [activeProject, tasks]
@@ -1647,6 +1763,12 @@ function App() {
         case taskflowTables.terminalFrames:
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, terminalFrames: removeById(workspace.terminalFrames, rowId) }))
           break
+        case taskflowTables.channelReadCursors:
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, channelReadCursors: removeById(workspace.channelReadCursors, rowId) }))
+          break
+        case taskflowTables.taskReviews:
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskReviews: removeById(workspace.taskReviews, rowId) }))
+          break
       }
     },
     [applyWorkspaceUpdate]
@@ -1775,6 +1897,18 @@ function App() {
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, terminalFrames: upsertById(workspace.terminalFrames, frame) }))
           break
         }
+        case taskflowTables.channelReadCursors: {
+          const cursor = row as TaskflowWorkspace["channelReadCursors"][number]
+          if (cursor.project !== projectId) return
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, channelReadCursors: upsertById(workspace.channelReadCursors, cursor) }))
+          break
+        }
+        case taskflowTables.taskReviews: {
+          const review = row as TaskflowWorkspace["taskReviews"][number]
+          if (review.project !== projectId) return
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskReviews: upsertById(workspace.taskReviews, review) }))
+          break
+        }
       }
     },
     [applyWorkspaceUpdate]
@@ -1834,6 +1968,12 @@ function App() {
             break
           case taskflowTables.terminalFrames:
             applyRealtimeRow(event, await taskflowApi.get(taskflowTables.terminalFrames, rowId), projectId)
+            break
+          case taskflowTables.channelReadCursors:
+            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.channelReadCursors, rowId), projectId)
+            break
+          case taskflowTables.taskReviews:
+            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.taskReviews, rowId), projectId)
             break
         }
       } catch (error) {
@@ -2032,6 +2172,8 @@ function App() {
       agentMessages: [],
       messageAttachments: [],
       terminalFrames: [],
+      channelReadCursors: [],
+      taskReviews: [],
     })
   }
 
@@ -2473,11 +2615,20 @@ function App() {
     )
     const reviewTaskIdNumber = liveId(reviewTask.id)
     if (usesLiveApi && reviewTaskIdNumber) {
-      void updateTaskflowTask(reviewTaskIdNumber, {
-        status: toLiveStatus(next),
-      }).catch((error) => {
+      const onError = (error: unknown) =>
         setLiveSyncError(error instanceof Error ? error.message : "Could not persist the review decision.")
-      })
+      // approve/changes are real review DECISIONS: the review endpoint records the
+      // review row, transitions the task, and posts the report-back to the agent.
+      // "blocked" is a plain status change, not a review — keep the direct update.
+      if (decision === "approve" || decision === "changes") {
+        void submitTaskReview(
+          reviewTaskIdNumber,
+          decision === "approve" ? "approved" : "changes_requested",
+          note || undefined
+        ).catch(onError)
+      } else {
+        void updateTaskflowTask(reviewTaskIdNumber, { status: toLiveStatus(next) }).catch(onError)
+      }
     }
     setDialogMode(null)
     setReviewTaskId(null)
@@ -4640,7 +4791,7 @@ function AgentsPage({
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
                   {chat.unread ? (
                     <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                      {chat.unread}
+                      {chat.unread > 99 ? "99+" : chat.unread}
                     </span>
                   ) : null}
                 </div>
@@ -4679,16 +4830,27 @@ function AgentsPage({
                   onClick={() => openChat(chat)}
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className={cn(
-                        "inline-flex size-7 shrink-0 items-center justify-center rounded-full ring-1",
-                        isAgentDm
-                          ? "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900/60"
-                          : "bg-sky-100 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60"
-                      )}
-                      aria-hidden
-                    >
-                      {isAgentDm ? <BotIcon className="size-4" /> : <UserIcon className="size-4" />}
+                    <span className="relative shrink-0">
+                      <span
+                        className={cn(
+                          "inline-flex size-7 items-center justify-center rounded-full ring-1",
+                          isAgentDm
+                            ? "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900/60"
+                            : "bg-sky-100 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900/60"
+                        )}
+                        aria-hidden
+                      >
+                        {isAgentDm ? <BotIcon className="size-4" /> : <UserIcon className="size-4" />}
+                      </span>
+                      {isAgentDm && chat.online !== undefined ? (
+                        <span
+                          className={cn(
+                            "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-background",
+                            chat.online ? "bg-emerald-500" : "bg-muted-foreground/40"
+                          )}
+                          title={chat.online ? "Online" : "Offline"}
+                        />
+                      ) : null}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{chat.title}</span>
                     <span className="shrink-0 text-[0.65rem] font-medium uppercase tracking-normal text-muted-foreground">
@@ -4696,7 +4858,7 @@ function AgentsPage({
                     </span>
                     {chat.unread ? (
                       <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                        {chat.unread}
+                        {chat.unread > 99 ? "99+" : chat.unread}
                       </span>
                     ) : null}
                   </div>
@@ -4833,6 +4995,30 @@ function AgentsConversationView() {
     const el = threadRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [chatKey, messageCount])
+
+  // Mark-read: advance the current user's read cursor to the newest SAVED message
+  // whenever this thread is open (mount / channel switch / a new message lands).
+  // Only real channels with a real latest message id qualify — a pending bubble
+  // has no server id yet. Debounced so a burst of arrivals fires at most one POST
+  // once activity settles, and best-effort (a failed cursor update is silent).
+  const liveChannelId = selectedChat?.liveChannelId ?? null
+  const latestReadableMessageId = useMemo(() => {
+    if (!selectedChat) return null
+    for (let index = selectedChat.messages.length - 1; index >= 0; index -= 1) {
+      const message = selectedChat.messages[index]
+      if (message.status !== "posted") continue
+      const numericId = Number(message.id)
+      if (Number.isFinite(numericId)) return numericId
+    }
+    return null
+  }, [selectedChat])
+  useEffect(() => {
+    if (!liveChannelId || latestReadableMessageId == null) return
+    const timer = setTimeout(() => {
+      void markChannelRead(liveChannelId, latestReadableMessageId).catch(() => {})
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [liveChannelId, latestReadableMessageId])
 
   // The window shows the last N messages; a new message lands at the end, so it
   // is always inside the window and the bottom-scroll effect above reveals it.
@@ -5323,6 +5509,12 @@ function AgentChatBubble({
                 </Button>
               ) : null}
             </div>
+          </div>
+        ) : null}
+        {fromUser && message.seen ? (
+          <div className="mt-1.5 flex items-center justify-end gap-1 text-[0.65rem] font-medium text-muted-foreground">
+            <CheckCheckIcon className="size-3" />
+            Seen
           </div>
         ) : null}
       </div>

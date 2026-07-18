@@ -11,6 +11,7 @@ import type {
   TaskflowAgentMessage,
   TaskflowAgentSession,
   TaskflowAgentTerminalFrame,
+  TaskflowChannelReadCursor,
   TaskflowMessageAttachment,
   TaskflowProject,
   TaskflowProjectApiEndpoint,
@@ -23,6 +24,7 @@ import type {
   TaskflowTaskActivityCreate,
   TaskflowTaskCreate,
   TaskflowTaskRelation,
+  TaskflowTaskReview,
   TaskflowTaskSession,
   TaskflowTaskSessionCreate,
   TaskflowTaskSessionUpdate,
@@ -51,6 +53,8 @@ export const taskflowTables = {
   agentMessages: "taskflow_agent_message",
   messageAttachments: "taskflow_message_attachment",
   terminalFrames: "taskflow_agent_terminal_frame",
+  channelReadCursors: "taskflow_channel_read_cursor",
+  taskReviews: "taskflow_task_review",
 } as const
 
 /// Group suffixes are a contract with backend/src/realtime.rs — short labels,
@@ -72,6 +76,8 @@ const realtimeGroupSuffixes = {
   [taskflowTables.agentMessages]: "messages",
   [taskflowTables.messageAttachments]: "message_attachments",
   [taskflowTables.terminalFrames]: "terminal_frames",
+  [taskflowTables.channelReadCursors]: "read_cursors",
+  [taskflowTables.taskReviews]: "task_reviews",
 } as const satisfies Record<Exclude<RealtimeTableName, typeof taskflowTables.projects>, string>
 
 export const taskflowGroups = {
@@ -109,6 +115,8 @@ export type TaskflowWorkspace = {
   agentMessages: ChatMessage[]
   messageAttachments: TaskflowMessageAttachment[]
   terminalFrames: TaskflowAgentTerminalFrame[]
+  channelReadCursors: TaskflowChannelReadCursor[]
+  taskReviews: TaskflowTaskReview[]
 }
 
 export type TaskflowProjectSummary = {
@@ -140,6 +148,8 @@ type RealtimeTableName =
   | typeof taskflowTables.agentMessages
   | typeof taskflowTables.messageAttachments
   | typeof taskflowTables.terminalFrames
+  | typeof taskflowTables.channelReadCursors
+  | typeof taskflowTables.taskReviews
 
 export type TaskflowRealtimeEvent = {
   table: RealtimeTableName
@@ -163,6 +173,8 @@ const projectScopedRealtimeTables = [
   taskflowTables.agentMessages,
   taskflowTables.messageAttachments,
   taskflowTables.terminalFrames,
+  taskflowTables.channelReadCursors,
+  taskflowTables.taskReviews,
 ] satisfies RealtimeTableName[]
 
 /// Chat tables project their fields (backend/src/realtime.rs), so their events
@@ -172,6 +184,7 @@ export const realtimeTablesWithInlineRows = [
   taskflowTables.messageAttachments,
   taskflowTables.agentChannels,
   taskflowTables.agentChannelMembers,
+  taskflowTables.terminalFrames,
 ] as const satisfies readonly RealtimeTableName[]
 
 export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {
@@ -239,6 +252,8 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     agentMessages,
     messageAttachments,
     terminalFrames,
+    channelReadCursors,
+    taskReviews,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").list(),
@@ -256,6 +271,8 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("created_at", "id").list(),
     taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").list(),
     taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
+    taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").list(),
+    taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
   ])
 
   const channelIds = new Set(agentChannels.results.map((channel) => channel.id))
@@ -277,6 +294,46 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     agentMessages: agentMessages.results,
     messageAttachments: messageAttachments.results,
     terminalFrames: terminalFrames.results,
+    channelReadCursors: channelReadCursors.results,
+    taskReviews: taskReviews.results,
+  }
+}
+
+/// Advance the current user's read cursor for a channel to `lastReadMessage`.
+/// Bearer-authed as the human caller; the backend derives the member identity
+/// from the token. Best-effort — callers may swallow errors.
+export async function markChannelRead(channelId: number, lastReadMessage: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels/${channelId}/read`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ last_read_message: lastReadMessage }),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not mark the channel read (${response.status}).`))
+  }
+}
+
+/// Record a human review decision on a task. The backend writes the review row,
+/// transitions the task, and posts the report-back message to the agent. Bearer-
+/// authed as the human caller. `bodyMarkdown` is the optional review note.
+export async function reviewTask(
+  taskId: number,
+  decision: "approved" | "changes_requested",
+  bodyMarkdown?: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/tasks/${taskId}/review`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ decision, ...(bodyMarkdown ? { body_markdown: bodyMarkdown } : {}) }),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "You are not allowed to review this task."
+        : await readErrorDetail(response, `Could not submit the review (${response.status}).`)
+    )
   }
 }
 
