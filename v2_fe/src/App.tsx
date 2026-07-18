@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type UIEvent } from "react"
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom"
 import {
   ActivityIcon,
@@ -227,6 +227,10 @@ type AgentMessage = {
   from: string
   to?: string
   time: string
+  /// Raw ISO timestamp from `message.created_at` — used for calendar-date
+  /// grouping in the thread. Null/undefined for pending (optimistic) bubbles,
+  /// which have not been acknowledged by the server and group under "Today".
+  createdAt?: string | null
   body: string
   status: string
   priority?: MessagePriority
@@ -746,6 +750,68 @@ function formatLiveDate(value: string | null | undefined, fallback = "Live") {
   }).format(date)
 }
 
+/// How many messages a conversation renders at once. The thread windows to the
+/// last N messages and reveals another page of N as the user scrolls to the top
+/// (reverse-infinite-scroll). One constant serves both DMs and rooms — it's a
+/// per-conversation window, not a global cap.
+const MESSAGE_PAGE_SIZE = 20
+
+/// Start-of-day timestamp (local time) for calendar-day comparisons.
+function startOfLocalDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+/// Resolve a message's ISO `createdAt` to a real Date, falling back to "now" for
+/// pending/undated bubbles — they are the newest thing in the room, so grouping
+/// them under today's date is correct.
+function messageDay(value: string | null | undefined): Date {
+  if (value) {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return new Date()
+}
+
+/// A stable local calendar-day key for grouping consecutive messages.
+function messageDayKey(value: string | null | undefined): string {
+  const day = messageDay(value)
+  return `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
+}
+
+/// A friendly separator label: "Today" / "Yesterday" for the two most recent
+/// days, otherwise a locale date like "Jul 18, 2026".
+function formatDateSeparatorLabel(value: string | null | undefined): string {
+  const day = messageDay(value)
+  const today = startOfLocalDay(new Date())
+  const target = startOfLocalDay(day)
+  const oneDay = 24 * 60 * 60 * 1000
+  if (target === today) return "Today"
+  if (target === today - oneDay) return "Yesterday"
+  return day.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+}
+
+/// One rendered row in the thread: either a message bubble or a date separator
+/// that sits above the first message of its calendar-day group.
+type ThreadItem =
+  | { type: "date"; key: string; label: string }
+  | { type: "message"; message: AgentMessage }
+
+/// Interleave centered date separators into a (windowed) message list so the
+/// separators render in the right places without touching AgentChatBubble.
+function buildThreadItems(messages: AgentMessage[]): ThreadItem[] {
+  const items: ThreadItem[] = []
+  let lastKey: string | null = null
+  for (const message of messages) {
+    const key = messageDayKey(message.createdAt)
+    if (key !== lastKey) {
+      items.push({ type: "date", key: `date:${key}`, label: formatDateSeparatorLabel(message.createdAt) })
+      lastKey = key
+    }
+    items.push({ type: "message", message })
+  }
+  return items
+}
+
 function mapLiveStatus(status: TaskflowTaskStatus): ColumnId {
   if (status === "partial_done") return "review"
   if (status === "paused") return "blocked"
@@ -1007,6 +1073,7 @@ function mapLiveChannelMessages(
           from: "user",
           to: channelTitle,
           time: message.status === "failed" ? "Failed to send" : "Sending…",
+          createdAt: null,
           body: message.body_markdown,
           status: message.status === "failed" ? "failed" : "sending",
           priority: mapLiveMessagePriority(message.priority),
@@ -1018,6 +1085,7 @@ function mapLiveChannelMessages(
         from: message.sender_kind === "user" && currentUser && message.sender_user === currentUser.id ? "user" : message.sender_label,
         to: channelTitle,
         time: formatLiveDate(message.created_at, "Live"),
+        createdAt: message.created_at,
         body: message.body_markdown,
         status: "posted",
         priority: mapLiveMessagePriority(message.priority),
@@ -4834,20 +4902,58 @@ function AgentsConversationView() {
   const chatKey = selectedChat?.id ?? ""
   const [terminalOverride, setTerminalOverride] = useState<boolean | null>(null)
   const [terminalChatId, setTerminalChatId] = useState(chatKey)
+  // Client-side window: the thread renders only the last `visibleCount` messages
+  // and reveals another page of MESSAGE_PAGE_SIZE as the user scrolls to the top.
+  const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
   if (terminalChatId !== chatKey) {
     setTerminalChatId(chatKey)
     setTerminalOverride(null)
+    // Switching conversations starts a fresh window at the most recent page.
+    setVisibleCount(MESSAGE_PAGE_SIZE)
   }
   const terminalOpen = terminalOverride ?? isAgentChat
 
   // Keep the thread pinned to the latest message: scroll to the bottom when the
   // conversation changes or a new message arrives (optimistic send, echo, or a
-  // realtime message from someone else).
+  // realtime message from someone else). Keyed on the TOTAL message count (and
+  // chatKey), NOT on visibleCount — revealing older messages must preserve the
+  // reading position (see the reveal anchor below), not jump to the bottom.
   const messageCount = selectedChat?.messages.length ?? 0
   useEffect(() => {
     const el = threadRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [chatKey, messageCount])
+
+  // The window shows the last N messages; a new message lands at the end, so it
+  // is always inside the window and the bottom-scroll effect above reveals it.
+  const windowedMessages = useMemo(
+    () => (selectedChat ? selectedChat.messages.slice(Math.max(0, messageCount - visibleCount)) : []),
+    [selectedChat, messageCount, visibleCount]
+  )
+  const hasMoreOlder = visibleCount < messageCount
+
+  // Reverse-infinite-scroll anchor: revealing older messages grows the container
+  // at the top, which would shove the reading position down. We snapshot the
+  // pre-growth scrollHeight on the scroll that triggers a reveal, then — after
+  // the DOM grows — add the height delta back onto scrollTop so the messages the
+  // user was reading stay exactly in place (no jump to the top).
+  const pendingRevealAnchor = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = threadRef.current
+    const anchor = pendingRevealAnchor.current
+    if (el && anchor != null) {
+      el.scrollTop += el.scrollHeight - anchor
+      pendingRevealAnchor.current = null
+    }
+  }, [visibleCount])
+
+  const handleThreadScroll = (event: UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget
+    if (el.scrollTop < 48 && visibleCount < messageCount) {
+      pendingRevealAnchor.current = el.scrollHeight
+      setVisibleCount((current) => Math.min(current + MESSAGE_PAGE_SIZE, messageCount))
+    }
+  }
 
   // Revoke every staged preview URL when the composer unmounts so switching
   // chats mid-compose doesn't leak object URLs.
@@ -4952,10 +5058,29 @@ function AgentsConversationView() {
           </div>
         </div>
 
-        <div ref={threadRef} className="chat-thread-bg scrollbar-y min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          {selectedChat.messages.map((message) => (
-            <AgentChatBubble key={message.id} message={message} onRetry={onRetryMessage} />
-          ))}
+        <div
+          ref={threadRef}
+          onScroll={handleThreadScroll}
+          className="chat-thread-bg scrollbar-y min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
+        >
+          {hasMoreOlder ? (
+            <div className="pb-1 text-center text-xs text-muted-foreground/70">Scroll up for older messages</div>
+          ) : messageCount > 0 ? (
+            <div className="pb-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground/50">
+              Beginning of conversation
+            </div>
+          ) : null}
+          {buildThreadItems(windowedMessages).map((item) =>
+            item.type === "date" ? (
+              <div key={item.key} className="flex items-center justify-center py-1">
+                <span className="rounded-full bg-muted px-3 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                  {item.label}
+                </span>
+              </div>
+            ) : (
+              <AgentChatBubble key={item.message.id} message={item.message} onRetry={onRetryMessage} />
+            )
+          )}
         </div>
 
         <form className="shrink-0 border-t bg-background p-3" onSubmit={handleSendMessage}>
