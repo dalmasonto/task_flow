@@ -47,13 +47,20 @@ const MEDIA_PREFIX = "/media/";
  * Absolute urls are accepted only for their path — the host is discarded
  * before the fetch (it always targets the configured server, never the url's
  * own host), so a url pointing at another origin can never redirect the
- * fetch there. The host is still checked here and rejected unless it is a
- * loopback address: an absolute url naming some other host is a sign of a
- * confused or hostile caller and is refused outright rather than silently
- * tolerated. Anything that does not land under `/media/` after normalisation
- * is rejected too.
+ * fetch there. `server` is free-form user config (any origin, not just
+ * loopback), so instead of a hardcoded allowlist, an absolute url's origin is
+ * compared against the *configured* server's origin: a match is accepted,
+ * anything else is a sign of a confused or hostile caller and is refused
+ * outright. When no `server` is given (e.g. validating a url in isolation),
+ * there is nothing to compare against, so the host is simply discarded and
+ * only the path is used — safe, since it is never fetched.
+ *
+ * The path is percent-decoded before normalisation so a bare `/media/...`
+ * input and an absolute-url input agree on what `%2e%2e`-style traversal
+ * resolves to. Anything that does not land under `/media/` after
+ * normalisation is rejected.
  */
-export function mediaPathFrom(url: string): string {
+export function mediaPathFrom(url: string, server?: string): string {
   let path: string;
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) {
     let parsed: URL;
@@ -69,22 +76,38 @@ export function mediaPathFrom(url: string): string {
     }
     // The host is discarded below regardless -- the actual fetch always goes
     // to the configured server, never to whatever host this url names. But an
-    // absolute url naming some OTHER host is still a sign of a confused or
-    // hostile caller, so it is rejected outright rather than silently
-    // tolerated: only a loopback host (i.e. "this machine's own server",
-    // which is what Task 1's backend actually is) is accepted.
-    if (!["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
-      throw new AttachmentDownloadError(
-        `Attachment url points at another host, got: ${url}`,
-      );
+    // absolute url naming some OTHER host than the configured server is still
+    // a sign of a confused or hostile caller, so it is rejected outright
+    // rather than silently tolerated.
+    if (server) {
+      let serverOrigin: string;
+      try {
+        serverOrigin = new URL(server).origin;
+      } catch {
+        throw new AttachmentDownloadError(`Not a valid server origin: ${server}`);
+      }
+      if (parsed.origin !== serverOrigin) {
+        throw new AttachmentDownloadError(
+          `Attachment url points at another host, got: ${url}`,
+        );
+      }
     }
     path = parsed.pathname;
   } else {
     path = url;
   }
 
+  // Percent-decode before normalising, so `/media/%2e%2e/etc/passwd` collapses
+  // the same way whether it arrived as a bare path or inside an absolute url.
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(path);
+  } catch {
+    throw new AttachmentDownloadError(`Not a valid attachment url: ${url}`);
+  }
+
   // Normalise so `/media/../etc/passwd` cannot masquerade as a media path.
-  const normalised = resolve("/", path);
+  const normalised = resolve("/", decodedPath);
   if (!normalised.startsWith(MEDIA_PREFIX)) {
     throw new AttachmentDownloadError(
       `Attachment url must be under ${MEDIA_PREFIX} — got: ${url}`,
@@ -120,7 +143,7 @@ export async function downloadAttachment(opts: {
   key?: string;
   fetchImpl?: BinaryFetch;
 }): Promise<DownloadResult> {
-  const mediaPath = mediaPathFrom(opts.url);
+  const mediaPath = mediaPathFrom(opts.url, opts.server);
   const filename = downloadFilenameFrom(mediaPath, opts.name);
 
   const dir = downloadDirFor(opts.root);

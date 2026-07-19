@@ -19,14 +19,24 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function stubFetch(bytes: Buffer, contentType = "image/png"): BinaryFetch {
-  return async () => ({
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    headers: { get: (n: string) => (n.toLowerCase() === "content-type" ? contentType : null) },
-    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-  });
+type RecordingFetch = BinaryFetch & {
+  calls: { url: string; init?: { headers?: Record<string, string> } }[];
+};
+
+function stubFetch(bytes: Buffer, contentType = "image/png"): RecordingFetch {
+  const calls: RecordingFetch["calls"] = [];
+  const impl = (async (url: string, init?: { headers?: Record<string, string> }) => {
+    calls.push({ url, init });
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: (n: string) => (n.toLowerCase() === "content-type" ? contentType : null) },
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    };
+  }) as RecordingFetch;
+  impl.calls = calls;
+  return impl;
 }
 
 describe("mediaPathFrom", () => {
@@ -39,7 +49,24 @@ describe("mediaPathFrom", () => {
   });
 
   it("rejects an absolute url to another host", () => {
-    expect(() => mediaPathFrom("https://evil.example/media/x")).toThrow(AttachmentDownloadError);
+    expect(() =>
+      mediaPathFrom("https://evil.example/media/x", "http://localhost:8000"),
+    ).toThrow(AttachmentDownloadError);
+  });
+
+  it("accepts an absolute url matching the configured origin", () => {
+    expect(
+      mediaPathFrom("http://localhost:8000/media/abc-notes.pdf", "http://localhost:8000"),
+    ).toBe("/media/abc-notes.pdf");
+  });
+
+  it("accepts a non-localhost configured server whose origin matches", () => {
+    expect(
+      mediaPathFrom(
+        "http://192.168.1.50:8000/media/abc-notes.pdf",
+        "http://192.168.1.50:8000",
+      ),
+    ).toBe("/media/abc-notes.pdf");
   });
 
   it("rejects a file:// url", () => {
@@ -52,6 +79,10 @@ describe("mediaPathFrom", () => {
 
   it("rejects a traversal escape from /media", () => {
     expect(() => mediaPathFrom("/media/../etc/passwd")).toThrow(AttachmentDownloadError);
+  });
+
+  it("rejects a percent-encoded traversal escape the same as a literal one", () => {
+    expect(() => mediaPathFrom("/media/%2e%2e/etc/passwd")).toThrow(AttachmentDownloadError);
   });
 });
 
@@ -93,6 +124,30 @@ describe("downloadAttachment", () => {
     expect(out.size_bytes).toBe(bytes.length);
     expect(out.content_type).toBe("image/png");
     expect(await readFile(out.path)).toEqual(bytes);
+  });
+
+  it("fetches the configured server plus the media path, not the raw url", async () => {
+    const fetchImpl = stubFetch(Buffer.from("PNGDATA"));
+    await downloadAttachment({
+      url: "/media/abc-x.png",
+      server: "http://localhost:8000",
+      root,
+      fetchImpl,
+    });
+
+    expect(fetchImpl.calls.map((c) => c.url)).toEqual(["http://localhost:8000/media/abc-x.png"]);
+  });
+
+  it("builds the fetch target from server + path even for an absolute-url input", async () => {
+    const fetchImpl = stubFetch(Buffer.from("PNGDATA"));
+    await downloadAttachment({
+      url: "http://localhost:8000/media/abc-x.png",
+      server: "http://localhost:8000",
+      root,
+      fetchImpl,
+    });
+
+    expect(fetchImpl.calls.map((c) => c.url)).toEqual(["http://localhost:8000/media/abc-x.png"]);
   });
 
   it("always writes inside the download dir, even for a hostile override", async () => {
