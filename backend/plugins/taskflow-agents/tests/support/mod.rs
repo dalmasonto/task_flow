@@ -402,6 +402,22 @@ impl TestApp {
             .expect("session exists")
     }
 
+    /// Age a session's heartbeat by `secs`, simulating an agent whose process
+    /// died without calling `/close`: the row still says `connected`, but nothing
+    /// has beaten in a long time. There is no sweeper, so this state is reached
+    /// by simply walking away — it is the normal end of a crashed agent, not an
+    /// exotic edge case.
+    pub async fn backdate_session_heartbeat(&self, session_id: i64, secs: i64) {
+        let mut session = self.session(session_id).await;
+        let stale = chrono::Utc::now() - chrono::Duration::seconds(secs);
+        session.last_seen_at = Some(stale);
+        session.connected_at = stale;
+        TaskflowAgentSession::objects()
+            .save(session)
+            .await
+            .expect("backdate session heartbeat");
+    }
+
     /// Count terminal frames recorded for a session.
     pub async fn count_frames(&self, session_id: i64) -> i64 {
         TaskflowAgentTerminalFrame::objects()

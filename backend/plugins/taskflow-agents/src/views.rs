@@ -1079,6 +1079,64 @@ const MAX_FRAME_CHARS: usize = 20_000;
 /// convention as the membership/credential gates).
 const CONNECTED_SESSION: &str = "connected";
 
+/// How long a session may go without a heartbeat before it stops counting as
+/// live. CONTRACT with the frontend's `AGENT_HEARTBEAT_WINDOW_MS` (90_000) in
+/// `v2_fe/src/App.tsx` — the two must agree, or the dashboard and the agent's
+/// own `whoami` will disagree about whether it is online.
+///
+/// There is no sweeper by design, so `status == connected` alone is NOT proof of
+/// life: an agent whose process dies never calls `/close`, leaving a row that
+/// claims to be connected forever. Liveness is therefore always
+/// `connected AND heartbeated recently` — see [`session_is_live`].
+const AGENT_HEARTBEAT_WINDOW_SECS: i64 = 90;
+
+/// Whether a session counts as live right now: still marked connected AND
+/// heartbeated inside the window. Falls back to `connected_at` for a session
+/// that registered but has not heartbeated yet, so a brand-new session isn't
+/// judged dead before its first beat.
+fn session_is_live(session: &TaskflowAgentSession, now: chrono::DateTime<chrono::Utc>) -> bool {
+    if session.status != TaskflowAgentSessionStatus::Connected {
+        return false;
+    }
+    let last_beat = session.last_seen_at.unwrap_or(session.connected_at);
+    (now - last_beat).num_seconds() <= AGENT_HEARTBEAT_WINDOW_SECS
+}
+
+/// Count an agent's currently-live sessions. Used instead of a bare
+/// `status = connected` count so abandoned sessions can't pin an agent online.
+async fn live_session_count(
+    agent_id: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<usize, StatusCode> {
+    let sessions = TaskflowAgentSession::objects()
+        .filter(
+            taskflow_agent_session::AGENT.eq(agent_id)
+                & taskflow_agent_session::STATUS.eq(CONNECTED_SESSION),
+        )
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(sessions.iter().filter(|s| session_is_live(s, now)).count())
+}
+
+/// The agent's effective status, correcting a stored value that outlived its
+/// sessions. `stored` is the agent's last declared intent (busy/idle/connected);
+/// with no live session backing it, that intent is stale and the agent is really
+/// offline.
+///
+/// `Blocked` and `Revoked` are administrative states, not liveness, so they are
+/// returned untouched — a revoked agent is revoked whether or not it is running.
+fn effective_agent_status(
+    stored: TaskflowAgentStatus,
+    has_live_session: bool,
+) -> TaskflowAgentStatus {
+    match stored {
+        TaskflowAgentStatus::Blocked | TaskflowAgentStatus::Revoked => stored,
+        _ if has_live_session => stored,
+        _ => TaskflowAgentStatus::Offline,
+    }
+}
+
 /// Set an agent row's liveness: `status` (a hint from the caller, or
 /// `connected`) and `last_seen_at = now`. The agent is guaranteed to exist —
 /// `RequireAgent` resolved it — so a missing row here is a 500, not a 404.
@@ -1388,15 +1446,10 @@ pub async fn close_session(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Count is taken AFTER this session was saved disconnected, so it excludes
-    // the one we just closed. Zero remaining connected sessions → agent offline.
-    let still_connected = TaskflowAgentSession::objects()
-        .filter(
-            taskflow_agent_session::AGENT.eq(agent.agent_id)
-                & taskflow_agent_session::STATUS.eq(CONNECTED_SESSION),
-        )
-        .count()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // the one we just closed. Zero remaining LIVE sessions → agent offline.
+    // Counting by status alone would let an abandoned session (a process that
+    // died without closing) pin the agent online permanently.
+    let still_connected = live_session_count(agent.agent_id, now).await?;
     if still_connected == 0 {
         let mut agent_row = TaskflowAgent::objects()
             .filter(taskflow_agent::ID.eq(agent.agent_id))
@@ -2145,6 +2198,15 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Report DERIVED liveness, not the stored column. The column records the
+    // agent's last declared intent and is only corrected when a session is
+    // explicitly closed — so an agent whose previous process died would read its
+    // own status as "busy" forever. Deriving here is a pure read: no write on a
+    // GET, and no realtime event fired by a status query.
+    let now = chrono::Utc::now();
+    let has_live_session = live_session_count(row.id, now).await? > 0;
+    let status = effective_agent_status(row.status, has_live_session);
+
     Ok((
         StatusCode::OK,
         Json(json!({
@@ -2152,7 +2214,7 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
             "display_name": row.display_name,
             "identifier": row.identifier,
             "project": row.project.id(),
-            "status": row.status,
+            "status": status,
         })),
     )
         .into_response())
@@ -2331,14 +2393,33 @@ pub async fn list_agents_as_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Derive liveness for the whole roster from ONE session query rather than a
+    // per-agent count — this is the "who else is around?" call, so it should not
+    // fan out into N queries. Same correction as `whoami`: a stored busy/idle
+    // with no live session behind it is stale and reads as offline.
+    let now = chrono::Utc::now();
+    let live_agent_ids: std::collections::HashSet<i64> = TaskflowAgentSession::objects()
+        .filter(
+            taskflow_agent_session::PROJECT.eq(agent.project_id)
+                & taskflow_agent_session::STATUS.eq(CONNECTED_SESSION),
+        )
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .iter()
+        .filter(|s| session_is_live(s, now))
+        .map(|s| s.agent.id())
+        .collect();
+
     let items: Vec<serde_json::Value> = agents
         .into_iter()
         .map(|a| {
+            let status = effective_agent_status(a.status, live_agent_ids.contains(&a.id));
             json!({
                 "id": a.id,
                 "display_name": a.display_name,
                 "identifier": a.identifier,
-                "status": a.status,
+                "status": status,
                 "last_seen_at": a.last_seen_at,
             })
         })

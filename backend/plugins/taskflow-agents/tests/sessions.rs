@@ -325,3 +325,114 @@ async fn session_ops_require_ownership() {
         .await;
     assert_eq!(missing.status(), 404);
 }
+
+// A session whose process died (still `connected`, no heartbeat in a long time)
+// must not report the agent as online. Before this, `whoami` read the stored
+// column straight out and an agent that crashed once claimed to be "busy"
+// forever, because only an explicit `/close` ever corrected the column.
+#[tokio::test]
+async fn whoami_reports_offline_once_the_session_goes_stale() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key, agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
+
+    let session = register(&app, &key, "sess-stale").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+
+    // While beating, the agent reports itself live.
+    let fresh = app.get_as_agent(&key, "/api/taskflow/agents/whoami").await;
+    assert_eq!(fresh.status(), 200);
+    assert_ne!(
+        fresh.json().await["status"],
+        json!("offline"),
+        "a heartbeating session must read as online"
+    );
+
+    // The process dies: no close, no further beats.
+    app.backdate_session_heartbeat(session, 600).await;
+
+    let stale = app.get_as_agent(&key, "/api/taskflow/agents/whoami").await;
+    assert_eq!(
+        stale.json().await["status"],
+        json!("offline"),
+        "a session with no recent heartbeat must not keep the agent online"
+    );
+
+    // The STORED column is deliberately left alone — deriving on read keeps this
+    // a pure GET (no write, no realtime event fired by a status query).
+    assert_ne!(
+        app.agent(agent_id).await.status,
+        TaskflowAgentStatus::Offline,
+        "whoami derives; it must not write the correction back"
+    );
+}
+
+// An abandoned session must not pin the agent online when its real session
+// closes. Closing counted rows by `status = connected` alone, so one zombie kept
+// the count above zero forever and the agent never went offline.
+#[tokio::test]
+async fn stale_session_does_not_block_going_offline() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key, agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
+
+    let zombie = register(&app, &key, "sess-zombie").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+    let live = register(&app, &key, "sess-live").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+    app.backdate_session_heartbeat(zombie, 600).await;
+
+    // Closing the only LIVE session takes the agent offline, even though the
+    // zombie row still claims `connected`.
+    let closed = app
+        .post_as_agent(&key, &format!("/api/taskflow/agents/sessions/{live}/close"), json!({}))
+        .await;
+    assert_eq!(closed.status(), 200);
+    assert_eq!(
+        app.agent(agent_id).await.status,
+        TaskflowAgentStatus::Offline,
+        "an abandoned session must not keep the agent online"
+    );
+}
+
+// The roster an agent sees when deciding whether a teammate is around gets the
+// same correction — this is the call that drives "can I hand this to the
+// reviewer?", so a stale `busy` there is worse than in whoami.
+#[tokio::test]
+async fn list_agents_reports_derived_liveness() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key_a, _) = mint_agent(&app, user, project, "Builder", "main").await;
+    let (key_b, agent_b) = mint_agent(&app, user, project, "Reviewer", "reviewer").await;
+
+    // B registers then goes away without closing; A stays live.
+    let b_session = register(&app, &key_b, "sess-b").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+    register(&app, &key_a, "sess-a").await;
+    app.backdate_session_heartbeat(b_session, 600).await;
+
+    let resp = app.get_as_agent(&key_a, "/api/taskflow/agents/agents").await;
+    assert_eq!(resp.status(), 200);
+    let roster = resp.json().await;
+    let b = roster
+        .as_array()
+        .expect("agents array")
+        .iter()
+        .find(|a| a["id"].as_i64() == Some(agent_b))
+        .expect("reviewer present");
+    assert_eq!(
+        b["status"],
+        json!("offline"),
+        "a teammate that stopped heartbeating must read as offline"
+    );
+}
