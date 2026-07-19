@@ -104,6 +104,34 @@ const MESSAGE_ATTACHMENT_FIELDS: &[&str] = &[
     "size_bytes",
     "created_at",
 ];
+
+/// Agent sessions are projected inline for the same reason as terminal frames,
+/// but the trigger is subtler: appending a frame BUMPS the session's
+/// `last_seen_at`, so a streaming agent emits a session event for every frame it
+/// sends. Left id-only, each of those cost the frontend a REST refetch of the
+/// same row — a request per frame, which reads as "the UI is polling" even
+/// though nothing is on a timer. Every column here is already readable over REST
+/// by any project member; projecting them adds no exposure, only saves the trip.
+/// Deliberately the COMPLETE row, not a subset: the frontend replaces its stored
+/// session with whatever the event carries, so any column omitted here would be
+/// silently blanked on the first live update (`connected_by` drives an "Unlinked"
+/// label, and would have started lying the moment an agent streamed).
+const AGENT_SESSION_FIELDS: &[&str] = &[
+    "id",
+    "project",
+    "agent",
+    "connected_by",
+    "created_at",
+    "session_identifier",
+    "host",
+    "pid",
+    "cwd",
+    "transport",
+    "status",
+    "connected_at",
+    "last_seen_at",
+    "disconnected_at",
+];
 /// Terminal frames stream live: a producing agent posts one frame per line, and
 /// refetching each over REST would be a round-trip per line. So the frame's
 /// fields are projected inline (like the chat tables) and the frontend renders
@@ -190,9 +218,12 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowAgentCredential>(Expose::to_group_with(|ev| {
             group_for(AGENT_CREDENTIALS, &ev.instance)
         }))
-        .expose::<TaskflowAgentSession>(Expose::to_group_with(|ev| {
-            group_for(AGENT_SESSIONS, &ev.instance)
-        }))
+        // Sessions: projected inline — a frame append bumps `last_seen_at`, so
+        // these fire once per streamed frame and must not each cost a refetch.
+        .expose::<TaskflowAgentSession>(
+            Expose::to_group_with(|ev| group_for(AGENT_SESSIONS, &ev.instance))
+                .fields(AGENT_SESSION_FIELDS),
+        )
         // Terminal frames: fields projected so a subscribed terminal panel
         // renders each line straight from the event (no per-frame REST refetch).
         .expose::<TaskflowAgentTerminalFrame>(

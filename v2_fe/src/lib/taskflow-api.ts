@@ -171,14 +171,20 @@ const projectScopedRealtimeTables = [
   taskflowTables.taskReviews,
 ] satisfies RealtimeTableName[]
 
-/// Chat tables project their fields (backend/src/realtime.rs), so their events
-/// carry the whole row and need no refetch. Everything else is id-only.
+/// Tables whose events carry the whole row (projected in backend/src/realtime.rs)
+/// and therefore need no refetch. Everything else is id-only.
+///
+/// MUST match the `.fields(...)` list on the backend: a table projected there but
+/// missing here silently costs a REST round-trip per event — which for
+/// agentSessions meant one request per streamed terminal frame, indistinguishable
+/// from the UI polling.
 export const realtimeTablesWithInlineRows = [
   taskflowTables.agentMessages,
   taskflowTables.messageAttachments,
   taskflowTables.agentChannels,
   taskflowTables.agentChannelMembers,
   taskflowTables.terminalFrames,
+  taskflowTables.agentSessions,
 ] as const satisfies readonly RealtimeTableName[]
 
 export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {
