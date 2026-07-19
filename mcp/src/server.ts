@@ -10,6 +10,7 @@
  */
 
 import { hostname } from "node:os";
+import { dirname } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -21,6 +22,7 @@ import {
   type TaskflowConfig,
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError } from "./client.js";
+import { resolveAttachments } from "./attachments.js";
 import { detectTmuxPane } from "./tmux.js";
 
 /**
@@ -287,12 +289,28 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .enum(["normal", "important", "urgent"])
         .optional()
         .describe("Message priority (default: normal)."),
+      files: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Paths to attach, relative to the project root (or absolute, inside it). Max 25MB each.",
+        ),
       ...profileArg,
     },
-    async ({ channel, body, priority, profile }) => {
+    async ({ channel, body, priority, files, profile }) => {
       try {
         const { client } = clientFor(profile);
-        return ok(await client.sendMessage({ channel, body_markdown: body, priority }));
+        const attachments = files?.length
+          ? await resolveAttachments(files, dirname(configPath))
+          : undefined;
+        return ok(
+          await client.sendMessage({
+            channel,
+            body_markdown: body,
+            priority,
+            attachments,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
