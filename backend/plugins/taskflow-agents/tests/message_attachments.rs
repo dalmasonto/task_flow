@@ -430,3 +430,139 @@ async fn agent_non_member_replaying_a_nonce_gets_403_not_the_stored_row() {
 
     assert_eq!(replay.status(), 403, "leaked: {:?}", replay.json().await);
 }
+
+// 8. The agent READ path returns attachments, not just message text. This is
+//    the gap that made received files invisible to agents.
+#[tokio::test]
+async fn agent_read_returns_attachments_for_a_message() {
+    let app = TestApp::new().await;
+    let (_project, channel, key) = seed_agent_and_room(&app).await;
+
+    let (content_type, body) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "diagram attached"),
+        file("files", "diagram.png", "image/png", b"PNGDATA"),
+    ]);
+    let sent = app
+        .post_multipart_as_agent(&key, AGENT_SEND, &content_type, body)
+        .await;
+    assert_eq!(sent.status(), 200, "body: {:?}", sent.json().await);
+    let sent_row = sent.json().await;
+    let message_id = sent_row["id"].as_i64().expect("message id");
+
+    let read = app
+        .get_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/messages?channel={channel}"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "body: {:?}", read.json().await);
+    let page = read.json().await;
+
+    let message = page["messages"]
+        .as_array()
+        .expect("messages array")
+        .iter()
+        .find(|m| m["id"].as_i64() == Some(message_id))
+        .expect("the sent message is in the page");
+
+    let attachments = message["attachments"]
+        .as_array()
+        .expect("attachments array on the READ path");
+    assert_eq!(attachments.len(), 1);
+    let att = &attachments[0];
+    assert_eq!(att["name"], serde_json::json!("diagram.png"));
+    assert_eq!(att["content_type"], serde_json::json!("image/png"));
+    assert_eq!(att["size_bytes"], serde_json::json!("PNGDATA".len()));
+    assert_eq!(att["message"], serde_json::json!(message_id));
+    assert!(
+        att["url"]
+            .as_str()
+            .expect("url")
+            .starts_with("/media/"),
+        "url should resolve to /media/<key>, got {:?}",
+        att["url"]
+    );
+}
+
+// 9. A text-only message returns an EMPTY ARRAY, never an absent key. An absent
+//    key is indistinguishable from "not reported", which is exactly how the
+//    original bug hid.
+#[tokio::test]
+async fn agent_read_returns_empty_array_for_a_message_with_no_files() {
+    let app = TestApp::new().await;
+    let (_project, channel, key) = seed_agent_and_room(&app).await;
+
+    let sent = app
+        .post_as_agent(
+            &key,
+            AGENT_SEND,
+            serde_json::json!({ "channel": channel, "body_markdown": "no files here" }),
+        )
+        .await;
+    assert_eq!(sent.status(), 200, "body: {:?}", sent.json().await);
+    let message_id = sent.json().await["id"].as_i64().expect("message id");
+
+    let read = app
+        .get_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/messages?channel={channel}"),
+        )
+        .await;
+    let page = read.json().await;
+    let message = page["messages"]
+        .as_array()
+        .expect("messages array")
+        .iter()
+        .find(|m| m["id"].as_i64() == Some(message_id))
+        .expect("the sent message is in the page");
+
+    // The KEY must exist — not merely be falsy. `get` returning None is the bug.
+    let attachments = message
+        .get("attachments")
+        .expect("attachments key must be present even with no files");
+    assert_eq!(attachments, &serde_json::json!([]));
+}
+
+// 10. SHAPE PARITY: the send response and the agent read serialize an
+//     attachment identically. This is the check that catches the whole CLASS of
+//     human-route-vs-agent-route drift, rather than one instance of it.
+#[tokio::test]
+async fn send_response_and_agent_read_serialize_attachments_identically() {
+    let app = TestApp::new().await;
+    let (_project, channel, key) = seed_agent_and_room(&app).await;
+
+    let (content_type, body) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "parity check"),
+        file("files", "report.pdf", "application/pdf", b"%PDF-1.4 fake"),
+    ]);
+    let sent = app
+        .post_multipart_as_agent(&key, AGENT_SEND, &content_type, body)
+        .await;
+    assert_eq!(sent.status(), 200, "body: {:?}", sent.json().await);
+    let sent_row = sent.json().await;
+    let message_id = sent_row["id"].as_i64().expect("message id");
+    let from_send = sent_row["attachments"][0].clone();
+
+    let read = app
+        .get_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/messages?channel={channel}"),
+        )
+        .await;
+    let page = read.json().await;
+    let from_read = page["messages"]
+        .as_array()
+        .expect("messages array")
+        .iter()
+        .find(|m| m["id"].as_i64() == Some(message_id))
+        .expect("the sent message is in the page")["attachments"][0]
+        .clone();
+
+    assert_eq!(
+        from_send, from_read,
+        "send and read must serialize an attachment identically; \
+         a divergence here is the drift this feature exists to stop"
+    );
+}

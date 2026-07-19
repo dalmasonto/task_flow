@@ -63,42 +63,57 @@ pub struct SendMessageInput {
     pub client_nonce: Option<String>,
 }
 
+/// The single attachment projection, shared by every path that returns one.
+///
+/// Both `file` (the storage key, matching the model/realtime representation)
+/// and the resolved `url` are emitted, so a client can key off `file` uniformly
+/// regardless of which path delivered the row.
+///
+/// This exists as its own function because the send path and the agent read path
+/// previously serialized attachments separately — the read path simply omitted
+/// them, and nothing caught it. One projection, two call sites.
+fn attachment_json(a: &TaskflowMessageAttachment) -> serde_json::Value {
+    json!({
+        "id": a.id,
+        "message": a.message.id(),
+        "project": a.project.id(),
+        "file": a.file.key(),
+        "url": a.file.url(),
+        "name": a.name,
+        "content_type": a.content_type,
+        "size_bytes": a.size_bytes,
+        "created_at": a.created_at,
+    })
+}
+
+/// Serialize one message with its attachments into a JSON object.
+///
+/// Text-only messages emit `attachments: []` — an empty array, never an absent
+/// key. A reader must be able to distinguish "no files" from "files not
+/// reported"; the absent key is what let the read-path gap go unnoticed.
+fn message_json(
+    message: &TaskflowAgentMessage,
+    attachments: &[TaskflowMessageAttachment],
+) -> Result<serde_json::Value, StatusCode> {
+    let mut value =
+        serde_json::to_value(message).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let items: Vec<serde_json::Value> = attachments.iter().map(attachment_json).collect();
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert("attachments".to_string(), json!(items));
+    }
+    Ok(value)
+}
+
 /// Serialize a message plus its attachments into the endpoint's response body.
 ///
 /// The message's own fields are emitted exactly as the JSON path always
 /// returned them (so the frontend's optimistic reconcile keeps working), with
-/// an `attachments` array appended. Each attachment carries the resolved `url`
-/// (`FileField::url()` → `/media/<key>`) so the sender can render it
-/// immediately without waiting for the SSE echo. Text-only sends emit
-/// `attachments: []`.
+/// an `attachments` array appended.
 fn message_response(
     message: &TaskflowAgentMessage,
     attachments: &[TaskflowMessageAttachment],
 ) -> Result<Response, StatusCode> {
-    let mut value =
-        serde_json::to_value(message).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let items: Vec<serde_json::Value> = attachments
-        .iter()
-        .map(|a| {
-            json!({
-                "id": a.id,
-                "message": a.message.id(),
-                "project": a.project.id(),
-                // Both `file` (the storage key, matching the model/realtime
-                // representation) and the resolved `url`, so the client can key
-                // off `file` uniformly regardless of which path delivered the row.
-                "file": a.file.key(),
-                "url": a.file.url(),
-                "name": a.name,
-                "content_type": a.content_type,
-                "size_bytes": a.size_bytes,
-                "created_at": a.created_at,
-            })
-        })
-        .collect();
-    if let serde_json::Value::Object(map) = &mut value {
-        map.insert("attachments".to_string(), json!(items));
-    }
+    let value = message_json(message, attachments)?;
     Ok((StatusCode::OK, Json(value)).into_response())
 }
 
@@ -2555,13 +2570,36 @@ pub async fn list_messages_as_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // One batched query for the whole page — never N+1. Grouped by message id
+    // so each message carries only its own files.
+    let message_ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
+    let all_attachments = if message_ids.is_empty() {
+        Vec::new()
+    } else {
+        TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::MESSAGE.in_(&message_ids))
+            .fetch()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+
+    let mut serialized = Vec::with_capacity(messages.len());
+    for message in &messages {
+        let own: Vec<TaskflowMessageAttachment> = all_attachments
+            .iter()
+            .filter(|a| a.message.id() == message.id)
+            .cloned()
+            .collect();
+        serialized.push(message_json(message, &own)?);
+    }
+
     // `unread_count` is the size of THIS page, which is what the caller acts on.
     // The agent's own messages are included: it asked for the channel's traffic,
     // and its cursor is what defines "already handled", not authorship.
     Ok((
         StatusCode::OK,
         Json(json!({
-            "messages": messages,
+            "messages": serialized,
             "read_cursor": read_cursor,
             "unread_count": messages.len(),
         })),
