@@ -16,7 +16,7 @@ export type FetchLike = (
   init?: {
     method?: string;
     headers?: Record<string, string>;
-    body?: string;
+    body?: string | FormData;
     signal?: AbortSignal;
   },
 ) => Promise<{
@@ -58,6 +58,8 @@ type QueryValue = string | number | boolean | null | undefined;
 interface RequestOptions {
   query?: Record<string, QueryValue>;
   body?: unknown;
+  form?: FormData;
+  timeoutMs?: number;
 }
 
 const API_PREFIX = "/api/taskflow";
@@ -106,6 +108,8 @@ export interface SendMessageInput {
   body_markdown: string;
   priority?: string;
   client_nonce?: string;
+  /** Resolved by `resolveAttachments`; switches the POST to multipart. */
+  attachments?: { filename: string; bytes: Buffer }[];
 }
 
 export interface CreateTaskInput {
@@ -179,13 +183,21 @@ export class TaskflowClient {
       Accept: "application/json",
     };
     const init: Parameters<FetchLike>[1] = { method, headers };
-    if (options.body !== undefined) {
+    if (options.form !== undefined) {
+      // Deliberately no Content-Type: fetch must set it to supply the
+      // multipart boundary. Setting it here produces a body the server
+      // cannot parse.
+      init!.body = options.form;
+    } else if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
       init!.body = JSON.stringify(options.body);
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(),
+      options.timeoutMs ?? this.timeoutMs,
+    );
     init!.signal = controller.signal;
 
     let res: Awaited<ReturnType<FetchLike>>;
@@ -265,7 +277,27 @@ export class TaskflowClient {
 
   /** `POST /agents/agent/messages` — speak as this agent in a channel. */
   sendMessage(input: SendMessageInput): Promise<unknown> {
-    return this.request("POST", `${API_PREFIX}/agents/agent/messages`, { body: input });
+    const { attachments, ...fields } = input;
+    if (!attachments?.length) {
+      return this.request("POST", `${API_PREFIX}/agents/agent/messages`, { body: fields });
+    }
+
+    const form = new FormData();
+    form.set("channel", String(fields.channel));
+    form.set("body_markdown", fields.body_markdown);
+    if (fields.priority) form.set("priority", fields.priority);
+    if (fields.client_nonce) form.set("client_nonce", fields.client_nonce);
+    for (const file of attachments) {
+      // The server treats a part as a file only when it carries a non-empty
+      // filename (views.rs:180-186), so the basename must be preserved.
+      form.append("files", new Blob([file.bytes]), file.filename);
+    }
+
+    // 25MB may not finish inside the default 15s.
+    return this.request("POST", `${API_PREFIX}/agents/agent/messages`, {
+      form,
+      timeoutMs: 120_000,
+    });
   }
 
   /** `POST /channels/{id}/agent/read` — advance this agent's read cursor. */

@@ -142,3 +142,35 @@ My `git add -A` on three "ledger-only" commits swept in non-ledger files:
   - f0b8cef pulled in v2_fe/yarn.lock (benign lockfile re-sync). Left as-is.
 LESSON: ledger commits must use `git add <specific file>`, never `git add -A`.
 
+
+---
+
+# MCP Message Attachments — Progress Ledger
+
+Plan: docs/superpowers/plans/2026-07-19-mcp-attachments.md
+Branch: mcp-attachments
+Merge base: 4732236 (main)
+
+## Tasks
+- [x] 1  Attachment validation and reading
+- [ ] 2  Multipart transport in the client
+- [ ] 3  Expose `files` on the send_message tool
+
+## Minor findings (for final review triage)
+- Task 1 Minor: attachments.ts isInside() — a candidate resolving to exactly the root
+  (input "." or "") yields relative()==="" so it throws "outside the project root" rather
+  than reaching the "not a file" check. Still correctly rejected; misleading message only.
+
+## Log
+Task 1: complete (commits 4732236..00c8e6b, review clean, no fix pass)
+  Verbatim transcription of the brief; reviewer confirmed byte-for-byte match.
+  SECURITY BOUNDARY VERIFIED INDEPENDENTLY. Reviewer probed 5 attack vectors outside the
+  shipped suite -- ../ traversal, symlink-inside-root->outside, <root>_evil sibling prefix,
+  absolute path outside root, and a symlinked INTERMEDIATE directory component (not in the
+  brief's test list) -- all 5 rejected.
+  Reviewer ran 2 mutations against the shipped suite and BOTH were killed: (A) isInside ->
+  naive startsWith fails the sibling-prefix test; (B) containment checked before realpath
+  instead of after fails the symlink-escape test. The tests genuinely discriminate.
+  Doc drift only, nothing missing: brief's prose said "9 tests" but its own code has 10
+  it() blocks; my dispatch said "26 existing tests" but the real pre-task count was 56
+  (44 tracked + 12 in untracked prompt.test.ts). 66 total now.
