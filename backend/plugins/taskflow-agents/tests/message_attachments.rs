@@ -9,6 +9,7 @@ use support::{
     seed_channel_with_member, seed_project,
 };
 use taskflow_agents::models::TaskflowChannelKind;
+use serde_json::Value;
 
 /// A few bytes standing in for an uploaded image. The endpoint does not sniff
 /// content — it trusts the declared part `Content-Type` — so any bytes work.
@@ -565,4 +566,108 @@ async fn send_response_and_agent_read_serialize_attachments_identically() {
         "send and read must serialize an attachment identically; \
          a divergence here is the drift this feature exists to stop"
     );
+}
+
+// 11. MIXED PAGE: a channel with a text-only message, a one-file message, and
+//     a two-file message, all from the same agent, read back in a single
+//     page. `list_messages_as_agent` fetches every attachment for the page in
+//     one batched query and must assign each to its OWN message, not to
+//     every message on the page. If the per-message filter ever compares the
+//     wrong id (or is dropped), every attachment on the page would leak onto
+//     every message — this is the test that catches that.
+#[tokio::test]
+async fn agent_read_groups_attachments_by_their_own_message_on_a_mixed_page() {
+    let app = TestApp::new().await;
+    let (_project, channel, key) = seed_agent_and_room(&app).await;
+
+    // A: text only, no files.
+    let sent_a = app
+        .post_as_agent(
+            &key,
+            AGENT_SEND,
+            serde_json::json!({ "channel": channel, "body_markdown": "message A, no files" }),
+        )
+        .await;
+    assert_eq!(sent_a.status(), 200, "body: {:?}", sent_a.json().await);
+    let message_a = sent_a.json().await["id"].as_i64().expect("message id");
+
+    // B: one file.
+    let (ct_b, body_b) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "message B, one file"),
+        file("files", "b-report.pdf", "application/pdf", b"%PDF-1.4 b stub"),
+    ]);
+    let sent_b = app
+        .post_multipart_as_agent(&key, AGENT_SEND, &ct_b, body_b)
+        .await;
+    assert_eq!(sent_b.status(), 200, "body: {:?}", sent_b.json().await);
+    let message_b = sent_b.json().await["id"].as_i64().expect("message id");
+
+    // C: two files.
+    let (ct_c, body_c) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "message C, two files"),
+        file("files", "c-one.png", "image/png", b"C-ONE-BYTES"),
+        file("files", "c-two.png", "image/png", b"C-TWO-BYTES"),
+    ]);
+    let sent_c = app
+        .post_multipart_as_agent(&key, AGENT_SEND, &ct_c, body_c)
+        .await;
+    assert_eq!(sent_c.status(), 200, "body: {:?}", sent_c.json().await);
+    let message_c = sent_c.json().await["id"].as_i64().expect("message id");
+
+    let read = app
+        .get_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/messages?channel={channel}"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "body: {:?}", read.json().await);
+    let page = read.json().await;
+    let messages = page["messages"].as_array().expect("messages array");
+
+    let find = |id: i64| -> &Value {
+        messages
+            .iter()
+            .find(|m| m["id"].as_i64() == Some(id))
+            .expect("sent message present in the page")
+    };
+
+    let msg_a = find(message_a);
+    let msg_b = find(message_b);
+    let msg_c = find(message_c);
+
+    let atts_a = msg_a["attachments"].as_array().expect("attachments array on A");
+    assert_eq!(atts_a, &Vec::<Value>::new(), "A has no files, expected []");
+
+    let atts_b = msg_b["attachments"].as_array().expect("attachments array on B");
+    assert_eq!(atts_b.len(), 1, "B has exactly one file");
+    assert_eq!(atts_b[0]["name"], serde_json::json!("b-report.pdf"));
+
+    let atts_c = msg_c["attachments"].as_array().expect("attachments array on C");
+    assert_eq!(atts_c.len(), 2, "C has exactly two files");
+    let c_names: std::collections::HashSet<&str> = atts_c
+        .iter()
+        .map(|a| a["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(
+        c_names,
+        std::collections::HashSet::from(["c-one.png", "c-two.png"])
+    );
+
+    // The assertion that kills a `.filter(|_a| true)` mutation: every
+    // attachment reported on a message must point back at THAT message's own
+    // id, never a sibling's.
+    for (label, msg, atts) in [
+        ("B", msg_b, atts_b),
+        ("C", msg_c, atts_c),
+    ] {
+        let own_id = msg["id"].clone();
+        for att in atts {
+            assert_eq!(
+                att["message"], own_id,
+                "attachment on message {label} points at a different message: {att:?}"
+            );
+        }
+    }
 }
