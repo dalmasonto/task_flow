@@ -5629,6 +5629,18 @@ function TerminalTranscript({ session }: { session: AgentTerminalSessionView }) 
   const pinnedRef = useRef(true)
   const frameCount = session.frames.length
 
+  // A `snapshot` frame is a whole screen that REPLACES the view — a full-screen
+  // TUI on tmux's alternate screen has no scrollback to append, so its mirror
+  // arrives as repeated complete captures. Rendering those as a log would stack
+  // near-identical screens; only the newest one is meaningful.
+  const latestSnapshot = useMemo(() => {
+    for (let index = session.frames.length - 1; index >= 0; index -= 1) {
+      const frame = session.frames[index]
+      if (frame && frame.stream === "snapshot") return frame
+    }
+    return null
+  }, [session.frames])
+
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight
@@ -5649,12 +5661,20 @@ function TerminalTranscript({ session }: { session: AgentTerminalSessionView }) 
         <span>{session.task}</span>
         <span>{session.updated}</span>
       </div>
-      {session.frames.map((frame, index) => (
-        <div key={index} className={cn("whitespace-pre-wrap break-words", terminalStreamClass(frame.stream))}>
-          {frame.stream === "stdin" ? <span className="text-emerald-400">$ </span> : null}
-          {frame.content || " "}
+      {latestSnapshot ? (
+        // A live mirror, not a transcript: no per-line stream colouring, and the
+        // screen is kept intact rather than wrapped, so box-drawing TUIs line up.
+        <div className="overflow-x-auto">
+          <pre className="whitespace-pre font-mono text-xs leading-6">{latestSnapshot.content}</pre>
         </div>
-      ))}
+      ) : (
+        session.frames.map((frame, index) => (
+          <div key={index} className={cn("whitespace-pre-wrap break-words", terminalStreamClass(frame.stream))}>
+            {frame.stream === "stdin" ? <span className="text-emerald-400">$ </span> : null}
+            {frame.content || " "}
+          </div>
+        ))
+      )}
     </div>
   )
 }

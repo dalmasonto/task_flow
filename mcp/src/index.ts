@@ -10,15 +10,22 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { ConfigError } from "./config.js";
 import { runDoctor } from "./doctor.js";
+import { runTmuxMirror } from "./tmux.js";
 
 const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
 
-  taskflow-v2-mcp            Serve over stdio (how an MCP client runs it).
-  taskflow-v2-mcp --check    Verify config + backend auth, then exit.
-  taskflow-v2-mcp --help     This message.
+  taskflow-v2-mcp                 Serve over stdio (how an MCP client runs it).
+  taskflow-v2-mcp --check         Verify config + backend auth, then exit.
+  taskflow-v2-mcp --tmux [target] Mirror a tmux pane into the dashboard terminal.
+  taskflow-v2-mcp --help          This message.
 
 The MCP tools (whoami, create_task, ...) are called by the MODEL through an MCP
-client, not typed as commands. To check the setup yourself, use --check.`;
+client, not typed as commands. To check the setup yourself, use --check.
+
+--tmux runs in the foreground and mirrors the pane until Ctrl-C. Target defaults
+to tmux's active pane; pass one from \`tmux list-panes -a\` to pick another, and
+--interval=<ms> to change the 2000ms cadence. Options:
+  --profile=<name>   Act as a non-default .taskflow.json profile.`;
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -30,6 +37,23 @@ async function main(): Promise<void> {
   // it never opens the MCP transport.
   if (argv.includes("--check") || argv.includes("--doctor")) {
     process.exit(await runDoctor());
+  }
+  const tmuxIndex = argv.indexOf("--tmux");
+  if (tmuxIndex !== -1) {
+    const flag = (name: string): string | undefined => {
+      const hit = argv.find((a) => a.startsWith(`--${name}=`));
+      return hit ? hit.slice(name.length + 3) : undefined;
+    };
+    // The first non-flag argument after --tmux is the pane target.
+    const target = argv.slice(tmuxIndex + 1).find((a) => !a.startsWith("--"));
+    const interval = flag("interval");
+    process.exit(
+      await runTmuxMirror({
+        target,
+        profile: flag("profile"),
+        ...(interval ? { intervalMs: Number(interval) } : {}),
+      }),
+    );
   }
 
   let server;

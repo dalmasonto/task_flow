@@ -75,6 +75,13 @@ pub enum TaskflowTerminalStream {
     Stderr,
     Stdin,
     System,
+    /// A complete screen capture that REPLACES the view rather than appending to
+    /// it. Needed for full-screen TUI agents: a program on tmux's alternate
+    /// screen buffer has no scrollback (`history_size` stays flat), so there is
+    /// no stream of new output to append — the only observable state is the
+    /// current screen, redrawn in place. Readers render the latest snapshot and
+    /// ignore earlier ones.
+    Snapshot,
 }
 
 /// A reviewer's verdict on a task. `approved` moves the task to `done`;
