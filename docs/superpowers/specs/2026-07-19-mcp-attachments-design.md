@@ -57,6 +57,10 @@ untouched, which keeps the change additive and the old behaviour regression-free
 All validation happens **before any upload**, and any failure aborts the entire
 send. For each path, in order:
 
+0. If the path is relative, resolve it against the project root — not against
+   `process.cwd()`, which may differ. Absolute paths are accepted and subject to
+   the same containment check as everything else; an absolute path inside the
+   root is legal, one outside it is not.
 1. Resolve to an absolute path, following symlinks (`fs.realpath`)
 2. Assert the resolved path is inside the project root
 3. Assert it exists and is a regular file
@@ -130,6 +134,8 @@ unit-testable without a running server.
 - [ ] directory rejected
 - [ ] oversize (>25 MB) rejected
 - [ ] all-or-nothing: one bad path in three sends nothing
+- [ ] an absolute path inside the root is accepted
+- [ ] a relative path resolves against the project root, not `process.cwd()`
 
 Plus one test asserting multipart assembly against a mock fetch: correct part
 names, filenames preserved, and text fields present.
