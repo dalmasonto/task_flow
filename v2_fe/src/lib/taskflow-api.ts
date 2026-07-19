@@ -15,7 +15,6 @@ import type {
   TaskflowMessageAttachment,
   TaskflowProject,
   TaskflowProjectApiEndpoint,
-  TaskflowProjectCreate,
   TaskflowProjectInvite,
   TaskflowProjectMember,
   TaskflowProjectUpdate,
@@ -760,11 +759,28 @@ async function parseProjectFormError(
   return { message: detail ?? nonField ?? firstFieldMessage ?? fallback, fieldErrors }
 }
 
+/// What a client may say when creating a project — a strict mirror of the
+/// backend's `CreateProjectInput`, NOT the generated row-create type.
+///
+/// `TaskflowProjectCreate` is generated from the table and also offers `status`,
+/// `owner` and `updated_at`, none of which this hand-written route reads:
+/// `owner` is the authenticated caller and `status` starts at the model default.
+/// Serde drops unknown fields silently, so passing them looked like it worked and
+/// simply did nothing. Typing the input to what the server actually honours turns
+/// that into a compile error instead of a shrug.
+export type CreateProjectInput = {
+  name: string
+  slug?: string
+  description_markdown?: string
+  repository_url?: string | null
+  default_api_base_url?: string | null
+}
+
 /// Create a project via the bearer-authed REST route. The backend also makes
 /// the caller an active OWNER member, so the new project is immediately visible
 /// in the scoped list. On failure a ProjectFormError carries parsed field
 /// errors (e.g. a duplicate slug → 409) for inline display in the dialog.
-export async function createTaskflowProject(input: TaskflowProjectCreate): Promise<TaskflowProject> {
+export async function createTaskflowProject(input: CreateProjectInput): Promise<TaskflowProject> {
   const response = await fetch(`${API_BASE_URL}/api/taskflow/projects`, {
     method: "POST",
     credentials: "include",

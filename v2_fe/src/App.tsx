@@ -2179,7 +2179,6 @@ function App() {
       description_markdown: description,
       repository_url: repositoryUrl || null,
       default_api_base_url: apiBase || "/api",
-      status: "active",
     })
 
     const mappedProject = mapLiveProjectRow(project, undefined, workspaceProjects.length)
