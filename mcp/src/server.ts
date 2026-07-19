@@ -21,10 +21,17 @@ import {
   type TaskflowConfig,
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError } from "./client.js";
+import { detectTmuxPane } from "./tmux.js";
 
-/** Build the default session identifier from host + process id. */
-function defaultSessionIdentifier(): string {
-  return `${hostname()}:${process.pid}`;
+/**
+ * The session identifier for this agent process.
+ *
+ * Prefers the tmux pane, so the tools' session and the terminal mirror converge
+ * on ONE row instead of registering two sessions for the same agent (register is
+ * idempotent per identifier). Falls back to host:pid outside tmux.
+ */
+function defaultSessionIdentifier(pane?: string | null): string {
+  return pane ? `tmux:${hostname()}:${pane}` : `${hostname()}:${process.pid}`;
 }
 
 /**
@@ -97,7 +104,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     const existing = sessions.get(profileName);
     if (existing !== undefined) return existing;
     const session = await client.registerSession({
-      session_identifier: defaultSessionIdentifier(),
+      session_identifier: defaultSessionIdentifier(await detectTmuxPane()),
       host: hostname(),
       pid: process.pid,
       cwd: process.cwd(),

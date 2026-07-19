@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { normalizeSnapshot, sanitizeForPane, buildNotice } from "./tmux.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { normalizeSnapshot, sanitizeForPane, buildNotice, detectTmuxPane } from "./tmux.js";
 
 describe("normalizeSnapshot", () => {
   // A TUI pads the screen to its full height. Keeping that padding would make
@@ -67,5 +67,26 @@ describe("buildNotice", () => {
 
   it("is always a single line", () => {
     expect(buildNotice(9, 4)).not.toMatch(/[\r\n]/);
+  });
+});
+
+describe("detectTmuxPane", () => {
+  const original = process.env.TMUX_PANE;
+  afterEach(() => {
+    if (original === undefined) delete process.env.TMUX_PANE;
+    else process.env.TMUX_PANE = original;
+  });
+
+  // The point of the whole feature: the pane is discovered, never configured.
+  it("uses $TMUX_PANE when tmux exported it", async () => {
+    process.env.TMUX_PANE = "%7";
+    expect(await detectTmuxPane()).toBe("%7");
+  });
+
+  it("ignores a blank $TMUX_PANE rather than returning empty string", async () => {
+    process.env.TMUX_PANE = "   ";
+    // Falls through to tty matching; outside tmux that yields null, and inside a
+    // real pane it yields that pane — either way, never "".
+    expect(await detectTmuxPane()).not.toBe("");
   });
 });

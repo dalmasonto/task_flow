@@ -20,6 +20,7 @@
 
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { hostname, tmpdir } from "node:os";
 
 const REQUEST_TIMEOUT_MS = 2500;
@@ -170,6 +171,55 @@ function compactMetadata(obj) {
   return text;
 }
 
+
+/**
+ * The tmux pane this Claude session runs in, or null.
+ *
+ * Mirrors detectTmuxPane() in src/tmux.ts: prefer $TMUX_PANE, else match an
+ * ancestor's controlling tty against tmux's pane list. Kept inline because this
+ * hook is deliberately dependency-free — it must run before anything is built.
+ */
+function detectTmuxPane() {
+  const fromEnv = (process.env.TMUX_PANE || "").trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const panes = execFileSync("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_tty}"], {
+      encoding: "utf8",
+      timeout: 3000,
+    })
+      .trim()
+      .split("\n")
+      .map((line) => line.split(" "))
+      .filter((parts) => parts.length === 2);
+    let pid = process.ppid;
+    for (let depth = 0; depth < 4 && pid > 1; depth += 1) {
+      try {
+        const tty = execFileSync("readlink", [`/proc/${pid}/fd/0`], {
+          encoding: "utf8",
+          timeout: 3000,
+        }).trim();
+        const hit = panes.find(([, paneTty]) => paneTty === tty);
+        if (hit) return hit[0];
+      } catch {
+        /* try the next ancestor */
+      }
+      try {
+        pid = Number(
+          execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+            encoding: "utf8",
+            timeout: 3000,
+          }).trim(),
+        );
+      } catch {
+        break;
+      }
+    }
+  } catch {
+    /* no tmux */
+  }
+  return null;
+}
+
 async function main() {
   const stdin = await readStdin();
   let event = {};
@@ -187,7 +237,13 @@ async function main() {
   const eventName =
     event.hook_event_name || event.hookEventName || event.event || "unknown";
   const claudeSessionId = event.session_id || event.sessionId || `${hostname()}:${process.pid}`;
-  const sessionIdentifier = `claude:${claudeSessionId}`;
+  // Prefer the PANE as the session key so the hook, the MCP tools and the
+  // terminal mirror all register the SAME session. Keying on Claude's session id
+  // instead produced a second row per agent — the dashboard then showed several
+  // "connected sessions" for one agent, and the terminal panel could pick the
+  // one that never streams.
+  const pane = detectTmuxPane();
+  const sessionIdentifier = pane ? `tmux:${hostname()}:${pane}` : `claude:${claudeSessionId}`;
 
   try {
     if (eventName === "SessionStart") {

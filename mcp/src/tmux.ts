@@ -87,6 +87,67 @@ export function sanitizeForPane(text: string, max = 240): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
+/**
+ * Find the tmux pane this agent is running in, with NO configuration.
+ *
+ * The MCP server is spawned by the agent (Claude Code), so it can work out where
+ * that agent lives rather than being told:
+ *
+ *  1. `$TMUX_PANE` — set by tmux and inherited straight down. Exact and free.
+ *  2. Otherwise match the ANCESTOR's controlling terminal to a pane's tty
+ *     (v1's method): `readlink /proc/<pid>/fd/0` gives the pty, and
+ *     `tmux list-panes` maps ptys to panes. We walk a few generations up because
+ *     the MCP server may sit behind a shell wrapper, and only the agent process
+ *     itself is attached to the pane's tty.
+ *
+ * Returns null when not under tmux, which is a normal state, not an error.
+ */
+export async function detectTmuxPane(): Promise<string | null> {
+  const fromEnv = process.env.TMUX_PANE?.trim();
+  if (fromEnv) return fromEnv;
+
+  let panes: Array<{ id: string; tty: string }>;
+  try {
+    const { stdout } = await run("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_tty}"]);
+    panes = stdout
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [id, tty] = line.split(" ");
+        return { id: id ?? "", tty: tty ?? "" };
+      })
+      .filter((p) => p.id && p.tty);
+  } catch {
+    return null; // no tmux server
+  }
+  if (!panes.length) return null;
+
+  let pid: number | undefined = process.ppid;
+  for (let depth = 0; depth < 4 && pid && pid > 1; depth += 1) {
+    try {
+      const { stdout } = await run("readlink", [`/proc/${pid}/fd/0`]);
+      const tty = stdout.trim();
+      const hit = panes.find((p) => p.tty === tty);
+      if (hit) return hit.id;
+    } catch {
+      /* pid gone, or no /proc (non-Linux) — try the next ancestor */
+    }
+    pid = await parentPid(pid);
+  }
+  return null;
+}
+
+/** The parent pid of `pid`, or undefined when it cannot be read. */
+async function parentPid(pid: number): Promise<number | undefined> {
+  try {
+    const { stdout } = await run("ps", ["-o", "ppid=", "-p", String(pid)]);
+    const parsed = Number(stdout.trim());
+    return Number.isFinite(parsed) && parsed > 1 ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Is tmux installed and is a server running? */
 export async function tmuxAvailable(): Promise<boolean> {
   try {
@@ -163,6 +224,98 @@ export async function describePane(target?: string): Promise<string> {
   } catch {
     return target ?? "tmux";
   }
+}
+
+
+export interface MirrorLoopOptions {
+  client: TaskflowClient;
+  session: number;
+  target?: string | undefined;
+  intervalMs?: number;
+  notify?: boolean;
+  notifySubmit?: boolean;
+  log?: (line: string) => void;
+}
+
+/**
+ * Stream a pane into an EXISTING session until stopped. Returns a stop function.
+ *
+ * Split out of the CLI path so the MCP server can run the same loop in-process:
+ * the mirror should not be a second thing a human remembers to launch.
+ */
+export function startMirrorLoop(options: MirrorLoopOptions): () => void {
+  const { client, session, target } = options;
+  const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const log = options.log ?? (() => {});
+  let lastSent: string | null = null;
+  let lastNotifiedMessageId = 0;
+  let stopped = false;
+
+  const notifyIfUnread = async () => {
+    const channels = await client.listChannels();
+    let unread = 0;
+    let channelsWithUnread = 0;
+    let highest = 0;
+    for (const channel of channels) {
+      const page = await client.listMessages({ channel: channel.id, unread: true });
+      const rows = page.messages as Array<{ id?: number }>;
+      if (!rows.length) continue;
+      unread += rows.length;
+      channelsWithUnread += 1;
+      for (const row of rows) if (typeof row.id === "number" && row.id > highest) highest = row.id;
+    }
+    if (!unread || highest <= lastNotifiedMessageId) return;
+    lastNotifiedMessageId = highest;
+    await notifyPane(buildNotice(unread, channelsWithUnread), target, options.notifySubmit);
+    log(`  notified: ${unread} unread in ${channelsWithUnread} channel(s)`);
+  };
+
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const current = await capturePane(target);
+      if (current !== lastSent) {
+        await client.appendFrame(session, { stream: "snapshot", content: current });
+        lastSent = current;
+      } else {
+        await client.heartbeat(session, "busy");
+      }
+      if (options.notify) await notifyIfUnread();
+    } catch (err) {
+      // Transient backend/tmux errors must not kill a long-running mirror.
+      log(`  warn: ${(err as Error).message.split("\n")[0]}`);
+    }
+  };
+
+  const timer = setInterval(() => void tick(), intervalMs);
+  // Don't hold the process open on our account — the MCP transport decides
+  // lifetime, not this poller.
+  timer.unref?.();
+  void tick();
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
+/**
+ * Auto-start mirroring for an agent that is running inside tmux. Silently does
+ * nothing when there is no pane to find — being outside tmux is normal.
+ */
+export async function startAutoMirror(options: {
+  client: TaskflowClient;
+  session: number;
+  intervalMs?: number;
+  notify?: boolean;
+  notifySubmit?: boolean;
+  log?: (line: string) => void;
+}): Promise<(() => void) | null> {
+  const pane = await detectTmuxPane();
+  if (!pane) return null;
+  const log = options.log ?? (() => {});
+  log(`mirroring tmux pane ${pane} into the dashboard terminal`);
+  return startMirrorLoop({ ...options, target: pane });
 }
 
 /**
