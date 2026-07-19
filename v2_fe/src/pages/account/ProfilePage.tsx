@@ -12,7 +12,10 @@ type ProjectName = { id: number; name: string }
 
 type MembershipView = {
   id: number
-  projectName: string
+  /// The project ID, not its name. The name is resolved at RENDER time from the
+  /// `projects` prop, so a renamed or newly-loaded project never requires
+  /// refetching this list — which is what made the page reload on its own.
+  project: number
   role: TaskflowProjectMember["role"]
   status: TaskflowProjectMember["status"]
   joinedAt: string | null
@@ -27,43 +30,63 @@ export function ProfilePage({
 }) {
   const [memberships, setMemberships] = React.useState<MembershipView[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const userId = currentUser?.id ?? null
 
-  React.useEffect(() => {
-    if (!currentUser) return
-    let active = true
-    const userId = currentUser.id
-    const names = new Map(projects.map((project) => [project.id, project.name]))
+  const projectNames = React.useMemo(
+    () => new Map(projects.map((project) => [project.id, project.name])),
+    [projects]
+  )
 
-    void (async () => {
-      setMemberships(null)
+  /// Fetch the caller's memberships. Deliberately does NOT clear to null: this
+  /// runs again whenever someone joins, and blanking the list first is what made
+  /// the page visibly "reload" over and over.
+  const loadMemberships = React.useCallback(async () => {
+    if (userId == null) return
+    try {
+      const page = await taskflowApi
+        .from(taskflowTables.members)
+        .filter({ user: userId })
+        .orderBy("project", "id")
+        .list()
+      setMemberships(
+        page.results.map((member) => ({
+          id: member.id,
+          project: member.project,
+          role: member.role,
+          status: member.status,
+          joinedAt: member.joined_at,
+        }))
+      )
       setError(null)
-      try {
-        const page = await taskflowApi
-          .from(taskflowTables.members)
-          .filter({ user: userId })
-          .orderBy("project", "id")
-          .list()
-        if (!active) return
-        setMemberships(
-          page.results.map((member) => ({
-            id: member.id,
-            projectName: names.get(member.project) ?? `Project #${member.project}`,
-            role: member.role,
-            status: member.status,
-            joinedAt: member.joined_at,
-          }))
-        )
-      } catch (err) {
-        if (!active) return
-        setError(err instanceof Error ? err.message : "Could not load your project memberships.")
-        setMemberships([])
-      }
-    })()
-
-    return () => {
-      active = false
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load your project memberships.")
+      setMemberships((current) => current ?? [])
     }
-  }, [currentUser, projects])
+  }, [userId])
+
+  // Load once per signed-in user. The projects array is NOT a dependency — it is
+  // only used for display names, and treating it as one meant every workspace
+  // refresh (including every realtime reconnect) refetched this list.
+  React.useEffect(() => {
+    // Wrapped so the state update happens in the async continuation, not
+    // synchronously in the effect body.
+    let cancelled = false
+    void (async () => {
+      if (cancelled) return
+      await loadMemberships()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadMemberships])
+
+  // NOTE: live roster updates are deliberately NOT subscribed here yet. Opening
+  // a second EventSource for this page exhausts the browser's per-origin
+  // connection budget (~6 over HTTP/1.1, and an SSE stream holds one for its
+  // whole life) — the new stream then neither opens nor errors, it just hangs,
+  // and the app silently stops receiving everything. Doing this properly means
+  // multiplexing every subscriber onto ONE connection, which is what umbral's
+  // SharedWorker client did and what replacing it gave up.
 
   return (
     <div className="space-y-5">
@@ -142,7 +165,7 @@ export function ProfilePage({
             {memberships.map((membership) => (
               <li key={membership.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{membership.projectName}</p>
+                  <p className="truncate text-sm font-medium">{projectNames.get(membership.project) ?? `Project #${membership.project}`}</p>
                   <p className="text-xs text-muted-foreground">
                     {membership.joinedAt ? `Joined ${new Date(membership.joinedAt).toLocaleDateString()}` : "Membership pending"}
                   </p>

@@ -226,6 +226,9 @@ function realtimeTableForChannel(channel: string): RealtimeTableName | null {
 /// come back.
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
+/// How long a connection must last before it counts as healthy enough to reset
+/// the backoff.
+const HEALTHY_CONNECTION_MS = 10_000
 
 function reconnectDelay(attempt: number): number {
   const ceiling = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS)
@@ -252,6 +255,9 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
   let attempt = 0
   let everConnected = false
   let closed = false
+  /// When the current connection opened, so a connection that dies immediately
+  /// is not mistaken for a healthy one.
+  let openedAt = 0
 
   const connect = () => {
     if (closed) return
@@ -259,7 +265,7 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
     source = es
 
     es.onopen = () => {
-      attempt = 0
+      openedAt = Date.now()
       // Only a RE-open needs a catch-up refetch; the first open is already
       // paired with the caller's initial load.
       if (everConnected) options.onReconnect?.()
@@ -287,6 +293,13 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
       es.close()
       if (closed || source !== es) return
       source = null
+      // Reset the backoff only for a connection that actually SURVIVED a while.
+      // Resetting on open (the obvious place) means a stream that opens and
+      // immediately fails — a 500 on the endpoint, say — retries at the base
+      // delay forever, and every reconnect drags a full workspace refetch with
+      // it. That is a hot loop wearing a backoff's clothes.
+      if (openedAt && Date.now() - openedAt >= HEALTHY_CONNECTION_MS) attempt = 0
+      openedAt = 0
       retryTimer = window.setTimeout(connect, reconnectDelay(attempt))
       attempt += 1
     }
