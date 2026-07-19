@@ -742,8 +742,8 @@ pub struct AgentSendMessageInput {
 /// Mirrors `send_message` exactly except for the sender: `RequireAgent` resolves
 /// the credential to a stable `TaskflowAgent`, and every stored message stamps
 /// `sender_kind = agent`, `sender_agent = <id>`, `sender_user = None`,
-/// `sender_label = <display_name>`. JSON only — agent sends carry no
-/// attachments in Stage 1.
+/// `sender_label = <display_name>`. Accepts JSON or multipart; multipart carries
+/// file attachments, stored and returned exactly as on the human path.
 ///
 /// MEMBERSHIP GATE (agent counterpart of the human one):
 ///   1. An explicit channel-roster row for this agent authorizes the post.
@@ -754,18 +754,102 @@ pub struct AgentSendMessageInput {
 ///      explicit roster.
 pub async fn send_message_as_agent(
     RequireAgent(agent): RequireAgent,
-    Json(input): Json<AgentSendMessageInput>,
+    headers: HeaderMap,
+    raw_body: Bytes,
 ) -> Result<Response, StatusCode> {
-    let body = input.body_markdown.trim();
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+
+    // Normalise both transports to the same logical input, exactly as the human
+    // `send_message` does. JSON posts carry no file parts.
+    let (channel_id, body_markdown, priority, client_nonce, files): (
+        i64,
+        String,
+        Option<TaskflowMessagePriority>,
+        Option<String>,
+        Vec<FilePart>,
+    ) = if is_multipart(content_type) {
+        let form = parse_multipart(content_type, raw_body)
+            .await
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        let mut channel_field: Option<String> = None;
+        let mut body_field: Option<String> = None;
+        let mut priority_field: Option<String> = None;
+        let mut nonce_field: Option<String> = None;
+        for (name, value) in form.fields {
+            match name.as_str() {
+                "channel" => channel_field = Some(value),
+                "body_markdown" => body_field = Some(value),
+                "priority" => priority_field = Some(value),
+                "client_nonce" => nonce_field = Some(value),
+                _ => {}
+            }
+        }
+
+        let channel_id: i64 = channel_field
+            .as_deref()
+            .and_then(|s| s.trim().parse().ok())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+
+        // An unrecognised priority is dropped, not rejected — the create below
+        // defaults it to `Normal`, same as an absent JSON `priority`.
+        let priority = priority_field
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| serde_json::from_value::<TaskflowMessagePriority>(json!(s)).ok());
+
+        // A "file part" is one that carried a filename; bodyless text parts are
+        // fields, not attachments.
+        let files: Vec<FilePart> = form
+            .files
+            .into_iter()
+            .filter(|f| f.filename.as_deref().is_some_and(|n| !n.is_empty()))
+            .collect();
+
+        (
+            channel_id,
+            body_field.unwrap_or_default(),
+            priority,
+            nonce_field,
+            files,
+        )
+    } else {
+        let input: AgentSendMessageInput =
+            serde_json::from_slice(&raw_body).map_err(|_| StatusCode::BAD_REQUEST)?;
+        (
+            input.channel,
+            input.body_markdown,
+            input.priority,
+            input.client_nonce,
+            Vec::new(),
+        )
+    };
+
+    let body = body_markdown.trim();
     if body.chars().count() > MAX_BODY_CHARS {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if body.is_empty() {
+    // Body may be empty ONLY when at least one file is attached — a file-only
+    // message is valid, an empty text-only message is not.
+    if body.is_empty() && files.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    // Reject an oversized file BEFORE anything is written, so a too-large file
+    // fails the whole message instead of persisting a message whose attachment
+    // then fails to store.
+    if let Some(oversized) = files.iter().find(|f| f.bytes.len() > MAX_ATTACHMENT_BYTES) {
+        let max_mb = MAX_ATTACHMENT_BYTES / (1024 * 1024);
+        let name = oversized.filename.as_deref().unwrap_or("This file");
+        let detail = format!("\"{name}\" is too large. The maximum attachment size is {max_mb} MB.");
+        return Ok((StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "detail": detail }))).into_response());
+    }
+
     let channel = TaskflowAgentChannel::objects()
-        .filter(taskflow_agent_channel::ID.eq(input.channel))
+        .filter(taskflow_agent_channel::ID.eq(channel_id))
         .first()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -796,7 +880,7 @@ pub async fn send_message_as_agent(
     }
 
     // Idempotency: the same nonce in the same channel is the same message.
-    if let Some(nonce) = input.client_nonce.as_deref().filter(|n| !n.is_empty()) {
+    if let Some(nonce) = client_nonce.as_deref().filter(|n| !n.is_empty()) {
         let existing = TaskflowAgentMessage::objects()
             .filter(
                 taskflow_agent_message::CHANNEL.eq(channel.id)
@@ -828,14 +912,54 @@ pub async fn send_message_as_agent(
             sender_agent: Some(ForeignKey::new(agent.agent_id)),
             sender_label: agent.display_name.clone(),
             body_markdown: body.to_string(),
-            priority: input.priority.unwrap_or(TaskflowMessagePriority::Normal),
-            client_nonce: input.client_nonce.clone(),
+            priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
+            client_nonce: client_nonce.clone(),
             created_at: None,
         })
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    message_response(&message, &[])
+    // Store each uploaded file through the ambient backend and record a
+    // `TaskflowMessageAttachment` row. The `project` is denormalized from the
+    // channel (never accepted from the client), matching the message itself.
+    let mut attachments = Vec::with_capacity(files.len());
+    if !files.is_empty() {
+        let Some(storage) = storage_opt() else {
+            return Ok(storage_unavailable_response());
+        };
+        for part in files {
+            let filename = part
+                .filename
+                .as_deref()
+                .filter(|n| !n.is_empty())
+                .unwrap_or("upload")
+                .to_string();
+            let content_type = part
+                .content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            let stored = storage
+                .store(&filename, &content_type, &part.bytes)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let attachment = TaskflowMessageAttachment::objects()
+                .create(TaskflowMessageAttachment {
+                    id: 0,
+                    message: ForeignKey::new(message.id),
+                    project: channel.project.clone(),
+                    file: FileField::from(stored.key),
+                    name: filename,
+                    content_type,
+                    size_bytes: stored.size as i64,
+                    created_at: None,
+                })
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            attachments.push(attachment);
+        }
+    }
+
+    message_response(&message, &attachments)
 }
 
 // ---------------------------------------------------------------------------

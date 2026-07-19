@@ -349,6 +349,41 @@ impl TestApp {
         }
     }
 
+    /// POST a raw `multipart/form-data` body authenticated as an AGENT — the
+    /// multipart counterpart of [`post_as_agent`], mirroring [`post_multipart_as`]
+    /// but with the `Authorization: Agent <key>` header `RequireAgent` reads.
+    pub async fn post_multipart_as_agent(
+        &self,
+        key: &str,
+        path: &str,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        self.client.set_default_header(
+            CONTENT_TYPE,
+            HeaderValue::from_str(content_type).expect("content-type header"),
+        );
+
+        TestResponse {
+            inner: self.client.post(path, Body::from(body)).await,
+        }
+    }
+
+    /// Count every attachment row in `project`. Used to prove a REJECTED send
+    /// wrote nothing at all — counting per-message is impossible when the point
+    /// is that no message was created either.
+    pub async fn count_project_attachments(&self, project: i64) -> i64 {
+        TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::PROJECT.eq(project))
+            .count()
+            .await
+            .expect("count project attachments")
+    }
+
     pub async fn count_attachments(&self, message: i64) -> i64 {
         TaskflowMessageAttachment::objects()
             .filter(taskflow_message_attachment::MESSAGE.eq(message))

@@ -57,11 +57,14 @@ pub fn router() -> Router {
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))
-        // Agent-authored send (agent-authed via `RequireAgent`). JSON only and
-        // small, so the framework's default body limit is fine.
+        // Agent-authored send (agent-authed via `RequireAgent`). Accepts JSON or
+        // multipart with attachments, so it needs the same raised body limit as
+        // the human send — axum's 2 MiB default would reject uploads well under
+        // the 25 MB per-file cap.
         .route(
             "/api/taskflow/agents/agent/messages",
-            post(views::send_message_as_agent),
+            post(views::send_message_as_agent)
+                .layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
         )
         // Read receipts / unread cursors. The human path is auth-gated; the agent
         // path is `RequireAgent`-gated. Both upsert the caller's own cursor
