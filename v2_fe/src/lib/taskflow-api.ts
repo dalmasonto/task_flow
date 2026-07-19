@@ -7,6 +7,7 @@ import type {
   TaskflowAgentChannelMemberCreate,
   TaskflowAgentCredential,
   TaskflowAgentMessage,
+  TaskflowAgentPrompt,
   TaskflowAgentSession,
   TaskflowAgentTerminalFrame,
   TaskflowChannelReadCursor,
@@ -51,6 +52,7 @@ export const taskflowTables = {
   terminalFrames: "taskflow_agent_terminal_frame",
   channelReadCursors: "taskflow_channel_read_cursor",
   taskReviews: "taskflow_task_review",
+  agentPrompts: "taskflow_agent_prompt",
 } as const
 
 /// Group suffixes are a contract with backend/src/realtime.rs — short labels,
@@ -74,6 +76,7 @@ const realtimeGroupSuffixes = {
   [taskflowTables.terminalFrames]: "terminal_frames",
   [taskflowTables.channelReadCursors]: "read_cursors",
   [taskflowTables.taskReviews]: "task_reviews",
+  [taskflowTables.agentPrompts]: "prompts",
 } as const satisfies Record<Exclude<RealtimeTableName, typeof taskflowTables.projects>, string>
 
 export const taskflowGroups = {
@@ -113,6 +116,7 @@ export type TaskflowWorkspace = {
   terminalFrames: TaskflowAgentTerminalFrame[]
   channelReadCursors: TaskflowChannelReadCursor[]
   taskReviews: TaskflowTaskReview[]
+  agentPrompts: TaskflowAgentPrompt[]
 }
 
 export type TaskflowProjectSummary = {
@@ -144,6 +148,7 @@ type RealtimeTableName =
   | typeof taskflowTables.terminalFrames
   | typeof taskflowTables.channelReadCursors
   | typeof taskflowTables.taskReviews
+  | typeof taskflowTables.agentPrompts
 
 export type TaskflowRealtimeEvent = {
   table: RealtimeTableName
@@ -169,6 +174,7 @@ const projectScopedRealtimeTables = [
   taskflowTables.terminalFrames,
   taskflowTables.channelReadCursors,
   taskflowTables.taskReviews,
+  taskflowTables.agentPrompts,
 ] satisfies RealtimeTableName[]
 
 /// Tables whose events carry the whole row (projected in backend/src/realtime.rs)
@@ -185,6 +191,7 @@ export const realtimeTablesWithInlineRows = [
   taskflowTables.agentChannelMembers,
   taskflowTables.terminalFrames,
   taskflowTables.agentSessions,
+  taskflowTables.agentPrompts,
 ] as const satisfies readonly RealtimeTableName[]
 
 export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {
@@ -344,6 +351,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     terminalFrames,
     channelReadCursors,
     taskReviews,
+    agentPrompts,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").list(),
@@ -363,6 +371,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
     taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").list(),
     taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
   ])
 
   const channelIds = new Set(agentChannels.results.map((channel) => channel.id))
@@ -386,6 +395,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     terminalFrames: terminalFrames.results,
     channelReadCursors: channelReadCursors.results,
     taskReviews: taskReviews.results,
+    agentPrompts: agentPrompts.results,
   }
 }
 
@@ -559,6 +569,31 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
     )
   }
   return response.json()
+}
+
+
+/// Answer a question an agent's terminal is blocked on.
+///
+/// Recording the answer is the whole of it — the agent's own process watches for
+/// the row to change and presses the keys. The server never touches a terminal.
+/// `choices` carries a multi-select set; a single-select sends one.
+export async function answerAgentPrompt(
+  promptId: number,
+  choices: number[]
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/prompts/${promptId}/answer`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(choices.length > 1 ? { choices } : { choice: choices[0] }),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 409
+        ? "That question was already answered."
+        : await readErrorDetail(response, `Could not answer (${response.status}).`)
+    )
+  }
 }
 
 export function createTaskflowAgentChannel(input: TaskflowAgentChannelCreate) {

@@ -45,6 +45,8 @@ export interface EventStreamOptions {
   key: string;
   /** Called for each message created in this agent's project. */
   onMessage: (message: AgentMessageEvent) => void | Promise<void>;
+  /** Called when a human answers a question this agent is blocked on. */
+  onPromptAnswered?: (prompt: PromptEvent) => void | Promise<void>;
   log?: (line: string) => void;
   /** Injected in tests. */
   fetchImpl?: typeof fetch;
@@ -166,7 +168,10 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
 }
 
 /** Pull the `data:` lines out of one SSE frame and dispatch a message event. */
-export function handleFrame(frame: string, options: Pick<EventStreamOptions, "onMessage">): void {
+export function handleFrame(
+  frame: string,
+  options: Pick<EventStreamOptions, "onMessage" | "onPromptAnswered">,
+): void {
   const data = frame
     .split("\n")
     .filter((line) => line.startsWith("data:"))
@@ -180,6 +185,14 @@ export function handleFrame(frame: string, options: Pick<EventStreamOptions, "on
   } catch {
     return;
   }
+  // A prompt being ANSWERED is an update, not a creation — the row was created
+  // when the question appeared. So prompts are routed before the created-only
+  // filter below, or every answer would be dropped.
+  if (envelope.c?.endsWith(":prompts")) {
+    if (isAnsweredPrompt(envelope.d)) void options.onPromptAnswered?.(envelope.d);
+    return;
+  }
+
   // Only creations matter for delivery: an edit or a delete is not a new thing
   // for the agent to read.
   if (envelope.e !== "created") return;
@@ -206,3 +219,60 @@ export function formatIncoming(message: AgentMessageEvent): string {
 }
 
 export type { TaskflowClient };
+
+/**
+ * The keystrokes that answer a prompt, as verified against a live Claude Code
+ * session — not inferred from the UI's appearance.
+ *
+ * SINGLE-select: the number both selects and submits.
+ *     press "2"  ->  "You selected: Green"
+ *
+ * MULTI-select: numbers TOGGLE checkboxes, and submitting is a separate stage.
+ *     press "1" -> [✔] Lint
+ *     press "3" -> [✔] Tests
+ *     press Right -> "Review your answers ... 1. Submit answers  2. Cancel"
+ *     press "1" -> "You selected: Lint, Tests"
+ *
+ * Getting this wrong is not a cosmetic bug: sending a single digit to a
+ * multi-select ticks one box and leaves the agent still waiting, and sending
+ * Enter instead of Right submits an empty answer.
+ */
+export function answerKeystrokes(choices: number[], kind: string): string[] {
+  if (!choices.length) return [];
+  if (kind !== "multi") return [String(choices[0])];
+  return [...choices.map(String), "Right", "1"];
+}
+
+export interface PromptEvent {
+  id: number;
+  session: number;
+  question: string;
+  kind: string;
+  status: string;
+  answer: number | null;
+  answer_json: string | null;
+}
+
+/** The numbers a human chose, from whichever field carries them. */
+export function chosenNumbers(prompt: PromptEvent): number[] {
+  if (prompt.answer_json) {
+    try {
+      const parsed = JSON.parse(prompt.answer_json);
+      if (Array.isArray(parsed)) return parsed.filter((n) => typeof n === "number");
+    } catch {
+      /* fall through to the single value */
+    }
+  }
+  return prompt.answer != null ? [prompt.answer] : [];
+}
+
+/** Whether this event is an answer this agent should act on. */
+export function isAnsweredPrompt(row: unknown): row is PromptEvent {
+  const prompt = row as Partial<PromptEvent> | undefined;
+  return Boolean(
+    prompt &&
+      typeof prompt.id === "number" &&
+      prompt.status === "answered" &&
+      (prompt.answer != null || prompt.answer_json),
+  );
+}

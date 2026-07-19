@@ -101,6 +101,7 @@ import {
   createTaskflowTaskActivity,
   createTaskflowTaskSession,
   createTaskflowTask,
+  answerAgentPrompt,
   createTaskflowProject,
   ProjectFormError,
   fetchMyInvites,
@@ -1841,6 +1842,9 @@ function App() {
         case taskflowTables.taskRelations:
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskRelations: removeById(workspace.taskRelations, rowId) }))
           break
+        case taskflowTables.agentPrompts:
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentPrompts: removeById(workspace.agentPrompts, rowId) }))
+          break
         case taskflowTables.taskActivity:
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: removeById(workspace.taskActivity, rowId) }))
           break
@@ -2020,6 +2024,12 @@ function App() {
           const review = row as TaskflowWorkspace["taskReviews"][number]
           if (review.project !== projectId) return
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskReviews: upsertById(workspace.taskReviews, review) }))
+          break
+        }
+        case taskflowTables.agentPrompts: {
+          const prompt = row as TaskflowWorkspace["agentPrompts"][number]
+          if (prompt.project !== projectId) return
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentPrompts: upsertById(workspace.agentPrompts, prompt) }))
           break
         }
       }
@@ -2238,6 +2248,7 @@ function App() {
       terminalFrames: [],
       channelReadCursors: [],
       taskReviews: [],
+      agentPrompts: [],
     })
   }
 
@@ -4479,6 +4490,9 @@ export type AgentsOutletContext = {
   addMemberCandidates: { user: number; name: string }[]
   onAddMember: (userId: number) => Promise<void>
   currentUser: AuthUser | null
+  /// The question the selected agent is blocked on, if any.
+  pendingPrompt?: TaskflowWorkspace["agentPrompts"][number]
+  onAnswerPrompt: (promptId: number, choices: number[]) => Promise<void>
 }
 
 function useAgentsOutletContext() {
@@ -4803,6 +4817,21 @@ function AgentsPage({
   const activeChatId = selectedChat?.id ?? ""
   const openChat = (chat: AgentChatContext) => navigate(chatIdToSlug(chat.id))
 
+  // The question THIS agent is blocked on. Newest pending wins: an agent can
+  // only be stopped at one keypress at a time, and older pending rows are stale
+  // (the terminal moved on without anyone answering here).
+  const pendingPrompt = useMemo(() => {
+    const agentId = selectedChat?.liveAgentId
+    if (!agentId || !liveWorkspace) return undefined
+    return liveWorkspace.agentPrompts
+      .filter((prompt) => prompt.agent === agentId && prompt.status === "pending")
+      .sort((a, b) => b.id - a.id)[0]
+  }, [selectedChat, liveWorkspace])
+
+  const handleAnswerPrompt = useCallback(async (promptId: number, choices: number[]) => {
+    await answerAgentPrompt(promptId, choices)
+  }, [])
+
   const outletContext: AgentsOutletContext = {
     selectedChat,
     selectedSession,
@@ -4813,6 +4842,8 @@ function AgentsPage({
     addMemberCandidates,
     onAddMember: handleAddMember,
     currentUser,
+    pendingPrompt,
+    onAnswerPrompt: handleAnswerPrompt,
   }
 
   return (
@@ -4986,6 +5017,119 @@ function AgentsConversationEmpty() {
 /// message thread, composer, and the agent-DM-aware minimizable terminal. When
 /// the route param doesn't resolve to a real chat it falls back to the empty
 /// state, so a stale or hand-typed id never renders a broken conversation.
+
+/// One option as stored in a prompt's `options_json`.
+type AgentPromptOption = { number: number; label: string; description?: string }
+
+/// The yellow box above the composer: a question the agent is BLOCKED on.
+///
+/// This is not a notification — the agent is stopped at a keypress until someone
+/// answers, so it is rendered where a reply would be typed, in the one place the
+/// human is already looking.
+function AgentPromptCard({
+  prompt,
+  onAnswer,
+}: {
+  prompt: TaskflowWorkspace["agentPrompts"][number]
+  onAnswer: (promptId: number, choices: number[]) => Promise<void>
+}) {
+  const [selected, setSelected] = useState<number[]>([])
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const multi = prompt.kind === "multi"
+
+  const options = useMemo<AgentPromptOption[]>(() => {
+    try {
+      const parsed = JSON.parse(prompt.options_json)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }, [prompt.options_json])
+
+  const toggle = (number: number) => {
+    setError(null)
+    // Radio vs checkbox, mirroring how the agent's own terminal behaves.
+    setSelected((current) =>
+      multi
+        ? current.includes(number)
+          ? current.filter((n) => n !== number)
+          : [...current, number].sort((a, b) => a - b)
+        : [number]
+    )
+  }
+
+  const submit = async (choices: number[]) => {
+    if (!choices.length || pending) return
+    setPending(true)
+    setError(null)
+    try {
+      await onAnswer(prompt.id, choices)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not answer.")
+      setPending(false)
+    }
+  }
+
+  if (!options.length) return null
+
+  return (
+    <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+      <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+        <AlertCircleIcon className="size-4 shrink-0" />
+        <p className="text-sm font-medium">Agent is waiting for your answer</p>
+      </div>
+      <p className="mt-2 text-sm text-foreground">{prompt.question}</p>
+
+      <div className="mt-3 space-y-1.5">
+        {options.map((option) => {
+          const active = selected.includes(option.number)
+          return (
+            <button
+              key={option.number}
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                // A single-select answers on click, exactly as pressing the
+                // number does in the terminal. A multi-select only toggles —
+                // it needs an explicit submit, because the terminal does too.
+                multi ? toggle(option.number) : void submit([option.number])
+              }
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition disabled:opacity-60",
+                active
+                  ? "border-amber-500 bg-amber-100 dark:bg-amber-900/40"
+                  : "border-transparent bg-background/60 hover:border-amber-300"
+              )}
+            >
+              <span className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground">
+                {multi ? (active ? "[x]" : "[ ]") : `${option.number}.`}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium">{option.label}</span>
+                {option.description ? (
+                  <span className="block text-xs text-muted-foreground">{option.description}</span>
+                ) : null}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {multi ? (
+        <div className="mt-3 flex items-center gap-2">
+          <Button type="button" size="sm" disabled={!selected.length || pending} onClick={() => void submit(selected)}>
+            {pending ? "Sending…" : `Submit ${selected.length || ""}`.trim()}
+          </Button>
+          <span className="text-xs text-muted-foreground">Choose any number, then submit.</span>
+        </div>
+      ) : null}
+
+      {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+    </div>
+  )
+}
+
 function AgentsConversationView() {
   const {
     selectedChat,
@@ -4996,6 +5140,8 @@ function AgentsConversationView() {
     canManageMembers,
     addMemberCandidates,
     onAddMember,
+    pendingPrompt,
+    onAnswerPrompt,
   } = useAgentsOutletContext()
   const navigate = useNavigate()
 
@@ -5286,6 +5432,12 @@ function AgentsConversationView() {
             )
           )}
         </div>
+
+        {pendingPrompt ? (
+          <div className="shrink-0 border-t bg-background px-3 pt-3">
+            <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} />
+          </div>
+        ) : null}
 
         <form className="shrink-0 border-t bg-background p-3" onSubmit={handleSendMessage}>
           {emojiPickerOpen ? (

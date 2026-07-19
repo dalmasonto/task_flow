@@ -220,6 +220,37 @@ function detectTmuxPane() {
   return null;
 }
 
+
+/**
+ * Report a pending AskUserQuestion so a human can answer it from the dashboard.
+ *
+ * Only the FIRST question is reported: the tool accepts several, but the agent's
+ * terminal presents them one at a time, and answering a later one out of order
+ * would send keys to the wrong screen.
+ *
+ * The payload is sent whole rather than through `compactMetadata` — that caps at
+ * 1500 chars, which cut real questions off mid-option and left them unanswerable.
+ */
+async function reportPrompt(profile, sessionId, toolInput) {
+  const question = toolInput?.questions?.[0];
+  if (!question || !Array.isArray(question.options) || question.options.length < 2) return;
+
+  // Numbered to match what the terminal renders: option N is the key to press.
+  const options = question.options.map((option, index) => ({
+    number: index + 1,
+    label: String(option.label ?? "").slice(0, 200),
+    description: String(option.description ?? "").slice(0, 500),
+  }));
+
+  await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt`, {
+    question: String(question.question ?? question.header ?? "Agent is asking").slice(0, 2000),
+    options_json: JSON.stringify(options),
+    kind: question.multiSelect ? "multi" : "single",
+    // Identity of the QUESTION, so a re-render or retry updates one row.
+    fingerprint: `${question.header ?? ""}::${question.question ?? ""}`.slice(0, 300),
+  });
+}
+
 async function main() {
   const stdin = await readStdin();
   let event = {};
@@ -267,6 +298,22 @@ async function main() {
     } else if (eventName === "PreToolUse" || eventName === "PostToolUse") {
       const toolName = event.tool_name || event.toolName || "tool";
       const isPre = eventName === "PreToolUse";
+
+      // AskUserQuestion is the one tool whose PRE event matters: the agent is
+      // about to block on a question, and that is precisely when a human needs
+      // to see it. Its payload is also the reason the activity row alone is not
+      // enough — options are truncated there, and the row only lands on Post,
+      // by which time the question is already answered.
+      if (toolName === "AskUserQuestion") {
+        const sessionId = readSessionId(claudeSessionId);
+        if (sessionId != null) {
+          if (isPre) {
+            await reportPrompt(profile, sessionId, event.tool_input || event.toolInput);
+          } else {
+            await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt/clear`, {});
+          }
+        }
+      }
       // Log ONCE per tool call, on completion. Logging both phases doubled every
       // row in the activity feed (a 50-tool session read as 100 events), and the
       // pre/post distinction lived only in metadata the UI never surfaces.

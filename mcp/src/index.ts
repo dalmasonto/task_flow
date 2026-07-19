@@ -10,8 +10,20 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { ConfigError } from "./config.js";
 import { runDoctor } from "./doctor.js";
-import { detectTmuxPane, notifyPane, runTmuxMirror, startMirrorLoop } from "./tmux.js";
-import { formatIncoming, shouldDeliver, startAgentEventStream } from "./events.js";
+import {
+  detectTmuxPane,
+  notifyPane,
+  runTmuxMirror,
+  sendKeyToPane,
+  startMirrorLoop,
+} from "./tmux.js";
+import {
+  answerKeystrokes,
+  chosenNumbers,
+  formatIncoming,
+  shouldDeliver,
+  startAgentEventStream,
+} from "./events.js";
 import { TaskflowClient } from "./client.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
@@ -127,6 +139,23 @@ async function startMirrorForThisAgent(): Promise<void> {
       server: profile.server,
       key: profile.key,
       log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+      // A human answered a question the agent is blocked on: press the keys.
+      onPromptAnswered: async (prompt) => {
+        const keys = answerKeystrokes(chosenNumbers(prompt), prompt.kind);
+        if (!keys.length) return;
+        try {
+          for (const key of keys) {
+            await sendKeyToPane(key, pane);
+          }
+          process.stderr.write(
+            `taskflow-v2-mcp: answered prompt ${prompt.id} with [${keys.join(", ")}]\n`,
+          );
+        } catch (err) {
+          process.stderr.write(
+            `taskflow-v2-mcp: could not answer prompt ${prompt.id} (${(err as Error).message.split("\n")[0]})\n`,
+          );
+        }
+      },
       onMessage: async (message) => {
         if (!shouldDeliver(message, profile.agentId)) return;
         try {

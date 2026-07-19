@@ -238,6 +238,25 @@ export async function notifyPane(
   await run("tmux", ["send-keys", ...base, "Enter"]);
 }
 
+/**
+ * Send ONE key to a pane, by tmux key NAME (not literally).
+ *
+ * Answering a prompt means pressing keys, not typing text: "Right" must arrive
+ * as the arrow key that opens the review pane, and "1" as the digit that toggles
+ * an option. `send-keys -l` (used for message delivery) would type the literal
+ * word "Right", so this deliberately omits it.
+ */
+export async function sendKeyToPane(key: string, target?: string): Promise<void> {
+  const base = target ? ["-t", target] : [];
+  // Whitelist: only ever send a bare digit or a named navigation key. Without
+  // this, an answer travelling from the server could name any tmux key —
+  // "C-c" would kill the agent.
+  if (!/^(?:[0-9]|Right|Left|Up|Down|Enter|Space|Tab)$/.test(key)) {
+    throw new Error(`refusing to send unrecognised key "${key}"`);
+  }
+  await run("tmux", ["send-keys", ...base, key]);
+}
+
 /** Describe a pane for the session label, e.g. "0:0.0 (claude)". */
 export async function describePane(target?: string): Promise<string> {
   const args = ["display-message", "-p"];

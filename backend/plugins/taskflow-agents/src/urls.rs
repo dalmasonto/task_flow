@@ -89,6 +89,21 @@ pub fn router() -> Router {
             "/api/taskflow/agents/sessions/{session}/frames",
             post(views::append_session_frames),
         )
+        // A question the agent's terminal is blocked on: reported when it
+        // appears, cleared when it leaves the screen.
+        .route(
+            "/api/taskflow/agents/sessions/{session}/prompt",
+            post(views::report_session_prompt),
+        )
+        .route(
+            "/api/taskflow/agents/sessions/{session}/prompt/clear",
+            post(views::clear_session_prompt),
+        )
+        // Human-authed: answer what the agent is waiting on.
+        .route(
+            "/api/taskflow/prompts/{prompt}/answer",
+            post(views::answer_prompt),
+        )
         .route(
             "/api/taskflow/agents/sessions/{session}/close",
             post(views::close_session),

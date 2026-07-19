@@ -18,13 +18,13 @@ use uuid::Uuid;
 use crate::agent_auth::{RequireAgent, hash_key};
 use crate::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
-    TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentSessionStatus, TaskflowAgentStatus,
-    TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
+    TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentSessionStatus,
+    TaskflowAgentStatus, TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
     TaskflowChannelReadCursor, TaskflowCredentialStatus, TaskflowMessageAttachment,
-    TaskflowMessagePriority, TaskflowReviewDecision, TaskflowTaskReview, TaskflowTerminalStream,
-    taskflow_agent, taskflow_agent_channel, taskflow_agent_channel_member, taskflow_agent_message,
-    taskflow_agent_session, taskflow_agent_terminal_frame, taskflow_channel_read_cursor,
-    taskflow_message_attachment,
+    TaskflowMessagePriority, TaskflowPromptStatus, TaskflowReviewDecision, TaskflowTaskReview,
+    TaskflowTerminalStream, taskflow_agent, taskflow_agent_channel, taskflow_agent_channel_member,
+    taskflow_agent_message, taskflow_agent_prompt, taskflow_agent_session,
+    taskflow_agent_terminal_frame, taskflow_channel_read_cursor, taskflow_message_attachment,
 };
 
 /// The stored value of `TaskflowMembershipStatus::Active` — the status column is
@@ -2558,9 +2558,11 @@ pub async fn agent_event_stream(
     // The ONLY group an agent connection is ever placed in. Not client-supplied:
     // it is derived from the credential, so an agent cannot listen to another
     // project by asking.
-    let group = format!("project:{}:messages", agent.project_id);
+    // Messages to deliver, and prompt answers to type back. Both are derived
+    // from the credential's project — never client-supplied.
     let mut groups = HashSet::new();
-    groups.insert(group);
+    groups.insert(format!("project:{}:messages", agent.project_id));
+    groups.insert(format!("project:{}:prompts", agent.project_id));
 
     let registry = Realtime::registry();
     let (conn_id, rx) = registry
@@ -2608,4 +2610,212 @@ impl Drop for AgentStreamGuard {
             registry.deregister(id).await;
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Terminal prompts — a question the agent's screen is BLOCKED on.
+// ---------------------------------------------------------------------------
+
+/// The body of `POST /api/taskflow/agents/sessions/{session}/prompt`.
+#[derive(Debug, Deserialize)]
+pub struct ReportPromptInput {
+    pub question: String,
+    /// JSON array of `{ number, label }`, already serialized by the agent.
+    pub options_json: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    pub fingerprint: String,
+}
+
+const MAX_PROMPT_QUESTION_CHARS: usize = 2_000;
+const MAX_PROMPT_OPTIONS_CHARS: usize = 8_000;
+
+/// `POST /api/taskflow/agents/sessions/{session}/prompt` (agent-authed) — record
+/// that this session is waiting on a question.
+///
+/// UPSERT by fingerprint: the agent re-reports on every capture while the prompt
+/// is on screen (it has no event to fire when one appears), so a plain insert
+/// would pile up a row per second. Re-reporting the same question is a no-op.
+pub async fn report_session_prompt(
+    RequireAgent(agent): RequireAgent,
+    Path(session_id): Path<i64>,
+    Json(input): Json<ReportPromptInput>,
+) -> Result<Response, StatusCode> {
+    let session = load_owned_session(session_id, agent.agent_id).await?;
+    let question = input.question.trim().to_string();
+    if question.is_empty()
+        || question.chars().count() > MAX_PROMPT_QUESTION_CHARS
+        || input.options_json.chars().count() > MAX_PROMPT_OPTIONS_CHARS
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Already recorded and still pending → return it untouched. This is the
+    // common path, hit once per capture.
+    if let Some(existing) = TaskflowAgentPrompt::objects()
+        .filter(
+            taskflow_agent_prompt::SESSION.eq(session.id)
+                & taskflow_agent_prompt::FINGERPRINT.eq(input.fingerprint.as_str())
+                & taskflow_agent_prompt::STATUS.eq(PENDING_PROMPT),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        return Ok((StatusCode::OK, Json(existing)).into_response());
+    }
+
+    // A different question replaces the old one: the agent can only ever block on
+    // one prompt at a time, so anything still pending is stale.
+    cancel_pending_prompts(session.id).await?;
+
+    let created = TaskflowAgentPrompt::objects()
+        .create(TaskflowAgentPrompt {
+            id: 0,
+            project: ForeignKey::new(agent.project_id),
+            agent: ForeignKey::new(agent.agent_id),
+            session: ForeignKey::new(session.id),
+            question,
+            options_json: input.options_json,
+            kind: input.kind.unwrap_or_else(|| "single".to_string()),
+            fingerprint: input.fingerprint,
+            status: TaskflowPromptStatus::Pending,
+            answer: None,
+            answer_json: None,
+            answered_by: None,
+            answered_at: None,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::OK, Json(created)).into_response())
+}
+
+/// `POST /api/taskflow/agents/sessions/{session}/prompt/clear` (agent-authed) —
+/// the prompt left the screen (answered at the keyboard, or cancelled).
+pub async fn clear_session_prompt(
+    RequireAgent(agent): RequireAgent,
+    Path(session_id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let session = load_owned_session(session_id, agent.agent_id).await?;
+    let cleared = cancel_pending_prompts(session.id).await?;
+    Ok((StatusCode::OK, Json(json!({ "cleared": cleared }))).into_response())
+}
+
+/// The body of `POST /api/taskflow/prompts/{prompt}/answer`.
+#[derive(Debug, Deserialize)]
+pub struct AnswerPromptInput {
+    /// The option NUMBER to press, for a single-select question.
+    #[serde(default)]
+    pub choice: Option<i64>,
+    /// The option numbers to toggle, for a multi-select question. Verified
+    /// against a live Claude Code session: numbers TOGGLE checkboxes, then Right
+    /// opens a review pane, then 1 submits — so a multi answer is a set, and
+    /// sending one digit would silently answer the wrong thing.
+    #[serde(default)]
+    pub choices: Option<Vec<i64>>,
+}
+
+/// `POST /api/taskflow/prompts/{prompt}/answer` (human-authed) — answer a
+/// question an agent is blocked on.
+///
+/// Recording the answer is all this does. The keystroke is sent by the agent's
+/// own process, which is watching for this row to change — the server has no
+/// access to anyone's terminal, and should not.
+pub async fn answer_prompt(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(prompt_id): Path<i64>,
+    Json(input): Json<AnswerPromptInput>,
+) -> Result<Response, StatusCode> {
+    let mut prompt = TaskflowAgentPrompt::objects()
+        .filter(taskflow_agent_prompt::ID.eq(prompt_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Same gate as every other human write here: an ACTIVE member of the
+    // prompt's project, read from the table, never trusted from the request.
+    let project_id = prompt.project.id();
+    TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    if prompt.status != TaskflowPromptStatus::Pending {
+        // Answering twice is a race between two humans, not an error worth a
+        // 500 — tell the caller it is settled and by what.
+        return Ok((StatusCode::CONFLICT, Json(prompt)).into_response());
+    }
+
+    // Every chosen number must be one the agent actually offered. Without this
+    // the API would happily type an arbitrary digit into a live terminal.
+    let options: Vec<PromptOptionPayload> =
+        serde_json::from_str(&prompt.options_json).unwrap_or_default();
+    let chosen: Vec<i64> = match (&input.choices, input.choice) {
+        (Some(list), _) if !list.is_empty() => list.clone(),
+        (_, Some(one)) => vec![one],
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    if !chosen
+        .iter()
+        .all(|n| options.iter().any(|option| option.number == *n))
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Shape must match the question: a single-select takes exactly one.
+    if prompt.kind != "multi" && chosen.len() != 1 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    prompt.status = TaskflowPromptStatus::Answered;
+    // Stored as the answer list either way, so the agent-side key builder has one
+    // shape to read. `answer` keeps the single value for display.
+    prompt.answer = chosen.first().copied();
+    prompt.answer_json = Some(
+        serde_json::to_string(&chosen).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    prompt.answered_by = Some(ForeignKey::new(user_id));
+    prompt.answered_at = Some(chrono::Utc::now());
+    let saved = TaskflowAgentPrompt::objects()
+        .save(prompt)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::OK, Json(saved)).into_response())
+}
+
+/// One option as stored in `options_json`.
+#[derive(Debug, Deserialize)]
+struct PromptOptionPayload {
+    number: i64,
+}
+
+/// The stored value of `TaskflowPromptStatus::Pending` (the column is text).
+const PENDING_PROMPT: &str = "pending";
+
+/// Mark every pending prompt on a session cancelled. Returns how many.
+async fn cancel_pending_prompts(session_id: i64) -> Result<usize, StatusCode> {
+    let pending = TaskflowAgentPrompt::objects()
+        .filter(
+            taskflow_agent_prompt::SESSION.eq(session_id)
+                & taskflow_agent_prompt::STATUS.eq(PENDING_PROMPT),
+        )
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let count = pending.len();
+    for mut row in pending {
+        row.status = TaskflowPromptStatus::Cancelled;
+        let _ = TaskflowAgentPrompt::objects().save(row).await;
+    }
+    Ok(count)
 }

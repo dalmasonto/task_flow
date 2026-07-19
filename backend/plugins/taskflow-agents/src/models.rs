@@ -340,6 +340,68 @@ pub struct TaskflowAgentTerminalFrame {
     pub created_at: Option<DateTime<Utc>>,
 }
 
+
+/// How a pending prompt was resolved. `pending` is the only state a human can
+/// act on; the rest are terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum TaskflowPromptStatus {
+    Pending,
+    Answered,
+    /// The prompt left the agent's screen before anyone answered it — the agent
+    /// was answered locally, timed out, or cancelled.
+    Cancelled,
+}
+
+/// A question an agent's terminal is BLOCKED on — a Claude Code permission
+/// prompt ("Do you want to proceed? 1. Yes 2. No").
+///
+/// Detected by parsing the mirrored screen rather than reported by the agent
+/// itself: the agent is stopped waiting for a keypress at that moment and cannot
+/// tell anyone. Storing it as a row is what lets a human answer from the
+/// dashboard, and what makes "the agent is stuck waiting" visible instead of
+/// something you discover by looking at its terminal.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowAgentPrompt {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: ForeignKey<TaskflowAgent>,
+    #[umbral(on_delete = "cascade")]
+    pub session: ForeignKey<TaskflowAgentSession>,
+    /// The question as it appears on screen.
+    #[umbral(string, max_length = 2000)]
+    pub question: String,
+    /// The options, as a JSON array of `{ number, label }`. JSON rather than a
+    /// child table: they are written once, read whole, and never queried.
+    #[umbral(string, max_length = 8000, widget = "textarea")]
+    pub options_json: String,
+    /// `single` (press one number) or `multi` (toggle several, then confirm).
+    /// A multi prompt must NOT be answered by sending one digit.
+    #[umbral(string, max_length = 16, default = "single")]
+    pub kind: String,
+    /// Identity of the QUESTION, so a redraw (cursor moved) updates this row
+    /// instead of creating another.
+    #[umbral(string, max_length = 300)]
+    pub fingerprint: String,
+    #[umbral(choices, default = "pending")]
+    pub status: TaskflowPromptStatus,
+    /// The option number a human chose (the first one, for display). Null until
+    /// answered.
+    pub answer: Option<i64>,
+    /// Every chosen number, as a JSON array. Multi-select answers are a SET, and
+    /// the agent needs the whole set to reproduce the keystrokes.
+    #[umbral(string, max_length = 200)]
+    pub answer_json: Option<String>,
+    #[umbral(on_delete = "set_null")]
+    pub answered_by: Option<ForeignKey<AuthUser>>,
+    pub answered_at: Option<DateTime<Utc>>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
 /// A review of a task by a human OR an agent reviewer. Lives in this plugin (not
 /// `taskflow-tasks`) so it can FK BOTH `TaskflowTask` and `TaskflowAgent` — the
 /// tasks plugin does not depend on this one, so the reverse would be a cycle.

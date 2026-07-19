@@ -77,3 +77,59 @@ describe("formatIncoming", () => {
     expect(formatIncoming(message({ sender_label: "" }))).toContain("Message from User");
   });
 });
+
+import { answerKeystrokes, chosenNumbers, isAnsweredPrompt } from "./events.js";
+
+describe("answerKeystrokes", () => {
+  // Verified against a live Claude Code session, not inferred: pressing the
+  // number on a single-select both selects AND submits.
+  it("single-select is just the number", () => {
+    expect(answerKeystrokes([2], "single")).toEqual(["2"]);
+  });
+
+  // Also verified live: numbers TOGGLE, Right opens the review pane, 1 submits.
+  // Sending one digit here would tick a box and leave the agent still waiting.
+  it("multi-select toggles each, then Right, then 1 to submit", () => {
+    expect(answerKeystrokes([1, 3], "multi")).toEqual(["1", "3", "Right", "1"]);
+  });
+
+  it("a one-item multi-select still needs the submit stage", () => {
+    expect(answerKeystrokes([2], "multi")).toEqual(["2", "Right", "1"]);
+  });
+
+  it("sends nothing when nothing was chosen", () => {
+    expect(answerKeystrokes([], "single")).toEqual([]);
+    expect(answerKeystrokes([], "multi")).toEqual([]);
+  });
+});
+
+describe("chosenNumbers", () => {
+  const base = { id: 1, session: 1, question: "q", kind: "single", status: "answered" };
+
+  it("reads the multi answer list", () => {
+    expect(chosenNumbers({ ...base, kind: "multi", answer: 1, answer_json: "[1,3]" })).toEqual([1, 3]);
+  });
+
+  it("falls back to the single answer", () => {
+    expect(chosenNumbers({ ...base, answer: 2, answer_json: null })).toEqual([2]);
+  });
+
+  it("survives malformed answer_json instead of throwing at the agent", () => {
+    expect(chosenNumbers({ ...base, answer: 2, answer_json: "{oops" })).toEqual([2]);
+  });
+});
+
+describe("isAnsweredPrompt", () => {
+  it("ignores a prompt that is still pending", () => {
+    expect(isAnsweredPrompt({ id: 1, status: "pending", answer: null, answer_json: null })).toBe(false);
+  });
+
+  it("accepts an answered one", () => {
+    expect(isAnsweredPrompt({ id: 1, status: "answered", answer: 2, answer_json: null })).toBe(true);
+  });
+
+  it("ignores junk", () => {
+    expect(isAnsweredPrompt(null)).toBe(false);
+    expect(isAnsweredPrompt({ status: "answered" })).toBe(false);
+  });
+});

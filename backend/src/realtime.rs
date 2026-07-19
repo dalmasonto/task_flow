@@ -19,7 +19,7 @@
 use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
-    TaskflowAgentMessage, TaskflowAgentSession, TaskflowAgentTerminalFrame,
+    TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
     TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview,
 };
 use taskflow_projects::models::{
@@ -49,6 +49,7 @@ const AGENTS: &str = "agents";
 const AGENT_SESSIONS: &str = "agent_sessions";
 const AGENT_CREDENTIALS: &str = "agent_credentials";
 const TERMINAL_FRAMES: &str = "terminal_frames";
+const PROMPTS: &str = "prompts";
 const PROJECT_MEMBERS: &str = "project_members";
 const PROJECT_INVITES: &str = "project_invites";
 const API_ENDPOINTS: &str = "api_endpoints";
@@ -132,6 +133,13 @@ const AGENT_SESSION_FIELDS: &[&str] = &[
     "last_seen_at",
     "disconnected_at",
 ];
+/// Everything about a pending question. The complete row for the same reason as
+/// sessions: the frontend replaces its stored copy with the event payload.
+const PROMPT_FIELDS: &[&str] = &[
+    "id", "project", "agent", "session", "question", "options_json", "kind", "fingerprint",
+    "status", "answer", "answer_json", "answered_by", "answered_at", "created_at",
+];
+
 /// Terminal frames stream live: a producing agent posts one frame per line, and
 /// refetching each over REST would be a round-trip per line. So the frame's
 /// fields are projected inline (like the chat tables) and the frontend renders
@@ -223,6 +231,13 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowAgentSession>(
             Expose::to_group_with(|ev| group_for(AGENT_SESSIONS, &ev.instance))
                 .fields(AGENT_SESSION_FIELDS),
+        )
+        // Prompts: projected inline in BOTH directions — the browser renders the
+        // options from the event, and the agent reads the answer off it to know
+        // which keys to press. An id-only ping would make answering a question
+        // cost a refetch on the critical path.
+        .expose::<TaskflowAgentPrompt>(
+            Expose::to_group_with(|ev| group_for(PROMPTS, &ev.instance)).fields(PROMPT_FIELDS),
         )
         // Terminal frames: fields projected so a subscribed terminal panel
         // renders each line straight from the event (no per-frame REST refetch).
@@ -341,6 +356,7 @@ const ALL_SUFFIXES: &[&str] = &[
     AGENT_SESSIONS,
     AGENT_CREDENTIALS,
     TERMINAL_FRAMES,
+    PROMPTS,
     PROJECT_MEMBERS,
     PROJECT_INVITES,
     API_ENDPOINTS,

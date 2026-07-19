@@ -31,14 +31,17 @@ export type TaskflowAgentMessagePriority = "normal" | "important" | "urgent";
 /** `user` = User, `agent` = Agent */
 export type TaskflowAgentMessageSenderKind = "user" | "agent";
 
+/** `pending` = Pending, `answered` = Answered, `cancelled` = Cancelled */
+export type TaskflowAgentPromptStatus = "pending" | "answered" | "cancelled";
+
 /** `connected` = Connected, `disconnected` = Disconnected, `expired` = Expired */
 export type TaskflowAgentSessionStatus = "connected" | "disconnected" | "expired";
 
 /** `offline` = Offline, `connected` = Connected, `idle` = Idle, `busy` = Busy, `blocked` = Blocked, `revoked` = Revoked */
 export type TaskflowAgentStatus = "offline" | "connected" | "idle" | "busy" | "blocked" | "revoked";
 
-/** `stdout` = Stdout, `stderr` = Stderr, `stdin` = Stdin, `system` = System */
-export type TaskflowAgentTerminalFrameStream = "stdout" | "stderr" | "stdin" | "system";
+/** `stdout` = Stdout, `stderr` = Stderr, `stdin` = Stdin, `system` = System, `snapshot` = Snapshot */
+export type TaskflowAgentTerminalFrameStream = "stdout" | "stderr" | "stdin" | "system" | "snapshot";
 
 /** `user` = User, `agent` = Agent */
 export type TaskflowChannelReadCursorMemberKind = "user" | "agent";
@@ -246,6 +249,28 @@ export interface TaskflowAgentMessage {
   body_markdown: string;
   priority: TaskflowAgentMessagePriority;
   client_nonce: string | null;
+  created_at: string | null;
+}
+
+/** Table `taskflow_agent_prompt`, from the `app` plugin. */
+export interface TaskflowAgentPrompt {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  agent: number;
+  /** Foreign key: the `id` of a TaskflowAgentSession (`taskflow_agent_session`). */
+  session: number;
+  question: string;
+  options_json: string;
+  kind: string;
+  fingerprint: string;
+  status: TaskflowAgentPromptStatus;
+  answer: number | null;
+  answer_json: string | null;
+  /** Foreign key into `auth_user`. */
+  answered_by: number | null;
+  answered_at: string | null;
   created_at: string | null;
 }
 
@@ -1200,6 +1225,115 @@ export interface TaskflowAgentMessageUpdate {
   body_markdown?: string;
   priority?: TaskflowAgentMessagePriority;
   client_nonce?: string | null;
+}
+
+/** Filterable query parameters for `taskflow_agent_prompt`. Every key is optional and AND-combined server-side. */
+export interface TaskflowAgentPromptFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "agent"?: number;
+  "agent__ne"?: number;
+  "agent__in"?: number[];
+  "session"?: number;
+  "session__ne"?: number;
+  "session__in"?: number[];
+  "question"?: string;
+  "question__ne"?: string;
+  "question__contains"?: string;
+  "question__icontains"?: string;
+  "question__startswith"?: string;
+  "question__in"?: string[];
+  "options_json"?: string;
+  "options_json__ne"?: string;
+  "options_json__contains"?: string;
+  "options_json__icontains"?: string;
+  "options_json__startswith"?: string;
+  "options_json__in"?: string[];
+  "kind"?: string;
+  "kind__ne"?: string;
+  "kind__contains"?: string;
+  "kind__icontains"?: string;
+  "kind__startswith"?: string;
+  "kind__in"?: string[];
+  "fingerprint"?: string;
+  "fingerprint__ne"?: string;
+  "fingerprint__contains"?: string;
+  "fingerprint__icontains"?: string;
+  "fingerprint__startswith"?: string;
+  "fingerprint__in"?: string[];
+  "status"?: TaskflowAgentPromptStatus;
+  "status__ne"?: TaskflowAgentPromptStatus;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: TaskflowAgentPromptStatus[];
+  "answer"?: number;
+  "answer__ne"?: number;
+  "answer__gte"?: number;
+  "answer__lte"?: number;
+  "answer__gt"?: number;
+  "answer__lt"?: number;
+  "answer__in"?: number[];
+  "answer__isnull"?: boolean;
+  "answer_json"?: string;
+  "answer_json__ne"?: string;
+  "answer_json__contains"?: string;
+  "answer_json__icontains"?: string;
+  "answer_json__startswith"?: string;
+  "answer_json__in"?: string[];
+  "answer_json__isnull"?: boolean;
+  "answered_by"?: number;
+  "answered_by__ne"?: number;
+  "answered_by__in"?: number[];
+  "answered_by__isnull"?: boolean;
+  "answered_at"?: string;
+  "answered_at__ne"?: string;
+  "answered_at__gte"?: string;
+  "answered_at__lte"?: string;
+  "answered_at__gt"?: string;
+  "answered_at__lt"?: string;
+  "answered_at__in"?: string[];
+  "answered_at__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowAgentPromptOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "session" | "-session" | "question" | "-question" | "options_json" | "-options_json" | "kind" | "-kind" | "fingerprint" | "-fingerprint" | "status" | "-status" | "answer" | "-answer" | "answer_json" | "-answer_json" | "answered_by" | "-answered_by" | "answered_at" | "-answered_at" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_agent_prompt`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowAgentPromptCreate {
+  project: number;
+  agent: number;
+  session: number;
+  question: string;
+  options_json: string;
+  kind?: string;
+  fingerprint: string;
+  status?: TaskflowAgentPromptStatus;
+  answer?: number | null;
+  answer_json?: string | null;
+  answered_by?: number | null;
+  answered_at?: string | null;
+}
+/** Body for updating a `taskflow_agent_prompt` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowAgentPromptUpdate {
+  project?: number;
+  agent?: number;
+  session?: number;
+  question?: string;
+  options_json?: string;
+  kind?: string;
+  fingerprint?: string;
+  status?: TaskflowAgentPromptStatus;
+  answer?: number | null;
+  answer_json?: string | null;
+  answered_by?: number | null;
+  answered_at?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_agent_session`. Every key is optional and AND-combined server-side. */
@@ -2366,6 +2500,7 @@ export interface UmbralResources {
   "taskflow_agent_channel_member": { row: TaskflowAgentChannelMember; filters: TaskflowAgentChannelMemberFilters; ordering: TaskflowAgentChannelMemberOrdering; create: TaskflowAgentChannelMemberCreate; update: TaskflowAgentChannelMemberUpdate; id: number };
   "taskflow_agent_credential": { row: TaskflowAgentCredential; filters: TaskflowAgentCredentialFilters; ordering: TaskflowAgentCredentialOrdering; create: TaskflowAgentCredentialCreate; update: TaskflowAgentCredentialUpdate; id: number };
   "taskflow_agent_message": { row: TaskflowAgentMessage; filters: TaskflowAgentMessageFilters; ordering: TaskflowAgentMessageOrdering; create: TaskflowAgentMessageCreate; update: TaskflowAgentMessageUpdate; id: number };
+  "taskflow_agent_prompt": { row: TaskflowAgentPrompt; filters: TaskflowAgentPromptFilters; ordering: TaskflowAgentPromptOrdering; create: TaskflowAgentPromptCreate; update: TaskflowAgentPromptUpdate; id: number };
   "taskflow_agent_session": { row: TaskflowAgentSession; filters: TaskflowAgentSessionFilters; ordering: TaskflowAgentSessionOrdering; create: TaskflowAgentSessionCreate; update: TaskflowAgentSessionUpdate; id: number };
   "taskflow_agent_terminal_frame": { row: TaskflowAgentTerminalFrame; filters: TaskflowAgentTerminalFrameFilters; ordering: TaskflowAgentTerminalFrameOrdering; create: TaskflowAgentTerminalFrameCreate; update: TaskflowAgentTerminalFrameUpdate; id: number };
   "taskflow_channel_read_cursor": { row: TaskflowChannelReadCursor; filters: TaskflowChannelReadCursorFilters; ordering: TaskflowChannelReadCursorOrdering; create: TaskflowChannelReadCursorCreate; update: TaskflowChannelReadCursorUpdate; id: number };
