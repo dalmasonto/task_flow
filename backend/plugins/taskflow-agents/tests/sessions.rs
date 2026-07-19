@@ -9,7 +9,11 @@ use serde_json::json;
 
 mod support;
 use support::{TestApp, make_active_project_member, seed_project};
-use taskflow_agents::models::{TaskflowAgentSessionStatus, TaskflowAgentStatus};
+use taskflow_agents::models::{
+    TaskflowAgentSessionStatus, TaskflowAgentStatus, TaskflowAgentTerminalFrame,
+    taskflow_agent_terminal_frame,
+};
+use umbral::orm::Model;
 
 /// Mint a fresh agent key for `(project, display_name, profile)` as `user`,
 /// returning `(key, agent_id)`. Distinct `(display_name, profile)` pairs map to
@@ -434,5 +438,75 @@ async fn list_agents_reports_derived_liveness() {
         b["status"],
         json!("offline"),
         "a teammate that stopped heartbeating must read as offline"
+    );
+}
+
+// A snapshot REPLACES the view, so old ones are dead weight — and the frontend
+// fetches EVERY frame in a project when it loads, so unbounded growth lands on
+// page load, not just on disk. Appending prunes all but the newest few.
+#[tokio::test]
+async fn snapshot_frames_are_pruned_to_the_newest_few() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key, _agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
+    let session = register(&app, &key, "sess-snap").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+
+    for n in 0..8 {
+        let resp = app
+            .post_as_agent(
+                &key,
+                &format!("/api/taskflow/agents/sessions/{session}/frames"),
+                json!({ "stream": "snapshot", "content": format!("screen {n}") }),
+            )
+            .await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    let kept = app.count_frames(session).await;
+    assert!(
+        kept <= 3,
+        "8 snapshots should prune down to at most 3, kept {kept}"
+    );
+
+    // And what survives must be the NEWEST — a viewer opening the terminal has to
+    // see current state, not whatever happened to be written first.
+    let frames = TaskflowAgentTerminalFrame::objects()
+        .filter(taskflow_agent_terminal_frame::SESSION.eq(session))
+        .order_by(taskflow_agent_terminal_frame::SEQUENCE.desc())
+        .fetch()
+        .await
+        .expect("load frames");
+    assert_eq!(frames.first().expect("a frame survives").content, "screen 7");
+}
+
+// stdout/stderr frames are a transcript, not a view — pruning them would lose
+// history that nothing else holds.
+#[tokio::test]
+async fn output_frames_are_never_pruned() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key, _agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
+    let session = register(&app, &key, "sess-out").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+
+    for n in 0..8 {
+        app.post_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/sessions/{session}/frames"),
+            json!({ "stream": "stdout", "content": format!("line {n}") }),
+        )
+        .await;
+    }
+    assert_eq!(
+        app.count_frames(session).await,
+        8,
+        "stdout frames are a transcript and must all survive"
     );
 }

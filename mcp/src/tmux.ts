@@ -29,8 +29,33 @@ import { loadProfile, type ResolvedProfile } from "./config.js";
 
 const run = promisify(execFile);
 
-/** Default poll cadence. Fast enough to feel live, slow enough to stay cheap. */
-export const DEFAULT_INTERVAL_MS = 2000;
+/**
+ * How often the pane is CAPTURED. This is a local `tmux capture-pane` — a few
+ * milliseconds, no network — so it can be frequent without costing anything.
+ * What it costs to send is governed separately, below.
+ */
+export const DEFAULT_INTERVAL_MS = 1000;
+
+/**
+ * Minimum gap between two frames on the wire.
+ *
+ * A working agent repaints constantly — spinners, elapsed-time counters, a
+ * cursor — so "the screen changed" is true almost every capture, and sending on
+ * every change would ship a full screen per tick forever. Changes are coalesced
+ * instead: at most one frame per second, and the LATEST capture wins, so the
+ * viewer sees current state rather than a queue of stale ones.
+ */
+const MIN_SEND_INTERVAL_MS = 1000;
+
+/**
+ * How often to prove liveness when the screen is NOT changing.
+ *
+ * Appending a frame already bumps the session's `last_seen_at` server-side, so a
+ * streaming agent never needs a heartbeat. Only a quiet one does, and the
+ * liveness window is 90s — beating every couple of seconds was chatter for its
+ * own sake.
+ */
+const HEARTBEAT_INTERVAL_MS = 30_000;
 /** Backend cap is 20k chars; stay under it so a wide pane can't be rejected. */
 const MAX_SNAPSHOT_CHARS = 18_000;
 
@@ -272,19 +297,43 @@ export function startMirrorLoop(options: MirrorLoopOptions): () => void {
     log(`  notified: ${unread} unread in ${channelsWithUnread} channel(s)`);
   };
 
+  let lastSentAt = 0;
+  let lastContactAt = Date.now();
+  let inFlight = false;
+
   const tick = async () => {
-    if (stopped) return;
+    if (stopped || inFlight) return;
     try {
       const current = await capturePane(target);
-      if (current !== lastSent) {
-        await client.appendFrame(session, { stream: "snapshot", content: current });
+      const now = Date.now();
+      const changed = current !== lastSent;
+
+      if (changed && now - lastSentAt >= MIN_SEND_INTERVAL_MS) {
+        inFlight = true;
+        try {
+          await client.appendFrame(session, { stream: "snapshot", content: current });
+        } finally {
+          inFlight = false;
+        }
+        // Only mark it sent AFTER the write lands: a failed send must stay
+        // pending so the next tick retries rather than silently dropping it.
         lastSent = current;
-      } else {
+        lastSentAt = now;
+        lastContactAt = now;
+      } else if (!changed && now - lastContactAt >= HEARTBEAT_INTERVAL_MS) {
+        // Quiet screen: the only reason to touch the network is liveness.
         await client.heartbeat(session, "busy");
+        lastContactAt = now;
       }
+      // A change seen too soon after the last send is NOT dropped — `lastSent`
+      // is unchanged, so the next eligible tick sends the newest capture. That
+      // trailing send is what stops the view freezing on a stale screen when
+      // activity stops abruptly.
+
       if (options.notify) await notifyIfUnread();
     } catch (err) {
       // Transient backend/tmux errors must not kill a long-running mirror.
+      inFlight = false;
       log(`  warn: ${(err as Error).message.split("\n")[0]}`);
       options.onError?.(err as Error);
     }

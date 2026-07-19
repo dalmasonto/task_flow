@@ -1408,12 +1408,15 @@ pub async fn append_session_frames(
         next_sequence += 1;
     }
 
-    // Producing output is a sign of life: bump the session's recency.
+    // Producing output is a sign of life: bump the session's recency. This is
+    // why a streaming agent never needs to heartbeat separately.
     session.last_seen_at = Some(now);
     TaskflowAgentSession::objects()
         .save(session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    prune_snapshots(session_id).await?;
 
     if is_batch {
         Ok((StatusCode::OK, Json(json!({ "frames": created }))).into_response())
@@ -1426,6 +1429,46 @@ pub async fn append_session_frames(
         Ok((StatusCode::OK, Json(frame)).into_response())
     }
 }
+
+
+/// How many `snapshot` frames to keep per session.
+///
+/// A snapshot REPLACES the view rather than appending to it, so older ones are
+/// dead weight the moment a newer arrives. A couple are kept so a reader that is
+/// mid-fetch never sees an empty terminal.
+const SNAPSHOT_HISTORY: usize = 3;
+
+/// Drop stale `snapshot` frames for a session, keeping the newest few.
+///
+/// Without this the table grows without bound for any long-running mirror — a
+/// screen a second, ~10KB each — and the frontend fetches EVERY frame in the
+/// project when it loads a workspace, so the cost lands on page load, not just
+/// on disk. Only snapshots are pruned: stdout/stderr frames are a real
+/// transcript and deleting them would lose history that nothing else holds.
+async fn prune_snapshots(session_id: i64) -> Result<(), StatusCode> {
+    let snapshots = TaskflowAgentTerminalFrame::objects()
+        .filter(
+            taskflow_agent_terminal_frame::SESSION.eq(session_id)
+                & taskflow_agent_terminal_frame::STREAM.eq(SNAPSHOT_STREAM),
+        )
+        .order_by(taskflow_agent_terminal_frame::SEQUENCE.desc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    for stale in snapshots.into_iter().skip(SNAPSHOT_HISTORY) {
+        // Best-effort: a failed prune is untidy, not incorrect, and must not
+        // fail the append that the agent is waiting on.
+        let _ = TaskflowAgentTerminalFrame::objects()
+            .filter(taskflow_agent_terminal_frame::ID.eq(stale.id))
+            .delete()
+            .await;
+    }
+    Ok(())
+}
+
+/// The stored value of `TaskflowTerminalStream::Snapshot` (the column is text).
+const SNAPSHOT_STREAM: &str = "snapshot";
 
 /// `POST /api/taskflow/agents/sessions/{session}/close` (agent-authed) —
 /// disconnect a session: `status=disconnected`, `disconnected_at=now`. Then, if
