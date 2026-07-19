@@ -282,6 +282,9 @@ type AgentTerminalSessionView = {
   agent: string
   status: string
   connected: boolean
+  /// Whether this session has real terminal frames. Drives which session the
+  /// panel picks: one that is actually streaming beats one that merely exists.
+  hasStream: boolean
   task: string
   cwd: string
   updated: string
@@ -918,13 +921,53 @@ function toLivePriority(priority: Priority): TaskflowTaskPriority {
 }
 
 /// An agent heartbeats while it holds a live session; a stale heartbeat means it
-/// went away without a clean disconnect. 90s is the backend's liveness window.
+/// went away without a clean disconnect. 90s is the backend's liveness window
+/// (`AGENT_HEARTBEAT_WINDOW_SECS` in taskflow-agents/src/views.rs — keep equal).
 const AGENT_HEARTBEAT_WINDOW_MS = 90_000
+
+/// How often the app re-evaluates liveness.
+///
+/// Liveness is a function of TIME, not of data: an agent that dies sends nothing,
+/// so no realtime event arrives and no re-render happens. Deriving it only when
+/// the workspace changes froze the last known answer — a dead agent kept showing
+/// a green "online" dot indefinitely, because the `now` used to judge it was
+/// itself minutes stale. This tick is the clock that makes staleness observable.
+const LIVENESS_TICK_MS = 30_000
+
+/// A wall-clock reading that refreshes on a fixed interval, so time-derived state
+/// (online dots, "connected" badges) goes stale on its own.
+///
+/// Returns the timestamp rather than a bare counter so callers PASS it into the
+/// mappers. That keeps `now` an explicit input — a mapper that reads the clock
+/// internally looks pure but silently depends on when it ran, which is what let
+/// a dead agent keep a green dot.
+function useLivenessNow(enabled = true): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!enabled) return
+    const timer = window.setInterval(() => setNow(Date.now()), LIVENESS_TICK_MS)
+    return () => window.clearInterval(timer)
+  }, [enabled])
+  return now
+}
 
 function isRecentHeartbeat(timestamp: string | null | undefined, now: number): boolean {
   if (!timestamp) return false
   const parsed = Date.parse(timestamp)
   return Number.isFinite(parsed) && now - parsed <= AGENT_HEARTBEAT_WINDOW_MS
+}
+
+/// THE definition of a live session, so every counter and badge agrees.
+///
+/// `status === "connected"` alone is not proof of life: nothing sweeps sessions,
+/// so a process that dies without closing leaves a row claiming to be connected
+/// forever. Counting those is how the sidebar came to advertise "2 connected
+/// sessions" for an agent that had been gone for twelve minutes.
+function isSessionLive(
+  session: Pick<TaskflowAgentSession, "status" | "last_seen_at">,
+  now: number
+): boolean {
+  return session.status === "connected" && isRecentHeartbeat(session.last_seen_at, now)
 }
 
 /// Live online state for an agent: it must have a CONNECTED session heartbeated
@@ -938,8 +981,7 @@ function isAgentOnline(
   now: number
 ): boolean {
   const hasLiveSession = sessions.some(
-    (session) =>
-      session.agent === agentId && session.status === "connected" && isRecentHeartbeat(session.last_seen_at, now)
+    (session) => session.agent === agentId && isSessionLive(session, now)
   )
   if (hasLiveSession) return true
   const agent = agents.find((item) => item.id === agentId)
@@ -950,11 +992,10 @@ function isAgentOnline(
   )
 }
 
-/// Count of agents in a workspace that are online right now (live sessions +
-/// heartbeat window). Reads the wall clock itself so callers can invoke it from a
-/// memo without an impure `Date.now()` in the render body.
-function countOnlineAgents(workspace: TaskflowWorkspace): number {
-  const now = Date.now()
+/// Count of agents online at `now` (live session, or a live status still inside
+/// the heartbeat window). `now` is a parameter so the caller controls when the
+/// judgement is made — see useLivenessNow.
+function countOnlineAgents(workspace: TaskflowWorkspace, now: number): number {
   return workspace.agents.filter((agent) =>
     isAgentOnline(agent.id, workspace.agents, workspace.agentSessions, now)
   ).length
@@ -968,7 +1009,7 @@ function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
       (agent) => agent.project === project.id && isAgentOnline(agent.id, summary.agents, summary.sessions, now)
     ).length
     const connectedSessions = summary.sessions.filter(
-      (session) => session.project === project.id && session.status === "connected"
+      (session) => session.project === project.id && isSessionLive(session, now)
     ).length
 
     return {
@@ -1312,8 +1353,7 @@ function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser
   ]
 }
 
-function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null): AgentChatContext[] {
-  const now = Date.now()
+function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null, now: number): AgentChatContext[] {
   const directChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind === "direct")
   const chats = directChannels.map((channel) => {
     const rawMembers = workspace.agentChannelMembers.filter((member) => member.channel === channel.id)
@@ -1404,30 +1444,50 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
   return [...chats, ...memberPlaceholders, ...agentPlaceholders]
 }
 
-function mapLiveTerminalStatus(status: TaskflowWorkspace["agentSessions"][number]["status"]) {
-  if (status === "connected") return "Connected"
+/// Label for a session, given the stored status and whether it is actually live.
+/// `expired` is kept distinct from a plain disconnect — it says the backend aged
+/// the session out, which is a different story from a clean close.
+function mapLiveTerminalStatus(
+  status: TaskflowWorkspace["agentSessions"][number]["status"],
+  live: boolean
+) {
   if (status === "expired") return "Expired"
-  return "Disconnected"
+  return live ? "Connected" : "Disconnected"
 }
 
-function mapLiveTerminalSessions(workspace: TaskflowWorkspace): AgentTerminalSessionView[] {
+function mapLiveTerminalSessions(workspace: TaskflowWorkspace, now: number): AgentTerminalSessionView[] {
   const sessions = workspace.agentSessions.map((session) => {
     const agent = workspace.agents.find((candidate) => candidate.id === session.agent)
     const rows = workspace.terminalFrames
       .filter((frame) => frame.session === session.id || (!frame.session && frame.agent === session.agent))
       .slice()
       .sort((a, b) => a.sequence - b.sequence || a.id - b.id)
+    // A session row saying `connected` proves nothing on its own: a process that
+    // dies never closes it. The same rule as isAgentOnline — connected AND
+    // heartbeated recently — so the terminal header and the roster dot can never
+    // disagree about the same agent.
+    const live = isSessionLive(session, now)
     const frames: TerminalLine[] = rows.length
       ? rows.map((frame) => ({ stream: frame.stream, content: frame.content }))
       : [
           { stream: "system", content: `agent session ${session.session_identifier}` },
-          { stream: "system", content: "Waiting for terminal output…" },
+          // Honest about WHY it is empty. Registering a session does not stream a
+          // terminal — only the tmux mirror does — so "waiting for output" was a
+          // promise nothing was going to keep.
+          {
+            stream: "system",
+            content: live
+              ? "No terminal stream for this session. To watch this agent's terminal, run:"
+              : "This session is not live, and never streamed a terminal. To mirror one, run:",
+          },
+          { stream: "system", content: "  taskflow-v2-mcp --tmux <pane>    (see: tmux list-panes -a)" },
         ]
 
     return {
       agent: agent?.display_name ?? `Agent #${session.agent}`,
-      status: mapLiveTerminalStatus(session.status),
-      connected: session.status === "connected",
+      status: mapLiveTerminalStatus(session.status, live),
+      connected: live,
+      hasStream: rows.length > 0,
       task: agent?.status ? `Agent is ${agent.status}` : "Live agent session",
       cwd: session.cwd || agent?.project_root || "/",
       updated: formatLiveDate(session.last_seen_at ?? session.connected_at, "Live"),
@@ -1435,18 +1495,36 @@ function mapLiveTerminalSessions(workspace: TaskflowWorkspace): AgentTerminalSes
     }
   })
 
+  // Order the pick: a session actually streaming a terminal first, then a live
+  // one, then the rest. Selecting by array order handed the panel whichever
+  // session happened to be created first — usually the hook's claude-code
+  // session, which never streams — while the mirror sat further down the list.
+  sessions.sort((a, b) => {
+    if (a.hasStream !== b.hasStream) return a.hasStream ? -1 : 1
+    if (a.connected !== b.connected) return a.connected ? -1 : 1
+    return 0
+  })
+
   if (sessions.length) return sessions
 
   return workspace.agents.map((agent) => {
-    const online = agent.status === "connected" || agent.status === "idle" || agent.status === "busy"
+    // Same rule again: a live-looking status column with a stale heartbeat is a
+    // dead agent, not a connected one.
+    const online =
+      ["connected", "idle", "busy"].includes(agent.status) &&
+      isRecentHeartbeat(agent.last_seen_at, now)
     return {
       agent: agent.display_name,
       status: online ? "Connected" : "Disconnected",
       connected: online,
+      hasStream: false,
       task: `Agent is ${agent.status}`,
       cwd: agent.project_root || "/",
       updated: formatLiveDate(agent.last_seen_at, "No session"),
-      frames: [{ stream: "system", content: "No live terminal session has been linked yet." }],
+      frames: [
+        { stream: "system", content: "No agent session has registered yet." },
+        { stream: "system", content: "  taskflow-v2-mcp --tmux <pane>    to mirror a terminal here" },
+      ],
     }
   })
 }
@@ -1581,14 +1659,19 @@ function App() {
     activeLiveProjectId && liveWorkspace?.project.id === activeLiveProjectId ? liveWorkspace : null
   // The snapshot count from mapLiveProjects can go stale between summary fetches;
   // when we hold the live workspace, recompute online agents from its sessions +
-  // heartbeats so the dashboard/sidebar/API Base reflect real presence. Recomputes
-  // whenever the workspace changes — which is exactly when heartbeat events land.
+  // heartbeats so the dashboard/sidebar/API Base reflect real presence.
+  //
+  // The tick is load-bearing: recomputing only "whenever the workspace changes"
+  // sounds sufficient because heartbeats ARE workspace changes — but an agent
+  // that dies stops sending them, so the count would freeze at its last live
+  // value precisely when it needs to fall.
+  const appLivenessNow = useLivenessNow()
   const activeProject: Project | undefined = useMemo(
     () =>
       activeProjectBase && activeLiveWorkspace
-        ? { ...activeProjectBase, agentsOnline: countOnlineAgents(activeLiveWorkspace) }
+        ? { ...activeProjectBase, agentsOnline: countOnlineAgents(activeLiveWorkspace, appLivenessNow) }
         : activeProjectBase,
-    [activeProjectBase, activeLiveWorkspace]
+    [activeProjectBase, activeLiveWorkspace, appLivenessNow]
   )
   const projectTasks = useMemo(
     () => (activeProject ? tasks.filter((task) => task.projectId === activeProject.id) : []),
@@ -4419,9 +4502,13 @@ function AgentsPage({
   const { conversationId } = useParams()
   const isBelowLg = useIsBelowLg()
   const [messageError, setMessageError] = useState<string | null>(null)
+  // `livenessNow` is passed in, not read inside: these mappers decide who is
+  // online, and without a refreshing clock a silent agent keeps its last known
+  // (green) state forever — no data changes, no re-map, no staleness.
+  const livenessNow = useLivenessNow()
   const directChats = useMemo<AgentChatContext[]>(
-    () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser) : []),
-    [currentUser, liveWorkspace]
+    () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser, livenessNow) : []),
+    [currentUser, liveWorkspace, livenessNow]
   )
   const channelChats = useMemo<AgentChatContext[]>(
     () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser) : []),
@@ -4450,8 +4537,8 @@ function AgentsPage({
     if (first) navigate(chatIdToSlug(first.id), { replace: true })
   }, [conversationId, isBelowLg, channelChats, directChats, navigate])
   const terminalSessions = useMemo(
-    () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace) : []),
-    [liveWorkspace]
+    () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace, livenessNow) : []),
+    [liveWorkspace, livenessNow]
   )
   // The terminal is an agent-only surface: resolve a session only when the
   // selected chat is an agent DM, and only for THAT agent (matched by the
@@ -6048,9 +6135,16 @@ function ApiBasePage({
   const sessions = workspace?.agentSessions ?? []
   const credentials = workspace?.agentCredentials ?? []
   const agents = workspace?.agents ?? []
-  const connectedSessions = sessions.filter((session) => session.status === "connected").length
-  const disconnectedSessions = sessions.filter((session) => session.status === "disconnected").length
+  // Same liveness rule as the roster and the terminal: a session row that says
+  // connected but stopped heartbeating is a dead process, not a live session.
+  const apiLivenessNow = useLivenessNow()
+  const connectedSessions = sessions.filter((session) => isSessionLive(session, apiLivenessNow)).length
   const expiredSessions = sessions.filter((session) => session.status === "expired").length
+  // "Not live" MINUS the expired ones, which get their own card — otherwise an
+  // expired session is counted twice and the three numbers stop summing.
+  const disconnectedSessions = sessions.filter(
+    (session) => !isSessionLive(session, apiLivenessNow) && session.status !== "expired"
+  ).length
   const activeKeys = credentials.filter((credential) => credential.status === "active").length
   const restBase = "/api"
   const realtimeBase = "/realtime"
