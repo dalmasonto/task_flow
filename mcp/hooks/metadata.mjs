@@ -1,85 +1,99 @@
 /**
  * Serialize a tool payload for the `metadata_json` column.
  *
- * The old version sliced the JSON string at 1500 chars. That is worse than
- * losing the tail: a string cut mid-token is not valid JSON, so a consumer
- * cannot read ANY of it — the recorded AskUserQuestion rows ended `…"ans` and
- * their options were unrecoverable, even though most of the payload was there.
+ * TWO RULES, learned the hard way:
  *
- * So truncation here is STRUCTURAL. The object shape is always preserved and the
- * output always parses; when a payload is too big, individual oversized string
- * leaves are shortened and marked, so you can still see what the tool was called
- * with and exactly what was elided.
+ * 1. NEVER slice the JSON string. A string cut mid-token does not parse, so the
+ *    whole record becomes unreadable — not merely shortened. That is what left
+ *    recorded AskUserQuestion rows ending `…"ans` with their options
+ *    unrecoverable, despite most of the payload being present.
  *
- * Kept as a plain module with no dependencies so the hook needs no build step.
+ * 2. Do not budget the payload as a whole. A tool call is a structure, and
+ *    clipping it globally means the fields that identify the call (file_path,
+ *    description, flags) can be lost to make room for a body nobody needed in
+ *    full. Instead, the ONE field that carries bulk is capped per tool — a
+ *    Write's `content`, a Bash `command` — and everything else is recorded
+ *    whole, however long the payload ends up.
+ *
+ * Kept dependency-free so the hook needs no build step.
  */
 
-/** The backend's `metadata_json` column limit. Use all of it. */
-export const META_MAX_CHARS = 32_000;
+/**
+ * The bulk-carrying field(s) of each tool we know the shape of.
+ *
+ * Only these are ever shortened. A tool that is not listed is recorded verbatim:
+ * guessing which of its fields is "the big one" would be how the identifying
+ * fields start disappearing again.
+ */
+const BULK_FIELDS = {
+  Bash: ["command"],
+  Write: ["content"],
+  Edit: ["old_string", "new_string"],
+  NotebookEdit: ["new_source"],
+  Task: ["prompt"],
+  Agent: ["prompt"],
+  Workflow: ["script"],
+  Artifact: ["content"],
+};
 
-/** Longest a single string leaf may be before shortening is even considered. */
-const FIRST_STRING_CAP = 8_000;
-/** Below this, shortening strings further stops helping. */
-const MIN_STRING_CAP = 40;
+/**
+ * How much of a bulk field to keep. Generous on purpose — the point is to stop a
+ * megabyte of file content landing in an activity row, not to make the record
+ * terse. The content is already in the file; the command is not, so this is the
+ * only copy of it, which argues for keeping plenty.
+ */
+export const BULK_FIELD_MAX_CHARS = 20_000;
 
-/** Shorten one string, saying how much went missing. */
+/** Shorten one string, saying exactly how much went missing. */
 function capString(text, cap) {
-  if (text.length <= cap) return text;
+  if (typeof text !== "string" || text.length <= cap) return text;
   return `${text.slice(0, cap)}…[+${text.length - cap} chars]`;
 }
 
-/** Deep copy with every string leaf capped. Structure is never altered. */
-function capStrings(value, cap) {
-  if (typeof value === "string") return capString(value, cap);
-  if (Array.isArray(value)) return value.map((item) => capStrings(item, cap));
+/**
+ * Cap the named fields wherever they appear in the payload, at any depth.
+ *
+ * Depth matters: MultiEdit nests its strings inside an `edits` array, and a
+ * top-level-only pass would miss them entirely.
+ */
+function capFields(value, fields, cap, seen = new WeakSet()) {
+  if (value && typeof value === "object") {
+    // A cycle would recurse until the stack blows — and a crashed hook is a
+    // crashed tool call. Mark it and move on instead.
+    if (seen.has(value)) return "[circular]";
+    seen.add(value);
+  }
+  if (Array.isArray(value)) return value.map((item) => capFields(item, fields, cap, seen));
   if (value && typeof value === "object") {
     const out = {};
-    for (const [key, inner] of Object.entries(value)) out[key] = capStrings(inner, cap);
+    for (const [key, inner] of Object.entries(value)) {
+      out[key] =
+        fields.includes(key) && typeof inner === "string"
+          ? capString(inner, cap)
+          : capFields(inner, fields, cap, seen);
+    }
     return out;
   }
   return value;
 }
 
 /**
- * Last resort for a payload that is enormous even with tiny strings (a huge
- * array, say): keep the keys and describe the values. Still valid JSON, and it
- * says what was there rather than pretending it was empty.
+ * JSON for `metadata_json`. Always parses; never globally truncated.
+ *
+ * `toolName` selects the bulk-field policy. Omit it (session events,
+ * notifications) and the value is recorded exactly as given.
  */
-function outline(value) {
-  if (typeof value === "string") return `[string: ${value.length} chars]`;
-  if (Array.isArray(value)) return [`[array: ${value.length} items]`];
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const [key, inner] of Object.entries(value)) out[key] = outline(inner);
-    return out;
-  }
-  return value;
-}
-
-/**
- * JSON for `metadata_json`, guaranteed to parse and to fit `budget`.
- * Returns undefined for nothing worth recording.
- */
-export function compactMetadata(value, budget = META_MAX_CHARS) {
+export function compactMetadata(value, toolName) {
   if (value == null) return undefined;
 
-  let text;
+  const fields = toolName ? BULK_FIELDS[toolName] : undefined;
+  const shaped = fields ? capFields(value, fields, BULK_FIELD_MAX_CHARS) : value;
+
   try {
-    text = JSON.stringify(value);
+    return JSON.stringify(shaped);
   } catch {
-    return undefined; // circular or unserializable — nothing honest to record
+    // Circular or otherwise unserializable: record nothing rather than
+    // something that will not parse.
+    return undefined;
   }
-  if (text === undefined) return undefined;
-  if (text.length <= budget) return text;
-
-  // Halve the per-string cap until the whole thing fits.
-  for (let cap = FIRST_STRING_CAP; cap >= MIN_STRING_CAP; cap = Math.floor(cap / 2)) {
-    const candidate = JSON.stringify(capStrings(value, cap));
-    if (candidate !== undefined && candidate.length <= budget) return candidate;
-  }
-
-  const outlined = JSON.stringify(outline(value));
-  if (outlined !== undefined && outlined.length <= budget) return outlined;
-  // Even the outline is too big: record that fact rather than invalid JSON.
-  return JSON.stringify({ note: "metadata too large to record" });
 }

@@ -130,10 +130,15 @@ pub struct TaskflowTaskActivity {
     pub action: String,
     #[umbral(string, max_length = 12000, widget = "textarea")]
     pub body_markdown: Option<String>,
-    /// Raised from 8000: the hook now records a tool's FULL input, and 8000 was
-    /// clipping real payloads. Truncation still exists as a backstop but is
-    /// structural (see hooks/metadata.mjs) — what lands here always parses.
-    #[umbral(string, max_length = 32000, widget = "textarea")]
+    /// A tool's input, as JSON. NOT length-capped by design: capping the whole
+    /// payload discards the fields that identify a call in order to make room
+    /// for a body nobody needed in full. The producer bounds the single
+    /// bulk-carrying field per tool instead (mcp/hooks/metadata.mjs), so this
+    /// stays complete and parseable at whatever length it naturally is.
+    ///
+    /// The bound here exists only so a runaway or hostile client cannot write an
+    /// unbounded blob; it is far above anything the producer can emit.
+    #[umbral(string, max_length = 1000000, widget = "textarea")]
     pub metadata_json: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,

@@ -312,9 +312,12 @@ async function main() {
         await post(profile, "/api/taskflow/agents/activity", {
           action: `tool:${toolName}`,
           body_markdown: "completed",
-          metadata_json: compactMetadata({
-            input: event.tool_input || event.toolInput,
-          }),
+          // toolName selects which field (if any) may be shortened. Everything
+          // else about the call is recorded in full.
+          metadata_json: compactMetadata(
+            { input: event.tool_input || event.toolInput },
+            toolName,
+          ),
         });
       }
       const sessionId = readSessionId(claudeSessionId);

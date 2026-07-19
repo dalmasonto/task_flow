@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 // @ts-expect-error - plain .mjs module, deliberately dependency-free for the hook
-import { compactMetadata, META_MAX_CHARS } from "../hooks/metadata.mjs";
+import { compactMetadata, BULK_FIELD_MAX_CHARS } from "../hooks/metadata.mjs";
 
 const parses = (text: string) => {
   expect(() => JSON.parse(text)).not.toThrow();
@@ -8,76 +8,113 @@ const parses = (text: string) => {
 };
 
 describe("compactMetadata", () => {
-  it("records a normal payload verbatim", () => {
+  it("records a payload verbatim when nothing is oversized", () => {
     const input = { input: { command: "ls -la", description: "list files" } };
-    expect(parses(compactMetadata(input))).toEqual(input);
+    expect(parses(compactMetadata(input, "Bash"))).toEqual(input);
   });
 
-  // The bug this exists for: slicing JSON mid-token produced output that could
-  // not be parsed at all, so a recorded question's options were unrecoverable
-  // even though most of the payload was present.
-  it("ALWAYS produces parseable JSON, however big the input", () => {
-    for (const size of [10_000, 100_000, 1_000_000]) {
-      const out = compactMetadata({ input: { content: "x".repeat(size) } });
-      const parsed = parses(out);
-      expect(out.length).toBeLessThanOrEqual(META_MAX_CHARS);
-      expect(typeof parsed.input.content).toBe("string");
-    }
-  });
-
-  it("keeps the object SHAPE when shortening, so you can still see the call", () => {
+  // The rule: a tool call is a structure. Capping the payload as a whole would
+  // drop the fields that say WHICH call it was.
+  it("caps only the bulk field and keeps every other field whole", () => {
     const parsed = parses(
-      compactMetadata({ input: { file_path: "/src/app.ts", content: "y".repeat(80_000) } }),
+      compactMetadata(
+        { input: { file_path: "/src/App.tsx", content: "x".repeat(500_000) } },
+        "Write",
+      ),
     );
-    expect(parsed.input.file_path).toBe("/src/app.ts");
-    expect(parsed.input.content).toContain("…[+");
+    expect(parsed.input.file_path).toBe("/src/App.tsx");
+    expect(parsed.input.content).toMatch(/…\[\+\d+ chars\]$/);
+    expect(parsed.input.content.length).toBeGreaterThan(BULK_FIELD_MAX_CHARS);
   });
 
-  it("says how much was elided rather than silently dropping it", () => {
-    const parsed = parses(compactMetadata({ a: "z".repeat(60_000) }));
-    expect(parsed.a).toMatch(/…\[\+\d+ chars\]$/);
+  it("keeps a Bash description even when the command is enormous", () => {
+    const parsed = parses(
+      compactMetadata(
+        { input: { command: "y".repeat(200_000), description: "run the migration", timeout: 600000 } },
+        "Bash",
+      ),
+    );
+    expect(parsed.input.description).toBe("run the migration");
+    expect(parsed.input.timeout).toBe(600000);
+    expect(parsed.input.command).toContain("…[+");
   });
 
-  // A real AskUserQuestion payload — the case that was being cut at 1500.
-  it("keeps a full multi-option question intact", () => {
+  it("caps both sides of an Edit", () => {
+    const parsed = parses(
+      compactMetadata(
+        { input: { file_path: "/a.ts", old_string: "a".repeat(50_000), new_string: "b".repeat(50_000), replace_all: false } },
+        "Edit",
+      ),
+    );
+    expect(parsed.input.file_path).toBe("/a.ts");
+    expect(parsed.input.replace_all).toBe(false);
+    expect(parsed.input.old_string).toContain("…[+");
+    expect(parsed.input.new_string).toContain("…[+");
+  });
+
+  // MultiEdit nests its strings in an array — a top-level-only pass would miss
+  // them and let a huge payload through unshortened.
+  it("reaches bulk fields nested inside arrays", () => {
+    const parsed = parses(
+      compactMetadata(
+        { input: { file_path: "/a.ts", edits: [{ old_string: "q".repeat(60_000), new_string: "r" }] } },
+        "Edit",
+      ),
+    );
+    expect(parsed.input.edits[0].old_string).toContain("…[+");
+    expect(parsed.input.edits[0].new_string).toBe("r");
+  });
+
+  // The whole point of the rewrite: no global budget. A big AskUserQuestion is
+  // recorded in full, because none of its fields are bulk carriers.
+  it("does NOT shorten a tool with no bulk field, however long", () => {
     const payload = {
       input: {
         questions: [
           {
             question: "Where should this land?",
-            header: "Branch",
             multiSelect: false,
-            options: [
-              { label: "Feature branch", description: "d".repeat(400), preview: "p".repeat(400) },
-              { label: "Directly on main", description: "d".repeat(400), preview: "p".repeat(400) },
-              { label: "Worktree", description: "d".repeat(400), preview: "p".repeat(400) },
-            ],
+            options: Array.from({ length: 4 }, (_, i) => ({
+              label: `Option ${i}`,
+              description: "d".repeat(5_000),
+              preview: "p".repeat(5_000),
+            })),
           },
         ],
       },
     };
-    const parsed = parses(compactMetadata(payload));
-    expect(parsed.input.questions[0].options).toHaveLength(3);
-    expect(parsed.input.questions[0].options[2].label).toBe("Worktree");
-    // Nothing was shortened: this is comfortably inside the budget now.
-    expect(parsed).toEqual(payload);
+    const out = compactMetadata(payload, "AskUserQuestion");
+    expect(parses(out)).toEqual(payload);
+    expect(out.length).toBeGreaterThan(40_000);
   });
 
-  it("survives a value it cannot serialize", () => {
-    const circular: Record<string, unknown> = {};
+  it("records an unknown tool verbatim rather than guessing its big field", () => {
+    const payload = { input: { anything: "z".repeat(100_000) } };
+    expect(parses(compactMetadata(payload, "SomeFutureTool"))).toEqual(payload);
+  });
+
+  it("says how much was elided instead of dropping it silently", () => {
+    const parsed = parses(compactMetadata({ input: { content: "z".repeat(60_000) } }, "Write"));
+    expect(parsed.input.content).toMatch(/…\[\+40000 chars\]$/);
+  });
+
+  // A crashed hook is a crashed tool call, so a cycle must not blow the stack.
+  // It is marked and the rest is still recorded.
+  it("survives a circular payload instead of crashing the hook", () => {
+    const circular: Record<string, unknown> = { input: { command: "ls" } };
     circular.self = circular;
-    expect(compactMetadata(circular)).toBeUndefined();
+    const parsed = parses(compactMetadata(circular, "Bash"));
+    expect(parsed.input.command).toBe("ls");
+    expect(parsed.self).toBe("[circular]");
+  });
+
+  it("still returns undefined when a value cannot be serialized at all", () => {
+    // BigInt makes JSON.stringify throw outright.
+    expect(compactMetadata({ input: { n: BigInt(1) } })).toBeUndefined();
   });
 
   it("returns undefined for nothing", () => {
-    expect(compactMetadata(null)).toBeUndefined();
+    expect(compactMetadata(null, "Bash")).toBeUndefined();
     expect(compactMetadata(undefined)).toBeUndefined();
-  });
-
-  it("keeps an enormous array valid by outlining it", () => {
-    const out = compactMetadata({ items: Array.from({ length: 200_000 }, (_, i) => i) });
-    const parsed = parses(out);
-    expect(out.length).toBeLessThanOrEqual(META_MAX_CHARS);
-    expect(parsed).toBeTruthy();
   });
 });

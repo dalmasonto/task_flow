@@ -2163,12 +2163,18 @@ pub async fn review_task_as_agent(
 // event or a batch (one request per tool call would be wasteful).
 // ---------------------------------------------------------------------------
 
-/// The model caps `action` at 120 chars, `body_markdown` at 12000, and
-/// `metadata_json` at 8000. Reject at the edge (400) rather than let the DB
-/// truncate or error.
+/// The model caps `action` at 120 chars and `body_markdown` at 12000. Reject at
+/// the edge (400) rather than let the DB truncate or error.
+///
+/// `metadata_json` is deliberately NOT length-checked. It holds a tool's input,
+/// and a length rule applied to the whole payload is the wrong shape: it rejects
+/// (or clips) a structure because ONE field inside it is large, losing the
+/// file_path and flags that identify the call along with it. The producer caps
+/// the one bulk-carrying field per tool instead — a Write's `content`, a Bash
+/// `command` — so what arrives is complete and parseable at whatever length it
+/// naturally is. See mcp/hooks/metadata.mjs.
 const MAX_ACTION_CHARS: usize = 120;
 const MAX_ACTIVITY_BODY_CHARS: usize = 12_000;
-const MAX_METADATA_CHARS: usize = 32_000;
 
 /// Upper bound on events per batch. Hooks fire rapidly and coalesce many tool
 /// calls into one request; the cap bounds a single request's write amplification
@@ -2214,11 +2220,7 @@ fn validate_activity_event(event: &ActivityEventInput) -> Result<(), StatusCode>
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    if let Some(meta) = event.metadata_json.as_deref() {
-        if meta.chars().count() > MAX_METADATA_CHARS {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-    }
+
     Ok(())
 }
 
