@@ -11,7 +11,7 @@
  * filename (must not escape the download directory).
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export class AttachmentDownloadError extends Error {
@@ -41,6 +41,47 @@ export type BinaryFetch = (
 
 const MEDIA_PREFIX = "/media/";
 
+/** Cap on decode passes — enough for any real url, bounded for a hostile one. */
+const MAX_DECODE_PASSES = 5;
+
+/**
+ * Percent-decode until the string stops changing (bounded).
+ *
+ * One pass is not enough: `%252e%252e` decodes to the literal `%2e%2e`, which
+ * would sail past the traversal check and rely on the upstream decoder to
+ * catch it. Looping removes that reliance.
+ *
+ * A decode failure is NOT fatal. The backend emits urls unencoded, so a lone
+ * `%` is a legal character in a real storage key (`50%.png`) and
+ * `decodeURIComponent` throws on it. Falling back to the undecoded string
+ * treats it as the literal it is.
+ */
+function fullyDecode(path: string): string {
+  let current = path;
+  for (let i = 0; i < MAX_DECODE_PASSES; i++) {
+    let next: string;
+    try {
+      next = decodeURIComponent(current);
+    } catch {
+      return current;
+    }
+    if (next === current) return current;
+    current = next;
+  }
+  return current;
+}
+
+/**
+ * Encode a decoded media path for use in a request line, segment by segment.
+ *
+ * The `/` separators stay literal; everything else is percent-encoded. Without
+ * this, a key containing `#` or `?` truncates the request at the fragment or
+ * query and 404s on a file that exists.
+ */
+function encodeMediaPath(mediaPath: string): string {
+  return mediaPath.split("/").map(encodeURIComponent).join("/");
+}
+
 /**
  * Validate an attachment url and reduce it to its `/media/...` path.
  *
@@ -59,6 +100,10 @@ const MEDIA_PREFIX = "/media/";
  * input and an absolute-url input agree on what `%2e%2e`-style traversal
  * resolves to. Anything that does not land under `/media/` after
  * normalisation is rejected.
+ *
+ * The returned path is DECODED — it is the real storage key, and it is what
+ * the on-disk filename is taken from. It must be re-encoded before it goes
+ * into a request line; `downloadAttachment` does that per segment.
  */
 export function mediaPathFrom(url: string, server?: string): string {
   let path: string;
@@ -99,12 +144,7 @@ export function mediaPathFrom(url: string, server?: string): string {
 
   // Percent-decode before normalising, so `/media/%2e%2e/etc/passwd` collapses
   // the same way whether it arrived as a bare path or inside an absolute url.
-  let decodedPath: string;
-  try {
-    decodedPath = decodeURIComponent(path);
-  } catch {
-    throw new AttachmentDownloadError(`Not a valid attachment url: ${url}`);
-  }
+  const decodedPath = fullyDecode(path);
 
   // Normalise so `/media/../etc/passwd` cannot masquerade as a media path.
   const normalised = resolve("/", decodedPath);
@@ -159,7 +199,10 @@ export async function downloadAttachment(opts: {
   }
 
   const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as BinaryFetch);
-  const absolute = `${opts.server.replace(/\/$/, "")}${mediaPath}`;
+  // `mediaPath` is decoded (see `mediaPathFrom`); the backend emits urls
+  // unencoded, so it can legitimately contain `#`, `?`, `%`, spaces and
+  // unicode. Re-encode per segment before it becomes a request line.
+  const absolute = `${opts.server.replace(/\/$/, "")}${encodeMediaPath(mediaPath)}`;
 
   // When storage is gated at the framework level, the auth header goes HERE and
   // nothing else in the system needs to change.
@@ -175,8 +218,15 @@ export async function downloadAttachment(opts: {
 
   const bytes = Buffer.from(await res.arrayBuffer());
   await mkdir(dir, { recursive: true });
-  // Downloads are scratch, never committed.
-  await writeFile(join(opts.root, ".taskflow", ".gitignore"), "*\n");
+  // Downloads are scratch, never committed. Written only when absent — if
+  // anything else ever keeps committed state under `.taskflow/`, an
+  // unconditional write here would silently ignore it.
+  const gitignore = join(opts.root, ".taskflow", ".gitignore");
+  try {
+    await access(gitignore);
+  } catch {
+    await writeFile(gitignore, "*\n");
+  }
   await writeFile(target, bytes);
 
   return {

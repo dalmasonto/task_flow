@@ -486,6 +486,90 @@ async fn agent_read_returns_attachments_for_a_message() {
     );
 }
 
+// 8b. CONTRACT PAIR with `mcp/src/attachment-download.test.ts` (see the test
+//     named "downloads a backend-shaped url whose key has a space and a #").
+//     THESE TWO MUST MOVE TOGETHER.
+//
+//     This half pins what the backend actually EMITS. `FileField::url()` does
+//     no percent-encoding — it is `format!("{mount}/{key}")` — and the storage
+//     filename sanitiser strips only `/`, `\` and control characters. So `#`,
+//     `?`, `%`, spaces and unicode all survive verbatim into the url string.
+//     The MCP half feeds this exact shape through `downloadAttachment` and
+//     asserts it is re-encoded before it becomes a request line.
+//
+//     Asserting `starts_with("/media/")` is what let the encoding mismatch
+//     ship: it passes for a truncated url just as happily. This asserts the
+//     WHOLE string.
+#[tokio::test]
+async fn agent_read_emits_the_url_unencoded_for_a_name_with_a_space_and_a_hash() {
+    let app = TestApp::new().await;
+    let (_project, channel, key) = seed_agent_and_room(&app).await;
+
+    // A space AND a `#`. `#` is the dangerous one: treated as a fragment
+    // delimiter by any consumer that does not encode, truncating the request.
+    const FILENAME: &str = "Q3 #2 report.pdf";
+
+    let (content_type, body) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "quarterly numbers"),
+        file("files", FILENAME, "application/pdf", b"%PDF-1.4 q3"),
+    ]);
+    let sent = app
+        .post_multipart_as_agent(&key, AGENT_SEND, &content_type, body)
+        .await;
+    assert_eq!(sent.status(), 200, "body: {:?}", sent.json().await);
+    let message_id = sent.json().await["id"].as_i64().expect("message id");
+
+    let read = app
+        .get_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/messages?channel={channel}"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "body: {:?}", read.json().await);
+    let page = read.json().await;
+    let message = page["messages"]
+        .as_array()
+        .expect("messages array")
+        .iter()
+        .find(|m| m["id"].as_i64() == Some(message_id))
+        .expect("the sent message is in the page")
+        .clone();
+
+    let att = &message["attachments"][0];
+    assert_eq!(att["name"], serde_json::json!(FILENAME));
+
+    let url = att["url"].as_str().expect("url string");
+
+    // The storage key is `<unique>-<filename>`, so the url is fully determined
+    // apart from that opaque prefix. Assert every other character of it.
+    assert!(url.starts_with("/media/"), "unexpected url: {url}");
+    let key_part = url.strip_prefix("/media/").expect("media prefix");
+    let (prefix, name_part) = key_part
+        .split_once('-')
+        .expect("storage key is <unique>-<filename>");
+    assert!(
+        !prefix.is_empty(),
+        "expected a non-empty unique prefix in {url}"
+    );
+    assert_eq!(
+        name_part, FILENAME,
+        "the filename must reach the url byte-for-byte, unencoded: {url}"
+    );
+
+    // Stated positively, so a future move to an encoding backend fails HERE
+    // (loudly, next to this comment) rather than silently in the MCP client.
+    assert!(
+        url.contains(" ") && url.contains('#'),
+        "the url must be UNENCODED — the MCP client encodes it, and would \
+         double-encode a url that arrived pre-encoded: {url}"
+    );
+    assert!(
+        !url.contains('%'),
+        "no percent-encoding is expected from this layer: {url}"
+    );
+}
+
 // 9. A text-only message returns an EMPTY ARRAY, never an absent key. An absent
 //    key is indistinguishable from "not reported", which is exactly how the
 //    original bug hid.
