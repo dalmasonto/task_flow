@@ -1,0 +1,17 @@
+{
+  "server": "http://localhost:8000",
+  "project": 1,
+  "default_profile": "main",
+  "profiles": {
+    "main": {
+      "agent_id": 1,
+      "key": "tfk_REPLACE_ME_paste_the_key_shown_once_on_the_API_Base_page",
+      "display_name": "Claude (main)"
+    },
+    "reviewer": {
+      "agent_id": 2,
+      "key": "tfk_REPLACE_ME_link_a_second_profile_to_get_this",
+      "display_name": "Claude (reviewer)"
+    }
+  }
+}

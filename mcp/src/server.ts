@@ -69,7 +69,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const sessions = new Map<string, number>();
 
   const server = new McpServer({
-    name: "taskflow-mcp",
+    name: "taskflow-v2-mcp",
     version: "0.1.0",
   });
 

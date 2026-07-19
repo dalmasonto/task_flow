@@ -1,10 +1,12 @@
 {
-  "name": "@taskflow/mcp",
+  "name": "taskflow-v2-mcp",
   "version": "0.1.0",
-  "description": "TaskFlow MCP server + Claude Code hooks — an agent client that drives the TaskFlow backend agent API using a stable .taskflow.json credential.",
+  "description": "TaskFlow v2 MCP server + Claude Code hooks — an agent client that drives the TaskFlow backend agent API using a stable .taskflow.json credential.",
   "type": "module",
+  "//bin": "Deliberately NOT `taskflow-mcp`: the legacy @dalmasonto/taskflow-mcp already owns that name globally, and npm would silently overwrite its symlink. The `-v2-` names let both live side by side.",
   "bin": {
-    "taskflow-mcp": "dist/index.js"
+    "taskflow-v2-mcp": "dist/index.js",
+    "taskflow-v2-hook": "hooks/taskflow-hook.mjs"
   },
   "main": "dist/index.js",
   "files": [

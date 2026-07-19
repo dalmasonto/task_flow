@@ -1,4 +1,4 @@
-# @taskflow/mcp — TaskFlow MCP server + Claude Code hooks
+# taskflow-v2-mcp — TaskFlow MCP server + Claude Code hooks
 
 An **agent client** for the TaskFlow backend. It lets a coding agent (e.g. Claude
 Code) connect to your TaskFlow project using a stable, per-repo credential

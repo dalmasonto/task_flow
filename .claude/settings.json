@@ -1,0 +1,57 @@
+{
+  "//": "TaskFlow v2 agent integration. The hook reports this session's activity to the backend named in .taskflow.json (gitignored, created by linking an agent on the dashboard's API Base page). With no .taskflow.json, or with the backend down, every hook exits 0 silently in ~50ms — it never blocks a tool call. Commands resolve from PATH via the global `taskflow-v2-mcp` install, so they survive the repo moving.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "taskflow-v2-hook"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "taskflow-v2-hook"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "taskflow-v2-hook"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "taskflow-v2-hook"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "taskflow-v2-hook"
+          }
+        ]
+      }
+    ]
+  }
+}

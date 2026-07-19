@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     server = buildServer();
   } catch (err) {
     if (err instanceof ConfigError) {
-      process.stderr.write(`taskflow-mcp: ${err.message}\n`);
+      process.stderr.write(`taskflow-v2-mcp: ${err.message}\n`);
       process.exit(1);
     }
     throw err;
@@ -25,10 +25,10 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Stderr only — stdout is the MCP transport and must stay clean.
-  process.stderr.write("taskflow-mcp: connected (stdio)\n");
+  process.stderr.write("taskflow-v2-mcp: connected (stdio)\n");
 }
 
 main().catch((err) => {
-  process.stderr.write(`taskflow-mcp: fatal: ${(err as Error).stack ?? err}\n`);
+  process.stderr.write(`taskflow-v2-mcp: fatal: ${(err as Error).stack ?? err}\n`);
   process.exit(1);
 });

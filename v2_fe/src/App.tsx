@@ -69,6 +69,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import {
   confirmPasswordReset,
   fetchCurrentUser,
+  API_BASE_URL,
   hasStoredAuthSession,
   getStoredUser,
   loginUser,
@@ -6223,7 +6224,14 @@ function LinkAgentCard({ projectId }: { projectId: number | null }) {
   const snippet = result
     ? JSON.stringify(
         {
-          server: window.location.origin,
+          // The BACKEND origin, not this page's. An agent runs headless and must
+          // not depend on the frontend being up — and in dev those differ: the
+          // app is served by Vite (:5173) which proxies /api to the backend
+          // (:8000), so emitting `window.location.origin` would route every agent
+          // call through the dev server. `API_BASE_URL` is the real backend when
+          // configured; falling back to the page origin covers the same-origin
+          // deployment where they are genuinely the same host.
+          server: API_BASE_URL || window.location.origin,
           project: result.project,
           default_profile: "main",
           profiles: {
