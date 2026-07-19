@@ -19,6 +19,12 @@ chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 # Key material: prefix + secret are uuid-v4 (CSPRNG-backed) hex.
 uuid = { version = "1", features = ["v4"] }
+# The agent event stream registers directly with the realtime hub (the built-in
+# SSE route authenticates users, and an agent credential is not a user).
+umbral-realtime = "0.0.10"
+tokio-stream = "0.1"
+# Drop is sync but deregistration is async — the guard spawns onto the runtime.
+tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 umbral-testing = "0.0.10"

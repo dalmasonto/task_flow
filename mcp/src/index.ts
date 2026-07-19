@@ -10,7 +10,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { ConfigError } from "./config.js";
 import { runDoctor } from "./doctor.js";
-import { detectTmuxPane, runTmuxMirror, startMirrorLoop } from "./tmux.js";
+import { detectTmuxPane, notifyPane, runTmuxMirror, startMirrorLoop } from "./tmux.js";
+import { formatIncoming, shouldDeliver, startAgentEventStream } from "./events.js";
 import { TaskflowClient } from "./client.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
@@ -116,13 +117,46 @@ async function startMirrorForThisAgent(): Promise<void> {
       cwd: process.cwd(),
       transport: "tmux",
     });
+    process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
+
+    // Instant delivery: hold the event stream open and write each incoming
+    // message straight into the pane. Polling would make a message as slow to
+    // arrive as the capture interval, which is what "messages don't appear in
+    // the terminal" actually was.
+    const events = startAgentEventStream({
+      server: profile.server,
+      key: profile.key,
+      log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+      onMessage: async (message) => {
+        if (!shouldDeliver(message, profile.agentId)) return;
+        try {
+          // Submitted, not just typed: the point is for the agent to READ it.
+          await notifyPane(formatIncoming(message), pane, true);
+          // The agent has now been handed the message, so advance its cursor —
+          // otherwise check_messages would hand it the same one again.
+          await client.markRead(message.channel, message.id);
+        } catch (err) {
+          process.stderr.write(
+            `taskflow-v2-mcp: could not deliver message ${message.id} (${(err as Error).message.split("\n")[0]})\n`,
+          );
+        }
+      },
+    });
+
     startMirrorLoop({
       client,
       session: session.id,
       target: pane,
       log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+      // The mirror talks to the backend every couple of seconds, so it notices a
+      // restart long before the stream's idle watchdog would. Hand that over
+      // rather than making the stream wait for silence to accumulate.
+      onError: (err) => {
+        if (/network error|fetch failed|ECONNREFUSED/i.test(err.message)) {
+          events.reconnectNow();
+        }
+      },
     });
-    process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
   } catch (err) {
     process.stderr.write(
       `taskflow-v2-mcp: terminal mirror unavailable (${(err as Error).message.split("\n")[0]})\n`,

@@ -235,6 +235,8 @@ export interface MirrorLoopOptions {
   notify?: boolean;
   notifySubmit?: boolean;
   log?: (line: string) => void;
+  /** Called when a tick fails, so callers can react to the backend going away. */
+  onError?: (error: Error) => void;
 }
 
 /**
@@ -284,6 +286,7 @@ export function startMirrorLoop(options: MirrorLoopOptions): () => void {
     } catch (err) {
       // Transient backend/tmux errors must not kill a long-running mirror.
       log(`  warn: ${(err as Error).message.split("\n")[0]}`);
+      options.onError?.(err as Error);
     }
   };
 

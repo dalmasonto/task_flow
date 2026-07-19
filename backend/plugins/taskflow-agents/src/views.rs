@@ -2481,3 +2481,88 @@ pub async fn list_activity_as_agent(
 
     Ok((StatusCode::OK, Json(json!(activity))).into_response())
 }
+
+// ---------------------------------------------------------------------------
+// Agent event stream — instant delivery of messages to a running agent.
+// ---------------------------------------------------------------------------
+
+/// `GET /api/taskflow/agents/events` (agent-authed) — a Server-Sent Events
+/// stream of this agent's project chat traffic.
+///
+/// WHY A SEPARATE ROUTE. The framework already serves `/realtime/sse`, but its
+/// group policy authenticates a USER and checks project membership
+/// (`may_join` in backend/src/realtime.rs). An agent credential is not a user,
+/// so it can never pass that gate. Rather than widen a policy that guards every
+/// group, this registers directly with the realtime hub and authorizes the join
+/// itself: the credential already pins the agent to one project, so the only
+/// group it can ever be given is that project's message group.
+///
+/// The alternative — having the agent poll — is what this replaces. A poll makes
+/// message delivery as slow as its interval, and every agent pays for the
+/// interval even when nothing is said.
+pub async fn agent_event_stream(
+    RequireAgent(agent): RequireAgent,
+) -> Result<Response, StatusCode> {
+    use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
+    use std::collections::HashSet;
+    use tokio_stream::{StreamExt, wrappers::ReceiverStream};
+    use umbral_realtime::Realtime;
+
+    if !Realtime::is_installed() {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    // The ONLY group an agent connection is ever placed in. Not client-supplied:
+    // it is derived from the credential, so an agent cannot listen to another
+    // project by asking.
+    let group = format!("project:{}:messages", agent.project_id);
+    let mut groups = HashSet::new();
+    groups.insert(group);
+
+    let registry = Realtime::registry();
+    let (conn_id, rx) = registry
+        .register(None, groups, AGENT_STREAM_BUFFER)
+        .await
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    // Deregistering on disconnect is not optional: without it every dropped
+    // agent connection leaves an entry in the hub's group index forever.
+    let guard = AgentStreamGuard { registry, conn_id };
+
+    let stream = ReceiverStream::new(rx).map(move |event| {
+        // Hold the guard inside the stream so it drops exactly when the stream
+        // does — i.e. when the client disconnects.
+        let _guard = &guard;
+        Ok::<_, std::convert::Infallible>(
+            SseEvent::default().event("u").data(
+                json!({ "c": event.channel, "e": event.event, "d": event.data }).to_string(),
+            ),
+        )
+    });
+
+    Ok(Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response())
+}
+
+/// Per-connection event buffer. Chat traffic is bursty but small; a slow client
+/// that fills this is dropped by the hub rather than allowed to grow unbounded.
+const AGENT_STREAM_BUFFER: usize = 64;
+
+/// Removes the connection from the realtime hub when the stream is dropped.
+/// `deregister` is async and `Drop` is not, so it spawns — the server runtime is
+/// always present here.
+struct AgentStreamGuard {
+    registry: std::sync::Arc<umbral_realtime::Registry>,
+    conn_id: u64,
+}
+
+impl Drop for AgentStreamGuard {
+    fn drop(&mut self) {
+        let registry = self.registry.clone();
+        let id = self.conn_id;
+        tokio::spawn(async move {
+            registry.deregister(id).await;
+        });
+    }
+}

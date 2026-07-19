@@ -40,6 +40,9 @@ pub fn router() -> Router {
         // `whoami`, `channels`, `agents` are new paths; `tasks`, `messages`, and
         // `activity` add a GET alongside their existing agent-authed POST.
         .route("/api/taskflow/agents/whoami", get(views::whoami_as_agent))
+        // Long-lived SSE: an agent holds this open for its whole session so
+        // messages reach it the moment they are sent, instead of on its next poll.
+        .route("/api/taskflow/agents/events", get(views::agent_event_stream))
         .route(
             "/api/taskflow/agents/channels",
             get(views::list_channels_as_agent),
