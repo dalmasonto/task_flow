@@ -21,10 +21,12 @@
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+// Structure-preserving serializer: a JSON string sliced mid-token does not parse,
+// so oversized payloads are shortened field-by-field instead. See metadata.mjs.
+import { compactMetadata } from "./metadata.mjs";
 import { hostname, tmpdir } from "node:os";
 
 const REQUEST_TIMEOUT_MS = 2500;
-const META_MAX_CHARS = 1500;
 
 /** Never let this process take the agent down: log to stderr and exit 0. */
 function bail(reason) {
@@ -156,20 +158,7 @@ function readStdin() {
   });
 }
 
-/** Compact a tool input object into a short metadata JSON string. */
-function compactMetadata(obj) {
-  if (obj == null) return undefined;
-  let text;
-  try {
-    text = JSON.stringify(obj);
-  } catch {
-    return undefined;
-  }
-  if (text.length > META_MAX_CHARS) {
-    text = text.slice(0, META_MAX_CHARS) + "…";
-  }
-  return text;
-}
+
 
 
 /**
@@ -228,8 +217,8 @@ function detectTmuxPane() {
  * terminal presents them one at a time, and answering a later one out of order
  * would send keys to the wrong screen.
  *
- * The payload is sent whole rather than through `compactMetadata` — that caps at
- * 1500 chars, which cut real questions off mid-option and left them unanswerable.
+ * The payload goes into dedicated columns rather than metadata, so the options
+ * are the record itself and cannot be shortened away by any budget.
  */
 async function reportPrompt(profile, sessionId, toolInput) {
   const question = toolInput?.questions?.[0];

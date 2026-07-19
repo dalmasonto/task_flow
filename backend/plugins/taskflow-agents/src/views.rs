@@ -2044,7 +2044,7 @@ pub async fn review_task_as_agent(
 /// truncate or error.
 const MAX_ACTION_CHARS: usize = 120;
 const MAX_ACTIVITY_BODY_CHARS: usize = 12_000;
-const MAX_METADATA_CHARS: usize = 8_000;
+const MAX_METADATA_CHARS: usize = 32_000;
 
 /// Upper bound on events per batch. Hooks fire rapidly and coalesce many tool
 /// calls into one request; the cap bounds a single request's write amplification

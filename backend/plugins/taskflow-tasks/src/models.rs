@@ -130,7 +130,10 @@ pub struct TaskflowTaskActivity {
     pub action: String,
     #[umbral(string, max_length = 12000, widget = "textarea")]
     pub body_markdown: Option<String>,
-    #[umbral(string, max_length = 8000, widget = "textarea")]
+    /// Raised from 8000: the hook now records a tool's FULL input, and 8000 was
+    /// clipping real payloads. Truncation still exists as a backstop but is
+    /// structural (see hooks/metadata.mjs) — what lands here always parses.
+    #[umbral(string, max_length = 32000, widget = "textarea")]
     pub metadata_json: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
