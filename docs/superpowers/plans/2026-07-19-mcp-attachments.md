@@ -4,7 +4,15 @@
 
 **Goal:** Let an agent attach files to a TaskFlow message via the MCP `send_message` tool, instead of pasting file contents into the message body.
 
-**Architecture:** Three layers, each independently testable. A new `src/attachments.ts` validates and reads paths (the security boundary, tested without a server). `src/client.ts` gains a multipart branch in its request helper. `src/server.ts` exposes a `files` parameter. No backend change — `POST /api/taskflow/agents/agent/messages` already accepts multipart.
+**Architecture:** Four layers, each independently testable. A new `src/attachments.ts` validates and reads paths (the security boundary, tested without a server). `src/client.ts` gains a multipart branch in its request helper. `src/server.ts` exposes a `files` parameter. Finally `send_message_as_agent` learns to accept multipart, mirroring the human `send_message` route.
+
+> **Correction (2026-07-19, after the final whole-branch review).** This line
+> originally read *"No backend change — `POST /api/taskflow/agents/agent/messages`
+> already accepts multipart."* That was **false**, and Tasks 1-3 were all built on
+> it. `views.rs:143-207` is the **human** `RequireAuth` route at
+> `/api/taskflow/agents/messages`; the agent route takes `Json(input)` and 415s on
+> multipart. Task 4 exists to fix this. Citing the right file is not citing the
+> right handler.
 
 **Tech Stack:** TypeScript, Node 24 (native `FormData`/`Blob`, no new dependency), Zod for tool schemas, Vitest.
 
@@ -610,3 +618,278 @@ taskflow-v2-mcp --check # PASS on all lines
 ```
 
 Then the four end-to-end checks in Task 3, Step 5 — the traversal rejection matters most, since it is the security boundary and no unit test exercises the real config root.
+
+---
+
+### Task 4: Accept multipart on the agent send route
+
+**Added 2026-07-19 after the final whole-branch review.** Tasks 1-3 were built on
+the spec's premise that no backend change was required. That premise was wrong:
+`views.rs:143-207` is `send_message`, the **human** `RequireAuth` route at
+`/api/taskflow/agents/messages`. The MCP posts to
+`/api/taskflow/agents/agent/messages` → `send_message_as_agent`, which takes
+`Json(input)` and has no multipart branch. Without this task a `files` send
+returns 415 before the handler runs.
+
+**Files:**
+- Modify: `backend/plugins/taskflow-agents/src/views.rs:755-839` (`send_message_as_agent`)
+- Modify: `backend/plugins/taskflow-agents/src/urls.rs:62-65` (add the body-limit layer)
+- Test: `backend/plugins/taskflow-agents/tests/message_attachments.rs` (add agent-authed cases)
+
+**Interfaces:**
+- Consumes: `is_multipart`, `parse_multipart`, `FilePart` (`umbral::web::multipart`), `storage_opt` (`umbral::storage`), `storage_unavailable_response` (`views.rs:108`), `MAX_ATTACHMENT_BYTES` (`views.rs:43`), `SEND_MESSAGE_BODY_LIMIT` (`urls.rs:20`). All already imported in `views.rs`.
+- Produces: no new public API. `send_message_as_agent` changes signature from `Json(input)` to `headers: HeaderMap, raw_body: Bytes`.
+
+**Reference implementation:** `send_message` (`views.rs:131-376`) already does all of
+this correctly for the human route. Mirror it. Do not invent a second approach.
+
+- [ ] **Step 1: Add the body-limit layer**
+
+In `backend/plugins/taskflow-agents/src/urls.rs`, the agent route currently reads:
+
+```rust
+        // Agent-authored send (agent-authed via `RequireAgent`). JSON only and
+        // small, so the framework's default body limit is fine.
+        .route(
+            "/api/taskflow/agents/agent/messages",
+            post(views::send_message_as_agent),
+        )
+```
+
+Replace it with:
+
+```rust
+        // Agent-authored send (agent-authed via `RequireAgent`). Accepts JSON or
+        // multipart with attachments, so it needs the same raised body limit as
+        // the human send — axum's 2 MiB default would reject uploads well under
+        // the 25 MB per-file cap.
+        .route(
+            "/api/taskflow/agents/agent/messages",
+            post(views::send_message_as_agent)
+                .layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
+        )
+```
+
+- [ ] **Step 2: Change the handler signature and normalise both transports**
+
+In `backend/plugins/taskflow-agents/src/views.rs`, replace the signature and the
+opening body validation of `send_message_as_agent` (lines 755-765):
+
+```rust
+pub async fn send_message_as_agent(
+    RequireAgent(agent): RequireAgent,
+    headers: HeaderMap,
+    raw_body: Bytes,
+) -> Result<Response, StatusCode> {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+
+    // Normalise both transports to the same logical input, exactly as the human
+    // `send_message` does. JSON posts carry no file parts.
+    let (channel_id, body_markdown, priority, client_nonce, files): (
+        i64,
+        String,
+        Option<TaskflowMessagePriority>,
+        Option<String>,
+        Vec<FilePart>,
+    ) = if is_multipart(content_type) {
+        let form = parse_multipart(content_type, raw_body)
+            .await
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        let mut channel_field: Option<String> = None;
+        let mut body_field: Option<String> = None;
+        let mut priority_field: Option<String> = None;
+        let mut nonce_field: Option<String> = None;
+        for (name, value) in form.fields {
+            match name.as_str() {
+                "channel" => channel_field = Some(value),
+                "body_markdown" => body_field = Some(value),
+                "priority" => priority_field = Some(value),
+                "client_nonce" => nonce_field = Some(value),
+                _ => {}
+            }
+        }
+
+        let channel_id: i64 = channel_field
+            .as_deref()
+            .and_then(|s| s.trim().parse().ok())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+
+        // An unrecognised priority is dropped, not rejected — the create below
+        // defaults it to `Normal`, same as an absent JSON `priority`.
+        let priority = priority_field
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| serde_json::from_value::<TaskflowMessagePriority>(json!(s)).ok());
+
+        // A "file part" is one that carried a filename; bodyless text parts are
+        // fields, not attachments.
+        let files: Vec<FilePart> = form
+            .files
+            .into_iter()
+            .filter(|f| f.filename.as_deref().is_some_and(|n| !n.is_empty()))
+            .collect();
+
+        (
+            channel_id,
+            body_field.unwrap_or_default(),
+            priority,
+            nonce_field,
+            files,
+        )
+    } else {
+        let input: AgentSendMessageInput =
+            serde_json::from_slice(&raw_body).map_err(|_| StatusCode::BAD_REQUEST)?;
+        (
+            input.channel,
+            input.body_markdown,
+            input.priority,
+            input.client_nonce,
+            Vec::new(),
+        )
+    };
+
+    let body = body_markdown.trim();
+    if body.chars().count() > MAX_BODY_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Body may be empty ONLY when at least one file is attached — a file-only
+    // message is valid, an empty text-only message is not.
+    if body.is_empty() && files.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Reject an oversized file BEFORE anything is written, so a too-large file
+    // fails the whole message instead of persisting a message whose attachment
+    // then fails to store.
+    if let Some(oversized) = files.iter().find(|f| f.bytes.len() > MAX_ATTACHMENT_BYTES) {
+        let max_mb = MAX_ATTACHMENT_BYTES / (1024 * 1024);
+        let name = oversized.filename.as_deref().unwrap_or("This file");
+        let detail = format!("\"{name}\" is too large. The maximum attachment size is {max_mb} MB.");
+        return Ok((StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "detail": detail }))).into_response());
+    }
+```
+
+- [ ] **Step 3: Point the rest of the handler at the normalised locals**
+
+The remaining body (old lines 767-838) referenced `input.*`. Update those
+references only — the channel lookup, membership gate, and idempotency logic are
+correct and must not otherwise change:
+
+- `input.channel` → `channel_id`
+- `input.client_nonce.as_deref()` → `client_nonce.as_deref()`
+- `input.priority.unwrap_or(...)` → `priority.unwrap_or(...)`
+- `client_nonce: input.client_nonce.clone()` → `client_nonce: client_nonce.clone()`
+
+- [ ] **Step 4: Store the attachments and return them**
+
+Replace the final `message_response(&message, &[])` (old line 838) with the
+storage loop mirroring `send_message` (`views.rs:335-375`):
+
+```rust
+    // Store each uploaded file through the ambient backend and record a
+    // `TaskflowMessageAttachment` row. The `project` is denormalized from the
+    // channel (never accepted from the client), matching the message itself.
+    let mut attachments = Vec::with_capacity(files.len());
+    if !files.is_empty() {
+        let Some(storage) = storage_opt() else {
+            return Ok(storage_unavailable_response());
+        };
+        for part in files {
+            let filename = part
+                .filename
+                .as_deref()
+                .filter(|n| !n.is_empty())
+                .unwrap_or("upload")
+                .to_string();
+            let content_type = part
+                .content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            let stored = storage
+                .store(&filename, &content_type, &part.bytes)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let attachment = TaskflowMessageAttachment::objects()
+                .create(TaskflowMessageAttachment {
+                    id: 0,
+                    message: ForeignKey::new(message.id),
+                    project: channel.project.clone(),
+                    file: FileField::from(stored.key),
+                    name: filename,
+                    content_type,
+                    size_bytes: stored.size as i64,
+                    created_at: None,
+                })
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            attachments.push(attachment);
+        }
+    }
+
+    message_response(&message, &attachments)
+}
+```
+
+- [ ] **Step 5: Update the doc comment**
+
+The handler's doc comment (old line 745) says *"JSON only — agent sends carry no
+attachments in Stage 1."* That is now false. Replace that sentence with:
+
+```rust
+/// Accepts JSON or multipart; multipart carries file attachments, stored and
+/// returned exactly as on the human path.
+```
+
+- [ ] **Step 6: Write the tests**
+
+Add to `backend/plugins/taskflow-agents/tests/message_attachments.rs`, following
+the existing human-route cases in that file as the pattern for building a
+multipart body and asserting the response. Cover, agent-authed against
+`/api/taskflow/agents/agent/messages`:
+
+1. multipart with one file → 200, response `attachments` has exactly one entry with the right `name` and `size_bytes`
+2. JSON with no files → 200, `attachments` is `[]` (the pre-existing path is unbroken)
+3. multipart with an empty `body_markdown` but one file → 200 (file-only message is valid)
+4. JSON with an empty `body_markdown` → 400 (empty text-only message is not)
+5. multipart from a non-member agent into a DM → 403, and no attachment row is written
+6. multipart replaying an existing `client_nonce` → returns the original message with its original attachments, and does not duplicate them
+
+- [ ] **Step 7: Run the tests**
+
+Run: `cd backend && cargo test -p taskflow-agents --test message_attachments`
+Expected: all cases pass, including the pre-existing human-route ones.
+
+- [ ] **Step 8: Run the full backend suite**
+
+Run: `cd backend && cargo test -p taskflow-agents`
+Expected: no regressions. `send_message_as_agent`'s signature change affects only
+`urls.rs`, which Step 1 already updated.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add backend/plugins/taskflow-agents/src/views.rs \
+        backend/plugins/taskflow-agents/src/urls.rs \
+        backend/plugins/taskflow-agents/tests/message_attachments.rs
+git commit -m "feat(agents): accept attachments on the agent send route
+
+The MCP could build a multipart send but had nowhere to send it. The
+agent route took Json(input) and hardcoded message_response(&msg, &[]),
+so a files send hit axum's Json extractor and 415'd before the handler
+ran. Its own doc comment said 'JSON only -- agent sends carry no
+attachments in Stage 1'.
+
+The human route has accepted multipart all along. This mirrors it rather
+than inventing a second approach: same normalisation of both transports,
+same file-part filename rule, same up-front size check so a too-large
+file fails the whole message instead of stranding one without its
+attachment, same storage loop denormalising project from the channel.
+
+The route also gains SEND_MESSAGE_BODY_LIMIT. Without it the handler
+would parse multipart correctly and still reject a 3MB upload, because
+axum's 2 MiB default sits in front of a 25 MB per-file cap."
+```

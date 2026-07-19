@@ -9,11 +9,34 @@ An agent cannot send a file over TaskFlow. Asked to share a spec for review, the
 only option is pasting its contents into the message body, which arrives as a
 wall of text rather than a reviewable document.
 
+> **CORRECTION (2026-07-19, after the final whole-branch review).** The premise
+> below is **wrong**, and the error propagated into the plan and all three
+> implemented tasks. It is left in place, struck through, because the
+> correction is the most important thing this document records.
+>
+> `views.rs:143-207` is `send_message` — the **human**, `RequireAuth`-gated
+> route at `/api/taskflow/agents/messages`. The MCP authenticates with
+> `Authorization: Agent <key>` and posts to a *different* route,
+> `/api/taskflow/agents/agent/messages` → `send_message_as_agent`
+> (`urls.rs:60-65`), which takes `Json(input)` and has no multipart branch at
+> all. Its own doc comment says so: *"JSON only — agent sends carry no
+> attachments in Stage 1"* (`views.rs:745`). It hardcodes
+> `message_response(&message, &[])` (`views.rs:838`), and its route carries no
+> `DefaultBodyLimit` layer, so it inherits axum's 2 MiB default.
+>
+> **A backend change IS required.** See Task 4 in the implementation plan.
+>
+> Lesson: citing the right file is not citing the right handler. The mistake
+> survived spec review, plan review, and three task reviews because every one
+> of them was scoped to a layer that could not see the client/server seam.
+
 The capability exists everywhere except the MCP client:
 
-- `POST /api/taskflow/agents/agent/messages` already accepts multipart with file
+- ~~`POST /api/taskflow/agents/agent/messages` already accepts multipart with file
   parts, normalising both transports to identical logical input
-  (`backend/plugins/taskflow-agents/src/views.rs:143-207`)
+  (`backend/plugins/taskflow-agents/src/views.rs:143-207`)~~ — **false, see
+  correction above.** That describes the human route. The agent route is
+  JSON-only.
 - `MAX_ATTACHMENT_BYTES` is 25 MB per file (`views.rs:43`)
 - The route already raises `DefaultBodyLimit` past axum's 2 MB default
   (`backend/plugins/taskflow-agents/src/urls.rs:36`)
@@ -25,7 +48,10 @@ The capability exists everywhere except the MCP client:
 the `send_message` tool exposes just `channel`, `body`, `priority`, `profile`.
 So the attachment path is unreachable from an agent.
 
-**No backend change is required.**
+~~**No backend change is required.**~~ — **false.** A backend change is
+required: `send_message_as_agent` needs the same multipart branch, size check,
+and attachment-storage loop that `send_message` already has, plus its own
+`DefaultBodyLimit` layer.
 
 ## Interface
 

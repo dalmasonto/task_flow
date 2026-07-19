@@ -174,3 +174,109 @@ Task 1: complete (commits 4732236..00c8e6b, review clean, no fix pass)
   Doc drift only, nothing missing: brief's prose said "9 tests" but its own code has 10
   it() blocks; my dispatch said "26 existing tests" but the real pre-task count was 56
   (44 tracked + 12 in untracked prompt.test.ts). 66 total now.
+Task 2: complete (commits 00c8e6b..7abb06b, review clean, no fix pass -- 2 Minor deferred)
+  FetchLike widened to string|FormData; request() gained mutually-exclusive form/body branches
+  plus a per-request timeoutMs override; sendMessage posts multipart at 120s when attachments
+  are present, JSON otherwise.
+  REGRESSION RISK CLEARED. Reviewer enumerated ALL 18 pre-existing request() callers and
+  confirmed every one passes only query/body, so all fall to the unchanged else-if branch with
+  the 15s default. AbortSignal wiring untouched. server.ts:295 (the only sendMessage caller
+  today) passes no attachments, so it still hits the byte-identical JSON path.
+  Reviewer ran 3 mutations, ALL killed: (A) manually setting Content-Type: multipart/form-data
+  fails the no-Content-Type test; (B) appending under distinct field names files0/files1 fails
+  getAll("files"); (C) dropping the filename arg makes FormData default the part name to "blob",
+  failing the basename assertion.
+  My process error, not the implementer's: I left .superpowers/sdd/progress.md staged, so their
+  bare `git commit` swept it into 7abb06b. Harmless (that dir is gitignored except the ledger).
+  Do not pre-stage the ledger again.
+Task 3: complete (commits 7abb06b..2bcbcb7, review clean, no fix pass -- 1 Minor deferred)
+  files param exposed on send_message; root is dirname(configPath) from the enclosing scope.
+  BOUNDARY BOUND TO THE REAL ROOT AND VERIFIED EMPIRICALLY. Reviewer ran the actual
+  findConfigPath -> dirname -> resolveAttachments composition from compiled dist/ against the
+  real .taskflow.json: configPath resolves to the file (never a bare dir, so dirname is right),
+  root = /home/dalmas/E/projects/local_task_tracker, /etc/passwd rejected "outside the project
+  root", ../../.ssh/id_rsa rejected. This is the binding Task 1's synthetic-temp-root tests
+  could not cover.
+  Error path traced: AttachmentError extends Error, the await sits inside the tool's try, so it
+  lands in fail()'s instanceof Error branch as isError:true -- never escapes the tool.
+  Absent/empty files both yield attachments:undefined (not []), so sendMessage takes the JSON
+  path unchanged.
+  Minor (report only, no code change): task-3-report.md:54 claims ResolvedProfile has no
+  configPath field. It does (config.ts:60-69). The code is right per the brief; the stated
+  justification is wrong.
+  STILL UNVERIFIED, NEEDS A LIVE RECONNECT: zod validation + JSON-RPC serialization of `files`
+  over a real MCP round-trip. 4-item manual checklist in task-3-report.md.
+
+## Test count churn (explains conflicting numbers across tasks)
+Counts moved 66 -> 71 -> 59 -> 69 across the three tasks because the USER was concurrently
+editing test files in the same directory: prompt.test.ts appeared then was removed (12), and
+events.test.ts grew 9 -> 19 uncommitted. Tasks 1-3 own exactly 15 of the current 69
+(attachments 10 + client 5); none were lost. No task's numbers were wrong at the time it ran.
+
+## FINAL WHOLE-BRANCH REVIEW: DO NOT MERGE (2 Critical)
+Root cause is MINE, at the spec stage. The design doc's central premise "No backend change is
+required" is FALSE, and it propagated through the plan into all three tasks. Each task correctly
+implements a wrong premise.
+
+I read the multipart parsing at views.rs:143-207 and assumed it served the agent path. It does
+not. That is `send_message`, the HUMAN RequireAuth route at /api/taskflow/agents/messages. The
+MCP authenticates with `Authorization: Agent <key>` and posts to a DIFFERENT route,
+/api/taskflow/agents/agent/messages -> send_message_as_agent (urls.rs:60-65), which is JSON only.
+
+VERIFIED INDEPENDENTLY (not taken on the reviewer's word):
+  - views.rs:756  send_message_as_agent takes Json(input) -- no multipart branch at all
+  - views.rs:745  its doc says "JSON only -- agent sends carry no attachments in Stage 1"
+  - views.rs:838  hardcodes message_response(&message, &[])
+  - urls.rs:62-65 the agent route carries NO DefaultBodyLimit layer; the 32MB layer
+                  (SEND_MESSAGE_BODY_LIMIT, urls.rs:20) sits only on the human route
+
+C1: a files send posts multipart to axum's Json extractor -> 415 before the handler runs.
+C2: even once parsing is added, that route inherits axum's 2 MiB default, so the client's 25MB
+    cap is off by 12x against the route it actually calls. Same axum footgun already in memory.
+
+I1 (Important): NO test at any layer crosses the client/server boundary. client.test.ts asserts
+shape against a stubFetch that returns {ok:true} for ANY url, so it cannot see a wrong endpoint.
+The verification gap and the defect are the same gap: Task 3's live e2e was the one step that
+would have crossed it, and it is the step we could not run.
+
+Deferred Minors: all 4 triaged NON-blocking. #3 narrowed -- the empty-string priority asymmetry
+is unreachable, the zod enum forbids it.
+
+DECISION: add Task 4 (backend multipart on the agent route). MCP commits 00c8e6b..2bcbcb7 stand.
+
+## Task 4 (added after the final review found the spec's premise was wrong)
+- [x] 4  Accept multipart on the agent send route
+Task 4: complete (commits b4fa017..95ffebe + fix f57b99f, review clean after 1 fix pass)
+  send_message_as_agent now takes HeaderMap+Bytes and branches on content-type, mirroring the
+  human send_message line-for-line. Agent route gained DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT).
+  NO UNINTENDED DRIFT. Reviewer diffed the two handlers: normalisation, field match arms, channel
+  parse, priority-drop rule, file-part filename filter, empty-body-with-files rule, 413 block,
+  channel lookup, idempotency block and storage loop are line-for-line identical. Only the four
+  that MUST differ do: RequireAgent vs RequireAuth, input struct, agent membership gate, sender trio.
+  DefaultBodyLimit placement PROVEN load-bearing: a 3 MiB multipart upload returns 200 as written;
+  delete the .layer() line and the same request dies "length limit exceeded".
+  IMPORTANT FINDING, FIXED. The membership-before-idempotency ordering (a non-member must not
+  replay a guessed nonce and read back a stored message) had NO test on the agent route. Reviewer
+  proved it: relocating the idempotency block above the membership gate left 30/30 green. Case 5
+  could not catch it -- it sends no client_nonce, so the reordered lookup is a no-op.
+  Fix f57b99f adds agent_non_member_replaying_a_nonce_gets_403_not_the_stored_row, mirroring the
+  human anchor at tests/send_message.rs:255. Discrimination proven TWICE, independently, by fixer
+  and re-reviewer: under the mutation the outsider gets 200 and the member's "secret plans" body
+  leaks back. The Direct-channel choice is load-bearing -- in a shared project room the "outsider"
+  would be legitimately authorized by project scope and the test would prove nothing.
+  Implementer staged a 4th file (tests/support/mod.rs) beyond the brief: post_multipart_as_agent
+  and count_project_attachments. Reviewer judged it necessary -- TestApp.client is private, there
+  was no multipart+agent helper, and count_attachments is message-keyed which case 5 cannot use
+  (its whole assertion is that no message exists). Purely additive.
+  Behaviour change, accepted: a bogus content-type used to 415 from the Json extractor, now falls
+  to the JSON branch and 400s. Reviewer verified the human route has always behaved this way.
+  Nuance the report missed: well-formed JSON sent as text/plain now SUCCEEDS (200) where it used
+  to 415. A real loosening, but auth is header-based and the input struct has no field to lie in.
+
+## Minor findings (final-review triage)
+- Body limit is load-bearing but untested on BOTH routes: delete the .layer() line and no test
+  fails. Pre-existing on the human route, not introduced here. One >2 MiB case would pin it.
+- The 413 oversize branch (views.rs:844-849) is unexercised on both routes.
+- I1 from the final review STANDS: no test at any layer crosses the client/server boundary.
+  client.test.ts asserts shape against a stub returning {ok:true} for ANY url. This is why the
+  wrong-endpoint defect survived three clean task reviews.
