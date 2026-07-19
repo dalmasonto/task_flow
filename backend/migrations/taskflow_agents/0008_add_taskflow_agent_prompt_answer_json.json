@@ -1,165 +1,21 @@
 {
-  "id": "0007_create_taskflow_agent_prompt",
+  "id": "0008_add_taskflow_agent_prompt_answer_json",
   "plugin": "taskflow_agents",
   "depends_on": [],
   "operations": [
     {
-      "kind": "CreateTable",
+      "kind": "AddColumn",
       "table": "taskflow_agent_prompt",
-      "columns": [
-        {
-          "name": "id",
-          "ty": "BigInt",
-          "primary_key": true,
-          "nullable": false,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0
-        },
-        {
-          "name": "project",
-          "ty": "ForeignKey",
-          "primary_key": false,
-          "nullable": false,
-          "fk_target": "taskflow_project",
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0,
-          "on_delete": "Cascade"
-        },
-        {
-          "name": "agent",
-          "ty": "ForeignKey",
-          "primary_key": false,
-          "nullable": false,
-          "fk_target": "taskflow_agent",
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0,
-          "on_delete": "Cascade"
-        },
-        {
-          "name": "session",
-          "ty": "ForeignKey",
-          "primary_key": false,
-          "nullable": false,
-          "fk_target": "taskflow_agent_session",
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0,
-          "on_delete": "Cascade"
-        },
-        {
-          "name": "question",
-          "ty": "Text",
-          "primary_key": false,
-          "nullable": false,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": true,
-          "max_length": 2000
-        },
-        {
-          "name": "options_json",
-          "ty": "Text",
-          "primary_key": false,
-          "nullable": false,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": true,
-          "max_length": 8000,
-          "widget": "textarea"
-        },
-        {
-          "name": "kind",
-          "ty": "Text",
-          "primary_key": false,
-          "nullable": false,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": true,
-          "max_length": 16,
-          "default": "single"
-        },
-        {
-          "name": "fingerprint",
-          "ty": "Text",
-          "primary_key": false,
-          "nullable": false,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": true,
-          "max_length": 300
-        },
-        {
-          "name": "status",
-          "ty": "Text",
-          "primary_key": false,
-          "nullable": false,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0,
-          "choices": [
-            "pending",
-            "answered",
-            "cancelled"
-          ],
-          "choice_labels": [
-            "Pending",
-            "Answered",
-            "Cancelled"
-          ],
-          "default": "pending"
-        },
-        {
-          "name": "answer",
-          "ty": "BigInt",
-          "primary_key": false,
-          "nullable": true,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0
-        },
-        {
-          "name": "answered_by",
-          "ty": "ForeignKey",
-          "primary_key": false,
-          "nullable": true,
-          "fk_target": "auth_user",
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0,
-          "on_delete": "SetNull"
-        },
-        {
-          "name": "answered_at",
-          "ty": "Timestamptz",
-          "primary_key": false,
-          "nullable": true,
-          "noform": false,
-          "noedit": false,
-          "is_string_repr": false,
-          "max_length": 0
-        },
-        {
-          "name": "created_at",
-          "ty": "Timestamptz",
-          "primary_key": false,
-          "nullable": true,
-          "noform": false,
-          "noedit": true,
-          "is_string_repr": false,
-          "max_length": 0,
-          "auto_now_add": true
-        }
-      ]
+      "column": {
+        "name": "answer_json",
+        "ty": "Text",
+        "primary_key": false,
+        "nullable": true,
+        "noform": false,
+        "noedit": false,
+        "is_string_repr": true,
+        "max_length": 200
+      }
     }
   ],
   "snapshot_after": {
@@ -1012,6 +868,16 @@
             "noedit": false,
             "is_string_repr": false,
             "max_length": 0
+          },
+          {
+            "name": "answer_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 200
           },
           {
             "name": "answered_by",
