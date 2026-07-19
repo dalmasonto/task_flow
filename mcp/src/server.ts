@@ -23,6 +23,7 @@ import {
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError } from "./client.js";
 import { resolveAttachments } from "./attachments.js";
+import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
 import { detectTmuxPane } from "./tmux.js";
 
@@ -123,12 +124,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "whoami",
-    "Confirm which TaskFlow agent identity and project this credential maps to. Call first to verify the connection.",
+    "Confirm which TaskFlow agent identity and project this credential maps to, and whether the terminal mirror is running. Call first to verify the connection.",
     { ...profileArg },
     async ({ profile }) => {
       try {
         const { client } = clientFor(profile);
-        return ok(await client.whoami());
+        const identity = await client.whoami();
+        // The mirror's health rides along with identity because a dead mirror
+        // is otherwise invisible: it only ever wrote one line to stderr, which
+        // nobody reads, so "the dashboard terminal is stale" could only be
+        // answered by inspecting /proc and open sockets.
+        return ok({ ...(identity as object), mirror: getMirrorStatus() });
       } catch (err) {
         return fail(err);
       }
@@ -446,7 +452,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       try {
         const { client, resolved } = clientFor(profile);
         const session = await client.registerSession({
-          session_identifier: session_identifier?.trim() || defaultSessionIdentifier(),
+          // Prefer the tmux pane, exactly as `ensureSession` and the mirror do.
+          // Calling this with no argument always produced `host:pid`, so an
+          // agent running under tmux ended up with TWO session rows — one from
+          // this tool, one from the mirror's `tmux:<host>:<pane>` — which is
+          // the duplication the mirror's own comment says it is avoiding.
+          session_identifier:
+            session_identifier?.trim() ||
+            defaultSessionIdentifier(await detectTmuxPane()),
           host: hostname(),
           pid: process.pid,
           cwd: cwd ?? process.cwd(),

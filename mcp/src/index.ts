@@ -25,6 +25,7 @@ import {
   startAgentEventStream,
 } from "./events.js";
 import { TaskflowClient } from "./client.js";
+import { startMirrorWithRetry } from "./mirror.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
 
@@ -114,83 +115,88 @@ async function main(): Promise<void> {
  * Register a session for this process and stream its pane into the dashboard.
  * Never throws into the MCP transport: a mirror is a nice-to-have, and must not
  * be able to take the tool server down with it.
+ *
+ * Retried with backoff. Setup calls `registerSession`, so a backend that is
+ * still booting when the MCP spawns used to kill mirroring for the whole life
+ * of the process — one caught error, one stderr line nobody reads, and a
+ * permanently stale terminal. Restarting the backend and reconnecting the MCP
+ * together is the normal way to pick up a change, which is exactly when that
+ * race happens.
  */
 async function startMirrorForThisAgent(): Promise<void> {
-  try {
-    const pane = await detectTmuxPane();
-    if (!pane) return; // not in tmux — normal, nothing to mirror
-    const profile = loadProfile();
-    const client = new TaskflowClient({ server: profile.server, key: profile.key });
-    const session = await client.registerSession({
-      // Same identifier the tools use, so this is ONE session, not a duplicate.
-      session_identifier: `tmux:${hostname()}:${pane}`,
-      host: hostname(),
-      pid: process.pid,
-      cwd: process.cwd(),
-      transport: "tmux",
-    });
-    process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
+  await startMirrorWithRetry({
+    detectPane: detectTmuxPane,
+    log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+    start: async (pane) => {
+      const profile = loadProfile();
+      const client = new TaskflowClient({ server: profile.server, key: profile.key });
+      const session = await client.registerSession({
+        // Same identifier the tools use, so this is ONE session, not a duplicate.
+        session_identifier: `tmux:${hostname()}:${pane}`,
+        host: hostname(),
+        pid: process.pid,
+        cwd: process.cwd(),
+        transport: "tmux",
+      });
+      process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
 
-    // Instant delivery: hold the event stream open and write each incoming
-    // message straight into the pane. Polling would make a message as slow to
-    // arrive as the capture interval, which is what "messages don't appear in
-    // the terminal" actually was.
-    const events = startAgentEventStream({
-      server: profile.server,
-      key: profile.key,
-      log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
-      // A human answered a question the agent is blocked on: press the keys.
-      onPromptAnswered: async (prompt) => {
-        const keys = answerKeystrokes(chosenNumbers(prompt), prompt.kind);
-        if (!keys.length) return;
-        try {
-          for (const key of keys) {
-            await sendKeyToPane(key, pane);
+      // Instant delivery: hold the event stream open and write each incoming
+      // message straight into the pane. Polling would make a message as slow to
+      // arrive as the capture interval, which is what "messages don't appear in
+      // the terminal" actually was.
+      const events = startAgentEventStream({
+        server: profile.server,
+        key: profile.key,
+        log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+        // A human answered a question the agent is blocked on: press the keys.
+        onPromptAnswered: async (prompt) => {
+          const keys = answerKeystrokes(chosenNumbers(prompt), prompt.kind);
+          if (!keys.length) return;
+          try {
+            for (const key of keys) {
+              await sendKeyToPane(key, pane);
+            }
+            process.stderr.write(
+              `taskflow-v2-mcp: answered prompt ${prompt.id} with [${keys.join(", ")}]\n`,
+            );
+          } catch (err) {
+            process.stderr.write(
+              `taskflow-v2-mcp: could not answer prompt ${prompt.id} (${(err as Error).message.split("\n")[0]})\n`,
+            );
           }
-          process.stderr.write(
-            `taskflow-v2-mcp: answered prompt ${prompt.id} with [${keys.join(", ")}]\n`,
-          );
-        } catch (err) {
-          process.stderr.write(
-            `taskflow-v2-mcp: could not answer prompt ${prompt.id} (${(err as Error).message.split("\n")[0]})\n`,
-          );
-        }
-      },
-      onMessage: async (message) => {
-        if (!shouldDeliver(message, profile.agentId)) return;
-        try {
-          // Submitted, not just typed: the point is for the agent to READ it.
-          await notifyPane(formatIncoming(message), pane, true);
-          // The agent has now been handed the message, so advance its cursor —
-          // otherwise check_messages would hand it the same one again.
-          await client.markRead(message.channel, message.id);
-        } catch (err) {
-          process.stderr.write(
-            `taskflow-v2-mcp: could not deliver message ${message.id} (${(err as Error).message.split("\n")[0]})\n`,
-          );
-        }
-      },
-    });
+        },
+        onMessage: async (message) => {
+          if (!shouldDeliver(message, profile.agentId)) return;
+          try {
+            // Submitted, not just typed: the point is for the agent to READ it.
+            await notifyPane(formatIncoming(message), pane, true);
+            // The agent has now been handed the message, so advance its cursor —
+            // otherwise check_messages would hand it the same one again.
+            await client.markRead(message.channel, message.id);
+          } catch (err) {
+            process.stderr.write(
+              `taskflow-v2-mcp: could not deliver message ${message.id} (${(err as Error).message.split("\n")[0]})\n`,
+            );
+          }
+        },
+      });
 
-    startMirrorLoop({
-      client,
-      session: session.id,
-      target: pane,
-      log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
-      // The mirror talks to the backend every couple of seconds, so it notices a
-      // restart long before the stream's idle watchdog would. Hand that over
-      // rather than making the stream wait for silence to accumulate.
-      onError: (err) => {
-        if (/network error|fetch failed|ECONNREFUSED/i.test(err.message)) {
-          events.reconnectNow();
-        }
-      },
-    });
-  } catch (err) {
-    process.stderr.write(
-      `taskflow-v2-mcp: terminal mirror unavailable (${(err as Error).message.split("\n")[0]})\n`,
-    );
-  }
+      startMirrorLoop({
+        client,
+        session: session.id,
+        target: pane,
+        log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+        // The mirror talks to the backend every couple of seconds, so it notices a
+        // restart long before the stream's idle watchdog would. Hand that over
+        // rather than making the stream wait for silence to accumulate.
+        onError: (err) => {
+          if (/network error|fetch failed|ECONNREFUSED/i.test(err.message)) {
+            events.reconnectNow();
+          }
+        },
+      });
+    },
+  });
 }
 
 main().catch((err) => {
