@@ -23,6 +23,7 @@ import {
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError } from "./client.js";
 import { resolveAttachments } from "./attachments.js";
+import { downloadAttachment } from "./attachment-download.js";
 import { detectTmuxPane } from "./tmux.js";
 
 /**
@@ -309,6 +310,38 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             body_markdown: body,
             priority,
             attachments,
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "download_attachment",
+    "Download a message attachment to disk and return its path. Get the `url` from an attachment on a message returned by check_messages. Returns a PATH, not the file's contents — open it with your own file-reading tool. Attachments are files in general: text and PDFs can be read directly, archives should be listed rather than read, and large files should be inspected in parts. Check `size_bytes` before reading anything wholesale.",
+    {
+      url: z
+        .string()
+        .min(1)
+        .describe("The attachment's `url` from check_messages, e.g. /media/<key>."),
+      name: z
+        .string()
+        .optional()
+        .describe("Optional friendlier filename. Directory parts are stripped."),
+      ...profileArg,
+    },
+    async ({ url, name, profile }) => {
+      try {
+        const { resolved } = clientFor(profile);
+        return ok(
+          await downloadAttachment({
+            url,
+            name,
+            server: resolved.server,
+            key: resolved.key,
+            root: dirname(configPath),
           }),
         );
       } catch (err) {
