@@ -9,8 +9,29 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { buildServer } from "./server.js";
 import { ConfigError } from "./config.js";
+import { runDoctor } from "./doctor.js";
+
+const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
+
+  taskflow-v2-mcp            Serve over stdio (how an MCP client runs it).
+  taskflow-v2-mcp --check    Verify config + backend auth, then exit.
+  taskflow-v2-mcp --help     This message.
+
+The MCP tools (whoami, create_task, ...) are called by the MODEL through an MCP
+client, not typed as commands. To check the setup yourself, use --check.`;
 
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(`${USAGE}\n`);
+    return;
+  }
+  // --check is a human-facing diagnostic, so it prints to stdout and exits;
+  // it never opens the MCP transport.
+  if (argv.includes("--check") || argv.includes("--doctor")) {
+    process.exit(await runDoctor());
+  }
+
   let server;
   try {
     server = buildServer();
