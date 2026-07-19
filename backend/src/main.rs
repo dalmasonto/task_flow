@@ -32,7 +32,6 @@ use std::sync::Arc;
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
-use umbral::migrate::MigrateError;
 use umbral::prelude::*;
 use umbral::web::SlashRedirect;
 use umbral_admin::AdminPlugin;
@@ -195,19 +194,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // tables they write to. `dispatch` fires them once it has read argv.
         .build_deferred()?;
 
-    // Auto-migrate + seed on boot so `cargo run -- serve` Just Works
-    // against a fresh database — but only when we're actually starting
-    // the server. Running `cargo run -- makemigrations` or `migrate`
-    // from the CLI used to silently trigger `auto_migrate()` first and
-    // then report "no changes detected" (IMP-1 in bugs/tests/testBugs.md).
-    // The guard reads `std::env::args` before dispatch picks them apart
-    // so it matches whatever subcommand the user actually typed.
+    // Booting NEVER writes schema. It used to run `makemigrations` + `migrate`
+    // here so `cargo run` Just Worked on a fresh database, and that convenience
+    // cost more than it saved:
+    //
+    // Under `cargo-watch`, every source save re-runs this. A model edited
+    // half-way through a change therefore had a migration GENERATED from that
+    // intermediate state and APPLIED within seconds — before the change was
+    // finished. Editing the model further and regenerating the file produced a
+    // migration with the same id, which `migrate` skips (it tracks by name), so
+    // the database kept a schema that no longer matched any file. It surfaced as
+    // a 500 on insert for a column that existed in the migration and not in the
+    // table, and no test caught it: throwaway test databases are always fresh, so
+    // they only ever saw the final, correct file.
+    //
+    // Migrations are now explicit — `cargo run -- makemigrations` and
+    // `cargo run -- migrate` — so a schema change happens when a human decides it
+    // does, not as a side effect of saving a file.
     let argv: Vec<String> = std::env::args().collect();
     let user_invoked_cli = argv.iter().skip(1).any(|a| !a.starts_with('-'));
     if !user_invoked_cli {
-        auto_migrate().await?;
+        warn_if_migrations_pending().await;
         // First-run data. `seed::all()` is idempotent — see seed/mod.rs.
-        seed::all().await?;
+        // Non-fatal: on a fresh database the tables do not exist yet, and an
+        // unmigrated database should say so plainly rather than fail to boot
+        // with a raw SQL error.
+        if let Err(err) = seed::all().await {
+            eprintln!("seed: skipped ({err})");
+            eprintln!("      If this database is new, run `cargo run -- migrate` first.");
+        }
     }
 
     umbral_cli::dispatch(app).await
@@ -217,20 +232,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 // Boot helpers
 // ---------------------------------------------------------------------------
 
-/// Run `makemigrations` + `migrate` on boot. Demo-only convenience.
-async fn auto_migrate() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match umbral::migrate::make().await {
-        Ok(paths) => {
-            for path in paths {
-                eprintln!("auto-migrate: wrote {}", path.display());
-            }
+/// Say loudly that the schema is behind, without changing it.
+///
+/// Read-only on purpose: the whole point of dropping auto-migrate is that boot
+/// does not alter the database. This only tells the human what to run.
+async fn warn_if_migrations_pending() {
+    match umbral::migrate::check_pending_safety().await {
+        Ok(ops) if !ops.is_empty() => {
+            eprintln!("migrations: {} pending operation(s) NOT applied.", ops.len());
+            eprintln!("            Run `cargo run -- migrate` to apply them.");
         }
-        Err(MigrateError::NoChanges) => {}
-        Err(err) => return Err(Box::new(err)),
+        Ok(_) => {}
+        // A database with no migration table at all lands here on first run.
+        Err(err) => {
+            eprintln!("migrations: could not be checked ({err}).");
+            eprintln!("            If this database is new, run `cargo run -- migrate`.");
+        }
     }
-    let n = umbral::migrate::run().await?;
-    if n > 0 {
-        eprintln!("auto-migrate: applied {n} migration(s)");
-    }
-    Ok(())
 }
