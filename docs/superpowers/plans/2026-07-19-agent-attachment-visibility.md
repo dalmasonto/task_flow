@@ -300,10 +300,8 @@ Then change the response body from `"messages": messages` to
 Run: `cd backend && cargo test -p taskflow-agents --test message_attachments`
 Expected: all cases pass, including the pre-existing ones.
 
-If `TaskflowMessageAttachment` does not derive `Clone`, add `.cloned()`'s
-prerequisite by borrowing instead: build `Vec<&TaskflowMessageAttachment>` and
-change `message_json`'s parameter to `&[&TaskflowMessageAttachment]`. Pick
-whichever compiles with the least change and note it in your report.
+`TaskflowMessageAttachment` derives `Clone` (`models.rs:268`), so the `.cloned()`
+in Step 5 compiles as written.
 
 - [ ] **Step 7: Run the full plugin suite**
 
