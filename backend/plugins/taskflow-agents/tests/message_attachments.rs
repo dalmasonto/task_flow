@@ -363,3 +363,70 @@ async fn agent_nonce_replay_returns_the_original_message_and_its_attachments() {
     assert_eq!(attachments[0]["name"], serde_json::json!("shot.png"));
     assert_eq!(attachments[0]["id"], first_row["attachments"][0]["id"]);
 }
+
+// 7. The membership gate must run before the idempotency lookup on the AGENT
+//    path too, exactly as it does on the human path (see
+//    `non_member_replaying_a_nonce_gets_403_not_the_stored_row` in
+//    send_message.rs). The nonce is scoped to (channel, nonce) only — it
+//    carries no sender — so an agent that is not on a DM's roster must not
+//    be able to replay a nonce a member posted and read the stored message
+//    body back. If a refactor moves the idempotency lookup above the
+//    membership gate, this test must fail.
+#[tokio::test]
+async fn agent_non_member_replaying_a_nonce_gets_403_not_the_stored_row() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let dm = seed_channel_of_kind(project, TaskflowChannelKind::Direct).await;
+
+    // The member: minted, then explicitly added to the DM's roster.
+    let member_human = app.create_user().await;
+    make_active_project_member(project, member_human).await;
+    let minted = app
+        .post_as(
+            member_human,
+            "/api/taskflow/agents/link",
+            serde_json::json!({
+                "project": project,
+                "display_name": "Member Agent",
+                "profile": "member",
+            }),
+        )
+        .await;
+    assert_eq!(minted.status(), 200, "mint failed: {:?}", minted.json().await);
+    let minted = minted.json().await;
+    let member_key = minted["key"].as_str().expect("minted key").to_string();
+    let member_agent_id = minted["agent_id"].as_i64().expect("agent_id present");
+    app.add_agent_to_channel_roster(project, dm, member_agent_id)
+        .await;
+
+    // The outsider: a different agent in the same project, never added to
+    // this DM's roster.
+    let outsider_key = mint_agent_key(&app, project, "Outsider Agent").await;
+
+    let first = app
+        .post_as_agent(
+            &member_key,
+            AGENT_SEND,
+            serde_json::json!({
+                "channel": dm,
+                "body_markdown": "secret plans",
+                "client_nonce": "n-1",
+            }),
+        )
+        .await;
+    assert_eq!(first.status(), 200, "body: {:?}", first.json().await);
+
+    let replay = app
+        .post_as_agent(
+            &outsider_key,
+            AGENT_SEND,
+            serde_json::json!({
+                "channel": dm,
+                "body_markdown": "gimme",
+                "client_nonce": "n-1",
+            }),
+        )
+        .await;
+
+    assert_eq!(replay.status(), 403, "leaked: {:?}", replay.json().await);
+}
