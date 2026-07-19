@@ -108,11 +108,10 @@ import {
   fetchTaskflowWorkspace,
   linkAgent,
   markChannelRead,
-  pingTaskflowBackend,
+  openTaskflowRealtimeStream,
+  taskflowRealtimeGroups,
   realtimeEventHasInlineRow,
   reviewTask as submitTaskReview,
-  subscribeToTaskflowProjectEvents,
-  subscribeToTaskflowWorkspaceEvents,
   sendTaskflowAgentMessage,
   taskflowApi,
   taskflowTables,
@@ -1557,9 +1556,6 @@ function App() {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false)
   const [liveSyncError, setLiveSyncError] = useState<string | null>(null)
   const [liveWorkspace, setLiveWorkspace] = useState<TaskflowWorkspace | null>(null)
-  // Bumped by the realtime reconnect watchdog (below) to force the subscription
-  // effect to tear down and re-open the SSE subscriptions after a likely drop.
-  const [reconnectTick, setReconnectTick] = useState(0)
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() =>
     hasStoredAuthSession() ? getStoredUser() : null
   )
@@ -2052,76 +2048,28 @@ function App() {
     }
   }, [authGateStatus])
 
+  // ONE SSE connection for every group this view needs, reconnecting itself with
+  // exponential backoff. On a re-open we refetch the workspace: events that fired
+  // while we were disconnected are gone for good, so reconnecting without a
+  // catch-up would leave the board silently stale — which is exactly how a
+  // backend restart used to make new tasks stop appearing until a reload.
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
 
     const projectId = activeProjectId ? liveId(activeProjectId) : null
-    const handleRealtimeEvent = (event: TaskflowRealtimeEvent) => {
-      void fetchAndApplyRealtimeEvent(event, projectId)
-    }
-    const projectSubscription = subscribeToTaskflowProjectEvents(handleRealtimeEvent)
-    const closeWorkspaceSubscription = projectId
-      ? subscribeToTaskflowWorkspaceEvents(projectId, handleRealtimeEvent)
-      : undefined
+    return openTaskflowRealtimeStream({
+      groups: taskflowRealtimeGroups(projectId),
+      onEvent: (event) => {
+        void fetchAndApplyRealtimeEvent(event, projectId)
+      },
+      // loadLiveWorkspace refetches the project summary AND the active
+      // workspace, which is exactly the catch-up a reconnect needs.
+      onReconnect: () => {
+        void loadLiveWorkspace(activeProjectId)
+      },
+    })
+  }, [activeProjectId, authGateStatus, fetchAndApplyRealtimeEvent, loadLiveWorkspace])
 
-    return () => {
-      projectSubscription.close()
-      closeWorkspaceSubscription?.()
-    }
-    // reconnectTick is a dep so the watchdog can force a fresh subscription
-    // (closes the old ports, re-opens → the runtime re-creates its EventSource).
-  }, [activeProjectId, authGateStatus, fetchAndApplyRealtimeEvent, reconnectTick])
-
-  // Realtime reconnect watchdog. The umbral realtime runtime opens the SSE
-  // EventSource with no onerror handler, so a hard failure (dev backend restart,
-  // a dev-proxy 5xx, session expiry) leaves the stream CLOSED and it never comes
-  // back on its own — today that needs a page reload. Re-establish the
-  // subscriptions and re-fetch the workspace whenever the connection likely
-  // dropped: the network returns, the tab is refocused, or a periodic health
-  // probe recovers after failing (catches a restart while the tab stays open).
-  useEffect(() => {
-    if (authGateStatus !== "authenticated") return
-
-    let disposed = false
-    // Start "up": only a probe that fails and then succeeds signals a recovery,
-    // so a healthy connection is never needlessly torn down.
-    let backendReachable = true
-
-    const resync = () => {
-      if (disposed || document.visibilityState === "hidden") return
-      setReconnectTick((tick) => tick + 1)
-      void loadLiveWorkspace(activeProjectId)
-    }
-
-    const onOnline = () => resync()
-    const onVisible = () => {
-      if (document.visibilityState === "visible") resync()
-    }
-    window.addEventListener("online", onOnline)
-    document.addEventListener("visibilitychange", onVisible)
-
-    const probe = window.setInterval(() => {
-      if (document.visibilityState === "hidden") return
-      void pingTaskflowBackend().then((ok) => {
-        if (disposed) return
-        if (ok) {
-          if (!backendReachable) {
-            backendReachable = true
-            resync() // backend came back → reopen the stream + catch up
-          }
-        } else {
-          backendReachable = false
-        }
-      })
-    }, 15000)
-
-    return () => {
-      disposed = true
-      window.removeEventListener("online", onOnline)
-      document.removeEventListener("visibilitychange", onVisible)
-      window.clearInterval(probe)
-    }
-  }, [authGateStatus, activeProjectId, loadLiveWorkspace])
 
   if (publicPath === "/") {
     return <LandingPage />

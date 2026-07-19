@@ -1,7 +1,5 @@
 import { Umbral } from "@/api/client"
 import type {
-  ModelEvents,
-  Subscription,
   TaskflowAgent,
   TaskflowAgentChannel,
   TaskflowAgentChannelCreate,
@@ -30,7 +28,6 @@ import type {
   TaskflowTaskUpdate,
   TaskflowUserSettings,
   TaskflowUserSettingsTheme,
-  UmbralResources,
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken } from "@/lib/auth-api"
 import type { ChatMessage } from "@/lib/message-store"
@@ -126,8 +123,6 @@ export type TaskflowProjectSummary = {
   sessions: TaskflowAgentSession[]
 }
 
-type TableName = keyof UmbralResources
-
 export type TaskflowRealtimeAction = "created" | "updated" | "deleted"
 
 type RealtimeTableName =
@@ -190,29 +185,119 @@ export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {
   return (realtimeTablesWithInlineRows as readonly string[]).includes(table)
 }
 
-function onAnyModelChange(onChange: () => void): ModelEvents<Record<string, unknown>> {
-  return {
-    created: onChange,
-    updated: onChange,
-    deleted: onChange,
-  }
+// --- realtime stream -------------------------------------------------------
+//
+// We open the SSE connection ourselves instead of using the runtime's
+// `subscribe()`. EventSource DOES reconnect on its own, but only when the socket
+// drops: per spec it fails PERMANENTLY when the server answers with an HTTP
+// error, which is exactly what a dev-server restart looks like through the vite
+// proxy (502). The runtime never handles `onerror`, so that failure is silent and
+// terminal — the page looks connected and simply stops receiving anything until a
+// reload. Owning the connection lets us see the error and back off properly.
+
+/// Reverse of `realtimeGroupSuffixes`: the wire carries a channel, not a table.
+const realtimeTableForSuffix: Record<string, RealtimeTableName> = Object.fromEntries(
+  Object.entries(realtimeGroupSuffixes).map(([table, suffix]) => [suffix, table as RealtimeTableName])
+)
+
+/// `project:{id}:{suffix}` → table, plus the unscoped projects channel.
+function realtimeTableForChannel(channel: string): RealtimeTableName | null {
+  if (channel === taskflowGroups.projects) return taskflowTables.projects
+  const suffix = channel.slice(channel.lastIndexOf(":") + 1)
+  return realtimeTableForSuffix[suffix] ?? null
 }
 
-function onRealtimeModelChange(
-  table: RealtimeTableName,
+/// Backoff schedule: retry fast once (a proxy blip or a quick restart is usually
+/// over in under a second), then double — 1, 2, 4, 8, 16, capped at 30s. Full
+/// jitter spreads reconnects so many tabs don't stampede a backend that has just
+/// come back.
+const RECONNECT_BASE_MS = 1_000
+const RECONNECT_MAX_MS = 30_000
+
+function reconnectDelay(attempt: number): number {
+  const ceiling = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS)
+  return Math.round(ceiling / 2 + Math.random() * (ceiling / 2))
+}
+
+export type RealtimeStreamOptions = {
+  groups: readonly string[]
   onEvent: (event: TaskflowRealtimeEvent) => void
-): ModelEvents<Record<string, unknown>> {
-  return {
-    created: (row) => onEvent({ table, action: "created", row }),
-    updated: (row) => onEvent({ table, action: "updated", row }),
-    deleted: (row) => onEvent({ table, action: "deleted", row }),
+  /// Called after the stream comes back from a drop. Events that happened while
+  /// we were disconnected are gone, so the caller must refetch to catch up —
+  /// reconnecting alone would leave the UI silently stale.
+  onReconnect?: () => void
+}
+
+/// Open one SSE connection for every group and keep it alive. Returns a closer.
+export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () => void {
+  const groups = [...options.groups].filter(Boolean)
+  if (!groups.length || typeof EventSource === "undefined") return () => {}
+
+  const url = `${API_BASE_URL}/realtime/sse?groups=${encodeURIComponent(groups.join(","))}`
+  let source: EventSource | null = null
+  let retryTimer: number | undefined
+  let attempt = 0
+  let everConnected = false
+  let closed = false
+
+  const connect = () => {
+    if (closed) return
+    const es = new EventSource(url, { withCredentials: true })
+    source = es
+
+    es.onopen = () => {
+      attempt = 0
+      // Only a RE-open needs a catch-up refetch; the first open is already
+      // paired with the caller's initial load.
+      if (everConnected) options.onReconnect?.()
+      everConnected = true
+    }
+
+    es.addEventListener("u", (event) => {
+      let envelope: { c?: string; e?: string; d?: unknown }
+      try {
+        envelope = JSON.parse((event as MessageEvent<string>).data)
+      } catch {
+        return
+      }
+      const { c: channel, e: action, d: row } = envelope
+      if (!channel || !action) return
+      if (action !== "created" && action !== "updated" && action !== "deleted") return
+      const table = realtimeTableForChannel(channel)
+      if (!table) return
+      options.onEvent({ table, action, row: row as Record<string, unknown> })
+    })
+
+    es.onerror = () => {
+      // Do NOT trust the browser to retry: on an HTTP error it has already given
+      // up for good. Close and schedule our own attempt.
+      es.close()
+      if (closed || source !== es) return
+      source = null
+      retryTimer = window.setTimeout(connect, reconnectDelay(attempt))
+      attempt += 1
+    }
+  }
+
+  connect()
+
+  return () => {
+    closed = true
+    if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    source?.close()
+    source = null
   }
 }
 
-function closeAll(subscriptions: Subscription[]) {
-  for (const subscription of subscriptions) {
-    subscription.close()
+/// Every group the app needs for one project, plus the global projects channel.
+export function taskflowRealtimeGroups(projectId: number | null): string[] {
+  const groups: string[] = [taskflowGroups.projects]
+  if (projectId != null) {
+    for (const table of projectScopedRealtimeTables) {
+      groups.push(taskflowGroups.forTable(table, projectId))
+    }
   }
+  return groups
 }
 
 export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSummary> {
@@ -802,50 +887,3 @@ export function archiveTaskflowProject(projectId: number) {
   return updateTaskflowProject(projectId, { status: "archived" })
 }
 
-export function subscribeToTaskflowProjects(onChange: () => void) {
-  return taskflowApi.on(taskflowTables.projects, onAnyModelChange(onChange), {
-    group: taskflowGroups.projects,
-  })
-}
-
-export function subscribeToTaskflowProjectEvents(onEvent: (event: TaskflowRealtimeEvent) => void) {
-  return taskflowApi.on(taskflowTables.projects, onRealtimeModelChange(taskflowTables.projects, onEvent), {
-    group: taskflowGroups.projects,
-  })
-}
-
-export function subscribeToTaskflowWorkspace(projectId: number, onChange: () => void) {
-  const subscriptions = projectScopedRealtimeTables.map((table) =>
-    taskflowApi.on(table as TableName, onAnyModelChange(onChange), {
-      group: taskflowGroups.forTable(table, projectId),
-    })
-  )
-
-  return () => closeAll(subscriptions)
-}
-
-export function subscribeToTaskflowWorkspaceEvents(projectId: number, onEvent: (event: TaskflowRealtimeEvent) => void) {
-  const subscriptions = projectScopedRealtimeTables.map((table) =>
-    taskflowApi.on(table as TableName, onRealtimeModelChange(table, onEvent), {
-      group: taskflowGroups.forTable(table, projectId),
-    })
-  )
-
-  return () => closeAll(subscriptions)
-}
-
-/// Cheap liveness probe against the unauthenticated agents health route. Used by
-/// the realtime reconnect watchdog to notice when the backend has come back
-/// after being unreachable (e.g. a dev restart), since the realtime EventSource
-/// itself doesn't surface that. Resolves true iff the server answered 2xx.
-export async function pingTaskflowBackend(signal?: AbortSignal): Promise<boolean> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/health`, {
-      cache: "no-store",
-      signal,
-    })
-    return response.ok
-  } catch {
-    return false
-  }
-}
