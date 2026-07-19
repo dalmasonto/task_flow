@@ -192,3 +192,112 @@ async fn read_rejects_foreign_message() {
     assert_eq!(resp.status(), 400);
     assert_eq!(app.count_read_cursors(channel).await, 0);
 }
+
+// `unread=true` returns only what is past the agent's cursor. This is the whole
+// "what do I still owe a response to?" question, answered server-side so the
+// agent cannot get it wrong by comparing ids itself.
+#[tokio::test]
+async fn unread_filter_returns_only_messages_past_the_cursor() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let minted = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/link",
+            json!({ "project": project, "display_name": "Builder", "profile": "main" }),
+        )
+        .await
+        .json()
+        .await;
+    let key = minted["key"].as_str().unwrap().to_string();
+    let channel = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+
+    let first = seed_message(project, channel).await;
+    let second = seed_message(project, channel).await;
+
+    // No cursor yet → everything is unread.
+    let all = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/messages?channel={channel}&unread=true"))
+        .await;
+    assert_eq!(all.status(), 200);
+    let body = all.json().await;
+    assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+    assert_eq!(body["unread_count"], json!(2));
+
+    // Mark the first read → only the second remains unread.
+    let marked = app
+        .post_as_agent(
+            &key,
+            &format!("/api/taskflow/channels/{channel}/agent/read"),
+            json!({ "last_read_message": first }),
+        )
+        .await;
+    assert_eq!(marked.status(), 200);
+
+    let rest = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/messages?channel={channel}&unread=true"))
+        .await
+        .json()
+        .await;
+    let rows = rest["messages"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "only the unmarked message should remain");
+    assert_eq!(rows[0]["id"].as_i64().unwrap(), second);
+    assert_eq!(rest["unread_count"], json!(1));
+
+    // Without the flag the full history still comes back — an agent must be able
+    // to re-read what it already handled.
+    let history = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/messages?channel={channel}"))
+        .await
+        .json()
+        .await;
+    assert_eq!(history["messages"].as_array().unwrap().len(), 2);
+    assert_eq!(history["read_cursor"].as_i64().unwrap(), first);
+}
+
+// `since` and `unread` together take the STRICTER floor, so an explicit `since`
+// can never re-deliver something already marked read.
+#[tokio::test]
+async fn unread_and_since_take_the_stricter_floor() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let minted = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/link",
+            json!({ "project": project, "display_name": "Builder", "profile": "main" }),
+        )
+        .await
+        .json()
+        .await;
+    let key = minted["key"].as_str().unwrap().to_string();
+    let channel = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+
+    let first = seed_message(project, channel).await;
+    let second = seed_message(project, channel).await;
+    let third = seed_message(project, channel).await;
+
+    app.post_as_agent(
+        &key,
+        &format!("/api/taskflow/channels/{channel}/agent/read"),
+        json!({ "last_read_message": second }),
+    )
+    .await;
+
+    // since=<first> is LOOSER than the cursor; the cursor must still win.
+    let page = app
+        .get_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/messages?channel={channel}&unread=true&since={first}"),
+        )
+        .await
+        .json()
+        .await;
+    let rows = page["messages"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "the read cursor must not be undercut by `since`");
+    assert_eq!(rows[0]["id"].as_i64().unwrap(), third);
+}

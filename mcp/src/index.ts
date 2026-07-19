@@ -25,7 +25,12 @@ client, not typed as commands. To check the setup yourself, use --check.
 --tmux runs in the foreground and mirrors the pane until Ctrl-C. Target defaults
 to tmux's active pane; pass one from \`tmux list-panes -a\` to pick another, and
 --interval=<ms> to change the 2000ms cadence. Options:
-  --profile=<name>   Act as a non-default .taskflow.json profile.`;
+  --profile=<name>   Act as a non-default .taskflow.json profile.
+  --notify           Type a one-line unread notice INTO the pane when messages
+                     arrive. Off by default: this writes to a live session.
+  --notify-submit    Also press Enter, so the agent acts on it unprompted.
+                     Anyone who can post to a channel can then wake the agent —
+                     enable it only for sessions you control.`;
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -51,6 +56,8 @@ async function main(): Promise<void> {
       await runTmuxMirror({
         target,
         profile: flag("profile"),
+        notify: argv.includes("--notify") || argv.includes("--notify-submit"),
+        notifySubmit: argv.includes("--notify-submit"),
         ...(interval ? { intervalMs: Number(interval) } : {}),
       }),
     );

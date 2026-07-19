@@ -90,6 +90,8 @@ export interface AgentSummary {
 export interface MessagesPage {
   messages: unknown[];
   read_cursor: number | null;
+  /** Size of this page — with `unread: true`, the number of unread messages. */
+  unread_count?: number;
 }
 
 export interface SessionRow {
@@ -239,9 +241,16 @@ export class TaskflowClient {
     channel: number;
     since?: number;
     limit?: number;
+    /** Only messages past this agent's read cursor. */
+    unread?: boolean;
   }): Promise<MessagesPage> {
     return this.request("GET", `${API_PREFIX}/agents/messages`, {
-      query: { channel: params.channel, since: params.since, limit: params.limit },
+      query: {
+        channel: params.channel,
+        since: params.since,
+        limit: params.limit,
+        unread: params.unread,
+      },
     });
   }
 

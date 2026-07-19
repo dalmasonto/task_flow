@@ -2319,6 +2319,12 @@ pub struct ListMessagesQuery {
     pub since: Option<i64>,
     #[serde(default)]
     pub limit: Option<i64>,
+    /// `unread=true` returns only messages past this agent's read cursor. An
+    /// agent asking "anything for me?" wants exactly that, and making it a
+    /// server-side filter means the agent cannot get it wrong by mis-comparing
+    /// ids client-side.
+    #[serde(default)]
+    pub unread: Option<bool>,
 }
 
 /// `GET /api/taskflow/agents/messages?channel=&since=&limit=` (agent-authed) —
@@ -2345,20 +2351,9 @@ pub async fn list_messages_as_agent(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let mut query = TaskflowAgentMessage::objects()
-        .filter(taskflow_agent_message::CHANNEL.eq(channel.id));
-    if let Some(since) = params.since {
-        query = query.filter(taskflow_agent_message::ID.gt(since));
-    }
-    let messages = query
-        .order_by(taskflow_agent_message::ID.asc())
-        .limit(effective_limit(params.limit))
-        .fetch()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
     // The agent's own read cursor for this channel, if it has one — the id of the
     // furthest message it has read. `null` when the agent has never marked read.
+    // Read BEFORE the messages so `unread=true` can filter on it.
     let read_cursor = TaskflowChannelReadCursor::objects()
         .filter(
             taskflow_channel_read_cursor::CHANNEL.eq(channel.id)
@@ -2369,11 +2364,37 @@ pub async fn list_messages_as_agent(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .and_then(|c| c.last_read_message.as_ref().map(|fk| fk.id()));
 
+    // `since` and `unread` both page forward; when both are given take the
+    // stricter, so an explicit `since` can never re-deliver something already
+    // marked read.
+    let floor = match (params.since, params.unread.unwrap_or(false)) {
+        (Some(since), true) => Some(since.max(read_cursor.unwrap_or(0))),
+        (Some(since), false) => Some(since),
+        (None, true) => Some(read_cursor.unwrap_or(0)),
+        (None, false) => None,
+    };
+
+    let mut query = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::CHANNEL.eq(channel.id));
+    if let Some(floor) = floor {
+        query = query.filter(taskflow_agent_message::ID.gt(floor));
+    }
+    let messages = query
+        .order_by(taskflow_agent_message::ID.asc())
+        .limit(effective_limit(params.limit))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // `unread_count` is the size of THIS page, which is what the caller acts on.
+    // The agent's own messages are included: it asked for the channel's traffic,
+    // and its cursor is what defines "already handled", not authorship.
     Ok((
         StatusCode::OK,
         Json(json!({
             "messages": messages,
             "read_cursor": read_cursor,
+            "unread_count": messages.len(),
         })),
     )
         .into_response())

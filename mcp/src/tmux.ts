@@ -13,8 +13,11 @@
  * Sends only when the screen actually changed, so an idle agent costs one cheap
  * capture per tick and no writes.
  *
- * The pane is only ever READ (`capture-pane`); nothing is injected into it and
- * no tmux option is altered, so mirroring cannot disturb the session.
+ * By default the pane is only ever READ (`capture-pane`) — nothing is injected and
+ * no tmux option is altered, so mirroring cannot disturb the session. `--notify`
+ * opts in to WRITING: a one-line unread notice typed into the pane. See
+ * {@link buildNotice} for why that text is composed locally and never by the
+ * server.
  */
 
 import { execFile } from "node:child_process";
@@ -39,6 +42,49 @@ export interface TmuxOptions {
   log?: (line: string) => void;
   /** Test seam: resolve the profile without touching the filesystem. */
   resolved?: ResolvedProfile;
+  /** Type a one-line notice into the pane when unread messages arrive. */
+  notify?: boolean;
+  /** Press Enter after the notice, so the agent processes it immediately. */
+  notifySubmit?: boolean;
+}
+
+/**
+ * Build the notice typed into the agent's pane.
+ *
+ * The text is composed HERE, locally, from counts — never from anything the
+ * server sends. That is the whole security posture of this feature: the backend
+ * cannot dictate keystrokes into a live agent session, because it never supplies
+ * the string. Message bodies are deliberately excluded; the agent fetches them
+ * through `check_messages`, which is auditable, rather than having them typed
+ * into its prompt by a poller.
+ *
+ * Control characters are stripped and the result is a single line: a stray
+ * newline would submit the prompt early, and an escape sequence could rewrite
+ * the pane.
+ */
+export function buildNotice(unread: number, channels: number): string {
+  const where = channels > 1 ? `${channels} channels` : "a channel";
+  return sanitizeForPane(
+    `[taskflow] ${unread} unread message${unread === 1 ? "" : "s"} in ${where} — ` +
+      `call check_messages, then mark_read when handled.`,
+  );
+}
+
+/** One line, printable characters only — see {@link buildNotice}. */
+export function sanitizeForPane(text: string, max = 240): string {
+  // eslint-disable-next-line no-control-regex
+  // Strip whole ANSI escape sequences first: dropping only the ESC byte
+  // would leave its printable tail ("[2J") as visible noise. Then remove any
+  // remaining C0/C1 controls — a newline would submit the prompt early, and a
+  // bare ESC reads as the Escape KEY to a TUI, which can cancel its input.
+  const flat = text
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1B\[[0-?]*[ -\/]*[@-~]/g, " ")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1F\x7F-\x9F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 /** Is tmux installed and is a server running? */
@@ -75,6 +121,35 @@ export async function capturePane(target?: string): Promise<string> {
 export function normalizeSnapshot(raw: string, max = MAX_SNAPSHOT_CHARS): string {
   const trimmed = raw.replace(/\s+$/u, "");
   return trimmed.length > max ? trimmed.slice(trimmed.length - max) : trimmed;
+}
+
+/**
+ * Deliver a notice to a pane. The two modes are deliberately different
+ * MECHANISMS, not the same one with a flag:
+ *
+ * - `submit: false` → `display-message`, which paints the status line and never
+ *   touches the input buffer. Typing an unsubmitted notice instead (the obvious
+ *   first attempt) corrupts whatever the human or agent was mid-way through
+ *   typing, and successive notices concatenate into one unreadable line.
+ * - `submit: true` → `send-keys -l` + `Enter`, delivering the notice as input so
+ *   the agent actually processes it. `-l` sends the text LITERALLY; without it
+ *   tmux reads words like "Enter" as key names.
+ *
+ * Non-submit is for a human watching the pane; submit is for waking the agent.
+ */
+export async function notifyPane(
+  text: string,
+  target?: string,
+  submit = false,
+): Promise<void> {
+  const base = target ? ["-t", target] : [];
+  const line = sanitizeForPane(text);
+  if (!submit) {
+    await run("tmux", ["display-message", ...base, line]);
+    return;
+  }
+  await run("tmux", ["send-keys", ...base, "-l", line]);
+  await run("tmux", ["send-keys", ...base, "Enter"]);
 }
 
 /** Describe a pane for the session label, e.g. "0:0.0 (claude)". */
@@ -143,6 +218,13 @@ export async function runTmuxMirror(options: TmuxOptions = {}): Promise<number> 
 
   log(`Mirroring ${label} → ${resolved.server} as "${resolved.displayName}" (session ${session}).`);
   log(`Sending a snapshot whenever the screen changes, every ${intervalMs}ms. Ctrl-C to stop.`);
+  if (options.notify) {
+    log(
+      options.notifySubmit
+        ? "Notify: ON (submit) — unread notices are typed into the pane AND submitted, so the agent acts on them unprompted."
+        : "Notify: ON — unread notices show on the tmux status line, leaving the input untouched. Use --notify-submit to hand them to the agent instead.",
+    );
+  }
 
   let lastSent: string | null = null;
   let sent = 0;
@@ -162,6 +244,32 @@ export async function runTmuxMirror(options: TmuxOptions = {}): Promise<number> 
   process.on("SIGINT", () => void stop("SIGINT"));
   process.on("SIGTERM", () => void stop("SIGTERM"));
 
+  // Notices are rate-limited to one per unread BURST: re-typing the same notice
+  // every tick would bury the pane and, with submit on, re-prompt the agent in a
+  // loop. A new notice only goes out when the highest unread id has moved, i.e.
+  // when something genuinely new arrived.
+  let lastNotifiedMessageId = 0;
+
+  /** Poll unread across channels; type one notice if there is anything new. */
+  const notifyIfUnread = async () => {
+    const channels = await client.listChannels();
+    let unread = 0;
+    let channelsWithUnread = 0;
+    let highest = 0;
+    for (const channel of channels) {
+      const page = await client.listMessages({ channel: channel.id, unread: true });
+      const rows = page.messages as Array<{ id?: number }>;
+      if (!rows.length) continue;
+      unread += rows.length;
+      channelsWithUnread += 1;
+      for (const row of rows) if (typeof row.id === "number" && row.id > highest) highest = row.id;
+    }
+    if (!unread || highest <= lastNotifiedMessageId) return;
+    lastNotifiedMessageId = highest;
+    await notifyPane(buildNotice(unread, channelsWithUnread), options.target, options.notifySubmit);
+    log(`  notified: ${unread} unread in ${channelsWithUnread} channel(s)`);
+  };
+
   // Heartbeat every tick so the agent reads as online for as long as we mirror;
   // liveness is heartbeat-recency based, so a silent screen must still beat.
   for (;;) {
@@ -175,6 +283,7 @@ export async function runTmuxMirror(options: TmuxOptions = {}): Promise<number> 
       } else {
         await client.heartbeat(session, "busy");
       }
+      if (options.notify) await notifyIfUnread();
     } catch (err) {
       // Transient backend/tmux errors must not kill a long-running mirror.
       log(`  warn: ${(err as Error).message.split("\n")[0]}`);

@@ -27,6 +27,17 @@ function defaultSessionIdentifier(): string {
   return `${hostname()}:${process.pid}`;
 }
 
+/**
+ * The nudge attached to every check_messages result. A read cursor only advances
+ * when the agent says so, so the instruction has to travel WITH the messages —
+ * a model that reads them and moves on would be handed the same ones forever.
+ */
+function markReadReminder(count: number): string {
+  return count > 0
+    ? "You have unread messages above. When you have acted on them, call mark_read(channel, last_read_message=<highest id you handled>) so they stop being redelivered."
+    : "Nothing unread.";
+}
+
 /** Wrap a value as a successful text tool result (JSON-pretty for objects). */
 function ok(value: unknown): CallToolResult {
   const text =
@@ -168,7 +179,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: z.string().min(1).describe("Short task title."),
       description: z.string().optional().describe("Markdown description."),
-      priority: z.string().optional().describe("Priority string (e.g. low, normal, high, urgent)."),
+      priority: z
+        .enum(["low", "normal", "high", "critical"])
+        .optional()
+        .describe("Task priority (default: normal)."),
       claim: z.boolean().optional().describe("If true, assign the new task to this agent."),
       ...profileArg,
     },
@@ -262,7 +276,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       channel: z.number().int().describe("Channel id to post in."),
       body: z.string().min(1).describe("Message body (markdown)."),
-      priority: z.string().optional().describe("Optional priority (normal, high, urgent)."),
+      priority: z
+        .enum(["normal", "important", "urgent"])
+        .optional()
+        .describe("Message priority (default: normal)."),
       ...profileArg,
     },
     async ({ channel, body, priority, profile }) => {
@@ -277,7 +294,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "check_messages",
-    "Read messages. Omit channel to check every channel you're in — the usual 'anything for me?' poll. Pass since=<message id> to page forward past messages you've already seen.",
+    "Check for messages addressed to you. Returns only what you have NOT yet marked read, across every channel you're in. " +
+      "IMPORTANT: after you have read and acted on the messages, call mark_read for each channel with the highest message id you handled — " +
+      "otherwise they stay unread and you will be handed the same messages again on your next check. " +
+      "Pass unread_only=false to re-read history you have already marked read.",
     {
       // Optional on purpose: an agent polling for new work has no channel id to
       // start from, and requiring one made "do I have any messages?"
@@ -287,15 +307,24 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .int()
         .optional()
         .describe("Channel id to read. Omit to check all channels you're in."),
+      // Unread-by-default is the whole point: "what do I still owe a response
+      // to?" is the question an agent actually has, and answering it
+      // server-side means the agent cannot get it wrong by mis-comparing ids.
+      unread_only: z
+        .boolean()
+        .optional()
+        .describe("Default true — only messages past your read cursor. false returns full history."),
       since: z.number().int().optional().describe("Only return messages with id greater than this."),
       limit: z.number().int().optional().describe("Max messages (default 50, max 200)."),
       ...profileArg,
     },
-    async ({ channel, since, limit, profile }) => {
+    async ({ channel, unread_only, since, limit, profile }) => {
       try {
         const { client } = clientFor(profile);
+        const unread = unread_only !== false;
         if (channel !== undefined) {
-          return ok(await client.listMessages({ channel, since, limit }));
+          const page = await client.listMessages({ channel, since, limit, unread });
+          return ok({ ...page, reminder: markReadReminder(page.messages.length) });
         }
         // Fan out across the roster. Channels are few (a project room plus a
         // handful of DMs), so this stays one small burst rather than a paged
@@ -304,14 +333,23 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         const pages = await Promise.all(
           channels.map(async (c) => {
             try {
-              const page = await client.listMessages({ channel: c.id, since, limit });
+              const page = await client.listMessages({ channel: c.id, since, limit, unread });
               return { channel: c.id, title: c.title, ...page };
             } catch (err) {
               return { channel: c.id, title: c.title, error: (err as Error).message };
             }
           }),
         );
-        return ok({ channels: pages });
+        // Drop empty channels when polling for unread: a wall of "0 messages"
+        // buries the one channel that actually needs attention.
+        const withMessages = unread
+          ? pages.filter((p) => !("messages" in p) || (p.messages as unknown[]).length > 0)
+          : pages;
+        const total = withMessages.reduce(
+          (n, p) => n + (("messages" in p ? (p.messages as unknown[]).length : 0)),
+          0,
+        );
+        return ok({ channels: withMessages, total_unread: total, reminder: markReadReminder(total) });
       } catch (err) {
         return fail(err);
       }
