@@ -283,18 +283,21 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
         let column = if *table == "taskflow_agent_channel" { "id" } else { "channel" };
         let config = ResourceConfig::new(*table).scope_async(channel_scope(column));
         match *table {
-            // Channels are created ONLY through POST /api/taskflow/channels,
-            // which writes the channel and its roster in one transaction. An
-            // auto-REST create makes a channel with no roster — invisible to its
-            // own creator, and impossible to join, because add_channel_member
-            // needs a roster row that was never written. Update/Delete stay: the
-            // frontend renames and archives, still row-scoped.
-            "taskflow_agent_channel" => config.views([
-                Action::List,
-                Action::Retrieve,
-                Action::Update,
-                Action::Delete,
-            ]),
+            // Channels are created, renamed, and archived ONLY through the
+            // trusted POST /api/taskflow/channels endpoints — never through
+            // auto-REST. An auto-REST create makes a channel with no roster —
+            // invisible to its own creator, and impossible to join, because
+            // add_channel_member needs a roster row that was never written.
+            // Update/Delete are just as dangerous even though channel_scope
+            // already limits a caller to channels they can see: every active
+            // project member can see the shared project room, so PATCHing
+            // `kind` to "direct" would hide it from every human (Direct
+            // visibility requires a roster row that ensure_project_room never
+            // writes for humans), and DELETE cascades every message in it
+            // (`taskflow_agent_message.channel` is `on_delete = "cascade"`).
+            // Nothing in the frontend or MCP layer ever calls either verb on
+            // this table — auto-REST exposes reads only.
+            "taskflow_agent_channel" => config.views([Action::List, Action::Retrieve]),
             // Roster rows are ACCESS-GRANTING: `visible_channel_ids` reads this
             // table to decide who may see a DM. Left writable, any project member
             // could POST themselves a row and the read scope would honour it —

@@ -11,6 +11,8 @@
 //! the reported regression (`dalmasogembo@gmail.com` seeing "TaskFlow v2").
 
 use axum::Router;
+use axum::body::Body;
+use http::Method;
 use http::header::{HeaderName, HeaderValue};
 use serde_json::Value;
 use tokio::sync::OnceCell;
@@ -352,6 +354,38 @@ async fn post_as(user: i64, path: &str, body: Value) -> (u16, Value) {
     );
     let res = client.post_json(path, &body).await;
     (res.status().as_u16(), res.body_json())
+}
+
+/// PATCH `body` to `path` as `user`. Fresh client per call so the per-user
+/// header never races across concurrent tests.
+async fn patch_as(user: i64, path: &str, body: Value) -> (u16, Value) {
+    let (router, _) = app().await;
+    let client = TestClient::new(router.clone());
+    client.set_default_header(
+        HeaderName::from_static("x-user"),
+        HeaderValue::from_str(&user.to_string()).unwrap(),
+    );
+    client.set_default_header(
+        HeaderName::from_static("content-type"),
+        HeaderValue::from_static("application/json"),
+    );
+    let bytes = serde_json::to_vec(&body).expect("serialize body");
+    let res = client
+        .send(Method::PATCH, path, Body::from(bytes))
+        .await;
+    (res.status().as_u16(), res.body_json())
+}
+
+/// DELETE `path` as `user`. Fresh client per call so the per-user header
+/// never races across concurrent tests.
+async fn delete_as(user: i64, path: &str) -> u16 {
+    let (router, _) = app().await;
+    let client = TestClient::new(router.clone());
+    client.set_default_header(
+        HeaderName::from_static("x-user"),
+        HeaderValue::from_str(&user.to_string()).unwrap(),
+    );
+    client.delete(path).await.status().as_u16()
 }
 
 /// The `id`s in a list response's `results`.
@@ -703,6 +737,89 @@ async fn auto_rest_cannot_create_a_channel() {
     assert_eq!(
         status, 405,
         "channel create must go through POST /api/taskflow/channels, got {status}: {body}",
+    );
+}
+
+/// `Update`/`Delete` were left mounted on `taskflow_agent_channel` on the
+/// claim that "the frontend renames and archives" — false. A grep of every
+/// `taskflowApi.update|remove|delete` call in `v2_fe/src` shows only `tasks`,
+/// `taskSessions`, and `projects` are ever mutated that way; `archived` is
+/// read-only in the UI. Unlike the roster/message holes above,
+/// `channel_scope("id")` already limits Update/Delete to a channel the caller
+/// can already see — but every active project member CAN see the shared
+/// project room, so a live PATCH could flip `kind` to "direct" and hide the
+/// room from every human: `visible_channel_ids` requires a roster row for
+/// Direct channels, and `ensure_project_room` only ever writes roster rows for
+/// agents, never for the humans who share the room.
+#[tokio::test]
+async fn a_member_cannot_rename_or_archive_the_shared_room_via_patch() {
+    let (_, seed) = app().await;
+
+    let (status, body) = patch_as(
+        seed.alice,
+        &format!("/api/taskflow_agent_channel/{}", seed.shared_channel),
+        serde_json::json!({ "kind": "direct" }),
+    )
+    .await;
+
+    // 405, observed not assumed: umbral mounts PUT/PATCH on the detail route
+    // only when Update is exposed (`exposed_methods`, umbral-rest src/lib.rs:
+    // 533-535); dropping it unmounts both while GET (Retrieve) stays mounted,
+    // so the method router answers 405 rather than 404.
+    assert_eq!(
+        status, 405,
+        "channel PATCH must be refused, got {status}: {body}",
+    );
+
+    // And the room is untouched: still a Project channel, still visible to
+    // every member.
+    let (rstatus, row) = get_as(
+        seed.alice,
+        false,
+        &format!("/api/taskflow_agent_channel/{}", seed.shared_channel),
+    )
+    .await;
+    assert_eq!(rstatus, 200);
+    assert_eq!(
+        row["kind"], "project",
+        "the shared room must still be a Project channel, got {row}",
+    );
+}
+
+/// The other half of the same finding: DELETE cascades every message in the
+/// channel (`taskflow_agent_message.channel` is `on_delete = "cascade"`), and
+/// `channel_scope` cannot stop it — the shared project room is exactly the
+/// channel every member is scoped to see.
+#[tokio::test]
+async fn a_member_cannot_delete_the_shared_room() {
+    let (_, seed) = app().await;
+
+    let status = delete_as(
+        seed.alice,
+        &format!("/api/taskflow_agent_channel/{}", seed.shared_channel),
+    )
+    .await;
+
+    // 405 for the same reason as the PATCH: dropping Delete unmounts DELETE
+    // while GET stays mounted for List/Retrieve.
+    assert_eq!(status, 405, "channel DELETE must be refused, got {status}");
+
+    // And it — and its message — survive, for every member, not just alice.
+    let rstatus = status_as(
+        seed.carol,
+        &format!("/api/taskflow_agent_channel/{}", seed.shared_channel),
+    )
+    .await;
+    assert_eq!(rstatus, 200, "the shared room must still exist for carol");
+
+    let (_, messages) = get_as(seed.carol, false, "/api/taskflow_agent_message/").await;
+    assert!(
+        messages["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .any(|row| row["body_markdown"].as_str() == Some("shared hello")),
+        "the shared room's message must survive the refused delete; got {messages}",
     );
 }
 
