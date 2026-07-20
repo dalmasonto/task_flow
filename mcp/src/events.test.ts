@@ -173,14 +173,18 @@ describe("answerKeystrokes", () => {
     expect(answerKeystrokes([2], "single")).toEqual(["2", "Enter"]);
   });
 
-  // Also verified live: numbers TOGGLE, Right opens the review pane, 1 submits.
-  // Sending one digit here would tick a box and leave the agent still waiting.
-  it("multi-select toggles each, then Right, then 1 to submit", () => {
-    expect(answerKeystrokes([1, 3], "multi")).toEqual(["1", "3", "Right", "1"]);
+  // Observed live 2026-07-21: numbers TOGGLE, then Right opens the review
+  // screen ("Ready to submit your answers?"). answerKeystrokes only REACHES
+  // that screen; the submit is owned by keystrokesForPrompt, because the same
+  // review screen is shared with multi-question sets. The earlier trailing "1"
+  // here was a submit attempt with no Enter — it highlighted the option and
+  // left the agent waiting, exactly like the single-select bug.
+  it("multi-select toggles each, then Right to reach the review screen", () => {
+    expect(answerKeystrokes([1, 3], "multi")).toEqual(["1", "3", "Right"]);
   });
 
-  it("a one-item multi-select still needs the submit stage", () => {
-    expect(answerKeystrokes([2], "multi")).toEqual(["2", "Right", "1"]);
+  it("a one-item multi-select still opens the review screen", () => {
+    expect(answerKeystrokes([2], "multi")).toEqual(["2", "Right"]);
   });
 
   it("sends nothing when nothing was chosen", () => {

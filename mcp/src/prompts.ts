@@ -147,9 +147,10 @@ const REVIEW_CANCEL = ["2", "Enter"];
  * order the questions were asked — the terminal advances to the next question as
  * each is submitted. A set then confirms at the review screen.
  *
- * A SINGLE question has no review screen (it submits as soon as it is answered),
- * so nothing is appended — and there is no key that safely means "cancel", which
- * is why cancelling one sends nothing rather than guessing.
+ * A single SINGLE-select question has no review screen (it submits as soon as it
+ * is answered), so nothing is appended and there is no safe "cancel" key. A
+ * single MULTI-select question DOES reach the review screen, so it gets the
+ * submit/cancel like a set does.
  */
 export function keystrokesForPrompt(
   optionsJson: string,
@@ -163,7 +164,11 @@ export function keystrokesForPrompt(
   const sets = parseAnswerSets(answerJson, answer);
   if (!isFullyAnswered(sets, questions.length)) return [];
 
-  const hasReviewScreen = questions.length > 1;
+  // The review screen appears for a question SET *and* for a single
+  // multi-select question — both end on "Ready to submit your answers?".
+  // Gating only on question count (as it did) left a lone multi-select stuck on
+  // that screen with nothing to press it. Verified live 2026-07-21.
+  const hasReviewScreen = questions.length > 1 || questions.some((q) => q.kind === "multi");
   if (intent === "cancel" && !hasReviewScreen) return [];
 
   const answers = questions.flatMap((q, i) => answerKeystrokes(sets[i] ?? [], q.kind));

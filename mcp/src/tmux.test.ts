@@ -90,3 +90,46 @@ describe("detectTmuxPane", () => {
     expect(await detectTmuxPane()).not.toBe("");
   });
 });
+
+import { sendKeySequence } from "./tmux.js";
+
+describe("sendKeySequence", () => {
+  // The multi-select bug: keys fired back to back sometimes dropped the middle
+  // ones because the TUI was still re-rendering. A pause between keys lets it
+  // settle. Observed non-deterministically: [1,2,3,4] recorded as {1,4} once and
+  // {1,2,3,4} another time from identical input.
+  it("sends every key, in order", async () => {
+    const sent: string[] = [];
+    await sendKeySequence(["1", "2", "3", "Right", "1", "Enter"], "%0", {
+      sendKey: async (k) => void sent.push(k),
+      sleep: async () => {},
+    });
+    expect(sent).toEqual(["1", "2", "3", "Right", "1", "Enter"]);
+  });
+
+  it("pauses BETWEEN keys, not after the last", async () => {
+    const sleeps: number[] = [];
+    await sendKeySequence(["1", "2", "3"], "%0", {
+      sendKey: async () => {},
+      sleep: async (ms) => void sleeps.push(ms),
+    });
+    // Three keys -> two gaps.
+    expect(sleeps).toHaveLength(2);
+    expect(sleeps.every((ms) => ms > 0)).toBe(true);
+  });
+
+  it("does not pause for a single key", async () => {
+    const sleeps: number[] = [];
+    await sendKeySequence(["Enter"], "%0", {
+      sendKey: async () => {},
+      sleep: async (ms) => void sleeps.push(ms),
+    });
+    expect(sleeps).toHaveLength(0);
+  });
+
+  it("sends nothing for an empty sequence", async () => {
+    const sent: string[] = [];
+    await sendKeySequence([], "%0", { sendKey: async (k) => void sent.push(k), sleep: async () => {} });
+    expect(sent).toEqual([]);
+  });
+});

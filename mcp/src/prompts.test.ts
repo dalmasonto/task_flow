@@ -104,6 +104,22 @@ describe("keystrokesForPrompt", () => {
       "3",
       "Right",
       "1",
+      "Enter",
+    ]);
+  });
+
+  // A single MULTI-select question lands on the same review screen a set does —
+  // observed live 2026-07-21, where toggling then Right reached "Ready to
+  // submit?" and nothing pressed the final key. So the review submit is NOT
+  // gated on there being several questions; one multi-select needs it too.
+  const oneMulti = JSON.stringify([
+    { question: "Which?", kind: "multi", options: [opt(1, "A"), opt(2, "B"), opt(3, "C")] },
+  ]);
+  it("submits at the review screen for a single multi-select question", () => {
+    expect(keystrokesForPrompt(oneMulti, "set", "Q", "[[1,3]]", null)).toEqual([
+      "1",
+      "3",
+      "Right",
       "1",
       "Enter",
     ]);
@@ -126,7 +142,6 @@ describe("keystrokesForPrompt", () => {
       "1",
       "3",
       "Right",
-      "1",
       "2",
       "Enter",
     ]);

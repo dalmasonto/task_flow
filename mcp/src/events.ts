@@ -299,11 +299,15 @@ export type { TaskflowClient };
  * dashboard already showed as answered — the worst shape of failure, because
  * the human sees a completed action and the agent sees nothing.
  *
- * MULTI-select: numbers TOGGLE checkboxes, and submitting is a separate stage.
+ * MULTI-select: numbers TOGGLE checkboxes, then Right opens the review screen
+ * ("Ready to submit your answers?" — 1. Submit / 2. Cancel). This function only
+ * REACHES that screen; the submit key is appended once by keystrokesForPrompt,
+ * because a multi-question set lands on the identical screen. Verified live
+ * 2026-07-21: a single multi-select question sat on that review screen because
+ * nothing pressed the final key.
  *     press "1" -> [✔] Lint
  *     press "3" -> [✔] Tests
- *     press Right -> "Review your answers ... 1. Submit answers  2. Cancel"
- *     press "1" -> "You selected: Lint, Tests"
+ *     press Right -> review screen (submit handled by the caller)
  *
  * Getting this wrong is not a cosmetic bug: sending a single digit to a
  * multi-select ticks one box and leaves the agent still waiting, and sending
@@ -312,7 +316,11 @@ export type { TaskflowClient };
 export function answerKeystrokes(choices: number[], kind: string): string[] {
   if (!choices.length) return [];
   if (kind !== "multi") return [String(choices[0]), "Enter"];
-  return [...choices.map(String), "Right", "1"];
+  // Toggle each, then Right to open the review screen. The submit at that screen
+  // is NOT here — it is shared with multi-question sets and owned by
+  // keystrokesForPrompt. A trailing "1" here (as it was) highlighted submit
+  // without an Enter and left the agent waiting, the same bug single-select had.
+  return [...choices.map(String), "Right"];
 }
 
 export interface PromptEvent {

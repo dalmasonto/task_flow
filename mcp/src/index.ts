@@ -14,7 +14,7 @@ import {
   detectTmuxPane,
   notifyPane,
   runTmuxMirror,
-  sendKeyToPane,
+  sendKeySequence,
   startMirrorLoop,
 } from "./tmux.js";
 import {
@@ -209,9 +209,9 @@ async function startMirrorForThisAgent(): Promise<void> {
           );
           if (!keys.length) return;
           try {
-            for (const key of keys) {
-              await sendKeyToPane(key, pane);
-            }
+            // Paced, not a tight loop: Claude Code's multi-select drops
+            // keystrokes that arrive while it is re-rendering a toggle.
+            await sendKeySequence(keys, pane);
             process.stderr.write(
               `taskflow-v2-mcp: answered prompt ${prompt.id} with [${keys.join(", ")}]\n`,
             );
