@@ -47,6 +47,13 @@ import {
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -169,6 +176,13 @@ type ActivityEvent = {
   action: string
   entity: string
   time: string
+  /// Raw tool payload, rendered in the detail sheet. Absent for events that
+  /// carry none (a status change has nothing more to show).
+  metadata?: string | null
+  /// Full timestamp for the sheet — the row shows a short one.
+  timestamp?: string | null
+  /// Whether this event is about a task, so the sheet can say which.
+  taskLabel?: string | null
 }
 
 type TaskActivityItem = {
@@ -675,6 +689,9 @@ function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[
       action: event.action,
       entity: relatedTask?.id ?? (event.task != null ? `Task #${event.task}` : "Project"),
       time: formatLiveDate(event.created_at, "Live"),
+      metadata: event.metadata_json,
+      timestamp: event.created_at,
+      taskLabel: relatedTask?.title ?? (event.task != null ? `Task #${event.task}` : null),
     }
   })
 }
@@ -792,6 +809,18 @@ function liveProjectTint(index: number) {
     "oklch(0.52 0.12 190)",
   ]
   return palette[index % palette.length]
+}
+
+/// A full, unambiguous timestamp for a detail view — the row shows the short
+/// form, so the sheet is where seconds and the year belong.
+function formatFullDate(value: string | null | undefined, fallback = "") {
+  if (!value) return fallback
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return fallback
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(date)
 }
 
 function formatLiveDate(value: string | null | undefined, fallback = "Live") {
@@ -5297,20 +5326,70 @@ function AgentsConversationView() {
     }
   }, [])
 
+  /// Stage files for upload. The picker and drag-and-drop both land here so the
+  /// two entry points cannot drift on preview URLs, id shape, or which types get
+  /// a thumbnail — a dropped image must behave exactly like a picked one.
+  const stageFiles = (incoming: File[]) => {
+    if (!incoming.length) return
+    setStagedFiles((current) => [
+      ...current,
+      ...incoming.map((file) => ({
+        id: `staged:${Date.now()}:${file.name}:${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+      })),
+    ])
+  }
+
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(event.target.files ?? [])
-    if (picked.length) {
-      setStagedFiles((current) => [
-        ...current,
-        ...picked.map((file) => ({
-          id: `staged:${Date.now()}:${file.name}:${Math.random().toString(36).slice(2, 8)}`,
-          file,
-          previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-        })),
-      ])
-    }
+    stageFiles(Array.from(event.target.files ?? []))
     // Reset so picking the same file again re-fires change.
     event.target.value = ""
+  }
+
+  // Drag-and-drop onto the conversation. `dragenter`/`dragleave` fire for every
+  // child element the cursor crosses, so a boolean would flicker off the moment
+  // the pointer moved from the thread onto a message bubble. Counting enters
+  // against leaves tracks the section as a whole.
+  const dragDepth = useRef(0)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+
+  /// Only FILE drags. Dragging selected text, a link, or one of the board's
+  /// cards also fires these events, and offering to "drop files here" for a text
+  /// selection would be a lie.
+  const isFileDrag = (event: DragEvent<HTMLElement>) =>
+    Array.from(event.dataTransfer?.types ?? []).includes("Files")
+
+  const handleDragEnter = (event: DragEvent<HTMLElement>) => {
+    if (!isFileDrag(event)) return
+    event.preventDefault()
+    dragDepth.current += 1
+    setIsDraggingFiles(true)
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLElement>) => {
+    if (!isFileDrag(event)) return
+    // Without preventDefault the browser refuses the drop and opens the file in
+    // a new tab instead — the default action for a dragged file.
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "copy"
+  }
+
+  const handleDragLeave = (event: DragEvent<HTMLElement>) => {
+    if (!isFileDrag(event)) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setIsDraggingFiles(false)
+  }
+
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
+    if (!isFileDrag(event)) return
+    event.preventDefault()
+    dragDepth.current = 0
+    setIsDraggingFiles(false)
+    stageFiles(Array.from(event.dataTransfer.files ?? []))
+    // The files are staged, not sent — the composer keeps them so the user can
+    // add a message, review, or remove one before sending.
+    requestAnimationFrame(focusComposer)
   }
 
   const removeStagedFile = (id: string) => {
@@ -5349,7 +5428,27 @@ function AgentsConversationView() {
   const chatLabel = selectedChat.mode === "channel" ? "Group chat" : "DM"
 
   return (
-    <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+    <section
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drop affordance. Rendered only while a file drag is in flight, and
+          pointer-events-none so it cannot swallow the drop it is advertising —
+          the events stay on the section underneath. */}
+      {isDraggingFiles ? (
+        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary/60 bg-background/80 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <PaperclipIcon className="h-7 w-7 text-primary" />
+            <p className="text-sm font-medium text-foreground">Drop files to attach</p>
+            <p className="text-xs text-muted-foreground">
+              They'll be added to your message — nothing sends until you do.
+            </p>
+          </div>
+        </div>
+      ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -6065,7 +6164,117 @@ function ReviewRule({ title, detail }: { title: string; detail: string }) {
   )
 }
 
+/// How many entries to show before "Load more". The feed reaches four figures on
+/// an active project — a row per tool call — and rendering all of it was both
+/// slow and unreadable.
+const ACTIVITY_PAGE_SIZE = 40
+
+/// One line in the feed. Deliberately dense: the old card gave three lines and a
+/// row of chips to something like "tool:Read — completed", so a screen held five
+/// entries. Everything beyond the headline moves into the detail sheet.
+function ActivityRow({
+  event,
+  onOpen,
+}: {
+  event: ActivityEvent
+  onOpen: (event: ActivityEvent) => void
+}) {
+  return (
+    <div className="relative flex gap-3">
+      <span className="relative z-10 mt-1.5 flex size-2 shrink-0 items-center justify-center rounded-full bg-border ring-4 ring-background" />
+      <button
+        type="button"
+        onClick={() => onOpen(event)}
+        className="group -my-0.5 flex min-w-0 flex-1 items-baseline gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-muted/60"
+      >
+        <span className="truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
+          {event.action.replace(/_/g, " ")}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">{event.detail}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{event.actor}</span>
+        <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
+          {event.time}
+        </span>
+      </button>
+    </div>
+  )
+}
+
+/// The detail view: properties first, then the raw tool payload rendered as
+/// markdown. Uses the same MarkdownRenderer as chat, task notes and project
+/// descriptions, so a fenced block looks the same everywhere.
+function ActivityDetailSheet({
+  event,
+  onOpenChange,
+}: {
+  event: ActivityEvent | null
+  onOpenChange: (open: boolean) => void
+}) {
+  // Pretty-print the payload into a fenced block. It is stored as compact JSON;
+  // rendering that raw is a single unreadable line.
+  const metadataMarkdown = useMemo(() => {
+    if (!event?.metadata) return null
+    try {
+      return ["```json", JSON.stringify(JSON.parse(event.metadata), null, 2), "```"].join("\n")
+    } catch {
+      // Not JSON (or truncated) — show it as-is rather than nothing.
+      return ["```", event.metadata, "```"].join("\n")
+    }
+  }, [event])
+
+  return (
+    <Sheet open={event !== null} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full gap-0 sm:max-w-xl">
+        <SheetHeader className="border-b">
+          <SheetTitle className="font-mono text-sm">
+            {event?.action.replace(/_/g, " ") ?? "Activity"}
+          </SheetTitle>
+          <SheetDescription>{event?.timestamp ? formatFullDate(event.timestamp) : event?.time}</SheetDescription>
+        </SheetHeader>
+
+        <div className="scrollbar-y min-h-0 flex-1 overflow-y-auto p-4">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            <dt className="text-muted-foreground">Actor</dt>
+            <dd className="min-w-0 break-words">{event?.actor}</dd>
+            <dt className="text-muted-foreground">Action</dt>
+            <dd className="min-w-0 break-words font-mono text-xs">{event?.action}</dd>
+            <dt className="text-muted-foreground">Subject</dt>
+            <dd className="min-w-0 break-words">{event?.taskLabel ?? "Project"}</dd>
+          </dl>
+
+          {event?.detail ? (
+            <div className="mt-4 border-t pt-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Summary
+              </p>
+              <MarkdownRenderer content={event.detail} className="text-sm" />
+            </div>
+          ) : null}
+
+          {metadataMarkdown ? (
+            <div className="mt-4 border-t pt-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Metadata
+              </p>
+              <MarkdownRenderer content={metadataMarkdown} className="text-sm" />
+            </div>
+          ) : null}
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 function ActivityLogPage({ title, events }: { title: string; events: ActivityEvent[] }) {
+  const [visible, setVisible] = useState(ACTIVITY_PAGE_SIZE)
+  const [selected, setSelected] = useState<ActivityEvent | null>(null)
+
+  // New events arrive at the TOP (the feed is ordered newest-first and realtime
+  // now carries the whole row inline, so a live event prepends without a fetch).
+  // Growing the window with them keeps everything already on screen in place.
+  const shown = events.slice(0, visible)
+  const remaining = events.length - shown.length
+
   return (
     <PageShell
       eyebrow="Project log"
@@ -6078,45 +6287,43 @@ function ActivityLogPage({ title, events }: { title: string; events: ActivityEve
             <ActivityIcon className="size-4 text-primary" />
             <h2 className="text-sm font-semibold">Activity Feed</h2>
           </div>
-          <span className="text-xs text-muted-foreground">{events.length} entries</span>
+          <span className="text-xs text-muted-foreground">
+            {shown.length} of {events.length}
+          </span>
         </div>
+
         {events.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed bg-muted/40 p-8 text-center text-sm text-muted-foreground">
             No activity yet. Task moves, agent work, and review decisions will show up here.
           </div>
         ) : (
-        <div className="relative mt-4">
-          <div className="absolute bottom-0 left-3 top-0 w-px bg-border" />
-          <div className="space-y-4">
-            {events.map((event) => (
-              <div key={event.id} className="relative flex gap-4">
-                <span className="relative z-10 mt-1 flex size-6 items-center justify-center rounded-full border bg-background">
-                  <Clock3Icon className="size-3.5 text-primary" />
-                </span>
-                <div className="min-w-0 flex-1 rounded-lg border bg-background p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="truncate text-sm font-semibold">{event.title}</h3>
-                    <span className="text-xs text-muted-foreground">{event.time}</span>
-                  </div>
-                  <MarkdownRenderer content={event.detail} compact className="mt-1 [&_p]:text-sm" />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                      {event.action.replace(/_/g, " ")}
-                    </span>
-                    <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                      {event.entity}
-                    </span>
-                    <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                      {event.actor}
-                    </span>
-                  </div>
-                </div>
+          <>
+            <div className="relative mt-4">
+              <div className="absolute bottom-0 left-[3px] top-0 w-px bg-border" />
+              <div className="space-y-0.5">
+                {shown.map((event) => (
+                  <ActivityRow key={event.id} event={event} onOpen={setSelected} />
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+
+            {remaining > 0 ? (
+              <div className="mt-4 flex justify-center border-t pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setVisible((current) => current + ACTIVITY_PAGE_SIZE)}
+                >
+                  Load {Math.min(remaining, ACTIVITY_PAGE_SIZE)} more
+                  <span className="text-muted-foreground">({remaining} left)</span>
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </section>
+
+      <ActivityDetailSheet event={selected} onOpenChange={(open) => !open && setSelected(null)} />
     </PageShell>
   )
 }
