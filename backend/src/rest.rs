@@ -83,18 +83,6 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_agent_credential",
     "taskflow_agent_session",
     "taskflow_project_invite",
-    // Attachments are minted only by the trusted send endpoint (which stores
-    // the file and denormalizes `project` from the channel); a client REST
-    // create would insert a row pointing at a file it never uploaded. Read-only
-    // so the frontend can still `.list()` them, scoped by project.
-    "taskflow_message_attachment",
-    // Read cursors are written ONLY through the trusted read endpoints
-    // (`POST /api/taskflow/channels/{channel}/read` and its agent variant),
-    // which derive the member identity server-side and advance forward only. A
-    // client REST create/update could forge another member's cursor or move one
-    // backwards. Read-only so clients can still `.list()` them to compute unread
-    // counts, scoped by project.
-    "taskflow_channel_read_cursor",
     // Task reviews are minted only by the trusted review endpoints
     // (`POST /api/taskflow/tasks/{task}/review` and its agent variant), which
     // derive the reviewer identity server-side and transition the task. A client
@@ -122,6 +110,12 @@ const CHANNEL_SCOPED_TABLES: &[&str] = &[
     "taskflow_agent_channel_member",
     "taskflow_agent_message",
     "taskflow_channel_read_cursor",
+    // An attachment row carries the storage key, and `/media/<key>` serves the
+    // file, so scoping these by `project` handed every DM's files to every
+    // project member. `channel` is denormalized onto the row precisely so this
+    // scope can filter on it — `RestrictIn` is a plain column predicate and
+    // cannot reach through `message__channel`.
+    "taskflow_message_attachment",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -314,15 +308,35 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // list, with the SSE fan-out delivering it to the real participants.
             // Read-only: the frontend lists messages constantly.
             "taskflow_agent_message" => config.views([Action::List, Action::Retrieve]),
+            // Attachments are minted only by the trusted send endpoint, which
+            // stores the file and denormalizes `channel` from the message; a
+            // client REST create would insert a row pointing at a file it never
+            // uploaded. Read-only so the frontend can still `.list()` them.
+            "taskflow_message_attachment" => config.views([Action::List, Action::Retrieve]),
+            // Read cursors are written ONLY through the trusted read endpoints
+            // (`POST /api/taskflow/channels/{channel}/read` and its agent
+            // variant), which derive the member identity server-side and advance
+            // forward only. A client create/update could forge another member's
+            // cursor or move one backwards.
+            "taskflow_channel_read_cursor" => config.views([Action::List, Action::Retrieve]),
             _ => config,
         }
     });
 
-    let read_only = READ_ONLY_PROJECT_SCOPED_TABLES.iter().map(|table| {
-        ResourceConfig::new(*table)
-            .scope_async(project_scope("project"))
-            .views([Action::List, Action::Retrieve])
-    });
+    let read_only = READ_ONLY_PROJECT_SCOPED_TABLES
+        .iter()
+        // A table listed in both places would be registered twice, and
+        // `RestPlugin::resource` is LAST-WRITE-WINS on the scope — so the
+        // project scope here would silently replace the channel scope above.
+        // That is not hypothetical: `taskflow_channel_read_cursor` sat in both
+        // lists and was project-scoped in practice, leaking which member had
+        // read which DM. Filtering here makes the channel list authoritative.
+        .filter(|table| !CHANNEL_SCOPED_TABLES.contains(*table))
+        .map(|table| {
+            ResourceConfig::new(*table)
+                .scope_async(project_scope("project"))
+                .views([Action::List, Action::Retrieve])
+        });
 
     writable.chain(chat).chain(read_only).collect()
 }

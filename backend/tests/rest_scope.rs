@@ -24,7 +24,8 @@ use umbral_testing::TestClient;
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
     TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
-    TaskflowChannelMemberKind, TaskflowMessagePriority,
+    TaskflowChannelMemberKind, TaskflowChannelReadCursor, TaskflowMessageAttachment,
+    TaskflowMessagePriority,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
@@ -58,6 +59,14 @@ struct Seed {
     /// tries to write themselves onto. Kept separate from `carol_dm` so the
     /// escalation tests never perturb the rows the DM-privacy tests read.
     private_dm: i64,
+    /// An attachment on a message in `carol_dm`. Alice must never see it — the
+    /// row exposes the storage key, and `/media/<key>` serves the file.
+    carol_dm_attachment: i64,
+    /// An attachment in `shared_channel`, which both alice and carol are on.
+    shared_attachment: i64,
+    /// Carol's read cursor in her own DM. It names her, the channel and when she
+    /// read it — alice must not be able to list it.
+    carol_dm_cursor: i64,
 }
 
 static APP: OnceCell<(Router, Seed)> = OnceCell::const_new();
@@ -224,7 +233,10 @@ async fn seed() -> Seed {
     let shared_channel = make_channel(project_p, "Project room", TaskflowChannelKind::Project).await;
     make_channel_member(project_p, shared_channel, alice).await;
     make_channel_member(project_p, shared_channel, carol).await;
-    make_message(project_p, shared_channel, "shared hello").await;
+    let shared_message = make_message(project_p, shared_channel, "shared hello").await;
+    // A file in a room both alice and carol are on — the control case, proving
+    // the new scope does not over-restrict.
+    let shared_attachment = make_attachment(project_p, shared_channel, shared_message, "shared-deck.pdf").await;
 
     let alice_dm = make_channel(project_p, "alice dm", TaskflowChannelKind::Direct).await;
     make_channel_member(project_p, alice_dm, alice).await;
@@ -232,7 +244,12 @@ async fn seed() -> Seed {
 
     let carol_dm = make_channel(project_p, "carol dm", TaskflowChannelKind::Direct).await;
     make_channel_member(project_p, carol_dm, carol).await;
-    make_message(project_p, carol_dm, "carol private").await;
+    let carol_dm_message = make_message(project_p, carol_dm, "carol private").await;
+    // The file alice must never reach. Its storage key is the sensitive part:
+    // `/media/<key>` serves it.
+    let carol_dm_attachment =
+        make_attachment(project_p, carol_dm, carol_dm_message, "carol-secret.pdf").await;
+    let carol_dm_cursor = make_read_cursor(project_p, carol_dm, carol, carol_dm_message).await;
 
     // A DM belonging to a third person entirely. The roster-escalation tests
     // target this one, so nothing they do can disturb alice's or carol's rows.
@@ -253,7 +270,29 @@ async fn seed() -> Seed {
         alice_dm,
         carol_dm,
         private_dm,
+        carol_dm_attachment,
+        shared_attachment,
+        carol_dm_cursor,
     }
+}
+
+/// `user`'s read cursor in `channel`.
+async fn make_read_cursor(project: i64, channel: i64, user: i64, message: i64) -> i64 {
+    TaskflowChannelReadCursor::objects()
+        .create(TaskflowChannelReadCursor {
+            id: 0,
+            project: ForeignKey::new(project),
+            channel: ForeignKey::new(channel),
+            member_kind: TaskflowChannelMemberKind::User,
+            member_user: Some(ForeignKey::new(user)),
+            member_agent: None,
+            last_read_message: Some(ForeignKey::new(message)),
+            last_read_at: chrono::Utc::now(),
+            created_at: None,
+        })
+        .await
+        .expect("create read cursor")
+        .id
 }
 
 async fn make_channel(project: i64, title: &str, kind: TaskflowChannelKind) -> i64 {
@@ -292,7 +331,7 @@ async fn make_channel_member(project: i64, channel: i64, user: i64) {
         .expect("create channel member");
 }
 
-async fn make_message(project: i64, channel: i64, body: &str) {
+async fn make_message(project: i64, channel: i64, body: &str) -> i64 {
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
             id: 0,
@@ -309,7 +348,28 @@ async fn make_message(project: i64, channel: i64, body: &str) {
             created_at: None,
         })
         .await
-        .expect("create message");
+        .expect("create message")
+        .id
+}
+
+/// A file attached to `message`. `project` is denormalized exactly as the
+/// trusted send endpoint does it.
+async fn make_attachment(project: i64, channel: i64, message: i64, name: &str) -> i64 {
+    TaskflowMessageAttachment::objects()
+        .create(TaskflowMessageAttachment {
+            id: 0,
+            message: ForeignKey::new(message),
+            project: ForeignKey::new(project),
+            channel: Some(ForeignKey::new(channel)),
+            file: umbral::orm::FileField::from(format!("uploads/{name}")),
+            name: name.to_string(),
+            content_type: "application/pdf".to_string(),
+            size_bytes: 1234,
+            created_at: None,
+        })
+        .await
+        .expect("create attachment")
+        .id
 }
 
 
@@ -656,6 +716,74 @@ async fn a_member_cannot_read_messages_from_another_members_dm() {
         !bodies.iter().any(|b| b == "carol private"),
         "another member's DM message leaked: {bodies:?}"
     );
+}
+
+// Read cursors are channel-scoped, and were not.
+//
+// `taskflow_channel_read_cursor` sat in BOTH `CHANNEL_SCOPED_TABLES` and
+// `READ_ONLY_PROJECT_SCOPED_TABLES`, so it was registered twice.
+// `RestPlugin::resource` is last-write-wins on the scope and the read-only pass
+// ran second, so the project scope silently replaced the channel scope: every
+// project member could read who had read which DM message, and when.
+#[tokio::test]
+async fn a_member_cannot_list_read_cursors_from_another_members_dm() {
+    let (_, seed) = app().await;
+    let (status, body) = get_as(seed.alice, false, "/api/taskflow_channel_read_cursor/").await;
+    assert_eq!(status, 200);
+    let ids = result_ids(&body);
+    assert!(
+        !ids.contains(&seed.carol_dm_cursor),
+        "a read cursor from another member's DM leaked: {ids:?}"
+    );
+}
+
+// Attachments follow their CHANNEL, not their project.
+//
+// The row carries the storage key, and `/media/<key>` serves the file, so a
+// leaked attachment row is a leaked file. `project` is denormalized onto this
+// table for query convenience, and scoping by it made every DM's files readable
+// by every member of the project.
+#[tokio::test]
+async fn a_member_cannot_list_attachments_from_another_members_dm() {
+    let (_, seed) = app().await;
+    let (status, body) = get_as(seed.alice, false, "/api/taskflow_message_attachment/").await;
+    assert_eq!(status, 200);
+    let ids = result_ids(&body);
+    assert!(
+        ids.contains(&seed.shared_attachment),
+        "a file in a room alice is on must stay visible: {ids:?}"
+    );
+    assert!(
+        !ids.contains(&seed.carol_dm_attachment),
+        "another member's DM attachment leaked: {ids:?}"
+    );
+}
+
+// The storage key is the payload here — listing is not the only way to reach it.
+#[tokio::test]
+async fn fetching_another_members_dm_attachment_by_id_is_not_found() {
+    let (_, seed) = app().await;
+    let status = status_as(
+        seed.alice,
+        &format!("/api/taskflow_message_attachment/{}", seed.carol_dm_attachment),
+    )
+    .await;
+    assert_eq!(
+        status, 404,
+        "an attachment on a DM you are not on must not be retrievable by id"
+    );
+}
+
+// The scope must not over-correct: carol owns the DM and must still get her file.
+#[tokio::test]
+async fn the_dm_owner_still_sees_their_own_attachment() {
+    let (_, seed) = app().await;
+    let status = status_as(
+        seed.carol,
+        &format!("/api/taskflow_message_attachment/{}", seed.carol_dm_attachment),
+    )
+    .await;
+    assert_eq!(status, 200, "carol is on this DM and must still read its file");
 }
 
 // Retrieve-by-id must be gated too: hiding a row from the list while serving it

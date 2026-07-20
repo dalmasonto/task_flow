@@ -272,6 +272,21 @@ pub struct TaskflowMessageAttachment {
     pub message: ForeignKey<TaskflowAgentMessage>,
     #[umbral(on_delete = "cascade")]
     pub project: ForeignKey<TaskflowProject>,
+    /// Denormalized from `message.channel`, and the column the REST scope
+    /// filters on.
+    ///
+    /// Attachments must follow their CHANNEL, not their project: this row
+    /// carries the storage key and `/media/<key>` serves the file, so scoping it
+    /// by `project` made every DM's files readable by every project member.
+    /// `ScopeDecision::RestrictIn` compiles to a plain column predicate and
+    /// cannot traverse `message__channel`, so the channel has to live here.
+    ///
+    /// Nullable only because SQLite cannot add a NOT NULL column to a populated
+    /// table; the backfill migration fills every existing row. A NULL is denied
+    /// by the scope rather than allowed — `RestrictIn` never matches it — so the
+    /// failure mode is an invisible attachment, not a leaked one.
+    #[umbral(on_delete = "cascade")]
+    pub channel: Option<ForeignKey<TaskflowAgentChannel>>,
     /// The stored file — serializes as the bare storage key; `.url()` resolves
     /// to `/media/<key>`.
     pub file: FileField,
