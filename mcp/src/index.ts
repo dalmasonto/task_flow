@@ -27,6 +27,7 @@ import {
 } from "./events.js";
 import { TaskflowClient } from "./client.js";
 import { startMirrorWithRetry } from "./mirror.js";
+import { runMint } from "./mint.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
 
@@ -35,7 +36,22 @@ const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
   taskflow-v2-mcp                 Serve over stdio (how an MCP client runs it).
   taskflow-v2-mcp --check         Verify config + backend auth, then exit.
   taskflow-v2-mcp --tmux [target] Mirror a tmux pane into the dashboard terminal.
+  taskflow-v2-mcp --mint <name>   Create a NEW agent identity + profile, then exit.
   taskflow-v2-mcp --help          This message.
+
+GIVING A SECOND TERMINAL ITS OWN IDENTITY. An agent is identified by
+project + profile, so two terminals sharing the default \`main\` profile are ONE
+agent: one row in the dashboard, one DM inbox, one shared read cursor. --mint
+creates a separate identity and writes it to .taskflow.json:
+
+  taskflow-v2-mcp --mint bear --display-name "Claude (bear)"
+  export TASKFLOW_PROFILE=bear     # then start that terminal's agent
+
+It needs YOUR user token (--token, or TASKFLOW_USER_TOKEN), not an agent key:
+linking an agent is human-authorized and records who vouched for it, which is
+why this is a command you run and not a tool the agent can call. An existing
+profile is never overwritten and \`default_profile\` never moves, so terminals
+already running keep the identity they have.
 
 The MCP tools (whoami, create_task, ...) are called by the MODEL through an MCP
 client, not typed as commands. To check the setup yourself, use --check.
@@ -65,6 +81,20 @@ async function main(): Promise<void> {
   // it never opens the MCP transport.
   if (argv.includes("--check") || argv.includes("--doctor")) {
     process.exit(await runDoctor());
+  }
+  // --mint is a human-facing command for the same reason it is not an MCP tool:
+  // `POST /agents/link` is RequireAuth-gated, so it needs a USER token that the
+  // agent does not have. Prints and exits; never opens the MCP transport.
+  if (argv.includes("--mint")) {
+    try {
+      for (const line of await runMint(argv)) process.stdout.write(`${line}\n`);
+      process.exit(0);
+    } catch (err) {
+      // A MintError is a message written for the operator; anything else is a
+      // surprise and keeps its own text.
+      process.stderr.write(`${(err as Error).message}\n`);
+      process.exit(1);
+    }
   }
   const tmuxIndex = argv.indexOf("--tmux");
   if (tmuxIndex !== -1) {
