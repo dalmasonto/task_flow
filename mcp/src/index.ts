@@ -23,6 +23,7 @@ import {
   formatIncoming,
   shouldDeliver,
   startAgentEventStream,
+  type NoticeAttachment,
 } from "./events.js";
 import { TaskflowClient } from "./client.js";
 import { startMirrorWithRetry } from "./mirror.js";
@@ -112,6 +113,37 @@ async function main(): Promise<void> {
 }
 
 /**
+ * The attachments on a delivered message, or an empty list.
+ *
+ * The realtime event projects the message ROW; attachments are a separate table,
+ * so they never ride along. The agent read endpoint does return them, so one
+ * narrow lookup (`since = id - 1, limit = 1`) recovers exactly this message with
+ * its files.
+ *
+ * Never throws: a failed lookup must degrade to "no attachments listed", not
+ * lose the message entirely. Losing the text because the file lookup failed
+ * would be strictly worse than the bug this fixes.
+ */
+async function attachmentsFor(
+  client: TaskflowClient,
+  message: { id: number; channel: number },
+): Promise<NoticeAttachment[]> {
+  try {
+    const page = await client.listMessages({
+      channel: message.channel,
+      since: message.id - 1,
+      limit: 1,
+    });
+    const rows = (page as { messages?: Array<{ id: number; attachments?: NoticeAttachment[] }> })
+      .messages;
+    const hit = rows?.find((row) => row.id === message.id);
+    return hit?.attachments ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Register a session for this process and stream its pane into the dashboard.
  * Never throws into the MCP transport: a mirror is a nice-to-have, and must not
  * be able to take the tool server down with it.
@@ -168,8 +200,17 @@ async function startMirrorForThisAgent(): Promise<void> {
         onMessage: async (message) => {
           if (!shouldDeliver(message, profile.agentId)) return;
           try {
+            // The realtime event is a MESSAGE-ROW projection, and attachments
+            // live in their own table — so a pushed message carries no file
+            // information at all. Without this lookup an attached file arrives
+            // invisibly: the agent reads the text, answers it, and never learns
+            // anything came with it. Observed live, and only caught because the
+            // sender asked whether the image had come through.
+            //
+            // One extra read, and only for a message actually being delivered.
+            const attachments = await attachmentsFor(client, message);
             // Submitted, not just typed: the point is for the agent to READ it.
-            await notifyPane(formatIncoming(message), pane, true);
+            await notifyPane(formatIncoming(message, attachments), pane, true);
             // The agent has now been handed the message, so advance its cursor —
             // otherwise check_messages would hand it the same one again.
             await client.markRead(message.channel, message.id);

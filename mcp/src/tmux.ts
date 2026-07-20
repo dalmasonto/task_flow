@@ -59,6 +59,16 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 /** Backend cap is 20k chars; stay under it so a wide pane can't be rejected. */
 const MAX_SNAPSHOT_CHARS = 18_000;
 
+/**
+ * How much of a message notice may be TYPED into the pane.
+ *
+ * Larger than the status-line cap because this text is the agent's only view of
+ * an incoming message: it must carry the whole body plus the attachment
+ * manifest, or the agent answers half a request without knowing. Still bounded —
+ * it becomes literal keystrokes in a live session.
+ */
+const MAX_TYPED_NOTICE_CHARS = 1_200;
+
 export interface TmuxOptions {
   /** Pane target, e.g. "0:0.0" or a session name. Defaults to tmux's active pane. */
   target?: string | undefined;
@@ -229,7 +239,12 @@ export async function notifyPane(
   submit = false,
 ): Promise<void> {
   const base = target ? ["-t", target] : [];
-  const line = sanitizeForPane(text);
+  // The two modes have different limits because they are different surfaces.
+  // `display-message` paints tmux's status line — one row, so a long notice is
+  // unreadable there. `send-keys` TYPES into the pane, where the agent reads it
+  // as input, and cutting at 240 silently lost the tail of real messages: a
+  // request arrived half-written and was answered as if complete.
+  const line = sanitizeForPane(text, submit ? MAX_TYPED_NOTICE_CHARS : 240);
   if (!submit) {
     await run("tmux", ["display-message", ...base, line]);
     return;

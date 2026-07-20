@@ -76,6 +76,61 @@ describe("formatIncoming", () => {
   it("falls back to a role when there is no label", () => {
     expect(formatIncoming(message({ sender_label: "" }))).toContain("Message from User");
   });
+
+  it("adds nothing when there are no attachments", () => {
+    expect(formatIncoming(message(), [])).toBe("[taskflow] Message from Dalmas: ship it");
+  });
+
+  // A pushed message used to be text only, so an attached file was invisible:
+  // the agent answered the message and never knew a file came with it.
+  it("lists an attachment's name, size and url", () => {
+    const out = formatIncoming(message(), [
+      { name: "diagram.png", size_bytes: 105_613, url: "/media/abc-diagram.png" },
+    ]);
+    expect(out).toContain("1 attachment");
+    expect(out).toContain("diagram.png");
+    expect(out).toContain("103 KB");
+    expect(out).toContain("/media/abc-diagram.png");
+  });
+
+  it("lists every attachment when there are several", () => {
+    const out = formatIncoming(message(), [
+      { name: "a.png", size_bytes: 1_024, url: "/media/a.png" },
+      { name: "b.pdf", size_bytes: 2_097_152, url: "/media/b.pdf" },
+    ]);
+    expect(out).toContain("2 attachments");
+    expect(out).toContain("a.png");
+    expect(out).toContain("b.pdf");
+    expect(out).toContain("2.0 MB");
+  });
+
+  it("says the body was shortened rather than trimming it silently", () => {
+    // Silent truncation is what lost a request mid-sentence: the agent read a
+    // half message, answered it, and had no signal there was more.
+    const long = "x".repeat(2_000);
+    const out = formatIncoming(message({ body_markdown: long }));
+    expect(out).toContain("…");
+    expect(out).toMatch(/check_messages/);
+    expect(out.length).toBeLessThan(1_200);
+  });
+
+  it("keeps the attachment list intact when the body is shortened", () => {
+    // The manifest must never be the part that gets cut — it is the pointer to
+    // everything the notice could not carry.
+    const out = formatIncoming(message({ body_markdown: "y".repeat(2_000) }), [
+      { name: "keep-me.png", size_bytes: 2_048, url: "/media/keep-me.png" },
+    ]);
+    expect(out).toContain("keep-me.png");
+    expect(out).toContain("/media/keep-me.png");
+    expect(out).toContain("…");
+  });
+
+  it("stays a single line so it cannot submit the prompt early", () => {
+    const out = formatIncoming(message({ body_markdown: "line one\nline two" }), [
+      { name: "x.png", size_bytes: 10, url: "/media/x.png" },
+    ]);
+    expect(out).not.toContain("\n");
+  });
 });
 
 import { answerKeystrokes, chosenNumbers, isAnsweredPrompt } from "./events.js";

@@ -213,9 +213,66 @@ export function shouldDeliver(message: AgentMessageEvent, selfAgentId: number): 
 }
 
 /** Format a delivered message the way v1 did: who it is from, then the text. */
-export function formatIncoming(message: AgentMessageEvent): string {
+/** The attachment fields a notice needs. Matches the agent read projection. */
+export interface NoticeAttachment {
+  name: string;
+  size_bytes: number;
+  url: string;
+}
+
+/**
+ * How much of a notice may be typed into the pane.
+ *
+ * The notice is delivered by TYPING it into a live tmux pane, so it has to stay
+ * bounded — but the old 240-char cap silently ate the tail of any real message.
+ * A request lost its second half mid-sentence and the agent answered the half it
+ * got, with nothing indicating more existed.
+ */
+const MAX_NOTICE_CHARS = 1_000;
+
+/** Bytes as something a human (or an agent deciding whether to read it) can judge. */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * The one-line notice typed into the agent's pane for an incoming message.
+ *
+ * Attachments are listed explicitly. A pushed message used to carry body text
+ * only, so a file arrived invisibly: the agent read the message, answered it,
+ * and never learned anything was attached. Name, size and url are all included
+ * so the agent can decide whether to pull the file without another round trip.
+ *
+ * The manifest is built FIRST and the body flexes into whatever room is left.
+ * If something has to be dropped it must be prose, never the pointer to the
+ * files — the manifest is precisely what tells the agent there is more to fetch.
+ */
+export function formatIncoming(
+  message: AgentMessageEvent,
+  attachments: NoticeAttachment[] = [],
+): string {
   const who = message.sender_label || (message.sender_kind === "user" ? "User" : "Agent");
-  return `[taskflow] Message from ${who}: ${message.body_markdown}`;
+  const head = `[taskflow] Message from ${who}: `;
+
+  const manifest = attachments.length
+    ? ` 📎 ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}: ` +
+      attachments.map((a) => `${a.name} (${humanSize(a.size_bytes)}) ${a.url}`).join("; ")
+    : "";
+
+  // Newlines would submit the prompt early; collapse before measuring so the
+  // budget reflects what is actually typed.
+  const body = message.body_markdown.replace(/\s+/gu, " ").trim();
+  const room = MAX_NOTICE_CHARS - head.length - manifest.length;
+
+  if (body.length <= room) return `${head}${body}${manifest}`;
+
+  // Say so. A truncated notice that looks complete is how a request gets
+  // half-answered; the agent needs to know to go and read the rest.
+  const hint = " …[truncated — call check_messages for the full message]";
+  const kept = body.slice(0, Math.max(0, room - hint.length));
+  return `${head}${kept}${hint}${manifest}`;
 }
 
 export type { TaskflowClient };
