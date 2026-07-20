@@ -55,7 +55,7 @@ input; validating free text against anything (it is free by nature).
 The hook appends a synthetic Other option to each question it reports:
 
 ```jsonc
-{ "number": <N+1>, "label": "Other", "isOther": true }
+{ "number": <N+1>, "label": "Type something", "isOther": true }
 ```
 
 where `N` is the count of the question's real options. The dashboard renders an
@@ -63,14 +63,23 @@ where `N` is the count of the question's real options. The dashboard renders an
 discriminator the frontend keys on; nothing downstream infers "Other" from the
 label text.
 
-**Open dependency (resolved during implementation, not guessed):** the terminal
-may append rows *after* Other (a "Chat about this" row was visible in one
-screenshot). If it does, Other's real option number is not simply `N+1`, and any
-number derived from "my options + 1" is off by one — silently toggling the wrong
-row. The implementation MUST observe the real option layout in the live TUI and
-pin Other's actual index before encoding any replay. This off-by-one is the
-single highest risk in the design and is treated as a measurement, never a
-derivation.
+**The terminal option layout — measured, not guessed.** Two live screenshots
+(a 3-option and a 4-option multi-select) pin it:
+
+```
+1..N        the real options
+N+1         "Type something"   <- the Other free-text field
+            Submit             (advances to the review screen)
+N+2         "Chat about this"  <- harness escape, never touched
+```
+
+So Other sits at **N+1** (its label is literally "Type something"), and the
+"Chat about this" row the earlier draft feared sits *after* it at **N+2** —
+harmless, because we never navigate to it. This was the design's highest risk (a
+trailing row shifting Other's index and making every derived keystroke off by
+one); the measurement resolves it to a deterministic rule: **Other = option
+count + 1**. Implementation still asserts the rule against the live TUI on first
+run — belt and suspenders — but it is no longer an unknown.
 
 ## Data model
 
@@ -119,12 +128,14 @@ The mechanism is decided:
 - **Submit:** advance to the review screen, then the existing
   `REVIEW_SUBMIT` = `["1", "Enter"]`.
 
-The **exact key counts** — how many Downs reach Other, whether a number can jump
-to it, how the caret sits after a mix of number-toggles and arrow-moves, how
-Submit is reached — are NOT specified here. They are determined by observing the
-live TUI during implementation and pinned in a pure keystroke-builder function.
-This is deliberate: guessing terminal choreography produced five separate bugs
-in this feature's neighbours, every one caught only by live testing.
+Other's option number is now known (**N+1**, above). What remains unmeasured is
+the **navigation choreography** — how many Downs reach Other from the caret's
+resting place after the number-toggles, whether pressing `N+1` jumps straight to
+the field, and how "Submit" is reached from there. These are NOT specified here;
+they are determined by observing the live TUI during implementation and pinned in
+a pure keystroke-builder function. This is deliberate: guessing terminal
+choreography produced five separate bugs in this feature's neighbours, every one
+caught only by live testing.
 
 To keep the builder testable and the choreography honest, the replay is a pure
 function `keystrokesForPromptWithText(...) -> string[]` (or an extension of
