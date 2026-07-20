@@ -23,11 +23,11 @@ import {
   formatIncoming,
   shouldDeliver,
   startAgentEventStream,
-  type NoticeAttachment,
 } from "./events.js";
 import { TaskflowClient } from "./client.js";
 import { startMirrorWithRetry } from "./mirror.js";
 import { runMint } from "./mint.js";
+import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
 
@@ -143,34 +143,18 @@ async function main(): Promise<void> {
 }
 
 /**
- * The attachments on a delivered message, or an empty list.
+ * Adapt the client to {@link MessageSource}.
  *
- * The realtime event projects the message ROW; attachments are a separate table,
- * so they never ride along. The agent read endpoint does return them, so one
- * narrow lookup (`since = id - 1, limit = 1`) recovers exactly this message with
- * its files.
- *
- * Never throws: a failed lookup must degrade to "no attachments listed", not
- * lose the message entirely. Losing the text because the file lookup failed
- * would be strictly worse than the bug this fixes.
+ * `MessagesPage.messages` is `unknown[]` — the client deliberately does not
+ * model every row shape — so the narrowing happens here, once, at the boundary
+ * rather than inside the resolver.
  */
-async function attachmentsFor(
-  client: TaskflowClient,
-  message: { id: number; channel: number },
-): Promise<NoticeAttachment[]> {
-  try {
-    const page = await client.listMessages({
-      channel: message.channel,
-      since: message.id - 1,
-      limit: 1,
-    });
-    const rows = (page as { messages?: Array<{ id: number; attachments?: NoticeAttachment[] }> })
-      .messages;
-    const hit = rows?.find((row) => row.id === message.id);
-    return hit?.attachments ?? [];
-  } catch {
-    return [];
-  }
+function messageSourceFor(client: TaskflowClient): MessageSource {
+  return {
+    listChannels: () => client.listChannels(),
+    listMessages: (params) =>
+      client.listMessages(params) as Promise<{ messages: ResolvedMessage[] }>,
+  };
 }
 
 /**
@@ -227,26 +211,28 @@ async function startMirrorForThisAgent(): Promise<void> {
             );
           }
         },
-        onMessage: async (message) => {
-          if (!shouldDeliver(message, profile.agentId)) return;
+        onMessage: async (event) => {
           try {
-            // The realtime event is a MESSAGE-ROW projection, and attachments
-            // live in their own table — so a pushed message carries no file
-            // information at all. Without this lookup an attached file arrives
-            // invisibly: the agent reads the text, answers it, and never learns
-            // anything came with it. Observed live, and only caught because the
-            // sender asked whether the image had come through.
-            //
-            // One extra read, and only for a message actually being delivered.
-            const attachments = await attachmentsFor(client, message);
+            // The event carries the row id and NOTHING else — chat is id-only on
+            // the wire because its group is per-project while its rows are
+            // channel-scoped (see resolve.ts). So the body, the sender and the
+            // attachments are all fetched back over the authorized read API,
+            // which re-checks the roster. A message this agent cannot see
+            // resolves to null and is silently skipped, which is the point.
+            const message = await resolveMessage(messageSourceFor(client), event.id);
+            if (!message) return;
+            // Only knowable AFTER resolving: the wire no longer says who sent it.
+            // Echoing the agent's own message back into its prompt reads as a
+            // fresh instruction — a loop against itself.
+            if (!shouldDeliver(message, profile.agentId)) return;
             // Submitted, not just typed: the point is for the agent to READ it.
-            await notifyPane(formatIncoming(message, attachments), pane, true);
+            await notifyPane(formatIncoming(message, message.attachments ?? []), pane, true);
             // The agent has now been handed the message, so advance its cursor —
             // otherwise check_messages would hand it the same one again.
             await client.markRead(message.channel, message.id);
           } catch (err) {
             process.stderr.write(
-              `taskflow-v2-mcp: could not deliver message ${message.id} (${(err as Error).message.split("\n")[0]})\n`,
+              `taskflow-v2-mcp: could not deliver message ${event.id} (${(err as Error).message.split("\n")[0]})\n`,
             );
           }
         },

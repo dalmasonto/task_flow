@@ -196,8 +196,17 @@ export function handleFrame(
   // Only creations matter for delivery: an edit or a delete is not a new thing
   // for the agent to read.
   if (envelope.e !== "created") return;
+  // Every table in a project shares the `project:{id}:*` room family, and a chat
+  // event is now id-only — indistinguishable from an id-only task or read-cursor
+  // row except by the group name. Without this check every task edit would be
+  // typed into the agent's pane as though someone had spoken to it.
+  if (!envelope.c?.endsWith(":messages")) return;
   const row = envelope.d as Partial<AgentMessageEvent> | undefined;
-  if (!row || typeof row.id !== "number" || typeof row.body_markdown !== "string") return;
+  // The id is all the wire carries, and all that is needed: the body is fetched
+  // back over the authorized read API, which re-checks the channel roster.
+  // Requiring `body_markdown` here is what silently killed live delivery when
+  // chat became id-only — the guard rejected every real event.
+  if (!row || typeof row.id !== "number") return;
   void options.onMessage(row as AgentMessageEvent);
 }
 

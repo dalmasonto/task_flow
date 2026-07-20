@@ -37,9 +37,37 @@ describe("handleFrame", () => {
     expect(onMessage).not.toHaveBeenCalled();
   });
 
-  it("ignores a payload without a usable body", () => {
+  // Chat events are id-only on the wire: the rows are channel-scoped but the
+  // realtime group is per-PROJECT, so projecting `body_markdown` broadcast every
+  // DM to the whole project (see backend/tests/realtime_dm_privacy.rs). The
+  // delivery path must therefore accept a bare id and resolve the message over
+  // the authorized read API.
+  //
+  // This test previously asserted the OPPOSITE — that `{id: 1}` is ignored —
+  // and stayed green when the projection changed, silently certifying that live
+  // delivery was dead.
+  it("dispatches an id-only message event", () => {
     const onMessage = vi.fn();
-    handleFrame(frame({ e: "created", d: { id: 1 } }), { onMessage });
+    handleFrame(frame({ c: "project:1:messages", e: "created", d: { id: 42 } }), { onMessage });
+    expect(onMessage).toHaveBeenCalledOnce();
+    expect(onMessage.mock.calls[0]?.[0].id).toBe(42);
+  });
+
+  it("ignores a payload with no id at all — there is nothing to resolve", () => {
+    const onMessage = vi.fn();
+    handleFrame(frame({ c: "project:1:messages", e: "created", d: {} }), { onMessage });
+    handleFrame(frame({ c: "project:1:messages", e: "created", d: { id: "nope" } }), { onMessage });
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  // Every table shares the project room, so an id-only row from `tasks` or
+  // `read_cursors` looks exactly like an id-only message. Only the group name
+  // distinguishes them; without this filter every task edit would be delivered
+  // to the agent as if someone had spoken to it.
+  it("ignores id-only rows from other tables in the same project", () => {
+    const onMessage = vi.fn();
+    handleFrame(frame({ c: "project:1:tasks", e: "created", d: { id: 42 } }), { onMessage });
+    handleFrame(frame({ c: "project:1:read_cursors", e: "created", d: { id: 42 } }), { onMessage });
     expect(onMessage).not.toHaveBeenCalled();
   });
 
