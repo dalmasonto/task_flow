@@ -377,6 +377,9 @@ pub async fn send_message(
                     id: 0,
                     message: ForeignKey::new(message.id),
                     project: channel.project.clone(),
+                    // Denormalized from the message so the REST scope can filter
+                    // on it — attachments follow their channel's visibility.
+                    channel: Some(message.channel.clone()),
                     file: FileField::from(stored.key),
                     name: filename,
                     content_type,
@@ -1179,6 +1182,9 @@ pub async fn send_message_as_agent(
                     id: 0,
                     message: ForeignKey::new(message.id),
                     project: channel.project.clone(),
+                    // Denormalized from the message so the REST scope can filter
+                    // on it — attachments follow their channel's visibility.
+                    channel: Some(message.channel.clone()),
                     file: FileField::from(stored.key),
                     name: filename,
                     content_type,
