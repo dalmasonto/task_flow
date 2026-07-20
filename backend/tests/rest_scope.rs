@@ -20,6 +20,10 @@ use umbral_rest::{FnAuthentication, Identity, IsAuthenticated, RestPlugin};
 use umbral_testing::TestClient;
 
 use taskflow_agents::TaskflowAgentsPlugin;
+use taskflow_agents::models::{
+    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
+    TaskflowChannelMemberKind, TaskflowMessagePriority,
+};
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
     TaskflowMembershipStatus, TaskflowProject, TaskflowProjectMember, TaskflowProjectRole,
@@ -40,6 +44,14 @@ struct Seed {
     project_p: i64,
     /// A project alice is NOT a member of.
     project_q: i64,
+    /// A second ACTIVE member of project P — the person alice must not spy on.
+    carol: i64,
+    /// The project room in P: shared, so both members see it.
+    shared_channel: i64,
+    /// Alice's DM. Carol is in the same project but NOT on this roster.
+    alice_dm: i64,
+    /// Carol's DM. Alice must never see it, nor its messages.
+    carol_dm: i64,
 }
 
 static APP: OnceCell<(Router, Seed)> = OnceCell::const_new();
@@ -196,13 +208,105 @@ async fn seed() -> Seed {
     make_task(project_p, "P task").await;
     make_task(project_q, "Q task").await;
 
+    // Two people in the SAME project, each with their own DM. Project scope
+    // alone made these visible to each other: every row carries the same
+    // `project` FK, so "restrict to my projects" let a member read a private
+    // conversation they were never on.
+    let carol = make_user("carol", false).await;
+    make_member(project_p, carol, TaskflowMembershipStatus::Active).await;
+
+    let shared_channel = make_channel(project_p, "Project room", TaskflowChannelKind::Project).await;
+    make_channel_member(project_p, shared_channel, alice).await;
+    make_channel_member(project_p, shared_channel, carol).await;
+    make_message(project_p, shared_channel, "shared hello").await;
+
+    let alice_dm = make_channel(project_p, "alice dm", TaskflowChannelKind::Direct).await;
+    make_channel_member(project_p, alice_dm, alice).await;
+    make_message(project_p, alice_dm, "alice private").await;
+
+    let carol_dm = make_channel(project_p, "carol dm", TaskflowChannelKind::Direct).await;
+    make_channel_member(project_p, carol_dm, carol).await;
+    make_message(project_p, carol_dm, "carol private").await;
+
     Seed {
         alice,
         bob,
         root,
         project_p,
         project_q,
+        carol,
+        shared_channel,
+        alice_dm,
+        carol_dm,
     }
+}
+
+async fn make_channel(project: i64, title: &str, kind: TaskflowChannelKind) -> i64 {
+    TaskflowAgentChannel::objects()
+        .create(TaskflowAgentChannel {
+            id: 0,
+            project: ForeignKey::new(project),
+            title: title.to_string(),
+            topic: None,
+            kind,
+            task: None,
+            created_by_user: None,
+            created_by_agent: None,
+            archived: false,
+            created_at: None,
+        })
+        .await
+        .expect("create channel")
+        .id
+}
+
+async fn make_channel_member(project: i64, channel: i64, user: i64) {
+    TaskflowAgentChannelMember::objects()
+        .create(TaskflowAgentChannelMember {
+            id: 0,
+            project: ForeignKey::new(project),
+            channel: ForeignKey::new(channel),
+            member_kind: TaskflowChannelMemberKind::User,
+            user: Some(ForeignKey::new(user)),
+            agent: None,
+            display_name: format!("user {user}"),
+            role: "member".to_string(),
+            joined_at: None,
+        })
+        .await
+        .expect("create channel member");
+}
+
+async fn make_message(project: i64, channel: i64, body: &str) {
+    TaskflowAgentMessage::objects()
+        .create(TaskflowAgentMessage {
+            id: 0,
+            project: ForeignKey::new(project),
+            channel: ForeignKey::new(channel),
+            task: None,
+            sender_kind: TaskflowChannelMemberKind::User,
+            sender_user: None,
+            sender_agent: None,
+            sender_label: "someone".to_string(),
+            body_markdown: body.to_string(),
+            priority: TaskflowMessagePriority::Normal,
+            client_nonce: None,
+            created_at: None,
+        })
+        .await
+        .expect("create message");
+}
+
+
+/// Status only — a 404 renders an HTML error page, and `body_json` panics on it.
+async fn status_as(user: i64, path: &str) -> u16 {
+    let (router, _) = app().await;
+    let client = TestClient::new(router.clone());
+    client.set_default_header(
+        HeaderName::from_static("x-user"),
+        HeaderValue::from_str(&user.to_string()).unwrap(),
+    );
+    client.get(path).await.status().as_u16()
 }
 
 /// GET `path` as `user`, optionally a superuser. Fresh client per call so the
@@ -456,5 +560,83 @@ async fn superuser_sees_all_projects() {
     assert!(
         ids.contains(&seed.project_p) && ids.contains(&seed.project_q),
         "a superuser must see every project; got {body}",
+    );
+}
+
+
+// --- DM privacy -------------------------------------------------------------
+//
+// The reported symptom: one member of a project saw another member's DM with an
+// agent, unread count and all. Project scope is the wrong boundary for chat.
+
+#[tokio::test]
+async fn a_member_cannot_list_another_members_dm() {
+    let (_, seed) = app().await;
+    let (status, body) = get_as(seed.alice, false, "/api/taskflow_agent_channel/").await;
+    assert_eq!(status, 200);
+
+    let ids: Vec<i64> = body["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["id"].as_i64())
+        .collect();
+
+    assert!(ids.contains(&seed.shared_channel), "shared rooms stay visible");
+    assert!(ids.contains(&seed.alice_dm), "her own DM stays visible");
+    assert!(
+        !ids.contains(&seed.carol_dm),
+        "carol's DM must NOT be listed for alice, got {ids:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_member_cannot_read_messages_from_another_members_dm() {
+    let (_, seed) = app().await;
+    let (status, body) = get_as(seed.alice, false, "/api/taskflow_agent_message/").await;
+    assert_eq!(status, 200);
+
+    let bodies: Vec<String> = body["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["body_markdown"].as_str().map(str::to_string))
+        .collect();
+
+    assert!(bodies.iter().any(|b| b == "shared hello"), "shared room messages stay visible");
+    assert!(bodies.iter().any(|b| b == "alice private"), "her own DM stays readable");
+    assert!(
+        !bodies.iter().any(|b| b == "carol private"),
+        "another member's DM message leaked: {bodies:?}"
+    );
+}
+
+// Retrieve-by-id must be gated too: hiding a row from the list while serving it
+// to anyone who guesses the id is not a boundary.
+#[tokio::test]
+async fn fetching_another_members_dm_by_id_is_not_found() {
+    let (_, seed) = app().await;
+    let status = status_as(seed.alice, &format!("/api/taskflow_agent_channel/{}", seed.carol_dm)).await;
+    assert_eq!(status, 404, "a DM you are not on must not be retrievable by id");
+}
+
+#[tokio::test]
+async fn the_dm_owner_still_sees_their_own() {
+    let (_, seed) = app().await;
+    let status = status_as(seed.carol, &format!("/api/taskflow_agent_channel/{}", seed.carol_dm)).await;
+    assert_eq!(status, 200, "carol must still see her own DM");
+}
+
+// Prompts carry a question an agent is blocked on, and answering one sends
+// keystrokes into a live terminal. They were exposed with NO scope at all.
+#[tokio::test]
+async fn prompts_are_project_scoped() {
+    let (_, seed) = app().await;
+    let (status, body) = get_as(seed.bob, false, "/api/taskflow_agent_prompt/").await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["results"].as_array().map(Vec::len),
+        Some(0),
+        "a user with no memberships must see no prompts"
     );
 }

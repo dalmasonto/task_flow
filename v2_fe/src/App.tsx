@@ -1354,8 +1354,26 @@ function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser
   ]
 }
 
+/// A direct message has one participant on each side — you and exactly one other
+/// person or agent. More than that is a group conversation wearing a DM's name.
+const DIRECT_CHANNEL_PARTICIPANTS = 2
+
 function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null, now: number): AgentChatContext[] {
-  const directChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind === "direct")
+  // A DM is EXACTLY two participants, and you must be one of them.
+  //
+  // The server now scopes these rows too, so this is defence in depth rather
+  // than the gate — but it also enforces the shape: a "direct" channel that has
+  // somehow collected a third participant is not a private conversation, and
+  // showing it as one would put two other people's words under a title that
+  // claims it is just you and them. Anything wider belongs in a group room.
+  const directChannels = workspace.agentChannels.filter((channel) => {
+    if (channel.archived || channel.kind !== "direct") return false
+    const roster = workspace.agentChannelMembers.filter((member) => member.channel === channel.id)
+    const onRoster = roster.some(
+      (member) => member.member_kind === "user" && member.user != null && member.user === currentUser?.id
+    )
+    return onRoster && roster.length === DIRECT_CHANNEL_PARTICIPANTS
+  })
   const chats = directChannels.map((channel) => {
     const rawMembers = workspace.agentChannelMembers.filter((member) => member.channel === channel.id)
     const agentMember = rawMembers.find((member) => member.member_kind === "agent" && member.agent)

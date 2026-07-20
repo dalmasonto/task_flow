@@ -21,6 +21,10 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use taskflow_agents::models::{
+    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowChannelKind,
+    taskflow_agent_channel_member,
+};
 use umbral_rest::{Action, Identity, ResourceConfig, ScopeDecision};
 
 /// Every project-scoped table, keyed by its `project` FK. `taskflow_project`
@@ -97,6 +101,27 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // REST create could forge a reviewer or a decision. Read-only so the frontend
     // can still `.list()` them, scoped by project.
     "taskflow_task_review",
+    // Prompts are written ONLY by the trusted agent endpoints (the hook reports
+    // one, the agent clears it) and answered through
+    // `POST /api/taskflow/prompts/{prompt}/answer`, which records who answered.
+    // A client REST write could forge a question or an answer — and an answer is
+    // keystrokes in someone's live terminal. Read-only so the frontend can still
+    // `.list()` them.
+    //
+    // Being absent from this list entirely (as it was) did NOT hide the table:
+    // auto-REST exposes every model, so it was served UNSCOPED — readable across
+    // projects by any authenticated user.
+    "taskflow_agent_prompt",
+];
+
+/// Tables whose rows belong to a CHANNEL and must follow its visibility rather
+/// than the project's. Every one of these carries a `project` FK too, which is
+/// exactly why project scope silently leaked DMs between members.
+const CHANNEL_SCOPED_TABLES: &[&str] = &[
+    "taskflow_agent_channel",
+    "taskflow_agent_channel_member",
+    "taskflow_agent_message",
+    "taskflow_channel_read_cursor",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -123,6 +148,72 @@ pub fn project_scope(column: &'static str) -> impl Fn(Option<Identity>) -> Scope
                     taskflow_projects::scope::active_project_ids_for(&id).await,
                 ),
                 // Anonymous: nothing.
+                None => ScopeDecision::None,
+            }
+        })
+    }
+}
+
+
+/// The channels a caller may SEE: every shared room in their active projects,
+/// plus only the direct channels they are actually on the roster of.
+///
+/// Project scope alone is not enough for chat. `project_scope` restricts rows to
+/// the caller's projects, which is right for tasks and agents — those are shared
+/// workspace state. A DM is not: two people in the same project were being
+/// served each other's private conversations, including message bodies, because
+/// every row carried the same `project` FK.
+///
+/// Fails closed: any lookup error yields an empty list, which becomes `IN ()`.
+async fn visible_channel_ids(identity: &Identity) -> Vec<String> {
+    let Ok(user_id) = identity.pk::<i64>() else {
+        return Vec::new();
+    };
+    let project_ids = taskflow_projects::scope::active_project_ids_for(identity).await;
+    if project_ids.is_empty() {
+        return Vec::new();
+    }
+    let projects: Vec<i64> = project_ids.iter().filter_map(|id| id.parse().ok()).collect();
+
+    let channels = TaskflowAgentChannel::objects()
+        .fetch()
+        .await
+        .unwrap_or_default();
+
+    // The direct channels this user is rostered into. One query, then an
+    // in-memory membership test — the roster is small.
+    let my_channel_ids: std::collections::HashSet<i64> = TaskflowAgentChannelMember::objects()
+        .filter(taskflow_agent_channel_member::USER.eq(user_id))
+        .fetch()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|member| member.channel.id())
+        .collect();
+
+    channels
+        .into_iter()
+        .filter(|channel| projects.contains(&channel.project.id()))
+        .filter(|channel| {
+            // Shared rooms follow project membership; a DM follows its roster.
+            channel.kind != TaskflowChannelKind::Direct || my_channel_ids.contains(&channel.id)
+        })
+        .map(|channel| channel.id.to_string())
+        .collect()
+}
+
+/// Row scope for the chat tables: restrict `column` to [`visible_channel_ids`].
+///
+/// `column` is `"id"` for the channel table itself and `"channel"` for anything
+/// hanging off one (messages, roster rows, read cursors).
+pub fn channel_scope(column: &'static str) -> impl Fn(Option<Identity>) -> ScopeFuture + Clone {
+    move |identity| {
+        Box::pin(async move {
+            match identity {
+                Some(id) if id.is_superuser => ScopeDecision::All,
+                Some(id) => {
+                    ScopeDecision::RestrictIn(column.to_string(), visible_channel_ids(&id).await)
+                }
                 None => ScopeDecision::None,
             }
         })
@@ -182,7 +273,16 @@ pub fn user_settings_resource() -> ResourceConfig {
 pub fn project_scoped_resources() -> Vec<ResourceConfig> {
     let writable = PROJECT_SCOPED_TABLES
         .iter()
+        // The chat tables are scoped by CHANNEL VISIBILITY, not by project: a DM
+        // must reach its two participants and nobody else, even though everyone
+        // in the project shares its `project` FK.
+        .filter(|table| !CHANNEL_SCOPED_TABLES.contains(*table))
         .map(|table| ResourceConfig::new(*table).scope_async(project_scope("project")));
+
+    let chat = CHANNEL_SCOPED_TABLES.iter().map(|table| {
+        let column = if *table == "taskflow_agent_channel" { "id" } else { "channel" };
+        ResourceConfig::new(*table).scope_async(channel_scope(column))
+    });
 
     let read_only = READ_ONLY_PROJECT_SCOPED_TABLES.iter().map(|table| {
         ResourceConfig::new(*table)
@@ -190,5 +290,5 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             .views([Action::List, Action::Retrieve])
     });
 
-    writable.chain(read_only).collect()
+    writable.chain(chat).chain(read_only).collect()
 }
