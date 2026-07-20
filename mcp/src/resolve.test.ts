@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { resolveMessage, type MessageSource } from "./resolve.js";
+import { formatIncoming } from "./events.js";
 
 const msg = (id: number, over: Record<string, unknown> = {}) => ({
   id,
@@ -101,5 +102,38 @@ describe("resolveMessage", () => {
     const listMessages = vi.fn(async () => ({ messages: [msg(42)] }));
     await resolveMessage({ listChannels: async () => [{ id: 1 }], listMessages }, 42);
     expect(listMessages).toHaveBeenCalledWith({ channel: 1, since: 41, limit: 1 });
+  });
+});
+
+// The seam between resolution and what actually reaches the pane. Resolution
+// returning the right row is worth nothing if the notice drops half of it, and
+// the two were previously fetched separately — the body from the event, the
+// files from a second lookup. They now come from one fetch, so this pins that
+// BOTH survive the join.
+describe("what the agent actually receives", () => {
+  it("delivers the body and the attachment manifest together", async () => {
+    const src = source([1], {
+      1: [
+        msg(42, {
+          body_markdown: "here is the design",
+          attachments: [{ name: "spec.pdf", size_bytes: 105_613, url: "/media/abc-spec.pdf" }],
+        }),
+      ],
+    });
+    const message = await resolveMessage(src, 42);
+    const notice = formatIncoming(message!, message!.attachments ?? []);
+
+    expect(notice).toContain("here is the design");
+    expect(notice).toContain("spec.pdf");
+    expect(notice).toContain("103 KB");
+    expect(notice).toContain("/media/abc-spec.pdf");
+    expect(notice).toContain("dalmasonto");
+  });
+
+  it("still delivers a plain message with no attachments", async () => {
+    const src = source([1], { 1: [msg(42, { body_markdown: "just text" })] });
+    const message = await resolveMessage(src, 42);
+    const notice = formatIncoming(message!, message!.attachments ?? []);
+    expect(notice).toBe("[taskflow] Message from dalmasonto: just text");
   });
 });
