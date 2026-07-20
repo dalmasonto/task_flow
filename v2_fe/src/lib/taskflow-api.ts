@@ -608,15 +608,26 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
 /// Recording the answer is the whole of it — the agent's own process watches for
 /// the row to change and presses the keys. The server never touches a terminal.
 /// `choices` carries a multi-select set; a single-select sends one.
+/// Answer a prompt: one choice list PER QUESTION, in the order asked.
+///
+/// A single-question prompt sends the legacy `choice`/`choices` shape so the
+/// endpoint keeps accepting answers from clients written before multi-question
+/// support; a set sends `answers`.
 export async function answerAgentPrompt(
   promptId: number,
-  choices: number[]
+  answers: number[][]
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/taskflow/prompts/${promptId}/answer`, {
     method: "POST",
     credentials: "include",
     headers: bearerHeaders(),
-    body: JSON.stringify(choices.length > 1 ? { choices } : { choice: choices[0] }),
+    body: JSON.stringify(
+      answers.length > 1
+        ? { answers }
+        : (answers[0] ?? []).length > 1
+          ? { choices: answers[0] }
+          : { choice: answers[0]?.[0] }
+    ),
   })
   if (!response.ok) {
     throw new Error(

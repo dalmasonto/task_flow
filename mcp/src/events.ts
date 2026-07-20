@@ -290,8 +290,14 @@ export type { TaskflowClient };
  * The keystrokes that answer a prompt, as verified against a live Claude Code
  * session — not inferred from the UI's appearance.
  *
- * SINGLE-select: the number both selects and submits.
- *     press "2"  ->  "You selected: Green"
+ * SINGLE-select: the number HIGHLIGHTS the option; Enter submits it.
+ *     press "2"      -> option 2 highlighted, still waiting
+ *     press Enter    -> "You selected: Green"
+ *
+ * This one was wrong here until 2026-07-21. The comment claimed the number both
+ * selected and submitted, so the agent was left sitting on a prompt the
+ * dashboard already showed as answered — the worst shape of failure, because
+ * the human sees a completed action and the agent sees nothing.
  *
  * MULTI-select: numbers TOGGLE checkboxes, and submitting is a separate stage.
  *     press "1" -> [✔] Lint
@@ -305,7 +311,7 @@ export type { TaskflowClient };
  */
 export function answerKeystrokes(choices: number[], kind: string): string[] {
   if (!choices.length) return [];
-  if (kind !== "multi") return [String(choices[0])];
+  if (kind !== "multi") return [String(choices[0]), "Enter"];
   return [...choices.map(String), "Right", "1"];
 }
 
@@ -317,6 +323,13 @@ export interface PromptEvent {
   status: string;
   answer: number | null;
   answer_json: string | null;
+  /**
+   * The options, as the hook wrote them. Carried on the realtime projection
+   * (`PROMPT_FIELDS` in backend/src/realtime.rs) because a multi-question prompt
+   * cannot be turned into keystrokes without knowing each question's kind — a
+   * set can mix single and multi.
+   */
+  options_json?: string;
 }
 
 /** The numbers a human chose, from whichever field carries them. */

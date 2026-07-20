@@ -164,10 +164,13 @@ describe("formatIncoming", () => {
 import { answerKeystrokes, chosenNumbers, isAnsweredPrompt } from "./events.js";
 
 describe("answerKeystrokes", () => {
-  // Verified against a live Claude Code session, not inferred: pressing the
-  // number on a single-select both selects AND submits.
-  it("single-select is just the number", () => {
-    expect(answerKeystrokes([2], "single")).toEqual(["2"]);
+  // Observed live 2026-07-21: pressing the number HIGHLIGHTS the option but does
+  // not submit it — the agent sat waiting on an answered prompt. The previous
+  // comment here claimed the number both selects and submits, and was wrong.
+  // Selection without submission is the worst failure mode available: the
+  // dashboard shows the question answered while the agent is still blocked.
+  it("single-select needs an explicit submit after the number", () => {
+    expect(answerKeystrokes([2], "single")).toEqual(["2", "Enter"]);
   });
 
   // Also verified live: numbers TOGGLE, Right opens the review pane, 1 submits.

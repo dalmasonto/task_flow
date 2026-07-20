@@ -3102,6 +3102,44 @@ pub struct AnswerPromptInput {
     /// sending one digit would silently answer the wrong thing.
     #[serde(default)]
     pub choices: Option<Vec<i64>>,
+    /// One choice list PER QUESTION, for a prompt carrying several questions.
+    ///
+    /// `AskUserQuestion` accepts a set, and the agent's terminal shows them one
+    /// at a time, so the whole set is answered at once and replayed in order. A
+    /// partial set is refused: the agent would send the leftover digits at
+    /// whatever screen it had moved on to.
+    #[serde(default)]
+    pub answers: Option<Vec<Vec<i64>>>,
+}
+
+/// One question inside a multi-question `options_json`.
+#[derive(Debug, Deserialize)]
+struct PromptQuestionPayload {
+    #[serde(default)]
+    kind: Option<String>,
+    options: Vec<PromptOptionPayload>,
+}
+
+/// The questions a prompt is asking, whichever shape `options_json` is in.
+///
+/// Legacy rows store a bare option list for a single question; newer rows store
+/// a list of questions. Both must keep working — rows written before the change
+/// are still in the table, and an unreadable prompt blocks its agent forever.
+fn prompt_questions(options_json: &str, kind: &str) -> Vec<PromptQuestionPayload> {
+    if let Ok(questions) = serde_json::from_str::<Vec<PromptQuestionPayload>>(options_json)
+        && !questions.is_empty()
+    {
+        return questions;
+    }
+    let options: Vec<PromptOptionPayload> =
+        serde_json::from_str(options_json).unwrap_or_default();
+    if options.is_empty() {
+        return Vec::new();
+    }
+    vec![PromptQuestionPayload {
+        kind: Some(kind.to_string()),
+        options,
+    }]
 }
 
 /// `POST /api/taskflow/prompts/{prompt}/answer` (human-authed) — answer a
@@ -3144,30 +3182,59 @@ pub async fn answer_prompt(
 
     // Every chosen number must be one the agent actually offered. Without this
     // the API would happily type an arbitrary digit into a live terminal.
-    let options: Vec<PromptOptionPayload> =
-        serde_json::from_str(&prompt.options_json).unwrap_or_default();
-    let chosen: Vec<i64> = match (&input.choices, input.choice) {
-        (Some(list), _) if !list.is_empty() => list.clone(),
-        (_, Some(one)) => vec![one],
-        _ => return Err(StatusCode::BAD_REQUEST),
-    };
-    if !chosen
-        .iter()
-        .all(|n| options.iter().any(|option| option.number == *n))
-    {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    // Shape must match the question: a single-select takes exactly one.
-    if prompt.kind != "multi" && chosen.len() != 1 {
+    let questions = prompt_questions(&prompt.options_json, &prompt.kind);
+    if questions.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    // One choice list per question. The legacy single-question shapes collapse
+    // into a one-element set so validation and storage have one path.
+    let sets: Vec<Vec<i64>> = match (&input.answers, &input.choices, input.choice) {
+        (Some(sets), _, _) => sets.clone(),
+        (_, Some(list), _) if !list.is_empty() => vec![list.clone()],
+        (_, _, Some(one)) => vec![vec![one]],
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    // Every question must be answered. A partial set would leave the agent
+    // replaying digits into a screen that has already moved on.
+    if sets.len() != questions.len() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    for (set, question) in sets.iter().zip(questions.iter()) {
+        if set.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        // Validated against THIS question's options, not the union across
+        // questions: a number valid for question 2 may not exist in question 1,
+        // and these digits are typed into a live terminal.
+        if !set
+            .iter()
+            .all(|n| question.options.iter().any(|option| option.number == *n))
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        // Each question carries its own kind — a set can mix single and multi.
+        let kind = question.kind.as_deref().unwrap_or("single");
+        if kind != "multi" && set.len() != 1 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
     prompt.status = TaskflowPromptStatus::Answered;
-    // Stored as the answer list either way, so the agent-side key builder has one
-    // shape to read. `answer` keeps the single value for display.
-    prompt.answer = chosen.first().copied();
+    // `answer` keeps the first choice for display.
+    prompt.answer = sets.first().and_then(|set| set.first()).copied();
+    // A single-question prompt stays FLAT (`[2]`) so rows and readers written
+    // before multi-question support keep working; a set is stored nested
+    // (`[[2],[1,3]]`) so the agent can replay each question in order.
     prompt.answer_json = Some(
-        serde_json::to_string(&chosen).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        if questions.len() == 1 {
+            serde_json::to_string(&sets[0])
+        } else {
+            serde_json::to_string(&sets)
+        }
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
     );
     prompt.answered_by = Some(ForeignKey::new(user_id));
     prompt.answered_at = Some(chrono::Utc::now());

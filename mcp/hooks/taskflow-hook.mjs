@@ -221,22 +221,41 @@ function detectTmuxPane() {
  * are the record itself and cannot be shortened away by any budget.
  */
 async function reportPrompt(profile, sessionId, toolInput) {
-  const question = toolInput?.questions?.[0];
-  if (!question || !Array.isArray(question.options) || question.options.length < 2) return;
+  const asked = Array.isArray(toolInput?.questions) ? toolInput.questions : [];
+  // Every question must carry real options; one malformed entry would shift the
+  // answers out of alignment with the questions they belong to.
+  const usable = asked.filter(
+    (q) => q && Array.isArray(q.options) && q.options.length >= 2,
+  );
+  if (!usable.length) return;
 
-  // Numbered to match what the terminal renders: option N is the key to press.
-  const options = question.options.map((option, index) => ({
-    number: index + 1,
-    label: String(option.label ?? "").slice(0, 200),
-    description: String(option.description ?? "").slice(0, 500),
+  const questions = usable.map((question) => ({
+    question: String(question.question ?? question.header ?? "Agent is asking").slice(0, 2000),
+    kind: question.multiSelect ? "multi" : "single",
+    // Numbered to match what the terminal renders: option N is the key to press.
+    options: question.options.map((option, index) => ({
+      number: index + 1,
+      label: String(option.label ?? "").slice(0, 200),
+      description: String(option.description ?? "").slice(0, 500),
+      // The preview is often the whole point of the question — a mockup, a diff,
+      // a config block. Dropping it left the dashboard asking someone to choose
+      // between things they could not see.
+      ...(option.preview ? { preview: String(option.preview).slice(0, 4000) } : {}),
+    })),
   }));
 
+  const first = questions[0];
   await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt`, {
-    question: String(question.question ?? question.header ?? "Agent is asking").slice(0, 2000),
-    options_json: JSON.stringify(options),
-    kind: question.multiSelect ? "multi" : "single",
-    // Identity of the QUESTION, so a re-render or retry updates one row.
-    fingerprint: `${question.header ?? ""}::${question.question ?? ""}`.slice(0, 300),
+    // The row's own columns describe the FIRST question, for list views and for
+    // readers written before multi-question support.
+    question: first.question,
+    options_json: JSON.stringify(questions),
+    kind: questions.length > 1 ? "set" : first.kind,
+    // Identity of the whole SET, so a re-render or retry updates one row.
+    fingerprint: usable
+      .map((q) => `${q.header ?? ""}::${q.question ?? ""}`)
+      .join("|")
+      .slice(0, 300),
   });
 }
 
