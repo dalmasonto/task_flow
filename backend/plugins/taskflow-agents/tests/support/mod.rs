@@ -472,6 +472,16 @@ impl TestApp {
             .project
             .id()
     }
+
+    /// Channels in a project — used to assert a rejected create wrote nothing.
+    pub async fn count_channels(&self, project: i64) -> i64 {
+        TaskflowAgentChannel::objects()
+            .filter(taskflow_agent_channel::PROJECT.eq(project))
+            .fetch()
+            .await
+            .unwrap_or_default()
+            .len() as i64
+    }
 }
 
 pub async fn seed_project() -> i64 {

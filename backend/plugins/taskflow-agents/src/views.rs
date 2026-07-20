@@ -398,6 +398,203 @@ pub async fn send_message(
 /// the channel roster.
 const CHANNEL_ROLE_MEMBER: &str = "member";
 
+/// One roster entry a client may ask for at creation. Exactly one of `user` or
+/// `agent` is meaningful, selected by `kind`; the other is ignored.
+#[derive(Debug, Deserialize)]
+pub struct CreateChannelMemberInput {
+    pub kind: String,
+    #[serde(default)]
+    pub user: Option<i64>,
+    #[serde(default)]
+    pub agent: Option<i64>,
+}
+
+/// The channel to create. Identity is NOT a body field: the creator comes from
+/// the token, and `project` is validated against the caller's own memberships
+/// rather than trusted.
+#[derive(Debug, Deserialize)]
+pub struct CreateChannelInput {
+    pub project: i64,
+    pub kind: TaskflowChannelKind,
+    pub title: String,
+    #[serde(default)]
+    pub topic: Option<String>,
+    #[serde(default)]
+    pub task: Option<i64>,
+    #[serde(default)]
+    pub members: Vec<CreateChannelMemberInput>,
+}
+
+/// `POST /api/taskflow/channels` — create a channel and its roster atomically.
+///
+/// Channel creation moved here for the same reason project creation did: a
+/// channel row is meaningless without its membership, and creating the two in
+/// separate client calls produced both an orphan-channel bug and a privilege
+/// hole. `visible_channel_ids` decides DM access by READING the roster, so a
+/// client-writable roster let anyone opt into any DM.
+///
+/// The caller is always added. That is not a convenience — it is what makes a
+/// DM bootstrappable at all: `add_channel_member` requires an existing roster
+/// row for Direct channels, which a brand-new DM has nobody to supply.
+pub async fn create_channel(
+    RequireAuth(caller_id): RequireAuth<i64>,
+    Json(input): Json<CreateChannelInput>,
+) -> Result<Response, StatusCode> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Caller gate: an active member of THIS project. Read from the table, never
+    // trusted from the request.
+    let caller_membership = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(input.project)
+                & taskflow_project_member::USER.eq(caller_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    // Resolve every requested member BEFORE opening the transaction, so a bad
+    // target is a clean 400 rather than a rollback. Each resolved entry carries
+    // the display name from the server's own records — never the client's.
+    struct Resolved {
+        kind: TaskflowChannelMemberKind,
+        user: Option<i64>,
+        agent: Option<i64>,
+        display_name: String,
+        role: String,
+    }
+
+    let mut resolved: Vec<Resolved> = vec![Resolved {
+        kind: TaskflowChannelMemberKind::User,
+        user: Some(caller_id),
+        agent: None,
+        display_name: caller_membership.display_name.clone(),
+        role: CHANNEL_ROLE_MEMBER.to_string(),
+    }];
+
+    for wanted in &input.members {
+        match wanted.kind.as_str() {
+            "user" => {
+                let Some(user_id) = wanted.user else {
+                    return Err(StatusCode::BAD_REQUEST);
+                };
+                if user_id == caller_id {
+                    continue; // already rostered as the creator
+                }
+                let Some(member) = TaskflowProjectMember::objects()
+                    .filter(
+                        taskflow_project_member::PROJECT.eq(input.project)
+                            & taskflow_project_member::USER.eq(user_id)
+                            & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+                    )
+                    .first()
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                else {
+                    return Ok(not_a_project_member_response());
+                };
+                resolved.push(Resolved {
+                    kind: TaskflowChannelMemberKind::User,
+                    user: Some(user_id),
+                    agent: None,
+                    display_name: member.display_name.clone(),
+                    role: CHANNEL_ROLE_MEMBER.to_string(),
+                });
+            }
+            "agent" => {
+                let Some(agent_id) = wanted.agent else {
+                    return Err(StatusCode::BAD_REQUEST);
+                };
+                let Some(agent) = TaskflowAgent::objects()
+                    .filter(taskflow_agent::ID.eq(agent_id))
+                    .first()
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                else {
+                    return Err(StatusCode::BAD_REQUEST);
+                };
+                // An agent is pinned to one project by its credential; rostering
+                // a foreign agent would hand it another project's traffic.
+                if agent.project.id() != input.project {
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+                resolved.push(Resolved {
+                    kind: TaskflowChannelMemberKind::Agent,
+                    user: None,
+                    agent: Some(agent_id),
+                    display_name: agent.display_name.clone(),
+                    role: "agent".to_string(),
+                });
+            }
+            _ => return Err(StatusCode::BAD_REQUEST),
+        }
+    }
+
+    let project_id = input.project;
+    let kind = input.kind;
+    let topic = input.topic.clone();
+    let task = input.task;
+
+    // Atomic: the channel and every roster row land together or not at all. A
+    // channel without its roster is invisible to its own creator and impossible
+    // to join, which is exactly the orphan this replaces.
+    let created = umbral::transaction(move |tx| {
+        Box::pin(async move {
+            let channel = TaskflowAgentChannel::objects()
+                .on_tx(tx)
+                .create(TaskflowAgentChannel {
+                    id: 0,
+                    project: ForeignKey::new(project_id),
+                    title,
+                    topic,
+                    kind,
+                    task: task.map(ForeignKey::new),
+                    created_by_user: Some(ForeignKey::new(caller_id)),
+                    created_by_agent: None,
+                    archived: false,
+                    created_at: None,
+                })
+                .await?;
+
+            let mut rows = Vec::with_capacity(resolved.len());
+            for entry in resolved {
+                rows.push(
+                    TaskflowAgentChannelMember::objects()
+                        .on_tx(tx)
+                        .create(TaskflowAgentChannelMember {
+                            id: 0,
+                            project: ForeignKey::new(project_id),
+                            channel: ForeignKey::new(channel.id),
+                            member_kind: entry.kind,
+                            user: entry.user.map(ForeignKey::new),
+                            agent: entry.agent.map(ForeignKey::new),
+                            display_name: entry.display_name,
+                            role: entry.role,
+                            joined_at: None,
+                        })
+                        .await?,
+                );
+            }
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((channel, rows))
+        })
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let (channel, members) = created;
+    let mut value =
+        serde_json::to_value(&channel).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert("members".to_string(), json!(members));
+    }
+    Ok((StatusCode::CREATED, Json(value)).into_response())
+}
+
 /// The only field a client may assert: which person to add. The channel comes
 /// from the PATH and the caller's identity from the auth token — neither is a
 /// body field, so there is nothing to forge. Agents are out of scope: this

@@ -48,6 +48,11 @@ pub fn router() -> Router {
             get(views::list_channels_as_agent),
         )
         .route("/api/taskflow/agents/agents", get(views::list_agents_as_agent))
+        // The only authorized way to CREATE a channel. Auto-REST's
+        // POST /api/taskflow_agent_channel/ creates a channel with no roster —
+        // an orphan its own creator cannot see — and leaves the roster table
+        // client-writable, which `visible_channel_ids` then trusts.
+        .route("/api/taskflow/channels", post(views::create_channel))
         // The only authorized way to add a person to a channel roster. Membership
         // and identity are resolved server-side; the channel comes from the path.
         .route(
