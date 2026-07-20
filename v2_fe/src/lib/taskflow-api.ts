@@ -1,4 +1,4 @@
-import { Umbral } from "@/api/client"
+import { Umbral, UmbralError } from "@/api/client"
 import type {
   TaskflowAgent,
   TaskflowAgentChannel,
@@ -182,11 +182,14 @@ const projectScopedRealtimeTables = [
 /// missing here silently costs a REST round-trip per event — which for
 /// agentSessions meant one request per streamed terminal frame, indistinguishable
 /// from the UI polling.
+///
+/// The four CHAT tables are deliberately absent, and adding one back is a
+/// privacy bug, not a performance win. Chat events route to a project-wide group
+/// while the rows themselves are channel-scoped, so anything projected there is
+/// broadcast to people who cannot read the channel. They are id-only on the
+/// backend for that reason; we refetch and let REST decide. See
+/// `backend/tests/realtime_dm_privacy.rs`.
 export const realtimeTablesWithInlineRows = [
-  taskflowTables.agentMessages,
-  taskflowTables.messageAttachments,
-  taskflowTables.agentChannels,
-  taskflowTables.agentChannelMembers,
   taskflowTables.terminalFrames,
   taskflowTables.agentSessions,
   taskflowTables.agentPrompts,
@@ -195,6 +198,22 @@ export const realtimeTablesWithInlineRows = [
 
 export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {
   return (realtimeTablesWithInlineRows as readonly string[]).includes(table)
+}
+
+/// Was a refetch refused because the caller cannot see that row?
+///
+/// Chat events are delivered to the whole project room, but the rows behind them
+/// are channel-scoped, so a member who is not on a DM's roster is told "row N
+/// changed" and then denied the row. That is the access control working, not a
+/// sync failure, and it happens every time anyone else exchanges a message —
+/// surfacing it would keep an error banner permanently lit.
+///
+/// A scope-filtered row is absent from the queryset, so `retrieve` answers 404;
+/// 403 covers a gate that refuses earlier. 401 is deliberately NOT included: an
+/// expired session must still surface, or the UI looks connected while silently
+/// receiving nothing.
+export function isScopeDenial(error: unknown): boolean {
+  return error instanceof UmbralError && (error.status === 404 || error.status === 403)
 }
 
 // --- realtime stream -------------------------------------------------------
