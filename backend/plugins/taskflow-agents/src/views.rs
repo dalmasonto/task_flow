@@ -1,5 +1,7 @@
 //! HTTP handlers for the `taskflow-agents` plugin.
 
+use std::collections::HashSet;
+
 use axum::body::Bytes;
 use serde::Deserialize;
 use serde_json::json;
@@ -477,6 +479,14 @@ pub async fn create_channel(
         role: CHANNEL_ROLE_MEMBER.to_string(),
     }];
 
+    // Dedup by (kind, id) so a repeated target degrades to a silent skip rather
+    // than a unique-index violation deep in the transaction. The caller is
+    // seeded here for the same reason the loop below skips `user_id ==
+    // caller_id` — both are "already rostered" checks, just against different
+    // sources.
+    let mut seen: HashSet<(bool, i64)> = HashSet::new();
+    seen.insert((false, caller_id));
+
     for wanted in &input.members {
         match wanted.kind.as_str() {
             "user" => {
@@ -485,6 +495,9 @@ pub async fn create_channel(
                 };
                 if user_id == caller_id {
                     continue; // already rostered as the creator
+                }
+                if !seen.insert((false, user_id)) {
+                    continue; // already resolved this user from an earlier entry
                 }
                 let Some(member) = TaskflowProjectMember::objects()
                     .filter(
@@ -510,6 +523,9 @@ pub async fn create_channel(
                 let Some(agent_id) = wanted.agent else {
                     return Err(StatusCode::BAD_REQUEST);
                 };
+                if !seen.insert((true, agent_id)) {
+                    continue; // already resolved this agent from an earlier entry
+                }
                 let Some(agent) = TaskflowAgent::objects()
                     .filter(taskflow_agent::ID.eq(agent_id))
                     .first()
@@ -535,10 +551,14 @@ pub async fn create_channel(
         }
     }
 
+    // Resolve the task link against THIS project before the transaction opens,
+    // same rule `scoped_task_link` enforces for activity ingest: a foreign
+    // project's task id is dropped rather than trusted verbatim.
+    let task = scoped_task_link(input.task, input.project).await?;
+
     let project_id = input.project;
     let kind = input.kind;
     let topic = input.topic.clone();
-    let task = input.task;
 
     // Atomic: the channel and every roster row land together or not at all. A
     // channel without its roster is invisible to its own creator and impossible
