@@ -14,12 +14,10 @@ import {
   detectTmuxPane,
   notifyPane,
   runTmuxMirror,
-  sendKeyToPane,
+  sendKeySequence,
   startMirrorLoop,
 } from "./tmux.js";
 import {
-  answerKeystrokes,
-  chosenNumbers,
   formatIncoming,
   shouldDeliver,
   startAgentEventStream,
@@ -28,6 +26,7 @@ import { TaskflowClient } from "./client.js";
 import { startMirrorWithRetry } from "./mirror.js";
 import { runMint } from "./mint.js";
 import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
+import { keystrokesForPrompt } from "./prompts.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
 
@@ -196,12 +195,23 @@ async function startMirrorForThisAgent(): Promise<void> {
         log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
         // A human answered a question the agent is blocked on: press the keys.
         onPromptAnswered: async (prompt) => {
-          const keys = answerKeystrokes(chosenNumbers(prompt), prompt.kind);
+          // A prompt may carry SEVERAL questions, each with its own kind, and
+          // the terminal shows them one at a time. keystrokesForPrompt replays
+          // them in order and returns nothing at all for a half-answered set —
+          // leftover digits would land on whichever screen came next.
+          const keys = keystrokesForPrompt(
+            prompt.options_json ?? "",
+            prompt.kind,
+            prompt.question,
+            prompt.answer_json,
+            prompt.answer,
+            prompt.status === "cancelled" ? "cancel" : "submit",
+          );
           if (!keys.length) return;
           try {
-            for (const key of keys) {
-              await sendKeyToPane(key, pane);
-            }
+            // Paced, not a tight loop: Claude Code's multi-select drops
+            // keystrokes that arrive while it is re-rendering a toggle.
+            await sendKeySequence(keys, pane);
             process.stderr.write(
               `taskflow-v2-mcp: answered prompt ${prompt.id} with [${keys.join(", ")}]\n`,
             );

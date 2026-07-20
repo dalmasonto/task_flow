@@ -389,9 +389,16 @@ pub struct TaskflowAgentPrompt {
     /// The question as it appears on screen.
     #[umbral(string, max_length = 2000)]
     pub question: String,
-    /// The options, as a JSON array of `{ number, label }`. JSON rather than a
-    /// child table: they are written once, read whole, and never queried.
-    #[umbral(string, max_length = 8000, widget = "textarea")]
+    /// The questions and their options, as JSON. A child table would be more
+    /// normal, but these are written once, read whole, and never queried.
+    ///
+    /// Two shapes, both readable: a bare option list (one question, how rows
+    /// were written before multi-question support) or a list of
+    /// `{ question, kind, options }`. `AskUserQuestion` accepts several
+    /// questions per call, and four options each carry a label plus a
+    /// description — 8000 chars overflowed on three questions, and a truncated
+    /// prompt is an unanswerable one.
+    #[umbral(string, max_length = 40000, widget = "textarea")]
     pub options_json: String,
     /// `single` (press one number) or `multi` (toggle several, then confirm).
     /// A multi prompt must NOT be answered by sending one digit.
@@ -406,9 +413,10 @@ pub struct TaskflowAgentPrompt {
     /// The option number a human chose (the first one, for display). Null until
     /// answered.
     pub answer: Option<i64>,
-    /// Every chosen number, as a JSON array. Multi-select answers are a SET, and
-    /// the agent needs the whole set to reproduce the keystrokes.
-    #[umbral(string, max_length = 200)]
+    /// The chosen numbers as JSON: flat (`[1,3]`) for a single question, nested
+    /// (`[[2],[1,3]]`) for a set — one list per question, in the order asked.
+    /// The agent needs the whole thing to reproduce the keystrokes.
+    #[umbral(string, max_length = 2000)]
     pub answer_json: Option<String>,
     #[umbral(on_delete = "set_null")]
     pub answered_by: Option<ForeignKey<AuthUser>>,

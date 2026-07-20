@@ -272,6 +272,42 @@ export async function sendKeyToPane(key: string, target?: string): Promise<void>
   await run("tmux", ["send-keys", ...base, key]);
 }
 
+/**
+ * How long to wait between keystrokes in a replayed answer.
+ *
+ * Keys fired back to back sometimes dropped the middle ones: Claude Code's
+ * multi-select re-renders on each toggle, and a keystroke arriving mid-render
+ * was lost. Observed non-deterministically — [1,2,3,4] recorded once as {1,4}
+ * and once as {1,2,3,4} from identical input. A short pause lets the TUI settle
+ * between keys. Human-in-the-loop, so ~700ms for a four-option answer is fine.
+ */
+const KEY_SEQUENCE_DELAY_MS = 90;
+
+/** Injected in tests so the ordering and pacing can be checked without tmux. */
+export interface KeySequenceDeps {
+  sendKey?: (key: string, target?: string) => Promise<void>;
+  sleep?: (ms: number) => Promise<void>;
+  delayMs?: number;
+}
+
+/**
+ * Send a sequence of keys to a pane with a pause BETWEEN each (never after the
+ * last), so a re-rendering TUI does not drop the ones in the middle.
+ */
+export async function sendKeySequence(
+  keys: string[],
+  target: string | undefined,
+  deps: KeySequenceDeps = {},
+): Promise<void> {
+  const sendKey = deps.sendKey ?? sendKeyToPane;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const delayMs = deps.delayMs ?? KEY_SEQUENCE_DELAY_MS;
+  for (let i = 0; i < keys.length; i++) {
+    if (i > 0) await sleep(delayMs);
+    await sendKey(keys[i]!, target);
+  }
+}
+
 /** Describe a pane for the session label, e.g. "0:0.0 (claude)". */
 export async function describePane(target?: string): Promise<string> {
   const args = ["display-message", "-p"];

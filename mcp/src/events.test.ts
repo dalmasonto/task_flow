@@ -164,20 +164,27 @@ describe("formatIncoming", () => {
 import { answerKeystrokes, chosenNumbers, isAnsweredPrompt } from "./events.js";
 
 describe("answerKeystrokes", () => {
-  // Verified against a live Claude Code session, not inferred: pressing the
-  // number on a single-select both selects AND submits.
-  it("single-select is just the number", () => {
-    expect(answerKeystrokes([2], "single")).toEqual(["2"]);
+  // Observed live 2026-07-21: pressing the number HIGHLIGHTS the option but does
+  // not submit it — the agent sat waiting on an answered prompt. The previous
+  // comment here claimed the number both selects and submits, and was wrong.
+  // Selection without submission is the worst failure mode available: the
+  // dashboard shows the question answered while the agent is still blocked.
+  it("single-select needs an explicit submit after the number", () => {
+    expect(answerKeystrokes([2], "single")).toEqual(["2", "Enter"]);
   });
 
-  // Also verified live: numbers TOGGLE, Right opens the review pane, 1 submits.
-  // Sending one digit here would tick a box and leave the agent still waiting.
-  it("multi-select toggles each, then Right, then 1 to submit", () => {
-    expect(answerKeystrokes([1, 3], "multi")).toEqual(["1", "3", "Right", "1"]);
+  // Observed live 2026-07-21: numbers TOGGLE, then Right opens the review
+  // screen ("Ready to submit your answers?"). answerKeystrokes only REACHES
+  // that screen; the submit is owned by keystrokesForPrompt, because the same
+  // review screen is shared with multi-question sets. The earlier trailing "1"
+  // here was a submit attempt with no Enter — it highlighted the option and
+  // left the agent waiting, exactly like the single-select bug.
+  it("multi-select toggles each, then Right to reach the review screen", () => {
+    expect(answerKeystrokes([1, 3], "multi")).toEqual(["1", "3", "Right"]);
   });
 
-  it("a one-item multi-select still needs the submit stage", () => {
-    expect(answerKeystrokes([2], "multi")).toEqual(["2", "Right", "1"]);
+  it("a one-item multi-select still opens the review screen", () => {
+    expect(answerKeystrokes([2], "multi")).toEqual(["2", "Right"]);
   });
 
   it("sends nothing when nothing was chosen", () => {
@@ -205,6 +212,23 @@ describe("chosenNumbers", () => {
 describe("isAnsweredPrompt", () => {
   it("ignores a prompt that is still pending", () => {
     expect(isAnsweredPrompt({ id: 1, status: "pending", answer: null, answer_json: null })).toBe(false);
+  });
+
+  // "Cancel" is the other button on the review screen, and reaching it means
+  // replaying every answer first — so a human cancel is just as actionable as a
+  // human submit. `answered_by` is what separates it from the agent clearing its
+  // own prompt (timed out, answered in the terminal), which must NOT fire keys:
+  // that agent has already moved on and the digits would land elsewhere.
+  it("acts on a prompt a human cancelled from the dashboard", () => {
+    expect(
+      isAnsweredPrompt({ id: 1, status: "cancelled", answer: 2, answer_json: "[[2],[1]]", answered_by: 1 })
+    ).toBe(true);
+  });
+
+  it("ignores a prompt the AGENT cancelled for itself", () => {
+    expect(
+      isAnsweredPrompt({ id: 1, status: "cancelled", answer: null, answer_json: null, answered_by: null })
+    ).toBe(false);
   });
 
   it("accepts an answered one", () => {
