@@ -52,6 +52,10 @@ struct Seed {
     alice_dm: i64,
     /// Carol's DM. Alice must never see it, nor its messages.
     carol_dm: i64,
+    /// A Direct channel rostered to `dave` and nobody else — the DM an intruder
+    /// tries to write themselves onto. Kept separate from `carol_dm` so the
+    /// escalation tests never perturb the rows the DM-privacy tests read.
+    private_dm: i64,
 }
 
 static APP: OnceCell<(Router, Seed)> = OnceCell::const_new();
@@ -228,6 +232,14 @@ async fn seed() -> Seed {
     make_channel_member(project_p, carol_dm, carol).await;
     make_message(project_p, carol_dm, "carol private").await;
 
+    // A DM belonging to a third person entirely. The roster-escalation tests
+    // target this one, so nothing they do can disturb alice's or carol's rows.
+    let dave = make_user("dave", false).await;
+    make_member(project_p, dave, TaskflowMembershipStatus::Active).await;
+    let private_dm = make_channel(project_p, "dave dm", TaskflowChannelKind::Direct).await;
+    make_channel_member(project_p, private_dm, dave).await;
+    make_message(project_p, private_dm, "dave private").await;
+
     Seed {
         alice,
         bob,
@@ -238,6 +250,7 @@ async fn seed() -> Seed {
         shared_channel,
         alice_dm,
         carol_dm,
+        private_dm,
     }
 }
 
@@ -625,6 +638,94 @@ async fn the_dm_owner_still_sees_their_own() {
     let (_, seed) = app().await;
     let status = status_as(seed.carol, &format!("/api/taskflow_agent_channel/{}", seed.carol_dm)).await;
     assert_eq!(status, 200, "carol must still see her own DM");
+}
+
+// --- Channel/roster writes are not client business ---------------------------
+
+/// The escalation this whole change exists to stop: `visible_channel_ids` decides
+/// DM access by READING the roster, so a client-writable roster let a project
+/// member opt into any DM with one POST.
+#[tokio::test]
+async fn a_member_cannot_post_themselves_onto_someone_elses_dm() {
+    let (_, seed) = app().await;
+    let intruder = make_user("intruder", false).await;
+    make_member(seed.project_p, intruder, TaskflowMembershipStatus::Active).await;
+
+    let (status, body) = post_as(
+        intruder,
+        "/api/taskflow_agent_channel_member/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "channel": seed.private_dm,
+            "member_kind": "user",
+            "user": intruder,
+            "display_name": "intruder",
+            "role": "member",
+        }),
+    )
+    .await;
+
+    // 405, observed, not assumed: before the fix this POST returned 201. umbral
+    // mounts a method per exposed action (`exposed_methods` in umbral-rest), so
+    // dropping Create unmounts POST while the collection path itself stays (GET
+    // List is still exposed) — the method router answers 405 Method Not Allowed
+    // with an `Allow: GET`. It is 405 rather than 403 because this is a property
+    // of the resource, not of who is asking.
+    assert_eq!(
+        status, 405,
+        "roster create must be refused, got {status}: {body}",
+    );
+
+    // And the DM is still invisible to them.
+    let (_, channels) = get_as(intruder, false, "/api/taskflow_agent_channel/").await;
+    assert!(
+        !result_ids(&channels).contains(&seed.private_dm),
+        "DM must stay hidden; got {channels}",
+    );
+}
+
+/// Channels come only from `POST /api/taskflow/channels`, which writes the
+/// channel and its roster in one transaction. An auto-REST create would make a
+/// channel with no roster — invisible to its own creator.
+#[tokio::test]
+async fn auto_rest_cannot_create_a_channel() {
+    let (_, seed) = app().await;
+    let member = make_user("creator_via_rest", false).await;
+    make_member(seed.project_p, member, TaskflowMembershipStatus::Active).await;
+
+    let (status, body) = post_as(
+        member,
+        "/api/taskflow_agent_channel/",
+        serde_json::json!({ "project": seed.project_p, "kind": "direct", "title": "Sneaky" }),
+    )
+    .await;
+
+    assert_eq!(
+        status, 405,
+        "channel create must go through POST /api/taskflow/channels, got {status}: {body}",
+    );
+}
+
+/// The actions that stayed. Stripping create must not have taken reads with it:
+/// the frontend lists channels and rosters constantly, and `visible_channel_ids`
+/// itself reads the roster table.
+#[tokio::test]
+async fn channels_and_rosters_are_still_readable() {
+    let (_, seed) = app().await;
+
+    let (status, channels) = get_as(seed.carol, false, "/api/taskflow_agent_channel/").await;
+    assert_eq!(status, 200, "listing channels must still work; got {channels}");
+    assert!(
+        result_ids(&channels).contains(&seed.carol_dm),
+        "carol must still list her own DM; got {channels}",
+    );
+
+    let (status, roster) = get_as(seed.carol, false, "/api/taskflow_agent_channel_member/").await;
+    assert_eq!(status, 200, "listing rosters must still work; got {roster}");
+    assert!(
+        !roster["results"].as_array().expect("results").is_empty(),
+        "carol must still see her own roster rows; got {roster}",
+    );
 }
 
 // Prompts carry a question an agent is blocked on, and answering one sends

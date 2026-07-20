@@ -281,7 +281,29 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
 
     let chat = CHANNEL_SCOPED_TABLES.iter().map(|table| {
         let column = if *table == "taskflow_agent_channel" { "id" } else { "channel" };
-        ResourceConfig::new(*table).scope_async(channel_scope(column))
+        let config = ResourceConfig::new(*table).scope_async(channel_scope(column));
+        match *table {
+            // Channels are created ONLY through POST /api/taskflow/channels,
+            // which writes the channel and its roster in one transaction. An
+            // auto-REST create makes a channel with no roster — invisible to its
+            // own creator, and impossible to join, because add_channel_member
+            // needs a roster row that was never written. Update/Delete stay: the
+            // frontend renames and archives, still row-scoped.
+            "taskflow_agent_channel" => config.views([
+                Action::List,
+                Action::Retrieve,
+                Action::Update,
+                Action::Delete,
+            ]),
+            // Roster rows are ACCESS-GRANTING: `visible_channel_ids` reads this
+            // table to decide who may see a DM. Left writable, any project member
+            // could POST themselves a row and the read scope would honour it —
+            // the same escalation `taskflow_project_member` is read-only to
+            // prevent. Rows come from channel creation or the trusted
+            // POST /api/taskflow/channels/{channel}/members.
+            "taskflow_agent_channel_member" => config.views([Action::List, Action::Retrieve]),
+            _ => config,
+        }
     });
 
     let read_only = READ_ONLY_PROJECT_SCOPED_TABLES.iter().map(|table| {
