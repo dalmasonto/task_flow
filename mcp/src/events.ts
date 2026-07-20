@@ -323,6 +323,8 @@ export interface PromptEvent {
   status: string;
   answer: number | null;
   answer_json: string | null;
+  /** Set when a HUMAN answered or cancelled it; null when the agent cleared it. */
+  answered_by?: number | null;
   /**
    * The options, as the hook wrote them. Carried on the realtime projection
    * (`PROMPT_FIELDS` in backend/src/realtime.rs) because a multi-question prompt
@@ -345,13 +347,22 @@ export function chosenNumbers(prompt: PromptEvent): number[] {
   return prompt.answer != null ? [prompt.answer] : [];
 }
 
-/** Whether this event is an answer this agent should act on. */
+/**
+ * Whether this event is a human decision this agent should act on.
+ *
+ * `answered` and `cancelled` are BOTH actionable: cancel is the other button on
+ * the review screen, and reaching it means replaying every answer first, so it
+ * is just as much a keystroke sequence as submit.
+ *
+ * `answered_by` is what separates a human cancel from the agent clearing its own
+ * prompt — it times out, or someone answers in the terminal directly, and the
+ * row is marked cancelled with nobody attributed. Firing keys for that would
+ * type digits at a screen the agent has already left.
+ */
 export function isAnsweredPrompt(row: unknown): row is PromptEvent {
   const prompt = row as Partial<PromptEvent> | undefined;
-  return Boolean(
-    prompt &&
-      typeof prompt.id === "number" &&
-      prompt.status === "answered" &&
-      (prompt.answer != null || prompt.answer_json),
-  );
+  if (!prompt || typeof prompt.id !== "number") return false;
+  if (prompt.answer == null && !prompt.answer_json) return false;
+  if (prompt.status === "answered") return true;
+  return prompt.status === "cancelled" && prompt.answered_by != null;
 }

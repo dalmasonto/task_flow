@@ -3110,6 +3110,13 @@ pub struct AnswerPromptInput {
     /// whatever screen it had moved on to.
     #[serde(default)]
     pub answers: Option<Vec<Vec<i64>>>,
+    /// Chose "Cancel" on the review screen rather than "Submit".
+    ///
+    /// The answers still come with it and are still validated and stored: the
+    /// review screen only exists once every question has been answered, so the
+    /// agent replays the choices to GET there and only then presses cancel.
+    #[serde(default)]
+    pub cancel: Option<bool>,
 }
 
 /// One question inside a multi-question `options_json`.
@@ -3222,7 +3229,12 @@ pub async fn answer_prompt(
         }
     }
 
-    prompt.status = TaskflowPromptStatus::Answered;
+    let cancelled = input.cancel.unwrap_or(false);
+    prompt.status = if cancelled {
+        TaskflowPromptStatus::Cancelled
+    } else {
+        TaskflowPromptStatus::Answered
+    };
     // `answer` keeps the first choice for display.
     prompt.answer = sets.first().and_then(|set| set.first()).copied();
     // A single-question prompt stays FLAT (`[2]`) so rows and readers written

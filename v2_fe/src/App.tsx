@@ -4562,7 +4562,7 @@ export type AgentsOutletContext = {
   currentUser: AuthUser | null
   /// The question the selected agent is blocked on, if any.
   pendingPrompt?: TaskflowWorkspace["agentPrompts"][number]
-  onAnswerPrompt: (promptId: number, answers: number[][]) => Promise<void>
+  onAnswerPrompt: (promptId: number, answers: number[][], cancel?: boolean) => Promise<void>
 }
 
 function useAgentsOutletContext() {
@@ -4864,9 +4864,12 @@ function AgentsPage({
       .sort((a, b) => b.id - a.id)[0]
   }, [selectedChat, liveWorkspace])
 
-  const handleAnswerPrompt = useCallback(async (promptId: number, answers: number[][]) => {
-    await answerAgentPrompt(promptId, answers)
-  }, [])
+  const handleAnswerPrompt = useCallback(
+    async (promptId: number, answers: number[][], cancel = false) => {
+      await answerAgentPrompt(promptId, answers, cancel)
+    },
+    []
+  )
 
   const outletContext: AgentsOutletContext = {
     selectedChat,
@@ -5149,7 +5152,7 @@ function AgentPromptCard({
   onAnswer,
 }: {
   prompt: TaskflowWorkspace["agentPrompts"][number]
-  onAnswer: (promptId: number, answers: number[][]) => Promise<void>
+  onAnswer: (promptId: number, answers: number[][], cancel?: boolean) => Promise<void>
 }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -5189,12 +5192,12 @@ function AgentPromptCard({
   // time would replay digits into a screen the terminal has already left.
   const complete = questions.length > 0 && selected.every((set) => set.length > 0)
 
-  const submit = async (sets: number[][]) => {
+  const submit = async (sets: number[][], cancel = false) => {
     if (!complete || pending) return
     setPending(true)
     setError(null)
     try {
-      await onAnswer(prompt.id, sets)
+      await onAnswer(prompt.id, sets, cancel)
       // Answered: the draft has served its purpose and would otherwise be
       // re-applied if this prompt id were ever rendered again.
       clearPromptDraft(prompt.id)
@@ -5212,6 +5215,10 @@ function AgentPromptCard({
         <AlertCircleIcon className="size-4 shrink-0" />
         <p className="text-sm font-medium">Agent is waiting for your answer</p>
       </div>
+      {/* Bounded and scrollable: three questions with previews ran past the
+          bottom of the card and the submit button could not be reached at all
+          — the only way to answer was to zoom the whole browser out. */}
+      <div className="mt-1 max-h-[45vh] overflow-y-auto pr-1">
       {questions.map((q, qIndex) => (
         <div key={qIndex} className={qIndex === 0 ? "" : "mt-4"}>
           <p className="mt-2 text-sm text-foreground">
@@ -5265,17 +5272,34 @@ function AgentPromptCard({
           </div>
         </div>
       ))}
+      </div>
 
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" disabled={!complete || pending} onClick={() => void submit(selected)}>
-          {pending ? "Sending…" : "Send answer"}
+          {pending ? "Sending…" : "Submit answers"}
         </Button>
+        {/* Cancel is the OTHER option on the terminal's review screen, and that
+            screen only exists for a question SET — a single question submits the
+            moment it is answered, so there is no cancel key to press. Gated on
+            `complete` for the same reason submit is: the agent has to replay
+            every answer to reach the review screen. */}
+        {questions.length > 1 ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!complete || pending}
+            onClick={() => void submit(selected, true)}
+          >
+            Cancel
+          </Button>
+        ) : null}
         <span className="text-xs text-muted-foreground">
           {complete
             ? "The agent resumes as soon as you send."
             : questions.length > 1
-              ? "Answer every question, then send."
-              : "Choose an option, then send."}
+              ? "Answer every question, then submit."
+              : "Choose an option, then submit."}
         </span>
       </div>
 

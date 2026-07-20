@@ -615,19 +615,25 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
 /// support; a set sends `answers`.
 export async function answerAgentPrompt(
   promptId: number,
-  answers: number[][]
+  answers: number[][],
+  /// "Cancel" on the terminal's review screen. The answers still travel with it
+  /// and are still validated: that screen only exists once every question has
+  /// been answered, so the agent replays the choices to REACH it and only then
+  /// presses cancel.
+  cancel = false
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/taskflow/prompts/${promptId}/answer`, {
     method: "POST",
     credentials: "include",
     headers: bearerHeaders(),
-    body: JSON.stringify(
-      answers.length > 1
+    body: JSON.stringify({
+      ...(answers.length > 1
         ? { answers }
         : (answers[0] ?? []).length > 1
           ? { choices: answers[0] }
-          : { choice: answers[0]?.[0] }
-    ),
+          : { choice: answers[0]?.[0] }),
+      ...(cancel ? { cancel: true } : {}),
+    }),
   })
   if (!response.ok) {
     throw new Error(

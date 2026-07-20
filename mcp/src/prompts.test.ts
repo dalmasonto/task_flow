@@ -91,7 +91,12 @@ describe("keystrokesForPrompt", () => {
   // Each question is a separate screen, so the sequences run back to back in the
   // order the questions were asked. Getting the order wrong answers the right
   // question with the wrong number.
-  it("answers a set in question order", () => {
+  //
+  // A SET then lands on a review screen ("Ready to submit your answers?" —
+  // 1. Submit answers / 2. Cancel), verified from a live session 2026-07-21.
+  // Without that final stage the agent answered every question and then sat on
+  // the review screen forever.
+  it("answers a set in question order, then submits at the review screen", () => {
     expect(keystrokesForPrompt(setOptions, "set", "Q", "[[2],[1,3]]", null)).toEqual([
       "2",
       "Enter",
@@ -99,7 +104,38 @@ describe("keystrokesForPrompt", () => {
       "3",
       "Right",
       "1",
+      "1",
+      "Enter",
     ]);
+  });
+
+  // A single question submits on its own — no review screen, as verified when
+  // ["3","Enter"] resumed the agent. Appending a review submit here would send a
+  // stray "1" at whatever came next.
+  it("does not add a review stage to a single question", () => {
+    expect(keystrokesForPrompt(legacyOptions, "single", "Q", "[2]", 2)).toEqual(["2", "Enter"]);
+  });
+
+  // Cancel is the OTHER option on that same review screen, so it replays every
+  // answer first and only then chooses 2. Sending "2" before the review screen
+  // exists would pick option 2 of whichever question is on screen.
+  it("cancels at the review screen after replaying the answers", () => {
+    expect(keystrokesForPrompt(setOptions, "set", "Q", "[[2],[1,3]]", null, "cancel")).toEqual([
+      "2",
+      "Enter",
+      "1",
+      "3",
+      "Right",
+      "1",
+      "2",
+      "Enter",
+    ]);
+  });
+
+  // There is no review screen for one question, so there is no cancel key that
+  // could be pressed safely — better to send nothing than to guess.
+  it("sends nothing when asked to cancel a single question", () => {
+    expect(keystrokesForPrompt(legacyOptions, "single", "Q", "[2]", 2, "cancel")).toEqual([]);
   });
 
   // Half a set is worse than none: the leftover digits land on whatever screen

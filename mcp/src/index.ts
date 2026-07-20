@@ -205,6 +205,7 @@ async function startMirrorForThisAgent(): Promise<void> {
             prompt.question,
             prompt.answer_json,
             prompt.answer,
+            prompt.status === "cancelled" ? "cancel" : "submit",
           );
           if (!keys.length) return;
           try {

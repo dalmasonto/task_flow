@@ -214,3 +214,42 @@ async fn an_empty_choice_list_for_a_question_is_refused() {
         .await;
     assert_eq!(resp.status(), 400);
 }
+
+// Cancelling from the dashboard is the review screen's OTHER option, so the
+// answers still arrive, are still validated, and are still stored — the agent
+// replays them to reach the review screen and only then presses cancel. Only
+// the status differs.
+#[tokio::test]
+async fn cancelling_a_set_still_records_the_answers() {
+    let f = fixture().await;
+    let prompt = report(&f.app, &f.key, f.session, SET, "set").await;
+    let resp = f
+        .app
+        .post_as(
+            f.user,
+            &format!("/api/taskflow/prompts/{prompt}/answer"),
+            json!({ "answers": [[2], [1, 3]], "cancel": true }),
+        )
+        .await;
+    assert_eq!(resp.status(), 200, "cancelling a full set must succeed");
+    let body = resp.json().await;
+    assert_eq!(body["status"], json!("cancelled"));
+    assert_eq!(body["answer_json"], json!("[[2],[1,3]]"));
+}
+
+// Cancel does not bypass validation: the keystrokes still get replayed, so an
+// unoffered number would still be typed into a live terminal.
+#[tokio::test]
+async fn cancelling_with_an_invalid_number_is_still_refused() {
+    let f = fixture().await;
+    let prompt = report(&f.app, &f.key, f.session, SET, "set").await;
+    let resp = f
+        .app
+        .post_as(
+            f.user,
+            &format!("/api/taskflow/prompts/{prompt}/answer"),
+            json!({ "answers": [[9], [1]], "cancel": true }),
+        )
+        .await;
+    assert_eq!(resp.status(), 400);
+}

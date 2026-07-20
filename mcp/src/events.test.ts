@@ -210,6 +210,23 @@ describe("isAnsweredPrompt", () => {
     expect(isAnsweredPrompt({ id: 1, status: "pending", answer: null, answer_json: null })).toBe(false);
   });
 
+  // "Cancel" is the other button on the review screen, and reaching it means
+  // replaying every answer first — so a human cancel is just as actionable as a
+  // human submit. `answered_by` is what separates it from the agent clearing its
+  // own prompt (timed out, answered in the terminal), which must NOT fire keys:
+  // that agent has already moved on and the digits would land elsewhere.
+  it("acts on a prompt a human cancelled from the dashboard", () => {
+    expect(
+      isAnsweredPrompt({ id: 1, status: "cancelled", answer: 2, answer_json: "[[2],[1]]", answered_by: 1 })
+    ).toBe(true);
+  });
+
+  it("ignores a prompt the AGENT cancelled for itself", () => {
+    expect(
+      isAnsweredPrompt({ id: 1, status: "cancelled", answer: null, answer_json: null, answered_by: null })
+    ).toBe(false);
+  });
+
   it("accepts an answered one", () => {
     expect(isAnsweredPrompt({ id: 1, status: "answered", answer: 2, answer_json: null })).toBe(true);
   });

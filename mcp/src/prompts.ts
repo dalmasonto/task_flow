@@ -118,13 +118,38 @@ export function isFullyAnswered(sets: number[][], questionCount: number): boolea
   return sets.every((set) => set.length > 0);
 }
 
+/** What the human chose to do with an answered prompt. */
+export type PromptIntent = "submit" | "cancel";
+
+/**
+ * The review screen a MULTI-QUESTION set lands on once every question has been
+ * answered:
+ *
+ *     Ready to submit your answers?
+ *     > 1. Submit answers
+ *       2. Cancel
+ *
+ * Verified against a live session on 2026-07-21. Without this stage the agent
+ * answered all three questions and then sat on the review screen forever — the
+ * questions were right, and nothing pressed the final key.
+ *
+ * A numbered choice, so it takes a number AND Enter, matching the single-select
+ * behaviour confirmed the same day.
+ */
+const REVIEW_SUBMIT = ["1", "Enter"];
+const REVIEW_CANCEL = ["2", "Enter"];
+
 /**
  * The full keystroke sequence for an answered prompt, or `[]` when it must not
  * be replayed.
  *
  * Each question contributes its own sequence and they run back to back, in the
  * order the questions were asked — the terminal advances to the next question as
- * each is submitted.
+ * each is submitted. A set then confirms at the review screen.
+ *
+ * A SINGLE question has no review screen (it submits as soon as it is answered),
+ * so nothing is appended — and there is no key that safely means "cancel", which
+ * is why cancelling one sends nothing rather than guessing.
  */
 export function keystrokesForPrompt(
   optionsJson: string,
@@ -132,9 +157,18 @@ export function keystrokesForPrompt(
   question: string,
   answerJson: string | null,
   answer: number | null,
+  intent: PromptIntent = "submit",
 ): string[] {
   const questions = parseQuestions(optionsJson, kind, question);
   const sets = parseAnswerSets(answerJson, answer);
   if (!isFullyAnswered(sets, questions.length)) return [];
-  return questions.flatMap((q, i) => answerKeystrokes(sets[i] ?? [], q.kind));
+
+  const hasReviewScreen = questions.length > 1;
+  if (intent === "cancel" && !hasReviewScreen) return [];
+
+  const answers = questions.flatMap((q, i) => answerKeystrokes(sets[i] ?? [], q.kind));
+  if (!hasReviewScreen) return answers;
+  // Cancel is reached the same way as submit: every answer is replayed first,
+  // because the review screen only exists once the last question is answered.
+  return [...answers, ...(intent === "cancel" ? REVIEW_CANCEL : REVIEW_SUBMIT)];
 }
