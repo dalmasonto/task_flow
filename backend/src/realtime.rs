@@ -10,11 +10,20 @@
 //! across tables. The group carries the discriminator instead:
 //! `project:{id}:{suffix}`.
 //!
-//! Chat tables project their fields so the frontend renders straight from the
-//! event. Everything else stays id-only and is refetched over authenticated
-//! REST. Projected columns reach every group member, so the group policy below
-//! admits a caller to `project:{id}:*` only when they are an active member of
-//! project `{id}` (superuser: any) — see `may_join`.
+//! **What may be projected.** A projected column reaches every subscriber of the
+//! group, and groups here are per-PROJECT. So a table may carry fields only if
+//! every project member is entitled to every row of it. Terminal frames, agent
+//! sessions, prompts and task activity qualify — they are shared workspace state
+//! and already readable project-wide over REST.
+//!
+//! The chat tables do NOT. They are channel-scoped (`rest.rs`), so projecting
+//! them broadcast every DM to the whole project; they are id-only and refetched
+//! over channel-scoped REST. See `tests/realtime_dm_privacy.rs`.
+//!
+//! The group policy below admits a caller to `project:{id}:*` only when they are
+//! an active member of project `{id}` (superuser: any) — see `may_join`. That
+//! gate is necessary but NOT sufficient for row privacy: it distinguishes
+//! members from non-members and knows nothing about channel rosters.
 
 use serde_json::Value;
 use taskflow_agents::models::{
@@ -55,56 +64,10 @@ const PROJECT_INVITES: &str = "project_invites";
 const API_ENDPOINTS: &str = "api_endpoints";
 const PRESENCE: &str = "presence";
 
-/// Fields the chat tables put on the wire. Whitelists, not `all_fields()` —
-/// every column named here is visible to everyone in the room.
-const MESSAGE_FIELDS: &[&str] = &[
-    "id",
-    "project",
-    "channel",
-    "task",
-    "client_nonce",
-    "sender_kind",
-    "sender_user",
-    "sender_agent",
-    "sender_label",
-    "body_markdown",
-    "priority",
-    "created_at",
-];
-const CHANNEL_FIELDS: &[&str] = &[
-    "id",
-    "project",
-    "title",
-    "topic",
-    "kind",
-    "task",
-    "archived",
-    "created_at",
-];
-const CHANNEL_MEMBER_FIELDS: &[&str] = &[
-    "id",
-    "project",
-    "channel",
-    "member_kind",
-    "user",
-    "agent",
-    "display_name",
-    "role",
-    "joined_at",
-];
-/// Attachment columns the frontend needs to render an inline image or a
-/// download row. `file` is the storage key; the client resolves the display URL
-/// as `/media/<key>` (the same value `FileField::url()` produces).
-const MESSAGE_ATTACHMENT_FIELDS: &[&str] = &[
-    "id",
-    "message",
-    "project",
-    "file",
-    "name",
-    "content_type",
-    "size_bytes",
-    "created_at",
-];
+// The chat tables carry NO projected fields — see the `expose` calls below for
+// why. Their former `*_FIELDS` whitelists are deliberately gone rather than
+// trimmed: any whitelist here is delivered to the whole project room, so there
+// is no subset of a DM's columns that is safe to name.
 
 /// Agent sessions are projected inline for the same reason as terminal frames,
 /// but the trigger is subtler: appending a frame BUMPS the session's
@@ -198,23 +161,35 @@ pub fn plugin() -> RealtimePlugin {
         }))
         // Project list changes. Id-only; clients refetch via REST.
         .expose::<TaskflowProject>(Expose::to_group(PROJECTS_GROUP))
-        // Chat: fields projected so the frontend never refetches.
-        .expose::<TaskflowAgentMessage>(
-            Expose::to_group_with(|ev| group_for(MESSAGES, &ev.instance)).fields(MESSAGE_FIELDS),
-        )
-        .expose::<TaskflowAgentChannel>(
-            Expose::to_group_with(|ev| group_for(CHANNELS, &ev.instance)).fields(CHANNEL_FIELDS),
-        )
-        .expose::<TaskflowAgentChannelMember>(
-            Expose::to_group_with(|ev| group_for(CHANNEL_MEMBERS, &ev.instance))
-                .fields(CHANNEL_MEMBER_FIELDS),
-        )
-        // Attachments: fields projected so other clients merge new files by
-        // their `message` FK without a refetch (same posture as chat).
-        .expose::<TaskflowMessageAttachment>(
-            Expose::to_group_with(|ev| group_for(MESSAGE_ATTACHMENTS, &ev.instance))
-                .fields(MESSAGE_ATTACHMENT_FIELDS),
-        )
+        // Chat: id-only, and it must stay that way.
+        //
+        // These four tables are CHANNEL-scoped (`rest.rs::CHANNEL_SCOPED_TABLES`)
+        // but they route to a PROJECT group, because `group_for` can only see the
+        // row's `project` FK. So every subscriber in the project receives every
+        // chat event — a DM between two members included. Projecting fields here
+        // handed the whole project each DM's `body_markdown`, roster row, title
+        // and attachment storage key, which is precisely what `channel_scope`
+        // exists to prevent over REST.
+        //
+        // Id-only makes REST the single arbiter of who reads what: the client
+        // learns "row N changed" and refetches, and `visible_channel_ids` decides
+        // whether it gets anything. A caller off the roster gets a denial, which
+        // the frontend treats as expected rather than as a sync error.
+        //
+        // Do NOT add `.fields(...)` back without making the group per-channel
+        // first. See `tests/realtime_dm_privacy.rs`.
+        .expose::<TaskflowAgentMessage>(Expose::to_group_with(|ev| {
+            group_for(MESSAGES, &ev.instance)
+        }))
+        .expose::<TaskflowAgentChannel>(Expose::to_group_with(|ev| {
+            group_for(CHANNELS, &ev.instance)
+        }))
+        .expose::<TaskflowAgentChannelMember>(Expose::to_group_with(|ev| {
+            group_for(CHANNEL_MEMBERS, &ev.instance)
+        }))
+        .expose::<TaskflowMessageAttachment>(Expose::to_group_with(|ev| {
+            group_for(MESSAGE_ATTACHMENTS, &ev.instance)
+        }))
         // Everything else: id-only, client refetches the one row that changed.
         .expose::<TaskflowProjectMember>(Expose::to_group_with(|ev| {
             group_for(PROJECT_MEMBERS, &ev.instance)

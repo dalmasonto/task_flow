@@ -110,6 +110,7 @@ import {
   markChannelRead,
   openTaskflowRealtimeStream,
   taskflowRealtimeGroups,
+  isScopeDenial,
   realtimeEventHasInlineRow,
   reviewTask as submitTaskReview,
   sendTaskflowAgentMessage,
@@ -2096,8 +2097,9 @@ function App() {
         return
       }
 
-      // Chat tables project their fields server-side, so the event already
-      // carries the row. Refetching it would be a round-trip for data we hold.
+      // A few high-frequency non-chat tables project their fields server-side,
+      // so the event already carries the row. Refetching would be a round-trip
+      // for data we hold. Chat is NOT among them — see `realtimeTablesWithInlineRows`.
       if (realtimeEventHasInlineRow(event.table)) {
         applyRealtimeRow(event, event.row as never, projectId)
         return
@@ -2147,8 +2149,27 @@ function App() {
           case taskflowTables.taskReviews:
             applyRealtimeRow(event, await taskflowApi.get(taskflowTables.taskReviews, rowId), projectId)
             break
+          // Chat. Id-only on the wire because these events fan out to the whole
+          // project room; REST re-checks the channel roster and denies rows the
+          // caller cannot read.
+          case taskflowTables.agentMessages:
+            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentMessages, rowId), projectId)
+            break
+          case taskflowTables.messageAttachments:
+            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.messageAttachments, rowId), projectId)
+            break
+          case taskflowTables.agentChannels:
+            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentChannels, rowId), projectId)
+            break
+          case taskflowTables.agentChannelMembers:
+            applyRealtimeRow(event, await taskflowApi.get(taskflowTables.agentChannelMembers, rowId), projectId)
+            break
         }
       } catch (error) {
+        // A denial means the row belongs to a channel this user is not on. That
+        // is the scope working; it fires for every message anyone else sends and
+        // must not surface as a sync error.
+        if (isScopeDenial(error)) return
         setLiveSyncError(error instanceof Error ? error.message : "Could not apply realtime update.")
       }
     },
