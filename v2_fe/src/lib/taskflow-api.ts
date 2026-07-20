@@ -2,9 +2,7 @@ import { Umbral } from "@/api/client"
 import type {
   TaskflowAgent,
   TaskflowAgentChannel,
-  TaskflowAgentChannelCreate,
   TaskflowAgentChannelMember,
-  TaskflowAgentChannelMemberCreate,
   TaskflowAgentCredential,
   TaskflowAgentMessage,
   TaskflowAgentPrompt,
@@ -608,14 +606,6 @@ export async function answerAgentPrompt(
         : await readErrorDetail(response, `Could not answer (${response.status}).`)
     )
   }
-}
-
-export function createTaskflowAgentChannel(input: TaskflowAgentChannelCreate) {
-  return taskflowApi.create(taskflowTables.agentChannels, input)
-}
-
-export function createTaskflowAgentChannelMember(input: TaskflowAgentChannelMemberCreate) {
-  return taskflowApi.create(taskflowTables.agentChannelMembers, input)
 }
 
 /// Create a channel and its roster in one authorized call. The caller is added

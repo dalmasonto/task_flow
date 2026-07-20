@@ -728,6 +728,79 @@ async fn channels_and_rosters_are_still_readable() {
     );
 }
 
+/// The same create-path hole as the roster, one table over: `scope_async` governs
+/// READS, so a writable message table let a project member POST into a DM they
+/// cannot list or retrieve — and `sender_label`/`sender_user` were taken verbatim
+/// from the body, making it forgery as well as injection. The SSE fan-out then
+/// delivered the forged message to the real participants.
+#[tokio::test]
+async fn a_member_cannot_inject_a_message_into_someone_elses_dm() {
+    let (_, seed) = app().await;
+    let intruder = make_user("message_intruder", false).await;
+    make_member(seed.project_p, intruder, TaskflowMembershipStatus::Active).await;
+
+    // Targeting dave's DM, which the intruder cannot see at all.
+    let (status, body) = post_as(
+        intruder,
+        "/api/taskflow_agent_message/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "channel": seed.private_dm,
+            "sender_kind": "user",
+            "sender_user": seed.alice,
+            "sender_label": "alice",
+            "body_markdown": "forged",
+            "priority": "normal",
+        }),
+    )
+    .await;
+
+    // 405 for the same reason as the roster: dropping Create unmounts POST while
+    // the collection path stays for GET List. Observed, not assumed — before the
+    // fix this returned 201 Created.
+    assert_eq!(
+        status, 405,
+        "message create must go through POST /api/taskflow/agents/messages, got {status}: {body}",
+    );
+
+    // And nothing landed: the DM's participant must not see the forged message.
+    let (_, messages) = get_as(seed.root, true, "/api/taskflow_agent_message/").await;
+    assert!(
+        !messages["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .any(|row| row["body_markdown"].as_str() == Some("forged")),
+        "no forged message may be persisted; got {messages}",
+    );
+}
+
+/// Stripping create must not have taken reads with it — the frontend lists
+/// messages constantly.
+#[tokio::test]
+async fn messages_are_still_readable() {
+    let (_, seed) = app().await;
+
+    let (status, messages) = get_as(seed.carol, false, "/api/taskflow_agent_message/").await;
+    assert_eq!(status, 200, "listing messages must still work; got {messages}");
+
+    let bodies: Vec<String> = messages["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["body_markdown"].as_str().map(str::to_string))
+        .collect();
+
+    assert!(
+        bodies.iter().any(|b| b == "shared hello"),
+        "the shared room message must still be listed; got {bodies:?}",
+    );
+    assert!(
+        bodies.iter().any(|b| b == "carol private"),
+        "carol's own DM message must still be listed; got {bodies:?}",
+    );
+}
+
 // Prompts carry a question an agent is blocked on, and answering one sends
 // keystrokes into a live terminal. They were exposed with NO scope at all.
 #[tokio::test]

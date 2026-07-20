@@ -302,6 +302,15 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // prevent. Rows come from channel creation or the trusted
             // POST /api/taskflow/channels/{channel}/members.
             "taskflow_agent_channel_member" => config.views([Action::List, Action::Retrieve]),
+            // Messages are written ONLY by POST /api/taskflow/agents/messages,
+            // which derives the sender from the caller's identity and checks they
+            // are on the channel's roster. Left writable, auto-REST create takes
+            // `sender_label`/`sender_user` verbatim from the body AND never
+            // consults channel visibility — so any project member could forge a
+            // message as someone else and inject it into a DM they cannot even
+            // list, with the SSE fan-out delivering it to the real participants.
+            // Read-only: the frontend lists messages constantly.
+            "taskflow_agent_message" => config.views([Action::List, Action::Retrieve]),
             _ => config,
         }
     });
