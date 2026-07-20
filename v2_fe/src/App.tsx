@@ -47,13 +47,6 @@ import {
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -5230,14 +5223,20 @@ function AgentsConversationView() {
     pendingCaret.current = null
   }, [draftMessage])
 
-  const insertEmoji = (emoji: string) => {
+  /// Insert text at the caret, replacing any selection, and put the caret after
+  /// it once React has re-rendered (see the `pendingCaret` effect above).
+  /// Shared by the emoji picker and the newline shortcuts so the caret cannot
+  /// jump to the end on one path and not the other.
+  const insertAtCaret = (text: string) => {
     const textarea = composerRef.current
     const start = textarea?.selectionStart ?? draftMessage.length
     const end = textarea?.selectionEnd ?? draftMessage.length
-    pendingCaret.current = start + emoji.length
-    setDraftMessage(draftMessage.slice(0, start) + emoji + draftMessage.slice(end))
+    pendingCaret.current = start + text.length
+    setDraftMessage(draftMessage.slice(0, start) + text + draftMessage.slice(end))
     textarea?.focus()
   }
+
+  const insertEmoji = (emoji: string) => insertAtCaret(emoji)
 
   // The terminal stays CLOSED by default and is opened on demand from the header
   // terminal icon, showing as an overlay over the chat area. Switching
@@ -5591,10 +5590,27 @@ function AgentsConversationView() {
               value={draftMessage}
               onChange={(event) => setDraftMessage(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key !== "Enter") return
+                // An IME uses Enter to accept a candidate. Submitting there
+                // would send half-composed text and swallow the keystroke that
+                // was meant to finish the word.
+                if (event.nativeEvent.isComposing) return
+
+                // Alt+Enter inserts a newline. Shift+Enter already did, via the
+                // textarea's own default, but Alt+Enter has no default insert to
+                // fall through to — so it is done explicitly rather than left to
+                // the browser, which varies by platform.
+                if (event.altKey) {
                   event.preventDefault()
-                  event.currentTarget.form?.requestSubmit()
+                  insertAtCaret("\n")
+                  return
                 }
+
+                // Shift+Enter: let the textarea insert the newline itself.
+                if (event.shiftKey) return
+
+                event.preventDefault()
+                event.currentTarget.form?.requestSubmit()
               }}
             />
 
@@ -6210,79 +6226,137 @@ function ActivityRow({
   )
 }
 
-/// The detail view: properties first, then the raw tool payload rendered as
-/// markdown. Uses the same MarkdownRenderer as chat, task notes and project
-/// descriptions, so a fenced block looks the same everywhere.
+/// One leaf of a tool payload, flattened to a dotted path.
+type MetadataField = { path: string; value: string }
+
+/// Flatten a tool payload into readable fields.
+///
+/// The payload is nested JSON, and printing it as JSON made the reader do the
+/// parsing: the useful part of `{"input":{"command":"…"}}` is the command, and it
+/// arrives wrapped in braces, quotes and escaped newlines. Flattening to
+/// `input.command` + the raw value lets each value render as markdown — so a
+/// multi-line shell command reads as a block, not as one escaped string.
+///
+/// Arrays keep their index in the path (`edits.0.old_string`) because position
+/// is meaningful in a tool call.
+function flattenMetadata(value: unknown, prefix = ""): MetadataField[] {
+  if (value === null || value === undefined) return []
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => flattenMetadata(item, prefix ? `${prefix}.${index}` : String(index)))
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, inner]) =>
+      flattenMetadata(inner, prefix ? `${prefix}.${key}` : key)
+    )
+  }
+  const text = String(value)
+  return text.trim() ? [{ path: prefix, value: text }] : []
+}
+
+/// Render a value the way its shape asks for: anything multi-line or shell-ish
+/// as a fenced block (so it keeps its line breaks and monospacing), everything
+/// else as prose.
+function metadataValueMarkdown(value: string): string {
+  const multiline = value.includes("\n")
+  return multiline ? ["```", value, "```"].join("\n") : value
+}
+
+/// The detail panel. Shaped like the board's task sheet — an inset card with its
+/// own scroll region — rather than a flush-edge drawer, so the two detail views
+/// in the app read as the same thing.
 function ActivityDetailSheet({
   event,
-  onOpenChange,
+  onClose,
 }: {
   event: ActivityEvent | null
-  onOpenChange: (open: boolean) => void
+  onClose: () => void
 }) {
-  // Pretty-print the payload into a fenced block. It is stored as compact JSON;
-  // rendering that raw is a single unreadable line.
-  const metadataMarkdown = useMemo(() => {
-    if (!event?.metadata) return null
+  const fields = useMemo<MetadataField[]>(() => {
+    if (!event?.metadata) return []
     try {
-      return ["```json", JSON.stringify(JSON.parse(event.metadata), null, 2), "```"].join("\n")
+      return flattenMetadata(JSON.parse(event.metadata))
     } catch {
-      // Not JSON (or truncated) — show it as-is rather than nothing.
-      return ["```", event.metadata, "```"].join("\n")
+      // Not JSON (or truncated by the producer) — show it whole rather than
+      // dropping it.
+      return [{ path: "metadata", value: event.metadata }]
     }
   }, [event])
 
+  if (!event) return null
+
   return (
-    <Sheet open={event !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-xl">
-        <SheetHeader className="border-b">
-          <SheetTitle className="font-mono text-sm">
-            {event?.action.replace(/_/g, " ") ?? "Activity"}
-          </SheetTitle>
-          <SheetDescription>{event?.timestamp ? formatFullDate(event.timestamp) : event?.time}</SheetDescription>
-        </SheetHeader>
-
-        {/* min-w-0: without it this flex child sizes to its widest content, so a
-            long command line pushes the code block past the sheet edge instead
-            of letting its own overflow-x-auto scroll. */}
-        <div className="scrollbar-y min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Actor</dt>
-            <dd className="min-w-0 break-words">{event?.actor}</dd>
-            <dt className="text-muted-foreground">Action</dt>
-            <dd className="min-w-0 break-words font-mono text-xs">{event?.action}</dd>
-            <dt className="text-muted-foreground">Subject</dt>
-            <dd className="min-w-0 break-words">{event?.taskLabel ?? "Project"}</dd>
-          </dl>
-
-          {event?.detail ? (
-            <div className="mt-4 border-t pt-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Summary
+    <>
+      <button
+        type="button"
+        aria-label="Close activity details"
+        className="fixed inset-0 z-40 bg-foreground/10"
+        onClick={onClose}
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${event.action} details`}
+        // Same width as the board task sheet: a tool payload has long command
+        // lines, and a narrower panel wraps them into noise.
+        className="fixed inset-2 z-50 flex flex-col overflow-hidden rounded-[1.35rem] border bg-card shadow-2xl sm:inset-auto sm:bottom-4 sm:right-4 sm:top-4 sm:w-[min(54rem,calc(100vw-2rem))] sm:border-x sm:border-b"
+      >
+        <header
+          className="relative shrink-0 overflow-hidden px-5 pb-7 pt-5"
+          style={{
+            background:
+              "radial-gradient(circle at 18% 0%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 34%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 16%, transparent), transparent 74%)",
+          }}
+        >
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-[linear-gradient(180deg,transparent,var(--card))]" />
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
+                {event.taskLabel ?? "Project"}
               </p>
-              <MarkdownRenderer content={event.detail} className="text-sm" />
-            </div>
-          ) : null}
-
-          {metadataMarkdown ? (
-            <div className="mt-4 border-t pt-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Metadata
+              <h2 className="mt-1 truncate font-mono text-lg font-semibold">{event.action}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {event.actor} · {event.timestamp ? formatFullDate(event.timestamp) : event.time}
               </p>
-              {/* Wrap rather than scroll: a tool payload has single lines
-                  hundreds of characters long (a full bash command), and in a
-                  narrow sheet a horizontal scrollbar hides most of it. The
-                  renderer's parent sets overflow-hidden, so the pre's own
-                  overflow-x never engages and the text was simply cut off. */}
-              <MarkdownRenderer
-                content={metadataMarkdown}
-                className="min-w-0 text-sm [&_pre]:whitespace-pre-wrap [&_pre]:break-words"
-              />
             </div>
-          ) : null}
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close activity details">
+              <XIcon />
+            </Button>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
+          <div className="space-y-4">
+            {event.detail ? (
+              <section className="rounded-lg border bg-background p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Summary
+                </p>
+                <MarkdownRenderer content={event.detail} />
+              </section>
+            ) : null}
+
+            {fields.length ? (
+              <section className="rounded-lg border bg-background p-4">
+                <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Metadata
+                </p>
+                <div className="space-y-4">
+                  {fields.map((field) => (
+                    <div key={field.path} className="min-w-0">
+                      <p className="mb-1 font-mono text-xs text-muted-foreground">{field.path}</p>
+                      <MarkdownRenderer
+                        content={metadataValueMarkdown(field.value)}
+                        className="min-w-0 text-sm [&_pre]:whitespace-pre-wrap [&_pre]:break-words"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      </section>
+    </>
   )
 }
 
@@ -6344,7 +6418,7 @@ function ActivityLogPage({ title, events }: { title: string; events: ActivityEve
         )}
       </section>
 
-      <ActivityDetailSheet event={selected} onOpenChange={(open) => !open && setSelected(null)} />
+      <ActivityDetailSheet event={selected} onClose={() => setSelected(null)} />
     </PageShell>
   )
 }
