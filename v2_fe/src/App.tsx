@@ -95,8 +95,7 @@ import type {
 import {
   addChannelMember,
   archiveTaskflowProject,
-  createTaskflowAgentChannel,
-  createTaskflowAgentChannelMember,
+  createTaskflowChannel,
   createTaskflowProjectInvite,
   createTaskflowTaskActivity,
   createTaskflowTaskSession,
@@ -4616,22 +4615,6 @@ function AgentsPage({
     return terminalSessions.find((session) => session.agent === agentName)
   }, [liveWorkspace, selectedChat, terminalSessions])
 
-  const createChannelMember = async (
-    projectId: number,
-    channelId: number,
-    member: { kind: "user"; user: number; name: string; role: string } | { kind: "agent"; agent: number; name: string; role: string }
-  ) => {
-    return createTaskflowAgentChannelMember({
-      project: projectId,
-      channel: channelId,
-      member_kind: member.kind,
-      user: member.kind === "user" ? member.user : null,
-      agent: member.kind === "agent" ? member.agent : null,
-      display_name: member.name,
-      role: member.role,
-    })
-  }
-
   const ensureLiveChannel = async (chat: AgentChatContext) => {
     if (chat.liveChannelId) return chat.liveChannelId
     const projectId = liveId(project.id)
@@ -4639,58 +4622,40 @@ function AgentsPage({
       throw new Error("Select a live project before sending project chat messages.")
     }
 
-    const channel = await createTaskflowAgentChannel({
+    // The other participants; the server adds the caller. A DM is named for who
+    // it is with: an agent DM rosters that agent, a human DM that person, and a
+    // shared room every active member plus every agent.
+    const members: Array<{ kind: "user"; user: number } | { kind: "agent"; agent: number }> = []
+    if (chat.mode === "direct" && chat.liveMemberUserId) {
+      members.push({ kind: "user", user: chat.liveMemberUserId })
+    } else if (chat.mode === "direct") {
+      const agentId = liveWorkspace.agents.find((c) => c.id === chat.liveAgentId)?.id ?? chat.liveAgentId
+      if (agentId) members.push({ kind: "agent", agent: agentId })
+    } else {
+      for (const member of liveWorkspace.members) {
+        if (member.status === "active" && member.user && member.user !== currentUser?.id) {
+          members.push({ kind: "user", user: member.user })
+        }
+      }
+      for (const agent of liveWorkspace.agents) members.push({ kind: "agent", agent: agent.id })
+    }
+
+    const channel = await createTaskflowChannel({
       project: projectId,
+      kind: chat.mode === "direct" ? "direct" : "project",
       title: chat.mode === "direct" ? chat.title : "Project room",
       topic: chat.detail,
-      kind: chat.mode === "direct" ? "direct" : "project",
-      created_by_user: currentUser?.id ?? null,
-      archived: false,
+      members,
     })
-    onWorkspaceUpdate((workspace) => ({ ...workspace, agentChannels: upsertById(workspace.agentChannels, channel) }))
-    const memberWrites: Array<ReturnType<typeof createChannelMember>> = []
-    const added = new Set<string>()
-    const addUser = (user: number | null | undefined, name: string, role: string) => {
-      if (!user) return
-      const key = `user:${user}`
-      if (added.has(key)) return
-      added.add(key)
-      memberWrites.push(createChannelMember(projectId, channel.id, { kind: "user", user, name, role }))
-    }
-    const addAgent = (agent: number | null | undefined, name: string, role: string) => {
-      if (!agent) return
-      const key = `agent:${agent}`
-      if (added.has(key)) return
-      added.add(key)
-      memberWrites.push(createChannelMember(projectId, channel.id, { kind: "agent", agent, name, role }))
-    }
 
-    addUser(currentUser?.id, currentUser?.username ?? "You", "member")
-
-    if (chat.mode === "direct" && chat.liveMemberUserId) {
-      // Human DM: just me + the target member. Do NOT fan out to the whole roster.
-      const member = liveWorkspace.members.find((candidate) => candidate.user === chat.liveMemberUserId)
-      addUser(chat.liveMemberUserId, member?.display_name ?? chat.title, member?.role ?? "member")
-    } else if (chat.mode === "direct") {
-      const agent = liveWorkspace.agents.find((candidate) => candidate.id === chat.liveAgentId)
-      addAgent(agent?.id ?? chat.liveAgentId, agent?.display_name ?? chat.primaryAgent, "agent")
-    } else {
-      liveWorkspace.members
-        .filter((member) => member.status === "active")
-        .forEach((member) => addUser(member.user, member.display_name, member.role))
-      liveWorkspace.agents.forEach((agent) => addAgent(agent.id, agent.display_name, "agent"))
-    }
-
-    const members = await Promise.all(memberWrites)
-    if (members.length) {
-      onWorkspaceUpdate((workspace) => ({
-        ...workspace,
-        agentChannelMembers: members.reduce(
-          (currentMembers, member) => upsertById(currentMembers, member),
-          workspace.agentChannelMembers
-        ),
-      }))
-    }
+    onWorkspaceUpdate((workspace) => ({
+      ...workspace,
+      agentChannels: upsertById(workspace.agentChannels, channel),
+      agentChannelMembers: channel.members.reduce(
+        (current, member) => upsertById(current, member),
+        workspace.agentChannelMembers
+      ),
+    }))
     return channel.id
   }
 
