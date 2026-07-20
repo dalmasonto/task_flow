@@ -281,7 +281,41 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
 
     let chat = CHANNEL_SCOPED_TABLES.iter().map(|table| {
         let column = if *table == "taskflow_agent_channel" { "id" } else { "channel" };
-        ResourceConfig::new(*table).scope_async(channel_scope(column))
+        let config = ResourceConfig::new(*table).scope_async(channel_scope(column));
+        match *table {
+            // Channels are created, renamed, and archived ONLY through the
+            // trusted POST /api/taskflow/channels endpoints — never through
+            // auto-REST. An auto-REST create makes a channel with no roster —
+            // invisible to its own creator, and impossible to join, because
+            // add_channel_member needs a roster row that was never written.
+            // Update/Delete are just as dangerous even though channel_scope
+            // already limits a caller to channels they can see: every active
+            // project member can see the shared project room, so PATCHing
+            // `kind` to "direct" would hide it from every human (Direct
+            // visibility requires a roster row that ensure_project_room never
+            // writes for humans), and DELETE cascades every message in it
+            // (`taskflow_agent_message.channel` is `on_delete = "cascade"`).
+            // Nothing in the frontend or MCP layer ever calls either verb on
+            // this table — auto-REST exposes reads only.
+            "taskflow_agent_channel" => config.views([Action::List, Action::Retrieve]),
+            // Roster rows are ACCESS-GRANTING: `visible_channel_ids` reads this
+            // table to decide who may see a DM. Left writable, any project member
+            // could POST themselves a row and the read scope would honour it —
+            // the same escalation `taskflow_project_member` is read-only to
+            // prevent. Rows come from channel creation or the trusted
+            // POST /api/taskflow/channels/{channel}/members.
+            "taskflow_agent_channel_member" => config.views([Action::List, Action::Retrieve]),
+            // Messages are written ONLY by POST /api/taskflow/agents/messages,
+            // which derives the sender from the caller's identity and checks they
+            // are on the channel's roster. Left writable, auto-REST create takes
+            // `sender_label`/`sender_user` verbatim from the body AND never
+            // consults channel visibility — so any project member could forge a
+            // message as someone else and inject it into a DM they cannot even
+            // list, with the SSE fan-out delivering it to the real participants.
+            // Read-only: the frontend lists messages constantly.
+            "taskflow_agent_message" => config.views([Action::List, Action::Retrieve]),
+            _ => config,
+        }
     });
 
     let read_only = READ_ONLY_PROJECT_SCOPED_TABLES.iter().map(|table| {

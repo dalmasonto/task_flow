@@ -2,9 +2,7 @@ import { Umbral } from "@/api/client"
 import type {
   TaskflowAgent,
   TaskflowAgentChannel,
-  TaskflowAgentChannelCreate,
   TaskflowAgentChannelMember,
-  TaskflowAgentChannelMemberCreate,
   TaskflowAgentCredential,
   TaskflowAgentMessage,
   TaskflowAgentPrompt,
@@ -610,12 +608,33 @@ export async function answerAgentPrompt(
   }
 }
 
-export function createTaskflowAgentChannel(input: TaskflowAgentChannelCreate) {
-  return taskflowApi.create(taskflowTables.agentChannels, input)
-}
-
-export function createTaskflowAgentChannelMember(input: TaskflowAgentChannelMemberCreate) {
-  return taskflowApi.create(taskflowTables.agentChannelMembers, input)
+/// Create a channel and its roster in one authorized call. The caller is added
+/// server-side, so `members` lists only the OTHER participants.
+///
+/// Replaces the create-then-write-members sequence: that was two client calls
+/// with no transaction, so a failed member write left a channel nobody could
+/// see, and it required the roster table to be client-writable — which is what
+/// let anyone POST themselves onto someone else's DM.
+export async function createTaskflowChannel(input: {
+  project: number
+  kind: "direct" | "project" | "task" | "incident"
+  title: string
+  topic?: string | null
+  task?: number | null
+  members: Array<{ kind: "user"; user: number } | { kind: "agent"; agent: number }>
+}): Promise<TaskflowAgentChannel & { members: TaskflowAgentChannelMember[] }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/channels`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not create the channel (${response.status}).`))
+  }
+  return (await response.json()) as TaskflowAgentChannel & {
+    members: TaskflowAgentChannelMember[]
+  }
 }
 
 /// Pull the first human-readable message out of a DRF-style field-error body
