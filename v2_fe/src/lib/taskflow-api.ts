@@ -192,6 +192,7 @@ export const realtimeTablesWithInlineRows = [
   taskflowTables.terminalFrames,
   taskflowTables.agentSessions,
   taskflowTables.agentPrompts,
+  taskflowTables.taskActivity,
 ] as const satisfies readonly RealtimeTableName[]
 
 export function realtimeEventHasInlineRow(table: RealtimeTableName): boolean {

@@ -140,6 +140,24 @@ const PROMPT_FIELDS: &[&str] = &[
     "status", "answer", "answer_json", "answered_by", "answered_at", "created_at",
 ];
 
+/// The whole activity row. Complete, not a subset, for the same reason as
+/// sessions: the frontend replaces its stored copy with the event payload, so an
+/// omitted column would be blanked on the first live update. `metadata_json` is
+/// included because the detail sheet renders it.
+const TASK_ACTIVITY_FIELDS: &[&str] = &[
+    "id",
+    "project",
+    "task",
+    "actor_kind",
+    "actor_user",
+    "actor_agent",
+    "actor_label",
+    "action",
+    "body_markdown",
+    "metadata_json",
+    "created_at",
+];
+
 /// Terminal frames stream live: a producing agent posts one frame per line, and
 /// refetching each over REST would be a round-trip per line. So the frame's
 /// fields are projected inline (like the chat tables) and the frontend renders
@@ -211,9 +229,14 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowTaskRelation>(Expose::to_group_with(|ev| {
             group_for(TASK_RELATIONS, &ev.instance)
         }))
-        .expose::<TaskflowTaskActivity>(Expose::to_group_with(|ev| {
-            group_for(TASK_ACTIVITY, &ev.instance)
-        }))
+        // Activity is projected inline: the feed is append-only and high volume
+        // (a row per tool call), so an id-only ping would cost the activity page
+        // one REST round-trip PER EVENT just to prepend a line it could already
+        // have been handed.
+        .expose::<TaskflowTaskActivity>(
+            Expose::to_group_with(|ev| group_for(TASK_ACTIVITY, &ev.instance))
+                .fields(TASK_ACTIVITY_FIELDS),
+        )
         .expose::<TaskflowTaskSession>(Expose::to_group_with(|ev| {
             group_for(TASK_SESSIONS, &ev.instance)
         }))

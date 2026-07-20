@@ -678,7 +678,17 @@ function getLiveTaskActivity(task: Task, workspace: TaskflowWorkspace): TaskActi
 /// arrive newest-first from the API; each is resolved to its task title when the
 /// task is loaded, otherwise labelled by its numeric id or the project name.
 function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[]): ActivityEvent[] {
-  return workspace.taskActivity.map((event) => {
+  // Sort here rather than trusting insertion order. The initial fetch arrives
+  // newest-first, but a realtime upsert APPENDS — so a live event landed at the
+  // end of a 1500-row list and never appeared, even though the feed is paged
+  // from the top. Ordering at the point that defines the display order makes
+  // that impossible to get wrong again.
+  return [...workspace.taskActivity]
+    .sort((a, b) => {
+      const byTime = Date.parse(b.created_at ?? "") - Date.parse(a.created_at ?? "")
+      return Number.isFinite(byTime) && byTime !== 0 ? byTime : b.id - a.id
+    })
+    .map((event) => {
     const relatedTask =
       event.task != null ? projectTasks.find((task) => liveId(task.id) === event.task) : undefined
     return {
@@ -692,8 +702,8 @@ function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[
       metadata: event.metadata_json,
       timestamp: event.created_at,
       taskLabel: relatedTask?.title ?? (event.task != null ? `Task #${event.task}` : null),
-    }
-  })
+      }
+    })
 }
 
 type ReviewFeedItem = {
@@ -6232,7 +6242,10 @@ function ActivityDetailSheet({
           <SheetDescription>{event?.timestamp ? formatFullDate(event.timestamp) : event?.time}</SheetDescription>
         </SheetHeader>
 
-        <div className="scrollbar-y min-h-0 flex-1 overflow-y-auto p-4">
+        {/* min-w-0: without it this flex child sizes to its widest content, so a
+            long command line pushes the code block past the sheet edge instead
+            of letting its own overflow-x-auto scroll. */}
+        <div className="scrollbar-y min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Actor</dt>
             <dd className="min-w-0 break-words">{event?.actor}</dd>
@@ -6256,7 +6269,15 @@ function ActivityDetailSheet({
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Metadata
               </p>
-              <MarkdownRenderer content={metadataMarkdown} className="text-sm" />
+              {/* Wrap rather than scroll: a tool payload has single lines
+                  hundreds of characters long (a full bash command), and in a
+                  narrow sheet a horizontal scrollbar hides most of it. The
+                  renderer's parent sets overflow-hidden, so the pre's own
+                  overflow-x never engages and the text was simply cut off. */}
+              <MarkdownRenderer
+                content={metadataMarkdown}
+                className="min-w-0 text-sm [&_pre]:whitespace-pre-wrap [&_pre]:break-words"
+              />
             </div>
           ) : null}
         </div>
