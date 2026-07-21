@@ -3234,6 +3234,49 @@ const MAX_PROMPT_OPTIONS_CHARS: usize = 8_000;
 /// UPSERT by fingerprint: the agent re-reports on every capture while the prompt
 /// is on screen (it has no event to fire when one appears), so a plain insert
 /// would pile up a row per second. Re-reporting the same question is a no-op.
+/// The user of the agent's "current DM" (#6): the sender of the most recent
+/// human message in any Direct channel the agent is on. `None` when the agent
+/// has no direct-message history — the prompt then stays project-wide (the
+/// dashboard shows it to everyone). Bounded lookback (the newest 50 DM messages)
+/// so a long history never turns this into a scan.
+async fn current_dm_user(agent_id: i64) -> Result<Option<i64>, StatusCode> {
+    let memberships = TaskflowAgentChannelMember::objects()
+        .filter(taskflow_agent_channel_member::AGENT.eq(agent_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let channel_ids: Vec<i64> = memberships.iter().map(|m| m.channel.id()).collect();
+    if channel_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let direct_ids: Vec<i64> = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::ID.in_(&channel_ids))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .filter(|c| c.kind == TaskflowChannelKind::Direct)
+        .map(|c| c.id)
+        .collect();
+    if direct_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let recent = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::CHANNEL.in_(&direct_ids))
+        .order_by(taskflow_agent_message::ID.desc())
+        .limit(50)
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(recent
+        .into_iter()
+        .find(|m| m.sender_kind == TaskflowChannelMemberKind::User && m.sender_user.is_some())
+        .and_then(|m| m.sender_user.map(|fk| fk.id())))
+}
+
 pub async fn report_session_prompt(
     RequireAgent(agent): RequireAgent,
     Path(session_id): Path<i64>,
@@ -3267,12 +3310,16 @@ pub async fn report_session_prompt(
     // one prompt at a time, so anything still pending is stale.
     cancel_pending_prompts(session.id).await?;
 
+    // #6: direct the question at whoever the agent is currently DMing.
+    let target_user = current_dm_user(agent.agent_id).await?;
+
     let created = TaskflowAgentPrompt::objects()
         .create(TaskflowAgentPrompt {
             id: 0,
             project: ForeignKey::new(agent.project_id),
             agent: ForeignKey::new(agent.agent_id),
             session: ForeignKey::new(session.id),
+            target_user: target_user.map(ForeignKey::new),
             question,
             options_json: input.options_json,
             kind: input.kind.unwrap_or_else(|| "single".to_string()),

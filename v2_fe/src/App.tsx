@@ -5404,9 +5404,16 @@ function AgentsPage({
     const agentId = selectedChat?.liveAgentId
     if (!agentId || !liveWorkspace) return undefined
     return liveWorkspace.agentPrompts
-      .filter((prompt) => prompt.agent === agentId && prompt.status === "pending")
+      .filter(
+        (prompt) =>
+          prompt.agent === agentId &&
+          prompt.status === "pending" &&
+          // #6: a targeted question is only for that user; an untargeted one
+          // (the agent had no DM context) still shows to every member.
+          (prompt.target_user == null || prompt.target_user === currentUser?.id)
+      )
       .sort((a, b) => b.id - a.id)[0]
-  }, [selectedChat, liveWorkspace])
+  }, [selectedChat, liveWorkspace, currentUser])
 
   const handleAnswerPrompt = useCallback(
     async (promptId: number, answers: number[][], cancel = false, texts: (string | null)[] = []) => {

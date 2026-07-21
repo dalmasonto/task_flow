@@ -261,6 +261,8 @@ export interface TaskflowAgentPrompt {
   agent: number;
   /** Foreign key: the `id` of a TaskflowAgentSession (`taskflow_agent_session`). */
   session: number;
+  /** Foreign key into `auth_user`. */
+  target_user: number | null;
   question: string;
   options_json: string;
   kind: string;
@@ -1272,6 +1274,10 @@ export interface TaskflowAgentPromptFilters {
   "session"?: number;
   "session__ne"?: number;
   "session__in"?: number[];
+  "target_user"?: number;
+  "target_user__ne"?: number;
+  "target_user__in"?: number[];
+  "target_user__isnull"?: boolean;
   "question"?: string;
   "question__ne"?: string;
   "question__contains"?: string;
@@ -1345,12 +1351,13 @@ export interface TaskflowAgentPromptFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentPromptOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "session" | "-session" | "question" | "-question" | "options_json" | "-options_json" | "kind" | "-kind" | "fingerprint" | "-fingerprint" | "status" | "-status" | "answer" | "-answer" | "answer_json" | "-answer_json" | "answer_text_json" | "-answer_text_json" | "answered_by" | "-answered_by" | "answered_at" | "-answered_at" | "created_at" | "-created_at";
+export type TaskflowAgentPromptOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "session" | "-session" | "target_user" | "-target_user" | "question" | "-question" | "options_json" | "-options_json" | "kind" | "-kind" | "fingerprint" | "-fingerprint" | "status" | "-status" | "answer" | "-answer" | "answer_json" | "-answer_json" | "answer_text_json" | "-answer_text_json" | "answered_by" | "-answered_by" | "answered_at" | "-answered_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_prompt`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentPromptCreate {
   project: number;
   agent: number;
   session: number;
+  target_user?: number | null;
   question: string;
   options_json: string;
   kind?: string;
@@ -1367,6 +1374,7 @@ export interface TaskflowAgentPromptUpdate {
   project?: number;
   agent?: number;
   session?: number;
+  target_user?: number | null;
   question?: string;
   options_json?: string;
   kind?: string;

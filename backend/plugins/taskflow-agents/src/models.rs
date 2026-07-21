@@ -386,6 +386,12 @@ pub struct TaskflowAgentPrompt {
     pub agent: ForeignKey<TaskflowAgent>,
     #[umbral(on_delete = "cascade")]
     pub session: ForeignKey<TaskflowAgentSession>,
+    /// Who the question is for (#6): the user of the agent's current DM — the
+    /// person who most recently messaged it directly — derived server-side when
+    /// the prompt is reported. `None` when the agent has no DM history; the
+    /// dashboard then shows the prompt to every project member (the old default).
+    #[umbral(on_delete = "set_null")]
+    pub target_user: Option<ForeignKey<AuthUser>>,
     /// The question as it appears on screen.
     #[umbral(string, max_length = 2000)]
     pub question: String,

@@ -100,8 +100,9 @@ const AGENT_SESSION_FIELDS: &[&str] = &[
 /// Everything about a pending question. The complete row for the same reason as
 /// sessions: the frontend replaces its stored copy with the event payload.
 const PROMPT_FIELDS: &[&str] = &[
-    "id", "project", "agent", "session", "question", "options_json", "kind", "fingerprint",
-    "status", "answer", "answer_json", "answer_text_json", "answered_by", "answered_at", "created_at",
+    "id", "project", "agent", "session", "target_user", "question", "options_json", "kind",
+    "fingerprint", "status", "answer", "answer_json", "answer_text_json", "answered_by",
+    "answered_at", "created_at",
 ];
 
 /// A terminal key: the target `agent` (so a mirror can tell if a broadcast key is
