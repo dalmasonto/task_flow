@@ -2328,6 +2328,14 @@ function App() {
     })
   }, [activeProjectId, authGateStatus, fetchAndApplyRealtimeEvent, loadLiveWorkspace])
 
+  // Stable opener for TASK#<n> chips (see TaskChipContext). MUST live above the
+  // early returns below — it is a hook, so it has to run on every render in the
+  // same order. Only calls stable state setters, so the context value never
+  // churns and doesn't re-render every MarkdownRenderer.
+  const openTaskById = useCallback((taskId: number) => {
+    setSelectedTaskId(String(taskId))
+    setOpenTaskId(String(taskId))
+  }, [])
 
   if (publicPath === "/") {
     return <LandingPage />
@@ -2557,14 +2565,6 @@ function App() {
     setSelectedTaskId(taskId)
     setOpenTaskId(taskId)
   }
-
-  // Stable opener for TASK#<n> chips (see TaskChipContext). Only calls state
-  // setters, which are stable, so the context value never churns and doesn't
-  // re-render every MarkdownRenderer on each App render.
-  const openTaskById = useCallback((taskId: number) => {
-    setSelectedTaskId(String(taskId))
-    setOpenTaskId(String(taskId))
-  }, [])
 
   function handleDeleteTask(taskId: string) {
     // Optimistic: drop it and close the sheet immediately. A live delete that
