@@ -146,6 +146,7 @@ import { formatBytes } from "@/lib/attachment-kind"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
+import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -6962,12 +6963,23 @@ function ActivityDetailSheet({
 function ActivityLogPage({ title, events }: { title: string; events: ActivityEvent[] }) {
   const [visible, setVisible] = useState(ACTIVITY_PAGE_SIZE)
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
+  const [search, setSearch] = useState("")
+  const [tool, setTool] = useState<string>(ALL_TOOLS)
+
+  const tools = useMemo(() => activityTools(events), [events])
+  const filtered = useMemo(() => filterActivityEvents(events, { search, tool }), [events, search, tool])
+
+  // Reset the paged window whenever the filter changes, so "Load more" always
+  // starts from the top of the NEW result set rather than a stale offset.
+  useEffect(() => {
+    setVisible(ACTIVITY_PAGE_SIZE)
+  }, [search, tool])
 
   // New events arrive at the TOP (the feed is ordered newest-first and realtime
   // now carries the whole row inline, so a live event prepends without a fetch).
   // Growing the window with them keeps everything already on screen in place.
-  const shown = events.slice(0, visible)
-  const remaining = events.length - shown.length
+  const shown = filtered.slice(0, visible)
+  const remaining = filtered.length - shown.length
 
   return (
     <PageShell
@@ -6982,13 +6994,64 @@ function ActivityLogPage({ title, events }: { title: string; events: ActivityEve
             <h2 className="text-sm font-semibold">Activity Feed</h2>
           </div>
           <span className="text-xs text-muted-foreground">
-            {shown.length} of {events.length}
+            {shown.length} of {filtered.length}
+            {filtered.length !== events.length ? ` · ${events.length} total` : ""}
           </span>
+        </div>
+
+        {/* Filter + search: by tool (the action name) and free text over the
+            visible fields — critical for analysing what each tool does. */}
+        <div className="mt-3 space-y-2">
+          <div className="relative">
+            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search tools, actors, messages…"
+              className="pl-8"
+            />
+          </div>
+          {tools.length > 1 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {[ALL_TOOLS, ...tools].map((option) => {
+                const active = tool === option
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setTool(option)}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition",
+                      active
+                        ? "bg-primary/10 text-primary ring-primary/30"
+                        : "bg-muted/60 text-muted-foreground ring-border hover:bg-muted"
+                    )}
+                  >
+                    {option === ALL_TOOLS ? "All tools" : option}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
 
         {events.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed bg-muted/40 p-8 text-center text-sm text-muted-foreground">
             No activity yet. Task moves, agent work, and review decisions will show up here.
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="mt-4 rounded-lg border border-dashed bg-muted/40 p-8 text-center text-sm text-muted-foreground">
+            No activity matches these filters.{" "}
+            <button
+              type="button"
+              className="font-medium text-primary hover:underline"
+              onClick={() => {
+                setSearch("")
+                setTool(ALL_TOOLS)
+              }}
+            >
+              Clear filters
+            </button>
           </div>
         ) : (
           <>
