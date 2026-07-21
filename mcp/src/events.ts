@@ -31,6 +31,14 @@ const RECONNECT_MAX_MS = 30_000;
  */
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
 
+/**
+ * Hard cap on the SSE read buffer (#44). Frames here are id-only and tiny; a
+ * buffer this large means the server is streaming a frame that never terminates
+ * with `\n\n`. Because bytes keep arriving, the idle watchdog never trips — so
+ * without this cap the buffer would grow to OOM. Past it we abort and reconnect.
+ */
+const MAX_STREAM_BUFFER_BYTES = 1_048_576; // 1 MiB
+
 export interface AgentMessageEvent {
   id: number;
   channel: number;
@@ -145,8 +153,18 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
       if (everConnected) void options.onReconnect?.();
       everConnected = true;
 
+      // Parse SSE frames. `data:` may be split across TCP chunks, so text is
+      // buffered until a blank line terminates the frame.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
       // Watchdog: abort a stream that has gone quiet, which forces the read to
-      // settle and drops us into the reconnect path.
+      // settle and drops us into the reconnect path. Created AFTER getReader()
+      // (which can throw) and cleared in the finally below, so a throw between
+      // connect and the loop can never leak a watchdog — a leaked one would
+      // close over the reassigned `controller` and abort the NEXT live
+      // connection every ~15s (#44).
       let lastActivity = Date.now();
       const watchdog = setInterval(() => {
         if (Date.now() - lastActivity > STREAM_IDLE_TIMEOUT_MS) {
@@ -156,11 +174,6 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
       }, Math.floor(STREAM_IDLE_TIMEOUT_MS / 3));
       watchdog.unref?.();
 
-      // Parse SSE frames. `data:` may be split across TCP chunks, so text is
-      // buffered until a blank line terminates the frame.
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       try {
       for (;;) {
         const { done, value } = await reader.read();
@@ -174,6 +187,14 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
           buffer = buffer.slice(boundary + 2);
           handleFrame(frame, options);
           boundary = buffer.indexOf("\n\n");
+        }
+        // A frame that never terminates would grow `buffer` unbounded while
+        // bytes keep arriving (so the watchdog never trips) — cap it and force a
+        // reconnect instead of growing to OOM (#44).
+        if (buffer.length > MAX_STREAM_BUFFER_BYTES) {
+          log("event stream buffer exceeded cap without a frame terminator — reconnecting");
+          controller?.abort();
+          break;
         }
       }
       } finally {
