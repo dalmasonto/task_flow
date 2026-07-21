@@ -159,7 +159,7 @@ import { SecurityPage } from "@/pages/account/SecurityPage"
 
 type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
 
-type Priority = "P0" | "P1" | "P2"
+type Priority = "critical" | "high" | "normal" | "low"
 
 type DialogMode = "new-project" | "edit-project" | "project-info" | "new-task" | "edit-task" | "invite" | "api-contract" | "review-decision" | null
 
@@ -413,9 +413,10 @@ const statusOptions = columns.map((column) => ({
 }))
 
 const priorityOptions = [
-  { value: "P0", label: "P0, urgent" },
-  { value: "P1", label: "P1, important" },
-  { value: "P2", label: "P2, normal" },
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "normal", label: "Normal" },
+  { value: "low", label: "Low" },
 ]
 
 const projectStatusOptions = [
@@ -469,9 +470,10 @@ function previousStatus(status: ColumnId): ColumnId {
 }
 
 function priorityClass(priority: Priority) {
-  if (priority === "P0") return "bg-rose-100 text-rose-800 ring-rose-200"
-  if (priority === "P1") return "bg-amber-100 text-amber-800 ring-amber-200"
-  return "bg-slate-100 text-slate-700 ring-slate-200"
+  if (priority === "critical") return "bg-rose-100 text-rose-800 ring-rose-200"
+  if (priority === "high") return "bg-amber-100 text-amber-800 ring-amber-200"
+  if (priority === "normal") return "bg-slate-100 text-slate-700 ring-slate-200"
+  return "bg-muted text-muted-foreground ring-border"
 }
 
 function statusLabel(status?: ColumnId) {
@@ -996,16 +998,16 @@ function toLiveStatus(status: ColumnId): TaskflowTaskStatus {
   return status
 }
 
+// The board Priority now mirrors the backend priority 1:1 (critical/high/
+// normal/low), so these are faithful identities — no lossy 3-level P-code
+// squashing that used to make `low` indistinguishable from `normal` (and turn
+// a `low` task into `normal` on edit).
 function mapLivePriority(priority: TaskflowTaskPriority): Priority {
-  if (priority === "critical") return "P0"
-  if (priority === "high") return "P1"
-  return "P2"
+  return priority
 }
 
 function toLivePriority(priority: Priority): TaskflowTaskPriority {
-  if (priority === "P0") return "critical"
-  if (priority === "P1") return "high"
-  return "normal"
+  return priority
 }
 
 /// An agent heartbeats while it holds a live session; a stale heartbeat means it
@@ -2641,7 +2643,7 @@ function App() {
     if (!title) return
 
     const status = String(formData.get("status") ?? "not_started") as ColumnId
-    const priority = String(formData.get("priority") ?? "P1") as Priority
+    const priority = String(formData.get("priority") ?? "high") as Priority
     // Owner/operator/due come from controlled state, not FormData.
     const owner = newTaskOwner?.label || "Unassigned"
     const [opKind, opId] = newTaskOperator.split(":")
@@ -4247,7 +4249,7 @@ function TaskCard({
         <GripVerticalIcon className="mt-1 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className={cn("rounded-full px-2 py-0.5 text-[0.68rem] font-semibold ring-1", priorityClass(task.priority))}>
+            <span className={cn("rounded-full px-2 py-0.5 text-[0.68rem] font-semibold capitalize ring-1", priorityClass(task.priority))}>
               {task.priority}
             </span>
             {/* The task # so a card can be identified at a glance / referenced. */}
@@ -4412,7 +4414,7 @@ function TaskDetailSheet({
               </div>
               <h2 className="mt-2 max-w-2xl text-2xl font-semibold leading-8">{task.title}</h2>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold ring-1", priorityClass(task.priority))}>
+                <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1", priorityClass(task.priority))}>
                   {task.priority}
                 </span>
                 <span className="rounded-full bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
@@ -6820,7 +6822,7 @@ function ReviewsPage({
                     <tr key={task.id} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", priorityClass(task.priority))}>
+                          <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold capitalize ring-1", priorityClass(task.priority))}>
                             {task.priority}
                           </span>
                           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
@@ -8116,7 +8118,7 @@ function WorkspaceDialog({
                 <SelectField name="status" defaultValue={editTask?.status ?? "not_started"} options={statusOptions} />
               </FormField>
               <FormField label="Priority">
-                <SelectField name="priority" defaultValue={editTask?.priority ?? "P1"} options={priorityOptions} />
+                <SelectField name="priority" defaultValue={editTask?.priority ?? "high"} options={priorityOptions} />
               </FormField>
               <FormField label="Owner">
                 <Select
