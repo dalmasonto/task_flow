@@ -514,3 +514,27 @@ pub struct TaskflowTerminalInput {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// #43: a short-lived, single-use ticket for the realtime SSE handshake.
+///
+/// `EventSource` can't send an `Authorization` header, and #41's workaround put
+/// the long-lived bearer token in the SSE URL. Instead the client mints one of
+/// these (authenticated by the normal token), then connects with the ticket —
+/// so only a seconds-long one-shot ever appears in a URL/log. Only the HASH of
+/// the ticket is stored, never the plaintext.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowRealtimeTicket {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub user: ForeignKey<AuthUser>,
+    /// `umbral_auth::digest_token(plaintext)` — the SHA-256/base64 digest, never
+    /// the ticket itself. Looked up on connect.
+    #[umbral(string, max_length = 128)]
+    pub token_hash: String,
+    /// After this instant the ticket is dead even if unused.
+    pub expires_at: DateTime<Utc>,
+    /// Set the first time the ticket is redeemed — single-use, so a replay fails.
+    pub used_at: Option<DateTime<Utc>>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}

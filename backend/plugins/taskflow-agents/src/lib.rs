@@ -52,6 +52,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentPrompt>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTerminalInput>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowRealtimeTicket>(),
         ]
     }
 

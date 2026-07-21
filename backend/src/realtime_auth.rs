@@ -21,18 +21,26 @@ use axum::http::header::AUTHORIZATION;
 use axum::response::Response;
 use umbral::middleware::Middleware;
 
-/// Pull the `access_token` value out of a raw query string, or `None` when it is
+/// The header the ticket is promoted into, read by the realtime resolver (#43).
+const REALTIME_TICKET_HEADER: &str = "x-realtime-ticket";
+
+/// Pull one query param's value out of a raw query string, or `None` when it is
 /// absent or empty. Matches the key EXACTLY, so `my_access_token=…` is ignored.
-pub(crate) fn access_token_from_query(query: &str) -> Option<String> {
+pub(crate) fn query_value(query: &str, key: &str) -> Option<String> {
     query
         .split('&')
         .filter_map(|pair| pair.split_once('='))
-        .find(|(key, _)| *key == "access_token")
+        .find(|(k, _)| *k == key)
         .map(|(_, value)| value.to_string())
-        .filter(|token| !token.is_empty())
+        .filter(|value| !value.is_empty())
 }
 
-/// Promotes `?access_token=` on `/realtime` requests to a Bearer header.
+/// Promotes realtime auth query params on `/realtime` requests into headers
+/// EventSource cannot set itself:
+/// - `?ticket=` (#43) → `X-Realtime-Ticket` (a one-time ticket the resolver
+///   validates + consumes).
+/// - `?access_token=` (#41) → `Authorization: Bearer` (only when the client did
+///   not already send an Authorization header).
 pub(crate) struct RealtimeQueryTokenAuth;
 
 #[umbral::async_trait]
@@ -42,14 +50,26 @@ impl Middleware for RealtimeQueryTokenAuth {
     }
 
     async fn before_request(&self, mut req: Request) -> Result<Request, Response> {
-        // Only /realtime, and never override an Authorization header the client
-        // did manage to send (e.g. a WS handshake from a non-browser client).
-        if req.uri().path().starts_with("/realtime")
-            && !req.headers().contains_key(AUTHORIZATION)
-        {
-            if let Some(token) = req.uri().query().and_then(access_token_from_query) {
-                if let Ok(value) = format!("Bearer {token}").parse() {
-                    req.headers_mut().insert(AUTHORIZATION, value);
+        if req.uri().path().starts_with("/realtime") {
+            let query = req.uri().query().unwrap_or("").to_string();
+
+            // #43: a one-time ticket. A forged header value just fails to resolve
+            // (it is looked up + consumed against the DB), so no need to strip.
+            if let Some(ticket) = query_value(&query, "ticket") {
+                if let (Ok(name), Ok(value)) =
+                    (REALTIME_TICKET_HEADER.parse::<axum::http::HeaderName>(), ticket.parse())
+                {
+                    req.headers_mut().insert(name, value);
+                }
+            }
+
+            // #41 back-compat: the bearer token. Never override an Authorization
+            // header the client managed to send (e.g. a non-browser WS client).
+            if !req.headers().contains_key(AUTHORIZATION) {
+                if let Some(token) = query_value(&query, "access_token") {
+                    if let Ok(value) = format!("Bearer {token}").parse() {
+                        req.headers_mut().insert(AUTHORIZATION, value);
+                    }
                 }
             }
         }
@@ -59,26 +79,31 @@ impl Middleware for RealtimeQueryTokenAuth {
 
 #[cfg(test)]
 mod tests {
-    use super::access_token_from_query;
+    use super::query_value;
 
     #[test]
-    fn extracts_the_token_alongside_other_params() {
+    fn extracts_a_value_alongside_other_params() {
         assert_eq!(
-            access_token_from_query("groups=a%2Cb&access_token=abc-_123").as_deref(),
+            query_value("groups=a%2Cb&access_token=abc-_123", "access_token").as_deref(),
             Some("abc-_123"),
+        );
+        assert_eq!(
+            query_value("groups=a&ticket=deadbeef00", "ticket").as_deref(),
+            Some("deadbeef00"),
         );
     }
 
     #[test]
     fn none_when_absent_or_empty() {
-        assert_eq!(access_token_from_query("groups=a"), None);
-        assert_eq!(access_token_from_query("access_token="), None);
-        assert_eq!(access_token_from_query(""), None);
+        assert_eq!(query_value("groups=a", "access_token"), None);
+        assert_eq!(query_value("access_token=", "access_token"), None);
+        assert_eq!(query_value("", "ticket"), None);
     }
 
     #[test]
     fn matches_the_key_exactly() {
-        // A key that merely contains "access_token" must not match.
-        assert_eq!(access_token_from_query("my_access_token=x"), None);
+        // A key that merely contains the target must not match.
+        assert_eq!(query_value("my_access_token=x", "access_token"), None);
+        assert_eq!(query_value("xticket=y", "ticket"), None);
     }
 }

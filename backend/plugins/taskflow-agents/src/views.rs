@@ -25,11 +25,12 @@ use crate::models::{
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentSessionStatus,
     TaskflowAgentStatus, TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
     TaskflowChannelReadCursor, TaskflowCredentialStatus, TaskflowMessageAttachment,
-    TaskflowMessagePriority, TaskflowPromptStatus, TaskflowReviewDecision, TaskflowTaskReview,
-    TaskflowTerminalInput, TaskflowTerminalStream, taskflow_agent, taskflow_agent_channel,
-    taskflow_agent_channel_member,
+    TaskflowMessagePriority, TaskflowPromptStatus, TaskflowRealtimeTicket, TaskflowReviewDecision,
+    TaskflowTaskReview, TaskflowTerminalInput, TaskflowTerminalStream, taskflow_agent,
+    taskflow_agent_channel, taskflow_agent_channel_member,
     taskflow_agent_message, taskflow_agent_prompt, taskflow_agent_session,
     taskflow_agent_terminal_frame, taskflow_channel_read_cursor, taskflow_message_attachment,
+    taskflow_realtime_ticket,
 };
 
 /// The stored value of `TaskflowMembershipStatus::Active` — the status column is
@@ -3692,4 +3693,72 @@ async fn cancel_pending_prompts(session_id: i64) -> Result<usize, StatusCode> {
         let _ = TaskflowAgentPrompt::objects().save(row).await;
     }
     Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// #43: one-time realtime SSE tickets
+// ---------------------------------------------------------------------------
+
+/// How long a minted SSE ticket stays valid before it must be re-minted. Short
+/// on purpose — the client mints one right before opening `EventSource`.
+const REALTIME_TICKET_TTL_SECS: i64 = 60;
+
+/// A client-generated, high-entropy ticket value (32 bytes of `getRandomValues`,
+/// base64). Only its hash is stored; the client presents the plaintext on
+/// connect. Same shape as a message `client_nonce`.
+#[derive(Debug, Deserialize)]
+pub struct MintTicketInput {
+    pub ticket: String,
+}
+
+/// `POST /api/taskflow/realtime/ticket` (token-authed) — bind a one-time ticket
+/// to the caller for the SSE handshake (#43). Stores only the hash, with a short
+/// TTL. `EventSource` then connects with `?ticket=<plaintext>`.
+pub async fn mint_realtime_ticket(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Json(input): Json<MintTicketInput>,
+) -> Result<Response, StatusCode> {
+    let ticket = input.ticket.trim();
+    // Reject a low-entropy ticket outright — the client is expected to send 32
+    // random bytes, base64-encoded (~43 chars).
+    if ticket.len() < 32 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(REALTIME_TICKET_TTL_SECS);
+    TaskflowRealtimeTicket::objects()
+        .create(TaskflowRealtimeTicket {
+            id: 0,
+            user: ForeignKey::new(user_id),
+            token_hash: umbral_auth::digest_token(ticket),
+            expires_at,
+            used_at: None,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((StatusCode::CREATED, Json(json!({ "expires_at": expires_at }))).into_response())
+}
+
+/// Redeem a presented ticket → the user id it was minted for, or `None` if it is
+/// unknown, expired, or already used. Single-use: the first redemption marks it
+/// used so a replay fails. Called by the realtime identity resolver (#43).
+pub async fn consume_realtime_ticket(plaintext: &str) -> Option<i64> {
+    let hash = umbral_auth::digest_token(plaintext.trim());
+    let now = chrono::Utc::now();
+    let ticket = TaskflowRealtimeTicket::objects()
+        .filter(taskflow_realtime_ticket::TOKEN_HASH.eq(hash))
+        .first()
+        .await
+        .ok()
+        .flatten()?;
+    if ticket.used_at.is_some() || ticket.expires_at <= now {
+        return None;
+    }
+    let user_id = ticket.user.id();
+    // Mark used so the ticket can't be replayed. Best-effort: even a lost race
+    // here is bounded by the TTL.
+    let mut used = ticket;
+    used.used_at = Some(now);
+    let _ = TaskflowRealtimeTicket::objects().save(used).await;
+    Some(user_id)
 }

@@ -148,9 +148,24 @@ const TERMINAL_FRAME_FIELDS: &[&str] = &[
 /// Build the configured realtime plugin.
 pub fn plugin() -> RealtimePlugin {
     RealtimePlugin::new()
-        // The SPA uses bearer tokens for REST, so accept the same Authorization
-        // header for SSE/WS handshakes. Session cookies still work for /admin.
+        // Identity for the SSE/WS handshake, in order of preference:
+        // 1. #43: a one-time ticket (from `?ticket=`, promoted to the
+        //    `X-Realtime-Ticket` header by `realtime_auth`). Validated + consumed
+        //    against the DB, so a forged header value just fails to resolve.
+        // 2. The bearer token / session cookie via `umbral_auth::resolve_identity`
+        //    (the #41 `?access_token=` path also lands here as an Authorization
+        //    header). Session cookies still work for /admin.
         .identity_resolver(|headers| async move {
+            if let Some(ticket) = headers
+                .get("x-realtime-ticket")
+                .and_then(|value| value.to_str().ok())
+            {
+                if let Some(user_id) =
+                    taskflow_agents::views::consume_realtime_ticket(ticket).await
+                {
+                    return Some(user_id.to_string());
+                }
+            }
             umbral_auth::resolve_identity(&headers)
                 .await
                 .map(|identity| identity.user_id)

@@ -276,20 +276,39 @@ export type RealtimeStreamOptions = {
 }
 
 /// Open one SSE connection for every group and keep it alive. Returns a closer.
+/// #43: a high-entropy one-time ticket for the realtime SSE handshake — 32 bytes
+/// of CSPRNG randomness, hex-encoded (URL- and header-safe). Client-generated
+/// like a message `client_nonce`; the server stores only its hash.
+function randomTicket(): string {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
+}
+
+/// Mint an SSE ticket bound to the caller. POSTs a fresh random value (authed by
+/// the bearer token) and returns that value to present on connect. Throws if the
+/// endpoint is unavailable, so the caller can fall back to `?access_token=`.
+async function mintRealtimeTicket(): Promise<string> {
+  const ticket = randomTicket()
+  const token = getStoredToken()
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/realtime/ticket`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ ticket }),
+  })
+  if (!response.ok) throw new Error(`Could not mint a realtime ticket (${response.status}).`)
+  return ticket
+}
+
 export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () => void {
   const groups = [...options.groups].filter(Boolean)
   if (!groups.length || typeof EventSource === "undefined") return () => {}
 
-  // #41: EventSource can't send an Authorization header, so pass the bearer
-  // token as `?access_token=` — a backend middleware promotes it to a Bearer
-  // header for the realtime handshake. This keeps the live feed authenticated
-  // off the same token REST uses, so a stale session cookie (e.g. after a
-  // backend restart) no longer 403s the stream. The token is URL-safe, so
-  // encodeURIComponent leaves it unchanged.
-  const token = getStoredToken()
-  const url =
-    `${API_BASE_URL}/realtime/sse?groups=${encodeURIComponent(groups.join(","))}` +
-    (token ? `&access_token=${encodeURIComponent(token)}` : "")
+  const groupsParam = encodeURIComponent(groups.join(","))
   let source: EventSource | null = null
   let retryTimer: number | undefined
   let attempt = 0
@@ -299,8 +318,24 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
   /// is not mistaken for a healthy one.
   let openedAt = 0
 
-  const connect = () => {
+  const connect = async () => {
     if (closed) return
+    // #43: EventSource can't send an Authorization header, so mint a fresh
+    // one-time ticket and pass it as `?ticket=` — a backend middleware promotes
+    // it to a header the realtime resolver validates + consumes. The durable
+    // token never rides in the URL. If minting fails (e.g. an older backend
+    // without the endpoint), fall back to the #41 `?access_token=` path so
+    // realtime still works. A fresh ticket is minted on every (re)connect.
+    let auth = ""
+    try {
+      const ticket = await mintRealtimeTicket()
+      auth = `&ticket=${encodeURIComponent(ticket)}`
+    } catch {
+      const token = getStoredToken()
+      if (token) auth = `&access_token=${encodeURIComponent(token)}`
+    }
+    if (closed) return
+    const url = `${API_BASE_URL}/realtime/sse?groups=${groupsParam}${auth}`
     const es = new EventSource(url, { withCredentials: true })
     source = es
 

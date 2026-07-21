@@ -24,6 +24,9 @@ const SEND_MESSAGE_BODY_LIMIT: usize = 32 * 1024 * 1024;
 pub fn router() -> Router {
     Router::new()
         .route("/api/taskflow/agents/health", get(views::health))
+        // #43: mint a one-time SSE ticket (token-authed) so EventSource can
+        // authenticate the realtime handshake without the bearer token in the URL.
+        .route("/api/taskflow/realtime/ticket", post(views::mint_realtime_ticket))
         // The only trusted write path for messages. Auto-REST's
         // POST /api/taskflow_agent_message/ lets the client assert its own
         // sender fields; this route derives them.
