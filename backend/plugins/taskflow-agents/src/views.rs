@@ -38,9 +38,10 @@ use crate::models::{
 /// as `taskflow_projects::scope`).
 const ACTIVE_MEMBERSHIP: &str = "active";
 
-/// The model caps `body_markdown` at 20000 chars. Rejecting at the edge turns
-/// what would otherwise be truncation or a DB-level error into an honest 400.
-const MAX_BODY_CHARS: usize = 20_000;
+/// The model caps `body_markdown` at ~10 MiB. Rejecting at the edge turns what
+/// would otherwise be truncation or a DB-level error into an honest 400. Raised
+/// from 20k so a user can paste a very long document into a message.
+const MAX_BODY_CHARS: usize = 10 * 1024 * 1024;
 
 /// Per-file upload cap, matching the media backend's default. Checked up front,
 /// before the message is created, so an oversized file rejects the whole

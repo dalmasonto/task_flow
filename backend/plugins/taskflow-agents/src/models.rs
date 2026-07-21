@@ -268,7 +268,10 @@ pub struct TaskflowAgentMessage {
     pub targets: Option<String>,
     #[umbral(string, max_length = 160)]
     pub sender_label: String,
-    #[umbral(string, max_length = 20000, widget = "textarea")]
+    // A message body can be very long (a pasted document, a full report) — cap it
+    // generously at ~10 MiB rather than the old 20k chars. SQLite TEXT is
+    // unbounded; this is the app-level ceiling, matched by MAX_BODY_CHARS.
+    #[umbral(string, max_length = 10_485_760, widget = "textarea")]
     pub body_markdown: String,
     #[umbral(choices, default = "normal")]
     pub priority: TaskflowMessagePriority,
