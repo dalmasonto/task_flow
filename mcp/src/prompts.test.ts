@@ -185,11 +185,12 @@ describe("stepsForPrompt", () => {
     ]);
   });
 
-  // The choreography below is a HYPOTHESIS pinned here so a change is visible;
-  // it is corrected against the live TUI in Step 8. All-arrows: walk down
-  // toggling picks, type into "Type something", Enter to select it, Down to
-  // Submit, Enter to review, then Submit answers.
-  it("navigates to Other, injects the text, and submits (hypothesis)", () => {
+  // Corrected against the live TUI 2026-07-21: typing (which send-keys -l
+  // mimics) AUTO-CHECKS the "Type something" option — Enter merely TOGGLES it,
+  // so an Enter right after the text deselects the box the paste just checked.
+  // Observed: with that Enter, Other came back unchecked and dropped from the
+  // answer. So NO Enter after the text; the paste selects it.
+  it("navigates to Other, injects the text (which auto-selects it), and submits", () => {
     const opts = JSON.stringify([
       { question: "Q", kind: "multi", options: [
         { number: 1, label: "A" }, { number: 2, label: "B" }, { number: 3, label: "C" },
@@ -201,9 +202,8 @@ describe("stepsForPrompt", () => {
       { key: "Down" },             // -> 2
       { key: "Down" },             // -> 3
       { key: "Down" },             // -> 4 = "Type something"
-      { text: "my take" },         // type into the field
-      { key: "Enter" },            // select Other
-      { key: "Down" },             // -> Submit
+      { text: "my take" },         // type into the field — this auto-checks it
+      { key: "Down" },             // -> Submit (NO Enter: it would uncheck Other)
       { key: "Enter" },            // activate -> review screen
       { key: "1" }, { key: "Enter" }, // Submit answers
     ]);

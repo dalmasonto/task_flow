@@ -231,7 +231,11 @@ export function stepsForPrompt(
   for (let i = 0; i < single!.options.length; i++) {
     const opt = single!.options[i]!;
     if (opt.isOther) {
-      steps.push({ text: texts[0]! }, { key: "Enter" }); // type, then select Other
+      // Typing (which send-keys -l mimics) AUTO-CHECKS the Other option, and
+      // Enter merely TOGGLES it — so NO Enter here, or it would deselect the box
+      // the paste just checked. Verified live 2026-07-21: with an Enter, Other
+      // came back unchecked and dropped from the answer.
+      steps.push({ text: texts[0]! });
     } else if (sets[0]!.includes(opt.number)) {
       steps.push({ key: "Enter" }); // toggle this pick
     }
