@@ -268,6 +268,7 @@ export interface TaskflowAgentPrompt {
   status: TaskflowAgentPromptStatus;
   answer: number | null;
   answer_json: string | null;
+  answer_text_json: string | null;
   /** Foreign key into `auth_user`. */
   answered_by: number | null;
   answered_at: string | null;
@@ -337,6 +338,8 @@ export interface TaskflowMessageAttachment {
   message: number;
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   project: number;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  channel: number | null;
   file: string;
   name: string;
   content_type: string;
@@ -425,6 +428,12 @@ export interface TaskflowTask {
   /** Foreign key into `auth_user`. */
   assigned_user: number | null;
   assigned_agent_id: number | null;
+  review_gate: string | null;
+  estimate_minutes: number | null;
+  /** Foreign key into `auth_user`. */
+  operator_user: number | null;
+  operator_agent_id: number | null;
+  created_by_agent_id: number | null;
   assignee_label: string | null;
   due_at: string | null;
   created_at: string | null;
@@ -1283,6 +1292,13 @@ export interface TaskflowAgentPromptFilters {
   "answer_json__startswith"?: string;
   "answer_json__in"?: string[];
   "answer_json__isnull"?: boolean;
+  "answer_text_json"?: string;
+  "answer_text_json__ne"?: string;
+  "answer_text_json__contains"?: string;
+  "answer_text_json__icontains"?: string;
+  "answer_text_json__startswith"?: string;
+  "answer_text_json__in"?: string[];
+  "answer_text_json__isnull"?: boolean;
   "answered_by"?: number;
   "answered_by__ne"?: number;
   "answered_by__in"?: number[];
@@ -1304,7 +1320,7 @@ export interface TaskflowAgentPromptFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentPromptOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "session" | "-session" | "question" | "-question" | "options_json" | "-options_json" | "kind" | "-kind" | "fingerprint" | "-fingerprint" | "status" | "-status" | "answer" | "-answer" | "answer_json" | "-answer_json" | "answered_by" | "-answered_by" | "answered_at" | "-answered_at" | "created_at" | "-created_at";
+export type TaskflowAgentPromptOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "session" | "-session" | "question" | "-question" | "options_json" | "-options_json" | "kind" | "-kind" | "fingerprint" | "-fingerprint" | "status" | "-status" | "answer" | "-answer" | "answer_json" | "-answer_json" | "answer_text_json" | "-answer_text_json" | "answered_by" | "-answered_by" | "answered_at" | "-answered_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_prompt`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentPromptCreate {
   project: number;
@@ -1317,6 +1333,7 @@ export interface TaskflowAgentPromptCreate {
   status?: TaskflowAgentPromptStatus;
   answer?: number | null;
   answer_json?: string | null;
+  answer_text_json?: string | null;
   answered_by?: number | null;
   answered_at?: string | null;
 }
@@ -1332,6 +1349,7 @@ export interface TaskflowAgentPromptUpdate {
   status?: TaskflowAgentPromptStatus;
   answer?: number | null;
   answer_json?: string | null;
+  answer_text_json?: string | null;
   answered_by?: number | null;
   answered_at?: string | null;
 }
@@ -1591,6 +1609,10 @@ export interface TaskflowMessageAttachmentFilters {
   "project"?: number;
   "project__ne"?: number;
   "project__in"?: number[];
+  "channel"?: number;
+  "channel__ne"?: number;
+  "channel__in"?: number[];
+  "channel__isnull"?: boolean;
   "file"?: string;
   "file__ne"?: string;
   "file__contains"?: string;
@@ -1625,11 +1647,12 @@ export interface TaskflowMessageAttachmentFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowMessageAttachmentOrdering = "id" | "-id" | "message" | "-message" | "project" | "-project" | "file" | "-file" | "name" | "-name" | "content_type" | "-content_type" | "size_bytes" | "-size_bytes" | "created_at" | "-created_at";
+export type TaskflowMessageAttachmentOrdering = "id" | "-id" | "message" | "-message" | "project" | "-project" | "channel" | "-channel" | "file" | "-file" | "name" | "-name" | "content_type" | "-content_type" | "size_bytes" | "-size_bytes" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_message_attachment`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowMessageAttachmentCreate {
   message: number;
   project: number;
+  channel?: number | null;
   file: string;
   name: string;
   content_type: string;
@@ -1639,6 +1662,7 @@ export interface TaskflowMessageAttachmentCreate {
 export interface TaskflowMessageAttachmentUpdate {
   message?: number;
   project?: number;
+  channel?: number | null;
   file?: string;
   name?: string;
   content_type?: string;
@@ -2045,6 +2069,41 @@ export interface TaskflowTaskFilters {
   "assigned_agent_id__lt"?: number;
   "assigned_agent_id__in"?: number[];
   "assigned_agent_id__isnull"?: boolean;
+  "review_gate"?: string;
+  "review_gate__ne"?: string;
+  "review_gate__contains"?: string;
+  "review_gate__icontains"?: string;
+  "review_gate__startswith"?: string;
+  "review_gate__in"?: string[];
+  "review_gate__isnull"?: boolean;
+  "estimate_minutes"?: number;
+  "estimate_minutes__ne"?: number;
+  "estimate_minutes__gte"?: number;
+  "estimate_minutes__lte"?: number;
+  "estimate_minutes__gt"?: number;
+  "estimate_minutes__lt"?: number;
+  "estimate_minutes__in"?: number[];
+  "estimate_minutes__isnull"?: boolean;
+  "operator_user"?: number;
+  "operator_user__ne"?: number;
+  "operator_user__in"?: number[];
+  "operator_user__isnull"?: boolean;
+  "operator_agent_id"?: number;
+  "operator_agent_id__ne"?: number;
+  "operator_agent_id__gte"?: number;
+  "operator_agent_id__lte"?: number;
+  "operator_agent_id__gt"?: number;
+  "operator_agent_id__lt"?: number;
+  "operator_agent_id__in"?: number[];
+  "operator_agent_id__isnull"?: boolean;
+  "created_by_agent_id"?: number;
+  "created_by_agent_id__ne"?: number;
+  "created_by_agent_id__gte"?: number;
+  "created_by_agent_id__lte"?: number;
+  "created_by_agent_id__gt"?: number;
+  "created_by_agent_id__lt"?: number;
+  "created_by_agent_id__in"?: number[];
+  "created_by_agent_id__isnull"?: boolean;
   "assignee_label"?: string;
   "assignee_label__ne"?: string;
   "assignee_label__contains"?: string;
@@ -2077,7 +2136,7 @@ export interface TaskflowTaskFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_task`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowTaskCreate {
   project: number;
@@ -2090,6 +2149,11 @@ export interface TaskflowTaskCreate {
   created_by?: number | null;
   assigned_user?: number | null;
   assigned_agent_id?: number | null;
+  review_gate?: string | null;
+  estimate_minutes?: number | null;
+  operator_user?: number | null;
+  operator_agent_id?: number | null;
+  created_by_agent_id?: number | null;
   assignee_label?: string | null;
   due_at?: string | null;
   updated_at?: string | null;
@@ -2106,6 +2170,11 @@ export interface TaskflowTaskUpdate {
   created_by?: number | null;
   assigned_user?: number | null;
   assigned_agent_id?: number | null;
+  review_gate?: string | null;
+  estimate_minutes?: number | null;
+  operator_user?: number | null;
+  operator_agent_id?: number | null;
+  created_by_agent_id?: number | null;
   assignee_label?: string | null;
   due_at?: string | null;
 }

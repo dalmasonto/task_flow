@@ -195,8 +195,13 @@ async fn make_task(project: i64, title: &str) {
             priority: TaskflowTaskPriority::Normal,
             sort_order: 0,
             created_by: None,
+            created_by_agent_id: None,
             assigned_user: None,
             assigned_agent_id: None,
+            operator_user: None,
+            operator_agent_id: None,
+            review_gate: None,
+            estimate_minutes: None,
             assignee_label: None,
             due_at: None,
             created_at: None,
@@ -1058,4 +1063,32 @@ async fn prompts_are_project_scoped() {
         Some(0),
         "a user with no memberships must see no prompts"
     );
+}
+
+// The dialog persists owner/operator/due/estimate/review through the auto-REST
+// create; before these columns existed they were silently dropped.
+#[tokio::test]
+async fn task_create_round_trips_the_new_columns() {
+    let (_, seed) = app().await;
+    let (status, body) = post_as(
+        seed.alice,
+        "/api/taskflow_task/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "title": "with real fields",
+            "description_markdown": "d",
+            "review_gate": "human signs off",
+            "estimate_minutes": 90,
+            "operator_agent_id": 7,
+            "created_by": seed.alice,
+        }),
+    )
+    .await;
+    assert_eq!(status, 201, "create failed: {body:?}");
+    let id = body["id"].as_i64().unwrap();
+    let (_s, got) = get_as(seed.alice, false, &format!("/api/taskflow_task/{id}")).await;
+    assert_eq!(got["review_gate"], serde_json::json!("human signs off"));
+    assert_eq!(got["estimate_minutes"], serde_json::json!(90));
+    assert_eq!(got["operator_agent_id"], serde_json::json!(7));
+    assert_eq!(got["created_by"], serde_json::json!(seed.alice));
 }

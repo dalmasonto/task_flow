@@ -85,6 +85,20 @@ pub struct TaskflowTask {
     /// Agent id from the taskflow-agents plugin. Kept as an integer to avoid a
     /// dependency cycle while still letting the UI show agent ownership.
     pub assigned_agent_id: Option<i64>,
+    /// What a human must approve before this task can ship. Free text/markdown.
+    #[umbral(string, max_length = 4000, widget = "textarea")]
+    pub review_gate: Option<String>,
+    /// Estimate in minutes. The dialog takes free text and parses a leading int.
+    pub estimate_minutes: Option<i64>,
+    /// Operator if a human (the executor, distinct from the owner).
+    #[umbral(on_delete = "set_null")]
+    pub operator_user: Option<ForeignKey<AuthUser>>,
+    /// Operator if an agent. Bare i64 for the same cycle reason as
+    /// `assigned_agent_id` — taskflow-tasks cannot depend on taskflow-agents.
+    pub operator_agent_id: Option<i64>,
+    /// Creator if an agent (human creators use `created_by`). Bare i64, same
+    /// cycle reason. Set only by the agent create-handler, never a client.
+    pub created_by_agent_id: Option<i64>,
     #[umbral(string, max_length = 120)]
     pub assignee_label: Option<String>,
     pub due_at: Option<DateTime<Utc>>,
