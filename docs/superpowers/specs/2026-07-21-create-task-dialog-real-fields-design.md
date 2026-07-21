@@ -79,6 +79,17 @@ This mirrors the operator split: a human FK plus an agent id.
   and the card show a "Created by" that resolves to the member or agent name, or
   falls back to "Unknown" for legacy rows where both are null.
 
+**Attribution trust (accepted, corrected 2026-07-21).** The enforced guarantee
+is that an *agent's own* creations are truthful: `create_task_as_agent` stamps
+`created_by_agent_id` from the credential, so an agent cannot claim another
+identity. The dashboard auto-REST create, however, trusts the body — a human
+caller could set `created_by_agent_id` (or `created_by`) to a value they do not
+own. This is symmetric with `created_by`, which the auto-REST path has always
+trusted from the body, and it forges only an attribution label, granting no
+access. Strict server-side stamping on the dashboard path would mean moving task
+creation off auto-REST onto a custom handler — out of scope here; the risk is
+accepted, matching the existing `created_by` behaviour.
+
 This is the only change that touches the MCP/agent path; everything else is the
 dashboard create + the model.
 
