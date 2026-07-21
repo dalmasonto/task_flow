@@ -146,6 +146,7 @@ import {
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { spliceAtCaret, fileReferenceText } from "@/lib/composer"
+import { detectMention } from "@/lib/mention"
 import { formatBytes } from "@/lib/attachment-kind"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
@@ -5997,6 +5998,8 @@ function AgentsConversationView() {
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
   // #29: in a group channel, optionally direct a message at one agent's pane.
   const [targetAgent, setTargetAgent] = useState<number | null>(null)
+  // #29: the in-progress `@mention` (an `@` being typed), for the agent picker.
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -6043,6 +6046,29 @@ function AgentsConversationView() {
   // at one specific attachment among several.
   const insertFileReference = (name: string) => insertAtCaret(fileReferenceText(name))
 
+  // #29: the agents matching the in-progress @mention (by display name), and
+  // picking one — it drops the readable @name at the caret AND directs the
+  // message at that agent, so the human never types a long, spaced name.
+  const mentionAgents = mention
+    ? (selectedChat?.members ?? [])
+        .filter((member) => member.type === "agent" && member.agentId != null)
+        .filter((member) => member.name.toLowerCase().includes(mention.query.toLowerCase()))
+        .slice(0, 6)
+    : []
+
+  const selectMention = (agent: ConversationMember) => {
+    if (!mention || agent.agentId == null) return
+    const textarea = composerRef.current
+    const caret = textarea?.selectionStart ?? draftMessage.length
+    const token = `@${agent.name} `
+    const next = draftMessage.slice(0, mention.start) + token + draftMessage.slice(caret)
+    pendingCaret.current = mention.start + token.length
+    setDraftMessage(next)
+    setTargetAgent(agent.agentId ?? null)
+    setMention(null)
+    textarea?.focus()
+  }
+
   // The terminal stays CLOSED by default and is opened on demand from the header
   // terminal icon, showing as an overlay over the chat area. Switching
   // conversations closes it so the new chat starts clean. Resetting during
@@ -6059,6 +6085,7 @@ function AgentsConversationView() {
     setTerminalOpen(false)
     // A directed target is per-conversation; switching chats resets it.
     setTargetAgent(null)
+    setMention(null)
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
@@ -6399,13 +6426,44 @@ function AgentsConversationView() {
               </div>
             ) : null}
 
+            <div className="relative">
+            {/* #29: typing `@` surfaces the channel's agents so the human picks
+                one from a list — inserting the name and directing the message —
+                instead of typing a long, spaced handle by hand. */}
+            {mentionAgents.length ? (
+              <div className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
+                <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Direct to
+                </div>
+                {mentionAgents.map((agent) => (
+                  <button
+                    key={agent.agentId}
+                    type="button"
+                    // Mousedown (not click) so the textarea keeps focus and its
+                    // caret — click would blur first and lose the insert point.
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      selectMention(agent)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <span className="truncate">{agent.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <textarea
               ref={composerRef}
               rows={1}
               className="max-h-[8.5rem] min-h-9 w-full resize-none bg-transparent px-1 py-1.5 text-sm leading-5 outline-none placeholder:text-muted-foreground"
               placeholder={`Message ${selectedChat.title}…`}
               value={draftMessage}
-              onChange={(event) => setDraftMessage(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value
+                setDraftMessage(value)
+                // #29: opening/updating an @mention as the human types.
+                setMention(detectMention(value, event.target.selectionStart ?? value.length))
+              }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return
                 // An IME uses Enter to accept a candidate. Submitting there
@@ -6430,6 +6488,7 @@ function AgentsConversationView() {
                 event.currentTarget.form?.requestSubmit()
               }}
             />
+            </div>
 
             <div className="flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-0.5">
