@@ -49,7 +49,7 @@ import {
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { MarkdownRenderer } from "@/components/markdown-renderer"
+import { MarkdownRenderer, TaskChipContext } from "@/components/markdown-renderer"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -2547,6 +2547,14 @@ function App() {
     setOpenTaskId(taskId)
   }
 
+  // Stable opener for TASK#<n> chips (see TaskChipContext). Only calls state
+  // setters, which are stable, so the context value never churns and doesn't
+  // re-render every MarkdownRenderer on each App render.
+  const openTaskById = useCallback((taskId: number) => {
+    setSelectedTaskId(String(taskId))
+    setOpenTaskId(String(taskId))
+  }, [])
+
   function handleDeleteTask(taskId: string) {
     // Optimistic: drop it and close the sheet immediately. A live delete that
     // fails restores the row so a rejected delete never silently loses it.
@@ -3009,6 +3017,7 @@ function App() {
   }
 
   return (
+    <TaskChipContext.Provider value={openTaskById}>
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         projects={sidebarProjects}
@@ -3465,6 +3474,7 @@ function App() {
         onReviewDecision={handleReviewDecision}
       />
     </SidebarProvider>
+    </TaskChipContext.Provider>
   )
 }
 

@@ -1,7 +1,73 @@
+import { createContext, useContext, type ReactNode } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 
 import { cn } from "@/lib/utils"
+import { splitTaskRefs } from "@/lib/task-refs"
+
+/// Lets a `TASK#<n>` chip open the task sheet without threading a callback
+/// through every MarkdownRenderer. App provides the opener; chips consume it.
+/// Null (the default) renders chips as inert styled text.
+export const TaskChipContext = createContext<((taskId: number) => void) | null>(null)
+
+/// Remark plugin: rewrite `TASK#<n>` inside text nodes into link nodes with a
+/// `#task-<n>` fragment url (which the URL sanitizer allows), so the `a`
+/// component below can render them as chips. Skips text inside existing links
+/// (no nested links) and never touches `inlineCode` / `code` — those are their
+/// own node types, so a TASK#n written in backticks stays literal.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function remarkTaskChips() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const visit = (node: any): void => {
+    if (!node || !Array.isArray(node.children) || node.type === "link") return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const next: any[] = []
+    for (const child of node.children) {
+      if (child.type === "text") {
+        const segments = splitTaskRefs(child.value as string)
+        if (segments.length === 1 && segments[0].type === "text") {
+          next.push(child)
+          continue
+        }
+        for (const segment of segments) {
+          if (segment.type === "text") {
+            next.push({ type: "text", value: segment.value })
+          } else {
+            next.push({
+              type: "link",
+              url: `#task-${segment.id}`,
+              children: [{ type: "text", value: segment.raw }],
+            })
+          }
+        }
+      } else {
+        visit(child)
+        next.push(child)
+      }
+    }
+    node.children = next
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (tree: any) => visit(tree)
+}
+
+/// One `TASK#<n>` chip. Clickable when an opener is in context; inert otherwise.
+function TaskChip({ taskId, children }: { taskId: number; children?: ReactNode }) {
+  const onOpenTask = useContext(TaskChipContext)
+  const chipClass =
+    "inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-primary ring-1 ring-primary/25"
+  if (!onOpenTask) return <span className={chipClass}>{children}</span>
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenTask(taskId)}
+      className={cn(chipClass, "cursor-pointer transition hover:bg-primary/20")}
+      title={`Open task #${taskId}`}
+    >
+      {children}
+    </button>
+  )
+}
 
 type MarkdownRendererProps = {
   content: string
@@ -23,16 +89,20 @@ const markdownComponents: Components = {
       {children}
     </blockquote>
   ),
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="break-words font-medium text-primary underline-offset-4 hover:underline"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => {
+    const taskMatch = /^#task-(\d+)$/.exec(href ?? "")
+    if (taskMatch) return <TaskChip taskId={Number(taskMatch[1])}>{children}</TaskChip>
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="break-words font-medium text-primary underline-offset-4 hover:underline"
+      >
+        {children}
+      </a>
+    )
+  },
   code: ({ children, className }) => (
     <code className={cn("rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground", className)}>
       {children}
@@ -96,7 +166,7 @@ export function MarkdownRenderer({ content, compact, tone = "default", className
         className
       )}
     >
-      <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents} skipHtml>
+      <Markdown remarkPlugins={[remarkGfm, remarkTaskChips]} components={markdownComponents} skipHtml>
         {content}
       </Markdown>
     </div>
