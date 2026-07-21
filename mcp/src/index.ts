@@ -27,6 +27,7 @@ import { TaskflowClient } from "./client.js";
 import { startMirrorWithRetry } from "./mirror.js";
 import { runMint } from "./mint.js";
 import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
+import { createSerialQueue } from "./pane-queue.js";
 import { stepsForPrompt } from "./prompts.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
@@ -186,14 +187,25 @@ async function startMirrorForThisAgent(): Promise<void> {
       });
       process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
 
+      // Every write to the pane — message delivery, prompt replay, terminal
+      // keys — goes through this ONE serial queue. The event stream dispatches
+      // handlers fire-and-forget, so without serialization two writes that land
+      // together interleave their `send-keys <text>` / `send-keys Enter` steps
+      // and one message's Enter submits another's text (see pane-queue.ts).
+      const paneQueue = createSerialQueue();
+
       // Deliver ONE message to the pane, resolving it by id (chat is id-only on
       // the wire). Shared by the live stream and the reconnect catch-up so both
-      // apply the same shouldDeliver + notify + mark-read.
+      // apply the same shouldDeliver + notify + mark-read. The pane write itself
+      // is serialized; the resolve/markRead round-trips stay outside the lock so
+      // network latency doesn't stall other deliveries.
       const deliverMessageById = async (id: number) => {
         const message = await resolveMessage(messageSourceFor(client), id);
         if (!message) return;
         if (!shouldDeliver(message, profile.agentId)) return;
-        await notifyPane(formatIncoming(message, message.attachments ?? []), pane, true);
+        await paneQueue(() =>
+          notifyPane(formatIncoming(message, message.attachments ?? []), pane, true),
+        );
         await client.markRead(message.channel, message.id);
       };
 
@@ -263,7 +275,9 @@ async function startMirrorForThisAgent(): Promise<void> {
           try {
             // Paced, not a tight loop: Claude Code's multi-select drops
             // keystrokes that arrive while it is re-rendering a toggle.
-            await sendKeySteps(steps, pane);
+            // Serialized with message delivery so an incoming message can't type
+            // itself into the middle of this answer's key sequence.
+            await paneQueue(() => sendKeySteps(steps, pane));
             process.stderr.write(
               `taskflow-v2-mcp: answered prompt ${prompt.id} with ${steps.length} step(s)\n`,
             );
@@ -294,7 +308,7 @@ async function startMirrorForThisAgent(): Promise<void> {
         onTerminalKey: async (input) => {
           if (input.agent !== profile.agentId) return;
           try {
-            await sendKeyToPane(input.keys, pane);
+            await paneQueue(() => sendKeyToPane(input.keys, pane));
             process.stderr.write(`taskflow-v2-mcp: terminal key "${input.keys}" → pane ${pane}\n`);
           } catch (err) {
             process.stderr.write(
