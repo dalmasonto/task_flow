@@ -1205,6 +1205,10 @@ function mapLiveTasks(
 /// umbral's NoPagination hard-caps a list response at MAX_LIST_ROWS (1000). A
 /// single `.list()` therefore never returns more than this, so a feed longer
 /// than 1000 must be walked in older windows by id cursor (see #38).
+/// #26: how many board cards a column shows per page; the intersection observer
+/// at its foot loads another page as the user scrolls near the bottom.
+const BOARD_PAGE_SIZE = 20
+
 const ACTIVITY_SERVER_CAP = 1000
 
 /// #38: how much of the feed the activity page will pull in automatically (in
@@ -1808,6 +1812,15 @@ function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
+  // #26: how many cards each board column renders. Starts at one page; an
+  // intersection observer at the column's foot bumps it. Keyed by column id.
+  const [boardColumnLimits, setBoardColumnLimits] = useState<Record<string, number>>({})
+  const bumpBoardColumnLimit = useCallback((columnId: string) => {
+    setBoardColumnLimits((prev) => ({
+      ...prev,
+      [columnId]: (prev[columnId] ?? BOARD_PAGE_SIZE) + BOARD_PAGE_SIZE,
+    }))
+  }, [])
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null)
@@ -3459,7 +3472,9 @@ function App() {
               <div className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto pb-2 lg:snap-none">
                 <div className="flex h-full gap-3">
                   {columns.map((column) => {
-                    // Each column is ordered by task #id (ascending). Dragging a
+                    // #26: newest first (id descending) so a freshly created task
+                    // — including one arriving over SSE — lands at the TOP, and
+                    // pagination pulls older cards in as you scroll. Dragging a
                     // card to another column still changes its status; within a
                     // column the id-sort wins, so manual reordering is dropped.
                     const columnTasks = boardFilteredTasks
@@ -3467,9 +3482,13 @@ function App() {
                       .sort((a, b) => {
                         const na = Number(a.id)
                         const nb = Number(b.id)
-                        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb
-                        return a.id.localeCompare(b.id)
+                        if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na
+                        return b.id.localeCompare(a.id)
                       })
+                    // #26: render only a page at a time; the sentinel at the foot
+                    // loads more on scroll.
+                    const columnLimit = boardColumnLimits[column.id] ?? BOARD_PAGE_SIZE
+                    const shownColumnTasks = columnTasks.slice(0, columnLimit)
                     const ColumnIcon = column.icon
                     return (
                       <div
@@ -3508,7 +3527,7 @@ function App() {
                           {draggedTaskId && dropTarget?.columnId === column.id && dropTarget.taskId === null ? (
                             <EndDropIndicator label={`Drop at end of ${column.title}`} />
                           ) : null}
-                          {columnTasks.map((task) => (
+                          {shownColumnTasks.map((task) => (
                             <div key={task.id} className="relative">
                               {draggedTaskId && dropTarget?.taskId === task.id && dropTarget.position === "before" ? (
                                 <DropIndicator label={`Drop before ${task.title}`} position="before" />
@@ -3545,6 +3564,12 @@ function App() {
                               ) : null}
                             </div>
                           ))}
+                          {columnTasks.length > shownColumnTasks.length ? (
+                            <BoardLoadMoreSentinel
+                              onLoadMore={() => bumpBoardColumnLimit(column.id)}
+                              remaining={columnTasks.length - shownColumnTasks.length}
+                            />
+                          ) : null}
                           {columnTasks.length === 0 ? (
                             <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-muted/40 px-3 text-center text-sm text-muted-foreground">
                               No tasks in {column.title.toLowerCase()}
@@ -4501,6 +4526,34 @@ function EndDropIndicator({ label }: { label: string }) {
       aria-label={label}
     >
       Drop at end
+    </div>
+  )
+}
+
+/// #26: a foot-of-column sentinel that asks for the next page when it scrolls
+/// into view. The observer is created ONCE (empty deps) and reads the latest
+/// callback via a ref — recreating it on each render would fire immediately
+/// while still intersecting and load every page in a runaway loop (the same
+/// trap that bit the #38 activity auto-loader). `remaining` only labels it.
+function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: () => void; remaining: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const callback = useRef(onLoadMore)
+  callback.current = onLoadMore
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) callback.current()
+      },
+      { rootMargin: "160px" }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div ref={ref} className="py-2 text-center text-[11px] text-muted-foreground">
+      Load {Math.min(remaining, BOARD_PAGE_SIZE)} more…
     </div>
   )
 }
