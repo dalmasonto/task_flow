@@ -4053,6 +4053,8 @@ function TaskCard({
             <span className={cn("rounded-full px-2 py-0.5 text-[0.68rem] font-semibold ring-1", priorityClass(task.priority))}>
               {task.priority}
             </span>
+            {/* The task # so a card can be identified at a glance / referenced. */}
+            <span className="shrink-0 font-mono text-[0.68rem] font-medium text-muted-foreground">#{task.id}</span>
             <span className="truncate text-xs text-muted-foreground">{task.updated}</span>
           </div>
           <h4 className="mt-2 text-sm font-semibold leading-5">{task.title}</h4>
