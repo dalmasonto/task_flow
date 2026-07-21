@@ -620,7 +620,11 @@ export async function answerAgentPrompt(
   /// and are still validated: that screen only exists once every question has
   /// been answered, so the agent replays the choices to REACH it and only then
   /// presses cancel.
-  cancel = false
+  cancel = false,
+  /// One free-text "Other" value per question, `null` where that question has no
+  /// Other pick. Sent only when at least one is present, so plain answers keep
+  /// the exact legacy body shape.
+  texts: (string | null)[] = []
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/taskflow/prompts/${promptId}/answer`, {
     method: "POST",
@@ -633,6 +637,7 @@ export async function answerAgentPrompt(
           ? { choices: answers[0] }
           : { choice: answers[0]?.[0] }),
       ...(cancel ? { cancel: true } : {}),
+      ...(texts.some((t) => t != null) ? { texts } : {}),
     }),
   })
   if (!response.ok) {

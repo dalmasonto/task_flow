@@ -4562,7 +4562,7 @@ export type AgentsOutletContext = {
   currentUser: AuthUser | null
   /// The question the selected agent is blocked on, if any.
   pendingPrompt?: TaskflowWorkspace["agentPrompts"][number]
-  onAnswerPrompt: (promptId: number, answers: number[][], cancel?: boolean) => Promise<void>
+  onAnswerPrompt: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
 }
 
 function useAgentsOutletContext() {
@@ -4865,8 +4865,8 @@ function AgentsPage({
   }, [selectedChat, liveWorkspace])
 
   const handleAnswerPrompt = useCallback(
-    async (promptId: number, answers: number[][], cancel = false) => {
-      await answerAgentPrompt(promptId, answers, cancel)
+    async (promptId: number, answers: number[][], cancel = false, texts: (string | null)[] = []) => {
+      await answerAgentPrompt(promptId, answers, cancel, texts)
     },
     []
   )
@@ -5058,7 +5058,7 @@ function AgentsConversationEmpty() {
 /// state, so a stale or hand-typed id never renders a broken conversation.
 
 /// One option as stored in a prompt's `options_json`.
-type AgentPromptOption = { number: number; label: string; description?: string; preview?: string }
+type AgentPromptOption = { number: number; label: string; description?: string; preview?: string; isOther?: boolean }
 
 /// One question and its options.
 type AgentPromptQuestion = { question: string; kind: string; options: AgentPromptOption[] }
@@ -5152,7 +5152,7 @@ function AgentPromptCard({
   onAnswer,
 }: {
   prompt: TaskflowWorkspace["agentPrompts"][number]
-  onAnswer: (promptId: number, answers: number[][], cancel?: boolean) => Promise<void>
+  onAnswer: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
 }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -5167,6 +5167,9 @@ function AgentPromptCard({
   const [selected, setSelected] = useState<number[][]>(
     () => loadPromptDraft(prompt.id, questions.length) ?? questions.map(() => [])
   )
+
+  // One Other-text value per question, "" where none. Indexed like `questions`.
+  const [texts, setTexts] = useState<string[]>(() => questions.map(() => ""))
 
   // Persist every change, so a reload mid-answer does not discard the work.
   useEffect(() => {
@@ -5188,16 +5191,26 @@ function AgentPromptCard({
     )
   }
 
+  // Effective selection per question: the toggled numbers, plus the Other
+  // option's number when its text box is non-empty. A filled Other box counts
+  // as picking Other even if the human never clicked it.
+  const effective = questions.map((q, i) => {
+    const other = q.options.find((o) => o.isOther)
+    const picks = [...(selected[i] ?? [])]
+    if (other && (texts[i] ?? "").trim() && !picks.includes(other.number)) picks.push(other.number)
+    return picks.sort((a, b) => a - b)
+  })
+
   // The agent is woken once, with the whole set. Answering questions one at a
   // time would replay digits into a screen the terminal has already left.
-  const complete = questions.length > 0 && selected.every((set) => set.length > 0)
+  const complete = questions.length > 0 && effective.every((set) => set.length > 0)
 
-  const submit = async (sets: number[][], cancel = false) => {
+  const submit = async (cancel = false) => {
     if (!complete || pending) return
     setPending(true)
     setError(null)
     try {
-      await onAnswer(prompt.id, sets, cancel)
+      await onAnswer(prompt.id, effective, cancel, texts.map((t) => (t.trim() ? t : null)))
       // Answered: the draft has served its purpose and would otherwise be
       // re-applied if this prompt id were ever rendered again.
       clearPromptDraft(prompt.id)
@@ -5233,7 +5246,25 @@ function AgentPromptCard({
           <div className="mt-3 space-y-1.5">
         {q.options.map((option) => {
           const active = selected[qIndex]?.includes(option.number) ?? false
-          return (
+          return option.isOther ? (
+            <div
+              key={option.number}
+              className="rounded-md border border-transparent bg-background/60 px-2.5 py-2"
+            >
+              <label className="mb-1 block text-xs text-muted-foreground">{option.label}</label>
+              <textarea
+                value={texts[qIndex] ?? ""}
+                disabled={pending}
+                rows={2}
+                placeholder="Type your own answer…"
+                onChange={(e) => {
+                  setError(null)
+                  setTexts((cur) => cur.map((t, i) => (i === qIndex ? e.target.value : t)))
+                }}
+                className="w-full resize-y rounded border bg-background px-2 py-1 text-sm"
+              />
+            </div>
+          ) : (
             <button
               key={option.number}
               type="button"
@@ -5275,7 +5306,7 @@ function AgentPromptCard({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" disabled={!complete || pending} onClick={() => void submit(selected)}>
+        <Button type="button" size="sm" disabled={!complete || pending} onClick={() => void submit()}>
           {pending ? "Sending…" : "Submit answers"}
         </Button>
         {/* Cancel is the OTHER option on the terminal's review screen, and that
@@ -5289,7 +5320,7 @@ function AgentPromptCard({
             size="sm"
             variant="outline"
             disabled={!complete || pending}
-            onClick={() => void submit(selected, true)}
+            onClick={() => void submit(true)}
           >
             Cancel
           </Button>
