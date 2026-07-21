@@ -109,6 +109,40 @@ describe("formatIncoming", () => {
     expect(formatIncoming(message(), [])).toBe("[taskflow] Message from Dalmas: ship it");
   });
 
+  // #29 part 2: the pushed notice used to be prose only, so an agent that did
+  // not already hold the context had to guess (or reply to the wrong task /
+  // person). Carry the ids so it can query and act without a round trip.
+  it("appends a context block with the ids an agent needs to act", () => {
+    const out = formatIncoming(message({ project: 2, task: 21, sender_user: 1, sender_kind: "user" }));
+    expect(out).toContain("project=2");
+    expect(out).toContain("channel=1");
+    expect(out).toContain("message=7");
+    expect(out).toContain("task=21");
+    expect(out).toContain("from=user:1");
+  });
+
+  it("shows an agent sender and omits an absent task", () => {
+    const out = formatIncoming(message({ project: 2, sender_agent: 9, sender_kind: "agent" }));
+    expect(out).toContain("project=2");
+    expect(out).not.toContain("task=");
+    expect(out).toContain("from=agent:9");
+  });
+
+  it("adds no context block when there is no project to scope", () => {
+    expect(formatIncoming(message())).toBe("[taskflow] Message from Dalmas: ship it");
+  });
+
+  it("keeps the context block when the body is shortened", () => {
+    const out = formatIncoming(message({ project: 2, task: 21, body_markdown: "z".repeat(2_000) }));
+    expect(out).toContain("task=21");
+    expect(out).toContain("…");
+  });
+
+  it("stays a single line with the context block so it cannot submit early", () => {
+    const out = formatIncoming(message({ project: 2, task: 21 }));
+    expect(out).not.toContain("\n");
+  });
+
   // A pushed message used to be text only, so an attached file was invisible:
   // the agent answered the message and never knew a file came with it.
   it("lists an attachment's name, size and url", () => {

@@ -27,6 +27,11 @@ export interface ResolvedMessage {
   sender_label: string;
   body_markdown: string;
   sender_agent: number | null;
+  /** Present on the read row (the backend serializes them); the agent notice
+   *  surfaces them so a delivered message carries its own context. */
+  project?: number | null;
+  task?: number | null;
+  sender_user?: number | null;
   attachments?: Array<{ name: string; size_bytes: number; url: string }>;
 }
 

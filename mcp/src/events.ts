@@ -38,6 +38,12 @@ export interface AgentMessageEvent {
   sender_label: string;
   body_markdown: string;
   sender_agent: number | null;
+  /** Context ids carried on the resolved read row (absent on the id-only wire
+   *  event). Surfaced in the pane notice so the agent can query/act on the
+   *  right project/task/person without a round trip — see `formatIncoming`. */
+  project?: number | null;
+  task?: number | null;
+  sender_user?: number | null;
 }
 
 export interface EventStreamOptions {
@@ -258,6 +264,32 @@ function humanSize(bytes: number): string {
  * If something has to be dropped it must be prose, never the pointer to the
  * files — the manifest is precisely what tells the agent there is more to fetch.
  */
+/**
+ * The context block appended to a notice: the ids an agent needs to act on the
+ * message without a round trip — scope a query to the project, act on the task,
+ * reply to the right person, or `mark_read` the message. Gated on `project`
+ * (a real delivered message always has one; the bare wire event does not), and
+ * kept on ONE line — a newline would submit the prompt early. Like the
+ * attachment manifest, it is never the part that gets truncated.
+ */
+function contextSuffix(message: AgentMessageEvent): string {
+  if (message.project == null) return "";
+  const parts = [
+    `project=${message.project}`,
+    `channel=${message.channel}`,
+    `message=${message.id}`,
+  ];
+  if (message.task != null) parts.push(`task=${message.task}`);
+  const sender =
+    message.sender_user != null
+      ? `user:${message.sender_user}`
+      : message.sender_agent != null
+        ? `agent:${message.sender_agent}`
+        : null;
+  if (sender) parts.push(`from=${sender}`);
+  return ` ⟦ctx ${parts.join(" ")}⟧`;
+}
+
 export function formatIncoming(
   message: AgentMessageEvent,
   attachments: NoticeAttachment[] = [],
@@ -270,18 +302,22 @@ export function formatIncoming(
       attachments.map((a) => `${a.name} (${humanSize(a.size_bytes)}) ${a.url}`).join("; ")
     : "";
 
+  const ctx = contextSuffix(message);
+
   // Newlines would submit the prompt early; collapse before measuring so the
   // budget reflects what is actually typed.
   const body = message.body_markdown.replace(/\s+/gu, " ").trim();
-  const room = MAX_NOTICE_CHARS - head.length - manifest.length;
+  // The manifest AND the context block are pointers the agent must keep; only
+  // the prose flexes into the room left after them.
+  const room = MAX_NOTICE_CHARS - head.length - manifest.length - ctx.length;
 
-  if (body.length <= room) return `${head}${body}${manifest}`;
+  if (body.length <= room) return `${head}${body}${manifest}${ctx}`;
 
   // Say so. A truncated notice that looks complete is how a request gets
   // half-answered; the agent needs to know to go and read the rest.
   const hint = " …[truncated — call check_messages for the full message]";
   const kept = body.slice(0, Math.max(0, room - hint.length));
-  return `${head}${kept}${hint}${manifest}`;
+  return `${head}${kept}${hint}${manifest}${ctx}`;
 }
 
 export type { TaskflowClient };
