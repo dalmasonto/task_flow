@@ -1226,6 +1226,30 @@ function upsertById<T extends { id: number }>(items: T[], row: T) {
   return [...items.slice(0, index), row, ...items.slice(index + 1)]
 }
 
+/// #44: upsert then keep only the newest `max` rows, so a high-volume live feed
+/// (terminal frames especially) can't grow the workspace without bound. New rows
+/// append at the end, so the tail is the newest — slice the oldest off the front.
+function upsertCapped<T extends { id: number }>(items: T[], row: T, max: number): T[] {
+  const next = upsertById(items, row)
+  return next.length > max ? next.slice(next.length - max) : next
+}
+
+/// #44: caps on the two live feeds that grow with agent activity, not user
+/// actions. Terminal frames arrive ~one per output line (fastest grower);
+/// activity ~one per tool call. Both keep far more than the UI shows.
+const MAX_LIVE_TERMINAL_FRAMES = 4000
+const MAX_LIVE_ACTIVITY = 8000
+
+/// #44: revoke any object-URL previews on a pending message row. A failed
+/// optimistic bubble keeps its blob thumbnails so the user still sees what they
+/// tried to send; when that row is later dismissed or reconciled to real /media
+/// links, those blobs must be freed or they pin the image File in memory.
+function revokeBlobUrls(attachments?: Array<{ url?: string }>) {
+  for (const attachment of attachments ?? []) {
+    if (attachment.url?.startsWith("blob:")) URL.revokeObjectURL(attachment.url)
+  }
+}
+
 function removeById<T extends { id: number }>(items: T[], id: number) {
   return items.filter((item) => item.id !== id)
 }
@@ -2210,7 +2234,7 @@ function App() {
         case taskflowTables.taskActivity: {
           const activity = row as TaskflowWorkspace["taskActivity"][number]
           if (activity.project !== projectId) return
-          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: upsertById(workspace.taskActivity, activity) }))
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: upsertCapped(workspace.taskActivity, activity, MAX_LIVE_ACTIVITY) }))
           break
         }
         case taskflowTables.taskSessions: {
@@ -2272,7 +2296,7 @@ function App() {
         case taskflowTables.terminalFrames: {
           const frame = row as TaskflowWorkspace["terminalFrames"][number]
           if (frame.project !== projectId) return
-          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, terminalFrames: upsertById(workspace.terminalFrames, frame) }))
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, terminalFrames: upsertCapped(workspace.terminalFrames, frame, MAX_LIVE_TERMINAL_FRAMES) }))
           break
         }
         case taskflowTables.channelReadCursors: {
@@ -5826,6 +5850,9 @@ function AgentsPage({
           workspace.messageAttachments
         ),
       }))
+      // #44: the bubble now points at real /media links — free the old blob
+      // previews the failed attempt was still showing.
+      revokeBlobUrls(failed.attachments)
     } catch (error) {
       const reason = error instanceof Error ? error.message : undefined
       onWorkspaceUpdate((workspace) => ({
@@ -5840,6 +5867,8 @@ function AgentsPage({
   // server (or was rejected), so there is nothing to delete server-side — just
   // remove the local pending row keyed by its nonce.
   const cancelLiveMessage = (nonce: string) => {
+    // #44: free the failed bubble's blob previews before dropping the row.
+    revokeBlobUrls(findPending(liveWorkspace?.agentMessages ?? [], nonce)?.attachments)
     onWorkspaceUpdate((workspace) => ({
       ...workspace,
       agentMessages: dismissPending(workspace.agentMessages, nonce),
@@ -8323,12 +8352,19 @@ function ApiBasePage({
 /// user gets feedback. Falls back silently if the Clipboard API is unavailable.
 function CopyButton({ value, label = "Copy", className }: { value: string; label?: string; className?: string }) {
   const [copied, setCopied] = useState(false)
+  // #44: keep the reset timer in a ref so rapid re-clicks don't stack timers and
+  // a timer never fires setCopied on an unmounted component.
+  const resetTimer = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current)
+  }, [])
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(value)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1800)
+      if (resetTimer.current !== null) window.clearTimeout(resetTimer.current)
+      resetTimer.current = window.setTimeout(() => setCopied(false), 1800)
     } catch {
       setCopied(false)
     }
