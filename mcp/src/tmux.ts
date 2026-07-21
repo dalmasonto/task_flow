@@ -308,6 +308,31 @@ export async function sendKeySequence(
   }
 }
 
+/** Type literal text into a pane (message-delivery style), newlines stripped. */
+export async function typeTextToPane(text: string, target?: string): Promise<void> {
+  const base = target ? ["-t", target] : [];
+  const clean = sanitizeForPane(text, 2000);
+  if (clean.length) await run("tmux", ["send-keys", ...base, "-l", clean]);
+}
+
+/** Send a mixed sequence of key presses and literal-text injections, paced. */
+export async function sendKeySteps(
+  steps: import("./prompts.js").KeyStep[],
+  target: string | undefined,
+  deps: KeySequenceDeps & { typeText?: (t: string, target?: string) => Promise<void> } = {},
+): Promise<void> {
+  const sendKey = deps.sendKey ?? sendKeyToPane;
+  const typeText = deps.typeText ?? typeTextToPane;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const delayMs = deps.delayMs ?? KEY_SEQUENCE_DELAY_MS;
+  for (let i = 0; i < steps.length; i++) {
+    if (i > 0) await sleep(delayMs);
+    const step = steps[i]!;
+    if ("text" in step) await typeText(step.text, target);
+    else await sendKey(step.key, target);
+  }
+}
+
 /** Describe a pane for the session label, e.g. "0:0.0 (claude)". */
 export async function describePane(target?: string): Promise<string> {
   const args = ["display-message", "-p"];

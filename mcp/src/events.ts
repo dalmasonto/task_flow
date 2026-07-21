@@ -340,6 +340,12 @@ export interface PromptEvent {
    * set can mix single and multi.
    */
   options_json?: string;
+  /**
+   * Free-text "Other" answers as JSON, one entry per question (`null` where the
+   * question has no Other pick). Carried on the realtime projection so the MCP
+   * can type the value into the terminal's "Type something" field.
+   */
+  answer_text_json?: string | null;
 }
 
 /** The numbers a human chose, from whichever field carries them. */

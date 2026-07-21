@@ -133,3 +133,17 @@ describe("sendKeySequence", () => {
     expect(sent).toEqual([]);
   });
 });
+
+import { sendKeySteps } from "./tmux.js";
+
+describe("sendKeySteps", () => {
+  it("presses keys and types text in order, paced", async () => {
+    const log: string[] = [];
+    await sendKeySteps(
+      [{ key: "Enter" }, { text: "hello" }, { key: "1" }],
+      "%0",
+      { sendKey: async (k) => void log.push(`key:${k}`), typeText: async (t) => void log.push(`text:${t}`), sleep: async () => {} },
+    );
+    expect(log).toEqual(["key:Enter", "text:hello", "key:1"]);
+  });
+});

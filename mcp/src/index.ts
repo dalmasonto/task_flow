@@ -14,7 +14,7 @@ import {
   detectTmuxPane,
   notifyPane,
   runTmuxMirror,
-  sendKeySequence,
+  sendKeySteps,
   startMirrorLoop,
 } from "./tmux.js";
 import {
@@ -26,7 +26,7 @@ import { TaskflowClient } from "./client.js";
 import { startMirrorWithRetry } from "./mirror.js";
 import { runMint } from "./mint.js";
 import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
-import { keystrokesForPrompt } from "./prompts.js";
+import { stepsForPrompt } from "./prompts.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
 
@@ -196,24 +196,26 @@ async function startMirrorForThisAgent(): Promise<void> {
         // A human answered a question the agent is blocked on: press the keys.
         onPromptAnswered: async (prompt) => {
           // A prompt may carry SEVERAL questions, each with its own kind, and
-          // the terminal shows them one at a time. keystrokesForPrompt replays
-          // them in order and returns nothing at all for a half-answered set —
-          // leftover digits would land on whichever screen came next.
-          const keys = keystrokesForPrompt(
+          // the terminal shows them one at a time. stepsForPrompt replays them
+          // in order and returns nothing at all for a half-answered set —
+          // leftover digits would land on whichever screen came next. A
+          // free-text "Other" answer becomes a text step typed into the field.
+          const steps = stepsForPrompt(
             prompt.options_json ?? "",
             prompt.kind,
             prompt.question,
             prompt.answer_json,
             prompt.answer,
+            prompt.answer_text_json ?? null,
             prompt.status === "cancelled" ? "cancel" : "submit",
           );
-          if (!keys.length) return;
+          if (!steps.length) return;
           try {
             // Paced, not a tight loop: Claude Code's multi-select drops
             // keystrokes that arrive while it is re-rendering a toggle.
-            await sendKeySequence(keys, pane);
+            await sendKeySteps(steps, pane);
             process.stderr.write(
-              `taskflow-v2-mcp: answered prompt ${prompt.id} with [${keys.join(", ")}]\n`,
+              `taskflow-v2-mcp: answered prompt ${prompt.id} with ${steps.length} step(s)\n`,
             );
           } catch (err) {
             process.stderr.write(

@@ -26,7 +26,10 @@ export interface PromptOption {
   number: number;
   label: string;
   description?: string;
+  isOther?: boolean;
 }
+
+export type KeyStep = { key: string } | { text: string };
 
 export interface PromptQuestion {
   question: string;
@@ -176,4 +179,65 @@ export function keystrokesForPrompt(
   // Cancel is reached the same way as submit: every answer is replayed first,
   // because the review screen only exists once the last question is answered.
   return [...answers, ...(intent === "cancel" ? REVIEW_CANCEL : REVIEW_SUBMIT)];
+}
+
+/** The Other free-text value per question, parallel to the answer sets. */
+export function parseAnswerTexts(answerTextJson: string | null, count: number): (string | null)[] {
+  if (!answerTextJson) return Array(count).fill(null);
+  try {
+    const parsed: unknown = JSON.parse(answerTextJson);
+    if (Array.isArray(parsed)) {
+      return Array.from({ length: count }, (_, i) =>
+        typeof parsed[i] === "string" ? (parsed[i] as string) : null,
+      );
+    }
+  } catch { /* fall through */ }
+  return Array(count).fill(null);
+}
+
+/**
+ * The full ordered steps for an answered prompt. Without any Other text this is
+ * `keystrokesForPrompt` wrapped as `{key}` steps. With Other text on a single
+ * multi-select question, it walks the arrow-based flow the new TUI uses (see the
+ * hypothesis in the test — verified live before this ships).
+ */
+export function stepsForPrompt(
+  optionsJson: string,
+  kind: string,
+  question: string,
+  answerJson: string | null,
+  answer: number | null,
+  answerTextJson: string | null,
+  intent: PromptIntent = "submit",
+): KeyStep[] {
+  const questions = parseQuestions(optionsJson, kind, question);
+  const sets = parseAnswerSets(answerJson, answer);
+  const texts = parseAnswerTexts(answerTextJson, questions.length);
+
+  // Only the scoped case gets the Other flow: one multi-select question whose
+  // Other option was picked with text. Everything else uses the proven path.
+  const single = questions.length === 1 ? questions[0] : undefined;
+  const other = single?.options.find((o) => o.isOther);
+  const otherPicked =
+    other && sets[0]?.includes(other.number) && (texts[0] ?? "").length > 0;
+
+  if (!otherPicked || intent === "cancel") {
+    return keystrokesForPrompt(optionsJson, kind, question, answerJson, answer, intent)
+      .map((key) => ({ key }));
+  }
+
+  const steps: KeyStep[] = [];
+  // Walk down the list from the caret's start on option 1, toggling picks.
+  for (let i = 0; i < single!.options.length; i++) {
+    const opt = single!.options[i]!;
+    if (opt.isOther) {
+      steps.push({ text: texts[0]! }, { key: "Enter" }); // type, then select Other
+    } else if (sets[0]!.includes(opt.number)) {
+      steps.push({ key: "Enter" }); // toggle this pick
+    }
+    if (i < single!.options.length - 1) steps.push({ key: "Down" });
+  }
+  steps.push({ key: "Down" }, { key: "Enter" }); // to Submit, activate -> review
+  steps.push({ key: "1" }, { key: "Enter" });    // Submit answers
+  return steps;
 }

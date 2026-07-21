@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseQuestions, parseAnswerSets, keystrokesForPrompt, isFullyAnswered } from "./prompts.js";
+import {
+  parseQuestions,
+  parseAnswerSets,
+  keystrokesForPrompt,
+  isFullyAnswered,
+  stepsForPrompt,
+} from "./prompts.js";
 
 const opt = (n: number, label: string) => ({ number: n, label });
 
@@ -166,5 +172,40 @@ describe("keystrokesForPrompt", () => {
 
   it("sends nothing when the options cannot be read", () => {
     expect(keystrokesForPrompt("{bad", "single", "Q", "[1]", 1)).toEqual([]);
+  });
+});
+
+describe("stepsForPrompt", () => {
+  it("wraps a plain multi-select as key steps, identical to keystrokesForPrompt", () => {
+    const opts = JSON.stringify([
+      { question: "Q", kind: "multi", options: [{ number: 1, label: "A" }, { number: 2, label: "B" }] },
+    ]);
+    expect(stepsForPrompt(opts, "set", "Q", "[[1]]", null, null)).toEqual([
+      { key: "1" }, { key: "Right" }, { key: "1" }, { key: "Enter" },
+    ]);
+  });
+
+  // The choreography below is a HYPOTHESIS pinned here so a change is visible;
+  // it is corrected against the live TUI in Step 8. All-arrows: walk down
+  // toggling picks, type into "Type something", Enter to select it, Down to
+  // Submit, Enter to review, then Submit answers.
+  it("navigates to Other, injects the text, and submits (hypothesis)", () => {
+    const opts = JSON.stringify([
+      { question: "Q", kind: "multi", options: [
+        { number: 1, label: "A" }, { number: 2, label: "B" }, { number: 3, label: "C" },
+        { number: 4, label: "Type something", isOther: true }] },
+    ]);
+    // Picked option 1 and Other(4); Other text carried in answer_text_json.
+    expect(stepsForPrompt(opts, "set", "Q", "[[1,4]]", null, '["my take"]')).toEqual([
+      { key: "Enter" },            // toggle option 1 (caret starts on it)
+      { key: "Down" },             // -> 2
+      { key: "Down" },             // -> 3
+      { key: "Down" },             // -> 4 = "Type something"
+      { text: "my take" },         // type into the field
+      { key: "Enter" },            // select Other
+      { key: "Down" },             // -> Submit
+      { key: "Enter" },            // activate -> review screen
+      { key: "1" }, { key: "Enter" }, // Submit answers
+    ]);
   });
 });
