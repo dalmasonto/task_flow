@@ -43,6 +43,7 @@ import {
   UserRoundPlusIcon,
   UsersIcon,
   XIcon,
+  Trash2 as Trash2Icon,
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -2496,6 +2497,22 @@ function App() {
     setOpenTaskId(taskId)
   }
 
+  function handleDeleteTask(taskId: string) {
+    // Optimistic: drop it and close the sheet immediately. A live delete that
+    // fails restores the row so a rejected delete never silently loses it.
+    const removed = tasks.find((task) => task.id === taskId)
+    setTasks((current) => current.filter((task) => task.id !== taskId))
+    setOpenTaskId(null)
+    setSelectedTaskId(null)
+    // Only live (numeric-id) tasks hit the API; a local/mock task just drops.
+    if (usesLiveApi && /^\d+$/.test(taskId)) {
+      void taskflowApi.delete(taskflowTables.tasks, Number(taskId)).catch((error) => {
+        if (removed) setTasks((current) => [removed, ...current])
+        setLiveSyncError(error instanceof Error ? error.message : "Could not delete the task.")
+      })
+    }
+  }
+
   function handleDrop(event: DragEvent<HTMLElement>, fallbackColumn: ColumnId) {
     event.preventDefault()
     if (draggedTaskId) {
@@ -3182,6 +3199,7 @@ function App() {
           projectTasks={projectTasks}
           liveWorkspace={activeLiveWorkspace}
           onClose={() => setOpenTaskId(null)}
+          onDelete={() => handleDeleteTask(openTask.id)}
           onMove={(status) => moveTask(openTask.id, status)}
           onOpenTask={(taskId) => openTaskDetails(taskId)}
           onOpenReview={() => {
@@ -3989,6 +4007,7 @@ function TaskDetailSheet({
   projectTasks,
   liveWorkspace,
   onClose,
+  onDelete,
   onMove,
   onOpenTask,
   onOpenReview,
@@ -4002,6 +4021,7 @@ function TaskDetailSheet({
   projectTasks: Task[]
   liveWorkspace?: TaskflowWorkspace | null
   onClose: () => void
+  onDelete: () => void
   onMove: (status: ColumnId) => void
   onOpenTask: (taskId: string) => void
   onOpenReview: () => void
@@ -4011,6 +4031,9 @@ function TaskDetailSheet({
   onStopSession: (task: Task, finalStatus: Extract<TaskflowTaskStatus, "done" | "partial_done" | "blocked">) => void
 }) {
   const currentStatus = columns.find((column) => column.id === task.status)
+  // Two-step delete: the first click arms it, the second confirms — no
+  // AlertDialog component exists and window.confirm is off-brand.
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const sessions = liveWorkspace ? getLiveTaskSessions(task, liveWorkspace) : getTaskSessions(task)
   const runningSession = liveWorkspace ? getRunningLiveTaskSession(task, liveWorkspace) : undefined
   const totalSessionSeconds = liveWorkspace ? getTaskSessionTotalSeconds(task, liveWorkspace) : null
@@ -4063,9 +4086,38 @@ function TaskDetailSheet({
                 </span>
               </div>
             </div>
-            <Button variant="ghost" size="icon-sm" onClick={onClose}>
-              <XIcon />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {confirmDelete ? (
+                <>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      setConfirmDelete(false)
+                      onDelete()
+                    }}
+                  >
+                    Confirm delete
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2Icon className="size-4" />
+                  Delete
+                </Button>
+              )}
+              <Button variant="ghost" size="icon-sm" onClick={onClose}>
+                <XIcon />
+              </Button>
+            </div>
           </div>
         </header>
 
