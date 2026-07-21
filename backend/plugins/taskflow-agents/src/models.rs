@@ -360,6 +360,10 @@ pub struct TaskflowChannelReadCursor {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+// #46: the append path runs `WHERE session = ? ORDER BY sequence DESC LIMIT 1`
+// on every frame — a per-append scan that degrades as a transcript lengthens.
+// A (session, sequence) index turns it into an index seek.
+#[umbral(indexes = [["session", "sequence"]])]
 pub struct TaskflowAgentTerminalFrame {
     pub id: i64,
     #[umbral(on_delete = "cascade")]

@@ -459,7 +459,12 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").list(),
     taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").list(),
     taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").list(),
-    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("created_at", "id").list(),
+    // #46: load the NEWEST 1000 messages, not the oldest. NoPagination caps the
+    // list at 1000, so ascending order silently dropped the most RECENT messages
+    // once a project passed 1000 — the exact opposite of what a chat needs. The
+    // view re-sorts chronologically, so load order is display-transparent.
+    // (Full history beyond the newest 1000 still needs a cursor — see #46.)
+    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").list(),
     taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
     taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").list(),
