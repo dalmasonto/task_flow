@@ -3069,6 +3069,7 @@ pub async fn report_session_prompt(
             status: TaskflowPromptStatus::Pending,
             answer: None,
             answer_json: None,
+            answer_text_json: None,
             answered_by: None,
             answered_at: None,
             created_at: None,
@@ -3117,6 +3118,11 @@ pub struct AnswerPromptInput {
     /// agent replays the choices to GET there and only then presses cancel.
     #[serde(default)]
     pub cancel: Option<bool>,
+    /// One free-text value per question, `null` where the question has no Other
+    /// pick. Only valid where that question has an `is_other` option and its
+    /// number is in the answer set.
+    #[serde(default)]
+    pub texts: Option<Vec<Option<String>>>,
 }
 
 /// One question inside a multi-question `options_json`.
@@ -3229,6 +3235,27 @@ pub async fn answer_prompt(
         }
     }
 
+    // Free text, if present: one per question, only where that question has an
+    // Other option that was actually picked, and within the length bound.
+    let texts: Vec<Option<String>> = match &input.texts {
+        None => vec![None; questions.len()],
+        Some(t) if t.len() == questions.len() => t.clone(),
+        Some(_) => return Err(StatusCode::BAD_REQUEST),
+    };
+    for ((text, set), question) in texts.iter().zip(sets.iter()).zip(questions.iter()) {
+        let Some(text) = text else { continue };
+        if text.chars().count() > 2000 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        // The Other option is the one flagged is_other; its number must be in
+        // this question's answer set, or there is no field the text belongs to.
+        let other = question.options.iter().find(|o| o.is_other);
+        match other {
+            Some(o) if set.contains(&o.number) => {}
+            _ => return Err(StatusCode::BAD_REQUEST),
+        }
+    }
+
     let cancelled = input.cancel.unwrap_or(false);
     prompt.status = if cancelled {
         TaskflowPromptStatus::Cancelled
@@ -3248,6 +3275,11 @@ pub async fn answer_prompt(
         }
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
     );
+    prompt.answer_text_json = if texts.iter().any(Option::is_some) {
+        Some(serde_json::to_string(&texts).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?)
+    } else {
+        None
+    };
     prompt.answered_by = Some(ForeignKey::new(user_id));
     prompt.answered_at = Some(chrono::Utc::now());
     let saved = TaskflowAgentPrompt::objects()
@@ -3262,6 +3294,9 @@ pub async fn answer_prompt(
 #[derive(Debug, Deserialize)]
 struct PromptOptionPayload {
     number: i64,
+    // The hook writes this as camelCase `isOther`; rename so serde matches.
+    #[serde(rename = "isOther", default)]
+    is_other: bool,
 }
 
 /// The stored value of `TaskflowPromptStatus::Pending` (the column is text).

@@ -418,6 +418,11 @@ pub struct TaskflowAgentPrompt {
     /// The agent needs the whole thing to reproduce the keystrokes.
     #[umbral(string, max_length = 2000)]
     pub answer_json: Option<String>,
+    /// Free-text "Other" answers as JSON: one entry per question, `null` where
+    /// the question has no Other pick. e.g. `["my own take"]` or `[null,"x"]`.
+    /// A validation bound, not a column type — no migration.
+    #[umbral(string, max_length = 40000)]
+    pub answer_text_json: Option<String>,
     #[umbral(on_delete = "set_null")]
     pub answered_by: Option<ForeignKey<AuthUser>>,
     pub answered_at: Option<DateTime<Utc>>,

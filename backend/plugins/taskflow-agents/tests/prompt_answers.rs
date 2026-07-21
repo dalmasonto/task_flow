@@ -80,6 +80,15 @@ const SET: &str = r#"[
   {"question":"Checks?","kind":"multi","options":[{"number":1,"label":"Lint"},{"number":2,"label":"Types"},{"number":3,"label":"Tests"}]}
 ]"#;
 
+/// A multi-select whose 4th option is the synthetic "Other" text field.
+/// `isOther` is camelCase because the JS hook writes it that way — the Rust
+/// struct renames to match (see Step 4).
+const WITH_OTHER: &str = r#"[
+  {"question":"Pick","kind":"multi","options":[
+    {"number":1,"label":"A"},{"number":2,"label":"B"},{"number":3,"label":"C"},
+    {"number":4,"label":"Type something","isOther":true}]}
+]"#;
+
 struct Fixture {
     app: TestApp,
     user: i64,
@@ -249,6 +258,59 @@ async fn cancelling_with_an_invalid_number_is_still_refused() {
             f.user,
             &format!("/api/taskflow/prompts/{prompt}/answer"),
             json!({ "answers": [[9], [1]], "cancel": true }),
+        )
+        .await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn an_other_pick_stores_its_text() {
+    let f = fixture().await;
+    let prompt = report(&f.app, &f.key, f.session, WITH_OTHER, "set").await;
+    let resp = f
+        .app
+        .post_as(
+            f.user,
+            &format!("/api/taskflow/prompts/{prompt}/answer"),
+            json!({ "answers": [[1, 4]], "texts": ["my own take"] }),
+        )
+        .await;
+    assert_eq!(resp.status(), 200, "answering with Other text must succeed");
+    let body = resp.json().await;
+    assert_eq!(body["answer_json"], json!("[1,4]"));
+    assert_eq!(body["answer_text_json"], json!("[\"my own take\"]"));
+}
+
+// Free text only makes sense where the question actually has an Other option
+// AND that option was picked — otherwise a caller could smuggle text into a
+// plain question the terminal has no field to type it in.
+#[tokio::test]
+async fn text_without_an_other_pick_is_refused() {
+    let f = fixture().await;
+    // SET const has no is_other option.
+    let prompt = report(&f.app, &f.key, f.session, SET, "set").await;
+    let resp = f
+        .app
+        .post_as(
+            f.user,
+            &format!("/api/taskflow/prompts/{prompt}/answer"),
+            json!({ "answers": [[2], [1, 3]], "texts": ["nope", null] }),
+        )
+        .await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn over_long_other_text_is_refused() {
+    let f = fixture().await;
+    let prompt = report(&f.app, &f.key, f.session, WITH_OTHER, "set").await;
+    let big = "x".repeat(2001);
+    let resp = f
+        .app
+        .post_as(
+            f.user,
+            &format!("/api/taskflow/prompts/{prompt}/answer"),
+            json!({ "answers": [[4]], "texts": [big] }),
         )
         .await;
     assert_eq!(resp.status(), 400);

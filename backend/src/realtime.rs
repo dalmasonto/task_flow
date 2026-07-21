@@ -100,7 +100,7 @@ const AGENT_SESSION_FIELDS: &[&str] = &[
 /// sessions: the frontend replaces its stored copy with the event payload.
 const PROMPT_FIELDS: &[&str] = &[
     "id", "project", "agent", "session", "question", "options_json", "kind", "fingerprint",
-    "status", "answer", "answer_json", "answered_by", "answered_at", "created_at",
+    "status", "answer", "answer_json", "answer_text_json", "answered_by", "answered_at", "created_at",
 ];
 
 /// The whole activity row. Complete, not a subset, for the same reason as
