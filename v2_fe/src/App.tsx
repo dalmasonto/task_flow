@@ -1207,6 +1207,12 @@ function mapLiveTasks(
 /// than 1000 must be walked in older windows by id cursor (see #38).
 const ACTIVITY_SERVER_CAP = 1000
 
+/// #38: how much of the feed the activity page will pull in automatically (in
+/// older 1000-row windows) so the count reflects the real total, not the server
+/// cap. Beyond this, a manual "Load older" takes over so a very large history
+/// never auto-fetches without bound.
+const ACTIVITY_AUTOLOAD_MAX = 6000
+
 /// Keep the first row seen per id, preserving order — merges the live workspace
 /// feed with older windows fetched by cursor without double-counting an overlap.
 function dedupeById<T extends { id: number }>(rows: T[]): T[] {
@@ -1937,6 +1943,17 @@ function App() {
       setLoadingOlder(false)
     }
   }, [activeLiveWorkspace, olderActivity, loadingOlder])
+
+  // #38: progressively pull older windows so the feed reflects the TRUE total
+  // rather than the server's 1000-row cap — up to a safety bound, past which the
+  // manual "Load older" control takes over. Re-runs after each window lands
+  // (activityLoadedCount changes) until the feed is exhausted or the bound is
+  // hit. This is what turns "40 of 1000" into "40 of ~2000".
+  useEffect(() => {
+    if (hasOlderActivity && !loadingOlder && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX) {
+      void loadOlderActivity()
+    }
+  }, [hasOlderActivity, loadingOlder, activityLoadedCount, loadOlderActivity])
   const reviewFeed = useMemo<ReviewFeedItem[]>(
     () => (activeLiveWorkspace ? mapLiveReviews(activeLiveWorkspace, projectTasks) : []),
     [activeLiveWorkspace, projectTasks]
@@ -3555,6 +3572,7 @@ function App() {
                     onLoadOlder={loadOlderActivity}
                     hasOlder={hasOlderActivity}
                     loadingOlder={loadingOlder}
+                    autoLoadingOlder={hasOlderActivity && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
@@ -7884,6 +7902,7 @@ function ActivityLogPage({
   onLoadOlder,
   hasOlder = false,
   loadingOlder = false,
+  autoLoadingOlder = false,
 }: {
   title: string
   events: ActivityEvent[]
@@ -7891,6 +7910,9 @@ function ActivityLogPage({
   onLoadOlder?: () => void
   hasOlder?: boolean
   loadingOlder?: boolean
+  /// #38: older history is still auto-loading up to the bound — show progress
+  /// rather than a manual button.
+  autoLoadingOlder?: boolean
 }) {
   const [visible, setVisible] = useState(ACTIVITY_PAGE_SIZE)
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
@@ -7926,6 +7948,10 @@ function ActivityLogPage({
           </div>
           <span className="text-xs text-muted-foreground">
             {shown.length} of {filtered.length}
+            {/* #38: a trailing "+" while older windows are still being pulled in,
+                so the count doesn't read as a hard 1000-row cap. */}
+            {hasOlder ? "+" : ""}
+            {loadingOlder || autoLoadingOlder ? " · loading older…" : ""}
             {filtered.length !== events.length ? ` · ${events.length} total` : ""}
           </span>
         </div>
@@ -8006,15 +8032,17 @@ function ActivityLogPage({
                   <span className="text-muted-foreground">({remaining} left)</span>
                 </Button>
               </div>
-            ) : hasOlder ? (
-              // #38: the client-side window is exhausted, but the server capped
-              // the feed at 1000 — fetch the next older window on demand.
+            ) : null}
+
+            {/* #38: older history auto-loads up to a bound (the count shows the
+                progress). Past that bound, more can still be pulled on demand. */}
+            {hasOlder && !autoLoadingOlder ? (
               <div className="mt-4 flex flex-col items-center gap-1 border-t pt-4">
                 <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={loadingOlder}>
                   {loadingOlder ? "Loading…" : "Load older activity"}
                 </Button>
                 <span className="text-[11px] text-muted-foreground">
-                  Showing the most recent {ACTIVITY_SERVER_CAP.toLocaleString()} — fetch older entries from the server.
+                  Fetch older entries from the server.
                 </span>
               </div>
             ) : null}
