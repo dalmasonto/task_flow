@@ -67,6 +67,10 @@ export interface EventStreamOptions {
    *  the whole project, so `agent` says which pane it is for — the handler must
    *  ignore keys addressed to other agents. */
   onTerminalKey?: (input: TerminalKeyEvent) => void | Promise<void>;
+  /** Called each time the stream RE-connects (not the first connect). The live
+   *  push is at-most-once, so the handler catches up on messages that arrived
+   *  while the stream was down. */
+  onReconnect?: () => void | Promise<void>;
   log?: (line: string) => void;
   /** Injected in tests. */
   fetchImpl?: typeof fetch;
@@ -96,6 +100,7 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
   const url = `${options.server.replace(/\/+$/, "")}/api/taskflow/agents/events`;
   let stopped = false;
   let attempt = 0;
+  let everConnected = false;
   let controller: AbortController | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -122,6 +127,10 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
       }
       attempt = 0;
       log("event stream connected");
+      // A RE-connect may have missed messages while it was down; let the caller
+      // catch up. The first connect needs no catch-up — nothing was missed yet.
+      if (everConnected) void options.onReconnect?.();
+      everConnected = true;
 
       // Watchdog: abort a stream that has gone quiet, which forces the read to
       // settle and drops us into the reconnect path.

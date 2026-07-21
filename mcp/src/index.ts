@@ -186,6 +186,53 @@ async function startMirrorForThisAgent(): Promise<void> {
       });
       process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
 
+      // Deliver ONE message to the pane, resolving it by id (chat is id-only on
+      // the wire). Shared by the live stream and the reconnect catch-up so both
+      // apply the same shouldDeliver + notify + mark-read.
+      const deliverMessageById = async (id: number) => {
+        const message = await resolveMessage(messageSourceFor(client), id);
+        if (!message) return;
+        if (!shouldDeliver(message, profile.agentId)) return;
+        await notifyPane(formatIncoming(message, message.attachments ?? []), pane, true);
+        await client.markRead(message.channel, message.id);
+      };
+
+      // On RE-connect, deliver anything that arrived while the stream was down.
+      // The live push is at-most-once and never redelivers, so a message sent
+      // during a backend/session restart would otherwise only surface via a
+      // manual check_messages — the "messages aren't coming" gap. Delivering
+      // unread (oldest first) closes it; already-delivered messages are past the
+      // read cursor, so they are not repeated.
+      const catchUpUnread = async () => {
+        try {
+          const channels = await client.listChannels();
+          const ids: number[] = [];
+          for (const channel of channels) {
+            const page = await client.listMessages({ channel: channel.id, unread: true });
+            for (const row of page.messages as Array<{ id?: number }>) {
+              if (typeof row.id === "number") ids.push(row.id);
+            }
+          }
+          ids.sort((a, b) => a - b);
+          if (ids.length) {
+            process.stderr.write(`taskflow-v2-mcp: reconnect catch-up — ${ids.length} missed message(s)\n`);
+          }
+          for (const id of ids) {
+            try {
+              await deliverMessageById(id);
+            } catch (err) {
+              process.stderr.write(
+                `taskflow-v2-mcp: catch-up could not deliver ${id} (${(err as Error).message.split("\n")[0]})\n`,
+              );
+            }
+          }
+        } catch (err) {
+          process.stderr.write(
+            `taskflow-v2-mcp: reconnect catch-up failed (${(err as Error).message.split("\n")[0]})\n`,
+          );
+        }
+      };
+
       // Instant delivery: hold the event stream open and write each incoming
       // message straight into the pane. Polling would make a message as slow to
       // arrive as the capture interval, which is what "messages don't appear in
@@ -194,6 +241,8 @@ async function startMirrorForThisAgent(): Promise<void> {
         server: profile.server,
         key: profile.key,
         log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
+        // Deliver messages missed while the stream was down (see catchUpUnread).
+        onReconnect: catchUpUnread,
         // A human answered a question the agent is blocked on: press the keys.
         onPromptAnswered: async (prompt) => {
           // A prompt may carry SEVERAL questions, each with its own kind, and
@@ -225,24 +274,14 @@ async function startMirrorForThisAgent(): Promise<void> {
           }
         },
         onMessage: async (event) => {
+          // The event carries the row id and NOTHING else — chat is id-only on
+          // the wire (its group is per-project while its rows are channel-
+          // scoped, see resolve.ts). deliverMessageById fetches the body/sender/
+          // attachments back over the authorized read API, applies shouldDeliver
+          // (a message this agent cannot see, or its own, is skipped), types it
+          // into the pane, and advances the read cursor.
           try {
-            // The event carries the row id and NOTHING else — chat is id-only on
-            // the wire because its group is per-project while its rows are
-            // channel-scoped (see resolve.ts). So the body, the sender and the
-            // attachments are all fetched back over the authorized read API,
-            // which re-checks the roster. A message this agent cannot see
-            // resolves to null and is silently skipped, which is the point.
-            const message = await resolveMessage(messageSourceFor(client), event.id);
-            if (!message) return;
-            // Only knowable AFTER resolving: the wire no longer says who sent it.
-            // Echoing the agent's own message back into its prompt reads as a
-            // fresh instruction — a loop against itself.
-            if (!shouldDeliver(message, profile.agentId)) return;
-            // Submitted, not just typed: the point is for the agent to READ it.
-            await notifyPane(formatIncoming(message, message.attachments ?? []), pane, true);
-            // The agent has now been handed the message, so advance its cursor —
-            // otherwise check_messages would hand it the same one again.
-            await client.markRead(message.channel, message.id);
+            await deliverMessageById(event.id);
           } catch (err) {
             process.stderr.write(
               `taskflow-v2-mcp: could not deliver message ${event.id} (${(err as Error).message.split("\n")[0]})\n`,
