@@ -1917,11 +1917,17 @@ function App() {
   const [olderActivity, setOlderActivity] = useState<TaskflowWorkspace["taskActivity"]>([])
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [olderExhausted, setOlderExhausted] = useState(false)
+  // #44 FIX: a fetch error STOPS the auto-loader. Without this, a failing request
+  // (e.g. the backend is down → 502) re-fired the effect instantly and hammered
+  // the endpoint in a tight loop. The manual "Load older" button clears this to
+  // retry once.
+  const [olderError, setOlderError] = useState(false)
 
   // Older windows belong to one project's feed; switching projects drops them.
   useEffect(() => {
     setOlderActivity([])
     setOlderExhausted(false)
+    setOlderError(false)
   }, [activeProjectId])
 
   const activityEvents = useMemo<ActivityEvent[]>(() => {
@@ -1944,6 +1950,7 @@ function App() {
     if (!known.length) return
     const oldestId = known.reduce((min, row) => Math.min(min, row.id), Infinity)
     setLoadingOlder(true)
+    setOlderError(false)
     try {
       const page = await taskflowApi
         .from(taskflowTables.taskActivity)
@@ -1962,7 +1969,10 @@ function App() {
         if (rows.length < ACTIVITY_SERVER_CAP) setOlderExhausted(true)
       }
     } catch {
-      // A transient failure leaves hasOlderActivity true so the user can retry.
+      // STOP the auto-loader on any failure so a persistent error (backend down,
+      // 502) can't hammer the endpoint in a loop. The manual "Load older" button
+      // clears this and retries a single window.
+      setOlderError(true)
     } finally {
       setLoadingOlder(false)
     }
@@ -1974,10 +1984,12 @@ function App() {
   // (activityLoadedCount changes) until the feed is exhausted or the bound is
   // hit. This is what turns "40 of 1000" into "40 of ~2000".
   useEffect(() => {
-    if (hasOlderActivity && !loadingOlder && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX) {
+    // `!olderError` is the loop-breaker: one failed fetch stops the auto-loader
+    // until the user manually retries.
+    if (hasOlderActivity && !loadingOlder && !olderError && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX) {
       void loadOlderActivity()
     }
-  }, [hasOlderActivity, loadingOlder, activityLoadedCount, loadOlderActivity])
+  }, [hasOlderActivity, loadingOlder, olderError, activityLoadedCount, loadOlderActivity])
   const reviewFeed = useMemo<ReviewFeedItem[]>(
     () => (activeLiveWorkspace ? mapLiveReviews(activeLiveWorkspace, projectTasks) : []),
     [activeLiveWorkspace, projectTasks]
@@ -3596,7 +3608,7 @@ function App() {
                     onLoadOlder={loadOlderActivity}
                     hasOlder={hasOlderActivity}
                     loadingOlder={loadingOlder}
-                    autoLoadingOlder={hasOlderActivity && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX}
+                    autoLoadingOlder={hasOlderActivity && !olderError && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
