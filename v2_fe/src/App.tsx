@@ -8363,7 +8363,7 @@ function WorkspaceDialog({
 }
 
 const textareaClass =
-  "min-h-24 w-full resize-none rounded-lg border border-input bg-background px-2.5 py-2 text-sm outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/50"
+  "min-h-32 w-full resize-y rounded-lg border border-input bg-background px-2.5 py-2 text-sm outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/50"
 
 const choiceClass =
   "grid cursor-pointer gap-1 rounded-xl border bg-background p-3 text-sm transition has-checked:border-primary has-checked:bg-primary/10"
