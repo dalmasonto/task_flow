@@ -1994,6 +1994,7 @@ pub async fn append_session_frames(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     prune_snapshots(session_id).await?;
+    prune_transcript_frames(session_id).await?;
 
     if is_batch {
         Ok((StatusCode::OK, Json(json!({ "frames": created }))).into_response())
@@ -2046,6 +2047,44 @@ async fn prune_snapshots(session_id: i64) -> Result<(), StatusCode> {
 
 /// The stored value of `TaskflowTerminalStream::Snapshot` (the column is text).
 const SNAPSHOT_STREAM: &str = "snapshot";
+
+/// #46: how many transcript frames to keep per session. A live mirror emits
+/// ~one frame per output line forever; without a bound the table grows without
+/// limit. 5000 is a generous scrollback window — the recent transcript is what a
+/// reader ever needs.
+const MAX_TRANSCRIPT_FRAMES: i64 = 5000;
+
+/// Trim a session's transcript to the most recent `MAX_TRANSCRIPT_FRAMES`,
+/// delete-on-write (no background job). `sequence` is monotonic per session, so
+/// "keep the newest N" is a single range delete of everything below the cutoff.
+///
+/// Best-effort: a failed prune is untidy, not incorrect, and must never fail the
+/// append the agent is waiting on. Retention policy chosen by dalmas (#46);
+/// activity history is deliberately kept in full.
+async fn prune_transcript_frames(session_id: i64) -> Result<(), StatusCode> {
+    let Some(newest) = TaskflowAgentTerminalFrame::objects()
+        .filter(taskflow_agent_terminal_frame::SESSION.eq(session_id))
+        .order_by(taskflow_agent_terminal_frame::SEQUENCE.desc())
+        .first()
+        .await
+        .ok()
+        .flatten()
+    else {
+        return Ok(());
+    };
+    let cutoff = newest.sequence - MAX_TRANSCRIPT_FRAMES + 1;
+    if cutoff <= 0 {
+        return Ok(());
+    }
+    let _ = TaskflowAgentTerminalFrame::objects()
+        .filter(
+            taskflow_agent_terminal_frame::SESSION.eq(session_id)
+                & taskflow_agent_terminal_frame::SEQUENCE.lt(cutoff),
+        )
+        .delete()
+        .await;
+    Ok(())
+}
 
 /// `POST /api/taskflow/agents/sessions/{session}/close` (agent-authed) —
 /// disconnect a session: `status=disconnected`, `disconnected_at=now`. Then, if
