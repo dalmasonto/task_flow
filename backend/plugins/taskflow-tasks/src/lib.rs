@@ -44,6 +44,7 @@ impl Plugin for TaskflowTasksPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskRelation>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskActivity>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskSession>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowTaskAttachment>(),
         ]
     }
 

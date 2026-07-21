@@ -7,8 +7,9 @@ use serde::Deserialize;
 use serde_json::json;
 use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
 use taskflow_tasks::models::{
-    TaskflowActorKind, TaskflowTask, TaskflowTaskActivity, TaskflowTaskPriority, TaskflowTaskStatus,
-    taskflow_task, taskflow_task_activity,
+    TaskflowActorKind, TaskflowTask, TaskflowTaskActivity, TaskflowTaskAttachment,
+    TaskflowTaskPriority, TaskflowTaskStatus, taskflow_task, taskflow_task_activity,
+    taskflow_task_attachment,
 };
 use umbral::orm::{FileField, ForeignKey};
 use umbral::storage::storage_opt;
@@ -86,6 +87,118 @@ fn attachment_json(a: &TaskflowMessageAttachment) -> serde_json::Value {
         "size_bytes": a.size_bytes,
         "created_at": a.created_at,
     })
+}
+
+/// One task-attachment projection — mirrors [`attachment_json`] for messages:
+/// both the storage `file` key and the resolved `url`, so the dashboard shows
+/// the file inline and the agent's `download_attachment` can pull it.
+fn task_attachment_json(a: &TaskflowTaskAttachment) -> serde_json::Value {
+    json!({
+        "id": a.id,
+        "task": a.task.id(),
+        "project": a.project.id(),
+        "file": a.file.key(),
+        "url": a.file.url(),
+        "name": a.name,
+        "content_type": a.content_type,
+        "size_bytes": a.size_bytes,
+        "created_at": a.created_at,
+    })
+}
+
+/// `POST /api/taskflow/tasks/{task}/attachments` (human-authed, multipart) —
+/// attach one or more files to a task so a human can hand the agent visual
+/// context. The caller must be an active member of the task's project; the
+/// attachment inherits that project (never taken from the body). Each file is
+/// stored in the ambient backend and recorded as a `TaskflowTaskAttachment`.
+/// Returns the created rows (with resolved `/media` urls).
+pub async fn upload_task_attachment(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(task_id): Path<i64>,
+    headers: HeaderMap,
+    raw_body: Bytes,
+) -> Result<Response, StatusCode> {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    if !is_multipart(content_type) {
+        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+    let form = parse_multipart(content_type, raw_body)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    // A file part carried a filename; bodyless text parts are fields.
+    let files: Vec<FilePart> = form
+        .files
+        .into_iter()
+        .filter(|p| p.filename.as_deref().map(|n| !n.is_empty()).unwrap_or(false))
+        .collect();
+    if files.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    for part in &files {
+        if part.bytes.len() > MAX_ATTACHMENT_BYTES {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    }
+
+    // Load the task; the attachment inherits its project. Unknown → 404.
+    let task = TaskflowTask::objects()
+        .get(taskflow_task::ID.eq(task_id))
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let project_id = task.project.id();
+
+    // Authorize: an active member of the task's project.
+    TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    let Some(storage) = storage_opt() else {
+        return Ok(storage_unavailable_response());
+    };
+    let mut created = Vec::with_capacity(files.len());
+    for part in files {
+        let filename = part
+            .filename
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .unwrap_or("upload")
+            .to_string();
+        let file_content_type = part
+            .content_type
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        let stored = storage
+            .store(&filename, &file_content_type, &part.bytes)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let attachment = TaskflowTaskAttachment::objects()
+            .create(TaskflowTaskAttachment {
+                id: 0,
+                project: task.project.clone(),
+                task: ForeignKey::new(task.id),
+                file: FileField::from(stored.key),
+                name: filename,
+                content_type: file_content_type,
+                size_bytes: stored.size as i64,
+                created_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        created.push(attachment);
+    }
+
+    let items: Vec<serde_json::Value> = created.iter().map(task_attachment_json).collect();
+    Ok((StatusCode::CREATED, Json(json!({ "attachments": items }))).into_response())
 }
 
 /// Serialize one message with its attachments into a JSON object.
@@ -2675,7 +2788,33 @@ pub async fn list_tasks_as_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok((StatusCode::OK, Json(json!(tasks))).into_response())
+    // Merge each task's attachments so the agent knows about them and can pull
+    // them with `download_attachment` (via the resolved `/media` url). Fetch the
+    // project's attachments once and group in Rust — the task set is small.
+    let attachments = TaskflowTaskAttachment::objects()
+        .filter(taskflow_task_attachment::PROJECT.eq(agent.project_id))
+        .order_by(taskflow_task_attachment::ID.asc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let out: Vec<serde_json::Value> = tasks
+        .iter()
+        .map(|task| {
+            let mut value = serde_json::to_value(task).unwrap_or_else(|_| json!({}));
+            let items: Vec<serde_json::Value> = attachments
+                .iter()
+                .filter(|a| a.task.id() == task.id)
+                .map(task_attachment_json)
+                .collect();
+            if let serde_json::Value::Object(map) = &mut value {
+                map.insert("attachments".to_string(), json!(items));
+            }
+            value
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(json!(out))).into_response())
 }
 
 /// `GET /api/taskflow/agents/channels` (agent-authed) — the channels the agent

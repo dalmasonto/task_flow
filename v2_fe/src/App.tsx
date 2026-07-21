@@ -123,6 +123,7 @@ import {
   updateTaskflowProject,
   updateTaskflowTask,
   updateTaskflowTaskSession,
+  uploadTaskAttachment,
   type LinkAgentResult,
   type RealtimeStatus,
   type TaskflowRealtimeEvent,
@@ -766,6 +767,21 @@ function getLiveTaskReviews(task: Task, workspace: TaskflowWorkspace): TaskRevie
       decision: review.decision,
       body: review.body_markdown?.trim() ?? "",
       time: formatLiveDate(review.created_at, "Live"),
+    }))
+}
+
+/// A task's stored file attachments as display view models (reusing the message
+/// attachment shape + renderer). `file` is a storage key → resolved to /media.
+function getTaskAttachments(task: Task, workspace: TaskflowWorkspace): AgentAttachment[] {
+  const taskId = liveId(task.id)
+  return workspace.taskAttachments
+    .filter((attachment) => attachment.task === taskId)
+    .map((attachment) => ({
+      id: String(attachment.id),
+      name: attachment.name,
+      contentType: attachment.content_type,
+      sizeBytes: attachment.size_bytes,
+      url: resolveAttachmentUrl(attachment.file),
     }))
 }
 
@@ -2411,6 +2427,7 @@ function App() {
       taskRelations: [],
       taskActivity: [],
       taskSessions: [],
+      taskAttachments: [],
       agents: [],
       agentCredentials: [],
       agentSessions: [],
@@ -2564,6 +2581,24 @@ function App() {
   function openTaskDetails(taskId: string) {
     setSelectedTaskId(taskId)
     setOpenTaskId(taskId)
+  }
+
+  async function handleUploadTaskAttachment(taskId: string, files: File[]) {
+    const id = liveId(taskId)
+    if (!id || !files.length) return
+    try {
+      const created = await uploadTaskAttachment(id, files)
+      const pid = activeProject ? liveId(activeProject.id) : null
+      if (pid) {
+        applyWorkspaceUpdate(pid, (workspace) => ({
+          ...workspace,
+          taskAttachments: [...workspace.taskAttachments, ...created],
+        }))
+      }
+      setLiveSyncError(null)
+    } catch (error) {
+      setLiveSyncError(error instanceof Error ? error.message : "Could not upload the attachment.")
+    }
   }
 
   function handleDeleteTask(taskId: string) {
@@ -3499,6 +3534,7 @@ function App() {
           onStartSession={handleStartTaskSession}
           onPauseSession={handlePauseTaskSession}
           onStopSession={handleStopTaskSession}
+          onUploadAttachment={(files) => void handleUploadTaskAttachment(openTask.id, files)}
         />
       ) : null}
       <TaskSessionDock
@@ -4311,6 +4347,7 @@ function TaskDetailSheet({
   onStartSession,
   onPauseSession,
   onStopSession,
+  onUploadAttachment,
 }: {
   task: Task
   project: Project
@@ -4326,8 +4363,10 @@ function TaskDetailSheet({
   onStartSession: (task: Task) => void
   onPauseSession: (task: Task) => void
   onStopSession: (task: Task, finalStatus: Extract<TaskflowTaskStatus, "done" | "partial_done" | "blocked">) => void
+  onUploadAttachment: (files: File[]) => void
 }) {
   const currentStatus = columns.find((column) => column.id === task.status)
+  const attachments = liveWorkspace ? getTaskAttachments(task, liveWorkspace) : []
   // Two-step delete: the first click arms it, the second confirms — no
   // AlertDialog component exists and window.confirm is off-brand.
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -4450,6 +4489,36 @@ function TaskDetailSheet({
                 title="Notes"
               >
                 <MarkdownRenderer content={notes} />
+              </TaskDetailSection>
+
+              <TaskDetailSection
+                icon={<PaperclipIcon className="size-4 text-primary" />}
+                title="Attachments"
+                action={
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition hover:bg-muted">
+                    <PaperclipIcon className="size-3.5" />
+                    Attach
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => {
+                        const files = Array.from(event.target.files ?? [])
+                        if (files.length) onUploadAttachment(files)
+                        event.target.value = ""
+                      }}
+                    />
+                  </label>
+                }
+              >
+                {attachments.length ? (
+                  <MessageAttachments attachments={attachments} />
+                ) : (
+                  <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+                    No attachments yet. Attach an image to give the agent visual context.
+                  </p>
+                )}
               </TaskDetailSection>
 
               <TaskDetailSection

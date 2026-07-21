@@ -127,6 +127,14 @@ pub fn router() -> Router {
             "/api/taskflow/agents/tasks/{task}/status",
             post(views::update_task_status_as_agent),
         )
+        // Human-authed: attach files (usually images) to a task via multipart, so
+        // a human can hand the agent visual context. Needs the raised body limit
+        // like the message send — the 2 MiB default would reject real uploads.
+        .route(
+            "/api/taskflow/tasks/{task}/attachments",
+            post(views::upload_task_attachment)
+                .layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
+        )
         .route(
             "/api/taskflow/agents/tasks/{task}/claim",
             post(views::claim_task_as_agent),

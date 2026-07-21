@@ -458,6 +458,20 @@ export interface TaskflowTaskActivity {
   created_at: string | null;
 }
 
+/** Table `taskflow_task_attachment`, from the `app` plugin. */
+export interface TaskflowTaskAttachment {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowTask (`taskflow_task`). */
+  task: number;
+  file: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string | null;
+}
+
 /** Table `taskflow_task_relation`, from the `app` plugin. */
 export interface TaskflowTaskRelation {
   id: number;
@@ -2267,6 +2281,68 @@ export interface TaskflowTaskActivityUpdate {
   metadata_json?: string | null;
 }
 
+/** Filterable query parameters for `taskflow_task_attachment`. Every key is optional and AND-combined server-side. */
+export interface TaskflowTaskAttachmentFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "task"?: number;
+  "task__ne"?: number;
+  "task__in"?: number[];
+  "file"?: string;
+  "file__ne"?: string;
+  "file__contains"?: string;
+  "file__icontains"?: string;
+  "file__startswith"?: string;
+  "file__in"?: string[];
+  "name"?: string;
+  "name__ne"?: string;
+  "name__contains"?: string;
+  "name__icontains"?: string;
+  "name__startswith"?: string;
+  "name__in"?: string[];
+  "content_type"?: string;
+  "content_type__ne"?: string;
+  "content_type__contains"?: string;
+  "content_type__icontains"?: string;
+  "content_type__startswith"?: string;
+  "content_type__in"?: string[];
+  "size_bytes"?: number;
+  "size_bytes__ne"?: number;
+  "size_bytes__gte"?: number;
+  "size_bytes__lte"?: number;
+  "size_bytes__gt"?: number;
+  "size_bytes__lt"?: number;
+  "size_bytes__in"?: number[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowTaskAttachmentOrdering = "id" | "-id" | "project" | "-project" | "task" | "-task" | "file" | "-file" | "name" | "-name" | "content_type" | "-content_type" | "size_bytes" | "-size_bytes" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_task_attachment`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowTaskAttachmentCreate {
+  project: number;
+  task: number;
+  file: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
+}
+/** Body for updating a `taskflow_task_attachment` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowTaskAttachmentUpdate {
+  project?: number;
+  task?: number;
+  file?: string;
+  name?: string;
+  content_type?: string;
+  size_bytes?: number;
+}
+
 /** Filterable query parameters for `taskflow_task_relation`. Every key is optional and AND-combined server-side. */
 export interface TaskflowTaskRelationFilters {
   "project"?: number;
@@ -2580,6 +2656,7 @@ export interface UmbralResources {
   "taskflow_project_member": { row: TaskflowProjectMember; filters: TaskflowProjectMemberFilters; ordering: TaskflowProjectMemberOrdering; create: TaskflowProjectMemberCreate; update: TaskflowProjectMemberUpdate; id: number };
   "taskflow_task": { row: TaskflowTask; filters: TaskflowTaskFilters; ordering: TaskflowTaskOrdering; create: TaskflowTaskCreate; update: TaskflowTaskUpdate; id: number };
   "taskflow_task_activity": { row: TaskflowTaskActivity; filters: TaskflowTaskActivityFilters; ordering: TaskflowTaskActivityOrdering; create: TaskflowTaskActivityCreate; update: TaskflowTaskActivityUpdate; id: number };
+  "taskflow_task_attachment": { row: TaskflowTaskAttachment; filters: TaskflowTaskAttachmentFilters; ordering: TaskflowTaskAttachmentOrdering; create: TaskflowTaskAttachmentCreate; update: TaskflowTaskAttachmentUpdate; id: number };
   "taskflow_task_relation": { row: TaskflowTaskRelation; filters: TaskflowTaskRelationFilters; ordering: TaskflowTaskRelationOrdering; create: TaskflowTaskRelationCreate; update: TaskflowTaskRelationUpdate; id: number };
   "taskflow_task_review": { row: TaskflowTaskReview; filters: TaskflowTaskReviewFilters; ordering: TaskflowTaskReviewOrdering; create: TaskflowTaskReviewCreate; update: TaskflowTaskReviewUpdate; id: number };
   "taskflow_task_session": { row: TaskflowTaskSession; filters: TaskflowTaskSessionFilters; ordering: TaskflowTaskSessionOrdering; create: TaskflowTaskSessionCreate; update: TaskflowTaskSessionUpdate; id: number };

@@ -19,6 +19,7 @@ import type {
   TaskflowTaskActivity,
   TaskflowTaskActivityCreate,
   TaskflowTaskCreate,
+  TaskflowTaskAttachment,
   TaskflowTaskRelation,
   TaskflowTaskReview,
   TaskflowTaskSession,
@@ -40,6 +41,7 @@ export const taskflowTables = {
   taskRelations: "taskflow_task_relation",
   taskActivity: "taskflow_task_activity",
   taskSessions: "taskflow_task_session",
+  taskAttachments: "taskflow_task_attachment",
   agents: "taskflow_agent",
   agentCredentials: "taskflow_agent_credential",
   agentSessions: "taskflow_agent_session",
@@ -104,6 +106,7 @@ export type TaskflowWorkspace = {
   taskRelations: TaskflowTaskRelation[]
   taskActivity: TaskflowTaskActivity[]
   taskSessions: TaskflowTaskSession[]
+  taskAttachments: TaskflowTaskAttachment[]
   agents: TaskflowAgent[]
   agentCredentials: TaskflowAgentCredential[]
   agentSessions: TaskflowAgentSession[]
@@ -384,6 +387,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskRelations,
     taskActivity,
     taskSessions,
+    taskAttachments,
     agents,
     agentCredentials,
     agentSessions,
@@ -404,6 +408,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").list(),
     taskflowApi.from(taskflowTables.taskActivity).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").list(),
+    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").list(),
     taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").list(),
     taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").list(),
@@ -428,6 +433,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskRelations: taskRelations.results,
     taskActivity: taskActivity.results,
     taskSessions: taskSessions.results,
+    taskAttachments: taskAttachments.results,
     agents: agents.results,
     agentCredentials: agentCredentials.results,
     agentSessions: agentSessions.results,
@@ -478,6 +484,34 @@ export async function reviewTask(
         : await readErrorDetail(response, `Could not submit the review (${response.status}).`)
     )
   }
+}
+
+/// Attach files (usually images) to a task via multipart. Returns the created
+/// attachment rows. Bearer-authed; the caller must be an active member of the
+/// task's project. No content-type header — the browser sets the multipart
+/// boundary. Each row's `file` resolves to `/media/<key>` for display/download.
+export async function uploadTaskAttachment(
+  taskId: number,
+  files: File[]
+): Promise<TaskflowTaskAttachment[]> {
+  const token = getStoredToken()
+  const form = new FormData()
+  for (const file of files) form.append("files", file, file.name)
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/tasks/${taskId}/attachments`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: form,
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "You are not allowed to attach files to this task."
+        : await readErrorDetail(response, `Could not upload the attachment (${response.status}).`)
+    )
+  }
+  const data = (await response.json()) as { attachments?: TaskflowTaskAttachment[] }
+  return data.attachments ?? []
 }
 
 export function createTaskflowTask(input: TaskflowTaskCreate) {

@@ -100,6 +100,12 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // auto-REST exposes every model, so it was served UNSCOPED — readable across
     // projects by any authenticated user.
     "taskflow_agent_prompt",
+    // Task attachments are created ONLY by the trusted upload endpoint
+    // (`POST /api/taskflow/tasks/{task}/attachments`), which stores the file and
+    // stamps the project server-side. A client REST create could point `file` at
+    // an arbitrary storage key it does not own. Read-only + project-scoped so the
+    // dashboard can `.list()` them for the workspace.
+    "taskflow_task_attachment",
 ];
 
 /// Tables whose rows belong to a CHANNEL and must follow its visibility rather

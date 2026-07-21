@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use taskflow_projects::models::TaskflowProject;
-use umbral::orm::{Choices, ForeignKey};
+use umbral::orm::{Choices, FileField, ForeignKey};
 use umbral_auth::AuthUser;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
@@ -179,6 +179,33 @@ pub struct TaskflowTaskSession {
     pub duration_seconds: Option<i64>,
     #[umbral(string, max_length = 8000, widget = "textarea")]
     pub summary_markdown: Option<String>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// A file (usually an image) attached to a task, so a human can give the agent
+/// visual/context material the way chat attachments do. The bytes live in the
+/// ambient storage backend; this row holds only the key (via `FileField`) plus
+/// display metadata. `/media/<key>` serves the file, and the agent can pull it
+/// with `download_attachment` exactly like a message attachment.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowTaskAttachment {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub task: ForeignKey<TaskflowTask>,
+    /// The stored file — serializes as the bare storage key; `.url()` resolves
+    /// to `/media/<key>`.
+    pub file: FileField,
+    /// Original filename the client sent.
+    #[umbral(string, max_length = 260)]
+    pub name: String,
+    /// MIME type identified at save time. The frontend derives image-vs-file
+    /// from this (`image/` prefix → inline image).
+    #[umbral(string, max_length = 160)]
+    pub content_type: String,
+    pub size_bytes: i64,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
