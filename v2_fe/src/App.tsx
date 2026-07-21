@@ -44,6 +44,7 @@ import {
   UsersIcon,
   XIcon,
   Trash2 as Trash2Icon,
+  PencilIcon,
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -153,7 +154,7 @@ type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
 
 type Priority = "P0" | "P1" | "P2"
 
-type DialogMode = "new-project" | "edit-project" | "new-task" | "invite" | "api-contract" | "review-decision" | null
+type DialogMode = "new-project" | "edit-project" | "new-task" | "edit-task" | "invite" | "api-contract" | "review-decision" | null
 
 type AuthMode = "login" | "signup" | "reset" | "confirm"
 
@@ -1699,6 +1700,8 @@ function App() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null)
+  // The task.id being edited; the edit dialog reuses the Create Task form.
+  const [editTaskId, setEditTaskId] = useState<string | null>(null)
   // Controlled state for the Create Task dialog's owner/operator/due fields.
   // shadcn Select and datetime-local are controlled, and handleCreateTask reads
   // these from state (not FormData); the rest of the form stays uncontrolled.
@@ -1762,6 +1765,20 @@ function App() {
     projectTasks.find((task) => task.id === selectedTaskId) ?? projectTasks[0]
   const openTask = openTaskId ? tasks.find((task) => task.id === openTaskId) : undefined
   const reviewTask = reviewTaskId ? tasks.find((task) => task.id === reviewTaskId) : selectedTask
+  // Pre-fill the edit dialog from the LIVE task row (it keeps the raw ids/columns
+  // that mapLiveTasks drops), converting live enums back into form values.
+  const editTaskRow = editTaskId ? activeLiveWorkspace?.tasks.find((task) => String(task.id) === editTaskId) : undefined
+  const editTaskSeed = editTaskRow
+    ? {
+        title: editTaskRow.title,
+        status: mapLiveStatus(editTaskRow.status),
+        priority: mapLivePriority(editTaskRow.priority),
+        estimate: editTaskRow.estimate_minutes != null ? String(editTaskRow.estimate_minutes) : "",
+        description: editTaskRow.description_markdown,
+        notes: editTaskRow.notes_markdown ?? "",
+        review: editTaskRow.review_gate ?? "",
+      }
+    : undefined
   const pendingReviews = tasks.filter((task) => task.status === "review").length
   const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : []
   const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
@@ -2562,6 +2579,76 @@ function App() {
       .map((tag) => tag.trim())
       .filter(Boolean)
 
+    // Edit mode reuses this form: same fields, same controlled owner/operator/due
+    // state. Patch the existing task instead of creating a new one.
+    if (editTaskId) {
+      const ownerInitials =
+        owner
+          .split(" ")
+          .map((part) => part[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase() || "UN"
+      // Optimistically patch the edited fields; a live save reconciles below.
+      setTasks((currentTasks) =>
+        currentTasks.map((task) =>
+          task.id === editTaskId
+            ? {
+                ...task,
+                title,
+                description,
+                notes,
+                status,
+                priority,
+                owner,
+                ownerInitials,
+                operator: operatorAgentId != null ? "agent" : newTaskOwner ? "human" : "pair",
+                operatorName,
+                estimate: formatEstimateMinutes(parseEstimateMinutes(estimate)),
+                due,
+                review,
+                updated: "Just now",
+              }
+            : task
+        )
+      )
+      setSelectedTaskId(editTaskId)
+      setOpenTaskId(editTaskId)
+      setDialogMode(null)
+      setNewTaskOwner(null)
+      setNewTaskOperator("")
+      setNewTaskDue("")
+      const savedEditId = editTaskId
+      setEditTaskId(null)
+
+      if (usesLiveApi && /^\d+$/.test(savedEditId)) {
+        void updateTaskflowTask(Number(savedEditId), {
+          title,
+          description_markdown: description || `### Outcome\n${review}`,
+          notes_markdown: notes || null,
+          status: toLiveStatus(status),
+          priority: toLivePriority(priority),
+          assigned_user: newTaskOwner?.id ?? null,
+          assignee_label: owner,
+          operator_user: operatorUserId,
+          operator_agent_id: operatorAgentId,
+          due_at: dueIso,
+          estimate_minutes: parseEstimateMinutes(estimate),
+          review_gate: review || null,
+        })
+          .then((updatedTask) => {
+            const [mappedTask] = mapLiveTasks([updatedTask], members, agents)
+            setTasks((currentTasks) =>
+              currentTasks.map((task) => (task.id === mappedTask.id ? mappedTask : task))
+            )
+          })
+          .catch((error) => {
+            setLiveSyncError(error instanceof Error ? error.message : "Could not save the task changes.")
+          })
+      }
+      return
+    }
+
     const newTask: Task = {
       id: `task-${Math.floor(Date.now() / 1000)}`,
       projectId: activeProject.id,
@@ -3199,6 +3286,31 @@ function App() {
           projectTasks={projectTasks}
           liveWorkspace={activeLiveWorkspace}
           onClose={() => setOpenTaskId(null)}
+          onEdit={() => {
+            const row = activeLiveWorkspace?.tasks.find((task) => String(task.id) === openTask.id)
+            if (!row) return
+            const editMembers = activeLiveWorkspace?.members ?? []
+            setNewTaskOwner(
+              row.assigned_user != null
+                ? {
+                    id: row.assigned_user,
+                    label:
+                      editMembers.find((member) => member.user === row.assigned_user)?.display_name ??
+                      `User #${row.assigned_user}`,
+                  }
+                : null
+            )
+            setNewTaskOperator(
+              row.operator_user != null
+                ? `user:${row.operator_user}`
+                : row.operator_agent_id != null
+                  ? `agent:${row.operator_agent_id}`
+                  : ""
+            )
+            setNewTaskDue(row.due_at ? new Date(row.due_at).toISOString().slice(0, 16) : "")
+            setEditTaskId(openTask.id)
+            setDialogMode("edit-task")
+          }}
           onDelete={() => handleDeleteTask(openTask.id)}
           onMove={(status) => moveTask(openTask.id, status)}
           onOpenTask={(taskId) => openTaskDetails(taskId)}
@@ -3225,6 +3337,7 @@ function App() {
         mode={dialogMode}
         activeProject={activeProject}
         reviewTask={reviewTask}
+        editTask={editTaskSeed}
         members={activeLiveWorkspace?.members ?? []}
         agents={activeLiveWorkspace?.agents ?? []}
         taskOwner={newTaskOwner}
@@ -3236,6 +3349,7 @@ function App() {
         onClose={() => {
           setDialogMode(null)
           setReviewTaskId(null)
+          setEditTaskId(null)
         }}
         onCreateTask={handleCreateTask}
         onCreateProject={handleCreateProject}
@@ -4007,6 +4121,7 @@ function TaskDetailSheet({
   projectTasks,
   liveWorkspace,
   onClose,
+  onEdit,
   onDelete,
   onMove,
   onOpenTask,
@@ -4021,6 +4136,7 @@ function TaskDetailSheet({
   projectTasks: Task[]
   liveWorkspace?: TaskflowWorkspace | null
   onClose: () => void
+  onEdit: () => void
   onDelete: () => void
   onMove: (status: ColumnId) => void
   onOpenTask: (taskId: string) => void
@@ -4087,6 +4203,12 @@ function TaskDetailSheet({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
+              {confirmDelete ? null : (
+                <Button variant="ghost" size="sm" onClick={onEdit}>
+                  <PencilIcon className="size-4" />
+                  Edit
+                </Button>
+              )}
               {confirmDelete ? (
                 <>
                   <Button
@@ -7434,6 +7556,7 @@ function WorkspaceDialog({
   mode,
   activeProject,
   reviewTask,
+  editTask,
   members,
   agents,
   taskOwner,
@@ -7452,6 +7575,15 @@ function WorkspaceDialog({
   mode: DialogMode
   activeProject: Project | undefined
   reviewTask?: Task
+  editTask?: {
+    title: string
+    status: ColumnId
+    priority: Priority
+    estimate: string
+    description: string
+    notes: string
+    review: string
+  }
   members: TaskflowProjectMember[]
   agents: TaskflowAgent[]
   taskOwner: { id: number; label: string } | null
@@ -7509,6 +7641,7 @@ function WorkspaceDialog({
     "new-project": "Create Project",
     "edit-project": "Edit Project",
     "new-task": "Create Task",
+    "edit-task": "Edit Task",
     invite: "Invite User Or Agent",
     "api-contract": "API Contract",
     "review-decision": "Human Review",
@@ -7616,17 +7749,22 @@ function WorkspaceDialog({
           </form>
         ) : null}
 
-        {mode === "new-task" ? (
+        {mode === "new-task" || mode === "edit-task" ? (
           <form className="space-y-4 p-5" onSubmit={onCreateTask}>
             <FormField label="Task title">
-              <Input name="title" required placeholder="Write the outcome, not just the activity" />
+              <Input
+                name="title"
+                required
+                placeholder="Write the outcome, not just the activity"
+                defaultValue={editTask?.title}
+              />
             </FormField>
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="Status">
-                <SelectField name="status" defaultValue="not_started" options={statusOptions} />
+                <SelectField name="status" defaultValue={editTask?.status ?? "not_started"} options={statusOptions} />
               </FormField>
               <FormField label="Priority">
-                <SelectField name="priority" defaultValue="P1" options={priorityOptions} />
+                <SelectField name="priority" defaultValue={editTask?.priority ?? "P1"} options={priorityOptions} />
               </FormField>
               <FormField label="Owner">
                 <Select
@@ -7686,7 +7824,7 @@ function WorkspaceDialog({
                 />
               </FormField>
               <FormField label="Estimate">
-                <Input name="estimate" placeholder="minutes, e.g. 90" />
+                <Input name="estimate" placeholder="minutes, e.g. 90" defaultValue={editTask?.estimate} />
               </FormField>
             </div>
             <FormField label="Tags">
@@ -7698,6 +7836,7 @@ function WorkspaceDialog({
                 name="description"
                 className={textareaClass}
                 placeholder={"### Goal\nDescribe the outcome, acceptance criteria, and constraints."}
+                defaultValue={editTask?.description}
               />
             </FormField>
             <FormField label="Notes">
@@ -7706,12 +7845,22 @@ function WorkspaceDialog({
                 name="notes"
                 className={textareaClass}
                 placeholder={"- Implementation detail\n- Link to related decision\n- Follow-up to verify"}
+                defaultValue={editTask?.notes}
               />
             </FormField>
             <FormField label="Review gate">
-              <textarea name="review" className={textareaClass} placeholder="What must a human approve before this can ship?" />
+              <textarea
+                name="review"
+                className={textareaClass}
+                placeholder="What must a human approve before this can ship?"
+                defaultValue={editTask?.review}
+              />
             </FormField>
-            <DialogActions onClose={onClose} submitLabel="Create Task" submitIcon={<PlusIcon />} />
+            <DialogActions
+              onClose={onClose}
+              submitLabel={mode === "edit-task" ? "Save changes" : "Create Task"}
+              submitIcon={mode === "edit-task" ? <PencilIcon /> : <PlusIcon />}
+            />
           </form>
         ) : null}
 
