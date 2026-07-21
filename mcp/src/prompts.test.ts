@@ -208,4 +208,21 @@ describe("stepsForPrompt", () => {
       { key: "1" }, { key: "Enter" }, // Submit answers
     ]);
   });
+
+  // #30 — single-select Other: one answer, no toggles, no review screen. Arrow
+  // to the "Type something" row, type, and Enter submits (single-select commits
+  // on Enter, unlike multi-select where Enter toggles). HYPOTHESIS, verified live.
+  it("single-select Other: arrows to the row, types, and Enter submits", () => {
+    const opts = JSON.stringify([
+      { question: "Which?", kind: "single", options: [
+        { number: 1, label: "A" }, { number: 2, label: "B" },
+        { number: 3, label: "Type something", isOther: true }] },
+    ]);
+    expect(stepsForPrompt(opts, "set", "Which?", "[[3]]", null, '["my own"]')).toEqual([
+      { key: "Down" },      // caret on 1 -> 2
+      { key: "Down" },      // 2 -> 3 = "Type something"
+      { text: "my own" },   // type the free text
+      { key: "Enter" },     // single-select submits on Enter
+    ]);
+  });
 });

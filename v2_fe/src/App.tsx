@@ -5722,6 +5722,11 @@ function AgentPromptCard({
 
   const toggle = (qIndex: number, number: number) => {
     setError(null)
+    // Single-select: picking a listed option clears any Other text, so the two
+    // can't both count (the effective answer must be exactly one).
+    if (questions[qIndex]?.kind !== "multi") {
+      setTexts((cur) => cur.map((t, i) => (i === qIndex ? "" : t)))
+    }
     setSelected((current) =>
       current.map((set, i) => {
         if (i !== qIndex) return set
@@ -5740,8 +5745,16 @@ function AgentPromptCard({
   // as picking Other even if the human never clicked it.
   const effective = questions.map((q, i) => {
     const other = q.options.find((o) => o.isOther)
+    const hasText = Boolean(other && (texts[i] ?? "").trim())
+    // Single-select (#30): exactly ONE answer. A filled Other box IS the answer
+    // and supersedes any picked option; otherwise the picked option stands.
+    if (q.kind !== "multi") {
+      if (hasText) return [other!.number]
+      return [...(selected[i] ?? [])]
+    }
+    // Multi-select: a filled Other box counts as an extra pick.
     const picks = [...(selected[i] ?? [])]
-    if (other && (texts[i] ?? "").trim() && !picks.includes(other.number)) picks.push(other.number)
+    if (hasText && !picks.includes(other!.number)) picks.push(other!.number)
     return picks.sort((a, b) => a - b)
   })
 
@@ -5804,6 +5817,10 @@ function AgentPromptCard({
                 onChange={(e) => {
                   setError(null)
                   setTexts((cur) => cur.map((t, i) => (i === qIndex ? e.target.value : t)))
+                  // Single-select: typing Other deselects any picked option.
+                  if (q.kind !== "multi" && e.target.value.trim()) {
+                    setSelected((cur) => cur.map((set, i) => (i === qIndex ? [] : set)))
+                  }
                 }}
                 className="w-full resize-y rounded border bg-background px-2 py-1 text-sm"
               />

@@ -226,6 +226,21 @@ export function stepsForPrompt(
       .map((key) => ({ key }));
   }
 
+  const otherIndex = single!.options.findIndex((o) => o.isOther);
+
+  // SINGLE-select Other (#30): one answer, no toggles, no review screen. Arrow
+  // down from the caret on option 1 to the "Type something" row, type the text
+  // (which fills the field), and Enter submits it — single-select commits on
+  // Enter, unlike multi-select where Enter only toggles. HYPOTHESIS, verified
+  // live before shipping (the choreography is the one thing tests can't prove).
+  if (single!.kind !== "multi") {
+    const singleSteps: KeyStep[] = [];
+    for (let i = 0; i < otherIndex; i++) singleSteps.push({ key: "Down" });
+    singleSteps.push({ text: texts[0]! });
+    singleSteps.push({ key: "Enter" });
+    return singleSteps;
+  }
+
   const steps: KeyStep[] = [];
   // Walk down the list from the caret's start on option 1, toggling picks.
   for (let i = 0; i < single!.options.length; i++) {

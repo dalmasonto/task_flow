@@ -243,10 +243,9 @@ async function reportPrompt(profile, sessionId, toolInput) {
     // The terminal appends a free-text "Type something" row at N+1 that the hook
     // never sees (it is added in the harness render layer, absent from
     // toolInput). Synthesize it so the dashboard can offer the same free-text
-    // answer. Multi-select only for now — see the freetext-other spec.
-    if (question.multiSelect) {
-      options.push({ number: options.length + 1, label: "Type something", isOther: true });
-    }
+    // answer — for BOTH single- and multi-select questions (#30): the terminal
+    // shows the Other row on single-select too, it was just never mirrored.
+    options.push({ number: options.length + 1, label: "Type something", isOther: true });
     return {
       question: String(question.question ?? question.header ?? "Agent is asking").slice(0, 2000),
       kind: question.multiSelect ? "multi" : "single",
