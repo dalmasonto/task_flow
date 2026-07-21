@@ -19,6 +19,7 @@
 //! convention — the framework only needs a type that impls `Plugin`.
 
 pub mod models;
+pub mod session_timer;
 pub mod urls;
 pub mod views;
 
@@ -53,6 +54,9 @@ impl Plugin for TaskflowTasksPlugin {
     }
 
     fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+        // The system owns the task work-timer: opening a session when a task
+        // enters in_progress and closing it when it leaves, on every write path.
+        session_timer::register();
         Ok(())
     }
 }
