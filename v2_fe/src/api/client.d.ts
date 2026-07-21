@@ -524,6 +524,17 @@ export interface TaskflowTaskSession {
   created_at: string | null;
 }
 
+/** Table `taskflow_terminal_input`, from the `app` plugin. */
+export interface TaskflowTerminalInput {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  agent: number;
+  keys: string;
+  created_at: string | null;
+}
+
 /** Table `taskflow_user_settings`, from the `app` plugin. */
 export interface TaskflowUserSettings {
   id: number;
@@ -2575,6 +2586,43 @@ export interface TaskflowTaskSessionUpdate {
   summary_markdown?: string | null;
 }
 
+/** Filterable query parameters for `taskflow_terminal_input`. Every key is optional and AND-combined server-side. */
+export interface TaskflowTerminalInputFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "agent"?: number;
+  "agent__ne"?: number;
+  "agent__in"?: number[];
+  "keys"?: string;
+  "keys__ne"?: string;
+  "keys__contains"?: string;
+  "keys__icontains"?: string;
+  "keys__startswith"?: string;
+  "keys__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowTerminalInputOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "keys" | "-keys" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_terminal_input`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowTerminalInputCreate {
+  project: number;
+  agent: number;
+  keys: string;
+}
+/** Body for updating a `taskflow_terminal_input` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowTerminalInputUpdate {
+  project?: number;
+  agent?: number;
+  keys?: string;
+}
+
 /** Filterable query parameters for `taskflow_user_settings`. Every key is optional and AND-combined server-side. */
 export interface TaskflowUserSettingsFilters {
   "user"?: number;
@@ -2660,6 +2708,7 @@ export interface UmbralResources {
   "taskflow_task_relation": { row: TaskflowTaskRelation; filters: TaskflowTaskRelationFilters; ordering: TaskflowTaskRelationOrdering; create: TaskflowTaskRelationCreate; update: TaskflowTaskRelationUpdate; id: number };
   "taskflow_task_review": { row: TaskflowTaskReview; filters: TaskflowTaskReviewFilters; ordering: TaskflowTaskReviewOrdering; create: TaskflowTaskReviewCreate; update: TaskflowTaskReviewUpdate; id: number };
   "taskflow_task_session": { row: TaskflowTaskSession; filters: TaskflowTaskSessionFilters; ordering: TaskflowTaskSessionOrdering; create: TaskflowTaskSessionCreate; update: TaskflowTaskSessionUpdate; id: number };
+  "taskflow_terminal_input": { row: TaskflowTerminalInput; filters: TaskflowTerminalInputFilters; ordering: TaskflowTerminalInputOrdering; create: TaskflowTerminalInputCreate; update: TaskflowTerminalInputUpdate; id: number };
   "taskflow_user_settings": { row: TaskflowUserSettings; filters: TaskflowUserSettingsFilters; ordering: TaskflowUserSettingsOrdering; create: TaskflowUserSettingsCreate; update: TaskflowUserSettingsUpdate; id: number };
 }
 

@@ -127,6 +127,13 @@ pub fn router() -> Router {
             "/api/taskflow/agents/tasks/{task}/status",
             post(views::update_task_status_as_agent),
         )
+        // Human-authed: send one key to an agent's terminal. Broadcast on the
+        // project's terminal_inputs realtime group; the target agent's mirror
+        // types it into its pane. Allowlisted keys only.
+        .route(
+            "/api/taskflow/agents/{agent}/terminal-input",
+            post(views::send_terminal_key),
+        )
         // Human-authed: attach files (usually images) to a task via multipart, so
         // a human can hand the agent visual context. Needs the raised body limit
         // like the message send — the 2 MiB default would reject real uploads.

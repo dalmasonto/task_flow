@@ -106,6 +106,10 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // an arbitrary storage key it does not own. Read-only + project-scoped so the
     // dashboard can `.list()` them for the workspace.
     "taskflow_task_attachment",
+    // Terminal keys are written ONLY by the trusted send-terminal-key endpoint
+    // (allowlisted, member-gated). Read-only + project-scoped keeps them off the
+    // unscoped auto-REST default; a client create could fire keys at a pane.
+    "taskflow_terminal_input",
 ];
 
 /// Tables whose rows belong to a CHANNEL and must follow its visibility rather

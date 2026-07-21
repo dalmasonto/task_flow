@@ -15,6 +15,7 @@ import {
   notifyPane,
   runTmuxMirror,
   sendKeySteps,
+  sendKeyToPane,
   startMirrorLoop,
 } from "./tmux.js";
 import {
@@ -245,6 +246,20 @@ async function startMirrorForThisAgent(): Promise<void> {
           } catch (err) {
             process.stderr.write(
               `taskflow-v2-mcp: could not deliver message ${event.id} (${(err as Error).message.split("\n")[0]})\n`,
+            );
+          }
+        },
+        // A human pressed a key in the dashboard terminal. The event is broadcast
+        // to the whole project, so act only on keys addressed to THIS agent's
+        // pane; send-keys types it as a key NAME (not the literal word).
+        onTerminalKey: async (input) => {
+          if (input.agent !== profile.agentId) return;
+          try {
+            await sendKeyToPane(input.keys, pane);
+            process.stderr.write(`taskflow-v2-mcp: terminal key "${input.keys}" → pane ${pane}\n`);
+          } catch (err) {
+            process.stderr.write(
+              `taskflow-v2-mcp: could not send key "${input.keys}" (${(err as Error).message.split("\n")[0]})\n`,
             );
           }
         },

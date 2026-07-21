@@ -46,6 +46,13 @@ export interface AgentMessageEvent {
   sender_user?: number | null;
 }
 
+/** A terminal key the dashboard sent, projected on the realtime event. `agent`
+ *  is the target pane's agent; `keys` is one tmux key name. */
+export interface TerminalKeyEvent {
+  agent: number;
+  keys: string;
+}
+
 export interface EventStreamOptions {
   server: string;
   key: string;
@@ -53,6 +60,10 @@ export interface EventStreamOptions {
   onMessage: (message: AgentMessageEvent) => void | Promise<void>;
   /** Called when a human answers a question this agent is blocked on. */
   onPromptAnswered?: (prompt: PromptEvent) => void | Promise<void>;
+  /** Called when a human sends a terminal key from the dashboard. Broadcast to
+   *  the whole project, so `agent` says which pane it is for — the handler must
+   *  ignore keys addressed to other agents. */
+  onTerminalKey?: (input: TerminalKeyEvent) => void | Promise<void>;
   log?: (line: string) => void;
   /** Injected in tests. */
   fetchImpl?: typeof fetch;
@@ -176,7 +187,7 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
 /** Pull the `data:` lines out of one SSE frame and dispatch a message event. */
 export function handleFrame(
   frame: string,
-  options: Pick<EventStreamOptions, "onMessage" | "onPromptAnswered">,
+  options: Pick<EventStreamOptions, "onMessage" | "onPromptAnswered" | "onTerminalKey">,
 ): void {
   const data = frame
     .split("\n")
@@ -196,6 +207,16 @@ export function handleFrame(
   // filter below, or every answer would be dropped.
   if (envelope.c?.endsWith(":prompts")) {
     if (isAnsweredPrompt(envelope.d)) void options.onPromptAnswered?.(envelope.d);
+    return;
+  }
+
+  // Terminal keys: fields are projected inline, so act straight off the event.
+  // Broadcast to the whole project — the handler filters by `agent`.
+  if (envelope.c?.endsWith(":terminal_inputs")) {
+    const row = envelope.d as Partial<TerminalKeyEvent> | undefined;
+    if (row && typeof row.agent === "number" && typeof row.keys === "string") {
+      void options.onTerminalKey?.({ agent: row.agent, keys: row.keys });
+    }
     return;
   }
 

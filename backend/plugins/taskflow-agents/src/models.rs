@@ -462,3 +462,24 @@ pub struct TaskflowTaskReview {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// A single key a human sent to an agent's terminal from the dashboard. The
+/// agent's MCP mirror listens on the project's `terminal_inputs` realtime group
+/// and types the key into its tmux pane (see mcp/src/events.ts `onTerminalKey`).
+/// Write-once and never queried — a short-lived signal, like a keystroke itself.
+/// `agent` is projected on the realtime event so each agent's mirror can tell
+/// whether a broadcast key is meant for it.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct TaskflowTerminalInput {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: ForeignKey<TaskflowAgent>,
+    /// One tmux key NAME — a digit or a named navigation key. Validated against
+    /// an allowlist at the endpoint; never a literal string or a control combo.
+    #[umbral(string, max_length = 16)]
+    pub keys: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}

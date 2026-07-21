@@ -463,6 +463,22 @@ export async function markChannelRead(channelId: number, lastReadMessage: number
   }
 }
 
+/// Send one key to an agent's terminal (#12). Bearer-authed; the caller must be
+/// an active member of the agent's project. `key` is a tmux key NAME from the
+/// server allowlist (digits 0-9, Up/Down/Left/Right, Enter, Space, Tab, Escape,
+/// BSpace). The agent's MCP mirror types it into the pane.
+export async function sendTerminalKey(agentId: number, key: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}/terminal-input`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ key }),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not send the key (${response.status}).`))
+  }
+}
+
 /// Record a human review decision on a task. The backend writes the review row,
 /// transitions the task, and posts the report-back message to the agent. Bearer-
 /// authed as the human caller. `bodyMarkdown` is the optional review note.

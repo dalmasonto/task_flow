@@ -21,6 +21,29 @@ describe("handleFrame", () => {
     expect(onMessage.mock.calls[0]?.[0].body_markdown).toBe("ship it");
   });
 
+  // #12: a terminal key is projected inline and routed to onTerminalKey, which
+  // (in index.ts) types it into the pane only if it is for this agent.
+  it("routes a terminal key with its agent and key name", () => {
+    const onMessage = vi.fn();
+    const onTerminalKey = vi.fn();
+    handleFrame(frame({ c: "project:1:terminal_inputs", e: "created", d: { agent: 5, keys: "Up" } }), {
+      onMessage,
+      onTerminalKey,
+    });
+    expect(onTerminalKey).toHaveBeenCalledWith({ agent: 5, keys: "Up" });
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores a terminal_inputs frame missing agent or keys", () => {
+    const onMessage = vi.fn();
+    const onTerminalKey = vi.fn();
+    handleFrame(frame({ c: "project:1:terminal_inputs", e: "created", d: { agent: 5 } }), {
+      onMessage,
+      onTerminalKey,
+    });
+    expect(onTerminalKey).not.toHaveBeenCalled();
+  });
+
   // An edit or delete is not something new to read; delivering it would re-prompt
   // the agent with something it has already seen.
   it("ignores updates and deletes", () => {

@@ -266,7 +266,7 @@ export async function sendKeyToPane(key: string, target?: string): Promise<void>
   // Whitelist: only ever send a bare digit or a named navigation key. Without
   // this, an answer travelling from the server could name any tmux key —
   // "C-c" would kill the agent.
-  if (!/^(?:[0-9]|Right|Left|Up|Down|Enter|Space|Tab)$/.test(key)) {
+  if (!/^(?:[0-9]|Right|Left|Up|Down|Enter|Space|Tab|Escape|BSpace)$/.test(key)) {
     throw new Error(`refusing to send unrecognised key "${key}"`);
   }
   await run("tmux", ["send-keys", ...base, key]);

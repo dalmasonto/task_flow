@@ -25,7 +25,8 @@ use crate::models::{
     TaskflowAgentStatus, TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
     TaskflowChannelReadCursor, TaskflowCredentialStatus, TaskflowMessageAttachment,
     TaskflowMessagePriority, TaskflowPromptStatus, TaskflowReviewDecision, TaskflowTaskReview,
-    TaskflowTerminalStream, taskflow_agent, taskflow_agent_channel, taskflow_agent_channel_member,
+    TaskflowTerminalInput, TaskflowTerminalStream, taskflow_agent, taskflow_agent_channel,
+    taskflow_agent_channel_member,
     taskflow_agent_message, taskflow_agent_prompt, taskflow_agent_session,
     taskflow_agent_terminal_frame, taskflow_channel_read_cursor, taskflow_message_attachment,
 };
@@ -3074,6 +3075,69 @@ pub async fn list_activity_as_agent(
 /// The alternative — having the agent poll — is what this replaces. A poll makes
 /// message delivery as slow as its interval, and every agent pays for the
 /// interval even when nothing is said.
+/// Keys the dashboard may send to a terminal — digits and named navigation keys
+/// only, matching the MCP send-keys whitelist (`sendKeyToPane`). Never a control
+/// combo, so a compromised or buggy client can't `C-c` an agent's pane.
+fn is_allowed_terminal_key(key: &str) -> bool {
+    matches!(
+        key,
+        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+            | "Up" | "Down" | "Left" | "Right" | "Enter" | "Space" | "Tab" | "Escape" | "BSpace"
+    )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TerminalKeyInput {
+    pub key: String,
+}
+
+/// `POST /api/taskflow/agents/{agent}/terminal-input` (human-authed) — send ONE
+/// key to an agent's terminal. Recording the row broadcasts it on the project's
+/// `terminal_inputs` realtime group; the target agent's MCP mirror types it into
+/// its tmux pane (other agents ignore it — the `agent` id is projected on the
+/// event). Member-gated on the agent's project; a key outside the allowlist is a
+/// 400 so no control combo can reach a pane.
+pub async fn send_terminal_key(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(agent_id): Path<i64>,
+    Json(input): Json<TerminalKeyInput>,
+) -> Result<Response, StatusCode> {
+    if !is_allowed_terminal_key(&input.key) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let agent = TaskflowAgent::objects()
+        .get(taskflow_agent::ID.eq(agent_id))
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let project_id = agent.project.id();
+
+    // Authorize: an active member of the agent's project.
+    TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    let row = TaskflowTerminalInput::objects()
+        .create(TaskflowTerminalInput {
+            id: 0,
+            project: agent.project.clone(),
+            agent: ForeignKey::new(agent.id),
+            keys: input.key,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::CREATED, Json(json!({ "id": row.id }))).into_response())
+}
+
 pub async fn agent_event_stream(
     RequireAgent(agent): RequireAgent,
 ) -> Result<Response, StatusCode> {
@@ -3094,6 +3158,9 @@ pub async fn agent_event_stream(
     let mut groups = HashSet::new();
     groups.insert(format!("project:{}:messages", agent.project_id));
     groups.insert(format!("project:{}:prompts", agent.project_id));
+    // Terminal keys the dashboard sends; the mirror types the ones addressed to
+    // this agent into its pane (the event carries the target `agent` id).
+    groups.insert(format!("project:{}:terminal_inputs", agent.project_id));
 
     let registry = Realtime::registry();
     let (conn_id, rx) = registry

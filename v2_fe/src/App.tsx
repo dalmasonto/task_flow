@@ -124,6 +124,7 @@ import {
   updateTaskflowTask,
   updateTaskflowTaskSession,
   uploadTaskAttachment,
+  sendTerminalKey,
   type LinkAgentResult,
   type RealtimeStatus,
   type TaskflowRealtimeEvent,
@@ -301,6 +302,8 @@ type TerminalLine = { stream: string; content: string }
 
 type AgentTerminalSessionView = {
   agent: string
+  /// The agent's numeric id — the target for terminal key presses (#12).
+  agentId: number
   status: string
   connected: boolean
   /// Whether this session has real terminal frames. Drives which session the
@@ -1607,6 +1610,7 @@ function mapLiveTerminalSessions(workspace: TaskflowWorkspace, now: number): Age
 
     return {
       agent: agent?.display_name ?? `Agent #${session.agent}`,
+      agentId: session.agent,
       status: mapLiveTerminalStatus(session.status, live),
       connected: live,
       hasStream: rows.length > 0,
@@ -1637,6 +1641,7 @@ function mapLiveTerminalSessions(workspace: TaskflowWorkspace, now: number): Age
       isRecentHeartbeat(agent.last_seen_at, now)
     return {
       agent: agent.display_name,
+      agentId: agent.id,
       status: online ? "Connected" : "Disconnected",
       connected: online,
       hasStream: false,
@@ -6679,6 +6684,62 @@ function AgentTerminalPanel({
       <div className="min-h-0 flex-1 p-3 sm:p-4">
         <TerminalTranscript session={selectedSession} />
       </div>
+
+      <TerminalKeypad agentId={selectedSession.agentId} disabled={!selectedSession.connected} />
+    </div>
+  )
+}
+
+/// Keys forwarded to an agent's terminal (#12), like v1 had. Digits, arrows, and
+/// the common control keys — each maps to a tmux key NAME the server allowlists
+/// and the agent's mirror types into the pane. Own component (not inline in the
+/// panel) so its state sits above the panel's early return.
+const TERMINAL_KEYS: { label: string; key: string; wide?: boolean }[] = [
+  { label: "1", key: "1" }, { label: "2", key: "2" }, { label: "3", key: "3" },
+  { label: "4", key: "4" }, { label: "5", key: "5" }, { label: "6", key: "6" },
+  { label: "7", key: "7" }, { label: "8", key: "8" }, { label: "9", key: "9" },
+  { label: "0", key: "0" },
+  { label: "←", key: "Left" }, { label: "↑", key: "Up" }, { label: "↓", key: "Down" }, { label: "→", key: "Right" },
+  { label: "Tab", key: "Tab", wide: true }, { label: "Enter", key: "Enter", wide: true },
+  { label: "Esc", key: "Escape", wide: true }, { label: "Space", key: "Space", wide: true },
+  { label: "⌫", key: "BSpace" },
+]
+
+function TerminalKeypad({ agentId, disabled }: { agentId: number; disabled?: boolean }) {
+  const [error, setError] = useState<string | null>(null)
+  const press = (key: string) => {
+    setError(null)
+    void sendTerminalKey(agentId, key).catch((err) =>
+      setError(err instanceof Error ? err.message : "Could not send the key.")
+    )
+  }
+  return (
+    <div className="shrink-0 border-t bg-background/70 px-3 py-2">
+      <div className="flex flex-wrap gap-1">
+        {TERMINAL_KEYS.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            disabled={disabled}
+            onClick={() => press(entry.key)}
+            title={disabled ? "No live terminal mirror for this agent" : `Send ${entry.label}`}
+            className={cn(
+              "inline-flex h-8 items-center justify-center rounded-md border font-mono text-xs transition disabled:cursor-not-allowed disabled:opacity-40",
+              entry.wide ? "px-2.5" : "w-8",
+              "hover:bg-muted"
+            )}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+      {error ? (
+        <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{error}</p>
+      ) : disabled ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Keys send once this agent has a live terminal mirror.
+        </p>
+      ) : null}
     </div>
   )
 }

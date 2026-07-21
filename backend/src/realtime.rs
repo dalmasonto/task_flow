@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview,
+    TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview, TaskflowTerminalInput,
 };
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
@@ -58,6 +58,7 @@ const AGENTS: &str = "agents";
 const AGENT_SESSIONS: &str = "agent_sessions";
 const AGENT_CREDENTIALS: &str = "agent_credentials";
 const TERMINAL_FRAMES: &str = "terminal_frames";
+const TERMINAL_INPUTS: &str = "terminal_inputs";
 const PROMPTS: &str = "prompts";
 const PROJECT_MEMBERS: &str = "project_members";
 const PROJECT_INVITES: &str = "project_invites";
@@ -102,6 +103,11 @@ const PROMPT_FIELDS: &[&str] = &[
     "id", "project", "agent", "session", "question", "options_json", "kind", "fingerprint",
     "status", "answer", "answer_json", "answer_text_json", "answered_by", "answered_at", "created_at",
 ];
+
+/// A terminal key: the target `agent` (so a mirror can tell if a broadcast key is
+/// for it) and the `keys` name to press. Projected inline — a key is a transient
+/// signal, not something to refetch, and it carries no secret.
+const TERMINAL_INPUT_FIELDS: &[&str] = &["id", "project", "agent", "keys", "created_at"];
 
 /// The whole activity row. Complete, not a subset, for the same reason as
 /// sessions: the frontend replaces its stored copy with the event payload, so an
@@ -243,6 +249,12 @@ pub fn plugin() -> RealtimePlugin {
             Expose::to_group_with(|ev| group_for(TERMINAL_FRAMES, &ev.instance))
                 .fields(TERMINAL_FRAME_FIELDS),
         )
+        // Terminal keys from the dashboard: broadcast to the project group with
+        // the target agent + key projected, so each mirror types only its own.
+        .expose::<TaskflowTerminalInput>(
+            Expose::to_group_with(|ev| group_for(TERMINAL_INPUTS, &ev.instance))
+                .fields(TERMINAL_INPUT_FIELDS),
+        )
         // Read cursors: id-only ping so the other side learns a read happened and
         // refetches the cursor rows to recompute unread counts.
         .expose::<TaskflowChannelReadCursor>(Expose::to_group_with(|ev| {
@@ -354,6 +366,7 @@ const ALL_SUFFIXES: &[&str] = &[
     AGENT_SESSIONS,
     AGENT_CREDENTIALS,
     TERMINAL_FRAMES,
+    TERMINAL_INPUTS,
     PROMPTS,
     PROJECT_MEMBERS,
     PROJECT_INVITES,

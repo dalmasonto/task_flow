@@ -1,0 +1,1709 @@
+{
+  "id": "0011_create_taskflow_terminal_input",
+  "plugin": "taskflow_agents",
+  "depends_on": [],
+  "operations": [
+    {
+      "kind": "CreateTable",
+      "table": "taskflow_terminal_input",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "agent",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_agent",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "keys",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 16
+        },
+        {
+          "name": "created_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0,
+          "auto_now_add": true
+        }
+      ]
+    }
+  ],
+  "snapshot_after": {
+    "models": [
+      {
+        "name": "TaskflowAgent",
+        "table": "taskflow_agent",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "display_name",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "identifier",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160,
+            "unique": true
+          },
+          {
+            "name": "fingerprint",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 180
+          },
+          {
+            "name": "project_root",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 500
+          },
+          {
+            "name": "taskflow_file_path",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 500
+          },
+          {
+            "name": "runtime",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "version",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 80
+          },
+          {
+            "name": "status",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "offline",
+              "connected",
+              "idle",
+              "busy",
+              "blocked",
+              "revoked"
+            ],
+            "choice_labels": [
+              "Offline",
+              "Connected",
+              "Idle",
+              "Busy",
+              "Blocked",
+              "Revoked"
+            ],
+            "default": "offline"
+          },
+          {
+            "name": "linked_by",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "linked_user_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "last_seen_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgent",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentChannel",
+        "table": "taskflow_agent_channel",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "title",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 180
+          },
+          {
+            "name": "topic",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 500
+          },
+          {
+            "name": "kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "project",
+              "task",
+              "direct",
+              "incident"
+            ],
+            "choice_labels": [
+              "Project",
+              "Task",
+              "Direct",
+              "Incident"
+            ],
+            "default": "project"
+          },
+          {
+            "name": "task",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_task",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "created_by_user",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "created_by_agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "archived",
+            "ty": "Boolean",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "false"
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentChannel",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentChannelMember",
+        "table": "taskflow_agent_channel_member",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "channel",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent_channel",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "member_kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "user",
+              "agent"
+            ],
+            "choice_labels": [
+              "User",
+              "Agent"
+            ],
+            "default": "user"
+          },
+          {
+            "name": "user",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "display_name",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "role",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 80
+          },
+          {
+            "name": "joined_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentChannelMember",
+        "icon": "database",
+        "unique_together": [
+          [
+            "channel",
+            "user"
+          ]
+        ],
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentCredential",
+        "table": "taskflow_agent_credential",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "issued_by",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "name",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "key_prefix",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 40,
+            "unique": true
+          },
+          {
+            "name": "key_hash",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 260
+          },
+          {
+            "name": "status",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "active",
+              "revoked",
+              "expired"
+            ],
+            "choice_labels": [
+              "Active",
+              "Revoked",
+              "Expired"
+            ],
+            "default": "active"
+          },
+          {
+            "name": "expires_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "revoked_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentCredential",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentMessage",
+        "table": "taskflow_agent_message",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "channel",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent_channel",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "task",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_task",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "sender_kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "user",
+              "agent"
+            ],
+            "choice_labels": [
+              "User",
+              "Agent"
+            ],
+            "default": "user"
+          },
+          {
+            "name": "sender_user",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "sender_agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "sender_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "body_markdown",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 20000,
+            "widget": "textarea"
+          },
+          {
+            "name": "priority",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "normal",
+              "important",
+              "urgent"
+            ],
+            "choice_labels": [
+              "Normal",
+              "Important",
+              "Urgent"
+            ],
+            "default": "normal"
+          },
+          {
+            "name": "client_nonce",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 64
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentMessage",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentPrompt",
+        "table": "taskflow_agent_prompt",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "session",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent_session",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "question",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 2000
+          },
+          {
+            "name": "options_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 40000,
+            "widget": "textarea"
+          },
+          {
+            "name": "kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 16,
+            "default": "single"
+          },
+          {
+            "name": "fingerprint",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 300
+          },
+          {
+            "name": "status",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "pending",
+              "answered",
+              "cancelled"
+            ],
+            "choice_labels": [
+              "Pending",
+              "Answered",
+              "Cancelled"
+            ],
+            "default": "pending"
+          },
+          {
+            "name": "answer",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "answer_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 2000
+          },
+          {
+            "name": "answer_text_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 40000
+          },
+          {
+            "name": "answered_by",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "answered_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentPrompt",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentSession",
+        "table": "taskflow_agent_session",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "connected_by",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "session_identifier",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 180,
+            "unique": true
+          },
+          {
+            "name": "host",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "pid",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "cwd",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 500
+          },
+          {
+            "name": "transport",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 80
+          },
+          {
+            "name": "status",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "connected",
+              "disconnected",
+              "expired"
+            ],
+            "choice_labels": [
+              "Connected",
+              "Disconnected",
+              "Expired"
+            ],
+            "default": "connected"
+          },
+          {
+            "name": "connected_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "last_seen_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "disconnected_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentSession",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowAgentTerminalFrame",
+        "table": "taskflow_agent_terminal_frame",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "session",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent_session",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "task",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_task",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "stream",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "stdout",
+              "stderr",
+              "stdin",
+              "system",
+              "snapshot"
+            ],
+            "choice_labels": [
+              "Stdout",
+              "Stderr",
+              "Stdin",
+              "System",
+              "Snapshot"
+            ],
+            "default": "stdout"
+          },
+          {
+            "name": "sequence",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "0"
+          },
+          {
+            "name": "content",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 20000,
+            "widget": "textarea"
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowAgentTerminalFrame",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowChannelReadCursor",
+        "table": "taskflow_channel_read_cursor",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "channel",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent_channel",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "member_kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "user",
+              "agent"
+            ],
+            "choice_labels": [
+              "User",
+              "Agent"
+            ],
+            "default": "user"
+          },
+          {
+            "name": "member_user",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "member_agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "last_read_message",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent_message",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "last_read_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowChannelReadCursor",
+        "icon": "database",
+        "unique_together": [
+          [
+            "channel",
+            "member_user"
+          ],
+          [
+            "channel",
+            "member_agent"
+          ]
+        ],
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowMessageAttachment",
+        "table": "taskflow_message_attachment",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "message",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent_message",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "channel",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent_channel",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "file",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "widget": "file"
+          },
+          {
+            "name": "name",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 260
+          },
+          {
+            "name": "content_type",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "size_bytes",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowMessageAttachment",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowTaskReview",
+        "table": "taskflow_task_review",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "task",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_task",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "reviewer_kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "user",
+              "agent"
+            ],
+            "choice_labels": [
+              "User",
+              "Agent"
+            ],
+            "default": "user"
+          },
+          {
+            "name": "reviewer_user",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "auth_user",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "reviewer_agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": true,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "SetNull"
+          },
+          {
+            "name": "reviewer_label",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 160
+          },
+          {
+            "name": "decision",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "approved",
+              "changes_requested"
+            ],
+            "choice_labels": [
+              "Approved",
+              "ChangesRequested"
+            ],
+            "default": "approved"
+          },
+          {
+            "name": "body_markdown",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 12000,
+            "widget": "textarea"
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowTaskReview",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "TaskflowTerminalInput",
+        "table": "taskflow_terminal_input",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "agent",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_agent",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "keys",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 16
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "TaskflowTerminalInput",
+        "icon": "database",
+        "app_label": "app"
+      }
+    ]
+  }
+}
