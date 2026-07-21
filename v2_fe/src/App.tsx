@@ -19,6 +19,7 @@ import {
   FileJsonIcon,
   GitBranchIcon,
   ImageIcon,
+  InfoIcon,
   PaperclipIcon,
   FolderKanbanIcon,
   GripVerticalIcon,
@@ -142,6 +143,7 @@ import { cn } from "@/lib/utils"
 import { spliceAtCaret, fileReferenceText } from "@/lib/composer"
 import { formatBytes } from "@/lib/attachment-kind"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
+import { firstLine } from "@/lib/markdown"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -154,7 +156,7 @@ type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
 
 type Priority = "P0" | "P1" | "P2"
 
-type DialogMode = "new-project" | "edit-project" | "new-task" | "edit-task" | "invite" | "api-contract" | "review-decision" | null
+type DialogMode = "new-project" | "edit-project" | "project-info" | "new-task" | "edit-task" | "invite" | "api-contract" | "review-decision" | null
 
 type AuthMode = "login" | "signup" | "reset" | "confirm"
 
@@ -3028,9 +3030,9 @@ function App() {
             <Route path="/dashboard/board" element={!activeProject ? (
           <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
         ) : (
-          <section className="p-4 sm:p-5">
-            <div className="min-w-0 space-y-5">
-              <div className="rounded-lg border bg-card p-4 shadow-sm">
+          <section className="flex h-full min-h-0 flex-col p-4 sm:p-5">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-5">
+              <div className="shrink-0 rounded-lg border bg-card p-4 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="max-w-3xl">
                     <div className="flex flex-wrap items-center gap-2">
@@ -3047,11 +3049,18 @@ function App() {
                         {activeProject.health}
                       </span>
                     </div>
-                    <MarkdownRenderer
-                      content={activeProject.objective}
-                      compact
-                      className="mt-3 max-w-2xl [&_p]:text-sm [&_p]:leading-6"
-                    />
+                    {/* Height-gated header: the description is clamped to its
+                        first line and the full markdown lives behind the Project
+                        Info dialog, so the top of the board keeps a fixed height. */}
+                    <button
+                      type="button"
+                      onClick={() => setDialogMode("project-info")}
+                      title="View full project description"
+                      className="mt-3 flex max-w-2xl items-center gap-1.5 text-left text-sm text-muted-foreground transition hover:text-foreground"
+                    >
+                      <span className="truncate">{firstLine(activeProject.objective) || "No description yet."}</span>
+                      <InfoIcon className="size-3.5 shrink-0 opacity-70" />
+                    </button>
                     {liveSyncError ? (
                       <p className="mt-2 max-w-2xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                         {liveSyncError}
@@ -3090,7 +3099,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex shrink-0 items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">Project Board</h2>
                   <p className="text-sm text-muted-foreground">{activeProject.apiBase}</p>
@@ -3105,9 +3114,12 @@ function App() {
 
               {/* Board columns scroll horizontally. On small screens each column
                   snaps to ~full screen width (one at a time); from lg up the five
-                  columns flex to fill the row. */}
-              <div className="min-h-[34rem] snap-x snap-mandatory overflow-x-auto pb-2 lg:snap-none">
-                <div className="flex gap-3">
+                  columns flex to fill the row. The region is height-gated: it
+                  takes the remaining vertical space (flex-1 + min-h-0) and each
+                  column's card list scrolls internally, so the header above stays
+                  fixed instead of the whole page scrolling. */}
+              <div className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto pb-2 lg:snap-none">
+                <div className="flex h-full gap-3">
                   {columns.map((column) => {
                     // Each column is ordered by task #id (ascending). Dragging a
                     // card to another column still changes its status; within a
@@ -3125,7 +3137,7 @@ function App() {
                       <div
                         key={column.id}
                         className={cn(
-                          "flex min-h-[32rem] w-[97vw] shrink-0 snap-center flex-col rounded-lg border bg-card/75 transition sm:w-[20rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
+                          "flex h-full max-h-full w-[97vw] shrink-0 snap-center flex-col rounded-lg border bg-card/75 transition sm:w-[20rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
                           draggedTaskId && dropTarget?.columnId === column.id && "border-primary/60 bg-primary/5 ring-2 ring-primary/25"
                         )}
                         onDragEnter={() => setDropTarget({ columnId: column.id, taskId: null, position: "after" })}
@@ -3140,7 +3152,7 @@ function App() {
                         onDragLeave={(event) => handleDragLeave(event, column.id)}
                         onDrop={(event) => handleDrop(event, column.id)}
                       >
-                        <div className="flex items-center justify-between gap-2 border-b px-3 py-3">
+                        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-3">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className={cn("inline-flex size-7 items-center justify-center rounded-md ring-1", column.tone)}>
                               <ColumnIcon className="size-3.5" />
@@ -3154,7 +3166,7 @@ function App() {
                             <MoreHorizontalIcon />
                           </Button>
                         </div>
-                        <div className="relative flex flex-1 flex-col gap-2 p-2">
+                        <div className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
                           {draggedTaskId && dropTarget?.columnId === column.id && dropTarget.taskId === null ? (
                             <EndDropIndicator label={`Drop at end of ${column.title}`} />
                           ) : null}
@@ -3379,6 +3391,7 @@ function App() {
           setReviewTaskId(null)
           setEditTaskId(null)
         }}
+        onEditProject={() => setDialogMode("edit-project")}
         onCreateTask={handleCreateTask}
         onCreateProject={handleCreateProject}
         onUpdateProject={handleUpdateProject}
@@ -7599,6 +7612,7 @@ function WorkspaceDialog({
   taskDue,
   onTaskDueChange,
   onClose,
+  onEditProject,
   onCreateProject,
   onUpdateProject,
   onCreateTask,
@@ -7626,6 +7640,7 @@ function WorkspaceDialog({
   taskDue: string
   onTaskDueChange: (due: string) => void
   onClose: () => void
+  onEditProject?: () => void
   onCreateProject: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
   onCreateTask: (event: FormEvent<HTMLFormElement>) => void
@@ -7673,6 +7688,7 @@ function WorkspaceDialog({
   const titles: Record<Exclude<DialogMode, null>, string> = {
     "new-project": "Create Project",
     "edit-project": "Edit Project",
+    "project-info": "Project Info",
     "new-task": "Create Task",
     "edit-task": "Edit Task",
     invite: "Invite User Or Agent",
@@ -7980,6 +7996,35 @@ function WorkspaceDialog({
             </FormField>
             <DialogActions onClose={onClose} submitLabel="Submit Decision" submitIcon={<ClipboardCheckIcon />} />
           </form>
+        ) : null}
+
+        {mode === "project-info" ? (
+          <div className="space-y-4 p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-primary/10 px-2 py-1 font-mono text-xs font-medium text-primary ring-1 ring-primary/20">
+                {activeProject?.code}
+              </span>
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/20">
+                {activeProject?.health}
+              </span>
+              <span className="text-xs text-muted-foreground">{activeProject?.apiBase}</span>
+            </div>
+            <div className="rounded-xl border bg-background p-4">
+              <MarkdownRenderer
+                content={activeProject?.objective?.trim() || "No description yet."}
+                className="[&_p]:text-sm [&_p]:leading-6"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={onClose}>
+                Close
+              </Button>
+              <Button onClick={() => onEditProject?.()}>
+                <FileTextIcon />
+                Edit Project
+              </Button>
+            </div>
+          </div>
         ) : null}
         </div>
       </section>
