@@ -65,6 +65,9 @@ pub struct SendMessageInput {
     pub priority: Option<TaskflowMessagePriority>,
     #[serde(default)]
     pub client_nonce: Option<String>,
+    /// #29: direct this message to one agent's pane (null broadcasts).
+    #[serde(default)]
+    pub target_agent: Option<i64>,
 }
 
 /// The single attachment projection, shared by every path that returns one.
@@ -271,11 +274,12 @@ pub async fn send_message(
 
     // Normalise both transports to the same logical input: the message fields
     // plus any uploaded file parts (JSON posts carry none).
-    let (channel_id, body_markdown, priority, client_nonce, files): (
+    let (channel_id, body_markdown, priority, client_nonce, target_agent, files): (
         i64,
         String,
         Option<TaskflowMessagePriority>,
         Option<String>,
+        Option<i64>,
         Vec<FilePart>,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
@@ -286,12 +290,14 @@ pub async fn send_message(
         let mut body_field: Option<String> = None;
         let mut priority_field: Option<String> = None;
         let mut nonce_field: Option<String> = None;
+        let mut target_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
                 "body_markdown" => body_field = Some(value),
                 "priority" => priority_field = Some(value),
                 "client_nonce" => nonce_field = Some(value),
+                "target_agent" => target_field = Some(value),
                 _ => {}
             }
         }
@@ -308,6 +314,10 @@ pub async fn send_message(
             .filter(|s| !s.is_empty())
             .and_then(|s| serde_json::from_value::<TaskflowMessagePriority>(json!(s)).ok());
 
+        // #29: an optional directed-message target (an agent id). Unparseable or
+        // absent → None (a broadcast).
+        let target_agent = target_field.as_deref().and_then(|s| s.trim().parse().ok());
+
         // A "file part" is one that carried a filename; bodyless text parts are
         // fields, not attachments.
         let files: Vec<FilePart> = form
@@ -321,6 +331,7 @@ pub async fn send_message(
             body_field.unwrap_or_default(),
             priority,
             nonce_field,
+            target_agent,
             files,
         )
     } else {
@@ -333,6 +344,7 @@ pub async fn send_message(
             input.body_markdown,
             input.priority,
             input.client_nonce,
+            input.target_agent,
             Vec::new(),
         )
     };
@@ -454,6 +466,7 @@ pub async fn send_message(
             sender_kind: TaskflowChannelMemberKind::User,
             sender_user: Some(ForeignKey::new(user_id)),
             sender_agent: None,
+            target_agent: target_agent.map(ForeignKey::new),
             sender_label,
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
@@ -1259,6 +1272,7 @@ pub async fn send_message_as_agent(
             sender_kind: TaskflowChannelMemberKind::Agent,
             sender_user: None,
             sender_agent: Some(ForeignKey::new(agent.agent_id)),
+            target_agent: None,
             sender_label: agent.display_name.clone(),
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
@@ -2417,6 +2431,7 @@ async fn apply_review(
                     sender_kind: reviewer_kind,
                     sender_user: reviewer_user.map(ForeignKey::new),
                     sender_agent: reviewer_agent.map(ForeignKey::new),
+                    target_agent: None,
                     sender_label: reviewer_label.clone(),
                     body_markdown: message_body,
                     priority: TaskflowMessagePriority::Normal,

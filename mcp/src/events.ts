@@ -44,6 +44,9 @@ export interface AgentMessageEvent {
   project?: number | null;
   task?: number | null;
   sender_user?: number | null;
+  /** #29: a directed group message names the one agent whose pane should get it;
+   *  null broadcasts to every agent on the channel (the default). */
+  target_agent?: number | null;
 }
 
 /** A terminal key the dashboard sent, projected on the realtime event. `agent`
@@ -245,6 +248,9 @@ export function handleFrame(
  */
 export function shouldDeliver(message: AgentMessageEvent, selfAgentId: number): boolean {
   if (message.sender_kind === "agent" && message.sender_agent === selfAgentId) return false;
+  // #29: a directed message goes only to the named agent's pane. A null target
+  // is a broadcast — every agent on the channel — which is the default.
+  if (message.target_agent != null && message.target_agent !== selfAgentId) return false;
   return true;
 }
 

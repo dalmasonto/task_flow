@@ -558,6 +558,8 @@ export type SendMessageInput = {
   body_markdown: string
   priority?: TaskflowAgentMessage["priority"]
   client_nonce?: string
+  /// #29: direct the message to one agent's pane (undefined/null = broadcast).
+  target_agent?: number | null
 }
 
 /// The send-message response: the saved message row plus the attachments the
@@ -587,6 +589,7 @@ export async function sendTaskflowAgentMessage(
     form.append("body_markdown", input.body_markdown)
     if (input.priority) form.append("priority", input.priority)
     if (input.client_nonce) form.append("client_nonce", input.client_nonce)
+    if (input.target_agent != null) form.append("target_agent", String(input.target_agent))
     for (const file of files!) form.append("files", file, file.name)
     body = form
     // No content-type header: the browser sets multipart/form-data + boundary.

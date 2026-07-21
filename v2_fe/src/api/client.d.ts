@@ -245,6 +245,8 @@ export interface TaskflowAgentMessage {
   sender_user: number | null;
   /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
   sender_agent: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  target_agent: number | null;
   sender_label: string;
   body_markdown: string;
   priority: TaskflowAgentMessagePriority;
@@ -1201,6 +1203,10 @@ export interface TaskflowAgentMessageFilters {
   "sender_agent__ne"?: number;
   "sender_agent__in"?: number[];
   "sender_agent__isnull"?: boolean;
+  "target_agent"?: number;
+  "target_agent__ne"?: number;
+  "target_agent__in"?: number[];
+  "target_agent__isnull"?: boolean;
   "sender_label"?: string;
   "sender_label__ne"?: string;
   "sender_label__contains"?: string;
@@ -1235,7 +1241,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1244,6 +1250,7 @@ export interface TaskflowAgentMessageCreate {
   sender_kind?: TaskflowAgentMessageSenderKind;
   sender_user?: number | null;
   sender_agent?: number | null;
+  target_agent?: number | null;
   sender_label: string;
   body_markdown: string;
   priority?: TaskflowAgentMessagePriority;
@@ -1257,6 +1264,7 @@ export interface TaskflowAgentMessageUpdate {
   sender_kind?: TaskflowAgentMessageSenderKind;
   sender_user?: number | null;
   sender_agent?: number | null;
+  target_agent?: number | null;
   sender_label?: string;
   body_markdown?: string;
   priority?: TaskflowAgentMessagePriority;

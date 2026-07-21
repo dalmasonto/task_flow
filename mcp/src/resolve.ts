@@ -32,6 +32,8 @@ export interface ResolvedMessage {
   project?: number | null;
   task?: number | null;
   sender_user?: number | null;
+  /** #29: the one agent a directed group message is for; null = broadcast. */
+  target_agent?: number | null;
   attachments?: Array<{ name: string; size_bytes: number; url: string }>;
 }
 

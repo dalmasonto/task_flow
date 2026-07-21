@@ -241,6 +241,12 @@ pub struct TaskflowAgentMessage {
     pub sender_user: Option<ForeignKey<AuthUser>>,
     #[umbral(on_delete = "set_null")]
     pub sender_agent: Option<ForeignKey<TaskflowAgent>>,
+    /// #29: a directed group message names the one agent whose pane should get
+    /// it. `None` broadcasts to every agent on the channel (the default). Only
+    /// gates PANE delivery via the MCP — the message is still visible in the
+    /// channel to everyone.
+    #[umbral(on_delete = "set_null")]
+    pub target_agent: Option<ForeignKey<TaskflowAgent>>,
     #[umbral(string, max_length = 160)]
     pub sender_label: String,
     #[umbral(string, max_length = 20000, widget = "textarea")]

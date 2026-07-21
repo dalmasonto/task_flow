@@ -273,6 +273,9 @@ type AgentMessage = {
 type ConversationMember = {
   name: string
   type: "human" | "agent"
+  /// The agent's numeric id, for directing a channel message to it (#29). Set
+  /// only on agent members.
+  agentId?: number
 }
 
 type AgentChatContext = {
@@ -1299,7 +1302,7 @@ function workspaceDefaultMembers(workspace: TaskflowWorkspace, currentUser: Auth
       .filter((member) => member.status === "active")
       .map((member) => ({ name: member.display_name, type: "human" as const })),
     ...(currentUser ? [{ name: currentUser.username, type: "human" as const }] : []),
-    ...workspace.agents.map((agent) => ({ name: agent.display_name, type: "agent" as const })),
+    ...workspace.agents.map((agent) => ({ name: agent.display_name, type: "agent" as const, agentId: agent.id })),
   ])
 }
 
@@ -1308,7 +1311,8 @@ function mapLiveChannelMembers(workspace: TaskflowWorkspace, channelId: number, 
     .filter((member) => member.channel === channelId)
     .map((member) => ({
       name: member.display_name,
-      type: member.member_kind === "agent" ? "agent" as const : "human" as const,
+      type: member.member_kind === "agent" ? ("agent" as const) : ("human" as const),
+      agentId: member.member_kind === "agent" ? (member.agent ?? undefined) : undefined,
     }))
 
   return members.length ? uniqueMembers(members) : workspaceDefaultMembers(workspace, currentUser)
@@ -5097,7 +5101,7 @@ function NoProjectEmptyState({
 export type AgentsOutletContext = {
   selectedChat: AgentChatContext | null
   selectedSession?: AgentTerminalSessionView
-  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[]) => void
+  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[], targetAgent?: number | null) => void
   onRetryMessage: (nonce: string) => void
   onCancelMessage: (nonce: string) => void
   canManageMembers: boolean
@@ -5228,7 +5232,8 @@ function AgentsPage({
     chat: AgentChatContext,
     body: string,
     priority: MessagePriority,
-    files: File[]
+    files: File[],
+    targetAgent: number | null = null
   ) => {
     const projectId = liveId(project.id)
     if (!projectId || !liveWorkspace) {
@@ -5273,6 +5278,7 @@ function AgentsPage({
           body_markdown: body,
           priority: toLiveMessagePriority(priority),
           client_nonce: nonce,
+          target_agent: targetAgent,
         },
         files
       )
@@ -5355,13 +5361,14 @@ function AgentsPage({
     chat: AgentChatContext,
     body: string,
     priority: MessagePriority,
-    files: File[]
+    files: File[],
+    targetAgent: number | null = null
   ) => {
     const trimmedBody = body.trim()
     if (!trimmedBody && files.length === 0) return
 
     setMessageError(null)
-    void sendLiveMessage(chat, trimmedBody, priority, files).catch((error) => {
+    void sendLiveMessage(chat, trimmedBody, priority, files, targetAgent).catch((error) => {
       setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
     })
   }
@@ -5924,6 +5931,8 @@ function AgentsConversationView() {
 
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
+  // #29: in a group channel, optionally direct a message at one agent's pane.
+  const [targetAgent, setTargetAgent] = useState<number | null>(null)
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -5984,6 +5993,8 @@ function AgentsConversationView() {
   if (terminalChatId !== chatKey) {
     setTerminalChatId(chatKey)
     setTerminalOpen(false)
+    // A directed target is per-conversation; switching chats resets it.
+    setTargetAgent(null)
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
@@ -6147,7 +6158,13 @@ function AgentsConversationView() {
     const trimmedMessage = draftMessage.trim()
     if (!trimmedMessage && stagedFiles.length === 0) return
 
-    onSendMessage(selectedChat, trimmedMessage, messagePriority, stagedFiles.map((staged) => staged.file))
+    onSendMessage(
+      selectedChat,
+      trimmedMessage,
+      messagePriority,
+      stagedFiles.map((staged) => staged.file),
+      selectedChat.mode === "channel" ? targetAgent : null
+    )
     // Revoke the composer's own preview URLs; the optimistic bubble mints its
     // own from the same File objects, so these are no longer needed.
     for (const staged of stagedFiles) {
@@ -6398,6 +6415,39 @@ function AgentsConversationView() {
                   className="hidden"
                   onChange={handleFileSelect}
                 />
+
+                {/* #29: in a group channel, optionally direct the message at one
+                    agent's terminal instead of every connected agent. */}
+                {selectedChat.mode === "channel"
+                  ? (() => {
+                      const channelAgents = selectedChat.members.filter(
+                        (member) => member.type === "agent" && member.agentId != null
+                      )
+                      if (!channelAgents.length) return null
+                      return (
+                        <select
+                          value={targetAgent ?? ""}
+                          onChange={(event) =>
+                            setTargetAgent(event.target.value ? Number(event.target.value) : null)
+                          }
+                          title="Direct this message to one agent's terminal"
+                          className={cn(
+                            "ml-0.5 max-w-[11rem] truncate rounded-lg border px-1.5 py-1 text-xs",
+                            targetAgent != null
+                              ? "border-primary/40 bg-primary/10 text-primary"
+                              : "border-border bg-background text-muted-foreground"
+                          )}
+                        >
+                          <option value="">To: everyone</option>
+                          {channelAgents.map((agent) => (
+                            <option key={agent.agentId} value={agent.agentId}>
+                              To: {agent.name}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    })()
+                  : null}
                 <Button
                   type="button"
                   variant="ghost"

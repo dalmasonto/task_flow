@@ -29,6 +29,7 @@ const row = (id: number, nonce: string | null): TaskflowAgentMessage => ({
   sender_kind: "user",
   sender_user: 1,
   sender_agent: null,
+  target_agent: null,
   sender_label: "dev",
   body_markdown: "hello",
   priority: "normal",

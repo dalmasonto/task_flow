@@ -346,6 +346,7 @@ async fn make_message(project: i64, channel: i64, body: &str) -> i64 {
             sender_kind: TaskflowChannelMemberKind::User,
             sender_user: None,
             sender_agent: None,
+            target_agent: None,
             sender_label: "someone".to_string(),
             body_markdown: body.to_string(),
             priority: TaskflowMessagePriority::Normal,

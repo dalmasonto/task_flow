@@ -117,6 +117,20 @@ describe("shouldDeliver", () => {
     expect(shouldDeliver(message(), 3)).toBe(true);
     expect(shouldDeliver(message({ sender_kind: "agent", sender_agent: 9 }), 3)).toBe(true);
   });
+
+  // #29: a directed group message (target_agent set) only reaches that agent's
+  // pane; a null target broadcasts to everyone on the channel (the default).
+  it("delivers a message targeted at this agent", () => {
+    expect(shouldDeliver(message({ target_agent: 3 }), 3)).toBe(true);
+  });
+
+  it("skips a message targeted at a different agent", () => {
+    expect(shouldDeliver(message({ target_agent: 9 }), 3)).toBe(false);
+  });
+
+  it("broadcasts when there is no target", () => {
+    expect(shouldDeliver(message({ target_agent: null }), 3)).toBe(true);
+  });
 });
 
 describe("formatIncoming", () => {
