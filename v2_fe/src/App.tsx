@@ -5402,7 +5402,9 @@ function NoProjectEmptyState({
             <PlusIcon />
             New Project
           </Button>
-          <Button variant="outline" render={<Link to="/account/invitations" />}>
+          {/* Renders as an <a> (react-router Link), so tell Base UI it is not a
+              native <button> — otherwise it warns and drops button semantics. */}
+          <Button variant="outline" nativeButton={false} render={<Link to="/account/invitations" />}>
             <InboxIcon />
             View Invitations
           </Button>
