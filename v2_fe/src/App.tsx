@@ -9,6 +9,8 @@ import {
   BotIcon,
   CheckCheckIcon,
   CheckIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CheckCircle2Icon,
   CircleDotIcon,
   Clock3Icon,
@@ -4884,6 +4886,9 @@ function TaskSessionDock({
   onStopSession: (task: Task, finalStatus: Extract<TaskflowTaskStatus, "done" | "partial_done" | "blocked">) => void
 }) {
   const [tick, setTick] = useState(0)
+  // #35: minimized by default so the dock never covers the chat input / terminal
+  // keypad at the bottom; expand to see and control sessions.
+  const [expanded, setExpanded] = useState(false)
   const taskById = useMemo(() => new Map(tasks.map((task) => [Number(task.id), task])), [tasks])
   const runningSessions = liveWorkspace
     ? liveWorkspace.taskSessions
@@ -4904,21 +4909,53 @@ function TaskSessionDock({
     return () => window.clearInterval(interval)
   }, [runningSessions.length])
 
-  if (!liveWorkspace || (!runningSessions.length && !pausedTasks.length)) return null
+  const sessionCount = runningSessions.length + pausedTasks.length
+  if (!liveWorkspace || sessionCount === 0) return null
+
+  // Minimized: a compact pill in the corner so it never overlaps the chat input
+  // or terminal keypad (which live at the bottom-center). Click to expand.
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        title="Show active sessions"
+        className="fixed bottom-3 right-3 z-[65] inline-flex items-center gap-2 rounded-full border bg-background/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur transition hover:bg-muted"
+      >
+        <TimerIcon className="size-4 text-primary" />
+        {runningSessions.length ? (
+          <span className="inline-block size-2 animate-pulse rounded-full bg-emerald-500" />
+        ) : null}
+        {sessionCount} session{sessionCount === 1 ? "" : "s"}
+        <ChevronUpIcon className="size-3.5 text-muted-foreground" />
+      </button>
+    )
+  }
 
   return (
-    <section className="fixed inset-x-3 bottom-3 z-[65] mx-auto flex max-w-5xl items-center gap-2 overflow-hidden rounded-xl border bg-background/95 p-2 shadow-2xl backdrop-blur">
-      <div className="hidden shrink-0 items-center gap-2 px-2 text-xs font-semibold text-muted-foreground sm:flex">
-        <TimerIcon className="size-4 text-primary" />
-        Sessions
+    <section className="fixed bottom-3 right-3 z-[65] flex max-h-[60vh] w-[min(30rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border bg-background/95 shadow-2xl backdrop-blur">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <TimerIcon className="size-4 text-primary" />
+          Sessions ({sessionCount})
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setExpanded(false)}
+          title="Minimize"
+          aria-label="Minimize sessions"
+        >
+          <ChevronDownIcon />
+        </Button>
       </div>
-      <div className="scrollbar-y flex min-w-0 flex-1 gap-2 overflow-x-auto">
+      <div className="scrollbar-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
         {runningSessions.map((session) => {
           const task = taskById.get(session.task)
           if (!task) return null
           void tick
           return (
-            <div key={session.id} className="flex min-w-72 items-center gap-3 rounded-lg border bg-card px-3 py-2">
+            <div key={session.id} className="flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-2">
               <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpenTask(task.id)}>
                 <div className="flex items-center gap-2">
                   <span className="size-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_oklch(0.72_0.14_155_/_0.16)]" />
@@ -4938,7 +4975,7 @@ function TaskSessionDock({
           )
         })}
         {pausedTasks.map((task) => (
-          <div key={task.id} className="flex min-w-64 items-center gap-3 rounded-lg border bg-card px-3 py-2 opacity-85">
+          <div key={task.id} className="flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-2 opacity-85">
             <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpenTask(task.id)}>
               <div className="flex items-center gap-2">
                 <span className="size-2.5 rounded-full bg-amber-500" />
