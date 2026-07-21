@@ -6672,12 +6672,15 @@ function ActivityRow({
       <button
         type="button"
         onClick={() => onOpen(event)}
-        className="group -my-0.5 flex min-w-0 flex-1 items-baseline gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-muted/60"
+        className="group -my-0.5 flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-muted/60"
       >
-        <span className="truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
+        {/* min-w-0 lets the action shrink+ellipsize instead of forcing the row
+            wide (a long tool name has no spaces to break on). The detail wraps
+            rather than truncating, so nothing pushes a horizontal scroll. */}
+        <span className="min-w-0 shrink-0 max-w-[45%] truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
           {event.action.replace(/_/g, " ")}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm">{event.detail}</span>
+        <span className="min-w-0 flex-1 break-words text-sm">{event.detail}</span>
         <span className="shrink-0 text-xs text-muted-foreground">{event.actor}</span>
         <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
           {event.time}
