@@ -46,6 +46,24 @@ rewrite):
 
 `due_at` is unchanged — it already exists; the create call just needs to send it.
 
+### Why agent references are bare `i64`, not `ForeignKey`
+
+The **human** columns (`operator_user`, and the existing `created_by`) are real
+`ForeignKey<AuthUser>` — `AuthUser` is in a base crate both plugins already use.
+
+The **agent** columns (`operator_agent_id`, `created_by_agent_id`) are bare
+`i64`, matching the existing `assigned_agent_id`, because they cannot be a
+`ForeignKey`. `taskflow-agents` depends on `taskflow-tasks` (agents reference
+tasks); a `ForeignKey<TaskflowAgent>` on `TaskflowTask` would force the reverse
+edge and create a circular crate dependency that will not compile. `TaskflowTask`
+already documents this on `assigned_agent_id`: "dependency cycle while still
+letting the UI show agent ownership."
+
+Trade-off accepted: a bare id has no DB-level referential integrity, so a deleted
+agent leaves a dangling id (exactly as `assigned_agent_id` does today). The only
+way to a real FK is to move `TaskflowAgent` into a lower shared crate both
+plugins depend on — a separate refactor, out of scope here.
+
 ## Creator tracking
 
 We want to know who created each task — a human or an agent. `created_by`
