@@ -2595,6 +2595,33 @@ function App() {
   function openTaskDetails(taskId: string) {
     setSelectedTaskId(taskId)
     setOpenTaskId(taskId)
+    // The backend session timer creates/closes sessions server-side; an open tab
+    // that missed the realtime event would show a stale (empty) session list.
+    // Fetch this task's sessions on open so the sheet always reflects reality.
+    void loadTaskSessions(taskId)
+  }
+
+  /// Refetch one task's work sessions and merge them into the live workspace, so
+  /// the detail sheet shows the current sessions even if the realtime event for a
+  /// timer-created session never landed.
+  async function loadTaskSessions(taskId: string) {
+    if (!usesLiveApi || !activeProject) return
+    const id = liveId(taskId)
+    const pid = liveId(activeProject.id)
+    if (!id || !pid) return
+    try {
+      const page = await taskflowApi
+        .from(taskflowTables.taskSessions)
+        .filter({ task: id })
+        .orderBy("-started_at", "-id")
+        .list()
+      applyWorkspaceUpdate(pid, (workspace) => ({
+        ...workspace,
+        taskSessions: page.results.reduce((rows, session) => upsertById(rows, session), workspace.taskSessions),
+      }))
+    } catch {
+      // Best-effort: the sheet still renders whatever sessions are already loaded.
+    }
   }
 
   async function handleUploadTaskAttachment(taskId: string, files: File[]) {
