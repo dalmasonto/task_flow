@@ -265,23 +265,34 @@ export function handleFrame(
 /**
  * Whether a message should be delivered to THIS agent's terminal.
  *
- * Its own messages are skipped: echoing them back would read as a new
- * instruction and could loop the agent against itself.
+ * Every message the agent can see is delivered EXCEPT its own — an agent must
+ * stay aware of all channel traffic so it can chat / add information (#40 review).
+ * Whether it may ACT on the message is a SEPARATE signal (`canActOnMessage`)
+ * surfaced as guidance in the notice, NOT a delivery gate. Its own messages are
+ * still skipped: echoing them back reads as a new instruction and could loop the
+ * agent against itself.
  */
 export function shouldDeliver(message: AgentMessageEvent, selfAgentId: number): boolean {
   if (message.sender_kind === "agent" && message.sender_agent === selfAgentId) return false;
+  return true;
+}
 
-  // #29: `targets` is the authoritative directed-target set when present.
-  // A non-empty set delivers only to the AGENT targets in it — user targets are
-  // mention/attribution and never trigger pane delivery. An empty/absent set is
-  // a broadcast to every agent on the channel (the default).
+/**
+ * Whether THIS agent is a TARGET of the message and may act on it — build,
+ * execute, take ownership. A non-target still RECEIVES the message (to reply or
+ * add information) but must not act; `formatIncoming` says so.
+ *
+ * - An empty/absent target set is a broadcast: everyone may act.
+ * - Otherwise the agent may act only if it is one of the AGENT targets. A
+ *   message tagged only at users leaves every agent a non-target.
+ */
+export function canActOnMessage(message: AgentMessageEvent, selfAgentId: number): boolean {
   if (message.targets && message.targets.length > 0) {
     return message.targets.some((t) => t.kind === "agent" && t.id === selfAgentId);
   }
-
   // Back-compat: rows written before `targets` carry only the single
-  // `target_agent`. Null there is still a broadcast.
-  if (message.target_agent != null && message.target_agent !== selfAgentId) return false;
+  // `target_agent`. Null there is a broadcast.
+  if (message.target_agent != null) return message.target_agent === selfAgentId;
   return true;
 }
 
@@ -351,9 +362,18 @@ function contextSuffix(message: AgentMessageEvent): string {
 export function formatIncoming(
   message: AgentMessageEvent,
   attachments: NoticeAttachment[] = [],
+  selfAgentId?: number,
 ): string {
   const who = message.sender_label || (message.sender_kind === "user" ? "User" : "Agent");
-  const head = `[taskflow] Message from ${who}: `;
+  // #40 review: a non-target still receives the message but is told, clearly and
+  // up front, NOT to act on it — only to reply / add information if useful. When
+  // selfAgentId is unknown, or the agent is a target/broadcast recipient, there
+  // is no guard and the message reads normally.
+  const guard =
+    selfAgentId != null && !canActOnMessage(message, selfAgentId)
+      ? "🚫 DO NOT ACT — you are not the target of this message. You may reply or add information in chat, but do not build or execute on it. "
+      : "";
+  const head = `[taskflow] ${guard}Message from ${who}: `;
 
   const manifest = attachments.length
     ? ` 📎 ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}: ` +

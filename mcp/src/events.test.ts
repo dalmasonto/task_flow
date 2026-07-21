@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { handleFrame, shouldDeliver, formatIncoming, type AgentMessageEvent } from "./events.js";
+import {
+  handleFrame,
+  shouldDeliver,
+  canActOnMessage,
+  formatIncoming,
+  type AgentMessageEvent,
+} from "./events.js";
 
 const message = (over: Partial<AgentMessageEvent> = {}): AgentMessageEvent => ({
   id: 7,
@@ -113,46 +119,38 @@ describe("shouldDeliver", () => {
     expect(shouldDeliver(message({ sender_kind: "agent", sender_agent: 3 }), 3)).toBe(false);
   });
 
-  it("delivers humans and other agents", () => {
+  // #40 review: every message the agent can see is delivered so it stays aware
+  // and can chat; whether it may ACT is a separate signal (canActOnMessage).
+  it("delivers everything else — humans, other agents, and messages not aimed at it", () => {
     expect(shouldDeliver(message(), 3)).toBe(true);
     expect(shouldDeliver(message({ sender_kind: "agent", sender_agent: 9 }), 3)).toBe(true);
+    expect(shouldDeliver(message({ target_agent: 9 }), 3)).toBe(true);
+    expect(shouldDeliver(message({ targets: [{ kind: "agent", id: 9 }] }), 3)).toBe(true);
+    expect(shouldDeliver(message({ targets: [{ kind: "user", id: 3 }] }), 3)).toBe(true);
+  });
+});
+
+describe("canActOnMessage", () => {
+  it("lets any agent act on a broadcast (no targets)", () => {
+    expect(canActOnMessage(message(), 3)).toBe(true);
+    expect(canActOnMessage(message({ targets: [] }), 3)).toBe(true);
+    expect(canActOnMessage(message({ target_agent: null }), 3)).toBe(true);
   });
 
-  // #29: a directed group message (target_agent set) only reaches that agent's
-  // pane; a null target broadcasts to everyone on the channel (the default).
-  it("delivers a message targeted at this agent", () => {
-    expect(shouldDeliver(message({ target_agent: 3 }), 3)).toBe(true);
-  });
-
-  it("skips a message targeted at a different agent", () => {
-    expect(shouldDeliver(message({ target_agent: 9 }), 3)).toBe(false);
-  });
-
-  it("broadcasts when there is no target", () => {
-    expect(shouldDeliver(message({ target_agent: null }), 3)).toBe(true);
-  });
-
-  // #29: `targets` supersedes `target_agent` — a message can name several agents
-  // and users. Only the AGENT targets gate pane delivery.
-  it("delivers when this agent is among the targets", () => {
+  it("lets an agent act when it is among the targets", () => {
     expect(
-      shouldDeliver(message({ targets: [{ kind: "agent", id: 3 }, { kind: "user", id: 7 }] }), 3),
+      canActOnMessage(message({ targets: [{ kind: "agent", id: 3 }, { kind: "user", id: 7 }] }), 3),
     ).toBe(true);
   });
 
-  it("skips when the targets name only other agents", () => {
-    expect(
-      shouldDeliver(message({ targets: [{ kind: "agent", id: 9 }] }), 3),
-    ).toBe(false);
+  it("does NOT let a non-target act (other agents, or user-only tags)", () => {
+    expect(canActOnMessage(message({ targets: [{ kind: "agent", id: 9 }] }), 3)).toBe(false);
+    expect(canActOnMessage(message({ targets: [{ kind: "user", id: 3 }] }), 3)).toBe(false);
   });
 
-  it("does not deliver to an agent when only users are targeted", () => {
-    // A user-only mention is not a pane instruction for any agent.
-    expect(shouldDeliver(message({ targets: [{ kind: "user", id: 3 }] }), 3)).toBe(false);
-  });
-
-  it("broadcasts on an empty targets array", () => {
-    expect(shouldDeliver(message({ targets: [] }), 3)).toBe(true);
+  it("honours the legacy single target_agent", () => {
+    expect(canActOnMessage(message({ target_agent: 3 }), 3)).toBe(true);
+    expect(canActOnMessage(message({ target_agent: 9 }), 3)).toBe(false);
   });
 });
 
@@ -167,6 +165,20 @@ describe("formatIncoming", () => {
 
   it("adds nothing when there are no attachments", () => {
     expect(formatIncoming(message(), [])).toBe("[taskflow] Message from Dalmas: ship it");
+  });
+
+  // #40 review: a non-target still receives the message but is told not to act.
+  it("prepends a DO-NOT-ACT guard when this agent is not a target", () => {
+    const out = formatIncoming(message({ targets: [{ kind: "agent", id: 9 }] }), [], 3);
+    expect(out).toContain("DO NOT ACT");
+    expect(out).toContain("may reply or add information");
+  });
+
+  it("adds no guard for a broadcast or a targeted recipient", () => {
+    expect(formatIncoming(message(), [], 3)).not.toContain("DO NOT ACT");
+    expect(
+      formatIncoming(message({ targets: [{ kind: "agent", id: 3 }] }), [], 3),
+    ).not.toContain("DO NOT ACT");
   });
 
   // #29 part 2: the pushed notice used to be prose only, so an agent that did

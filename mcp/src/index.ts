@@ -204,7 +204,7 @@ async function startMirrorForThisAgent(): Promise<void> {
         if (!message) return;
         if (!shouldDeliver(message, profile.agentId)) return;
         await paneQueue(() =>
-          notifyPane(formatIncoming(message, message.attachments ?? []), pane, true),
+          notifyPane(formatIncoming(message, message.attachments ?? [], profile.agentId), pane, true),
         );
         await client.markRead(message.channel, message.id);
       };
