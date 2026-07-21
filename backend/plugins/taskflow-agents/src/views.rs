@@ -2409,13 +2409,16 @@ async fn apply_review(
         TaskflowReviewDecision::ChangesRequested => "changes requested",
     };
 
-    // 4. Report back to the assigned agent: a message in the project room
-    // referencing the task, so the assigned agent surfaces it (live via SSE or
-    // through check_messages). Only when the task has an assigned agent AND a
-    // shared room exists — otherwise the review still stands, the message is
-    // skipped. The create auto-emits the realtime event (the message model is
-    // Exposed), exactly like `send_message`.
-    if task.assigned_agent_id.is_some() {
+    // 4. Report back to the responsible agent: a message in the project room
+    // referencing the task, directed at that agent so it surfaces in its pane
+    // (live via SSE, the reconnect catch-up, or check_messages). Only when the
+    // task has a responsible agent (assignee OR operator) AND a shared room
+    // exists — otherwise the review still stands, the message is skipped. The
+    // create auto-emits the realtime event (the message model is Exposed).
+    // The agent responsible for the task: the assignee if set, else the operator.
+    // Most tasks are operator-only, so gating on `assigned_agent_id` alone (as it
+    // did) meant a review on them notified nobody (#37).
+    if let Some(recipient_agent) = task.assigned_agent_id.or(task.operator_agent_id) {
         if let Some(channel) = find_project_room(project_id).await? {
             let mut message_body = format!("Review: **{decision_label}** on _{}_.", task.title);
             if let Some(b) = &body {
@@ -2431,7 +2434,9 @@ async fn apply_review(
                     sender_kind: reviewer_kind,
                     sender_user: reviewer_user.map(ForeignKey::new),
                     sender_agent: reviewer_agent.map(ForeignKey::new),
-                    target_agent: None,
+                    // Direct it at the responsible agent (#29) so the review lands
+                    // in that agent's pane, not broadcast to every connected agent.
+                    target_agent: Some(ForeignKey::new(recipient_agent)),
                     sender_label: reviewer_label.clone(),
                     body_markdown: message_body,
                     priority: TaskflowMessagePriority::Normal,

@@ -16,8 +16,10 @@ use taskflow_agents::models::{
     taskflow_task_review,
 };
 use taskflow_tasks::models::{
-    TaskflowTaskActivity, TaskflowTaskStatus, taskflow_task, taskflow_task_activity,
+    TaskflowTask, TaskflowTaskActivity, TaskflowTaskPriority, TaskflowTaskStatus, taskflow_task,
+    taskflow_task_activity,
 };
+use umbral::orm::ForeignKey;
 
 /// Mint a fresh agent key for `(project, display_name, profile)` as `user`,
 /// returning `(key, agent_id)`.
@@ -362,4 +364,71 @@ async fn review_requires_access() {
     // Neither rejected review wrote a row, and the task is untouched.
     assert_eq!(count_reviews(task_id).await, 0);
     assert_eq!(task_status(task_id).await, TaskflowTaskStatus::NotStarted);
+}
+
+// #37: a task the agent OPERATES but was never assigned (assigned_agent_id null,
+// operator_agent_id set) must still notify that agent on review — the report-back
+// used to gate on assigned_agent_id alone and silently notified nobody.
+#[tokio::test]
+async fn human_review_notifies_the_operator_agent_when_not_assigned() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let room = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    let (_key, agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
+
+    // Operator-only task: no assigned_agent_id, operator_agent_id = the agent.
+    let task_id = TaskflowTask::objects()
+        .create(TaskflowTask {
+            id: 0,
+            project: ForeignKey::new(project),
+            title: "Operator task".to_string(),
+            description_markdown: "do it".to_string(),
+            notes_markdown: None,
+            status: TaskflowTaskStatus::PartialDone,
+            priority: TaskflowTaskPriority::Normal,
+            sort_order: 0,
+            created_by: None,
+            assigned_user: None,
+            assigned_agent_id: None,
+            review_gate: None,
+            estimate_minutes: None,
+            operator_user: None,
+            operator_agent_id: Some(agent_id),
+            created_by_agent_id: None,
+            assignee_label: None,
+            due_at: None,
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .expect("create task")
+        .id;
+
+    let review = app
+        .post_as(
+            user,
+            &format!("/api/taskflow/tasks/{task_id}/review"),
+            json!({ "decision": "changes_requested", "body_markdown": "tweak X" }),
+        )
+        .await;
+    assert_eq!(review.status(), 200, "body: {:?}", review.json().await);
+
+    // The report-back exists and is directed at the OPERATOR agent.
+    assert_eq!(count_task_messages(task_id).await, 1, "operator-only task still notifies");
+    let msg = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::TASK.eq(task_id))
+        .first()
+        .await
+        .expect("load message")
+        .expect("message exists");
+    assert_eq!(msg.channel.id(), room);
+    assert_eq!(
+        msg.target_agent.as_ref().map(|fk| fk.id()),
+        Some(agent_id),
+        "directed at the operator agent"
+    );
+    assert!(msg.body_markdown.contains("changes requested"));
+    assert!(msg.body_markdown.contains("tweak X"));
 }
