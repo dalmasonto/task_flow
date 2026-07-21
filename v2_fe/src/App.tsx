@@ -738,6 +738,33 @@ function mapLiveReviews(workspace: TaskflowWorkspace, projectTasks: Task[]): Rev
     })
 }
 
+type TaskReviewEntry = {
+  id: string
+  reviewerLabel: string
+  decision: TaskflowTaskReviewDecision
+  body: string
+  time: string
+}
+
+/// The reviews recorded on one task (taskflow_task_review), newest first,
+/// resolved to a display feed for the sheet's Human Review Gate. The reviews ride
+/// in the workspace payload and update over realtime (see applyRealtimeRow for
+/// taskflow_task_review), so a review left while the sheet is open appears live.
+function getLiveTaskReviews(task: Task, workspace: TaskflowWorkspace): TaskReviewEntry[] {
+  const taskId = liveId(task.id)
+  return workspace.taskReviews
+    .filter((review) => review.task === taskId)
+    .slice()
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "") || b.id - a.id)
+    .map((review) => ({
+      id: String(review.id),
+      reviewerLabel: review.reviewer_label,
+      decision: review.decision,
+      body: review.body_markdown?.trim() ?? "",
+      time: formatLiveDate(review.created_at, "Live"),
+    }))
+}
+
 function getFallbackTaskActivity(task: Task): TaskActivityItem[] {
   return task.history.map((event, index) => ({
     id: `${task.id}-history-${index}`,
@@ -4198,6 +4225,7 @@ function TaskDetailSheet({
   const totalSessionSeconds = liveWorkspace ? getTaskSessionTotalSeconds(task, liveWorkspace) : null
   const relations = liveWorkspace ? getLiveTaskRelations(task, projectTasks, liveWorkspace) : getTaskRelations(task, projectTasks)
   const activity = liveWorkspace ? getLiveTaskActivity(task, liveWorkspace) : getFallbackTaskActivity(task)
+  const reviews = liveWorkspace ? getLiveTaskReviews(task, liveWorkspace) : []
   const links = getTaskLinks(task, project)
   const description = getTaskDescription(task)
   const notes = getTaskNotes(task)
@@ -4324,6 +4352,41 @@ function TaskDetailSheet({
                 }
               >
                 <MarkdownRenderer content={task.review} />
+
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
+                    {reviews.length ? `Reviews (${reviews.length})` : "Reviews"}
+                  </p>
+                  {reviews.length ? (
+                    reviews.map((review) => (
+                      <div key={review.id} className="rounded-lg border bg-background/60 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-semibold">{review.reviewerLabel}</span>
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1",
+                                reviewDecisionClass(review.decision)
+                              )}
+                            >
+                              {reviewDecisionLabel(review.decision)}
+                            </span>
+                          </div>
+                          <span className="shrink-0 text-xs text-muted-foreground">{review.time}</span>
+                        </div>
+                        {review.body ? (
+                          <MarkdownRenderer content={review.body} compact className="mt-2 [&_p]:text-sm" />
+                        ) : (
+                          <p className="mt-2 text-sm italic text-muted-foreground">No note left.</p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+                      No human reviews yet.
+                    </p>
+                  )}
+                </div>
               </TaskDetailSection>
 
               <TaskDetailSection
