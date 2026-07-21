@@ -85,6 +85,7 @@ import type {
   TaskflowAgentMessagePriority,
   TaskflowAgentSession,
   TaskflowMessageAttachment,
+  TaskflowProjectMember,
   TaskflowProjectInviteRole,
   TaskflowProjectInviteStatus,
   TaskflowProjectUpdate,
@@ -138,6 +139,7 @@ import {
 import { cn } from "@/lib/utils"
 import { spliceAtCaret, fileReferenceText } from "@/lib/composer"
 import { formatBytes } from "@/lib/attachment-kind"
+import { formatEstimateMinutes } from "@/lib/tasks"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -346,6 +348,7 @@ type Task = {
   ownerInitials: string
   operator: "agent" | "human" | "pair"
   operatorName: string
+  createdBy: string
   estimate: string
   updated: string
   due: string
@@ -1063,7 +1066,11 @@ function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
   })
 }
 
-function mapLiveTasks(tasks: TaskflowProjectSummary["tasks"] | TaskflowWorkspace["tasks"]): Task[] {
+function mapLiveTasks(
+  tasks: TaskflowProjectSummary["tasks"] | TaskflowWorkspace["tasks"],
+  members: TaskflowProjectMember[],
+  agents: TaskflowAgent[]
+): Task[] {
   return tasks.map((task) => {
     const assignee = task.assignee_label || (task.assigned_agent_id ? `Agent #${task.assigned_agent_id}` : "Unassigned")
 
@@ -1078,13 +1085,22 @@ function mapLiveTasks(tasks: TaskflowProjectSummary["tasks"] | TaskflowWorkspace
       owner: assignee,
       ownerInitials: toInitials(assignee),
       operator: task.assigned_agent_id ? "agent" : task.assigned_user ? "human" : "pair",
-      operatorName: assignee,
-      estimate: "Live",
+      operatorName: task.operator_user
+        ? (members.find((m) => m.user === task.operator_user)?.display_name ?? `User #${task.operator_user}`)
+        : task.operator_agent_id
+          ? (agents.find((a) => a.id === task.operator_agent_id)?.display_name ?? `Agent #${task.operator_agent_id}`)
+          : assignee,
+      createdBy: task.created_by_agent_id
+        ? (agents.find((a) => a.id === task.created_by_agent_id)?.display_name ?? `Agent #${task.created_by_agent_id}`)
+        : task.created_by
+          ? (members.find((m) => m.user === task.created_by)?.display_name ?? `User #${task.created_by}`)
+          : "Unknown",
+      estimate: formatEstimateMinutes(task.estimate_minutes),
       updated: formatLiveDate(task.updated_at ?? task.created_at, "Live API"),
       due: formatLiveDate(task.due_at, "Unscheduled"),
       tags: ["live-api"],
       blockers: [],
-      review: task.status === "partial_done" ? "Waiting for human review." : "No explicit review gate on the live task.",
+      review: task.review_gate ?? (task.status === "partial_done" ? "Waiting for human review." : "No explicit review gate on the live task."),
       history: [
         `Loaded from /api/taskflow_task/${task.id}.`,
         task.updated_at ? `Last updated ${formatLiveDate(task.updated_at)}.` : "Waiting for live activity.",
@@ -1686,6 +1702,12 @@ function App() {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false)
   const [liveSyncError, setLiveSyncError] = useState<string | null>(null)
   const [liveWorkspace, setLiveWorkspace] = useState<TaskflowWorkspace | null>(null)
+  // Mirror of liveWorkspace for stable callbacks (e.g. the realtime handler) that
+  // must read the latest members/agents without taking a reactive dependency.
+  const liveWorkspaceRef = useRef(liveWorkspace)
+  useEffect(() => {
+    liveWorkspaceRef.current = liveWorkspace
+  }, [liveWorkspace])
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() =>
     hasStoredAuthSession() ? getStoredUser() : null
   )
@@ -1818,7 +1840,7 @@ function App() {
             ? preferredProjectId
             : nextProjects[0].id
         const nextProjectId = liveId(nextActiveProjectId) ?? summary.projects[0].id
-        const summaryTasks = mapLiveTasks(summary.tasks)
+        const summaryTasks = mapLiveTasks(summary.tasks, summary.members, summary.agents)
 
         setWorkspaceProjects(nextProjects)
         setUsesLiveApi(true)
@@ -1832,7 +1854,7 @@ function App() {
 
         try {
           const workspace = await fetchTaskflowWorkspace(nextProjectId)
-          const nextProjectTasks = mapLiveTasks(workspace.tasks)
+          const nextProjectTasks = mapLiveTasks(workspace.tasks, workspace.members, workspace.agents)
 
           setLiveWorkspace(workspace)
           setTasks((current) => mergeProjectTasks(current, nextActiveProjectId, nextProjectTasks))
@@ -1981,7 +2003,11 @@ function App() {
         case taskflowTables.tasks: {
           const task = row as TaskflowWorkspace["tasks"][number]
           if (task.project !== projectId) return
-          const [mappedTask] = mapLiveTasks([task])
+          const [mappedTask] = mapLiveTasks(
+            [task],
+            liveWorkspaceRef.current?.members ?? [],
+            liveWorkspaceRef.current?.agents ?? []
+          )
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, tasks: upsertById(workspace.tasks, task) }))
           setTasks((current) => {
             const index = current.findIndex((item) => item.id === mappedTask.id)
@@ -2518,6 +2544,7 @@ function App() {
         .toUpperCase() || "UN",
       operator: "human",
       operatorName,
+      createdBy: currentUser?.username ?? currentUser?.email ?? "You",
       estimate,
       updated: "Just now",
       due,
@@ -2546,7 +2573,11 @@ function App() {
         due_at: null,
       })
         .then((createdTask) => {
-          const [mappedTask] = mapLiveTasks([createdTask])
+          const [mappedTask] = mapLiveTasks(
+            [createdTask],
+            liveWorkspaceRef.current?.members ?? [],
+            liveWorkspaceRef.current?.agents ?? []
+          )
           setTasks((currentTasks) => [mappedTask, ...currentTasks.filter((task) => task.id !== newTask.id)])
           setSelectedTaskId(mappedTask.id)
           setOpenTaskId(mappedTask.id)
@@ -2558,7 +2589,11 @@ function App() {
   }
 
   function applyLiveTaskRow(taskRow: TaskflowWorkspace["tasks"][number]) {
-    const [mappedTask] = mapLiveTasks([taskRow])
+    const [mappedTask] = mapLiveTasks(
+      [taskRow],
+      liveWorkspaceRef.current?.members ?? [],
+      liveWorkspaceRef.current?.agents ?? []
+    )
     applyWorkspaceUpdate(taskRow.project, (workspace) => ({ ...workspace, tasks: upsertById(workspace.tasks, taskRow) }))
     setTasks((current) => {
       const index = current.findIndex((task) => task.id === mappedTask.id)
@@ -4004,6 +4039,7 @@ function TaskDetailSheet({
                   <Info label="Due" value={task.due} />
                   <Info label="Estimate" value={task.estimate} />
                   <Info label="Operator" value={task.operatorName} />
+                  <Info label="Created by" value={task.createdBy} />
                 </div>
               </section>
 
