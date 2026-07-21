@@ -6685,7 +6685,13 @@ function AgentTerminalPanel({
         <TerminalTranscript session={selectedSession} />
       </div>
 
-      <TerminalKeypad agentId={selectedSession.agentId} disabled={!selectedSession.connected} />
+      {/* Enable when the pane is actually mirroring (streaming frames) OR the
+          session is live. `connected` alone (heartbeat recency) went stale while
+          the mirror was plainly still streaming, greying out working keys. */}
+      <TerminalKeypad
+        agentId={selectedSession.agentId}
+        disabled={!selectedSession.hasStream && !selectedSession.connected}
+      />
     </div>
   )
 }
