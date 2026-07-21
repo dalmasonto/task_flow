@@ -147,6 +147,7 @@ import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
 import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
+import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -1794,6 +1795,15 @@ function App() {
     () => (activeProject ? tasks.filter((task) => task.projectId === activeProject.id) : []),
     [activeProject, tasks]
   )
+  // Board search + priority filter. Applied only to the board columns, not the
+  // project metrics (those stay whole-project totals).
+  const [boardSearch, setBoardSearch] = useState("")
+  const [boardPriority, setBoardPriority] = useState<string>(ALL_PRIORITIES)
+  const boardFilteredTasks = useMemo(
+    () => filterBoardTasks(projectTasks, { search: boardSearch, priority: boardPriority }),
+    [projectTasks, boardSearch, boardPriority]
+  )
+  const boardFilterActive = boardSearch.trim() !== "" || boardPriority !== ALL_PRIORITIES
   const selectedTask =
     projectTasks.find((task) => task.id === selectedTaskId) ?? projectTasks[0]
   const openTask = openTaskId ? tasks.find((task) => task.id === openTaskId) : undefined
@@ -3188,6 +3198,57 @@ function App() {
                 </div>
               </div>
 
+              {/* Board search + priority filter. Narrows the columns only; the
+                  metrics above stay whole-project totals. */}
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative sm:max-w-xs sm:flex-1">
+                  <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={boardSearch}
+                    onChange={(event) => setBoardSearch(event.target.value)}
+                    placeholder="Search #id, title, owner, tag…"
+                    className="pl-8"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[ALL_PRIORITIES, ...BOARD_PRIORITIES].map((option) => {
+                    const active = boardPriority === option
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setBoardPriority(option)}
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-xs font-medium capitalize ring-1 transition",
+                          active
+                            ? "bg-primary/10 text-primary ring-primary/30"
+                            : "bg-muted/60 text-muted-foreground ring-border hover:bg-muted"
+                        )}
+                      >
+                        {option === ALL_PRIORITIES ? "All" : option}
+                      </button>
+                    )
+                  })}
+                  {boardFilterActive ? (
+                    <>
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        {boardFilteredTasks.length} of {projectTasks.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBoardSearch("")
+                          setBoardPriority(ALL_PRIORITIES)
+                        }}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
               {/* Board columns scroll horizontally. On small screens each column
                   snaps to ~full screen width (one at a time); from lg up the five
                   columns flex to fill the row. The region is height-gated: it
@@ -3200,7 +3261,7 @@ function App() {
                     // Each column is ordered by task #id (ascending). Dragging a
                     // card to another column still changes its status; within a
                     // column the id-sort wins, so manual reordering is dropped.
-                    const columnTasks = projectTasks
+                    const columnTasks = boardFilteredTasks
                       .filter((task) => task.status === column.id)
                       .sort((a, b) => {
                         const na = Number(a.id)
