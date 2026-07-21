@@ -3109,13 +3109,23 @@ function App() {
               <div className="min-h-[34rem] snap-x snap-mandatory overflow-x-auto pb-2 lg:snap-none">
                 <div className="flex gap-3">
                   {columns.map((column) => {
-                    const columnTasks = projectTasks.filter((task) => task.status === column.id)
+                    // Each column is ordered by task #id (ascending). Dragging a
+                    // card to another column still changes its status; within a
+                    // column the id-sort wins, so manual reordering is dropped.
+                    const columnTasks = projectTasks
+                      .filter((task) => task.status === column.id)
+                      .sort((a, b) => {
+                        const na = Number(a.id)
+                        const nb = Number(b.id)
+                        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb
+                        return a.id.localeCompare(b.id)
+                      })
                     const ColumnIcon = column.icon
                     return (
                       <div
                         key={column.id}
                         className={cn(
-                          "flex min-h-[32rem] w-[85vw] shrink-0 snap-center flex-col rounded-lg border bg-card/75 transition sm:w-[20rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
+                          "flex min-h-[32rem] w-[97vw] shrink-0 snap-center flex-col rounded-lg border bg-card/75 transition sm:w-[20rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
                           draggedTaskId && dropTarget?.columnId === column.id && "border-primary/60 bg-primary/5 ring-2 ring-primary/25"
                         )}
                         onDragEnter={() => setDropTarget({ columnId: column.id, taskId: null, position: "after" })}
