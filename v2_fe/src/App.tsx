@@ -28,6 +28,7 @@ import {
   InboxIcon,
   KanbanSquareIcon,
   LinkIcon,
+  Loader2 as LoaderIcon,
   LockIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
@@ -3523,7 +3524,7 @@ function App() {
                             <MoreHorizontalIcon />
                           </Button>
                         </div>
-                        <div className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+                        <div data-board-scroll className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
                           {draggedTaskId && dropTarget?.columnId === column.id && dropTarget.taskId === null ? (
                             <EndDropIndicator label={`Drop at end of ${column.title}`} />
                           ) : null}
@@ -4536,25 +4537,49 @@ function EndDropIndicator({ label }: { label: string }) {
 /// while still intersecting and load every page in a runaway loop (the same
 /// trap that bit the #38 activity auto-loader). `remaining` only labels it.
 function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: () => void; remaining: number }) {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLButtonElement>(null)
   const callback = useRef(onLoadMore)
   callback.current = onLoadMore
+  // Whether the foot is in (or near) the visible scroll area — drives the
+  // spinner so the user sees loading feedback as they reach the bottom.
+  const [pending, setPending] = useState(false)
+
   useEffect(() => {
     const node = ref.current
     if (!node) return
+    // Observe against the column's OWN scroll container, not the viewport: the
+    // cards scroll inside `[data-board-scroll]`, so a viewport root measures the
+    // wrong box — its rootMargin never preloads and it only fires once the foot
+    // is dragged fully on-screen. Fall back to the viewport if not found.
+    const root = node.closest("[data-board-scroll]")
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) callback.current()
+        const hit = entries[0]?.isIntersecting ?? false
+        setPending(hit)
+        // One page per not-intersecting→intersecting transition: a full page of
+        // cards overflows the column, pushing the foot back below the fold so the
+        // next scroll re-fires. No transition → no re-fire, so this can't loop.
+        if (hit) callback.current()
       },
-      { rootMargin: "160px" }
+      { root, rootMargin: "240px" }
     )
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+
+  // Click is the always-works fallback: if a page ever fails to overflow (very
+  // tall viewport, short cards) the observer won't re-fire, so let the user pull
+  // the next page by hand.
   return (
-    <div ref={ref} className="py-2 text-center text-[11px] text-muted-foreground">
-      Load {Math.min(remaining, BOARD_PAGE_SIZE)} more…
-    </div>
+    <button
+      ref={ref}
+      type="button"
+      onClick={() => callback.current()}
+      className="flex items-center justify-center gap-2 rounded-md py-2 text-[11px] text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+    >
+      <LoaderIcon className={cn("size-3.5", pending && "animate-spin")} />
+      {pending ? "Loading" : "Load"} {Math.min(remaining, BOARD_PAGE_SIZE)} more…
+    </button>
   )
 }
 
