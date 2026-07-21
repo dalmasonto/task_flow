@@ -21,6 +21,7 @@ import type {
   TaskflowTaskCreate,
   TaskflowTaskAttachment,
   TaskflowTaskRelation,
+  TaskflowTaskRelationCreate,
   TaskflowTaskReview,
   TaskflowTaskSession,
   TaskflowTaskSessionCreate,
@@ -540,6 +541,18 @@ export function updateTaskflowTask(taskId: number, input: TaskflowTaskUpdate) {
 
 export function createTaskflowTaskActivity(input: TaskflowTaskActivityCreate) {
   return taskflowApi.create(taskflowTables.taskActivity, input)
+}
+
+/// #39: link two tasks. `task_relation` is a writable project-scoped table, so
+/// this is a plain auto-REST create; realtime echoes the new row back into the
+/// workspace so the details sheet updates without a refetch.
+export function createTaskflowTaskRelation(input: TaskflowTaskRelationCreate) {
+  return taskflowApi.create(taskflowTables.taskRelations, input)
+}
+
+/// #39: remove a task link by its row id.
+export function deleteTaskflowTaskRelation(relationId: number) {
+  return taskflowApi.delete(taskflowTables.taskRelations, relationId)
 }
 
 export function createTaskflowTaskSession(input: TaskflowTaskSessionCreate) {

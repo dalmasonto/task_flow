@@ -95,6 +95,7 @@ import type {
   TaskflowProjectInviteStatus,
   TaskflowProjectUpdate,
   TaskflowTaskPriority,
+  TaskflowTaskRelationKind,
   TaskflowTaskReviewDecision,
   TaskflowTaskStatus,
 } from "@/api/client"
@@ -104,6 +105,8 @@ import {
   createTaskflowChannel,
   createTaskflowProjectInvite,
   createTaskflowTaskActivity,
+  createTaskflowTaskRelation,
+  deleteTaskflowTaskRelation,
   createTaskflowTaskSession,
   createTaskflowTask,
   answerAgentPrompt,
@@ -219,10 +222,14 @@ type TaskSession = {
 type TaskRelation = {
   id: string
   title: string
-  type: "Blocked by" | "Blocks" | "Related"
+  type: "Blocked by" | "Blocks" | "Related" | "Duplicates" | "Parent of" | "Child of"
   status?: ColumnId
   detail: string
   taskId?: string
+  /// #39: the taskflow_task_relation row id, present only for real (live)
+  /// relations — the handle used to delete the link. Synthetic/fallback
+  /// relations have no row and so cannot be removed.
+  relationId?: number
 }
 
 type MessagePriority = "normal" | "needs-response" | "blocking"
@@ -502,6 +509,8 @@ function statusLabel(status?: ColumnId) {
 function relationTone(type: TaskRelation["type"]) {
   if (type === "Blocked by") return "bg-rose-100 text-rose-800 ring-rose-200"
   if (type === "Blocks") return "bg-amber-100 text-amber-800 ring-amber-200"
+  if (type === "Duplicates") return "bg-violet-100 text-violet-800 ring-violet-200"
+  if (type === "Parent of" || type === "Child of") return "bg-sky-100 text-sky-800 ring-sky-200"
   return "bg-slate-100 text-slate-700 ring-slate-200"
 }
 
@@ -584,8 +593,20 @@ function getTaskRelations(task: Task, projectTasks: Task[]): TaskRelation[] {
   return [...blockerRelations, ...blockingRelations, ...relatedRelations, ...fallbackRelations]
 }
 
+/// #39: the link kinds a human can create, with their picker labels. The label
+/// is written from the CURRENT task's perspective (it is the relation's source).
+const RELATION_KIND_OPTIONS: { value: TaskflowTaskRelationKind; label: string }[] = [
+  { value: "blocks", label: "Blocks" },
+  { value: "related_to", label: "Related to" },
+  { value: "duplicates", label: "Duplicates" },
+  { value: "parent_child", label: "Parent of" },
+]
+
 function relationKindLabel(kind: TaskflowWorkspace["taskRelations"][number]["kind"], isSource: boolean): TaskRelation["type"] {
   if (kind === "blocks") return isSource ? "Blocks" : "Blocked by"
+  if (kind === "duplicates") return "Duplicates"
+  // parent_child is directional: the SOURCE is the parent of the target.
+  if (kind === "parent_child") return isSource ? "Parent of" : "Child of"
   return "Related"
 }
 
@@ -608,6 +629,7 @@ function getLiveTaskRelations(task: Task, projectTasks: Task[], workspace: Taskf
         status: relatedTask?.status,
         detail: relation.detail_markdown || `Live ${relation.kind.replace(/_/g, " ")} relation from taskflow_task_relation.`,
         taskId: String(relatedTaskId),
+        relationId: relation.id,
       }
     })
 }
@@ -4518,6 +4540,45 @@ function TaskDetailSheet({
   // Two-step delete: the first click arms it, the second confirms — no
   // AlertDialog component exists and window.confirm is off-brand.
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // #39: linking this task to another. Realtime echoes the new/removed row back
+  // into liveWorkspace, so `relations` below updates without a refetch.
+  const [relationTarget, setRelationTarget] = useState<string>("")
+  const [relationKind, setRelationKind] = useState<TaskflowTaskRelationKind>("blocks")
+  const [relationBusy, setRelationBusy] = useState(false)
+  const [relationError, setRelationError] = useState<string | null>(null)
+
+  const handleAddRelation = async () => {
+    const projectId = liveId(project.id)
+    const sourceId = liveId(task.id)
+    const targetId = Number(relationTarget)
+    if (!projectId || !sourceId || !targetId) return
+    setRelationBusy(true)
+    setRelationError(null)
+    try {
+      await createTaskflowTaskRelation({
+        project: projectId,
+        source_task: sourceId,
+        target_task: targetId,
+        kind: relationKind,
+      })
+      setRelationTarget("")
+    } catch (error) {
+      // A duplicate (same source/target/kind) trips the unique constraint — a 400
+      // whose detail explains it. Surface the reason rather than failing silently.
+      setRelationError(error instanceof Error ? error.message : "Could not link the task.")
+    } finally {
+      setRelationBusy(false)
+    }
+  }
+
+  const handleRemoveRelation = async (relationId: number) => {
+    setRelationError(null)
+    try {
+      await deleteTaskflowTaskRelation(relationId)
+    } catch (error) {
+      setRelationError(error instanceof Error ? error.message : "Could not remove the link.")
+    }
+  }
   const sessions = liveWorkspace ? getLiveTaskSessions(task, liveWorkspace) : getTaskSessions(task)
   const runningSession = liveWorkspace ? getRunningLiveTaskSession(task, liveWorkspace) : undefined
   const totalSessionSeconds = liveWorkspace ? getTaskSessionTotalSeconds(task, liveWorkspace) : null
@@ -4724,7 +4785,16 @@ function TaskDetailSheet({
                 <div className="space-y-2">
                   {relations.length ? (
                     relations.map((relation) => (
-                      <TaskRelationRow key={relation.id} relation={relation} onOpenTask={onOpenTask} />
+                      <TaskRelationRow
+                        key={relation.id}
+                        relation={relation}
+                        onOpenTask={onOpenTask}
+                        onRemove={
+                          relation.relationId != null
+                            ? () => handleRemoveRelation(relation.relationId as number)
+                            : undefined
+                        }
+                      />
                     ))
                   ) : (
                     <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
@@ -4732,6 +4802,68 @@ function TaskDetailSheet({
                     </p>
                   )}
                 </div>
+
+                {/* #39: link this task to another — pick a kind and a target. */}
+                {liveWorkspace && liveId(task.id)
+                  ? (() => {
+                      const targetItems = projectTasks
+                        .filter((candidate) => candidate.id !== task.id)
+                        .map((candidate) => ({ id: liveId(candidate.id), title: candidate.title }))
+                        .filter((candidate): candidate is { id: number; title: string } => candidate.id != null)
+                        .map((candidate) => ({
+                          value: String(candidate.id),
+                          label: `#${candidate.id} · ${candidate.title}`,
+                        }))
+                      return (
+                        <div className="mt-3 space-y-2 rounded-lg border border-dashed bg-muted/30 p-3">
+                          <p className="text-xs font-medium text-muted-foreground">Link another task</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Select
+                              value={relationKind}
+                              onValueChange={(value) => setRelationKind(value as TaskflowTaskRelationKind)}
+                              items={RELATION_KIND_OPTIONS}
+                            >
+                              <SelectTrigger className="h-8 w-auto gap-1 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {RELATION_KIND_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={relationTarget}
+                              onValueChange={(value) => setRelationTarget(value ?? "")}
+                              items={targetItems}
+                            >
+                              <SelectTrigger className="h-8 min-w-[11rem] flex-1 gap-1 text-xs">
+                                <SelectValue placeholder="Choose a task…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {targetItems.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleAddRelation}
+                              disabled={!relationTarget || relationBusy}
+                            >
+                              {relationBusy ? "Linking…" : "Link"}
+                            </Button>
+                          </div>
+                          {relationError ? <p className="text-xs text-destructive">{relationError}</p> : null}
+                        </div>
+                      )
+                    })()
+                  : null}
               </TaskDetailSection>
 
               <TaskDetailSection
@@ -4910,50 +5042,66 @@ function TaskDetailSection({
 function TaskRelationRow({
   relation,
   onOpenTask,
+  onRemove,
 }: {
   relation: TaskRelation
   onOpenTask?: (taskId: string) => void
+  /// #39: unlink this relation. Absent for synthetic/fallback relations, which
+  /// have no row to delete.
+  onRemove?: () => void
 }) {
-  const content = (
-    <>
+  const openable = relation.taskId && onOpenTask
+  // The row is a plain container (not one big button) so the remove control can
+  // live inside it — a button nested in a button is invalid. The title area is
+  // the click target for opening the related task instead.
+  return (
+    <div className="rounded-lg border bg-card p-3 transition-colors hover:border-primary/30">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium">{relation.title}</p>
-          <MarkdownRenderer content={relation.detail} compact className="mt-1" />
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-1.5">
+        {openable ? (
+          <button
+            type="button"
+            className="min-w-0 flex-1 text-left focus-visible:outline-none"
+            onClick={() => onOpenTask!(relation.taskId!)}
+          >
+            <p className="text-sm font-medium hover:text-primary">{relation.title}</p>
+            <MarkdownRenderer content={relation.detail} compact className="mt-1" />
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{relation.title}</p>
+            <MarkdownRenderer content={relation.detail} compact className="mt-1" />
+          </div>
+        )}
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", relationTone(relation.type))}>
             {relation.type}
           </span>
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
             {statusLabel(relation.status)}
           </span>
-          {relation.taskId ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-primary/20">
+          {openable ? (
+            <button
+              type="button"
+              onClick={() => onOpenTask!(relation.taskId!)}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-primary/20 transition-colors hover:bg-primary/20"
+            >
               Open
               <ArrowRightIcon className="size-3" />
-            </span>
+            </button>
+          ) : null}
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label="Remove link"
+              title="Remove link"
+              onClick={onRemove}
+              className="inline-flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            >
+              <XIcon className="size-3.5" />
+            </button>
           ) : null}
         </div>
       </div>
-    </>
-  )
-
-  if (relation.taskId && onOpenTask) {
-    return (
-      <button
-        type="button"
-        className="block w-full rounded-lg border bg-card p-3 text-left transition-colors hover:border-primary/45 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => onOpenTask(relation.taskId!)}
-      >
-        {content}
-      </button>
-    )
-  }
-
-  return (
-    <div className="rounded-lg border bg-card p-3">
-      {content}
     </div>
   )
 }
