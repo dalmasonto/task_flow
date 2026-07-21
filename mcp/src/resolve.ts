@@ -19,6 +19,8 @@
  * fetch is a one-row window rather than a page.
  */
 
+import type { MessageTarget } from "./events.js";
+
 /** A message as the agent read API returns it. */
 export interface ResolvedMessage {
   id: number;
@@ -34,7 +36,37 @@ export interface ResolvedMessage {
   sender_user?: number | null;
   /** #29: the one agent a directed group message is for; null = broadcast. */
   target_agent?: number | null;
+  /** #29: the full directed-target set (agents + users). The backend stores it
+   *  as a JSON STRING column, so the read row carries a string here; this module
+   *  parses it into an array before delivery. Supersedes `target_agent`. */
+  targets?: MessageTarget[];
   attachments?: Array<{ name: string; size_bytes: number; url: string }>;
+}
+
+/** Parse the message's `targets` column — a JSON string like
+ *  `[{"kind":"agent","id":1}]` on the read row — into a validated array.
+ *  Anything malformed (bad JSON, wrong shape) degrades to undefined, i.e. a
+ *  broadcast, rather than throwing on the delivery path. */
+export function parseTargets(raw: unknown): MessageTarget[] | undefined {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    if (raw.trim() === "") return undefined;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(value)) return undefined;
+  const out: MessageTarget[] = [];
+  for (const entry of value) {
+    if (entry && typeof entry === "object") {
+      const kind = (entry as Record<string, unknown>).kind;
+      const id = (entry as Record<string, unknown>).id;
+      if (typeof kind === "string" && typeof id === "number") out.push({ kind, id });
+    }
+  }
+  return out.length ? out : undefined;
 }
 
 /** The slice of the client this module needs; narrowed so tests need no HTTP. */
@@ -83,5 +115,10 @@ export async function resolveMessage(
     }),
   );
 
-  return found.find((m): m is ResolvedMessage => m !== null) ?? null;
+  const message = found.find((m): m is ResolvedMessage => m !== null) ?? null;
+  // The read row carries `targets` as a JSON string; parse it to the array
+  // `shouldDeliver` gates on. Done here so both the live push and the reconnect
+  // catch-up (which resolve through this function) see the same parsed shape.
+  if (message) message.targets = parseTargets((message as { targets?: unknown }).targets);
+  return message;
 }

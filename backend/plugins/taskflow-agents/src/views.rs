@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::agent_auth::{RequireAgent, hash_key};
 use crate::models::{
+    MessageTarget,
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentSessionStatus,
     TaskflowAgentStatus, TaskflowAgentTerminalFrame, TaskflowChannelKind, TaskflowChannelMemberKind,
@@ -68,6 +69,10 @@ pub struct SendMessageInput {
     /// #29: direct this message to one agent's pane (null broadcasts).
     #[serde(default)]
     pub target_agent: Option<i64>,
+    /// #29: full directed-target set. Supersedes `target_agent`; when present it
+    /// is authoritative and `target_agent` is derived from it.
+    #[serde(default)]
+    pub targets: Option<Vec<MessageTarget>>,
 }
 
 /// The single attachment projection, shared by every path that returns one.
@@ -274,12 +279,13 @@ pub async fn send_message(
 
     // Normalise both transports to the same logical input: the message fields
     // plus any uploaded file parts (JSON posts carry none).
-    let (channel_id, body_markdown, priority, client_nonce, target_agent, files): (
+    let (channel_id, body_markdown, priority, client_nonce, target_agent, targets, files): (
         i64,
         String,
         Option<TaskflowMessagePriority>,
         Option<String>,
         Option<i64>,
+        Option<Vec<MessageTarget>>,
         Vec<FilePart>,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
@@ -291,6 +297,7 @@ pub async fn send_message(
         let mut priority_field: Option<String> = None;
         let mut nonce_field: Option<String> = None;
         let mut target_field: Option<String> = None;
+        let mut targets_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
@@ -298,6 +305,7 @@ pub async fn send_message(
                 "priority" => priority_field = Some(value),
                 "client_nonce" => nonce_field = Some(value),
                 "target_agent" => target_field = Some(value),
+                "targets" => targets_field = Some(value),
                 _ => {}
             }
         }
@@ -318,6 +326,12 @@ pub async fn send_message(
         // absent → None (a broadcast).
         let target_agent = target_field.as_deref().and_then(|s| s.trim().parse().ok());
 
+        // #29: the full directed-target set, carried as a JSON string. Malformed
+        // or absent → None (falls back to the single `target_agent` / broadcast).
+        let targets = targets_field
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Vec<MessageTarget>>(s).ok());
+
         // A "file part" is one that carried a filename; bodyless text parts are
         // fields, not attachments.
         let files: Vec<FilePart> = form
@@ -332,6 +346,7 @@ pub async fn send_message(
             priority,
             nonce_field,
             target_agent,
+            targets,
             files,
         )
     } else {
@@ -345,6 +360,7 @@ pub async fn send_message(
             input.priority,
             input.client_nonce,
             input.target_agent,
+            input.targets,
             Vec::new(),
         )
     };
@@ -454,6 +470,31 @@ pub async fn send_message(
         }
     }
 
+    // #29: normalize the directed-target set. When `targets` was provided it is
+    // authoritative: keep only well-formed `agent`/`user` entries, and derive the
+    // back-compat `target_agent` from the first agent entry. An empty result (no
+    // valid entries) stores NULL and broadcasts. When `targets` was NOT provided
+    // at all, fall through to the legacy single `target_agent` from the tuple.
+    let (targets_json, target_agent) = match targets {
+        Some(list) => {
+            let filtered: Vec<MessageTarget> = list
+                .into_iter()
+                .filter(|t| t.kind == "agent" || t.kind == "user")
+                .collect();
+            let derived_agent = filtered
+                .iter()
+                .find(|t| t.kind == "agent")
+                .map(|t| t.id);
+            let json = if filtered.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&filtered).ok()
+            };
+            (json, derived_agent)
+        }
+        None => (None, target_agent),
+    };
+
     // Every identity-bearing field below is derived, never accepted: `project`
     // and `task` from the channel, the sender trio from the authenticated
     // caller's own membership row.
@@ -467,6 +508,7 @@ pub async fn send_message(
             sender_user: Some(ForeignKey::new(user_id)),
             sender_agent: None,
             target_agent: target_agent.map(ForeignKey::new),
+            targets: targets_json,
             sender_label,
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
@@ -1273,6 +1315,7 @@ pub async fn send_message_as_agent(
             sender_user: None,
             sender_agent: Some(ForeignKey::new(agent.agent_id)),
             target_agent: None,
+            targets: None,
             sender_label: agent.display_name.clone(),
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
@@ -2437,6 +2480,15 @@ async fn apply_review(
                     // Direct it at the responsible agent (#29) so the review lands
                     // in that agent's pane, not broadcast to every connected agent.
                     target_agent: Some(ForeignKey::new(recipient_agent)),
+                    // #29: mirror the single target as a one-agent `targets` array
+                    // so the new field agrees with the derived `target_agent`.
+                    targets: Some(
+                        serde_json::to_string(&vec![MessageTarget {
+                            kind: "agent".into(),
+                            id: recipient_agent,
+                        }])
+                        .unwrap_or_else(|_| "[]".into()),
+                    ),
                     sender_label: reviewer_label.clone(),
                     body_markdown: message_body,
                     priority: TaskflowMessagePriority::Normal,

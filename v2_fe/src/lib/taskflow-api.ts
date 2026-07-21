@@ -553,13 +553,21 @@ export function updateTaskflowTaskSession(sessionId: number, input: TaskflowTask
 /// What the client is allowed to say. sender_kind/sender_user/sender_label and
 /// project are derived server-side from the authenticated identity and the
 /// channel — the client cannot assert them.
+/// #29: one directed target of a message — an agent (routed to its pane) or a
+/// user (a mention). Serialized into the backend's `targets` JSON array.
+export type MessageTargetInput = { kind: "agent" | "user"; id: number }
+
 export type SendMessageInput = {
   channel: number
   body_markdown: string
   priority?: TaskflowAgentMessage["priority"]
   client_nonce?: string
   /// #29: direct the message to one agent's pane (undefined/null = broadcast).
+  /// Superseded by `targets`; kept for back-compat callers.
   target_agent?: number | null
+  /// #29: direct the message at several members (agents + users). Empty/undefined
+  /// broadcasts to every agent. Authoritative when present.
+  targets?: MessageTargetInput[]
 }
 
 /// The send-message response: the saved message row plus the attachments the
@@ -590,6 +598,8 @@ export async function sendTaskflowAgentMessage(
     if (input.priority) form.append("priority", input.priority)
     if (input.client_nonce) form.append("client_nonce", input.client_nonce)
     if (input.target_agent != null) form.append("target_agent", String(input.target_agent))
+    // The backend parses `targets` as a JSON array of {kind,id}.
+    if (input.targets && input.targets.length) form.append("targets", JSON.stringify(input.targets))
     for (const file of files!) form.append("files", file, file.name)
     body = form
     // No content-type header: the browser sets multipart/form-data + boundary.

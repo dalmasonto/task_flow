@@ -10,6 +10,15 @@ use taskflow_tasks::models::TaskflowTask;
 use umbral::orm::{Choices, FileField, ForeignKey};
 use umbral_auth::AuthUser;
 
+/// #29: one directed target of a chat message — an agent (pane delivery) or a
+/// user (mention). Serialized as a JSON array in `TaskflowAgentMessage.targets`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MessageTarget {
+    /// "agent" or "user".
+    pub kind: String,
+    pub id: i64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
 #[choices(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -247,6 +256,13 @@ pub struct TaskflowAgentMessage {
     /// channel to everyone.
     #[umbral(on_delete = "set_null")]
     pub target_agent: Option<ForeignKey<TaskflowAgent>>,
+    /// #29: the full set of directed targets — agents (pane delivery) and users
+    /// (mention/attribution). A JSON array of `{kind,id}` objects. Empty/None
+    /// broadcasts to every agent, exactly like `target_agent = None`. This
+    /// supersedes the single `target_agent`, which is kept populated (the first
+    /// agent target) for back-compat with rows/readers that predate this field.
+    #[umbral(string, max_length = 4000)]
+    pub targets: Option<String>,
     #[umbral(string, max_length = 160)]
     pub sender_label: String,
     #[umbral(string, max_length = 20000, widget = "textarea")]

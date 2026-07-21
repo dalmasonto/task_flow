@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveMessage, type MessageSource } from "./resolve.js";
+import { resolveMessage, parseTargets, type MessageSource } from "./resolve.js";
 import { formatIncoming } from "./events.js";
 
 const msg = (id: number, over: Record<string, unknown> = {}) => ({
@@ -11,6 +11,32 @@ const msg = (id: number, over: Record<string, unknown> = {}) => ({
   sender_agent: null,
   attachments: [],
   ...over,
+});
+
+describe("parseTargets", () => {
+  it("parses the JSON string the read row carries", () => {
+    expect(parseTargets('[{"kind":"agent","id":1},{"kind":"user","id":2}]')).toEqual([
+      { kind: "agent", id: 1 },
+      { kind: "user", id: 2 },
+    ]);
+  });
+
+  it("treats null, empty, and malformed values as a broadcast (undefined)", () => {
+    expect(parseTargets(null)).toBeUndefined();
+    expect(parseTargets("")).toBeUndefined();
+    expect(parseTargets("not json")).toBeUndefined();
+    expect(parseTargets("[]")).toBeUndefined();
+  });
+
+  it("drops entries with the wrong shape", () => {
+    expect(parseTargets('[{"kind":"agent","id":1},{"kind":"agent"},{"id":9}]')).toEqual([
+      { kind: "agent", id: 1 },
+    ]);
+  });
+
+  it("also accepts an already-parsed array", () => {
+    expect(parseTargets([{ kind: "user", id: 5 }])).toEqual([{ kind: "user", id: 5 }]);
+  });
 });
 
 /** A source that records which channels were queried. */

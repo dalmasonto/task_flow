@@ -69,6 +69,7 @@ async fn user_message(project: i64, channel: i64, user: i64) {
             sender_user: Some(ForeignKey::new(user)),
             sender_agent: None,
             target_agent: None,
+            targets: None,
             sender_label: "dalmas".to_string(),
             body_markdown: "please do X".to_string(),
             priority: TaskflowMessagePriority::Normal,

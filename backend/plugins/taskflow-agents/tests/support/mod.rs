@@ -543,6 +543,7 @@ pub async fn seed_message(project: i64, channel: i64) -> i64 {
             sender_user: None,
             sender_agent: None,
             target_agent: None,
+            targets: None,
             sender_label: format!("Seeder {n}"),
             body_markdown: format!("seeded message {n}"),
             priority: TaskflowMessagePriority::Normal,

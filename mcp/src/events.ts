@@ -45,8 +45,21 @@ export interface AgentMessageEvent {
   task?: number | null;
   sender_user?: number | null;
   /** #29: a directed group message names the one agent whose pane should get it;
-   *  null broadcasts to every agent on the channel (the default). */
+   *  null broadcasts to every agent on the channel (the default). Kept for
+   *  back-compat with rows written before `targets`; `targets` is authoritative
+   *  when present. */
   target_agent?: number | null;
+  /** #29: the full directed-target set — agents (pane delivery) and users
+   *  (mention only). Empty/absent broadcasts to every agent, like a null
+   *  `target_agent`. Supersedes `target_agent` when present. */
+  targets?: MessageTarget[] | null;
+}
+
+/** #29: one directed target of a message. `kind` is "agent" or "user"; only
+ *  agent targets gate pane delivery (users are mention/attribution). */
+export interface MessageTarget {
+  kind: string;
+  id: number;
 }
 
 /** A terminal key the dashboard sent, projected on the realtime event. `agent`
@@ -257,8 +270,17 @@ export function handleFrame(
  */
 export function shouldDeliver(message: AgentMessageEvent, selfAgentId: number): boolean {
   if (message.sender_kind === "agent" && message.sender_agent === selfAgentId) return false;
-  // #29: a directed message goes only to the named agent's pane. A null target
-  // is a broadcast — every agent on the channel — which is the default.
+
+  // #29: `targets` is the authoritative directed-target set when present.
+  // A non-empty set delivers only to the AGENT targets in it — user targets are
+  // mention/attribution and never trigger pane delivery. An empty/absent set is
+  // a broadcast to every agent on the channel (the default).
+  if (message.targets && message.targets.length > 0) {
+    return message.targets.some((t) => t.kind === "agent" && t.id === selfAgentId);
+  }
+
+  // Back-compat: rows written before `targets` carry only the single
+  // `target_agent`. Null there is still a broadcast.
   if (message.target_agent != null && message.target_agent !== selfAgentId) return false;
   return true;
 }

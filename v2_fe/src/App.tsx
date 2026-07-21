@@ -279,7 +279,15 @@ type ConversationMember = {
   /// The agent's numeric id, for directing a channel message to it (#29). Set
   /// only on agent members.
   agentId?: number
+  /// The human's auth user id, for mentioning/addressing them (#29). Set only on
+  /// human members.
+  userId?: number
 }
+
+/// #29: one directed target of a chat message — an agent (routed to its pane) or
+/// a user (a mention). A message can carry several. Mirrors the backend
+/// `targets` JSON array.
+type TargetMember = { kind: "agent" | "user"; id: number; name: string }
 
 type AgentChatContext = {
   id: string
@@ -1303,8 +1311,8 @@ function workspaceDefaultMembers(workspace: TaskflowWorkspace, currentUser: Auth
   return uniqueMembers([
     ...workspace.members
       .filter((member) => member.status === "active")
-      .map((member) => ({ name: member.display_name, type: "human" as const })),
-    ...(currentUser ? [{ name: currentUser.username, type: "human" as const }] : []),
+      .map((member) => ({ name: member.display_name, type: "human" as const, userId: member.user ?? undefined })),
+    ...(currentUser ? [{ name: currentUser.username, type: "human" as const, userId: currentUser.id }] : []),
     ...workspace.agents.map((agent) => ({ name: agent.display_name, type: "agent" as const, agentId: agent.id })),
   ])
 }
@@ -1324,6 +1332,7 @@ function mapLiveChannelMembers(
       name: member.display_name,
       type: member.member_kind === "agent" ? ("agent" as const) : ("human" as const),
       agentId: member.member_kind === "agent" ? (member.agent ?? undefined) : undefined,
+      userId: member.member_kind === "agent" ? undefined : (member.user ?? undefined),
     }))
 
   // Recorded rows can be partial — an agent posts before every human is rostered,
@@ -5182,7 +5191,7 @@ function NoProjectEmptyState({
 export type AgentsOutletContext = {
   selectedChat: AgentChatContext | null
   selectedSession?: AgentTerminalSessionView
-  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[], targetAgent?: number | null) => void
+  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[], targets?: TargetMember[]) => void
   onRetryMessage: (nonce: string) => void
   onCancelMessage: (nonce: string) => void
   canManageMembers: boolean
@@ -5314,7 +5323,7 @@ function AgentsPage({
     body: string,
     priority: MessagePriority,
     files: File[],
-    targetAgent: number | null = null
+    targets: TargetMember[] = []
   ) => {
     const projectId = liveId(project.id)
     if (!projectId || !liveWorkspace) {
@@ -5359,7 +5368,7 @@ function AgentsPage({
           body_markdown: body,
           priority: toLiveMessagePriority(priority),
           client_nonce: nonce,
-          target_agent: targetAgent,
+          targets: targets.map((target) => ({ kind: target.kind, id: target.id })),
         },
         files
       )
@@ -5443,13 +5452,13 @@ function AgentsPage({
     body: string,
     priority: MessagePriority,
     files: File[],
-    targetAgent: number | null = null
+    targets: TargetMember[] = []
   ) => {
     const trimmedBody = body.trim()
     if (!trimmedBody && files.length === 0) return
 
     setMessageError(null)
-    void sendLiveMessage(chat, trimmedBody, priority, files, targetAgent).catch((error) => {
+    void sendLiveMessage(chat, trimmedBody, priority, files, targets).catch((error) => {
       setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
     })
   }
@@ -6012,10 +6021,13 @@ function AgentsConversationView() {
 
   const [draftMessage, setDraftMessage] = useState("")
   const [messagePriority, setMessagePriority] = useState<MessagePriority>("normal")
-  // #29: in a group channel, optionally direct a message at one agent's pane.
-  const [targetAgent, setTargetAgent] = useState<number | null>(null)
-  // #29: the in-progress `@mention` (an `@` being typed), for the agent picker.
+  // #29: in a group channel, direct a message at one or more members — agents
+  // (routed to their pane) and/or users (a mention). Empty = broadcast.
+  const [targetMembers, setTargetMembers] = useState<TargetMember[]>([])
+  // #29: the in-progress `@mention` (an `@` being typed), for the member picker.
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
+  // #29: the "To:" multi-select popover open state.
+  const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -6062,30 +6074,51 @@ function AgentsConversationView() {
   // at one specific attachment among several.
   const insertFileReference = (name: string) => insertAtCaret(fileReferenceText(name))
 
-  // #29: everyone in the room matching the in-progress @mention (by display
-  // name) — humans AND agents, online or offline, so anyone can always be
-  // addressed. Agents come first, since only they can be directed to a pane.
+  // #29: every addressable member of the room — agents (pane delivery) and users
+  // (mention). A member with no id is not a target and is dropped.
+  const roomTargets: TargetMember[] = (selectedChat?.members ?? [])
+    .map((member): TargetMember | null => {
+      if (member.type === "agent" && member.agentId != null)
+        return { kind: "agent", id: member.agentId, name: member.name }
+      if (member.type === "human" && member.userId != null)
+        return { kind: "user", id: member.userId, name: member.name }
+      return null
+    })
+    .filter((t): t is TargetMember => t !== null)
+    // Agents first, since only they can be directed to a pane.
+    .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "agent" ? -1 : 1))
+
+  const isTargeted = (t: TargetMember) =>
+    targetMembers.some((m) => m.kind === t.kind && m.id === t.id)
+
+  const addTarget = (t: TargetMember) =>
+    setTargetMembers((prev) => (prev.some((m) => m.kind === t.kind && m.id === t.id) ? prev : [...prev, t]))
+
+  const toggleTarget = (t: TargetMember) =>
+    setTargetMembers((prev) =>
+      prev.some((m) => m.kind === t.kind && m.id === t.id)
+        ? prev.filter((m) => !(m.kind === t.kind && m.id === t.id))
+        : [...prev, t]
+    )
+
+  // The room's targets matching the in-progress @mention (by display name),
+  // online or offline, so anyone can always be addressed.
   const mentionMembers = mention
-    ? (selectedChat?.members ?? [])
-        .filter((member) => member.name.toLowerCase().includes(mention.query.toLowerCase()))
-        .sort((a, b) => (a.type === b.type ? 0 : a.type === "agent" ? -1 : 1))
-        .slice(0, 6)
+    ? roomTargets.filter((t) => t.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
     : []
 
-  const selectMention = (member: ConversationMember) => {
+  const selectMention = (target: TargetMember) => {
     if (!mention) return
     const textarea = composerRef.current
     const caret = textarea?.selectionStart ?? draftMessage.length
-    const token = `@${member.name} `
+    const token = `@${target.name} `
     const next = draftMessage.slice(0, mention.start) + token + draftMessage.slice(caret)
     pendingCaret.current = mention.start + token.length
     setDraftMessage(next)
-    // Only an agent has a pane to route to: picking one directs the message
-    // there (delivered on reconnect if it is offline). Mentioning a human is
-    // attribution only, so it leaves any existing target untouched.
-    if (member.type === "agent" && member.agentId != null) {
-      setTargetAgent(member.agentId)
-    }
+    // Picking a member from the @ list both writes the mention and adds them as a
+    // target: an agent gets pane delivery (on reconnect if offline), a user is
+    // recorded as an addressed mention.
+    addTarget(target)
     setMention(null)
     textarea?.focus()
   }
@@ -6105,8 +6138,9 @@ function AgentsConversationView() {
     setTerminalChatId(chatKey)
     setTerminalOpen(false)
     // A directed target is per-conversation; switching chats resets it.
-    setTargetAgent(null)
+    setTargetMembers([])
     setMention(null)
+    setTargetPickerOpen(false)
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
@@ -6275,7 +6309,7 @@ function AgentsConversationView() {
       trimmedMessage,
       messagePriority,
       stagedFiles.map((staged) => staged.file),
-      selectedChat.mode === "channel" ? targetAgent : null
+      selectedChat.mode === "channel" ? targetMembers : []
     )
     // Revoke the composer's own preview URLs; the optimistic bubble mints its
     // own from the same File objects, so these are no longer needed.
@@ -6286,6 +6320,8 @@ function AgentsConversationView() {
     setStagedFiles([])
     setMessagePriority("normal")
     setEmojiPickerOpen(false)
+    setTargetMembers([])
+    setTargetPickerOpen(false)
     requestAnimationFrame(focusComposer)
   }
 
@@ -6456,21 +6492,24 @@ function AgentsConversationView() {
                 <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
                   Mention
                 </div>
-                {mentionMembers.map((member) => (
+                {mentionMembers.map((target) => (
                   <button
-                    key={`${member.type}:${member.name}`}
+                    key={`${target.kind}:${target.id}`}
                     type="button"
                     // Mousedown (not click) so the textarea keeps focus and its
                     // caret — click would blur first and lose the insert point.
                     onMouseDown={(event) => {
                       event.preventDefault()
-                      selectMention(member)
+                      selectMention(target)
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                   >
-                    <span className="truncate">{member.name}</span>
-                    <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      {member.type === "agent" ? "agent" : "user"}
+                    <span className="truncate">{target.name}</span>
+                    {isTargeted(target) ? (
+                      <CheckIcon className="ml-auto size-3.5 shrink-0 text-primary" />
+                    ) : null}
+                    <span className={cn("shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground", !isTargeted(target) && "ml-auto")}>
+                      {target.kind}
                     </span>
                   </button>
                 ))}
@@ -6563,51 +6602,79 @@ function AgentsConversationView() {
                   onChange={handleFileSelect}
                 />
 
-                {/* #29: in a group channel, optionally direct the message at one
-                    agent's terminal instead of every connected agent. */}
-                {selectedChat.mode === "channel"
-                  ? (() => {
-                      const channelAgents = selectedChat.members.filter(
-                        (member) => member.type === "agent" && member.agentId != null
-                      )
-                      if (!channelAgents.length) return null
-                      const targetItems = [
-                        { value: "everyone", label: "To: everyone" },
-                        ...channelAgents.map((agent) => ({
-                          value: String(agent.agentId),
-                          label: `To: ${agent.name}`,
-                        })),
-                      ]
-                      return (
-                        <Select
-                          value={targetAgent != null ? String(targetAgent) : "everyone"}
-                          onValueChange={(value) =>
-                            setTargetAgent(value === "everyone" ? null : Number(value))
-                          }
-                          items={targetItems}
+                {/* #29: in a group channel, direct the message at one or more
+                    members — agents (their pane) and/or users (a mention) —
+                    instead of broadcasting to every agent. Mirrors the @ list. */}
+                {selectedChat.mode === "channel" && roomTargets.length ? (
+                  <div className="relative">
+                    {targetPickerOpen ? (
+                      <button
+                        type="button"
+                        className="fixed inset-0 z-20 cursor-default"
+                        aria-label="Close recipients"
+                        onClick={() => setTargetPickerOpen(false)}
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setTargetPickerOpen((open) => !open)}
+                      aria-label="Choose who this message is for"
+                      className={cn(
+                        "ml-0.5 flex max-w-[12rem] items-center gap-1 rounded-lg border px-2 py-1 text-xs",
+                        targetMembers.length
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground"
+                      )}
+                    >
+                      <span className="truncate">
+                        {targetMembers.length === 0
+                          ? "To: everyone"
+                          : targetMembers.length === 1
+                            ? `To: ${targetMembers[0].name}`
+                            : `To: ${targetMembers.length} members`}
+                      </span>
+                      <ChevronDownIcon className="size-3.5 shrink-0" />
+                    </button>
+                    {targetPickerOpen ? (
+                      <div className="absolute bottom-full left-0 z-30 mb-2 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
+                        <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                          Direct to
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTargetMembers([])}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                         >
-                          <SelectTrigger
-                            aria-label="Direct this message to one agent's terminal"
-                            className={cn(
-                              "ml-0.5 h-auto w-auto max-w-[11rem] gap-1 rounded-lg py-1 text-xs",
-                              targetAgent != null
-                                ? "border-primary/40 bg-primary/10 text-primary"
-                                : "text-muted-foreground"
-                            )}
+                          <span className="truncate">Everyone</span>
+                          {targetMembers.length === 0 ? (
+                            <CheckIcon className="ml-auto size-3.5 shrink-0 text-primary" />
+                          ) : null}
+                        </button>
+                        {roomTargets.map((target) => (
+                          <button
+                            key={`${target.kind}:${target.id}`}
+                            type="button"
+                            onClick={() => toggleTarget(target)}
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                           >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {targetItems.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )
-                    })()
-                  : null}
+                            <span className="truncate">{target.name}</span>
+                            {isTargeted(target) ? (
+                              <CheckIcon className="ml-auto size-3.5 shrink-0 text-primary" />
+                            ) : null}
+                            <span
+                              className={cn(
+                                "shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground",
+                                !isTargeted(target) && "ml-auto"
+                              )}
+                            >
+                              {target.kind}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"

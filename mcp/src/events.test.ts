@@ -131,6 +131,29 @@ describe("shouldDeliver", () => {
   it("broadcasts when there is no target", () => {
     expect(shouldDeliver(message({ target_agent: null }), 3)).toBe(true);
   });
+
+  // #29: `targets` supersedes `target_agent` — a message can name several agents
+  // and users. Only the AGENT targets gate pane delivery.
+  it("delivers when this agent is among the targets", () => {
+    expect(
+      shouldDeliver(message({ targets: [{ kind: "agent", id: 3 }, { kind: "user", id: 7 }] }), 3),
+    ).toBe(true);
+  });
+
+  it("skips when the targets name only other agents", () => {
+    expect(
+      shouldDeliver(message({ targets: [{ kind: "agent", id: 9 }] }), 3),
+    ).toBe(false);
+  });
+
+  it("does not deliver to an agent when only users are targeted", () => {
+    // A user-only mention is not a pane instruction for any agent.
+    expect(shouldDeliver(message({ targets: [{ kind: "user", id: 3 }] }), 3)).toBe(false);
+  });
+
+  it("broadcasts on an empty targets array", () => {
+    expect(shouldDeliver(message({ targets: [] }), 3)).toBe(true);
+  });
 });
 
 describe("formatIncoming", () => {
