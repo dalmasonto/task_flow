@@ -723,6 +723,49 @@ pub async fn create_channel(
         }
     }
 
+    // #42: a DM is unique per participant set. If a Direct channel with EXACTLY
+    // this roster already exists, return it instead of minting a duplicate — this
+    // is what makes "text them" idempotent, and it is race-safe on the server
+    // rather than trusting the client to look first. `seen` is the full member
+    // set (caller + resolved others), keyed (is_agent, id).
+    if input.kind == TaskflowChannelKind::Direct {
+        let project_channels = TaskflowAgentChannel::objects()
+            .filter(taskflow_agent_channel::PROJECT.eq(input.project))
+            .fetch()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        for candidate in project_channels
+            .into_iter()
+            .filter(|c| c.kind == TaskflowChannelKind::Direct && !c.archived)
+        {
+            let members = TaskflowAgentChannelMember::objects()
+                .filter(taskflow_agent_channel_member::CHANNEL.eq(candidate.id))
+                .fetch()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let roster: HashSet<(bool, i64)> = members
+                .iter()
+                .map(|m| {
+                    let is_agent = m.member_kind == TaskflowChannelMemberKind::Agent;
+                    let id = if is_agent {
+                        m.agent.as_ref().map(|fk| fk.id()).unwrap_or(-1)
+                    } else {
+                        m.user.as_ref().map(|fk| fk.id()).unwrap_or(-1)
+                    };
+                    (is_agent, id)
+                })
+                .collect();
+            if roster == seen {
+                let mut value = serde_json::to_value(&candidate)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                if let serde_json::Value::Object(map) = &mut value {
+                    map.insert("members".to_string(), json!(members));
+                }
+                return Ok((StatusCode::OK, Json(value)).into_response());
+            }
+        }
+    }
+
     // Resolve the task link against THIS project before the transaction opens,
     // same rule `scoped_task_link` enforces for activity ingest: a foreign
     // project's task id is dropped rather than trusted verbatim.

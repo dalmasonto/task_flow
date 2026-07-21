@@ -199,8 +199,12 @@ async fn visible_channel_ids(identity: &Identity) -> Vec<String> {
         .into_iter()
         .filter(|channel| projects.contains(&channel.project.id()))
         .filter(|channel| {
-            // Shared rooms follow project membership; a DM follows its roster.
-            channel.kind != TaskflowChannelKind::Direct || my_channel_ids.contains(&channel.id)
+            // The Project room follows project membership; private rooms — a DM
+            // (Direct) or a user-created Group (#42) — follow their own roster.
+            !matches!(
+                channel.kind,
+                TaskflowChannelKind::Direct | TaskflowChannelKind::Group
+            ) || my_channel_ids.contains(&channel.id)
         })
         .map(|channel| channel.id.to_string())
         .collect()

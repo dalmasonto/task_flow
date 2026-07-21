@@ -1585,63 +1585,12 @@ function mapLiveDirectChats(workspace: TaskflowWorkspace, currentUser: AuthUser 
       messages: mapLiveChannelMessages(workspace, channel.id, title, currentUser),
     }
   })
-  // A direct channel already covers a member/agent when its roster holds that
-  // user/agent besides the current user, so we don't double-list it as a
-  // placeholder. Keyed by user id / agent id read straight off the roster rows.
-  const coveredAgentIds = new Set<number>()
-  const coveredUserIds = new Set<number>()
-  for (const channelChat of chats) {
-    const rawMembers = workspace.agentChannelMembers.filter((member) => member.channel === channelChat.liveChannelId)
-    for (const member of rawMembers) {
-      if (member.member_kind === "agent" && member.agent) coveredAgentIds.add(member.agent)
-      if (member.member_kind === "user" && member.user && member.user !== currentUser?.id) coveredUserIds.add(member.user)
-    }
-  }
-
-  const selfMember: ConversationMember = currentUser
-    ? { name: currentUser.username, type: "human" }
-    : { name: "You", type: "human" }
-
-  // Every active project member (except me) becomes a DM target. The live
-  // channel is created lazily on first send (see ensureLiveChannel).
-  const memberPlaceholders = workspace.members
-    .filter(
-      (member) =>
-        member.status === "active" &&
-        member.user != null &&
-        member.user !== currentUser?.id &&
-        !coveredUserIds.has(member.user)
-    )
-    .map((member) => ({
-      id: `live:member:${member.user}`,
-      mode: "direct" as const,
-      liveMemberUserId: member.user as number,
-      title: member.display_name,
-      detail: member.role || "Direct message",
-      status: "Direct",
-      members: uniqueMembers([selfMember, { name: member.display_name, type: "human" as const }]),
-      primaryAgent: member.display_name,
-      unread: 0,
-      messages: [],
-    }))
-
-  const agentPlaceholders = workspace.agents
-    .filter((agent) => !coveredAgentIds.has(agent.id))
-    .map((agent) => ({
-      id: `live:agent:${agent.id}`,
-      mode: "direct" as const,
-      liveAgentId: agent.id,
-      title: agent.display_name,
-      detail: agent.project_root || agent.identifier,
-      status: agent.status,
-      members: uniqueMembers([selfMember, { name: agent.display_name, type: "agent" as const }]),
-      primaryAgent: agent.display_name,
-      unread: 0,
-      online: isAgentOnline(agent.id, workspace.agents, workspace.agentSessions, now),
-      messages: [],
-    }))
-
-  return [...chats, ...memberPlaceholders, ...agentPlaceholders]
+  // #42: DMs are membership-driven. We list ONLY the direct rooms the user is
+  // actually on the roster of — no auto-invented placeholder per member/agent.
+  // (That old placeholder list also self-excluded on `currentUser?.id`, which
+  // failed OPEN when currentUser was momentarily null and showed you your own
+  // name.) New DMs are created explicitly and the server dedups them.
+  return chats
 }
 
 /// Label for a session, given the stored status and whether it is actually live.
@@ -5436,6 +5385,165 @@ function useAgentsOutletContext() {
   return useOutletContext<AgentsOutletContext>()
 }
 
+/// #42: a person or agent you can start a conversation with. `member` is the
+/// shape the create-channel endpoint expects.
+type ConversationCandidate = {
+  key: string
+  label: string
+  type: "user" | "agent"
+  member: { kind: "user"; user: number } | { kind: "agent"; agent: number }
+}
+
+/// #42: explicit conversation creation — a DM (one other party) or a named group
+/// (any members). Replaces the auto-invented DM placeholders. `onCreate` throws
+/// on failure so the panel can surface the reason inline.
+function NewConversationPanel({
+  candidates,
+  onCreate,
+  onClose,
+}: {
+  candidates: ConversationCandidate[]
+  onCreate: (
+    kind: "direct" | "group",
+    title: string,
+    members: ConversationCandidate["member"][]
+  ) => Promise<void>
+  onClose: () => void
+}) {
+  const [mode, setMode] = useState<"direct" | "group">("direct")
+  const [groupTitle, setGroupTitle] = useState("")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const shown = candidates.filter((candidate) =>
+    candidate.label.toLowerCase().includes(query.trim().toLowerCase())
+  )
+
+  const run = async (kind: "direct" | "group", title: string, members: ConversationCandidate["member"][]) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await onCreate(kind, title, members)
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start the conversation.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggle = (key: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const selectedMembers = candidates.filter((c) => selected.has(c.key)).map((c) => c.member)
+
+  return (
+    <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+      <div className="mb-2 flex items-center gap-1 rounded-lg bg-muted/60 p-0.5 text-xs">
+        {(["direct", "group"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setMode(option)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1 font-medium transition-colors",
+              mode === option ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {option === "direct" ? "New DM" : "New group"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "group" ? (
+        <Input
+          value={groupTitle}
+          onChange={(event) => setGroupTitle(event.target.value)}
+          placeholder="Group name…"
+          className="mb-2 h-8 text-sm"
+        />
+      ) : null}
+
+      <Input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search people & agents…"
+        className="mb-2 h-8 text-sm"
+      />
+
+      <div className="max-h-60 space-y-0.5 overflow-y-auto">
+        {shown.length ? (
+          shown.map((candidate) =>
+            mode === "direct" ? (
+              <button
+                key={candidate.key}
+                type="button"
+                disabled={busy}
+                onClick={() => run("direct", candidate.label, [candidate.member])}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50"
+              >
+                {candidate.type === "agent" ? (
+                  <BotIcon className="size-4 shrink-0 text-violet-500" />
+                ) : (
+                  <UserIcon className="size-4 shrink-0 text-sky-500" />
+                )}
+                <span className="truncate">{candidate.label}</span>
+              </button>
+            ) : (
+              <button
+                key={candidate.key}
+                type="button"
+                onClick={() => toggle(candidate.key)}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+              >
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    selected.has(candidate.key) ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                  )}
+                >
+                  {selected.has(candidate.key) ? <CheckIcon className="size-3" /> : null}
+                </span>
+                {candidate.type === "agent" ? (
+                  <BotIcon className="size-4 shrink-0 text-violet-500" />
+                ) : (
+                  <UserIcon className="size-4 shrink-0 text-sky-500" />
+                )}
+                <span className="truncate">{candidate.label}</span>
+              </button>
+            )
+          )
+        ) : (
+          <p className="px-2 py-3 text-center text-xs text-muted-foreground">No people or agents match.</p>
+        )}
+      </div>
+
+      {error ? <p className="mt-2 px-1 text-xs text-destructive">{error}</p> : null}
+
+      {mode === "group" ? (
+        <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
+          <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || !groupTitle.trim() || selected.size === 0}
+            onClick={() => run("group", groupTitle.trim(), selectedMembers)}
+          >
+            {busy ? "Creating…" : "Create group"}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function AgentsPage({
   project,
   liveWorkspace,
@@ -5466,6 +5574,27 @@ function AgentsPage({
     [currentUser, liveWorkspace]
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
+  // #42: explicit-conversation state — who you can start a chat with (project
+  // members except yourself, plus every agent), and whether the picker is open.
+  const [newConvoOpen, setNewConvoOpen] = useState(false)
+  const conversationCandidates = useMemo<ConversationCandidate[]>(() => {
+    if (!liveWorkspace) return []
+    const users = liveWorkspace.members
+      .filter((member) => member.status === "active" && member.user != null && member.user !== currentUser?.id)
+      .map((member) => ({
+        key: `user:${member.user}`,
+        label: member.display_name,
+        type: "user" as const,
+        member: { kind: "user" as const, user: member.user as number },
+      }))
+    const agents = liveWorkspace.agents.map((agent) => ({
+      key: `agent:${agent.id}`,
+      label: agent.display_name,
+      type: "agent" as const,
+      member: { kind: "agent" as const, agent: agent.id },
+    }))
+    return [...users, ...agents]
+  }, [liveWorkspace, currentUser])
   // The active conversation is addressed by the route param, not local state.
   // Ids contain colons (e.g. "live:direct:2"); they map to a clean URL slug
   // (`direct-2`) via chatIdToSlug/slugToChatId so the address bar stays readable.
@@ -5545,6 +5674,29 @@ function AgentsPage({
       ),
     }))
     return channel.id
+  }
+
+  // #42: create a DM or group explicitly, then open it. The server dedups DMs
+  // (find-or-create by roster), so starting a DM you already have just reopens
+  // it. Throws on failure so the picker shows the reason.
+  const createConversation = async (
+    kind: "direct" | "group",
+    title: string,
+    members: ConversationCandidate["member"][]
+  ) => {
+    const projectId = liveId(project.id)
+    if (!projectId) throw new Error("Select a live project first.")
+    const channel = await createTaskflowChannel({ project: projectId, kind, title, members })
+    onWorkspaceUpdate((workspace) => ({
+      ...workspace,
+      agentChannels: upsertById(workspace.agentChannels, channel),
+      agentChannelMembers: channel.members.reduce(
+        (current, member) => upsertById(current, member),
+        workspace.agentChannelMembers
+      ),
+    }))
+    const chatId = `live:${kind === "direct" ? "direct" : "channel"}:${channel.id}`
+    navigate(chatIdToSlug(chatId))
   }
 
   const sendLiveMessage = async (
@@ -5784,9 +5936,38 @@ function AgentsPage({
             conversationId ? "hidden lg:flex" : "flex"
           )}
         >
-          <div className="flex shrink-0 items-center gap-2 text-sm font-semibold">
-            <InboxIcon className="size-4 text-primary" />
-            Groups And DMs
+          <div className="relative shrink-0">
+            {newConvoOpen ? (
+              <button
+                type="button"
+                className="fixed inset-0 z-20 cursor-default"
+                aria-label="Close new conversation"
+                onClick={() => setNewConvoOpen(false)}
+              />
+            ) : null}
+            <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+              <span className="flex items-center gap-2">
+                <InboxIcon className="size-4 text-primary" />
+                Groups And DMs
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => setNewConvoOpen((open) => !open)}
+              >
+                <PlusIcon className="size-3.5" />
+                New
+              </Button>
+            </div>
+            {newConvoOpen ? (
+              <NewConversationPanel
+                candidates={conversationCandidates}
+                onCreate={createConversation}
+                onClose={() => setNewConvoOpen(false)}
+              />
+            ) : null}
           </div>
           <div className="scrollbar-y mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             <div className="flex items-center justify-between gap-2 px-1 text-[0.7rem] font-semibold uppercase tracking-normal text-muted-foreground">
@@ -5894,7 +6075,7 @@ function AgentsPage({
             })}
             {directChats.length === 0 ? (
               <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-                No members or agents to DM yet.
+                No direct messages yet. Use <span className="font-medium text-foreground">New</span> to start one.
               </p>
             ) : null}
           </div>

@@ -746,7 +746,7 @@ export async function answerAgentPrompt(
 /// let anyone POST themselves onto someone else's DM.
 export async function createTaskflowChannel(input: {
   project: number
-  kind: "direct" | "project" | "task" | "incident"
+  kind: "direct" | "project" | "task" | "incident" | "group"
   title: string
   topic?: string | null
   task?: number | null

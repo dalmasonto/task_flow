@@ -57,6 +57,9 @@ pub enum TaskflowChannelKind {
     Task,
     Direct,
     Incident,
+    /// #42: a user-created room with an explicit member list (agents-only,
+    /// PMs-only, …). Membership-scoped like Direct — only its roster sees it.
+    Group,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
