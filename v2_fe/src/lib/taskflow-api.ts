@@ -285,10 +285,17 @@ function randomTicket(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+/// How long to wait for the mint POST before giving up. A backend that accepts
+/// the socket but never responds would otherwise hang `connect()` forever — no
+/// EventSource, no error, no retry — so the live feed dies silently. On timeout
+/// we abort and fall back to `?access_token=`, keeping the reconnect loop alive.
+const MINT_TIMEOUT_MS = 8_000
+
 /// Mint an SSE ticket bound to the caller. POSTs a fresh random value (authed by
 /// the bearer token) and returns that value to present on connect. Throws if the
-/// endpoint is unavailable, so the caller can fall back to `?access_token=`.
-async function mintRealtimeTicket(): Promise<string> {
+/// endpoint is unavailable OR the caller's `signal` aborts (timeout/teardown), so
+/// the caller can fall back to `?access_token=` or stop cleanly.
+async function mintRealtimeTicket(signal: AbortSignal): Promise<string> {
   const ticket = randomTicket()
   const token = getStoredToken()
   const response = await fetch(`${API_BASE_URL}/api/taskflow/realtime/ticket`, {
@@ -299,6 +306,7 @@ async function mintRealtimeTicket(): Promise<string> {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({ ticket }),
+    signal,
   })
   if (!response.ok) throw new Error(`Could not mint a realtime ticket (${response.status}).`)
   return ticket
@@ -311,6 +319,10 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
   const groupsParam = encodeURIComponent(groups.join(","))
   let source: EventSource | null = null
   let retryTimer: number | undefined
+  /// The in-flight mint's aborter, so teardown can cancel a pending POST instead
+  /// of leaking it. Reassigned each connect; connects never overlap (a retry is
+  /// only scheduled from a failed source's onerror), so no in-flight is orphaned.
+  let mintAbort: AbortController | null = null
   let attempt = 0
   let everConnected = false
   let closed = false
@@ -327,12 +339,16 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
     // without the endpoint), fall back to the #41 `?access_token=` path so
     // realtime still works. A fresh ticket is minted on every (re)connect.
     let auth = ""
+    mintAbort = new AbortController()
+    const mintTimeout = window.setTimeout(() => mintAbort?.abort(), MINT_TIMEOUT_MS)
     try {
-      const ticket = await mintRealtimeTicket()
+      const ticket = await mintRealtimeTicket(mintAbort.signal)
       auth = `&ticket=${encodeURIComponent(ticket)}`
     } catch {
       const token = getStoredToken()
       if (token) auth = `&access_token=${encodeURIComponent(token)}`
+    } finally {
+      window.clearTimeout(mintTimeout)
     }
     if (closed) return
     const url = `${API_BASE_URL}/realtime/sse?groups=${groupsParam}${auth}`
@@ -388,6 +404,7 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
   return () => {
     closed = true
     if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    mintAbort?.abort()
     source?.close()
     source = null
   }
