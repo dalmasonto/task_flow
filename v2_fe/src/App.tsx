@@ -1309,8 +1309,16 @@ function workspaceDefaultMembers(workspace: TaskflowWorkspace, currentUser: Auth
   ])
 }
 
-function mapLiveChannelMembers(workspace: TaskflowWorkspace, channelId: number, currentUser: AuthUser | null): ConversationMember[] {
-  const members = workspace.agentChannelMembers
+function mapLiveChannelMembers(
+  workspace: TaskflowWorkspace,
+  channelId: number,
+  currentUser: AuthUser | null,
+  // A group room always includes the current user, the active project members
+  // and the project's agents. A DM does NOT — it is exactly its two rostered
+  // participants — so this stays false there.
+  includeWorkspace = false
+): ConversationMember[] {
+  const recorded = workspace.agentChannelMembers
     .filter((member) => member.channel === channelId)
     .map((member) => ({
       name: member.display_name,
@@ -1318,7 +1326,15 @@ function mapLiveChannelMembers(workspace: TaskflowWorkspace, channelId: number, 
       agentId: member.member_kind === "agent" ? (member.agent ?? undefined) : undefined,
     }))
 
-  return members.length ? uniqueMembers(members) : workspaceDefaultMembers(workspace, currentUser)
+  // Recorded rows can be partial — an agent posts before every human is rostered,
+  // say — so for a group room they ADD to the workspace roster rather than
+  // replacing it. Otherwise a member (even you) "randomly" vanishes once any row
+  // exists for the channel.
+  if (includeWorkspace) {
+    return uniqueMembers([...recorded, ...workspaceDefaultMembers(workspace, currentUser)])
+  }
+
+  return recorded.length ? uniqueMembers(recorded) : workspaceDefaultMembers(workspace, currentUser)
 }
 
 function primaryAgentName(workspace: TaskflowWorkspace, members: ConversationMember[]) {
@@ -1434,7 +1450,7 @@ function channelUnreadCount(
 function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null): AgentChatContext[] {
   const projectChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind !== "direct")
   const chats = projectChannels.map((channel) => {
-    const members = mapLiveChannelMembers(workspace, channel.id, currentUser)
+    const members = mapLiveChannelMembers(workspace, channel.id, currentUser, true)
     return {
       id: `live:channel:${channel.id}`,
       mode: "channel" as const,
@@ -6548,26 +6564,32 @@ function AgentsConversationView() {
                       )
                       if (!channelAgents.length) return null
                       return (
-                        <select
-                          value={targetAgent ?? ""}
-                          onChange={(event) =>
-                            setTargetAgent(event.target.value ? Number(event.target.value) : null)
+                        <Select
+                          value={targetAgent != null ? String(targetAgent) : "everyone"}
+                          onValueChange={(value) =>
+                            setTargetAgent(value === "everyone" ? null : Number(value))
                           }
-                          title="Direct this message to one agent's terminal"
-                          className={cn(
-                            "ml-0.5 max-w-[11rem] truncate rounded-lg border px-1.5 py-1 text-xs",
-                            targetAgent != null
-                              ? "border-primary/40 bg-primary/10 text-primary"
-                              : "border-border bg-background text-muted-foreground"
-                          )}
                         >
-                          <option value="">To: everyone</option>
-                          {channelAgents.map((agent) => (
-                            <option key={agent.agentId} value={agent.agentId}>
-                              To: {agent.name}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger
+                            aria-label="Direct this message to one agent's terminal"
+                            className={cn(
+                              "ml-0.5 h-auto w-auto max-w-[11rem] gap-1 rounded-lg py-1 text-xs",
+                              targetAgent != null
+                                ? "border-primary/40 bg-primary/10 text-primary"
+                                : "text-muted-foreground"
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="everyone">To: everyone</SelectItem>
+                            {channelAgents.map((agent) => (
+                              <SelectItem key={agent.agentId} value={String(agent.agentId)}>
+                                To: {agent.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       )
                     })()
                   : null}
