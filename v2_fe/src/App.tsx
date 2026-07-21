@@ -145,6 +145,7 @@ import { spliceAtCaret, fileReferenceText } from "@/lib/composer"
 import { formatBytes } from "@/lib/attachment-kind"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
+import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -2600,7 +2601,7 @@ function App() {
         : operatorAgentId != null
           ? agents.find((a) => a.id === operatorAgentId)?.display_name ?? `Agent #${operatorAgentId}`
           : "human"
-    const dueIso = newTaskDue ? new Date(newTaskDue).toISOString() : null
+    const dueIso = datetimeLocalInputToIso(newTaskDue)
     const due = newTaskDue ? formatLiveDate(dueIso, "Unscheduled") : "Unscheduled"
     const estimate = String(formData.get("estimate") ?? "").trim()
     const description = String(formData.get("description") ?? "").trim()
@@ -3412,7 +3413,7 @@ function App() {
                   ? `agent:${row.operator_agent_id}`
                   : ""
             )
-            setNewTaskDue(row.due_at ? new Date(row.due_at).toISOString().slice(0, 16) : "")
+            setNewTaskDue(row.due_at ? isoToDatetimeLocalInput(row.due_at) : "")
             setEditTaskId(openTask.id)
             setDialogMode("edit-task")
           }}
