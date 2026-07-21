@@ -136,6 +136,7 @@ import {
   type PendingAttachment,
 } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
+import { spliceAtCaret, fileReferenceText } from "@/lib/composer"
 import { formatBytes } from "@/lib/attachment-kind"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
@@ -5390,12 +5391,17 @@ function AgentsConversationView() {
     const textarea = composerRef.current
     const start = textarea?.selectionStart ?? draftMessage.length
     const end = textarea?.selectionEnd ?? draftMessage.length
-    pendingCaret.current = start + text.length
-    setDraftMessage(draftMessage.slice(0, start) + text + draftMessage.slice(end))
+    const { value, caret } = spliceAtCaret(draftMessage, start, end, text)
+    pendingCaret.current = caret
+    setDraftMessage(value)
     textarea?.focus()
   }
 
   const insertEmoji = (emoji: string) => insertAtCaret(emoji)
+
+  // Clicking a staged file drops [its-name] at the caret, so a message can point
+  // at one specific attachment among several.
+  const insertFileReference = (name: string) => insertAtCaret(fileReferenceText(name))
 
   // The terminal stays CLOSED by default and is opened on demand from the header
   // terminal icon, showing as an overlay over the chat area. Switching
@@ -5737,7 +5743,11 @@ function AgentsConversationView() {
           <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border/75 bg-background/90 px-2 py-2 shadow-inner transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25">
             {stagedFiles.length ? (
               <div className="px-1">
-                <StagedFileList files={stagedFiles} onRemove={removeStagedFile} />
+                <StagedFileList
+                  files={stagedFiles}
+                  onRemove={removeStagedFile}
+                  onReference={(staged) => insertFileReference(staged.file.name)}
+                />
               </div>
             ) : null}
 
@@ -5913,7 +5923,16 @@ function countMemberType(members: ConversationMember[], type: ConversationMember
 
 /// Removable chips/thumbnails for files staged in the composer before send.
 /// Images preview from their local object URL; other files show an icon + size.
-function StagedFileList({ files, onRemove }: { files: StagedFile[]; onRemove: (id: string) => void }) {
+function StagedFileList({
+  files,
+  onRemove,
+  onReference,
+}: {
+  files: StagedFile[]
+  onRemove: (id: string) => void
+  /** Drop [filename] at the composer caret so a message can point at this file. */
+  onReference?: (staged: StagedFile) => void
+}) {
   return (
     <div className="flex flex-wrap gap-2">
       {files.map((staged) => {
@@ -5923,21 +5942,37 @@ function StagedFileList({ files, onRemove }: { files: StagedFile[]; onRemove: (i
             key={staged.id}
             className="flex items-center gap-2 rounded-lg border bg-background/90 py-1 pl-1 pr-1.5"
           >
-            {isImage && staged.previewUrl ? (
-              <img
-                src={staged.previewUrl}
-                alt={staged.file.name}
-                className="size-9 shrink-0 rounded-md object-cover"
-              />
-            ) : (
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
-                {isImage ? <ImageIcon className="size-4" /> : <FileIcon className="size-4" />}
-              </span>
-            )}
-            <div className="min-w-0">
-              <p className="max-w-[10rem] truncate text-xs font-medium">{staged.file.name}</p>
-              <p className="text-[0.7rem] text-muted-foreground">{formatBytes(staged.file.size)}</p>
-            </div>
+            {/* The icon + name is the reference trigger; the X (below) removes.
+                Clicking here inserts [name] at the composer caret. mousedown is
+                prevented so the textarea keeps its selection instead of blurring
+                to this button first. */}
+            <button
+              type="button"
+              className={cn(
+                "flex min-w-0 items-center gap-2 rounded-md text-left",
+                onReference && "cursor-pointer hover:opacity-80",
+              )}
+              disabled={!onReference}
+              title={onReference ? "Insert reference into the message" : undefined}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onReference?.(staged)}
+            >
+              {isImage && staged.previewUrl ? (
+                <img
+                  src={staged.previewUrl}
+                  alt={staged.file.name}
+                  className="size-9 shrink-0 rounded-md object-cover"
+                />
+              ) : (
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/20">
+                  {isImage ? <ImageIcon className="size-4" /> : <FileIcon className="size-4" />}
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="max-w-[10rem] truncate text-xs font-medium">{staged.file.name}</p>
+                <p className="text-[0.7rem] text-muted-foreground">{formatBytes(staged.file.size)}</p>
+              </div>
+            </button>
             <Button
               type="button"
               variant="ghost"
