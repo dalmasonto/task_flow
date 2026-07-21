@@ -6062,25 +6062,30 @@ function AgentsConversationView() {
   // at one specific attachment among several.
   const insertFileReference = (name: string) => insertAtCaret(fileReferenceText(name))
 
-  // #29: the agents matching the in-progress @mention (by display name), and
-  // picking one — it drops the readable @name at the caret AND directs the
-  // message at that agent, so the human never types a long, spaced name.
-  const mentionAgents = mention
+  // #29: everyone in the room matching the in-progress @mention (by display
+  // name) — humans AND agents, online or offline, so anyone can always be
+  // addressed. Agents come first, since only they can be directed to a pane.
+  const mentionMembers = mention
     ? (selectedChat?.members ?? [])
-        .filter((member) => member.type === "agent" && member.agentId != null)
         .filter((member) => member.name.toLowerCase().includes(mention.query.toLowerCase()))
+        .sort((a, b) => (a.type === b.type ? 0 : a.type === "agent" ? -1 : 1))
         .slice(0, 6)
     : []
 
-  const selectMention = (agent: ConversationMember) => {
-    if (!mention || agent.agentId == null) return
+  const selectMention = (member: ConversationMember) => {
+    if (!mention) return
     const textarea = composerRef.current
     const caret = textarea?.selectionStart ?? draftMessage.length
-    const token = `@${agent.name} `
+    const token = `@${member.name} `
     const next = draftMessage.slice(0, mention.start) + token + draftMessage.slice(caret)
     pendingCaret.current = mention.start + token.length
     setDraftMessage(next)
-    setTargetAgent(agent.agentId ?? null)
+    // Only an agent has a pane to route to: picking one directs the message
+    // there (delivered on reconnect if it is offline). Mentioning a human is
+    // attribution only, so it leaves any existing target untouched.
+    if (member.type === "agent" && member.agentId != null) {
+      setTargetAgent(member.agentId)
+    }
     setMention(null)
     textarea?.focus()
   }
@@ -6443,27 +6448,30 @@ function AgentsConversationView() {
             ) : null}
 
             <div className="relative">
-            {/* #29: typing `@` surfaces the channel's agents so the human picks
-                one from a list — inserting the name and directing the message —
-                instead of typing a long, spaced handle by hand. */}
-            {mentionAgents.length ? (
+            {/* #29: typing `@` surfaces everyone in the room — humans and agents,
+                online or offline — so anyone can be addressed by picking from a
+                list instead of typing a long, spaced handle by hand. */}
+            {mentionMembers.length ? (
               <div className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
                 <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                  Direct to
+                  Mention
                 </div>
-                {mentionAgents.map((agent) => (
+                {mentionMembers.map((member) => (
                   <button
-                    key={agent.agentId}
+                    key={`${member.type}:${member.name}`}
                     type="button"
                     // Mousedown (not click) so the textarea keeps focus and its
                     // caret — click would blur first and lose the insert point.
                     onMouseDown={(event) => {
                       event.preventDefault()
-                      selectMention(agent)
+                      selectMention(member)
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                   >
-                    <span className="truncate">{agent.name}</span>
+                    <span className="truncate">{member.name}</span>
+                    <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {member.type === "agent" ? "agent" : "user"}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -6563,12 +6571,20 @@ function AgentsConversationView() {
                         (member) => member.type === "agent" && member.agentId != null
                       )
                       if (!channelAgents.length) return null
+                      const targetItems = [
+                        { value: "everyone", label: "To: everyone" },
+                        ...channelAgents.map((agent) => ({
+                          value: String(agent.agentId),
+                          label: `To: ${agent.name}`,
+                        })),
+                      ]
                       return (
                         <Select
                           value={targetAgent != null ? String(targetAgent) : "everyone"}
                           onValueChange={(value) =>
                             setTargetAgent(value === "everyone" ? null : Number(value))
                           }
+                          items={targetItems}
                         >
                           <SelectTrigger
                             aria-label="Direct this message to one agent's terminal"
@@ -6582,10 +6598,9 @@ function AgentsConversationView() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="everyone">To: everyone</SelectItem>
-                            {channelAgents.map((agent) => (
-                              <SelectItem key={agent.agentId} value={String(agent.agentId)}>
-                                To: {agent.name}
+                            {targetItems.map((item) => (
+                              <SelectItem key={item.value} value={item.value}>
+                                {item.label}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -6617,6 +6632,7 @@ function AgentsConversationView() {
                 <Select
                   value={messagePriority}
                   onValueChange={(value) => setMessagePriority(value as MessagePriority)}
+                  items={messagePriorityOptions}
                 >
                   <SelectTrigger
                     className="w-auto gap-1 border-0 bg-transparent text-xs shadow-none"
@@ -8429,6 +8445,13 @@ function WorkspaceDialog({
               <FormField label="Owner">
                 <Select
                   value={taskOwner ? String(taskOwner.id) : NONE_OPTION}
+                  items={[
+                    { value: NONE_OPTION, label: "Unassigned" },
+                    ...activeMembers.map((member) => ({
+                      value: String(member.user),
+                      label: member.display_name,
+                    })),
+                  ]}
                   onValueChange={(value) => {
                     if (value === NONE_OPTION) {
                       onTaskOwnerChange(null)
@@ -8456,6 +8479,17 @@ function WorkspaceDialog({
               <FormField label="Operator">
                 <Select
                   value={taskOperator || NONE_OPTION}
+                  items={[
+                    { value: NONE_OPTION, label: "Unassigned" },
+                    ...activeMembers.map((member) => ({
+                      value: `user:${member.user}`,
+                      label: member.display_name,
+                    })),
+                    ...agents.map((agent) => ({
+                      value: `agent:${agent.id}`,
+                      label: agent.display_name,
+                    })),
+                  ]}
                   onValueChange={(value) => onTaskOperatorChange(!value || value === NONE_OPTION ? "" : value)}
                 >
                   <SelectTrigger>
