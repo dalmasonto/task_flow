@@ -315,6 +315,17 @@ export async function typeTextToPane(text: string, target?: string): Promise<voi
   if (clean.length) await run("tmux", ["send-keys", ...base, "-l", clean]);
 }
 
+/**
+ * How long to let a text field settle around a `{text}` step.
+ *
+ * A text input MOUNTS and FOCUSES when the caret navigates onto it — unlike a
+ * checkbox, which toggles instantly. A live test showed the plain 90ms inter-key
+ * gap fired the typed text before the field was focused, and the whole value was
+ * dropped. So a text step waits longer BEFORE (let the field focus) and AFTER
+ * (let the value register before the next key) than an ordinary key press.
+ */
+const TEXT_SETTLE_MS = 400;
+
 /** Send a mixed sequence of key presses and literal-text injections, paced. */
 export async function sendKeySteps(
   steps: import("./prompts.js").KeyStep[],
@@ -326,8 +337,15 @@ export async function sendKeySteps(
   const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const delayMs = deps.delayMs ?? KEY_SEQUENCE_DELAY_MS;
   for (let i = 0; i < steps.length; i++) {
-    if (i > 0) await sleep(delayMs);
     const step = steps[i]!;
+    const prev = steps[i - 1];
+    // A text step needs the field focused first; the step AFTER a text step
+    // needs the typed value to have registered. Both gaps are longer than the
+    // ordinary inter-key pause.
+    if (i > 0) {
+      const brackets = "text" in step || (prev && "text" in prev);
+      await sleep(brackets ? TEXT_SETTLE_MS : delayMs);
+    }
     if ("text" in step) await typeText(step.text, target);
     else await sendKey(step.key, target);
   }

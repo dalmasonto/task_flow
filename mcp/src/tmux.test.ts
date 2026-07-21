@@ -146,4 +146,23 @@ describe("sendKeySteps", () => {
     );
     expect(log).toEqual(["key:Enter", "text:hello", "key:1"]);
   });
+
+  // A text field must MOUNT and FOCUS when the caret lands on it, which a
+  // checkbox never does — so a text step needs a longer settle than the plain
+  // 90ms inter-key gap, both before (let the field focus) and after (let the
+  // value register before the next key). Live test showed a 90ms-only gap
+  // dropped the typed text entirely. The settle is interleaved as a sleep of
+  // its own, so it shows up as an extra, longer pause bracketing the text.
+  it("settles longer around a text step than between plain keys", async () => {
+    const sleeps: number[] = [];
+    await sendKeySteps(
+      [{ key: "Down" }, { text: "hi" }, { key: "Enter" }],
+      "%0",
+      { sendKey: async () => {}, typeText: async () => {}, sleep: async (ms) => void sleeps.push(ms) },
+    );
+    // Every gap that brackets the text step must exceed the plain inter-key gap.
+    const plain = 90;
+    const longGaps = sleeps.filter((ms) => ms > plain);
+    expect(longGaps.length).toBeGreaterThanOrEqual(2); // before AND after the text
+  });
 });
