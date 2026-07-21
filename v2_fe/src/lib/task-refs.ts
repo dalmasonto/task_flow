@@ -1,17 +1,23 @@
-/** Parsing `TASK#<n>` references out of message/markdown text so they can be
- *  rendered as clickable chips that open the task sheet. */
+/** Parsing task references out of message/markdown text so they can be rendered
+ *  as clickable chips that open the task sheet. Matches `TASK#10`, `task#10`, and
+ *  a bare `#10` — all in ONE left-to-right pass. */
 
 export type TaskRefSegment =
   | { type: "text"; value: string }
   | { type: "task"; id: number; raw: string }
 
-const TASK_REF = /TASK#(\d+)/g
+// One combined pattern, scanned left-to-right, so matches come out in order and
+// the raw text ("TASK#10" vs "#10") is preserved. A separate regex per form —
+// each with its own /g lastIndex — interleaves matches out of order and breaks
+// the segmentation. `task#` is covered by the case-insensitive `TASK#`
+// alternative; the prefix is non-capturing so group 1 is always the number.
+const TASK_REF = /(?:TASK#|#)(\d+)/gi
 
 /**
- * Split a run of text into plain-text and task-reference segments. `TASK#10`
- * becomes a `task` segment carrying the numeric id (and the raw matched text for
- * the chip label); everything else stays text. Returns a single text segment for
- * input with no references, and an empty array for empty input.
+ * Split a run of text into plain-text and task-reference segments. `TASK#10` (or
+ * `#10`) becomes a `task` segment carrying the numeric id (and the raw matched
+ * text for the chip label); everything else stays text. Returns a single text
+ * segment for input with no references, and an empty array for empty input.
  */
 export function splitTaskRefs(text: string): TaskRefSegment[] {
   const segments: TaskRefSegment[] = []
@@ -28,7 +34,7 @@ export function splitTaskRefs(text: string): TaskRefSegment[] {
   return segments
 }
 
-/** Does this string contain at least one `TASK#<n>` reference? */
+/** Does this string contain at least one task reference? */
 export function hasTaskRef(text: string): boolean {
   TASK_REF.lastIndex = 0
   return TASK_REF.test(text)

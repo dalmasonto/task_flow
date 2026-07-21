@@ -29,6 +29,20 @@ describe("splitTaskRefs", () => {
   it("returns an empty array for empty input", () => {
     expect(splitTaskRefs("")).toEqual([])
   })
+
+  it("also matches a bare #<n> and lowercase task#<n>", () => {
+    expect(splitTaskRefs("see #31 now")).toEqual([
+      { type: "text", value: "see " },
+      { type: "task", id: 31, raw: "#31" },
+      { type: "text", value: " now" },
+    ])
+    expect(splitTaskRefs("task#5")).toEqual([{ type: "task", id: 5, raw: "task#5" }])
+  })
+
+  it("keeps the full TASK#<n> raw rather than matching the inner #<n>", () => {
+    // The combined pattern must consume "TASK#10" whole, not leave "TASK" + "#10".
+    expect(splitTaskRefs("TASK#10")).toEqual([{ type: "task", id: 10, raw: "TASK#10" }])
+  })
 })
 
 describe("hasTaskRef", () => {
