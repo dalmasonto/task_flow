@@ -150,6 +150,7 @@ import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime
 import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MessageAttachments } from "@/components/message-attachments"
+import { AttachableTextarea, type AttachableFile } from "@/components/attachable-textarea"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
 import { ProfilePage } from "@/pages/account/ProfilePage"
@@ -2635,7 +2636,7 @@ function App() {
     }
   }
 
-  function handleCreateTask(event: FormEvent<HTMLFormElement>) {
+  function handleCreateTask(event: FormEvent<HTMLFormElement>, files: File[] = []) {
     event.preventDefault()
     if (!activeProject) return
     const formData = new FormData(event.currentTarget)
@@ -2740,6 +2741,7 @@ function App() {
                 tasks: upsertById(workspace.tasks, updatedTask),
               }))
             }
+            if (files.length) void handleUploadTaskAttachment(String(updatedTask.id), files)
           })
           .catch((error) => {
             setLiveSyncError(error instanceof Error ? error.message : "Could not save the task changes.")
@@ -2823,6 +2825,7 @@ function App() {
               tasks: upsertById(workspace.tasks, createdTask),
             }))
           }
+          if (files.length) void handleUploadTaskAttachment(String(createdTask.id), files)
         })
         .catch((error) => {
           setLiveSyncError(error instanceof Error ? error.message : "Could not create the live task.")
@@ -7948,7 +7951,7 @@ function WorkspaceDialog({
   onEditProject?: () => void
   onCreateProject: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
-  onCreateTask: (event: FormEvent<HTMLFormElement>) => void
+  onCreateTask: (event: FormEvent<HTMLFormElement>, files: File[]) => void
   onCreateInvite: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onReviewDecision: (event: FormEvent<HTMLFormElement>) => void
 }) {
@@ -7958,6 +7961,20 @@ function WorkspaceDialog({
   const [submitting, setSubmitting] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({})
   const [formError, setFormError] = useState<string | null>(null)
+  // Files staged in the task description; uploaded to the task after it saves.
+  // The dialog is keyed by mode at its call site, so this resets on remount.
+  const [taskFiles, setTaskFiles] = useState<AttachableFile[]>([])
+  const stageTaskFiles = (incoming: File[]) => {
+    if (!incoming.length) return
+    setTaskFiles((current) => [
+      ...current,
+      ...incoming.map((file) => ({
+        id: `staged:${file.name}:${file.size}:${Math.random().toString(36).slice(2, 8)}`,
+        file,
+      })),
+    ])
+  }
+  const removeTaskFile = (id: string) => setTaskFiles((current) => current.filter((f) => f.id !== id))
 
   // Wrap an async submit handler: show the spinner, clear prior errors, and on
   // failure map ProjectFormError field errors + form message and stay open. On
@@ -8104,7 +8121,10 @@ function WorkspaceDialog({
         ) : null}
 
         {mode === "new-task" || mode === "edit-task" ? (
-          <form className="space-y-4 p-5" onSubmit={onCreateTask}>
+          <form
+            className="space-y-4 p-5"
+            onSubmit={(event) => onCreateTask(event, taskFiles.map((staged) => staged.file))}
+          >
             <FormField label="Task title">
               <Input
                 name="title"
@@ -8185,12 +8205,17 @@ function WorkspaceDialog({
               <Input name="tags" placeholder="api, review, frontend" />
             </FormField>
             <FormField label="Description">
-              <span className="text-xs text-muted-foreground">you can write in markdown</span>
-              <textarea
+              <span className="text-xs text-muted-foreground">
+                markdown — attach a file and click it to drop its name at the cursor
+              </span>
+              <AttachableTextarea
                 name="description"
                 className={textareaClass}
                 placeholder={"### Goal\nDescribe the outcome, acceptance criteria, and constraints."}
-                defaultValue={editTask?.description}
+                defaultValue={editTask?.description ?? ""}
+                files={taskFiles}
+                onStageFiles={stageTaskFiles}
+                onRemoveFile={removeTaskFile}
               />
             </FormField>
             <FormField label="Notes">
