@@ -7606,7 +7606,7 @@ function WorkspaceDialog({
               <FormField label="Operator">
                 <Select
                   value={taskOperator || NONE_OPTION}
-                  onValueChange={(value) => onTaskOperatorChange(value === NONE_OPTION ? "" : value)}
+                  onValueChange={(value) => onTaskOperatorChange(!value || value === NONE_OPTION ? "" : value)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Unassigned" />
