@@ -4774,22 +4774,20 @@ function TaskSessionRow({ session }: { session: TaskSession }) {
 
   return (
     <div className="rounded-lg border bg-card p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium">{session.actor}</p>
-            <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold capitalize ring-1", tone)}>
-              {session.state}
-            </span>
-          </div>
-          <MarkdownRenderer content={session.detail} compact className="mt-1" />
-        </div>
-        <div className="grid shrink-0 grid-cols-2 gap-2 text-right text-xs">
-          <span className="text-muted-foreground">Started</span>
-          <span className="font-medium">{session.started}</span>
-          <span className="text-muted-foreground">Duration</span>
-          <span className="font-medium">{session.duration}</span>
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-medium">{session.actor}</p>
+        <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold capitalize ring-1", tone)}>
+          {session.state}
+        </span>
+      </div>
+      <MarkdownRenderer content={session.detail} compact className="mt-1" />
+      {/* Left-aligned label/value grid: labels in a fixed first column so
+          Started and Duration line up under each other on the left. */}
+      <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-left text-xs">
+        <span className="text-muted-foreground">Started</span>
+        <span className="font-medium">{session.started}</span>
+        <span className="text-muted-foreground">Duration</span>
+        <span className="font-medium">{session.duration}</span>
       </div>
     </div>
   )
