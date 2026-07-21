@@ -24,6 +24,7 @@
 
 // --- Per-concern modules (the table of contents) ---------------------------
 mod realtime;
+mod realtime_auth;
 mod seed;
 mod views;
 mod widgets;
@@ -82,6 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let app = App::builder()
         .settings(settings)
         .database("default", pool)
+        // #41: let the realtime SSE authenticate with the bearer token via
+        // `?access_token=` (EventSource cannot send an Authorization header), so
+        // a stale session cookie after a restart no longer 403s the live feed.
+        .middleware(realtime_auth::RealtimeQueryTokenAuth)
         // --- Models ----------------------------------------------------------
         // AuthUser and Session are contributed by their plugins below.
         // List your own models here.

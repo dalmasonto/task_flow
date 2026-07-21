@@ -280,7 +280,16 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
   const groups = [...options.groups].filter(Boolean)
   if (!groups.length || typeof EventSource === "undefined") return () => {}
 
-  const url = `${API_BASE_URL}/realtime/sse?groups=${encodeURIComponent(groups.join(","))}`
+  // #41: EventSource can't send an Authorization header, so pass the bearer
+  // token as `?access_token=` — a backend middleware promotes it to a Bearer
+  // header for the realtime handshake. This keeps the live feed authenticated
+  // off the same token REST uses, so a stale session cookie (e.g. after a
+  // backend restart) no longer 403s the stream. The token is URL-safe, so
+  // encodeURIComponent leaves it unchanged.
+  const token = getStoredToken()
+  const url =
+    `${API_BASE_URL}/realtime/sse?groups=${encodeURIComponent(groups.join(","))}` +
+    (token ? `&access_token=${encodeURIComponent(token)}` : "")
   let source: EventSource | null = null
   let retryTimer: number | undefined
   let attempt = 0
