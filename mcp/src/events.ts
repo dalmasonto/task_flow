@@ -37,7 +37,7 @@ const STREAM_IDLE_TIMEOUT_MS = 45_000;
  * with `\n\n`. Because bytes keep arriving, the idle watchdog never trips — so
  * without this cap the buffer would grow to OOM. Past it we abort and reconnect.
  */
-const MAX_STREAM_BUFFER_BYTES = 10 * 1_048_576; // 10 MiB
+const MAX_STREAM_BUFFER_BYTES = 1_048_576; // 1 MiB
 
 export interface AgentMessageEvent {
   id: number;
