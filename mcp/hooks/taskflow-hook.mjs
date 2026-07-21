@@ -229,11 +229,9 @@ async function reportPrompt(profile, sessionId, toolInput) {
   );
   if (!usable.length) return;
 
-  const questions = usable.map((question) => ({
-    question: String(question.question ?? question.header ?? "Agent is asking").slice(0, 2000),
-    kind: question.multiSelect ? "multi" : "single",
+  const questions = usable.map((question) => {
     // Numbered to match what the terminal renders: option N is the key to press.
-    options: question.options.map((option, index) => ({
+    const options = question.options.map((option, index) => ({
       number: index + 1,
       label: String(option.label ?? "").slice(0, 200),
       description: String(option.description ?? "").slice(0, 500),
@@ -241,8 +239,20 @@ async function reportPrompt(profile, sessionId, toolInput) {
       // a config block. Dropping it left the dashboard asking someone to choose
       // between things they could not see.
       ...(option.preview ? { preview: String(option.preview).slice(0, 4000) } : {}),
-    })),
-  }));
+    }));
+    // The terminal appends a free-text "Type something" row at N+1 that the hook
+    // never sees (it is added in the harness render layer, absent from
+    // toolInput). Synthesize it so the dashboard can offer the same free-text
+    // answer. Multi-select only for now — see the freetext-other spec.
+    if (question.multiSelect) {
+      options.push({ number: options.length + 1, label: "Type something", isOther: true });
+    }
+    return {
+      question: String(question.question ?? question.header ?? "Agent is asking").slice(0, 2000),
+      kind: question.multiSelect ? "multi" : "single",
+      options,
+    };
+  });
 
   const first = questions[0];
   await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt`, {
