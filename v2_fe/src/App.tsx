@@ -1300,7 +1300,16 @@ function mapLiveInvites(workspace: TaskflowWorkspace, currentUser: AuthUser | nu
 function uniqueMembers(members: ConversationMember[]) {
   const seen = new Set<string>()
   return members.filter((member) => {
-    const key = `${member.type}:${member.name.toLowerCase()}`
+    // Dedup by stable IDENTITY, not display name: two different people can share
+    // a name (and the same person can carry different labels across sources), so
+    // keying on the name would both merge distinct users and split one. Fall back
+    // to the name only when there is no id to key on.
+    const key =
+      member.type === "agent" && member.agentId != null
+        ? `agent:${member.agentId}`
+        : member.type === "human" && member.userId != null
+          ? `user:${member.userId}`
+          : `${member.type}:${member.name.toLowerCase()}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -6016,6 +6025,7 @@ function AgentsConversationView() {
     onAddMember,
     pendingPrompt,
     onAnswerPrompt,
+    currentUser,
   } = useAgentsOutletContext()
   const navigate = useNavigate()
 
@@ -6075,7 +6085,9 @@ function AgentsConversationView() {
   const insertFileReference = (name: string) => insertAtCaret(fileReferenceText(name))
 
   // #29: every addressable member of the room — agents (pane delivery) and users
-  // (mention). A member with no id is not a target and is dropped.
+  // (mention). A member with no id is not a target and is dropped, and YOU are
+  // dropped too: you address other people, never yourself, so the current user
+  // is never in the pick list (this is why your own name showed up before).
   const roomTargets: TargetMember[] = (selectedChat?.members ?? [])
     .map((member): TargetMember | null => {
       if (member.type === "agent" && member.agentId != null)
@@ -6085,6 +6097,7 @@ function AgentsConversationView() {
       return null
     })
     .filter((t): t is TargetMember => t !== null)
+    .filter((t) => !(t.kind === "user" && currentUser != null && t.id === currentUser.id))
     // Agents first, since only they can be directed to a pane.
     .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "agent" ? -1 : 1))
 
