@@ -253,6 +253,12 @@ function reconnectDelay(attempt: number): number {
   return Math.round(ceiling / 2 + Math.random() * (ceiling / 2))
 }
 
+/// The live feed's health, for a visible indicator. `connecting` is the first
+/// open before any event; `live` is an open stream; `reconnecting` is a dropped
+/// stream that is backing off and retrying. Without surfacing this, a dead feed
+/// looks identical to a quiet one — the page seems connected while it isn't.
+export type RealtimeStatus = "connecting" | "live" | "reconnecting"
+
 export type RealtimeStreamOptions = {
   groups: readonly string[]
   onEvent: (event: TaskflowRealtimeEvent) => void
@@ -260,6 +266,9 @@ export type RealtimeStreamOptions = {
   /// we were disconnected are gone, so the caller must refetch to catch up —
   /// reconnecting alone would leave the UI silently stale.
   onReconnect?: () => void
+  /// Called on every health transition so the UI can show a "reconnecting…"
+  /// hint instead of silently freezing.
+  onStatusChange?: (status: RealtimeStatus) => void
 }
 
 /// Open one SSE connection for every group and keep it alive. Returns a closer.
@@ -288,6 +297,7 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
       // paired with the caller's initial load.
       if (everConnected) options.onReconnect?.()
       everConnected = true
+      options.onStatusChange?.("live")
     }
 
     es.addEventListener("u", (event) => {
@@ -318,11 +328,13 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
       // it. That is a hot loop wearing a backoff's clothes.
       if (openedAt && Date.now() - openedAt >= HEALTHY_CONNECTION_MS) attempt = 0
       openedAt = 0
+      options.onStatusChange?.("reconnecting")
       retryTimer = window.setTimeout(connect, reconnectDelay(attempt))
       attempt += 1
     }
   }
 
+  options.onStatusChange?.("connecting")
   connect()
 
   return () => {

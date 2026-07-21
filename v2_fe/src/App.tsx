@@ -124,6 +124,7 @@ import {
   updateTaskflowTask,
   updateTaskflowTaskSession,
   type LinkAgentResult,
+  type RealtimeStatus,
   type TaskflowRealtimeEvent,
   type TaskflowProjectSummary,
   type TaskflowWorkspace,
@@ -1740,6 +1741,7 @@ function App() {
   const [usesLiveApi, setUsesLiveApi] = useState(false)
   const [isLiveSyncing, setIsLiveSyncing] = useState(false)
   const [liveSyncError, setLiveSyncError] = useState<string | null>(null)
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting")
   const [liveWorkspace, setLiveWorkspace] = useState<TaskflowWorkspace | null>(null)
   // Mirror of liveWorkspace for stable callbacks (e.g. the realtime handler) that
   // must read the latest members/agents without taking a reactive dependency.
@@ -2310,6 +2312,7 @@ function App() {
       onReconnect: () => {
         void loadLiveWorkspace(activeProjectId)
       },
+      onStatusChange: setRealtimeStatus,
     })
   }, [activeProjectId, authGateStatus, fetchAndApplyRealtimeEvent, loadLiveWorkspace])
 
@@ -3039,10 +3042,45 @@ function App() {
               <Input className="h-9 pl-8" placeholder="Search tasks, agents, activity" />
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => void loadLiveWorkspace(activeProjectId)} disabled={isLiveSyncing}>
-            <BellIcon />
-            {isLiveSyncing ? "Syncing" : usesLiveApi ? "Live" : "Sync"}
-          </Button>
+          {usesLiveApi ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadLiveWorkspace(activeProjectId)}
+              disabled={isLiveSyncing}
+              title={
+                realtimeStatus === "reconnecting"
+                  ? "The live feed dropped and is reconnecting. Click to refetch now."
+                  : "Live realtime feed"
+              }
+              className={cn(realtimeStatus === "reconnecting" && "border-amber-300 text-amber-800")}
+            >
+              {/* A truthful status dot: green when live, amber+pulse while
+                  reconnecting, so a dead feed is visible instead of silently stale. */}
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  isLiveSyncing || realtimeStatus === "connecting"
+                    ? "animate-pulse bg-muted-foreground"
+                    : realtimeStatus === "reconnecting"
+                      ? "animate-pulse bg-amber-500"
+                      : "bg-emerald-500"
+                )}
+              />
+              {isLiveSyncing
+                ? "Syncing"
+                : realtimeStatus === "reconnecting"
+                  ? "Reconnecting"
+                  : realtimeStatus === "connecting"
+                    ? "Connecting"
+                    : "Live"}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => void loadLiveWorkspace(activeProjectId)} disabled={isLiveSyncing}>
+              <BellIcon />
+              Sync
+            </Button>
+          )}
           {activeProject ? (
             <Button size="sm" onClick={() => setDialogMode("new-task")}>
               <PlusIcon />
