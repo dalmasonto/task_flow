@@ -1180,6 +1180,18 @@ function mapLiveTasks(
   })
 }
 
+/// umbral's NoPagination hard-caps a list response at MAX_LIST_ROWS (1000). A
+/// single `.list()` therefore never returns more than this, so a feed longer
+/// than 1000 must be walked in older windows by id cursor (see #38).
+const ACTIVITY_SERVER_CAP = 1000
+
+/// Keep the first row seen per id, preserving order — merges the live workspace
+/// feed with older windows fetched by cursor without double-counting an overlap.
+function dedupeById<T extends { id: number }>(rows: T[]): T[] {
+  const seen = new Set<number>()
+  return rows.filter((row) => (seen.has(row.id) ? false : (seen.add(row.id), true)))
+}
+
 function upsertById<T extends { id: number }>(items: T[], row: T) {
   const index = items.findIndex((item) => item.id === row.id)
   if (index < 0) return [...items, row]
@@ -1898,10 +1910,62 @@ function App() {
     ...project,
     taskCount: tasks.filter((task) => task.projectId === project.id).length,
   }))
-  const activityEvents = useMemo<ActivityEvent[]>(
-    () => (activeLiveWorkspace ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks) : []),
-    [activeLiveWorkspace, projectTasks]
-  )
+  // #38: the activity feed is capped at 1000 by the server (umbral NoPagination).
+  // These hold older windows fetched by id cursor so history beyond the newest
+  // 1000 can be walked in, on demand, rather than being silently truncated.
+  const [olderActivity, setOlderActivity] = useState<TaskflowWorkspace["taskActivity"]>([])
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [olderExhausted, setOlderExhausted] = useState(false)
+
+  // Older windows belong to one project's feed; switching projects drops them.
+  useEffect(() => {
+    setOlderActivity([])
+    setOlderExhausted(false)
+  }, [activeProjectId])
+
+  const activityEvents = useMemo<ActivityEvent[]>(() => {
+    if (!activeLiveWorkspace) return []
+    const workspace = olderActivity.length
+      ? { ...activeLiveWorkspace, taskActivity: dedupeById([...activeLiveWorkspace.taskActivity, ...olderActivity]) }
+      : activeLiveWorkspace
+    return mapLiveActivityEvents(workspace, projectTasks)
+  }, [activeLiveWorkspace, projectTasks, olderActivity])
+
+  // Only offer "load older" when the loaded feed actually sits at the server cap
+  // — below it, every row is already here, so there is nothing older to fetch.
+  const activityLoadedCount = (activeLiveWorkspace?.taskActivity.length ?? 0) + olderActivity.length
+  const hasOlderActivity = !olderExhausted && activityLoadedCount >= ACTIVITY_SERVER_CAP
+
+  const loadOlderActivity = useCallback(async () => {
+    const projectId = activeLiveWorkspace?.project.id
+    if (!projectId || loadingOlder) return
+    const known = [...(activeLiveWorkspace?.taskActivity ?? []), ...olderActivity]
+    if (!known.length) return
+    const oldestId = known.reduce((min, row) => Math.min(min, row.id), Infinity)
+    setLoadingOlder(true)
+    try {
+      const page = await taskflowApi
+        .from(taskflowTables.taskActivity)
+        .filter({ project: projectId })
+        // id__lt isn't in the generated filter type; the raw-param escape hatch
+        // cursors to rows strictly older than everything already loaded.
+        .param("id__lt", oldestId)
+        .orderBy("-created_at", "-id")
+        .list()
+      const rows = (page.results ?? []) as TaskflowWorkspace["taskActivity"]
+      if (!rows.length) {
+        setOlderExhausted(true)
+      } else {
+        setOlderActivity((prev) => dedupeById([...prev, ...rows]))
+        // A short window means we reached the start of the feed.
+        if (rows.length < ACTIVITY_SERVER_CAP) setOlderExhausted(true)
+      }
+    } catch {
+      // A transient failure leaves hasOlderActivity true so the user can retry.
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [activeLiveWorkspace, olderActivity, loadingOlder])
   const reviewFeed = useMemo<ReviewFeedItem[]>(
     () => (activeLiveWorkspace ? mapLiveReviews(activeLiveWorkspace, projectTasks) : []),
     [activeLiveWorkspace, projectTasks]
@@ -3514,7 +3578,13 @@ function App() {
               path="/dashboard/activity"
               element={
                 activeProject ? (
-                  <ActivityLogPage title="Activity" events={activityEvents} />
+                  <ActivityLogPage
+                    title="Activity"
+                    events={activityEvents}
+                    onLoadOlder={loadOlderActivity}
+                    hasOlder={hasOlderActivity}
+                    loadingOlder={loadingOlder}
+                  />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
                 )
@@ -7477,7 +7547,20 @@ function ActivityDetailSheet({
   )
 }
 
-function ActivityLogPage({ title, events }: { title: string; events: ActivityEvent[] }) {
+function ActivityLogPage({
+  title,
+  events,
+  onLoadOlder,
+  hasOlder = false,
+  loadingOlder = false,
+}: {
+  title: string
+  events: ActivityEvent[]
+  /// #38: fetch the next older window from the server (past the 1000-row cap).
+  onLoadOlder?: () => void
+  hasOlder?: boolean
+  loadingOlder?: boolean
+}) {
   const [visible, setVisible] = useState(ACTIVITY_PAGE_SIZE)
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
   const [search, setSearch] = useState("")
@@ -7591,6 +7674,17 @@ function ActivityLogPage({ title, events }: { title: string; events: ActivityEve
                   Load {Math.min(remaining, ACTIVITY_PAGE_SIZE)} more
                   <span className="text-muted-foreground">({remaining} left)</span>
                 </Button>
+              </div>
+            ) : hasOlder ? (
+              // #38: the client-side window is exhausted, but the server capped
+              // the feed at 1000 — fetch the next older window on demand.
+              <div className="mt-4 flex flex-col items-center gap-1 border-t pt-4">
+                <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={loadingOlder}>
+                  {loadingOlder ? "Loading…" : "Load older activity"}
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  Showing the most recent {ACTIVITY_SERVER_CAP.toLocaleString()} — fetch older entries from the server.
+                </span>
               </div>
             ) : null}
           </>
