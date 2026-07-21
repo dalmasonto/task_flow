@@ -2641,6 +2641,16 @@ function App() {
             setTasks((currentTasks) =>
               currentTasks.map((task) => (task.id === mappedTask.id ? mappedTask : task))
             )
+            // Refresh the RAW row store immediately. The realtime task event is
+            // id-only and lags behind a refetch, so a quick second Edit would
+            // otherwise pre-fill from the stale pre-edit row.
+            const pid = liveId(activeProject.id)
+            if (pid != null) {
+              applyWorkspaceUpdate(pid, (workspace) => ({
+                ...workspace,
+                tasks: upsertById(workspace.tasks, updatedTask),
+              }))
+            }
           })
           .catch((error) => {
             setLiveSyncError(error instanceof Error ? error.message : "Could not save the task changes.")
@@ -2716,6 +2726,14 @@ function App() {
           setTasks((currentTasks) => [mappedTask, ...currentTasks.filter((task) => task.id !== newTask.id)])
           setSelectedTaskId(mappedTask.id)
           setOpenTaskId(mappedTask.id)
+          // Add the new raw row so a follow-up Edit pre-fills correctly without
+          // waiting for the realtime create event to round-trip.
+          if (projectId != null) {
+            applyWorkspaceUpdate(projectId, (workspace) => ({
+              ...workspace,
+              tasks: upsertById(workspace.tasks, createdTask),
+            }))
+          }
         })
         .catch((error) => {
           setLiveSyncError(error instanceof Error ? error.message : "Could not create the live task.")
