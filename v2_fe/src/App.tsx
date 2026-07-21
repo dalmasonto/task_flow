@@ -139,7 +139,7 @@ import {
 import { cn } from "@/lib/utils"
 import { spliceAtCaret, fileReferenceText } from "@/lib/composer"
 import { formatBytes } from "@/lib/attachment-kind"
-import { formatEstimateMinutes } from "@/lib/tasks"
+import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { MessageAttachments } from "@/components/message-attachments"
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AccountLayout } from "@/pages/account/AccountLayout"
@@ -1698,6 +1698,12 @@ function App() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null)
+  // Controlled state for the Create Task dialog's owner/operator/due fields.
+  // shadcn Select and datetime-local are controlled, and handleCreateTask reads
+  // these from state (not FormData); the rest of the form stays uncontrolled.
+  const [newTaskOwner, setNewTaskOwner] = useState<{ id: number; label: string } | null>(null)
+  const [newTaskOperator, setNewTaskOperator] = useState<string>("") // "" | "user:N" | "agent:N"
+  const [newTaskDue, setNewTaskDue] = useState<string>("") // datetime-local value
   const [usesLiveApi, setUsesLiveApi] = useState(false)
   const [isLiveSyncing, setIsLiveSyncing] = useState(false)
   const [liveSyncError, setLiveSyncError] = useState<string | null>(null)
@@ -2515,10 +2521,22 @@ function App() {
 
     const status = String(formData.get("status") ?? "not_started") as ColumnId
     const priority = String(formData.get("priority") ?? "P1") as Priority
-    const owner = String(formData.get("owner") ?? "Unassigned").trim() || "Unassigned"
-    const operatorName = String(formData.get("operatorName") ?? "human").trim() || "human"
-    const due = String(formData.get("due") ?? "Unscheduled").trim() || "Unscheduled"
-    const estimate = String(formData.get("estimate") ?? "1h").trim() || "1h"
+    // Owner/operator/due come from controlled state, not FormData.
+    const owner = newTaskOwner?.label || "Unassigned"
+    const [opKind, opId] = newTaskOperator.split(":")
+    const operatorUserId = opKind === "user" ? Number(opId) : null
+    const operatorAgentId = opKind === "agent" ? Number(opId) : null
+    const members = liveWorkspaceRef.current?.members ?? []
+    const agents = liveWorkspaceRef.current?.agents ?? []
+    const operatorName =
+      operatorUserId != null
+        ? members.find((m) => m.user === operatorUserId)?.display_name ?? `User #${operatorUserId}`
+        : operatorAgentId != null
+          ? agents.find((a) => a.id === operatorAgentId)?.display_name ?? `Agent #${operatorAgentId}`
+          : "human"
+    const dueIso = newTaskDue ? new Date(newTaskDue).toISOString() : null
+    const due = newTaskDue ? formatLiveDate(dueIso, "Unscheduled") : "Unscheduled"
+    const estimate = String(formData.get("estimate") ?? "").trim()
     const description = String(formData.get("description") ?? "").trim()
     const notes = String(formData.get("notes") ?? "").trim()
     const review = String(formData.get("review") ?? "No review gate defined.").trim() || "No review gate defined."
@@ -2542,10 +2560,14 @@ function App() {
         .join("")
         .slice(0, 2)
         .toUpperCase() || "UN",
-      operator: "human",
+      operator: operatorAgentId != null ? "agent" : newTaskOwner ? "human" : "pair",
       operatorName,
-      createdBy: currentUser?.username ?? currentUser?.email ?? "You",
-      estimate,
+      createdBy:
+        members.find((m) => m.user === currentUser?.id)?.display_name ??
+        currentUser?.username ??
+        currentUser?.email ??
+        "You",
+      estimate: formatEstimateMinutes(parseEstimateMinutes(estimate)),
       updated: "Just now",
       due,
       tags: tags.length ? tags : ["planning"],
@@ -2558,6 +2580,9 @@ function App() {
     setSelectedTaskId(newTask.id)
     setOpenTaskId(newTask.id)
     setDialogMode(null)
+    setNewTaskOwner(null)
+    setNewTaskOperator("")
+    setNewTaskDue("")
 
     const projectId = liveId(activeProject.id)
     if (usesLiveApi && projectId) {
@@ -2569,8 +2594,14 @@ function App() {
         status: toLiveStatus(status),
         priority: toLivePriority(priority),
         sort_order: projectTasks.length,
+        assigned_user: newTaskOwner?.id ?? null,
         assignee_label: owner,
-        due_at: null,
+        operator_user: operatorUserId,
+        operator_agent_id: operatorAgentId,
+        due_at: dueIso,
+        estimate_minutes: parseEstimateMinutes(estimate),
+        review_gate: review || null,
+        created_by: currentUser?.id ?? null,
       })
         .then((createdTask) => {
           const [mappedTask] = mapLiveTasks(
@@ -3176,6 +3207,14 @@ function App() {
         mode={dialogMode}
         activeProject={activeProject}
         reviewTask={reviewTask}
+        members={activeLiveWorkspace?.members ?? []}
+        agents={activeLiveWorkspace?.agents ?? []}
+        taskOwner={newTaskOwner}
+        onTaskOwnerChange={setNewTaskOwner}
+        taskOperator={newTaskOperator}
+        onTaskOperatorChange={setNewTaskOperator}
+        taskDue={newTaskDue}
+        onTaskDueChange={setNewTaskDue}
         onClose={() => {
           setDialogMode(null)
           setReviewTaskId(null)
@@ -7343,6 +7382,14 @@ function WorkspaceDialog({
   mode,
   activeProject,
   reviewTask,
+  members,
+  agents,
+  taskOwner,
+  onTaskOwnerChange,
+  taskOperator,
+  onTaskOperatorChange,
+  taskDue,
+  onTaskDueChange,
   onClose,
   onCreateProject,
   onUpdateProject,
@@ -7353,6 +7400,14 @@ function WorkspaceDialog({
   mode: DialogMode
   activeProject: Project | undefined
   reviewTask?: Task
+  members: TaskflowProjectMember[]
+  agents: TaskflowAgent[]
+  taskOwner: { id: number; label: string } | null
+  onTaskOwnerChange: (owner: { id: number; label: string } | null) => void
+  taskOperator: string
+  onTaskOperatorChange: (operator: string) => void
+  taskDue: string
+  onTaskDueChange: (due: string) => void
   onClose: () => void
   onCreateProject: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
@@ -7406,6 +7461,11 @@ function WorkspaceDialog({
     "api-contract": "API Contract",
     "review-decision": "Human Review",
   }
+
+  // Radix Select forbids an empty-string item value, so an "unassigned" choice
+  // uses this sentinel and maps back to null/"" in the change handlers.
+  const NONE_OPTION = "__none__"
+  const activeMembers = members.filter((member) => member.status === "active" && member.user != null)
 
   return (
     <>
@@ -7517,29 +7577,79 @@ function WorkspaceDialog({
                 <SelectField name="priority" defaultValue="P1" options={priorityOptions} />
               </FormField>
               <FormField label="Owner">
-                <Input name="owner" placeholder="Name, or leave unassigned" />
+                <Select
+                  value={taskOwner ? String(taskOwner.id) : NONE_OPTION}
+                  onValueChange={(value) => {
+                    if (value === NONE_OPTION) {
+                      onTaskOwnerChange(null)
+                      return
+                    }
+                    const member = activeMembers.find((m) => String(m.user) === value)
+                    onTaskOwnerChange(
+                      member?.user != null ? { id: member.user, label: member.display_name } : null
+                    )
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE_OPTION}>Unassigned</SelectItem>
+                    {activeMembers.map((member) => (
+                      <SelectItem key={member.user} value={String(member.user)}>
+                        {member.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </FormField>
               <FormField label="Operator">
-                <Input name="operatorName" placeholder="Agent or human" />
+                <Select
+                  value={taskOperator || NONE_OPTION}
+                  onValueChange={(value) => onTaskOperatorChange(value === NONE_OPTION ? "" : value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE_OPTION}>Unassigned</SelectItem>
+                    {activeMembers.map((member) => (
+                      <SelectItem key={`user:${member.user}`} value={`user:${member.user}`}>
+                        {member.display_name}
+                      </SelectItem>
+                    ))}
+                    {agents.map((agent) => (
+                      <SelectItem key={`agent:${agent.id}`} value={`agent:${agent.id}`}>
+                        {agent.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </FormField>
               <FormField label="Due">
-                <Input name="due" placeholder="Date or milestone" />
+                <Input
+                  type="datetime-local"
+                  value={taskDue}
+                  onChange={(event) => onTaskDueChange(event.target.value)}
+                />
               </FormField>
               <FormField label="Estimate">
-                <Input name="estimate" placeholder="2h" />
+                <Input name="estimate" placeholder="minutes, e.g. 90" />
               </FormField>
             </div>
             <FormField label="Tags">
               <Input name="tags" placeholder="api, review, frontend" />
             </FormField>
-            <FormField label="Description, markdown">
+            <FormField label="Description">
+              <span className="text-xs text-muted-foreground">you can write in markdown</span>
               <textarea
                 name="description"
                 className={textareaClass}
                 placeholder={"### Goal\nDescribe the outcome, acceptance criteria, and constraints."}
               />
             </FormField>
-            <FormField label="Notes, markdown">
+            <FormField label="Notes">
+              <span className="text-xs text-muted-foreground">you can write in markdown</span>
               <textarea
                 name="notes"
                 className={textareaClass}
