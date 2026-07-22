@@ -31,6 +31,12 @@ describe("AGENT_INSTRUCTIONS", () => {
     expect(AGENT_INSTRUCTIONS).toContain("partial_done");
   });
 
+  it("explains what TaskFlow is and its multi-agent nature", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("TaskFlow is");
+    expect(AGENT_INSTRUCTIONS.toLowerCase()).toContain("local-first");
+    expect(AGENT_INSTRUCTIONS.toLowerCase()).toContain("multi-agent");
+  });
+
   it("is substantial enough to be a real guide", () => {
     expect(AGENT_INSTRUCTIONS.length).toBeGreaterThan(500);
   });
