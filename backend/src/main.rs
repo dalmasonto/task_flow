@@ -111,7 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // is `repo` (issue create + comments), overriding the default identity
         // scopes.
         .plugin({
-            let mut oauth = OAuthPlugin::new("http://localhost:8100");
+            // After a connect (no explicit `?next=`), return the user to the
+            // account settings page so the SPA can show "Connected".
+            let mut oauth = OAuthPlugin::new("http://localhost:8100")
+                .login_redirect("/account/settings?github=connected");
             if let Some(gh) = GitHubProvider::from_env() {
                 oauth = oauth.provider(gh.scopes("repo"));
             }
