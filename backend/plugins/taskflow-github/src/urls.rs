@@ -25,5 +25,15 @@ pub fn router(deps: GithubDeps) -> Router {
             "/api/taskflow/github/projects/{project}/pref",
             get(views::get_pref).post(views::set_pref),
         )
+        // One call the UI reads to render every enabled/disabled state.
+        .route(
+            "/api/taskflow/github/projects/{project}/status",
+            get(views::get_status),
+        )
+        // Owner/admin: link this project to a GitHub repo (caller = tracking key).
+        .route(
+            "/api/taskflow/github/projects/{project}/link",
+            post(views::link_project),
+        )
         .with_state(deps)
 }

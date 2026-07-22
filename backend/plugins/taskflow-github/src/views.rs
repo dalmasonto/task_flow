@@ -5,15 +5,17 @@
 //! tests drive them with fakes and no network.
 
 use axum::extract::State;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use umbral::web::{Json, Path, StatusCode};
-use umbral_auth::RequireAuth;
+use umbral_auth::{CurrentIdentity, RequireAuth};
 
-use taskflow_projects::models::{TaskflowProject, taskflow_project};
+use taskflow_projects::models::{
+    TaskflowProject, TaskflowProjectMember, TaskflowProjectRole, taskflow_project,
+    taskflow_project_member,
+};
 use taskflow_tasks::models::{TaskflowTask, taskflow_task};
-
-use serde::Deserialize;
 
 use crate::GithubDeps;
 use crate::api::NewIssue;
@@ -77,7 +79,10 @@ pub async fn publish_issue(
         .create_issue(
             &token,
             &repo,
-            NewIssue { title: task.title.clone(), body: task.description_markdown.clone() },
+            NewIssue {
+                title: task.title.clone(),
+                body: task.description_markdown.clone(),
+            },
         )
         .await
         .map_err(|_| err(StatusCode::BAD_GATEWAY, "github"))?;
@@ -93,7 +98,9 @@ pub async fn publish_issue(
         .await
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "store"))?;
 
-    Ok(Json(json!({ "issue_number": issue.number, "issue_url": issue.url })))
+    Ok(Json(
+        json!({ "issue_number": issue.number, "issue_url": issue.url }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -226,4 +233,147 @@ pub async fn set_pref(
         }
     }
     Ok(Json(json!({ "post_as_me": input.post_as_me })))
+}
+
+/// Privilege rank of a project role, high to low. Mirrors the (private) helper
+/// in taskflow-projects; kept local since it isn't exported.
+fn role_rank(role: TaskflowProjectRole) -> u8 {
+    match role {
+        TaskflowProjectRole::Owner => 4,
+        TaskflowProjectRole::Admin => 3,
+        TaskflowProjectRole::Developer => 2,
+        TaskflowProjectRole::Reviewer => 1,
+        TaskflowProjectRole::Viewer => 0,
+    }
+}
+
+/// Authorize an owner/admin action: superuser bypasses; everyone else must be an
+/// ACTIVE member of this project at Admin rank or above. Takes primitives (not
+/// the `Identity` type) so the handler owns the extraction.
+async fn require_admin(
+    user_id: i64,
+    is_superuser: bool,
+    project_id: i64,
+) -> Result<(), ApiError> {
+    if is_superuser {
+        return Ok(());
+    }
+    let member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq("active"),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::FORBIDDEN, "not_a_member"))?;
+    if role_rank(member.role) < role_rank(TaskflowProjectRole::Admin) {
+        return Err(err(StatusCode::FORBIDDEN, "forbidden"));
+    }
+    Ok(())
+}
+
+/// `GET /api/taskflow/github/projects/{project}/status`
+///
+/// One call the UI uses to render every enabled/disabled state: is the caller's
+/// GitHub connected, is the project linked, can it publish (owner key ready),
+/// and the caller's per-project opt-in.
+pub async fn get_status(
+    State(deps): State<GithubDeps>,
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "project"))?;
+
+    let user_connected = deps.tokens.token_for_user(user_id).await.is_some();
+    let linked_by = project.github_linked_by.as_ref().map(|fk| fk.id());
+    let can_publish = matches!(
+        resolve_owner_token(deps.tokens.as_ref(), linked_by).await,
+        TokenOutcome::Ready(_)
+    );
+    let post_as_me = TaskflowGithubPref::objects()
+        .filter(
+            taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .map(|p| p.post_as_me)
+        .unwrap_or(false);
+
+    Ok(Json(json!({
+        "user_connected": user_connected,
+        "project_linked": project.github_repo.is_some(),
+        "github_repo": project.github_repo,
+        "can_publish": can_publish,
+        "post_as_me": post_as_me,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct LinkBody {
+    pub repo: String,
+}
+
+/// Normalize a repo reference to `owner/name`, accepting either that or a full
+/// GitHub URL. Returns None if it isn't a plausible `owner/name`.
+fn normalize_repo(input: &str) -> Option<String> {
+    let s = input.trim().trim_end_matches('/');
+    // Strip a leading https://github.com/ if present.
+    let s = s
+        .strip_prefix("https://github.com/")
+        .or_else(|| s.strip_prefix("http://github.com/"))
+        .unwrap_or(s)
+        .trim_end_matches(".git");
+    let parts: Vec<&str> = s.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.len() == 2 {
+        Some(format!("{}/{}", parts[0], parts[1]))
+    } else {
+        None
+    }
+}
+
+/// `POST /api/taskflow/github/projects/{project}/link`  body `{ "repo": "owner/name" }`
+///
+/// Owner/admin gated. The caller must have a linked GitHub account — they become
+/// the project's tracking key (`github_linked_by`). Sets `github_repo`.
+pub async fn link_project(
+    State(deps): State<GithubDeps>,
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(project_id): Path<i64>,
+    Json(input): Json<LinkBody>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
+    let repo =
+        normalize_repo(&input.repo).ok_or_else(|| err(StatusCode::BAD_REQUEST, "bad_repo"))?;
+
+    // The linker becomes the tracking key, so they must be connected.
+    if deps.tokens.token_for_user(user_id).await.is_none() {
+        return Err(needs_connect());
+    }
+
+    TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .update_values(
+            json!({ "github_repo": repo, "github_linked_by": user_id })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "store"))?;
+
+    Ok(Json(
+        json!({ "github_repo": repo, "github_linked_by": user_id }),
+    ))
 }

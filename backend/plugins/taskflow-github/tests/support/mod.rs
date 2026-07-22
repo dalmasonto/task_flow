@@ -67,7 +67,10 @@ use taskflow_github::models::{TaskflowGithubPref, taskflow_github_pref};
 use taskflow_github::tokens::FakeTokenSource;
 use taskflow_github::{GithubDeps, TaskflowGithubPlugin};
 use taskflow_projects::TaskflowProjectsPlugin;
-use taskflow_projects::models::{TaskflowProject, TaskflowProjectStatus};
+use taskflow_projects::models::{
+    TaskflowMembershipStatus, TaskflowProject, TaskflowProjectMember, TaskflowProjectRole,
+    TaskflowProjectStatus, taskflow_project,
+};
 use taskflow_tasks::TaskflowTasksPlugin;
 use taskflow_tasks::models::{
     TaskflowTask, TaskflowTaskPriority, TaskflowTaskStatus, taskflow_task,
@@ -312,6 +315,38 @@ async fn seed_task_inner(project: i64, title: &str, issue_number: Option<i64>) -
         .await
         .expect("create task")
         .id
+}
+
+/// Seed an active project membership at a given role, so the link endpoint's
+/// owner/admin authorization can be exercised.
+pub async fn seed_member(project: i64, user_id: i64, role: TaskflowProjectRole) {
+    TaskflowProjectMember::objects()
+        .create(TaskflowProjectMember {
+            id: 0,
+            project: ForeignKey::new(project),
+            member_key: format!("user:{user_id}"),
+            user: Some(ForeignKey::new(user_id)),
+            display_name: format!("user-{user_id}"),
+            email: None,
+            role,
+            status: TaskflowMembershipStatus::Active,
+            invited_by: None,
+            created_at: None,
+            joined_at: None,
+        })
+        .await
+        .expect("create member");
+}
+
+/// The stored `(github_repo, github_linked_by)` of a project.
+pub async fn project_github_link(project: i64) -> (Option<String>, Option<i64>) {
+    let p = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project))
+        .first()
+        .await
+        .expect("load project")
+        .expect("project exists");
+    (p.github_repo, p.github_linked_by.map(|fk| fk.id()))
 }
 
 pub async fn seed_pref(user: i64, project: i64, post_as_me: bool) {
