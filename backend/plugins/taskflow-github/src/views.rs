@@ -19,8 +19,9 @@ use taskflow_tasks::models::{TaskflowTask, taskflow_task};
 
 use crate::GithubDeps;
 use crate::api::NewIssue;
+use crate::mirror::{MirrorError, MirrorOutcome, mirror_comment};
 use crate::models::{TaskflowGithubPref, taskflow_github_pref};
-use crate::tokens::{TokenOutcome, resolve_actor_token, resolve_owner_token};
+use crate::tokens::{TokenOutcome, resolve_owner_token};
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -120,49 +121,23 @@ pub async fn comment_on_issue(
     Path((project_id, task_id)): Path<(i64, i64)>,
     Json(input): Json<CommentBody>,
 ) -> Result<StatusCode, ApiError> {
-    let project = TaskflowProject::objects()
-        .filter(taskflow_project::ID.eq(project_id))
-        .first()
-        .await
-        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "project"))?;
-    let repo = project
-        .github_repo
-        .clone()
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "not_linked"))?;
-
-    let task = TaskflowTask::objects()
-        .filter(taskflow_task::ID.eq(task_id) & taskflow_task::PROJECT.eq(project_id))
-        .first()
-        .await
-        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "task"))?;
-    let issue_number = task
-        .github_issue_number
-        .ok_or_else(|| err(StatusCode::CONFLICT, "not_published"))?;
-
-    // Opt-in: default false when no pref row exists for this (user, project).
-    let post_as_me = TaskflowGithubPref::objects()
-        .filter(
-            taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
-        )
-        .first()
-        .await
-        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
-        .map(|p| p.post_as_me)
-        .unwrap_or(false);
-
-    let token = match resolve_actor_token(deps.tokens.as_ref(), user_id, post_as_me).await {
-        TokenOutcome::Ready(t) => t,
-        TokenOutcome::NeedsConnect => return Err(needs_connect()),
-    };
-
-    deps.api
-        .add_comment(&token, &repo, issue_number, &input.body)
-        .await
-        .map_err(|_| err(StatusCode::BAD_GATEWAY, "github"))?;
-
-    Ok(StatusCode::NO_CONTENT)
+    match mirror_comment(
+        deps.api.as_ref(),
+        deps.tokens.as_ref(),
+        project_id,
+        task_id,
+        user_id,
+        &input.body,
+    )
+    .await
+    {
+        Ok(MirrorOutcome::Posted) => Ok(StatusCode::NO_CONTENT),
+        Ok(MirrorOutcome::NeedsConnect) => Err(needs_connect()),
+        Ok(MirrorOutcome::NotLinked) => Err(err(StatusCode::NOT_FOUND, "not_linked")),
+        Ok(MirrorOutcome::NotPublished) => Err(err(StatusCode::CONFLICT, "not_published")),
+        Err(MirrorError::Github(_)) => Err(err(StatusCode::BAD_GATEWAY, "github")),
+        Err(MirrorError::Db) => Err(err(StatusCode::INTERNAL_SERVER_ERROR, "db")),
+    }
 }
 
 /// `GET /api/taskflow/github/projects/{project}/pref`

@@ -15,6 +15,7 @@
 
 pub mod adapters;
 pub mod api;
+pub mod mirror;
 pub mod models;
 pub mod tokens;
 pub mod urls;
