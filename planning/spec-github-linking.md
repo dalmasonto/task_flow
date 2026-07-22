@@ -122,9 +122,9 @@ UMBRAL_OAUTH_GITHUB_CLIENT_SECRET=…
 UMBRAL_OAUTH_REDIRECT_BASE=http://localhost:8100   # optional
 ```
 
-Scope requested at connect: **`repo`** (needed for issue creation + comments on
-private repos). If a deployment only ever touches public repos it can narrow to
-`public_repo`; `repo` is the safe default.
+Scope requested at connect: **`repo`**. Public-vs-private is not a meaningful
+distinction here — if a user has access to a repo, the `repo` scope covers both,
+so there is nothing to configure or narrow.
 
 Both the owner (to establish the tracking key) and teammates (to opt in) use the
 same `/oauth/github/connect` route while authenticated.
@@ -140,12 +140,20 @@ same `/oauth/github/connect` route while authenticated.
 Restated: **owner key = system/tracking actions; individual key = anything
 attributed to a person, and only when they opted in.**
 
+If `project.github_linked_by` is null (no one has linked, or the linker left the
+project), the **owner-key row above has no token**: "Publish as issue" is
+disabled with a "connect GitHub to enable issue tracking" prompt. This is the
+same disabled-button pattern as the per-actor case, applied to the tracking key.
+
 ### 5. Flow
 
 **Publish a task as an issue** (deliberate, per-task):
 Task detail → "Publish as GitHub issue" → create issue with the **owner** key →
 store `github_issue_number` + `github_issue_url` on the task → the number is now
-available so a commit message can reference `#N`.
+available so a commit message can reference `#N`. GitHub then links the commit
+to the issue **natively** — that back-linking is not something TaskFlow builds
+or watches for; our sole responsibility is to store the issue number and surface
+it prominently (task header, copy-to-clipboard) so whoever commits can cite it.
 
 **Comment on the issue** (opt-in, per-actor):
 An activity or a manual "Post to issue #N as me" button → resolve the acting
@@ -177,20 +185,27 @@ token surfaces as "re-connect GitHub", not a silent 401.
 - [ ] Provider tokens are never returned by any API or rendered in a template;
       they are read only via `.reveal()` server-side.
 - [ ] An expired `SocialAccount` surfaces as "re-connect", not a 401 stack.
+- [ ] When `github_linked_by` is null (linker removed from project), "Publish as
+      issue" is disabled with a connect prompt; re-linking by any member
+      restores it — no other intervention.
 - [ ] End-to-end test covering link → publish → comment-as-user → disabled-state.
 
-## Open questions
+## Resolved decisions (were open questions)
 
-1. **Commit ↔ issue linkage direction.** This spec covers publishing an issue
-   and exposing its number so a commit *message* can cite `#N`. Do we also want
-   TaskFlow to *detect* a commit that references `#N` and post back, or is the
-   human writing `#N` into the commit sufficient for v1? (Recommend: v1 is
-   one-directional — expose the number, humans cite it. Detection is a later
-   task.)
-2. **`repo` vs `public_repo` default.** Ship `repo` (works for private) and let
-   a deployment narrow it, or default to `public_repo` and widen on demand?
-   (Recommend: `repo`, since flagged-account risk is about *volume*, not scope.)
-3. **Owner departs / token revoked.** `github_linked_by` is explicit, so a
-   revoked owner token blocks issue creation until re-linked. Do we surface a
-   project-level "GitHub tracking key needs re-connecting" banner? (Recommend:
-   yes, but as a follow-up once the happy path lands.)
+1. **Commit ↔ issue linkage is native GitHub behavior — not a feature.** When a
+   commit message references the issue number, GitHub links them automatically.
+   TaskFlow neither builds nor watches for this. The *only* requirement on our
+   side is that `github_issue_number` is stored and surfaced clearly (task
+   header + copy-to-clipboard) so the acting agent/user can put `#N` in the
+   commit. No detection, no back-posting job.
+
+2. **Scope is `repo`, full stop.** Public-vs-private is not a real distinction:
+   if a user has repo access, `repo` covers it. Nothing to configure or narrow.
+
+3. **A departing user is handled automatically by membership removal.** Dropping
+   a user from the project severs their GitHub connection by default, so no
+   further GitHub updates go out under them. For the *tracking key* specifically:
+   `github_linked_by` is `on_delete = set_null`, so if the linker leaves it goes
+   null and "Publish as issue" is disabled until any member re-links — the same
+   connect flow that established it. No special-case code, no banner needed; the
+   null-key disabled state is the mechanism.
