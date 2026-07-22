@@ -3324,6 +3324,7 @@ function App() {
               Sync
             </Button>
           )}
+          {activeProject ? <GithubHeaderButton project={activeProject} /> : null}
           {activeProject ? (
             <Button size="sm" onClick={() => setDialogMode("new-task")}>
               <PlusIcon />
@@ -5566,6 +5567,130 @@ function PageShell({
       </div>
       {children}
     </section>
+  )
+}
+
+// A discoverable, top-of-page control for linking the active project to a
+// GitHub repo. Lives in the dashboard header so it's visible from any page —
+// not buried in the API Base settings. Self-contained: fetches its own status,
+// and pops a small inline panel to enter `owner/repo`.
+function GithubHeaderButton({ project }: { project: Project }) {
+  const navigate = useNavigate()
+  const projectId = liveId(project.id)
+  const [status, setStatus] = useState<GithubProjectStatus | null>(null)
+  const [open, setOpen] = useState(false)
+  const [repoInput, setRepoInput] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (projectId === null) return
+    let active = true
+    void fetchGithubProjectStatus(projectId)
+      .then((next) => {
+        if (!active) return
+        setStatus(next)
+        setRepoInput(next.github_repo ?? "")
+      })
+      .catch(() => {
+        if (active) setStatus(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [projectId])
+
+  // Demo/unsaved projects have no live numeric id — nothing to link against.
+  if (projectId === null) return null
+
+  // Not connected yet → send them to Settings to connect their account first.
+  if (status && !status.user_connected) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => navigate("/account/settings")}
+        title="Connect your GitHub account to link a repository"
+      >
+        <GitBranchIcon className="size-4" />
+        Connect GitHub
+      </Button>
+    )
+  }
+
+  const repoName = status?.project_linked ? status.github_repo : null
+
+  return (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen((value) => !value)}
+        title={repoName ? `Linked to ${repoName}` : "Link this project to a GitHub repository"}
+      >
+        <GitBranchIcon className="size-4" />
+        <span className="max-w-40 truncate">{repoName ?? "Link GitHub repo"}</span>
+      </Button>
+      {open ? (
+        <div className="absolute right-0 z-50 mt-2 w-72 rounded-lg border bg-card p-3 shadow-lg">
+          <p className="text-xs font-medium text-muted-foreground">Repository (owner/name)</p>
+          <Input
+            value={repoInput}
+            onChange={(event) => setRepoInput(event.target.value)}
+            placeholder="acme/widgets"
+            className="mt-1.5"
+            autoFocus
+          />
+          {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            {repoName ? (
+              <a
+                href={`https://github.com/${repoName}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-primary hover:underline"
+              >
+                Open on GitHub
+              </a>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy || !repoInput.trim()}
+                onClick={async () => {
+                  setBusy(true)
+                  setError(null)
+                  try {
+                    const result = await linkGithubProject(projectId, repoInput.trim())
+                    setStatus((prev) =>
+                      prev
+                        ? { ...prev, project_linked: true, github_repo: result.github_repo, can_publish: true }
+                        : prev,
+                    )
+                    setOpen(false)
+                  } catch (linkError) {
+                    setError(
+                      linkError instanceof GithubNeedsConnectError
+                        ? "Connect your GitHub account first."
+                        : (linkError as Error).message,
+                    )
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                {repoName ? "Update" : "Link"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
