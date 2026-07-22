@@ -139,6 +139,8 @@ export interface ActivityEventInput {
   body_markdown?: string;
   metadata_json?: string;
   task?: number;
+  /** Also mirror this event to the task's linked GitHub issue (opt-in, best-effort). */
+  post_to_github?: boolean;
 }
 
 export class TaskflowClient {

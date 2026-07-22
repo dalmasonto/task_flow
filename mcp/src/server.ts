@@ -530,12 +530,20 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       action: z.string().min(1).describe("Short verb (e.g. Read, Edit, Bash, note)."),
       body: z.string().optional().describe("Optional detail (markdown)."),
       task: z.number().int().optional().describe("Optional task id to link."),
+      post_to_github: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also post this event as a comment on the task's linked GitHub issue, under your owner's identity. Requires `task`. Best-effort: only posts when the project is GitHub-linked, the task is published as an issue, and your owner is connected and opted in (post_as_me) — otherwise it silently no-ops and the activity is still recorded.",
+        ),
       ...profileArg,
     },
-    async ({ action, body, task, profile }) => {
+    async ({ action, body, task, post_to_github, profile }) => {
       try {
         const { client } = clientFor(profile);
-        return ok(await client.logActivity({ action, body_markdown: body, task }));
+        return ok(
+          await client.logActivity({ action, body_markdown: body, task, post_to_github }),
+        );
       } catch (err) {
         return fail(err);
       }

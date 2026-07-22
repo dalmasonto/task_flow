@@ -65,6 +65,11 @@ loop.
 - **log_activity** records a notable action (optionally linked to a task);
   **get_activity** reads recent history. Use it as a running journal so humans and
   other agents can follow what you did and why, without reading all of chat.
+  To mirror a note onto a task's linked GitHub issue, call it with a \`task\` and
+  \`post_to_github: true\` — it posts as a comment under your owner's identity, but
+  only if the project is GitHub-linked, the task is published as an issue, and your
+  owner is connected + opted in (\`post_as_me\`); otherwise it just records the
+  activity. Don't spam issues — reserve it for updates worth a public comment.
 - **capture_terminal** streams terminal output to the dashboard so humans can
   watch your work live.
 - Tell people what you're doing: announce significant actions in chat or activity,
