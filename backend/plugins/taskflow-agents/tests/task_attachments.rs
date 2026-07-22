@@ -42,6 +42,8 @@ async fn seed_task(project: i64) -> i64 {
             created_by_agent_id: None,
             assignee_label: None,
             due_at: None,
+            github_issue_number: None,
+            github_issue_url: None,
             created_at: None,
             updated_at: None,
         })

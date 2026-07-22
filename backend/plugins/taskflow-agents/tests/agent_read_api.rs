@@ -70,6 +70,8 @@ async fn seed_task(
             estimate_minutes: None,
             assignee_label: assigned_agent_id.map(|_| "Builder".to_string()),
             due_at: None,
+            github_issue_number: None,
+            github_issue_url: None,
             created_at: None,
             updated_at: None,
         })

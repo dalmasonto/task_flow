@@ -102,6 +102,11 @@ pub struct TaskflowTask {
     #[umbral(string, max_length = 120)]
     pub assignee_label: Option<String>,
     pub due_at: Option<DateTime<Utc>>,
+    /// GitHub issue number once this task is published. `None` = not published.
+    pub github_issue_number: Option<i64>,
+    /// Convenience: full issue URL, so the UI links out without rebuilding it.
+    #[umbral(string, max_length = 400)]
+    pub github_issue_url: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]

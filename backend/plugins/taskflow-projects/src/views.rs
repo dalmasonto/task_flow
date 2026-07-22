@@ -497,6 +497,9 @@ pub async fn create_project(
                     default_api_base_url: default_api_base_url.clone(),
                     status: TaskflowProjectStatus::Active,
                     owner: Some(ForeignKey::new(user_id)),
+                    github_repo: None,
+                    github_linked_by: None,
+                    github_default_branch: None,
                     created_at: None,
                     updated_at: None,
                 })

@@ -98,6 +98,18 @@ pub struct TaskflowProject {
     pub status: TaskflowProjectStatus,
     #[umbral(on_delete = "set_null")]
     pub owner: Option<ForeignKey<AuthUser>>,
+    /// Canonical `owner/name` of the linked GitHub repo. `None` = not linked.
+    /// Parsed from `repository_url` or set explicitly at link time.
+    #[umbral(string, max_length = 200)]
+    pub github_repo: Option<String>,
+    /// Whose `SocialAccount` token is the project's tracking key (creates
+    /// issues). `set_null`: if this user leaves the project the key goes null
+    /// and issue creation disables until any member re-links.
+    #[umbral(on_delete = "set_null")]
+    pub github_linked_by: Option<ForeignKey<AuthUser>>,
+    /// Default branch for commit/PR references, e.g. "main".
+    #[umbral(string, max_length = 120)]
+    pub github_default_branch: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]

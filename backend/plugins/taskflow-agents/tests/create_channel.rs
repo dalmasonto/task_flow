@@ -39,6 +39,8 @@ async fn seed_task(project: i64) -> i64 {
             estimate_minutes: None,
             assignee_label: None,
             due_at: None,
+            github_issue_number: None,
+            github_issue_url: None,
             created_at: None,
             updated_at: None,
         })

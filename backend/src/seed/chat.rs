@@ -53,6 +53,9 @@ pub async fn dev_workspace() -> Result<(), Box<dyn std::error::Error + Send + Sy
                     default_api_base_url: None,
                     status: TaskflowProjectStatus::Active,
                     owner: Some(ForeignKey::new(user.id)),
+                    github_repo: None,
+                    github_linked_by: None,
+                    github_default_branch: None,
                     created_at: None,
                     updated_at: None,
                 })
