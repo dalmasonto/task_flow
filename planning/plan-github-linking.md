@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Framework version:** every umbral crate is pinned to `0.0.10`. `umbral-oauth = "0.0.10"`, `reqwest = { version = "0.12", features = ["json"] }` are the only new deps.
-- **Migrations are explicit and additive.** After any model field change, generate a NEW numbered migration with `cargo run -- makemigrations`; NEVER edit or regenerate an existing `NNNN_*.json` under the same id (a same-id rewrite is silently skipped by `migrate` — this repo has been bitten by exactly that). Tests do not need the JSON migration: `boot()` derives the schema from the model structs.
+- **Migrations are explicit and additive.** After any model field change, run BOTH `cargo run -- makemigrations` AND `cargo run -- migrate` from the `backend/` folder (per dalmasonto). `makemigrations` generates a NEW numbered migration; NEVER edit or regenerate an existing `NNNN_*.json` under the same id (a same-id rewrite is silently skipped by `migrate` — this repo has been bitten by exactly that). Tests do not need the JSON migration: `boot()` derives the schema from the model structs.
 - **Identity from the token, never the body.** Every authed handler derives the caller via `RequireAuth(user_id)` (see `taskflow-projects/src/views.rs`); no handler trusts a `user` field in the request JSON.
 - **Tokens are never serialized.** A `SocialAccount` access token is read only server-side via `.reveal()` and is never placed in a response body, log line, or template.
 - **Scope is `repo`.** The GitHub OAuth connect scope is exactly `repo`. No public/private branching.
@@ -159,10 +159,10 @@ For each hit (notably `plugins/taskflow-projects/tests/support/mod.rs` `seed_pro
 Run: `cargo test -p taskflow-projects --test github_fields`
 Expected: PASS. Also run `cargo build -p taskflow-tasks` to confirm the task-model literals compile.
 
-- [ ] **Step 7: Generate the migrations**
+- [ ] **Step 7: Generate AND apply the migrations**
 
-Run: `cd backend && cargo run -- makemigrations`
-Expected: new files `migrations/taskflow_projects/0003_auto.json` and `migrations/taskflow_tasks/0002_auto.json` (or next free id) adding the columns. Inspect them: each should be `AddColumn` operations, nullable, no table drop/recreate.
+Run: `cd backend && cargo run -- makemigrations && cargo run -- migrate`
+Expected: new files `migrations/taskflow_projects/0003_auto.json` and `migrations/taskflow_tasks/0002_auto.json` (or next free id) adding the columns, then `migrate` applies them to the dev DB. Inspect the files: each should be `AddColumn` operations, nullable, no table drop/recreate.
 
 - [ ] **Step 8: Commit**
 
