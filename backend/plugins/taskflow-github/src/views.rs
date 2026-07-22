@@ -377,3 +377,15 @@ pub async fn link_project(
         json!({ "github_repo": repo, "github_linked_by": user_id }),
     ))
 }
+
+/// `GET /api/taskflow/github/me`
+///
+/// User-level connection check for the account/settings page (no project
+/// context): is the caller's GitHub account linked?
+pub async fn get_me(
+    State(deps): State<GithubDeps>,
+    RequireAuth(user_id): RequireAuth<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let connected = deps.tokens.token_for_user(user_id).await.is_some();
+    Ok(Json(json!({ "connected": connected })))
+}

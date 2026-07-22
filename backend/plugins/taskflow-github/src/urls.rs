@@ -35,5 +35,7 @@ pub fn router(deps: GithubDeps) -> Router {
             "/api/taskflow/github/projects/{project}/link",
             post(views::link_project),
         )
+        // User-level "am I connected?" for the account/settings page.
+        .route("/api/taskflow/github/me", get(views::get_me))
         .with_state(deps)
 }
