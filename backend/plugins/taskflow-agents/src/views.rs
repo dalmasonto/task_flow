@@ -2709,6 +2709,13 @@ pub struct ActivityEventInput {
     pub metadata_json: Option<String>,
     #[serde(default)]
     pub task: Option<i64>,
+    /// Opt-in: also mirror this event as a comment on the task's linked GitHub
+    /// issue, under the agent's owner's identity. Best-effort — it only posts
+    /// when the project is linked, the task is published, and the owner is
+    /// connected + opted in (`post_as_me`); otherwise it silently no-ops and the
+    /// activity is still recorded. Requires a `task`.
+    #[serde(default)]
+    pub post_to_github: bool,
 }
 
 /// The activity endpoint accepts EITHER a single event (`{action, ...}`) OR a
@@ -2794,6 +2801,13 @@ pub async fn post_activity_as_agent(
         // own project, else drop it (never a 400 — a stale id is not a failure).
         let task_link = scoped_task_link(event.task, agent.project_id).await?;
 
+        // Capture the mirror intent + body before `event` is consumed below.
+        let mirror_body = if event.post_to_github {
+            event.body_markdown.clone()
+        } else {
+            None
+        };
+
         TaskflowTaskActivity::objects()
             .create(TaskflowTaskActivity {
                 id: 0,
@@ -2812,9 +2826,49 @@ pub async fn post_activity_as_agent(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         created += 1;
+
+        // Best-effort GitHub mirror. Requires a scoped task + non-empty body;
+        // gating (linked/published/opted-in) lives in mirror_agent_comment.
+        if let (Some(task_id), Some(body)) = (task_link, mirror_body) {
+            if !body.trim().is_empty() {
+                mirror_agent_comment(agent.agent_id, agent.project_id, task_id, &body).await;
+            }
+        }
     }
 
     Ok((StatusCode::OK, Json(json!({ "created": created }))).into_response())
+}
+
+/// Best-effort: mirror an agent's activity to the task's linked GitHub issue,
+/// posting under the agent's OWNER's identity (`TaskflowAgent.linked_by`). The
+/// gating — project linked, task published, owner connected + opted in — lives
+/// in [`taskflow_github::mirror::mirror_comment`]. Any non-post outcome or error
+/// is intentionally swallowed: the activity is already recorded, and the ingest
+/// must never fail because of a GitHub hiccup or an owner who hasn't opted in.
+async fn mirror_agent_comment(agent_id: i64, project_id: i64, task_id: i64, body: &str) {
+    let owner = match TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .first()
+        .await
+    {
+        Ok(Some(agent)) => agent.linked_by.map(|fk| fk.id()),
+        _ => None,
+    };
+    let Some(owner_user_id) = owner else {
+        return;
+    };
+
+    let api = taskflow_github::adapters::ReqwestGithubApi::new();
+    let tokens = taskflow_github::adapters::OauthTokenSource;
+    let _ = taskflow_github::mirror::mirror_comment(
+        &api,
+        &tokens,
+        project_id,
+        task_id,
+        owner_user_id,
+        body,
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------

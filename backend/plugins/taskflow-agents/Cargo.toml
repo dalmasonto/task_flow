@@ -8,6 +8,10 @@ umbral = "0.0.10"
 umbral-auth = "0.0.10"
 taskflow-projects = { path = "../taskflow-projects" }
 taskflow-tasks = { path = "../taskflow-tasks" }
+# Opt-in "mirror this activity to the linked GitHub issue" reuses the gated
+# mirror_comment path + real adapters. No cycle: taskflow-github depends on
+# projects/tasks/oauth, never on agents.
+taskflow-github = { path = "../taskflow-github" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The send endpoint reads a raw request body (`axum::body::Bytes`) so it can

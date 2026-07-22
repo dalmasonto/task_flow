@@ -251,3 +251,36 @@ async fn activity_requires_agent_auth() {
         .await;
     assert_eq!(garbage.status(), 401, "garbage key is unauthorized");
 }
+
+/// #25 follow-up: an agent may set `post_to_github: true` to mirror an activity
+/// to the task's linked GitHub issue. Here the project isn't linked, so the
+/// mirror is a silent no-op — the flag must still be ACCEPTED and the activity
+/// recorded. (The mirror gating itself is unit-tested in taskflow-github.)
+#[tokio::test]
+async fn post_to_github_flag_is_accepted_and_ingest_succeeds() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key, agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
+    let task = seed_task(project).await;
+
+    let resp = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/activity",
+            json!({
+                "action": "comment",
+                "body_markdown": "done — see the fix",
+                "task": task,
+                "post_to_github": true
+            }),
+        )
+        .await;
+    assert_eq!(resp.status(), 200, "body: {:?}", resp.json().await);
+    assert_eq!(resp.json().await["created"], json!(1));
+
+    let rows = agent_activity(agent_id).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].task.as_ref().map(|link| link.id()), Some(task));
+}
