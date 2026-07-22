@@ -157,3 +157,73 @@ pub async fn comment_on_issue(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// `GET /api/taskflow/github/projects/{project}/pref`
+///
+/// The caller's opt-in for this project. Get-or-default-false; never creates a
+/// row on read. User derived from the token, not the path/body.
+pub async fn get_pref(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let post_as_me = TaskflowGithubPref::objects()
+        .filter(
+            taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .map(|p| p.post_as_me)
+        .unwrap_or(false);
+    Ok(Json(json!({ "post_as_me": post_as_me })))
+}
+
+#[derive(Deserialize)]
+pub struct PrefBody {
+    pub post_as_me: bool,
+}
+
+/// `POST /api/taskflow/github/projects/{project}/pref` — upsert the opt-in.
+pub async fn set_pref(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<PrefBody>,
+) -> Result<Json<Value>, ApiError> {
+    use umbral::orm::ForeignKey;
+    let existing = TaskflowGithubPref::objects()
+        .filter(
+            taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+
+    match existing {
+        Some(p) => {
+            TaskflowGithubPref::objects()
+                .filter(taskflow_github_pref::ID.eq(p.id))
+                .update_values(
+                    json!({ "post_as_me": input.post_as_me })
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default(),
+                )
+                .await
+                .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+        }
+        None => {
+            TaskflowGithubPref::objects()
+                .create(TaskflowGithubPref {
+                    id: 0,
+                    user: ForeignKey::new(user_id),
+                    project: ForeignKey::new(project_id),
+                    post_as_me: input.post_as_me,
+                    created_at: None,
+                    updated_at: None,
+                })
+                .await
+                .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+        }
+    }
+    Ok(Json(json!({ "post_as_me": input.post_as_me })))
+}
