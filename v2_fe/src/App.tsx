@@ -119,6 +119,8 @@ import {
   fetchGithubProjectStatus,
   linkGithubProject,
   setGithubPostAsMe,
+  publishTaskAsIssue,
+  commentOnIssueAsMe,
   GithubNeedsConnectError,
   linkAgent,
   markChannelRead,
@@ -4675,6 +4677,34 @@ function TaskDetailSheet({
   const description = getTaskDescription(task)
   const notes = getTaskNotes(task)
 
+  // GitHub: the published issue (from the live row, or just-published locally),
+  // plus this project's status which gates the publish/comment controls.
+  const rawTask = liveWorkspace?.tasks.find((row) => String(row.id) === task.id)
+  const [ghStatus, setGhStatus] = useState<GithubProjectStatus | null>(null)
+  const [publishing, setPublishing] = useState(false)
+  const [ghActionError, setGhActionError] = useState<string | null>(null)
+  const [localIssue, setLocalIssue] = useState<{ number: number; url: string } | null>(null)
+  const [postedActivityIds, setPostedActivityIds] = useState<Set<string>>(new Set())
+  const [postingActivityId, setPostingActivityId] = useState<string | null>(null)
+  useEffect(() => {
+    const projectId = liveId(project.id)
+    if (projectId === null) return
+    let active = true
+    void fetchGithubProjectStatus(projectId)
+      .then((status) => {
+        if (active) setGhStatus(status)
+      })
+      .catch(() => {
+        if (active) setGhStatus(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [project.id])
+  const issueNumber = localIssue?.number ?? rawTask?.github_issue_number ?? null
+  const issueUrl = localIssue?.url ?? rawTask?.github_issue_url ?? null
+  const canCommentAsMe = Boolean(issueNumber && ghStatus?.user_connected && ghStatus?.post_as_me)
+
   return (
     <>
       <button
@@ -4716,7 +4746,48 @@ function TaskDetailSheet({
                 <span className="rounded-full bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
                   {task.updated}
                 </span>
+                {issueNumber && issueUrl ? (
+                  <a
+                    href={issueUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full bg-background/80 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-border hover:underline"
+                  >
+                    <GitBranchIcon className="size-3.5" />
+                    {`#${issueNumber}`}
+                  </a>
+                ) : ghStatus?.project_linked ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={publishing || !ghStatus.can_publish}
+                    title={ghStatus.can_publish ? "Open a GitHub issue for this task" : "Link GitHub and connect the owner account first"}
+                    onClick={async () => {
+                      const projectId = liveId(project.id)
+                      const taskId = liveId(task.id)
+                      if (projectId === null || taskId === null) return
+                      setPublishing(true)
+                      setGhActionError(null)
+                      try {
+                        const result = await publishTaskAsIssue(projectId, taskId)
+                        setLocalIssue({ number: result.issue_number, url: result.issue_url })
+                      } catch (error) {
+                        setGhActionError(
+                          error instanceof GithubNeedsConnectError
+                            ? "Connect GitHub to publish."
+                            : (error as Error).message,
+                        )
+                      } finally {
+                        setPublishing(false)
+                      }
+                    }}
+                  >
+                    <GitBranchIcon className="size-3.5" />
+                    {publishing ? "Publishing…" : "Publish as issue"}
+                  </Button>
+                ) : null}
               </div>
+              {ghActionError ? <p className="mt-2 text-xs text-destructive">{ghActionError}</p> : null}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {confirmDelete ? null : (
@@ -4998,10 +5069,47 @@ function TaskDetailSheet({
                         <Clock3Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                         <div className="min-w-0 flex-1">
                           <MarkdownRenderer content={event.detail} compact className="[&_p]:text-sm" />
-                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{event.actor}</span>
                             <span>{event.action.replace(/_/g, " ")}</span>
                             <span>{event.time}</span>
+                            {issueNumber ? (
+                              postedActivityIds.has(String(event.id)) ? (
+                                <span className="text-emerald-600 dark:text-emerald-400">Posted to issue</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground underline-offset-2 hover:text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                                  disabled={!canCommentAsMe || postingActivityId === String(event.id)}
+                                  title={
+                                    canCommentAsMe
+                                      ? "Post this to the GitHub issue as you"
+                                      : "Enable “post as me” in the project's GitHub settings and connect your account"
+                                  }
+                                  onClick={async () => {
+                                    const projectId = liveId(project.id)
+                                    const taskId = liveId(task.id)
+                                    if (projectId === null || taskId === null) return
+                                    setPostingActivityId(String(event.id))
+                                    setGhActionError(null)
+                                    try {
+                                      await commentOnIssueAsMe(projectId, taskId, event.detail)
+                                      setPostedActivityIds((prev) => new Set(prev).add(String(event.id)))
+                                    } catch (error) {
+                                      setGhActionError(
+                                        error instanceof GithubNeedsConnectError
+                                          ? "Connect GitHub and enable “post as me”."
+                                          : (error as Error).message,
+                                      )
+                                    } finally {
+                                      setPostingActivityId(null)
+                                    }
+                                  }}
+                                >
+                                  {postingActivityId === String(event.id) ? "Posting…" : "Post to issue"}
+                                </button>
+                              )
+                            ) : null}
                           </div>
                         </div>
                       </div>

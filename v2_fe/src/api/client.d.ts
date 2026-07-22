@@ -16,8 +16,8 @@
 // serialises it. Field names are snake_case because the wire is snake_case.
 // A `ForeignKey<T>` is the target's primary-key value, not a nested object.
 
-/** `project` = Project, `task` = Task, `direct` = Direct, `incident` = Incident */
-export type TaskflowAgentChannelKind = "project" | "task" | "direct" | "incident";
+/** `project` = Project, `task` = Task, `direct` = Direct, `incident` = Incident, `group` = Group */
+export type TaskflowAgentChannelKind = "project" | "task" | "direct" | "incident" | "group";
 
 /** `user` = User, `agent` = Agent */
 export type TaskflowAgentChannelMemberMemberKind = "user" | "agent";
@@ -158,6 +158,24 @@ export interface Post {
   created_at: string | null;
 }
 
+/**
+ * Social accounts
+ * Table `oauth_social_account`, from the `oauth` plugin.
+ */
+export interface SocialAccount {
+  id: number;
+  /** Foreign key into `auth_user`. */
+  user: number;
+  provider: string;
+  provider_uid: string;
+  provider_email: string | null;
+  email_verified: boolean;
+  scopes: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Table `taskflow_agent`, from the `app` plugin. */
 export interface TaskflowAgent {
   id: number;
@@ -247,6 +265,7 @@ export interface TaskflowAgentMessage {
   sender_agent: number | null;
   /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
   target_agent: number | null;
+  targets: string | null;
   sender_label: string;
   body_markdown: string;
   priority: TaskflowAgentMessagePriority;
@@ -335,6 +354,18 @@ export interface TaskflowChannelReadCursor {
   created_at: string | null;
 }
 
+/** Table `taskflow_github_pref`, from the `app` plugin. */
+export interface TaskflowGithubPref {
+  id: number;
+  /** Foreign key into `auth_user`. */
+  user: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  post_as_me: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 /** Table `taskflow_message_attachment`, from the `app` plugin. */
 export interface TaskflowMessageAttachment {
   id: number;
@@ -362,6 +393,10 @@ export interface TaskflowProject {
   status: TaskflowProjectStatus;
   /** Foreign key into `auth_user`. */
   owner: number | null;
+  github_repo: string | null;
+  /** Foreign key into `auth_user`. */
+  github_linked_by: number | null;
+  github_default_branch: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -416,6 +451,17 @@ export interface TaskflowProjectMember {
   joined_at: string | null;
 }
 
+/** Table `taskflow_realtime_ticket`, from the `app` plugin. */
+export interface TaskflowRealtimeTicket {
+  id: number;
+  /** Foreign key into `auth_user`. */
+  user: number;
+  token_hash: string;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string | null;
+}
+
 /** Table `taskflow_task`, from the `app` plugin. */
 export interface TaskflowTask {
   id: number;
@@ -440,6 +486,8 @@ export interface TaskflowTask {
   created_by_agent_id: number | null;
   assignee_label: string | null;
   due_at: string | null;
+  github_issue_number: number | null;
+  github_issue_url: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -834,6 +882,84 @@ export interface PostUpdate {
   created_at?: string | null;
 }
 
+/** Filterable query parameters for `oauth_social_account`. Every key is optional and AND-combined server-side. */
+export interface SocialAccountFilters {
+  "user"?: number;
+  "user__ne"?: number;
+  "user__in"?: number[];
+  "provider"?: string;
+  "provider__ne"?: string;
+  "provider__contains"?: string;
+  "provider__icontains"?: string;
+  "provider__startswith"?: string;
+  "provider__in"?: string[];
+  "provider_uid"?: string;
+  "provider_uid__ne"?: string;
+  "provider_uid__contains"?: string;
+  "provider_uid__icontains"?: string;
+  "provider_uid__startswith"?: string;
+  "provider_uid__in"?: string[];
+  "provider_email"?: string;
+  "provider_email__ne"?: string;
+  "provider_email__contains"?: string;
+  "provider_email__icontains"?: string;
+  "provider_email__startswith"?: string;
+  "provider_email__in"?: string[];
+  "provider_email__isnull"?: boolean;
+  "email_verified"?: boolean;
+  "email_verified__ne"?: boolean;
+  "email_verified__in"?: boolean[];
+  "scopes"?: string;
+  "scopes__ne"?: string;
+  "scopes__contains"?: string;
+  "scopes__icontains"?: string;
+  "scopes__startswith"?: string;
+  "scopes__in"?: string[];
+  "expires_at"?: string;
+  "expires_at__ne"?: string;
+  "expires_at__gte"?: string;
+  "expires_at__lte"?: string;
+  "expires_at__gt"?: string;
+  "expires_at__lt"?: string;
+  "expires_at__in"?: string[];
+  "expires_at__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+}
+export type SocialAccountOrdering = "id" | "-id" | "user" | "-user" | "provider" | "-provider" | "provider_uid" | "-provider_uid" | "provider_email" | "-provider_email" | "email_verified" | "-email_verified" | "scopes" | "-scopes" | "expires_at" | "-expires_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `oauth_social_account`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface SocialAccountCreate {
+  user: number;
+  provider: string;
+  provider_uid: string;
+  provider_email?: string | null;
+  email_verified?: boolean;
+  scopes: string;
+  expires_at?: string | null;
+}
+/** Body for updating a `oauth_social_account` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface SocialAccountUpdate {
+  user?: number;
+  provider?: string;
+  provider_uid?: string;
+  provider_email?: string | null;
+  email_verified?: boolean;
+  scopes?: string;
+  expires_at?: string | null;
+}
+
 /** Filterable query parameters for `taskflow_agent`. Every key is optional and AND-combined server-side. */
 export interface TaskflowAgentFilters {
   "project"?: number;
@@ -1207,6 +1333,13 @@ export interface TaskflowAgentMessageFilters {
   "target_agent__ne"?: number;
   "target_agent__in"?: number[];
   "target_agent__isnull"?: boolean;
+  "targets"?: string;
+  "targets__ne"?: string;
+  "targets__contains"?: string;
+  "targets__icontains"?: string;
+  "targets__startswith"?: string;
+  "targets__in"?: string[];
+  "targets__isnull"?: boolean;
   "sender_label"?: string;
   "sender_label__ne"?: string;
   "sender_label__contains"?: string;
@@ -1241,7 +1374,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1251,6 +1384,7 @@ export interface TaskflowAgentMessageCreate {
   sender_user?: number | null;
   sender_agent?: number | null;
   target_agent?: number | null;
+  targets?: string | null;
   sender_label: string;
   body_markdown: string;
   priority?: TaskflowAgentMessagePriority;
@@ -1265,6 +1399,7 @@ export interface TaskflowAgentMessageUpdate {
   sender_user?: number | null;
   sender_agent?: number | null;
   target_agent?: number | null;
+  targets?: string | null;
   sender_label?: string;
   body_markdown?: string;
   priority?: TaskflowAgentMessagePriority;
@@ -1642,6 +1777,49 @@ export interface TaskflowChannelReadCursorUpdate {
   last_read_at?: string;
 }
 
+/** Filterable query parameters for `taskflow_github_pref`. Every key is optional and AND-combined server-side. */
+export interface TaskflowGithubPrefFilters {
+  "user"?: number;
+  "user__ne"?: number;
+  "user__in"?: number[];
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "post_as_me"?: boolean;
+  "post_as_me__ne"?: boolean;
+  "post_as_me__in"?: boolean[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type TaskflowGithubPrefOrdering = "id" | "-id" | "user" | "-user" | "project" | "-project" | "post_as_me" | "-post_as_me" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_github_pref`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowGithubPrefCreate {
+  user: number;
+  project: number;
+  post_as_me?: boolean;
+  updated_at?: string | null;
+}
+/** Body for updating a `taskflow_github_pref` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowGithubPrefUpdate {
+  user?: number;
+  project?: number;
+  post_as_me?: boolean;
+}
+
 /** Filterable query parameters for `taskflow_message_attachment`. Every key is optional and AND-combined server-side. */
 export interface TaskflowMessageAttachmentFilters {
   "message"?: number;
@@ -1754,6 +1932,24 @@ export interface TaskflowProjectFilters {
   "owner__ne"?: number;
   "owner__in"?: number[];
   "owner__isnull"?: boolean;
+  "github_repo"?: string;
+  "github_repo__ne"?: string;
+  "github_repo__contains"?: string;
+  "github_repo__icontains"?: string;
+  "github_repo__startswith"?: string;
+  "github_repo__in"?: string[];
+  "github_repo__isnull"?: boolean;
+  "github_linked_by"?: number;
+  "github_linked_by__ne"?: number;
+  "github_linked_by__in"?: number[];
+  "github_linked_by__isnull"?: boolean;
+  "github_default_branch"?: string;
+  "github_default_branch__ne"?: string;
+  "github_default_branch__contains"?: string;
+  "github_default_branch__icontains"?: string;
+  "github_default_branch__startswith"?: string;
+  "github_default_branch__in"?: string[];
+  "github_default_branch__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1771,7 +1967,7 @@ export interface TaskflowProjectFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowProjectOrdering = "id" | "-id" | "name" | "-name" | "slug" | "-slug" | "description_markdown" | "-description_markdown" | "repository_url" | "-repository_url" | "default_api_base_url" | "-default_api_base_url" | "status" | "-status" | "owner" | "-owner" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowProjectOrdering = "id" | "-id" | "name" | "-name" | "slug" | "-slug" | "description_markdown" | "-description_markdown" | "repository_url" | "-repository_url" | "default_api_base_url" | "-default_api_base_url" | "status" | "-status" | "owner" | "-owner" | "github_repo" | "-github_repo" | "github_linked_by" | "-github_linked_by" | "github_default_branch" | "-github_default_branch" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_project`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowProjectCreate {
   name: string;
@@ -1781,6 +1977,9 @@ export interface TaskflowProjectCreate {
   default_api_base_url?: string | null;
   status?: TaskflowProjectStatus;
   owner?: number | null;
+  github_repo?: string | null;
+  github_linked_by?: number | null;
+  github_default_branch?: string | null;
   updated_at?: string | null;
 }
 /** Body for updating a `taskflow_project` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
@@ -1792,6 +1991,9 @@ export interface TaskflowProjectUpdate {
   default_api_base_url?: string | null;
   status?: TaskflowProjectStatus;
   owner?: number | null;
+  github_repo?: string | null;
+  github_linked_by?: number | null;
+  github_default_branch?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_project_api_endpoint`. Every key is optional and AND-combined server-side. */
@@ -2051,6 +2253,57 @@ export interface TaskflowProjectMemberUpdate {
   invited_by?: number | null;
 }
 
+/** Filterable query parameters for `taskflow_realtime_ticket`. Every key is optional and AND-combined server-side. */
+export interface TaskflowRealtimeTicketFilters {
+  "user"?: number;
+  "user__ne"?: number;
+  "user__in"?: number[];
+  "token_hash"?: string;
+  "token_hash__ne"?: string;
+  "token_hash__contains"?: string;
+  "token_hash__icontains"?: string;
+  "token_hash__startswith"?: string;
+  "token_hash__in"?: string[];
+  "expires_at"?: string;
+  "expires_at__ne"?: string;
+  "expires_at__gte"?: string;
+  "expires_at__lte"?: string;
+  "expires_at__gt"?: string;
+  "expires_at__lt"?: string;
+  "expires_at__in"?: string[];
+  "used_at"?: string;
+  "used_at__ne"?: string;
+  "used_at__gte"?: string;
+  "used_at__lte"?: string;
+  "used_at__gt"?: string;
+  "used_at__lt"?: string;
+  "used_at__in"?: string[];
+  "used_at__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowRealtimeTicketOrdering = "id" | "-id" | "user" | "-user" | "token_hash" | "-token_hash" | "expires_at" | "-expires_at" | "used_at" | "-used_at" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_realtime_ticket`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowRealtimeTicketCreate {
+  user: number;
+  token_hash: string;
+  expires_at: string;
+  used_at?: string | null;
+}
+/** Body for updating a `taskflow_realtime_ticket` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowRealtimeTicketUpdate {
+  user?: number;
+  token_hash?: string;
+  expires_at?: string;
+  used_at?: string | null;
+}
+
 /** Filterable query parameters for `taskflow_task`. Every key is optional and AND-combined server-side. */
 export interface TaskflowTaskFilters {
   "project"?: number;
@@ -2160,6 +2413,21 @@ export interface TaskflowTaskFilters {
   "due_at__lt"?: string;
   "due_at__in"?: string[];
   "due_at__isnull"?: boolean;
+  "github_issue_number"?: number;
+  "github_issue_number__ne"?: number;
+  "github_issue_number__gte"?: number;
+  "github_issue_number__lte"?: number;
+  "github_issue_number__gt"?: number;
+  "github_issue_number__lt"?: number;
+  "github_issue_number__in"?: number[];
+  "github_issue_number__isnull"?: boolean;
+  "github_issue_url"?: string;
+  "github_issue_url__ne"?: string;
+  "github_issue_url__contains"?: string;
+  "github_issue_url__icontains"?: string;
+  "github_issue_url__startswith"?: string;
+  "github_issue_url__in"?: string[];
+  "github_issue_url__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -2177,7 +2445,7 @@ export interface TaskflowTaskFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "github_issue_number" | "-github_issue_number" | "github_issue_url" | "-github_issue_url" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_task`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowTaskCreate {
   project: number;
@@ -2197,6 +2465,8 @@ export interface TaskflowTaskCreate {
   created_by_agent_id?: number | null;
   assignee_label?: string | null;
   due_at?: string | null;
+  github_issue_number?: number | null;
+  github_issue_url?: string | null;
   updated_at?: string | null;
 }
 /** Body for updating a `taskflow_task` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
@@ -2218,6 +2488,8 @@ export interface TaskflowTaskUpdate {
   created_by_agent_id?: number | null;
   assignee_label?: string | null;
   due_at?: string | null;
+  github_issue_number?: number | null;
+  github_issue_url?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_task_activity`. Every key is optional and AND-combined server-side. */
@@ -2704,6 +2976,7 @@ export interface UmbralResources {
   "auth_token": { row: AuthToken; filters: AuthTokenFilters; ordering: AuthTokenOrdering; create: AuthTokenCreate; update: AuthTokenUpdate; id: number };
   "media_file": { row: MediaFile; filters: MediaFileFilters; ordering: MediaFileOrdering; create: MediaFileCreate; update: MediaFileUpdate; id: number };
   "post": { row: Post; filters: PostFilters; ordering: PostOrdering; create: PostCreate; update: PostUpdate; id: number };
+  "oauth_social_account": { row: SocialAccount; filters: SocialAccountFilters; ordering: SocialAccountOrdering; create: SocialAccountCreate; update: SocialAccountUpdate; id: number };
   "taskflow_agent": { row: TaskflowAgent; filters: TaskflowAgentFilters; ordering: TaskflowAgentOrdering; create: TaskflowAgentCreate; update: TaskflowAgentUpdate; id: number };
   "taskflow_agent_channel": { row: TaskflowAgentChannel; filters: TaskflowAgentChannelFilters; ordering: TaskflowAgentChannelOrdering; create: TaskflowAgentChannelCreate; update: TaskflowAgentChannelUpdate; id: number };
   "taskflow_agent_channel_member": { row: TaskflowAgentChannelMember; filters: TaskflowAgentChannelMemberFilters; ordering: TaskflowAgentChannelMemberOrdering; create: TaskflowAgentChannelMemberCreate; update: TaskflowAgentChannelMemberUpdate; id: number };
@@ -2713,11 +2986,13 @@ export interface UmbralResources {
   "taskflow_agent_session": { row: TaskflowAgentSession; filters: TaskflowAgentSessionFilters; ordering: TaskflowAgentSessionOrdering; create: TaskflowAgentSessionCreate; update: TaskflowAgentSessionUpdate; id: number };
   "taskflow_agent_terminal_frame": { row: TaskflowAgentTerminalFrame; filters: TaskflowAgentTerminalFrameFilters; ordering: TaskflowAgentTerminalFrameOrdering; create: TaskflowAgentTerminalFrameCreate; update: TaskflowAgentTerminalFrameUpdate; id: number };
   "taskflow_channel_read_cursor": { row: TaskflowChannelReadCursor; filters: TaskflowChannelReadCursorFilters; ordering: TaskflowChannelReadCursorOrdering; create: TaskflowChannelReadCursorCreate; update: TaskflowChannelReadCursorUpdate; id: number };
+  "taskflow_github_pref": { row: TaskflowGithubPref; filters: TaskflowGithubPrefFilters; ordering: TaskflowGithubPrefOrdering; create: TaskflowGithubPrefCreate; update: TaskflowGithubPrefUpdate; id: number };
   "taskflow_message_attachment": { row: TaskflowMessageAttachment; filters: TaskflowMessageAttachmentFilters; ordering: TaskflowMessageAttachmentOrdering; create: TaskflowMessageAttachmentCreate; update: TaskflowMessageAttachmentUpdate; id: number };
   "taskflow_project": { row: TaskflowProject; filters: TaskflowProjectFilters; ordering: TaskflowProjectOrdering; create: TaskflowProjectCreate; update: TaskflowProjectUpdate; id: number };
   "taskflow_project_api_endpoint": { row: TaskflowProjectApiEndpoint; filters: TaskflowProjectApiEndpointFilters; ordering: TaskflowProjectApiEndpointOrdering; create: TaskflowProjectApiEndpointCreate; update: TaskflowProjectApiEndpointUpdate; id: number };
   "taskflow_project_invite": { row: TaskflowProjectInvite; filters: TaskflowProjectInviteFilters; ordering: TaskflowProjectInviteOrdering; create: TaskflowProjectInviteCreate; update: TaskflowProjectInviteUpdate; id: number };
   "taskflow_project_member": { row: TaskflowProjectMember; filters: TaskflowProjectMemberFilters; ordering: TaskflowProjectMemberOrdering; create: TaskflowProjectMemberCreate; update: TaskflowProjectMemberUpdate; id: number };
+  "taskflow_realtime_ticket": { row: TaskflowRealtimeTicket; filters: TaskflowRealtimeTicketFilters; ordering: TaskflowRealtimeTicketOrdering; create: TaskflowRealtimeTicketCreate; update: TaskflowRealtimeTicketUpdate; id: number };
   "taskflow_task": { row: TaskflowTask; filters: TaskflowTaskFilters; ordering: TaskflowTaskOrdering; create: TaskflowTaskCreate; update: TaskflowTaskUpdate; id: number };
   "taskflow_task_activity": { row: TaskflowTaskActivity; filters: TaskflowTaskActivityFilters; ordering: TaskflowTaskActivityOrdering; create: TaskflowTaskActivityCreate; update: TaskflowTaskActivityUpdate; id: number };
   "taskflow_task_attachment": { row: TaskflowTaskAttachment; filters: TaskflowTaskAttachmentFilters; ordering: TaskflowTaskAttachmentOrdering; create: TaskflowTaskAttachmentCreate; update: TaskflowTaskAttachmentUpdate; id: number };
