@@ -26,6 +26,7 @@ import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
 import { detectTmuxPane } from "./tmux.js";
+import { AGENT_INSTRUCTIONS } from "./instructions.js";
 
 /**
  * The session identifier for this agent process.
@@ -90,10 +91,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   // don't need the caller to thread a session id through every call.
   const sessions = new Map<string, number>();
 
-  const server = new McpServer({
-    name: "taskflow-v2-mcp",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "taskflow-v2-mcp",
+      version: "0.1.0",
+    },
+    // Surfaced in the `initialize` result so the client shows the model how to
+    // use these tools on connect — the workflow and conventions the per-tool
+    // schemas can't convey (e.g. attach files, don't paste them inline).
+    { instructions: AGENT_INSTRUCTIONS },
+  );
 
   const clientFor = (profile?: string) => {
     const resolved = resolveProfile(config, { profile, env, configPath });
