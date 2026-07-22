@@ -111,10 +111,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // is `repo` (issue create + comments), overriding the default identity
         // scopes.
         .plugin({
-            // After a connect (no explicit `?next=`), return the user to the
-            // account settings page so the SPA can show "Connected".
-            let mut oauth = OAuthPlugin::new("http://localhost:8100")
-                .login_redirect("/account/settings?github=connected");
+            // `redirect_base` is the app's public, browser-facing origin: the
+            // GitHub callback is `{base}/oauth/github/callback` and it's where
+            // relative redirects resolve. In dev that's the Vite origin (:5173,
+            // which proxies /oauth to this backend), NOT the backend's own port.
+            // Override with UMBRAL_OAUTH_REDIRECT_BASE in staging/prod.
+            let base = std::env::var("UMBRAL_OAUTH_REDIRECT_BASE")
+                .unwrap_or_else(|_| "http://localhost:5173".to_string());
+            let mut oauth = OAuthPlugin::new(base.clone())
+                // After a connect, return to settings so the SPA shows "Connected".
+                .login_redirect("/account/settings?github=connected")
+                // Allow the SPA's own origin as a `?next=` return target (the
+                // open-redirect allowlist; a `next` off this origin is rejected).
+                .allow_return(base.clone());
             if let Some(gh) = GitHubProvider::from_env() {
                 oauth = oauth.provider(gh.scopes("repo"));
             }
