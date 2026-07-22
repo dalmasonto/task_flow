@@ -116,6 +116,10 @@ import {
   fetchMyInvites,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
+  fetchGithubProjectStatus,
+  linkGithubProject,
+  setGithubPostAsMe,
+  GithubNeedsConnectError,
   linkAgent,
   markChannelRead,
   openTaskflowRealtimeStream,
@@ -136,6 +140,7 @@ import {
   type TaskflowRealtimeEvent,
   type TaskflowProjectSummary,
   type TaskflowWorkspace,
+  type GithubProjectStatus,
 } from "@/lib/taskflow-api"
 import {
   addPending,
@@ -8373,6 +8378,27 @@ function ApiBasePage({
   const realtimeBase = "/realtime"
   const numericProjectId = liveId(project.id)
 
+  const [ghStatus, setGhStatus] = useState<GithubProjectStatus | null>(null)
+  const [ghRepoInput, setGhRepoInput] = useState("")
+  const [ghBusy, setGhBusy] = useState(false)
+  const [ghError, setGhError] = useState<string | null>(null)
+  useEffect(() => {
+    if (numericProjectId === null) return
+    let active = true
+    void fetchGithubProjectStatus(numericProjectId)
+      .then((status) => {
+        if (!active) return
+        setGhStatus(status)
+        setGhRepoInput(status.github_repo ?? "")
+      })
+      .catch(() => {
+        if (active) setGhStatus(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [numericProjectId])
+
   return (
     <PageShell
       eyebrow={project.name}
@@ -8432,6 +8458,107 @@ function ApiBasePage({
         <AgentSessionsTable sessions={sessions} agents={agents} credentials={credentials} />
         <AgentIdentityPanel project={project} agents={agents} />
       </div>
+
+      <section className="rounded-lg border bg-card p-4 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <GitBranchIcon className="size-4 text-primary" />
+          GitHub
+        </div>
+        {numericProjectId === null ? (
+          <p className="mt-2 text-sm text-muted-foreground">Save this project before linking GitHub.</p>
+        ) : !ghStatus ? (
+          <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
+        ) : (
+          <>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Link this project to a GitHub repository to publish tasks as issues.
+            </p>
+            {!ghStatus.user_connected ? (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
+                <Link to="/account/settings" className="underline">
+                  Connect your GitHub account
+                </Link>{" "}
+                first to link a repo or post as yourself.
+              </p>
+            ) : null}
+            <div className="mt-3 flex items-end gap-2">
+              <label className="grid flex-1 gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Repository (owner/name)</span>
+                <Input
+                  value={ghRepoInput}
+                  onChange={(event) => setGhRepoInput(event.target.value)}
+                  placeholder="acme/widgets"
+                />
+              </label>
+              <Button
+                size="sm"
+                disabled={ghBusy || !ghStatus.user_connected || !ghRepoInput.trim() || numericProjectId === null}
+                onClick={async () => {
+                  if (numericProjectId === null) return
+                  setGhBusy(true)
+                  setGhError(null)
+                  try {
+                    const result = await linkGithubProject(numericProjectId, ghRepoInput.trim())
+                    setGhStatus({ ...ghStatus, project_linked: true, github_repo: result.github_repo, can_publish: true })
+                  } catch (error) {
+                    setGhError(
+                      error instanceof GithubNeedsConnectError
+                        ? "Connect your GitHub account first."
+                        : (error as Error).message,
+                    )
+                  } finally {
+                    setGhBusy(false)
+                  }
+                }}
+              >
+                {ghStatus.project_linked ? "Update repo" : "Link repo"}
+              </Button>
+            </div>
+            {ghStatus.project_linked && ghStatus.github_repo ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Linked to <span className="font-mono">{ghStatus.github_repo}</span>.
+              </p>
+            ) : null}
+            {ghError ? <p className="mt-2 text-xs text-destructive">{ghError}</p> : null}
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Let TaskFlow post issue comments as me</p>
+                <p className="text-xs text-muted-foreground">
+                  Opt in per project. Comments go out under your own GitHub identity.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={ghStatus.post_as_me}
+                aria-label="Post issue comments as me"
+                disabled={numericProjectId === null}
+                onClick={async () => {
+                  if (numericProjectId === null) return
+                  const next = !ghStatus.post_as_me
+                  setGhStatus({ ...ghStatus, post_as_me: next })
+                  try {
+                    await setGithubPostAsMe(numericProjectId, next)
+                  } catch {
+                    setGhStatus({ ...ghStatus, post_as_me: !next })
+                  }
+                }}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+                  ghStatus.post_as_me ? "bg-primary" : "bg-input",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block size-5 transform rounded-full bg-background shadow transition-transform",
+                    ghStatus.post_as_me ? "translate-x-5" : "translate-x-0.5",
+                  )}
+                />
+              </button>
+            </div>
+          </>
+        )}
+      </section>
 
       <DeveloperEndpoints projectId={project.id} restBase={restBase} realtimeBase={realtimeBase} />
     </PageShell>
