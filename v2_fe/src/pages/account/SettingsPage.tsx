@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { setThemePreference } from "@/lib/theme"
-import { fetchUserSettings, updateUserSettings } from "@/lib/taskflow-api"
+import { fetchGithubMe, fetchUserSettings, githubConnectUrl, updateUserSettings } from "@/lib/taskflow-api"
 import type { TaskflowUserSettings, TaskflowUserSettingsTheme } from "@/api/client"
 import { CheckIcon } from "lucide-react"
 import { AccountPageHeader } from "./AccountLayout"
@@ -28,6 +28,24 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
   const [defaultProject, setDefaultProject] = React.useState<number | null>(null)
   const [status, setStatus] = React.useState<"idle" | "saving" | "saved">("idle")
   const [saveError, setSaveError] = React.useState<string | null>(null)
+  const [githubConnected, setGithubConnected] = React.useState<boolean | null>(null)
+  const [githubJustConnected, setGithubJustConnected] = React.useState(false)
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("github") === "connected") setGithubJustConnected(true)
+    let active = true
+    void fetchGithubMe()
+      .then((result) => {
+        if (active) setGithubConnected(result.connected)
+      })
+      .catch(() => {
+        if (active) setGithubConnected(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   React.useEffect(() => {
     let active = true
@@ -190,6 +208,38 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
               {projects.length === 0 ? (
                 <p className="mt-2 text-xs text-muted-foreground">You have no projects to choose from yet.</p>
               ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-lg border bg-card p-4 shadow-sm">
+            <h2 className="text-sm font-semibold">GitHub</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Connect your GitHub account so TaskFlow can open issues and post comments as you.
+            </p>
+            {githubJustConnected ? (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+                <CheckIcon className="size-4" />
+                GitHub connected.
+              </p>
+            ) : null}
+            <div className="mt-3">
+              {githubConnected === null ? (
+                <span className="text-xs text-muted-foreground">Checking…</span>
+              ) : githubConnected ? (
+                <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+                  <CheckIcon className="size-4" />
+                  Connected
+                </span>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    window.location.href = githubConnectUrl("/account/settings?github=connected")
+                  }}
+                >
+                  Connect GitHub
+                </Button>
+              )}
             </div>
           </section>
 
