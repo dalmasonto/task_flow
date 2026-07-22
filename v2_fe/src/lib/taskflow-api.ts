@@ -1156,3 +1156,121 @@ export function archiveTaskflowProject(projectId: number) {
   return updateTaskflowProject(projectId, { status: "archived" })
 }
 
+
+// --- GitHub integration -----------------------------------------------------
+// Wire the taskflow-github plugin endpoints. Mutating calls surface the
+// backend's `409 {error:"needs_connect"}` contract as a typed, catchable error
+// so every button can route the user into the OAuth connect flow.
+
+export type GithubProjectStatus = {
+  user_connected: boolean
+  project_linked: boolean
+  github_repo: string | null
+  can_publish: boolean
+  post_as_me: boolean
+}
+
+export class GithubNeedsConnectError extends Error {
+  connectUrl: string
+  constructor(connectUrl: string) {
+    super("Connect your GitHub account to continue.")
+    this.name = "GithubNeedsConnectError"
+    this.connectUrl = connectUrl
+  }
+}
+
+/**
+ * Full-page connect URL. A relative `/oauth/...` path is proxied to the backend
+ * in dev and same-origin in prod. `returnPath` becomes the post-connect landing
+ * (must be an allowlisted return URL on the backend; login_redirect is the
+ * fallback). Safe under SSR/vitest where `window` is absent.
+ */
+export function githubConnectUrl(returnPath?: string): string {
+  const base = `${API_BASE_URL}/oauth/github/connect`
+  if (!returnPath) return base
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
+  return `${base}?next=${encodeURIComponent(`${origin}${returnPath}`)}`
+}
+
+/** "https://github.com/acme/widgets/issues/7" -> "#7"; null if there is none. */
+export function issueRefFromUrl(url: string | null): string | null {
+  if (!url) return null
+  const match = url.match(/\/issues\/(\d+)/)
+  return match ? `#${match[1]}` : null
+}
+
+async function githubMutate(path: string, body?: unknown): Promise<Response> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  })
+  if (response.status === 409) {
+    const data = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as { error?: string; connect_url?: string } | null
+    if (data?.error === "needs_connect") {
+      throw new GithubNeedsConnectError(data.connect_url ?? "/oauth/github/connect")
+    }
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `GitHub request failed (${response.status}).`))
+  }
+  return response
+}
+
+export async function fetchGithubMe(): Promise<{ connected: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/github/me`, {
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) throw new Error(await readErrorDetail(response, "Could not check GitHub status."))
+  return response.json()
+}
+
+export async function fetchGithubProjectStatus(projectId: number): Promise<GithubProjectStatus> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/taskflow/github/projects/${projectId}/status`,
+    { credentials: "include", headers: bearerHeaders() },
+  )
+  if (!response.ok) throw new Error(await readErrorDetail(response, "Could not load GitHub status."))
+  return response.json()
+}
+
+export async function linkGithubProject(
+  projectId: number,
+  repo: string,
+): Promise<{ github_repo: string }> {
+  const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/link`, { repo })
+  return response.json()
+}
+
+export async function publishTaskAsIssue(
+  projectId: number,
+  taskId: number,
+): Promise<{ issue_number: number; issue_url: string }> {
+  const response = await githubMutate(
+    `/api/taskflow/github/projects/${projectId}/tasks/${taskId}/publish`,
+  )
+  return response.json()
+}
+
+export async function commentOnIssueAsMe(
+  projectId: number,
+  taskId: number,
+  body: string,
+): Promise<void> {
+  await githubMutate(`/api/taskflow/github/projects/${projectId}/tasks/${taskId}/comment`, { body })
+}
+
+export async function setGithubPostAsMe(
+  projectId: number,
+  postAsMe: boolean,
+): Promise<{ post_as_me: boolean }> {
+  const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/pref`, {
+    post_as_me: postAsMe,
+  })
+  return response.json()
+}
