@@ -13,9 +13,12 @@ use umbral_auth::RequireAuth;
 use taskflow_projects::models::{TaskflowProject, taskflow_project};
 use taskflow_tasks::models::{TaskflowTask, taskflow_task};
 
+use serde::Deserialize;
+
 use crate::GithubDeps;
 use crate::api::NewIssue;
-use crate::tokens::{TokenOutcome, resolve_owner_token};
+use crate::models::{TaskflowGithubPref, taskflow_github_pref};
+use crate::tokens::{TokenOutcome, resolve_actor_token, resolve_owner_token};
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -91,4 +94,66 @@ pub async fn publish_issue(
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "store"))?;
 
     Ok(Json(json!({ "issue_number": issue.number, "issue_url": issue.url })))
+}
+
+#[derive(Deserialize)]
+pub struct CommentBody {
+    pub body: String,
+}
+
+/// `POST /api/taskflow/github/projects/{project}/tasks/{task}/comment`
+///
+/// Comment on the task's GitHub issue, attributed to the acting user. Opt-in:
+/// uses that user's own token only when their `post_as_me` pref is true and
+/// they have a linked account; otherwise 409 needs_connect (never the owner
+/// key under their name).
+pub async fn comment_on_issue(
+    State(deps): State<GithubDeps>,
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path((project_id, task_id)): Path<(i64, i64)>,
+    Json(input): Json<CommentBody>,
+) -> Result<StatusCode, ApiError> {
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "project"))?;
+    let repo = project
+        .github_repo
+        .clone()
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "not_linked"))?;
+
+    let task = TaskflowTask::objects()
+        .filter(taskflow_task::ID.eq(task_id) & taskflow_task::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "task"))?;
+    let issue_number = task
+        .github_issue_number
+        .ok_or_else(|| err(StatusCode::CONFLICT, "not_published"))?;
+
+    // Opt-in: default false when no pref row exists for this (user, project).
+    let post_as_me = TaskflowGithubPref::objects()
+        .filter(
+            taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .map(|p| p.post_as_me)
+        .unwrap_or(false);
+
+    let token = match resolve_actor_token(deps.tokens.as_ref(), user_id, post_as_me).await {
+        TokenOutcome::Ready(t) => t,
+        TokenOutcome::NeedsConnect => return Err(needs_connect()),
+    };
+
+    deps.api
+        .add_comment(&token, &repo, issue_number, &input.body)
+        .await
+        .map_err(|_| err(StatusCode::BAD_GATEWAY, "github"))?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

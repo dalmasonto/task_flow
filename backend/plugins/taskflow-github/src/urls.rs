@@ -15,5 +15,10 @@ pub fn router(deps: GithubDeps) -> Router {
             "/api/taskflow/github/projects/{project}/tasks/{task}/publish",
             post(views::publish_issue),
         )
+        // Comment on the task's issue, attributed to the acting user (opt-in).
+        .route(
+            "/api/taskflow/github/projects/{project}/tasks/{task}/comment",
+            post(views::comment_on_issue),
+        )
         .with_state(deps)
 }
