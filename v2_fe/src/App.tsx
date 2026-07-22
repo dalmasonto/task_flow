@@ -3742,6 +3742,14 @@ function App() {
           onPauseSession={handlePauseTaskSession}
           onStopSession={handleStopTaskSession}
           onUploadAttachment={(files) => void handleUploadTaskAttachment(openTask.id, files)}
+          onAddComment={async (body) => {
+            const projectId = liveId(activeProject.id)
+            const taskId = liveId(openTask.id)
+            if (projectId === null || taskId === null) {
+              throw new Error("Save this project before commenting on its tasks.")
+            }
+            await recordTaskSessionActivity(projectId, taskId, "commented", body)
+          }}
         />
       ) : null}
       <TaskSessionDock
@@ -4607,6 +4615,7 @@ function TaskDetailSheet({
   onPauseSession,
   onStopSession,
   onUploadAttachment,
+  onAddComment,
 }: {
   task: Task
   project: Project
@@ -4623,6 +4632,7 @@ function TaskDetailSheet({
   onPauseSession: (task: Task) => void
   onStopSession: (task: Task, finalStatus: Extract<TaskflowTaskStatus, "done" | "partial_done" | "blocked">) => void
   onUploadAttachment: (files: File[]) => void
+  onAddComment: (body: string) => Promise<void>
 }) {
   const currentStatus = columns.find((column) => column.id === task.status)
   const attachments = liveWorkspace ? getTaskAttachments(task, liveWorkspace) : []
@@ -4705,6 +4715,26 @@ function TaskDetailSheet({
   const issueNumber = localIssue?.number ?? rawTask?.github_issue_number ?? null
   const issueUrl = localIssue?.url ?? rawTask?.github_issue_url ?? null
   const canCommentAsMe = Boolean(issueNumber && ghStatus?.user_connected && ghStatus?.post_as_me)
+
+  // #53: leave a comment on the task — stored as a `commented` activity item, so
+  // it flows into the activity feed (and can then be pushed to the GitHub issue).
+  const [commentDraft, setCommentDraft] = useState("")
+  const [commentBusy, setCommentBusy] = useState(false)
+  const [commentError, setCommentError] = useState<string | null>(null)
+  const submitComment = async () => {
+    const body = commentDraft.trim()
+    if (!body || commentBusy) return
+    setCommentBusy(true)
+    setCommentError(null)
+    try {
+      await onAddComment(body)
+      setCommentDraft("")
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "Could not post the comment.")
+    } finally {
+      setCommentBusy(false)
+    }
+  }
 
   return (
     <>
@@ -5063,6 +5093,34 @@ function TaskDetailSheet({
                 icon={<ActivityIcon className="size-4 text-primary" />}
                 title="Activity"
               >
+                <div className="mb-3 rounded-lg border bg-background p-2 shadow-sm">
+                  <textarea
+                    rows={2}
+                    className="max-h-40 min-h-9 w-full resize-y bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground"
+                    placeholder="Leave a comment…"
+                    value={commentDraft}
+                    onChange={(event) => setCommentDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      // Cmd/Ctrl+Enter submits; plain Enter keeps a newline.
+                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                        event.preventDefault()
+                        void submitComment()
+                      }
+                    }}
+                  />
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      {commentError ? (
+                        <span className="text-destructive">{commentError}</span>
+                      ) : (
+                        <>Comments post to the task's activity. ⌘/Ctrl+Enter to send.</>
+                      )}
+                    </span>
+                    <Button size="xs" disabled={commentBusy || !commentDraft.trim()} onClick={() => void submitComment()}>
+                      {commentBusy ? "Posting…" : "Comment"}
+                    </Button>
+                  </div>
+                </div>
                 <div className="space-y-3">
                   {activity.length ? (
                     activity.map((event) => (
