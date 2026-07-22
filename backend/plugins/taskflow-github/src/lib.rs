@@ -19,8 +19,18 @@ pub mod tokens;
 pub mod urls;
 pub mod views;
 
+use std::sync::Arc;
+
 use umbral::plugin::{AppContext, Plugin, PluginError};
 use umbral::web::Router;
+
+/// Collaborators the handlers need, injected as axum state so tests supply
+/// fakes and `main.rs` (Task 8) supplies the real reqwest / umbral-oauth impls.
+#[derive(Clone)]
+pub struct GithubDeps {
+    pub api: Arc<dyn api::GithubApi>,
+    pub tokens: Arc<dyn tokens::GithubTokenSource>,
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct TaskflowGithubPlugin;
