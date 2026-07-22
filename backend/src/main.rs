@@ -40,6 +40,8 @@ use umbral_admin::AdminPlugin;
 use umbral_auth::{
     AuthPlugin, AuthUser, BearerAuthentication, SessionAuthentication, login_required_html,
 };
+use umbral_oauth::OAuthPlugin;
+use umbral_oauth::providers::GitHubProvider;
 use umbral_openapi::OpenApiPlugin;
 use umbral_playground::PlaygroundPlugin;
 use umbral_rest::{
@@ -102,9 +104,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .plugin(TaskflowProjectsPlugin::default())
         .plugin(TaskflowTasksPlugin::default())
         .plugin(TaskflowAgentsPlugin::default())
-        // GitHub linking: publish-as-issue + comment-as-actor. OAuth wiring
-        // (OAuthPlugin) is added in a later step; this registers the models +
-        // (once wired) the plugin's own JSON routes.
+        // GitHub OAuth: social login + account-linking. Requires SessionsPlugin
+        // (wired above) for the single-use `state` + PKCE. Providers load from
+        // env (UMBRAL_OAUTH_GITHUB_CLIENT_ID/SECRET); absent env => no provider
+        // registered, and the connect routes 404 until it is configured. Scope
+        // is `repo` (issue create + comments), overriding the default identity
+        // scopes.
+        .plugin({
+            let mut oauth = OAuthPlugin::new("http://localhost:8100");
+            if let Some(gh) = GitHubProvider::from_env() {
+                oauth = oauth.provider(gh.scopes("repo"));
+            }
+            oauth
+        })
+        // TaskFlow GitHub linking: publish-as-issue + comment-as-actor. Reads
+        // linked tokens from the OAuth SocialAccount model above.
         .plugin(TaskflowGithubPlugin::default())
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a

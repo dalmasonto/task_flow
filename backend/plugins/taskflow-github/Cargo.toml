@@ -16,6 +16,8 @@ async-trait = "0.1"
 # umbral::web re-exports axum's Router/Json/Path/get/post but NOT `State`;
 # handlers take their injected deps via `axum::extract::State` directly.
 axum = "0.8"
+umbral-oauth = "0.0.10"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 umbral-testing = "0.0.10"

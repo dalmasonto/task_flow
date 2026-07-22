@@ -13,6 +13,7 @@
 //! All GitHub/OAuth access sits behind the `api`/`tokens` traits, so the
 //! handlers are testable against in-memory fakes with no network.
 
+pub mod adapters;
 pub mod api;
 pub mod models;
 pub mod tokens;
@@ -49,9 +50,13 @@ impl Plugin for TaskflowGithubPlugin {
     }
 
     fn routes(&self) -> Router {
-        // Wired to real adapters in Task 8. Tests call `urls::router(deps)`
-        // directly with fakes.
-        Router::new()
+        // Real adapters: GitHub REST via reqwest, tokens via umbral-oauth.
+        // Tests bypass this and call `urls::router(deps)` with fakes.
+        let deps = GithubDeps {
+            api: Arc::new(adapters::ReqwestGithubApi::new()),
+            tokens: Arc::new(adapters::OauthTokenSource),
+        };
+        urls::router(deps)
     }
 
     fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {

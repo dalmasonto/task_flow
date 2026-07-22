@@ -38,6 +38,9 @@ umbral-rest     = "0.0.10"
 umbral-openapi  = "0.0.10"
 umbral-security = "0.0.10"
 umbral-realtime = "0.0.10"
+# OAuth / social login + account-linking (GitHub). Wired in main.rs; the
+# taskflow-github plugin reads linked tokens from its SocialAccount model.
+umbral-oauth    = "0.0.10"
 # Observability init helper (structured JSON logging). Enable the `otel`
 # feature to ALSO export OpenTelemetry traces over OTLP to a collector
 # (Jaeger/Tempo/Honeycomb): `umbral-logs = { version = "0.0.10", features = ["otel"] }`.
