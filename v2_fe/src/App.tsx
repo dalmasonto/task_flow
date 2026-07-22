@@ -4721,6 +4721,10 @@ function TaskDetailSheet({
   const [commentDraft, setCommentDraft] = useState("")
   const [commentBusy, setCommentBusy] = useState(false)
   const [commentError, setCommentError] = useState<string | null>(null)
+  // Mirror the comment to the linked GitHub issue on submit. Defaults on when
+  // eligible (published issue + connected + opted in), so a comment posts with
+  // one action instead of a second click on the per-row button.
+  const [alsoPostToGithub, setAlsoPostToGithub] = useState(true)
   const submitComment = async () => {
     const body = commentDraft.trim()
     if (!body || commentBusy) return
@@ -4729,8 +4733,23 @@ function TaskDetailSheet({
     try {
       await onAddComment(body)
       setCommentDraft("")
+      // The comment is recorded; the GitHub mirror is best-effort on top. If it
+      // fails, the per-row "Post to issue" button remains for a retry.
+      if (alsoPostToGithub && canCommentAsMe) {
+        const projectId = liveId(project.id)
+        const taskId = liveId(task.id)
+        if (projectId !== null && taskId !== null) {
+          await commentOnIssueAsMe(projectId, taskId, body)
+        }
+      }
     } catch (error) {
-      setCommentError(error instanceof Error ? error.message : "Could not post the comment.")
+      setCommentError(
+        error instanceof GithubNeedsConnectError
+          ? "Comment saved, but connect GitHub / enable “post as me” to mirror it."
+          : error instanceof Error
+            ? error.message
+            : "Could not post the comment.",
+      )
     } finally {
       setCommentBusy(false)
     }
@@ -5109,16 +5128,40 @@ function TaskDetailSheet({
                     }}
                   />
                   <div className="mt-1 flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                       {commentError ? (
                         <span className="text-destructive">{commentError}</span>
                       ) : (
-                        <>Comments post to the task's activity. ⌘/Ctrl+Enter to send.</>
+                        <>Posts to the task's activity. ⌘/Ctrl+Enter to send.</>
                       )}
                     </span>
-                    <Button size="xs" disabled={commentBusy || !commentDraft.trim()} onClick={() => void submitComment()}>
-                      {commentBusy ? "Posting…" : "Comment"}
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {issueNumber ? (
+                        <label
+                          className={cn(
+                            "flex items-center gap-1.5 text-[11px]",
+                            canCommentAsMe ? "text-muted-foreground" : "text-muted-foreground/60",
+                          )}
+                          title={
+                            canCommentAsMe
+                              ? `Also post this comment to GitHub issue #${issueNumber} as you`
+                              : "Connect GitHub and enable “post as me” in project settings to mirror comments"
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            className="size-3.5 accent-primary"
+                            checked={alsoPostToGithub && canCommentAsMe}
+                            disabled={!canCommentAsMe}
+                            onChange={(event) => setAlsoPostToGithub(event.target.checked)}
+                          />
+                          Post to issue #{issueNumber}
+                        </label>
+                      ) : null}
+                      <Button size="xs" disabled={commentBusy || !commentDraft.trim()} onClick={() => void submitComment()}>
+                        {commentBusy ? "Posting…" : "Comment"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-3">
