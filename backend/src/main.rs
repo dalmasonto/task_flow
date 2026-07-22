@@ -31,6 +31,7 @@ mod widgets;
 
 use std::sync::Arc;
 use taskflow_agents::TaskflowAgentsPlugin;
+use taskflow_github::TaskflowGithubPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
 use umbral::prelude::*;
@@ -101,6 +102,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .plugin(TaskflowProjectsPlugin::default())
         .plugin(TaskflowTasksPlugin::default())
         .plugin(TaskflowAgentsPlugin::default())
+        // GitHub linking: publish-as-issue + comment-as-actor. OAuth wiring
+        // (OAuthPlugin) is added in a later step; this registers the models +
+        // (once wired) the plugin's own JSON routes.
+        .plugin(TaskflowGithubPlugin::default())
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a
         // fresh admin isn't empty — add your own with `.dashboard_section`.

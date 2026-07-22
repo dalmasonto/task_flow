@@ -1,0 +1,20 @@
+[package]
+name = "taskflow-github"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+umbral = "0.0.10"
+umbral-auth = "0.0.10"
+taskflow-projects = { path = "../taskflow-projects" }
+taskflow-tasks = { path = "../taskflow-tasks" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+
+[dev-dependencies]
+umbral-testing = "0.0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+http = "1"

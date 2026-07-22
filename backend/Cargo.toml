@@ -22,6 +22,7 @@ path = "src/lib.rs"
 taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }
 taskflow-projects = { path = "plugins/taskflow-projects" }
+taskflow-github = { path = "plugins/taskflow-github" }
 
 # ----- Framework core (always required) ------------------------------------
 umbral         = "0.0.10"

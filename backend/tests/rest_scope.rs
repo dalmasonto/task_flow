@@ -156,6 +156,9 @@ async fn make_project(name: &str, slug: &str) -> i64 {
             default_api_base_url: None,
             status: TaskflowProjectStatus::Active,
             owner: None,
+            github_repo: None,
+            github_linked_by: None,
+            github_default_branch: None,
             created_at: None,
             updated_at: None,
         })
@@ -204,6 +207,8 @@ async fn make_task(project: i64, title: &str) {
             estimate_minutes: None,
             assignee_label: None,
             due_at: None,
+            github_issue_number: None,
+            github_issue_url: None,
             created_at: None,
             updated_at: None,
         })

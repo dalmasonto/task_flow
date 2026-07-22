@@ -53,6 +53,9 @@ async fn make_project(slug: &str) -> i64 {
             default_api_base_url: None,
             status: TaskflowProjectStatus::Active,
             owner: None,
+            github_repo: None,
+            github_linked_by: None,
+            github_default_branch: None,
             created_at: None,
             updated_at: None,
         })
