@@ -11,6 +11,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  MinusIcon,
   CheckCircle2Icon,
   CircleDotIcon,
   Clock3Icon,
@@ -53,7 +54,8 @@ import {
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
-import { TaskChipContext, GithubRepoContext } from "@/lib/markdown-contexts"
+import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
+import { loadDockOpen, loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -2527,6 +2529,17 @@ function App() {
     setOpenTaskId(String(taskId))
   }, [])
 
+  // #55: the docked chat's own state. It is deliberately NOT route-driven — the
+  // dock exists so you can message someone without navigating away, so putting
+  // it in the URL would defeat the point. Persisted so it survives a reload.
+  const [dockOpen, setDockOpen] = useState(() => loadDockOpen())
+  const [dockChatId, setDockChatId] = useState<string | null>(() => loadDockChatId())
+  useEffect(() => saveDockState(dockOpen, dockChatId), [dockOpen, dockChatId])
+  const openDockChat = useCallback((chatId: string) => {
+    setDockChatId(chatId)
+    setDockOpen(true)
+  }, [])
+
   if (publicPath === "/") {
     return <LandingPage />
   }
@@ -3268,6 +3281,7 @@ function App() {
   return (
     <TaskChipContext.Provider value={openTaskById}>
      <GithubRepoContext.Provider value={activeLiveWorkspace?.project.github_repo ?? null}>
+     <ChatDockContext.Provider value={openDockChat}>
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         projects={sidebarProjects}
@@ -3814,7 +3828,35 @@ function App() {
         onCreateInvite={handleCreateInvite}
         onReviewDecision={handleReviewDecision}
       />
+      {/* #55: chat lives over the page, not on a route of its own — the whole
+          point is not losing your place on the board to send one message. */}
+      {activeProject && dockOpen ? (
+        <ChatDock
+          project={activeProject}
+          liveWorkspace={activeLiveWorkspace}
+          currentUser={currentUser}
+          onWorkspaceUpdate={(updater) => {
+            if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
+          }}
+          onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
+          chatId={dockChatId}
+          onChangeChat={setDockChatId}
+          onClose={() => setDockOpen(false)}
+        />
+      ) : null}
+      {activeProject && !dockOpen ? (
+        <button
+          type="button"
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"
+          onClick={() => setDockOpen(true)}
+          title="Open chat"
+        >
+          <MessageSquareIcon className="size-4" />
+          Chat
+        </button>
+      ) : null}
     </SidebarProvider>
+     </ChatDockContext.Provider>
      </GithubRepoContext.Provider>
     </TaskChipContext.Provider>
   )
@@ -6483,6 +6525,154 @@ function useAgentChat({
     setMessageError,
     outletContext,
   }
+}
+
+/// #55: the docked chat panel — message any agent or channel without leaving the
+/// page you are on.
+///
+/// It mounts the SAME `useAgentChat` + `AgentsConversationView` the Agents page
+/// uses, so every feature (@mentions, targeting, attachments, prompt cards)
+/// works here too and cannot drift. Only the chrome differs: this draws its own
+/// header with a conversation switcher, and the view runs in `compact`.
+function ChatDock({
+  project,
+  liveWorkspace,
+  currentUser,
+  onWorkspaceUpdate,
+  onRefreshWorkspace,
+  chatId,
+  onChangeChat,
+  onClose,
+}: {
+  project: Project
+  liveWorkspace: TaskflowWorkspace | null
+  currentUser: AuthUser | null
+  onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
+  onRefreshWorkspace: () => Promise<void>
+  chatId: string | null
+  onChangeChat: (chatId: string) => void
+  onClose: () => void
+}) {
+  const [minimised, setMinimised] = useState(false)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const isBelowLg = useIsBelowLg()
+
+  const { directChats, channelChats, allChats, selectedChat, messageError, outletContext } =
+    useAgentChat({
+      project,
+      liveWorkspace,
+      currentUser,
+      onWorkspaceUpdate,
+      onRefreshWorkspace,
+      selectedChatId: chatId,
+    })
+
+  // Nothing selected yet (first open, or the stored id no longer resolves):
+  // fall back to the project room, then any DM, so the dock never opens empty.
+  useEffect(() => {
+    if (selectedChat || !allChats.length) return
+    const first = channelChats[0] ?? directChats[0]
+    if (first) onChangeChat(first.id)
+  }, [selectedChat, allChats, channelChats, directChats, onChangeChat])
+
+  if (!allChats.length) return null
+
+  // On a narrow screen a 380px corner panel is most of the viewport anyway, so
+  // it takes the whole screen rather than fighting the page for room.
+  const frame = isBelowLg
+    ? "inset-2"
+    : "bottom-4 right-4 w-[min(26rem,calc(100vw-2rem))] h-[min(34rem,calc(100vh-6rem))]"
+
+  return (
+    <section
+      role="dialog"
+      aria-label="Chat"
+      className={cn(
+        "fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-card shadow-2xl",
+        minimised ? "bottom-4 right-4 h-auto w-[min(20rem,calc(100vw-2rem))]" : frame
+      )}
+    >
+      <header className="flex shrink-0 items-center gap-1 border-b px-3 py-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          onClick={() => setSwitcherOpen((open) => !open)}
+          aria-expanded={switcherOpen}
+          title="Switch conversation"
+        >
+          <span className="truncate text-sm font-semibold">
+            {selectedChat?.title ?? "Chat"}
+          </span>
+          <ChevronDownIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition", switcherOpen && "rotate-180")} />
+        </button>
+        <button
+          type="button"
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => setMinimised((value) => !value)}
+          title={minimised ? "Expand" : "Minimise"}
+          aria-label={minimised ? "Expand chat" : "Minimise chat"}
+        >
+          {minimised ? <ChevronUpIcon className="size-4" /> : <MinusIcon className="size-4" />}
+        </button>
+        <button
+          type="button"
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={onClose}
+          title="Close chat"
+          aria-label="Close chat"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </header>
+
+      {minimised ? null : switcherOpen ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          {[
+            { label: "Channels", chats: channelChats },
+            { label: "Direct messages", chats: directChats },
+          ].map((group) =>
+            group.chats.length ? (
+              <div key={group.label} className="mb-1">
+                <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {group.label}
+                </p>
+                {group.chats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                      chat.id === selectedChat?.id && "bg-muted font-medium"
+                    )}
+                    onClick={() => {
+                      onChangeChat(chat.id)
+                      setSwitcherOpen(false)
+                    }}
+                  >
+                    <span className="truncate">{chat.title}</span>
+                    {chat.unread ? (
+                      <span className="shrink-0 rounded-full bg-primary px-1.5 text-[11px] font-medium text-primary-foreground">
+                        {chat.unread}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null
+          )}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {messageError ? (
+            <p className="border-b bg-rose-50 px-3 py-1.5 text-xs text-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              {messageError}
+            </p>
+          ) : null}
+          <AgentsConversationView {...outletContext} variant="compact" />
+        </div>
+      )}
+    </section>
+  )
 }
 
 function AgentsPage({

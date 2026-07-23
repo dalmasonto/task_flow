@@ -16,3 +16,9 @@ export const TaskChipContext = createContext<((taskId: number) => void) | null>(
 /// project has none. A `#gh<n>` chip needs it to build an issue URL; without it
 /// the chip renders inert and says why rather than linking nowhere.
 export const GithubRepoContext = createContext<string | null>(null)
+
+/// #55: opens the docked chat on a conversation, from anywhere in the app.
+/// Deliberately the same shape as [[TaskChipContext]] — "click a reference
+/// anywhere, open the thing" — so any surface can offer chat without threading a
+/// callback down to it. Null (the default) means no dock is mounted.
+export const ChatDockContext = createContext<((chatId: string) => void) | null>(null)
