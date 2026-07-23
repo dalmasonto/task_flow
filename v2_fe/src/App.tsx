@@ -164,6 +164,7 @@ import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
 import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
+import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MessageAttachments } from "@/components/message-attachments"
 import { AttachableTextarea, type AttachableFile } from "@/components/attachable-textarea"
@@ -4716,6 +4717,11 @@ function TaskDetailSheet({
   const issueNumber = localIssue?.number ?? rawTask?.github_issue_number ?? null
   const issueUrl = localIssue?.url ?? rawTask?.github_issue_url ?? null
   const canCommentAsMe = Boolean(issueNumber && ghStatus?.user_connected && ghStatus?.post_as_me)
+  // #25: one resolver drives the banner, the per-row button, and the composer
+  // checkbox — so a blocked gate is stated once instead of silently hiding three
+  // different controls.
+  const mirrorState = githubMirrorState(ghStatus, issueNumber)
+  const mirrorReason = githubMirrorReason(mirrorState)
 
   // #53: leave a comment on the task — stored as a `commented` activity item, so
   // it flows into the activity feed (and can then be pushed to the GitHub issue).
@@ -5180,43 +5186,47 @@ function TaskDetailSheet({
                             <span>{event.actor}</span>
                             <span>{event.action.replace(/_/g, " ")}</span>
                             <span>{event.time}</span>
-                            {issueNumber ? (
-                              postedActivityIds.has(String(event.id)) ? (
-                                <span className="text-emerald-600 dark:text-emerald-400">Posted to issue</span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="text-muted-foreground underline-offset-2 hover:text-primary hover:underline disabled:opacity-50 disabled:no-underline"
-                                  disabled={!canCommentAsMe || postingActivityId === String(event.id)}
-                                  title={
-                                    canCommentAsMe
-                                      ? "Post this to the GitHub issue as you"
-                                      : "Enable “post as me” in the project's GitHub settings and connect your account"
+                            {mirrorState.kind === "unknown" ? null : mirrorState.kind === "auto" ? (
+                              <span className="ml-auto text-muted-foreground/80">Mirrored automatically</span>
+                            ) : postedActivityIds.has(String(event.id)) ? (
+                              <span className="ml-auto text-emerald-600 dark:text-emerald-400">Posted to issue</span>
+                            ) : (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className="ml-auto"
+                                disabled={mirrorState.kind !== "ready" || postingActivityId === String(event.id)}
+                                title={
+                                  mirrorReason ?? `Post this to GitHub issue #${issueNumber} as you`
+                                }
+                                onClick={async () => {
+                                  const projectId = liveId(project.id)
+                                  const taskId = liveId(task.id)
+                                  if (projectId === null || taskId === null) return
+                                  setPostingActivityId(String(event.id))
+                                  setGhActionError(null)
+                                  try {
+                                    await commentOnIssueAsMe(projectId, taskId, event.detail)
+                                    setPostedActivityIds((prev) => new Set(prev).add(String(event.id)))
+                                  } catch (error) {
+                                    setGhActionError(
+                                      error instanceof GithubNeedsConnectError
+                                        ? "Connect GitHub and enable “post as me”."
+                                        : (error as Error).message,
+                                    )
+                                  } finally {
+                                    setPostingActivityId(null)
                                   }
-                                  onClick={async () => {
-                                    const projectId = liveId(project.id)
-                                    const taskId = liveId(task.id)
-                                    if (projectId === null || taskId === null) return
-                                    setPostingActivityId(String(event.id))
-                                    setGhActionError(null)
-                                    try {
-                                      await commentOnIssueAsMe(projectId, taskId, event.detail)
-                                      setPostedActivityIds((prev) => new Set(prev).add(String(event.id)))
-                                    } catch (error) {
-                                      setGhActionError(
-                                        error instanceof GithubNeedsConnectError
-                                          ? "Connect GitHub and enable “post as me”."
-                                          : (error as Error).message,
-                                      )
-                                    } finally {
-                                      setPostingActivityId(null)
-                                    }
-                                  }}
-                                >
-                                  {postingActivityId === String(event.id) ? "Posting…" : "Post to issue"}
-                                </button>
-                              )
-                            ) : null}
+                                }}
+                              >
+                                <GitBranchIcon className="size-3.5" />
+                                {postingActivityId === String(event.id)
+                                  ? "Posting…"
+                                  : issueNumber
+                                    ? `Post to #${issueNumber}`
+                                    : "Post to issue"}
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
