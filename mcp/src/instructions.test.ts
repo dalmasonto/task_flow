@@ -40,4 +40,18 @@ describe("AGENT_INSTRUCTIONS", () => {
   it("is substantial enough to be a real guide", () => {
     expect(AGENT_INSTRUCTIONS.length).toBeGreaterThan(500);
   });
+
+  // #54: a GitHub issue written as a bare `#12` renders as a TaskFlow task chip
+  // and clicks through to a task that does not exist. Agents write most of the
+  // messages in a project, so the convention has to reach them here.
+  it("teaches the #gh<n> convention for GitHub issues", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("#gh");
+  });
+
+  it("warns against writing a bare #<n> for a GitHub issue", () => {
+    const lower = AGENT_INSTRUCTIONS.toLowerCase();
+    expect(lower).toContain("github issue");
+    // It must state the consequence, not just the rule.
+    expect(lower).toMatch(/task chip|as a task|taskflow task/);
+  });
 });

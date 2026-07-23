@@ -1,14 +1,10 @@
-import { createContext, useContext, type ReactNode } from "react"
+import { useContext, type ReactNode } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 
 import { cn } from "@/lib/utils"
 import { splitTaskRefs } from "@/lib/task-refs"
-
-/// Lets a `TASK#<n>` chip open the task sheet without threading a callback
-/// through every MarkdownRenderer. App provides the opener; chips consume it.
-/// Null (the default) renders chips as inert styled text.
-export const TaskChipContext = createContext<((taskId: number) => void) | null>(null)
+import { TaskChipContext, GithubRepoContext } from "@/lib/markdown-contexts"
 
 /// Remark plugin: rewrite `TASK#<n>` inside text nodes into link nodes with a
 /// `#task-<n>` fragment url (which the URL sanitizer allows), so the `a`
@@ -35,7 +31,10 @@ function remarkTaskChips() {
           } else {
             next.push({
               type: "link",
-              url: `#task-${segment.id}`,
+              url:
+                segment.type === "github"
+                  ? `#gh-issue-${segment.issue}`
+                  : `#task-${segment.id}`,
               children: [{ type: "text", value: segment.raw }],
             })
           }
@@ -69,6 +68,33 @@ function TaskChip({ taskId, children }: { taskId: number; children?: ReactNode }
   )
 }
 
+/// One `#gh<n>` chip. Deliberately styled unlike the task chip — telling the two
+/// apart at a glance is the entire point of #54. Links out when the project has a
+/// repo; otherwise inert with a reason, never a dead click.
+function GithubIssueChip({ issue, children }: { issue: number; children?: ReactNode }) {
+  const repo = useContext(GithubRepoContext)
+  const chipClass =
+    "inline-flex items-center gap-0.5 rounded-md bg-muted px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-muted-foreground ring-1 ring-border"
+  if (!repo) {
+    return (
+      <span className={chipClass} title="Link a GitHub repo in project settings to open issues">
+        {children}
+      </span>
+    )
+  }
+  return (
+    <a
+      href={`https://github.com/${repo}/issues/${issue}`}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(chipClass, "cursor-pointer transition hover:bg-muted/70 hover:text-foreground")}
+      title={`Open ${repo} issue #${issue} on GitHub`}
+    >
+      {children}
+    </a>
+  )
+}
+
 type MarkdownRendererProps = {
   content: string
   compact?: boolean
@@ -92,6 +118,8 @@ const markdownComponents: Components = {
   a: ({ children, href }) => {
     const taskMatch = /^#task-(\d+)$/.exec(href ?? "")
     if (taskMatch) return <TaskChip taskId={Number(taskMatch[1])}>{children}</TaskChip>
+    const issueMatch = /^#gh-issue-(\d+)$/.exec(href ?? "")
+    if (issueMatch) return <GithubIssueChip issue={Number(issueMatch[1])}>{children}</GithubIssueChip>
     return (
       <a
         href={href}

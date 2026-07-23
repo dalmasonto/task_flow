@@ -44,6 +44,13 @@ loop.
   or anything a teammate should open as a file — pass its path in the **\`files\`
   array**. Do NOT paste large file contents into the message body; attach the
   file instead.
+- **Referencing tasks vs GitHub issues.** In any message, activity note or task
+  description, \`#12\` and \`TASK#12\` render as a clickable **TaskFlow task** chip.
+  So write a **GitHub issue** as \`#gh12\` (or \`#GH12\`) — never a bare \`#12\`.
+  A bare \`#12\` meaning a GitHub issue becomes a task chip pointing at TaskFlow
+  task 12, which is a different thing or does not exist at all, and it misleads
+  whoever reads it. \`#gh12\` renders as a distinct chip linking to the issue on
+  the project's linked repo.
 - **download_attachment** fetches a file a teammate attached. It returns a PATH,
   not the contents — open it with your own file tools, and check \`size_bytes\`
   before reading anything wholesale.

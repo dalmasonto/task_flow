@@ -1,23 +1,34 @@
-/** Parsing task references out of message/markdown text so they can be rendered
- *  as clickable chips that open the task sheet. Matches `TASK#10`, `task#10`, and
- *  a bare `#10` — all in ONE left-to-right pass. */
+/** Parsing references out of message/markdown text so they can be rendered as
+ *  clickable chips. Matches `TASK#10`, `task#10` and a bare `#10` as TaskFlow
+ *  tasks, and `#gh10` / `#GH10` as GitHub issues — all in ONE left-to-right
+ *  pass. */
 
 export type TaskRefSegment =
   | { type: "text"; value: string }
   | { type: "task"; id: number; raw: string }
+  /// #54: an issue on the project's linked GitHub repo. Written `#gh12` so it is
+  /// distinguishable from a task — a bare `#12` meaning a GitHub issue used to
+  /// render as a task chip and click through to a task that does not exist.
+  | { type: "github"; issue: number; raw: string }
 
 // One combined pattern, scanned left-to-right, so matches come out in order and
 // the raw text ("TASK#10" vs "#10") is preserved. A separate regex per form —
 // each with its own /g lastIndex — interleaves matches out of order and breaks
 // the segmentation. `task#` is covered by the case-insensitive `TASK#`
-// alternative; the prefix is non-capturing so group 1 is always the number.
-const TASK_REF = /(?:TASK#|#)(\d+)/gi
+// alternative.
+//
+// ALTERNATION ORDER IS LOAD-BEARING: `#gh` must be tried before the bare `#`.
+// With `#` first, `#gh12` would match `#` and then fail on `g`, and the reference
+// would silently fall through as plain text. Group 1 is the prefix (which form
+// matched), group 2 is always the number.
+const TASK_REF = /(TASK#|#gh|#)(\d+)/gi
 
 /**
- * Split a run of text into plain-text and task-reference segments. `TASK#10` (or
- * `#10`) becomes a `task` segment carrying the numeric id (and the raw matched
- * text for the chip label); everything else stays text. Returns a single text
- * segment for input with no references, and an empty array for empty input.
+ * Split a run of text into plain-text and reference segments. `TASK#10` (or
+ * `#10`) becomes a `task` segment and `#gh10` a `github` segment, each carrying
+ * the number and the raw matched text for the chip label; everything else stays
+ * text. Returns a single text segment for input with no references, and an empty
+ * array for empty input.
  */
 export function splitTaskRefs(text: string): TaskRefSegment[] {
   const segments: TaskRefSegment[] = []
@@ -27,7 +38,11 @@ export function splitTaskRefs(text: string): TaskRefSegment[] {
   let match: RegExpExecArray | null
   while ((match = TASK_REF.exec(text))) {
     if (match.index > last) segments.push({ type: "text", value: text.slice(last, match.index) })
-    segments.push({ type: "task", id: Number(match[1]), raw: match[0] })
+    segments.push(
+      match[1].toLowerCase() === "#gh"
+        ? { type: "github", issue: Number(match[2]), raw: match[0] }
+        : { type: "task", id: Number(match[2]), raw: match[0] },
+    )
     last = match.index + match[0].length
   }
   if (last < text.length) segments.push({ type: "text", value: text.slice(last) })

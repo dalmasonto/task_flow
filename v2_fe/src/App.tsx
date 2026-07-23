@@ -52,7 +52,8 @@ import {
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { MarkdownRenderer, TaskChipContext } from "@/components/markdown-renderer"
+import { MarkdownRenderer } from "@/components/markdown-renderer"
+import { TaskChipContext, GithubRepoContext } from "@/lib/markdown-contexts"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -3266,6 +3267,7 @@ function App() {
 
   return (
     <TaskChipContext.Provider value={openTaskById}>
+     <GithubRepoContext.Provider value={activeLiveWorkspace?.project.github_repo ?? null}>
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         projects={sidebarProjects}
@@ -3813,6 +3815,7 @@ function App() {
         onReviewDecision={handleReviewDecision}
       />
     </SidebarProvider>
+     </GithubRepoContext.Provider>
     </TaskChipContext.Provider>
   )
 }
