@@ -3629,7 +3629,7 @@ function App() {
               }
             >
               <Route index element={<AgentsConversationEmpty />} />
-              <Route path=":conversationId" element={<AgentsConversationView />} />
+              <Route path=":conversationId" element={<AgentsConversationRoute />} />
             </Route>
             <Route
               path="/dashboard/reviews"
@@ -5995,6 +5995,12 @@ function useAgentsOutletContext() {
   return useOutletContext<AgentsOutletContext>()
 }
 
+/// The Agents page's route element: takes the outlet context the page provides
+/// and hands it to the (now prop-driven) conversation view.
+function AgentsConversationRoute() {
+  return <AgentsConversationView {...useAgentsOutletContext()} />
+}
+
 /// #42: a person or agent you can start a conversation with. `member` is the
 /// shape the create-channel endpoint expects.
 type ConversationCandidate = {
@@ -6154,22 +6160,28 @@ function NewConversationPanel({
   )
 }
 
-function AgentsPage({
+/// #55: everything the chat needs, independent of where it is rendered.
+///
+/// This used to live inside `AgentsPage`, which meant chat only existed on that
+/// route — to message an agent you left the board and came back. The logic is
+/// unchanged; it just takes the selected conversation as an ARGUMENT instead of
+/// reading the URL, so the Agents page can drive it from the route and the dock
+/// can drive it from local state.
+function useAgentChat({
   project,
   liveWorkspace,
   currentUser,
   onWorkspaceUpdate,
   onRefreshWorkspace,
+  selectedChatId,
 }: {
   project: Project
   liveWorkspace: TaskflowWorkspace | null
   currentUser: AuthUser | null
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
   onRefreshWorkspace: () => Promise<void>
+  selectedChatId: string | null
 }) {
-  const navigate = useNavigate()
-  const { conversationId } = useParams()
-  const isBelowLg = useIsBelowLg()
   const [messageError, setMessageError] = useState<string | null>(null)
   // `livenessNow` is passed in, not read inside: these mappers decide who is
   // online, and without a refreshing clock a silent agent keeps its last known
@@ -6184,48 +6196,12 @@ function AgentsPage({
     [currentUser, liveWorkspace]
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
-  // #42: explicit-conversation state — who you can start a chat with (project
-  // members except yourself, plus every agent), and whether the picker is open.
-  const [newConvoOpen, setNewConvoOpen] = useState(false)
-  const conversationCandidates = useMemo<ConversationCandidate[]>(() => {
-    if (!liveWorkspace) return []
-    const users = liveWorkspace.members
-      .filter((member) => member.status === "active" && member.user != null && member.user !== currentUser?.id)
-      .map((member) => ({
-        key: `user:${member.user}`,
-        label: member.display_name,
-        type: "user" as const,
-        member: { kind: "user" as const, user: member.user as number },
-      }))
-    const agents = liveWorkspace.agents.map((agent) => ({
-      key: `agent:${agent.id}`,
-      label: agent.display_name,
-      type: "agent" as const,
-      member: { kind: "agent" as const, agent: agent.id },
-    }))
-    return [...users, ...agents]
-  }, [liveWorkspace, currentUser])
-  // The active conversation is addressed by the route param, not local state.
-  // Ids contain colons (e.g. "live:direct:2"); they map to a clean URL slug
-  // (`direct-2`) via chatIdToSlug/slugToChatId so the address bar stays readable.
-  // null on the index route (no param) or when the param doesn't resolve to a
-  // real chat — the message area shows an empty state in both cases.
-  const selectedChat = useMemo<AgentChatContext | null>(() => {
-    if (!conversationId) return null
-    const decodedId = slugToChatId(conversationId)
-    return allChats.find((chat) => chat.id === decodedId) ?? null
-  }, [allChats, conversationId])
-  // Default to the project room (the first group chat) on the index route, so
-  // the page opens on a conversation rather than the empty state. Falls back to
-  // the first DM; the empty state shows only when there are no conversations.
-  // Only auto-open on DESKTOP: on mobile the index route must land on the
-  // full-screen conversation LIST so the user taps in deliberately (jumping
-  // straight into a thread would hide the list behind a back button).
-  useEffect(() => {
-    if (conversationId || isBelowLg) return
-    const first = channelChats[0] ?? directChats[0]
-    if (first) navigate(chatIdToSlug(first.id), { replace: true })
-  }, [conversationId, isBelowLg, channelChats, directChats, navigate])
+
+  const selectedChat = useMemo<AgentChatContext | null>(
+    () => (selectedChatId ? (allChats.find((chat) => chat.id === selectedChatId) ?? null) : null),
+    [allChats, selectedChatId]
+  )
+
   const terminalSessions = useMemo(
     () => (liveWorkspace ? mapLiveTerminalSessions(liveWorkspace, livenessNow) : []),
     [liveWorkspace, livenessNow]
@@ -6284,29 +6260,6 @@ function AgentsPage({
       ),
     }))
     return channel.id
-  }
-
-  // #42: create a DM or group explicitly, then open it. The server dedups DMs
-  // (find-or-create by roster), so starting a DM you already have just reopens
-  // it. Throws on failure so the picker shows the reason.
-  const createConversation = async (
-    kind: "direct" | "group",
-    title: string,
-    members: ConversationCandidate["member"][]
-  ) => {
-    const projectId = liveId(project.id)
-    if (!projectId) throw new Error("Select a live project first.")
-    const channel = await createTaskflowChannel({ project: projectId, kind, title, members })
-    onWorkspaceUpdate((workspace) => ({
-      ...workspace,
-      agentChannels: upsertById(workspace.agentChannels, channel),
-      agentChannelMembers: channel.members.reduce(
-        (current, member) => upsertById(current, member),
-        workspace.agentChannelMembers
-      ),
-    }))
-    const chatId = `live:${kind === "direct" ? "direct" : "channel"}:${channel.id}`
-    navigate(chatIdToSlug(chatId))
   }
 
   const sendLiveMessage = async (
@@ -6407,9 +6360,6 @@ function AgentsPage({
         priority: failed.priority,
         client_nonce: nonce,          // same nonce: the send endpoint is idempotent
       })
-      // A retry does not re-upload files (the staged File objects are gone), but
-      // an idempotent hit returns the attachments the first attempt stored, so
-      // merge them to recover the real /media links.
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
         agentMessages: reconcile(workspace.agentMessages, saved),
@@ -6485,11 +6435,6 @@ function AgentsPage({
     await onRefreshWorkspace()
   }
 
-  // The active conversation is addressed by the URL; clicking navigates so the
-  // conversation is deep-linkable and the browser Back button works.
-  const activeChatId = selectedChat?.id ?? ""
-  const openChat = (chat: AgentChatContext) => navigate(chatIdToSlug(chat.id))
-
   // The question THIS agent is blocked on. Newest pending wins: an agent can
   // only be stopped at one keypress at a time, and older pending rows are stale
   // (the terminal moved on without anyone answering here).
@@ -6528,6 +6473,108 @@ function AgentsPage({
     pendingPrompt,
     onAnswerPrompt: handleAnswerPrompt,
   }
+
+  return {
+    directChats,
+    channelChats,
+    allChats,
+    selectedChat,
+    messageError,
+    setMessageError,
+    outletContext,
+  }
+}
+
+function AgentsPage({
+  project,
+  liveWorkspace,
+  currentUser,
+  onWorkspaceUpdate,
+  onRefreshWorkspace,
+}: {
+  project: Project
+  liveWorkspace: TaskflowWorkspace | null
+  currentUser: AuthUser | null
+  onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
+  onRefreshWorkspace: () => Promise<void>
+}) {
+  const navigate = useNavigate()
+  const { conversationId } = useParams()
+  const isBelowLg = useIsBelowLg()
+  // #55: the chat itself lives in useAgentChat so the dock can mount it too.
+  // Destructured to the same names the render already used, so this page's
+  // markup is untouched by the extraction. The conversation is addressed by the
+  // route param here; the dock passes its own local selection instead.
+  const { directChats, channelChats, selectedChat, messageError, outletContext } = useAgentChat({
+    project,
+    liveWorkspace,
+    currentUser,
+    onWorkspaceUpdate,
+    onRefreshWorkspace,
+    // Ids contain colons (e.g. "live:direct:2") and map to a clean URL slug
+    // (`direct-2`) via chatIdToSlug/slugToChatId so the address bar stays
+    // readable. null on the index route, or when the param doesn't resolve.
+    selectedChatId: conversationId ? slugToChatId(conversationId) : null,
+  })
+  // #42: explicit-conversation state — who you can start a chat with (project
+  // members except yourself, plus every agent), and whether the picker is open.
+  const [newConvoOpen, setNewConvoOpen] = useState(false)
+  const conversationCandidates = useMemo<ConversationCandidate[]>(() => {
+    if (!liveWorkspace) return []
+    const users = liveWorkspace.members
+      .filter((member) => member.status === "active" && member.user != null && member.user !== currentUser?.id)
+      .map((member) => ({
+        key: `user:${member.user}`,
+        label: member.display_name,
+        type: "user" as const,
+        member: { kind: "user" as const, user: member.user as number },
+      }))
+    const agents = liveWorkspace.agents.map((agent) => ({
+      key: `agent:${agent.id}`,
+      label: agent.display_name,
+      type: "agent" as const,
+      member: { kind: "agent" as const, agent: agent.id },
+    }))
+    return [...users, ...agents]
+  }, [liveWorkspace, currentUser])
+  // Default to the project room (the first group chat) on the index route, so
+  // the page opens on a conversation rather than the empty state. Falls back to
+  // the first DM; the empty state shows only when there are no conversations.
+  // Only auto-open on DESKTOP: on mobile the index route must land on the
+  // full-screen conversation LIST so the user taps in deliberately (jumping
+  // straight into a thread would hide the list behind a back button).
+  useEffect(() => {
+    if (conversationId || isBelowLg) return
+    const first = channelChats[0] ?? directChats[0]
+    if (first) navigate(chatIdToSlug(first.id), { replace: true })
+  }, [conversationId, isBelowLg, channelChats, directChats, navigate])
+  // #42: create a DM or group explicitly, then open it. The server dedups DMs
+  // (find-or-create by roster), so starting a DM you already have just reopens
+  // it. Throws on failure so the picker shows the reason.
+  const createConversation = async (
+    kind: "direct" | "group",
+    title: string,
+    members: ConversationCandidate["member"][]
+  ) => {
+    const projectId = liveId(project.id)
+    if (!projectId) throw new Error("Select a live project first.")
+    const channel = await createTaskflowChannel({ project: projectId, kind, title, members })
+    onWorkspaceUpdate((workspace) => ({
+      ...workspace,
+      agentChannels: upsertById(workspace.agentChannels, channel),
+      agentChannelMembers: channel.members.reduce(
+        (current, member) => upsertById(current, member),
+        workspace.agentChannelMembers
+      ),
+    }))
+    const chatId = `live:${kind === "direct" ? "direct" : "channel"}:${channel.id}`
+    navigate(chatIdToSlug(chatId))
+  }
+
+  // The active conversation is addressed by the URL; clicking navigates so the
+  // conversation is deep-linkable and the browser Back button works.
+  const activeChatId = selectedChat?.id ?? ""
+  const openChat = (chat: AgentChatContext) => navigate(chatIdToSlug(chat.id))
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4 lg:p-4 xl:p-5">
@@ -7048,20 +7095,29 @@ function AgentPromptCard({
   )
 }
 
-function AgentsConversationView() {
-  const {
-    selectedChat,
-    selectedSession,
-    onSendMessage,
-    onRetryMessage,
-    onCancelMessage,
-    canManageMembers,
-    addMemberCandidates,
-    onAddMember,
-    pendingPrompt,
-    onAnswerPrompt,
-    currentUser,
-  } = useAgentsOutletContext()
+/// #55: the conversation view reads its inputs from PROPS, not from the router
+/// outlet, so it can be mounted somewhere that has no route of its own — the
+/// chat dock. `AgentsConversationRoute` below keeps the Agents page unchanged by
+/// feeding it the outlet context.
+///
+/// `variant` only tunes density: "compact" is the same component with the same
+/// features in a ~380px panel. Splitting it into a second, simpler chat is what
+/// would let the two drift.
+function AgentsConversationView({
+  selectedChat,
+  selectedSession,
+  onSendMessage,
+  onRetryMessage,
+  onCancelMessage,
+  canManageMembers,
+  addMemberCandidates,
+  onAddMember,
+  pendingPrompt,
+  onAnswerPrompt,
+  currentUser,
+  variant = "full",
+}: AgentsOutletContext & { variant?: "full" | "compact" }) {
+  const compact = variant === "compact"
   const navigate = useNavigate()
 
   const [draftMessage, setDraftMessage] = useState("")
@@ -7404,7 +7460,9 @@ function AgentsConversationView() {
         </div>
       ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+        {/* #55: the dock draws its own header (title, switcher, minimise,
+            close), so this one would be a second title bar in a 380px panel. */}
+        <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", compact && "hidden")}>
           <div className="flex min-w-0 items-center gap-2">
             {/* Mobile-only back control: returns to the full-screen list. On
                 lg+ the list is always visible beside the thread, so it's hidden. */}
@@ -7779,7 +7837,7 @@ function AgentsConversationView() {
         </form>
       </div>
 
-      {terminalOpen ? (
+      {terminalOpen && !compact ? (
         // Opened from the header terminal icon: an overlay the size of the chat
         // column (anchored to the relative <section>), dismissable via its own
         // close (X) control, on every screen size.
