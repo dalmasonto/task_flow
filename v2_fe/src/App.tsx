@@ -4872,17 +4872,24 @@ function TaskDetailSheet({
   // GitHub: the published issue (from the live row, or just-published locally),
   // plus this project's status which gates the publish/comment controls.
   const rawTask = liveWorkspace?.tasks.find((row) => String(row.id) === task.id)
-  // #55: offer "Message agent" only when this task's operator is an agent that is
-  // actually online. The liveness tick matters — a dead agent stops heartbeating
-  // rather than announcing itself, so without a refreshing clock the button would
-  // keep inviting you to message something that went away.
+  // #55: "Message agent" shows whenever this task HAS an agent operator —
+  // liveness is shown, not required.
+  //
+  // Gating on isAgentOnline (as this first did) made the button all but
+  // invisible: the Stop hook closes an agent's session at the end of every turn,
+  // so between turns — exactly when someone is browsing the board — every agent
+  // reads as offline. And messaging an offline agent is the NORMAL case here,
+  // not a broken one: messages queue and the agent picks them up via
+  // check_messages on its next turn. That is how humans direct agents in this
+  // project. The dot reports presence; it does not withhold the affordance.
   const sheetLivenessNow = useLivenessNow()
   const chatDock = useContext(ChatDockContext)
+  const operatorAgentId = rawTask?.operator_agent_id ?? null
   const operatorAgentOnline = Boolean(
-    rawTask?.operator_agent_id != null &&
+    operatorAgentId != null &&
       liveWorkspace &&
       isAgentOnline(
-        rawTask.operator_agent_id,
+        operatorAgentId,
         liveWorkspace.agents,
         liveWorkspace.agentSessions,
         sheetLivenessNow
@@ -5099,17 +5106,27 @@ function TaskDetailSheet({
                     label="Operator"
                     value={task.operatorName}
                     // #55: message the agent running this task without leaving
-                    // the sheet. Only offered when the operator IS an agent and
-                    // that agent is actually online — a Message button for an
-                    // agent that cannot answer is a promise nothing keeps.
+                    // the sheet. Shown for any agent operator; the dot reports
+                    // whether it is live right now, which is information rather
+                    // than a reason to withhold the button.
                     action={
-                      operatorAgentOnline && rawTask?.operator_agent_id != null ? (
+                      operatorAgentId != null && chatDock ? (
                         <button
                           type="button"
-                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                          onClick={() => chatDock?.openAgentChat(rawTask.operator_agent_id as number)}
-                          title={`Message ${task.operatorName}`}
+                          className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                          onClick={() => chatDock.openAgentChat(operatorAgentId)}
+                          title={
+                            operatorAgentOnline
+                              ? `Message ${task.operatorName} (online)`
+                              : `Message ${task.operatorName} — offline, it will pick this up on its next turn`
+                          }
                         >
+                          <span
+                            className={cn(
+                              "size-1.5 shrink-0 rounded-full",
+                              operatorAgentOnline ? "bg-emerald-500" : "bg-muted-foreground/40"
+                            )}
+                          />
                           <MessageSquareIcon className="size-3.5" />
                           Message agent
                         </button>
