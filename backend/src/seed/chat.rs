@@ -56,6 +56,7 @@ pub async fn dev_workspace() -> Result<(), Box<dyn std::error::Error + Send + Sy
                     github_repo: None,
                     github_linked_by: None,
                     github_default_branch: None,
+                    github_auto_mirror: false,
                     created_at: None,
                     updated_at: None,
                 })

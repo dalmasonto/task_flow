@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use axum::body::Bytes;
 use serde::Deserialize;
 use serde_json::json;
-use taskflow_projects::models::{TaskflowProjectMember, taskflow_project_member};
+use taskflow_projects::models::{
+    TaskflowProject, TaskflowProjectMember, taskflow_project, taskflow_project_member,
+};
 use taskflow_tasks::models::{
     TaskflowActorKind, TaskflowTask, TaskflowTaskActivity, TaskflowTaskAttachment,
     TaskflowTaskPriority, TaskflowTaskStatus, taskflow_task, taskflow_task_activity,
@@ -2795,14 +2797,28 @@ pub async fn post_activity_as_agent(
         validate_activity_event(event)?;
     }
 
+    // #3 auto-mirror: if the agent's project has it on, comment-type activity is
+    // mirrored to the issue with no per-event flag (still gated per-actor inside
+    // mirror_comment). Loaded once for the batch.
+    let auto_mirror = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(agent.project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(|project| project.github_auto_mirror)
+        .unwrap_or(false);
+
     let mut created = 0i64;
     for event in events {
         // Task scoping is per event: keep the link only for a task in the agent's
         // own project, else drop it (never a 400 — a stale id is not a failure).
         let task_link = scoped_task_link(event.task, agent.project_id).await?;
 
-        // Capture the mirror intent + body before `event` is consumed below.
-        let mirror_body = if event.post_to_github {
+        // Mirror when explicitly flagged, OR when the project auto-mirrors and
+        // this is a comment-type action (never mirror Read/Edit/Bash chatter).
+        let should_mirror =
+            event.post_to_github || (auto_mirror && is_comment_action(&event.action));
+        let mirror_body = if should_mirror {
             event.body_markdown.clone()
         } else {
             None
@@ -2837,6 +2853,13 @@ pub async fn post_activity_as_agent(
     }
 
     Ok((StatusCode::OK, Json(json!({ "created": created }))).into_response())
+}
+
+/// Whether an activity `action` is a comment worth auto-mirroring. Kept narrow
+/// on purpose — auto-mirror must never fan an agent's Read/Edit/Bash journal out
+/// to the issue. Case-insensitive, trims whitespace.
+fn is_comment_action(action: &str) -> bool {
+    matches!(action.trim().to_ascii_lowercase().as_str(), "comment" | "commented")
 }
 
 /// Best-effort: mirror an agent's activity to the task's linked GitHub issue,

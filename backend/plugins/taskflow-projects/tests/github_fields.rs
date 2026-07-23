@@ -22,6 +22,7 @@ async fn project_persists_github_link_fields() {
             github_repo: Some("acme/widgets".into()),
             github_linked_by: Some(ForeignKey::new(user.id)),
             github_default_branch: Some("main".into()),
+            github_auto_mirror: false,
             created_at: None,
             updated_at: None,
         })

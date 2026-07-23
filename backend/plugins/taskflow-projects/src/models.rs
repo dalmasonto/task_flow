@@ -110,6 +110,12 @@ pub struct TaskflowProject {
     /// Default branch for commit/PR references, e.g. "main".
     #[umbral(string, max_length = 120)]
     pub github_default_branch: Option<String>,
+    /// When true, comment-type task activity is auto-mirrored to the linked
+    /// issue with no per-comment opt-in (still gated by each actor's own
+    /// `post_as_me` + connection). Default false — the deliberate, spam-safe
+    /// setting. Only comment actions mirror, never every activity.
+    #[umbral(default = "false")]
+    pub github_auto_mirror: bool,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]

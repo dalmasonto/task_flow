@@ -288,7 +288,42 @@ pub async fn get_status(
         "github_repo": project.github_repo,
         "can_publish": can_publish,
         "post_as_me": post_as_me,
+        "auto_mirror": project.github_auto_mirror,
     })))
+}
+
+#[derive(Deserialize)]
+pub struct AutoMirrorBody {
+    pub enabled: bool,
+}
+
+/// `POST /api/taskflow/github/projects/{project}/auto-mirror`  `{ "enabled": bool }`
+///
+/// Owner/admin: toggle auto-mirroring of comment-type activity to the linked
+/// issue. Still gated per-actor (post_as_me + connection) — this only removes
+/// the per-comment opt-in click.
+pub async fn set_auto_mirror(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(project_id): Path<i64>,
+    Json(input): Json<AutoMirrorBody>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
+    TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .update_values(
+            json!({ "github_auto_mirror": input.enabled })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "store"))?;
+
+    Ok(Json(json!({ "auto_mirror": input.enabled })))
 }
 
 #[derive(Deserialize)]

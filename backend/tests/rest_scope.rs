@@ -159,6 +159,7 @@ async fn make_project(name: &str, slug: &str) -> i64 {
             github_repo: None,
             github_linked_by: None,
             github_default_branch: None,
+            github_auto_mirror: false,
             created_at: None,
             updated_at: None,
         })

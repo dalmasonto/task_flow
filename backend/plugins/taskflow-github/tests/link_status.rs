@@ -102,3 +102,51 @@ async fn link_forbidden_for_non_admin() {
     assert_eq!(res.status(), 403);
     assert_eq!(project_github_link(project).await, (None, None));
 }
+
+#[tokio::test]
+async fn auto_mirror_defaults_false_and_owner_can_toggle_it() {
+    let app = TestApp::with_owner_token("owner-tok").await;
+    let owner = app.owner_user();
+    let project = seed_project_linked(owner.id, "acme/widgets").await;
+    seed_member(project, owner.id, TaskflowProjectRole::Owner).await;
+
+    // Default: off, reported by status.
+    let status = app
+        .get_as(owner.id, &format!("/api/taskflow/github/projects/{project}/status"))
+        .await;
+    assert_eq!(status.json()["auto_mirror"], false);
+
+    // Owner turns it on.
+    let toggled = app
+        .post_body_as(
+            owner.id,
+            &format!("/api/taskflow/github/projects/{project}/auto-mirror"),
+            json!({ "enabled": true }),
+        )
+        .await;
+    assert_eq!(toggled.status(), 200);
+    assert_eq!(toggled.json()["auto_mirror"], true);
+
+    // Status now reflects it.
+    let status2 = app
+        .get_as(owner.id, &format!("/api/taskflow/github/projects/{project}/status"))
+        .await;
+    assert_eq!(status2.json()["auto_mirror"], true);
+}
+
+#[tokio::test]
+async fn auto_mirror_toggle_forbidden_for_non_admin() {
+    let app = TestApp::with_owner_token("dev-tok").await;
+    let dev = app.owner_user();
+    let project = seed_project_linked(dev.id, "acme/widgets").await;
+    seed_member(project, dev.id, TaskflowProjectRole::Developer).await;
+
+    let res = app
+        .post_body_as(
+            dev.id,
+            &format!("/api/taskflow/github/projects/{project}/auto-mirror"),
+            json!({ "enabled": true }),
+        )
+        .await;
+    assert_eq!(res.status(), 403);
+}

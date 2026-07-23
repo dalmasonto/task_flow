@@ -270,6 +270,7 @@ async fn seed_project_inner(linked_by: Option<i64>, repo: Option<String>) -> i64
             github_repo: repo,
             github_linked_by: linked_by.map(ForeignKey::new),
             github_default_branch: None,
+            github_auto_mirror: false,
             created_at: None,
             updated_at: None,
         })
