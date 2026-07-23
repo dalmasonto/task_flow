@@ -166,6 +166,7 @@ import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
 import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
 import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
+import { taskRefState, type TaskRefState } from "@/lib/task-ref-state"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MessageAttachments } from "@/components/message-attachments"
 import { AttachableTextarea, type AttachableFile } from "@/components/attachable-textarea"
@@ -1909,6 +1910,17 @@ function App() {
   const selectedTask =
     projectTasks.find((task) => task.id === selectedTaskId) ?? projectTasks[0]
   const openTask = openTaskId ? tasks.find((task) => task.id === openTaskId) : undefined
+  // #49: a TASK#<n> chip must always explain itself. `tasks` holds every task the
+  // user can see (the backend never paginates), so a miss here is trustworthy
+  // enough to report without a server round-trip.
+  const openTaskRef: TaskRefState | null = openTaskId
+    ? taskRefState(openTaskId, {
+        tasks,
+        projects: workspaceProjects,
+        activeProjectId: activeProject?.id ?? null,
+        workspaceLoaded: usesLiveApi || tasks.length > 0,
+      })
+    : null
   const reviewTask = reviewTaskId ? tasks.find((task) => task.id === reviewTaskId) : selectedTask
   // Pre-fill the edit dialog from the LIVE task row (it keeps the raw ids/columns
   // that mapLiveTasks drops), converting live enums back into form values.
@@ -3701,7 +3713,18 @@ function App() {
           </Routes>
         </main>
       </SidebarInset>
-      {openTask && activeProject ? (
+      {openTaskRef && openTaskRef.kind !== "ready" ? (
+        <TaskRefNotice
+          state={openTaskRef}
+          onClose={() => setOpenTaskId(null)}
+          onSwitchProject={(projectId) => {
+            // Keep openTaskId set: once the new project's tasks land the
+            // resolver flips to "ready" and the sheet opens on its own.
+            setActiveProjectId(projectId)
+          }}
+        />
+      ) : null}
+      {openTaskRef?.kind === "ready" && openTask && activeProject ? (
         <TaskDetailSheet
           task={openTask}
           project={activeProject}
@@ -4599,6 +4622,66 @@ function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: () => vo
       <LoaderIcon className={cn("size-3.5", pending && "animate-spin")} />
       {pending ? "Loading" : "Load"} {Math.min(remaining, BOARD_PAGE_SIZE)} more…
     </button>
+  )
+}
+
+/// #49: shown when a TASK#<n> chip resolves to anything other than an open-able
+/// task in the active project. Previously all of these rendered `null`, so a
+/// typo'd id looked identical to a broken button.
+function TaskRefNotice({
+  state,
+  onClose,
+  onSwitchProject,
+}: {
+  state: Extract<TaskRefState, { kind: "loading" | "other_project" | "unavailable" }>
+  onClose: () => void
+  onSwitchProject: (projectId: string) => void
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close"
+        className="fixed inset-0 z-40 bg-foreground/10"
+        onClick={onClose}
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="Task reference"
+        className="fixed left-1/2 top-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-card p-5 shadow-2xl"
+      >
+        {state.kind === "loading" ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderIcon className="size-4 animate-spin" />
+            Loading task…
+          </div>
+        ) : (
+          <>
+            <h2 className="text-sm font-semibold">
+              {state.kind === "other_project"
+                ? `Task #${state.taskId} is in another project`
+                : `Can't open task #${state.taskId}`}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {state.kind === "other_project"
+                ? `It belongs to ${state.projectName}. Switch to that project to open it.`
+                : state.reason}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={onClose}>
+                {state.kind === "other_project" ? "Cancel" : "Close"}
+              </Button>
+              {state.kind === "other_project" ? (
+                <Button size="sm" onClick={() => onSwitchProject(state.projectId)}>
+                  Switch to {state.projectName}
+                </Button>
+              ) : null}
+            </div>
+          </>
+        )}
+      </section>
+    </>
   )
 }
 
