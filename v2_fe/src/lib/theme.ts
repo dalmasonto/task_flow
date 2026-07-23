@@ -3,6 +3,10 @@ import type { TaskflowUserSettingsTheme } from "@/api/client"
 export type ThemePreference = TaskflowUserSettingsTheme
 
 const THEME_STORAGE_KEY = "taskflow.theme"
+/// #52: set when a theme change could not be saved to the account. It marks the
+/// local preference as "newer than the server" so the settings page stops
+/// reasserting the stale server value over the user's applied choice.
+const THEME_SYNC_PENDING_KEY = "taskflow.theme.syncPending"
 
 function prefersDark() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -34,6 +38,21 @@ export function setThemePreference(preference: ThemePreference) {
     window.localStorage.setItem(THEME_STORAGE_KEY, preference)
   }
   applyTheme(preference)
+}
+
+/// Whether a local theme change is still waiting to reach the server. Thin
+/// localStorage wrappers — the decision that consumes this lives in
+/// `themeOnLoad` (`user-settings-form.ts`), which is where the tests are, since
+/// vitest runs `environment: 'node'` and has no localStorage to exercise here.
+export function getThemeSyncPending(): boolean {
+  if (typeof window === "undefined") return false
+  return window.localStorage.getItem(THEME_SYNC_PENDING_KEY) === "true"
+}
+
+export function setThemeSyncPending(pending: boolean) {
+  if (typeof window === "undefined") return
+  if (pending) window.localStorage.setItem(THEME_SYNC_PENDING_KEY, "true")
+  else window.localStorage.removeItem(THEME_SYNC_PENDING_KEY)
 }
 
 /// Apply the stored preference on startup and keep "system" in sync with the OS

@@ -4,7 +4,13 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { setThemePreference } from "@/lib/theme"
+import {
+  setThemePreference,
+  getStoredThemePreference,
+  getThemeSyncPending,
+  setThemeSyncPending,
+} from "@/lib/theme"
+import { settingsDirty, themeOnLoad } from "@/lib/user-settings-form"
 import { fetchGithubMe, fetchUserSettings, githubConnectUrl, updateUserSettings } from "@/lib/taskflow-api"
 import type { TaskflowUserSettings, TaskflowUserSettingsTheme } from "@/api/client"
 import { CheckIcon } from "lucide-react"
@@ -30,6 +36,7 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
   const [saveError, setSaveError] = React.useState<string | null>(null)
   const [githubConnected, setGithubConnected] = React.useState<boolean | null>(null)
   const [githubJustConnected, setGithubJustConnected] = React.useState(false)
+  const [themeError, setThemeError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -55,12 +62,18 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
         const settings = await fetchUserSettings()
         if (!active) return
         setLoaded(settings)
-        setTheme(settings.theme)
         setEmailNotifications(settings.email_notifications)
         setDefaultProject(settings.default_project)
-        // The saved preference is authoritative — apply and persist it so the
-        // rest of the app (and the next load) reflect the server value.
-        setThemePreference(settings.theme)
+        // #52: the server is authoritative *unless* this device still holds a
+        // theme whose save never landed. Blindly applying the server value here
+        // is what used to flip an unsaved "Light" back to dark on arrival.
+        const applied = themeOnLoad({
+          server: settings.theme,
+          local: getStoredThemePreference(),
+          syncPending: getThemeSyncPending(),
+        })
+        setTheme(applied)
+        setThemePreference(applied)
       } catch (err) {
         if (!active) return
         setLoadError(err instanceof Error ? err.message : "Could not load your settings.")
@@ -71,17 +84,32 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
     }
   }, [])
 
-  const dirty =
-    loaded !== null &&
-    (theme !== loaded.theme ||
-      emailNotifications !== loaded.email_notifications ||
-      defaultProject !== loaded.default_project)
+  const dirty = settingsDirty(
+    { theme, email_notifications: emailNotifications, default_project: defaultProject },
+    loaded,
+  )
 
-  function onThemeChange(next: TaskflowUserSettingsTheme) {
+  // #52: theme is not part of the Save batch. It applies AND persists to the
+  // account in the same gesture, which is what the page has always claimed.
+  async function onThemeChange(next: TaskflowUserSettingsTheme) {
     setTheme(next)
-    setStatus("idle")
-    // Apply immediately so the change is visible before saving.
+    setThemeError(null)
     setThemePreference(next)
+    // Marked before the request so a failure (or a reload mid-flight) leaves the
+    // local choice flagged as newer than the server.
+    setThemeSyncPending(true)
+    try {
+      const saved = await updateUserSettings({ theme: next })
+      setLoaded((prev) => (prev ? { ...prev, theme: saved.theme } : saved))
+      setThemeSyncPending(false)
+    } catch (err) {
+      // Keep the click applied and say plainly that it did not reach the account.
+      setThemeError(
+        err instanceof Error
+          ? `Theme applied on this device, but not saved to your account: ${err.message}`
+          : "Theme applied on this device, but could not be saved to your account.",
+      )
+    }
   }
 
   async function onSave() {
@@ -99,6 +127,10 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
       setEmailNotifications(saved.email_notifications)
       setDefaultProject(saved.default_project)
       setThemePreference(saved.theme)
+      // Save carries the current theme too, so it doubles as a retry for a
+      // theme change that failed to sync earlier.
+      setThemeSyncPending(false)
+      setThemeError(null)
       setStatus("saved")
     } catch (err) {
       setStatus("idle")
@@ -106,14 +138,14 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
     }
   }
 
+  // Theme is intentionally untouched: it is already saved, so it is not one of
+  // the pending changes this button discards.
   function onReset() {
     if (!loaded) return
-    setTheme(loaded.theme)
     setEmailNotifications(loaded.email_notifications)
     setDefaultProject(loaded.default_project)
     setStatus("idle")
     setSaveError(null)
-    setThemePreference(loaded.theme)
   }
 
   return (
@@ -121,7 +153,7 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
       <AccountPageHeader
         eyebrow="Account"
         title="Settings"
-        description="Preferences stored against your account. Theme applies immediately across the app; other changes save when you hit Save."
+        description="Preferences stored against your account. Theme applies and saves immediately; other changes save when you hit Save."
       />
 
       {loadError ? (
@@ -139,7 +171,12 @@ export function SettingsPage({ projects }: { projects: ProjectName[] }) {
         <>
           <section className="rounded-lg border bg-card p-4 shadow-sm">
             <h2 className="text-sm font-semibold">Appearance</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Choose how TaskFlow looks. This applies to your browser right away.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Choose how TaskFlow looks. Saved to your account as soon as you pick one — no need to hit Save.</p>
+            {themeError ? (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+                {themeError}
+              </p>
+            ) : null}
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               {themeOptions.map((option) => (
                 <button

@@ -72,6 +72,46 @@ async fn update_changes_only_the_callers_own_settings() {
     assert_eq!(alice_reread["theme"], json!("dark"));
 }
 
+/// #52: the settings page saves a theme click on its own, without the rest of the
+/// form. That sends a body naming ONLY `theme`, so a partial write must leave the
+/// caller's other preferences alone — otherwise picking a theme would silently
+/// reset their notifications and default project.
+#[tokio::test]
+async fn theme_only_update_leaves_the_other_preferences_alone() {
+    let app = TestApp::new().await;
+    let user = app.create_user().await;
+
+    // Establish non-default values for everything else.
+    let seeded = app
+        .post_body_as(
+            user.id,
+            SETTINGS,
+            json!({ "email_notifications": false, "default_project": null }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 200);
+    assert_eq!(seeded.json()["email_notifications"], json!(false));
+
+    // Now the theme-only write the UI actually sends.
+    let res = app
+        .post_body_as(user.id, SETTINGS, json!({ "theme": "light" }))
+        .await;
+
+    assert_eq!(res.status(), 200);
+    let row = res.json();
+    assert_eq!(row["theme"], json!("light"));
+    assert_eq!(
+        row["email_notifications"],
+        json!(false),
+        "a theme-only write must not reset email_notifications"
+    );
+
+    // And it survives a re-read, so the settings page finds it on the next visit.
+    let reread = app.get_as(user.id, SETTINGS).await.json();
+    assert_eq!(reread["theme"], json!("light"));
+    assert_eq!(reread["email_notifications"], json!(false));
+}
+
 #[tokio::test]
 async fn update_ignores_a_body_supplied_user_field() {
     let app = TestApp::new().await;
