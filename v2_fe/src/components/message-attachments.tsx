@@ -327,9 +327,14 @@ function FileCard({
         </>
       )}
       <Button
-        type="button"
         variant="outline"
         size="xs"
+        // This renders an <a>, not a <button>. Base UI's Button assumes a native
+        // button unless told otherwise, and silently loses the semantics it
+        // would have applied — so it must be declared. `type="button"` is gone
+        // with it: on an anchor `type` means a MIME hint, so it was emitting a
+        // bogus attribute. Same pattern as the invitations link in App.tsx.
+        nativeButton={false}
         render={
           <a href={attachment.url} target="_blank" rel="noreferrer" download={attachment.name} />
         }
