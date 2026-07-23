@@ -6906,7 +6906,26 @@ function AgentPromptCard({
     }
   }
 
-  if (!questions.length) return null
+  // #48: a prompt with no options is not a broken row — it is a tool-approval
+  // request whose terminal screen could not be parsed with certainty, reported
+  // deliberately without options so nothing can type a digit into a screen we
+  // did not understand. Render it read-only: the agent IS blocked, and silently
+  // showing nothing is what left these invisible in the first place.
+  if (!questions.length) {
+    return (
+      <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+        <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+          <AlertCircleIcon className="size-4 shrink-0" />
+          <p className="text-sm font-medium">Agent is blocked, waiting on you</p>
+        </div>
+        <p className="mt-2 whitespace-pre-wrap break-words text-sm text-foreground">{prompt.question}</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Answer this in the agent's terminal — the on-screen options could not be read, so they
+          aren't offered here.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">

@@ -24,6 +24,9 @@ import { execFileSync } from "node:child_process";
 // Structure-preserving serializer: a JSON string sliced mid-token does not parse,
 // so oversized payloads are shortened field-by-field instead. See metadata.mjs.
 import { compactMetadata } from "./metadata.mjs";
+// #48: a tool-approval request arrives as a bare Notification with no options,
+// so they are read off the pane. Refuses rather than guesses — see the module.
+import { isPermissionNotification, parsePermissionPrompt } from "./permission-prompt.mjs";
 import { hostname, tmpdir } from "node:os";
 
 const REQUEST_TIMEOUT_MS = 2500;
@@ -124,6 +127,28 @@ function readSessionId(sessionKey) {
 function writeSessionId(sessionKey, sessionId) {
   try {
     writeFileSync(stateFile(sessionKey), JSON.stringify({ sessionId }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/// #48: whether this session has an outstanding permission prompt on the
+/// dashboard. Kept in the same state file so the common path — every PostToolUse
+/// of every tool — costs one local read rather than an HTTP round trip. The hook
+/// must never add latency to a tool call.
+function readPermissionPending(sessionKey) {
+  try {
+    return JSON.parse(readFileSync(stateFile(sessionKey), "utf8")).permissionPending === true;
+  } catch {
+    return false;
+  }
+}
+
+function setPermissionPending(sessionKey, pending) {
+  try {
+    const parsed = JSON.parse(readFileSync(stateFile(sessionKey), "utf8"));
+    parsed.permissionPending = pending;
+    writeFileSync(stateFile(sessionKey), JSON.stringify(parsed));
   } catch {
     /* ignore */
   }
@@ -268,6 +293,48 @@ async function reportPrompt(profile, sessionId, toolInput) {
   });
 }
 
+/**
+ * Report a tool-approval request as a prompt (#48).
+ *
+ * The options are read off the pane because the Notification payload has none.
+ * When the screen cannot be parsed with certainty the prompt is still reported,
+ * but with NO options — the dashboard then shows it read-only, and
+ * `keystrokesForPrompt` yields nothing for an option-less row, so no digit can
+ * be typed into a screen we did not understand.
+ */
+async function reportPermissionPrompt(profile, sessionId, pane, message) {
+  let parsed = null;
+  if (pane) {
+    try {
+      const screen = execFileSync("tmux", ["capture-pane", "-p", "-t", pane], {
+        encoding: "utf8",
+        timeout: 3000,
+      });
+      parsed = parsePermissionPrompt(screen);
+    } catch {
+      // No tmux, pane gone, or capture failed — fall through to read-only.
+      parsed = null;
+    }
+  }
+
+  const question = parsed
+    ? parsed.question
+    : `${message}\n\nOpen the agent's terminal to answer — the on-screen options could not be read, so they are not offered here.`;
+
+  await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt`, {
+    question,
+    // The legacy single-question shape: a bare option list. Empty when the
+    // screen was not understood, which is what makes the row unanswerable.
+    options_json: JSON.stringify(
+      parsed ? parsed.options.map((o) => ({ number: o.number, label: o.label })) : [],
+    ),
+    kind: "single",
+    // Identity of THIS approval, so a re-render updates one row instead of
+    // stacking duplicates. The question text carries the command being approved.
+    fingerprint: `permission::${question}`.slice(0, 300),
+  });
+}
+
 async function main() {
   const stdin = await readStdin();
   let event = {};
@@ -331,6 +398,16 @@ async function main() {
           }
         }
       }
+      // #48: the tool ran, so whatever approval was blocking it is resolved —
+      // retire the dashboard prompt. Gated on a local flag so the usual case
+      // (no prompt outstanding) costs a file read, not a request.
+      if (!isPre && toolName !== "AskUserQuestion" && readPermissionPending(claudeSessionId)) {
+        const sessionId = readSessionId(claudeSessionId);
+        if (sessionId != null) {
+          await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt/clear`, {});
+        }
+        setPermissionPending(claudeSessionId, false);
+      }
       // Log ONCE per tool call, on completion. Logging both phases doubled every
       // row in the activity feed (a 50-tool session read as 100 events), and the
       // pre/post distinction lived only in metadata the UI never surfaces.
@@ -363,11 +440,23 @@ async function main() {
         action: "session_stop",
       });
     } else if (eventName === "Notification") {
+      const message = event.message || event.notification || undefined;
       await post(profile, "/api/taskflow/agents/activity", {
         action: "notification",
-        body_markdown: event.message || event.notification || undefined,
+        body_markdown: message,
         metadata_json: compactMetadata({ message: event.message }),
       });
+      // #48: a tool approval blocks the agent exactly like AskUserQuestion does,
+      // but its hook payload carries no options — only this message. Surface it
+      // as a real prompt so it reaches the dashboard as a question instead of a
+      // passive activity row nobody is watching.
+      if (isPermissionNotification(message)) {
+        const sessionId = readSessionId(claudeSessionId);
+        if (sessionId != null) {
+          await reportPermissionPrompt(profile, sessionId, pane, message);
+          setPermissionPending(claudeSessionId, true);
+        }
+      }
     }
     // Unknown events are ignored (still exit 0).
   } catch (err) {

@@ -226,3 +226,22 @@ describe("stepsForPrompt", () => {
     ]);
   });
 });
+
+// #48: a tool-approval prompt whose terminal screen could not be parsed is
+// reported with NO options, so the dashboard shows it read-only. This is the
+// invariant that makes that fallback safe — an option-less row must never yield
+// a keystroke, because we do not know what the digits on screen mean.
+describe("an option-less prompt is unanswerable", () => {
+  it("yields no keystrokes even when an answer is somehow supplied", () => {
+    expect(keystrokesForPrompt("[]", "single", "Needs permission", "[1]", 1)).toEqual([]);
+    expect(keystrokesForPrompt("[]", "single", "Needs permission", null, 1)).toEqual([]);
+  });
+
+  it("yields no steps either", () => {
+    expect(stepsForPrompt("[]", "single", "Needs permission", "[1]", 1, null)).toEqual([]);
+  });
+
+  it("refuses a malformed options payload the same way", () => {
+    expect(keystrokesForPrompt("not json", "single", "Needs permission", "[1]", 1)).toEqual([]);
+  });
+});
