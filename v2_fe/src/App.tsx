@@ -121,6 +121,7 @@ import {
   setGithubPostAsMe,
   setGithubAutoMirror,
   publishTaskAsIssue,
+  githubConnectUrl,
   commentOnIssueAsMe,
   GithubNeedsConnectError,
   linkAgent,
@@ -4763,6 +4764,28 @@ function TaskDetailSheet({
     }
   }
 
+  // Shared by the header chip and the activity banner, so "publish" behaves
+  // identically wherever it is offered.
+  const handlePublish = async () => {
+    const projectId = liveId(project.id)
+    const taskId = liveId(task.id)
+    if (projectId === null || taskId === null) return
+    setPublishing(true)
+    setGhActionError(null)
+    try {
+      const result = await publishTaskAsIssue(projectId, taskId)
+      setLocalIssue({ number: result.issue_number, url: result.issue_url })
+    } catch (error) {
+      setGhActionError(
+        error instanceof GithubNeedsConnectError
+          ? "Connect GitHub to publish."
+          : (error as Error).message,
+      )
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   return (
     <>
       <button
@@ -4820,25 +4843,7 @@ function TaskDetailSheet({
                     variant="outline"
                     disabled={publishing || !ghStatus.can_publish}
                     title={ghStatus.can_publish ? "Open a GitHub issue for this task" : "Link GitHub and connect the owner account first"}
-                    onClick={async () => {
-                      const projectId = liveId(project.id)
-                      const taskId = liveId(task.id)
-                      if (projectId === null || taskId === null) return
-                      setPublishing(true)
-                      setGhActionError(null)
-                      try {
-                        const result = await publishTaskAsIssue(projectId, taskId)
-                        setLocalIssue({ number: result.issue_number, url: result.issue_url })
-                      } catch (error) {
-                        setGhActionError(
-                          error instanceof GithubNeedsConnectError
-                            ? "Connect GitHub to publish."
-                            : (error as Error).message,
-                        )
-                      } finally {
-                        setPublishing(false)
-                      }
-                    }}
+                    onClick={() => void handlePublish()}
                   >
                     <GitBranchIcon className="size-3.5" />
                     {publishing ? "Publishing…" : "Publish as issue"}
@@ -5120,6 +5125,38 @@ function TaskDetailSheet({
                 icon={<ActivityIcon className="size-4 text-primary" />}
                 title="Activity"
               >
+                {mirrorReason ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <GitBranchIcon className="size-3.5 shrink-0" />
+                    <span className="min-w-0">{mirrorReason}</span>
+                    {mirrorState.kind === "unpublished" ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={publishing || !ghStatus?.can_publish}
+                        title={
+                          ghStatus?.can_publish
+                            ? "Open a GitHub issue for this task"
+                            : "Link GitHub and connect the owner account first"
+                        }
+                        onClick={() => void handlePublish()}
+                      >
+                        {publishing ? "Publishing…" : "Publish as issue"}
+                      </Button>
+                    ) : mirrorState.kind === "not_connected" ? (
+                      <a
+                        className="underline underline-offset-2 hover:text-primary"
+                        href={githubConnectUrl("/dashboard/board")}
+                      >
+                        Connect GitHub
+                      </a>
+                    ) : (
+                      <Link to="/dashboard/api" className="underline underline-offset-2 hover:text-primary">
+                        Project GitHub settings
+                      </Link>
+                    )}
+                  </div>
+                ) : null}
                 <div className="mb-3 rounded-lg border bg-background p-2 shadow-sm">
                   <textarea
                     rows={2}
