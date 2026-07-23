@@ -302,7 +302,7 @@ async function reportPrompt(profile, sessionId, toolInput) {
  * `keystrokesForPrompt` yields nothing for an option-less row, so no digit can
  * be typed into a screen we did not understand.
  */
-async function reportPermissionPrompt(profile, sessionId, pane, message) {
+async function reportPermissionPrompt(profile, sessionId, pane) {
   let parsed = null;
   if (pane) {
     try {
@@ -317,22 +317,29 @@ async function reportPermissionPrompt(profile, sessionId, pane, message) {
     }
   }
 
-  const question = parsed
-    ? parsed.question
-    : `${message}\n\nOpen the agent's terminal to answer — the on-screen options could not be read, so they are not offered here.`;
+  // #48 FOLLOW-UP: report NOTHING unless the screen was understood.
+  //
+  // Reporting an unreadable approval as an option-less notice looked harmless
+  // and was not: `report_session_prompt` cancels whatever else is pending
+  // ("a different question replaces the old one", views.rs), so an unanswerable
+  // notice DESTROYED a real, answerable AskUserQuestion that the agent was
+  // actually blocked on. The notice added nothing — it could not be answered —
+  // and cost the one prompt that could.
+  //
+  // A missed approval leaves the terminal exactly as it was before this feature
+  // existed. Clobbering a live question does not. So silence is the safe half.
+  if (!parsed) return false;
 
   await post(profile, `/api/taskflow/agents/sessions/${sessionId}/prompt`, {
-    question,
-    // The legacy single-question shape: a bare option list. Empty when the
-    // screen was not understood, which is what makes the row unanswerable.
-    options_json: JSON.stringify(
-      parsed ? parsed.options.map((o) => ({ number: o.number, label: o.label })) : [],
-    ),
+    question: parsed.question,
+    // The legacy single-question shape: a bare option list.
+    options_json: JSON.stringify(parsed.options.map((o) => ({ number: o.number, label: o.label }))),
     kind: "single",
     // Identity of THIS approval, so a re-render updates one row instead of
     // stacking duplicates. The question text carries the command being approved.
-    fingerprint: `permission::${question}`.slice(0, 300),
+    fingerprint: `permission::${parsed.question}`.slice(0, 300),
   });
+  return true;
 }
 
 async function main() {
@@ -453,8 +460,12 @@ async function main() {
       if (isPermissionNotification(message)) {
         const sessionId = readSessionId(claudeSessionId);
         if (sessionId != null) {
-          await reportPermissionPrompt(profile, sessionId, pane, message);
-          setPermissionPending(claudeSessionId, true);
+          // Only flag a pending prompt when one was actually reported. Setting it
+          // unconditionally meant the next PostToolUse fired `prompt/clear`,
+          // which cancels whatever is pending — including a real AskUserQuestion
+          // this hook never raised. Same clobber, one step removed.
+          const reported = await reportPermissionPrompt(profile, sessionId, pane);
+          if (reported) setPermissionPending(claudeSessionId, true);
         }
       }
     }

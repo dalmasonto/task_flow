@@ -133,4 +133,33 @@ Do you want to proceed?
   it("returns null on empty input", () => {
     expect(parsePermissionPrompt("")).toBeNull();
   });
+
+  /*
+   * REGRESSION, 2026-07-24. Claude Code fires the Notification
+   * "Claude needs your permission" for AskUserQuestion as well as for tool
+   * approvals — the message does not distinguish them. The first release of #48
+   * trusted that message, could not read the AskUserQuestion screen, and
+   * reported an option-less notice anyway; `report_session_prompt` cancels
+   * whatever else is pending, so it destroyed the very question the agent was
+   * blocked on. Prompts 49 and 51 in the live DB were killed this way, six
+   * seconds after being asked.
+   *
+   * The anchor is therefore the thing that tells the two apart. An
+   * AskUserQuestion screen has numbered options but no "Do you want to
+   * proceed?", and MUST NOT parse — a null here is what makes the hook stay
+   * silent and leave the real prompt alone.
+   */
+  it("refuses an AskUserQuestion screen, which has options but no proceed anchor", () => {
+    const askUserQuestion = `
+Should the dock reuse the full conversation view, or be a purpose-built compact one?
+
+❯ 1. Reuse the same view in both (Recommended)
+  2. Purpose-built compact dock
+  3. Dock is a launcher, not a chat
+  4. Type something
+
+Esc to cancel
+`;
+    expect(parsePermissionPrompt(askUserQuestion)).toBeNull();
+  });
 });

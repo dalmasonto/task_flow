@@ -35,9 +35,15 @@ const MAX_CONTEXT_LINES = 14;
 const MAX_QUESTION_CHARS = 2000;
 
 /**
- * Whether a Notification message means "blocked waiting for permission" rather
- * than the idle "waiting for your input" nudge, which is not a question and must
- * not raise one.
+ * Whether a Notification message is the "blocked on the user" kind rather than
+ * the idle "waiting for your input" nudge.
+ *
+ * NOT sufficient on its own. Claude Code fires "Claude needs your permission"
+ * for AskUserQuestion as well as for tool approvals — the message does not
+ * distinguish them, and trusting it destroyed live questions on 2026-07-24 (see
+ * the regression test). `parsePermissionPrompt` is what actually tells them
+ * apart: only a real approval screen carries the proceed anchor. Always gate on
+ * a successful parse, never on this alone.
  *
  * @param {string | undefined | null} message
  * @returns {boolean}
