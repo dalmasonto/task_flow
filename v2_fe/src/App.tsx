@@ -3897,7 +3897,7 @@ function App() {
       {activeProject && !dockOpen ? (
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"
+          className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"
           onClick={() => setDockOpen(true)}
           title="Open chat"
         >
@@ -6696,7 +6696,11 @@ function ChatDock({
       role="dialog"
       aria-label="Chat"
       className={cn(
-        "fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-card shadow-2xl",
+        // Above the task sheet and the task-ref notice (both z-50 over a z-40
+        // backdrop). It has to be: "Message agent" lives INSIDE the task sheet,
+        // so at z-40 clicking it opened the dock behind the very sheet you
+        // clicked from — the feature was unreachable.
+        "fixed z-[60] flex flex-col overflow-hidden rounded-xl border bg-card shadow-2xl",
         minimised ? "bottom-4 right-4 h-auto w-[min(20rem,calc(100vw-2rem))]" : frame
       )}
     >
