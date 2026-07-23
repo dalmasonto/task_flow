@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type UIEvent } from "react"
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, type UIEvent } from "react"
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom"
 import {
   ActivityIcon,
@@ -2540,6 +2540,56 @@ function App() {
     setDockOpen(true)
   }, [])
 
+  /// Open the DM with an agent, creating it if this is the first message.
+  ///
+  /// Direct rooms are membership-driven and never invented as placeholders, so
+  /// an agent you have not DM'd before simply has no chat to open. The server
+  /// dedups DMs by roster, so creating one you already have just returns it —
+  /// which is why this can create unconditionally when the lookup misses.
+  const openAgentChat = useCallback(
+    (agentId: number) => {
+      const workspace = activeLiveWorkspace
+      if (!workspace) return
+      // Reuse the same mapper the chat list is built from, rather than
+      // re-deriving "which room is the DM with this agent" a second way.
+      const existing = mapLiveDirectChats(workspace, currentUser, Date.now()).find(
+        (chat) => chat.liveAgentId === agentId
+      )
+      if (existing) {
+        openDockChat(existing.id)
+        return
+      }
+      const projectId = activeLiveProjectId
+      if (!projectId) return
+      void createTaskflowChannel({
+        project: projectId,
+        kind: "direct",
+        title: workspace.agents.find((agent) => agent.id === agentId)?.display_name ?? "Direct message",
+        members: [{ kind: "agent", agent: agentId }],
+      })
+        .then((channel) => {
+          applyWorkspaceUpdate(projectId, (current) => ({
+            ...current,
+            agentChannels: upsertById(current.agentChannels, channel),
+            agentChannelMembers: channel.members.reduce(
+              (rows, member) => upsertById(rows, member),
+              current.agentChannelMembers
+            ),
+          }))
+          openDockChat(`live:direct:${channel.id}`)
+        })
+        .catch(() => {
+          // Opening a chat is not worth an error dialog over; the dock simply
+          // does not open and the agent stays reachable from the Agents page.
+        })
+    },
+    [activeLiveWorkspace, currentUser, activeLiveProjectId, applyWorkspaceUpdate, openDockChat]
+  )
+  const chatDockApi = useMemo(
+    () => ({ openChat: openDockChat, openAgentChat }),
+    [openDockChat, openAgentChat]
+  )
+
   if (publicPath === "/") {
     return <LandingPage />
   }
@@ -3281,7 +3331,7 @@ function App() {
   return (
     <TaskChipContext.Provider value={openTaskById}>
      <GithubRepoContext.Provider value={activeLiveWorkspace?.project.github_repo ?? null}>
-     <ChatDockContext.Provider value={openDockChat}>
+     <ChatDockContext.Provider value={chatDockApi}>
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         projects={sidebarProjects}
@@ -4822,6 +4872,22 @@ function TaskDetailSheet({
   // GitHub: the published issue (from the live row, or just-published locally),
   // plus this project's status which gates the publish/comment controls.
   const rawTask = liveWorkspace?.tasks.find((row) => String(row.id) === task.id)
+  // #55: offer "Message agent" only when this task's operator is an agent that is
+  // actually online. The liveness tick matters — a dead agent stops heartbeating
+  // rather than announcing itself, so without a refreshing clock the button would
+  // keep inviting you to message something that went away.
+  const sheetLivenessNow = useLivenessNow()
+  const chatDock = useContext(ChatDockContext)
+  const operatorAgentOnline = Boolean(
+    rawTask?.operator_agent_id != null &&
+      liveWorkspace &&
+      isAgentOnline(
+        rawTask.operator_agent_id,
+        liveWorkspace.agents,
+        liveWorkspace.agentSessions,
+        sheetLivenessNow
+      )
+  )
   const [ghStatus, setGhStatus] = useState<GithubProjectStatus | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [ghActionError, setGhActionError] = useState<string | null>(null)
@@ -5029,7 +5095,27 @@ function TaskDetailSheet({
                   <Info label="Owner" value={task.owner} />
                   <Info label="Due" value={task.due} />
                   <Info label="Estimate" value={task.estimate} />
-                  <Info label="Operator" value={task.operatorName} />
+                  <Info
+                    label="Operator"
+                    value={task.operatorName}
+                    // #55: message the agent running this task without leaving
+                    // the sheet. Only offered when the operator IS an agent and
+                    // that agent is actually online — a Message button for an
+                    // agent that cannot answer is a promise nothing keeps.
+                    action={
+                      operatorAgentOnline && rawTask?.operator_agent_id != null ? (
+                        <button
+                          type="button"
+                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                          onClick={() => chatDock?.openAgentChat(rawTask.operator_agent_id as number)}
+                          title={`Message ${task.operatorName}`}
+                        >
+                          <MessageSquareIcon className="size-3.5" />
+                          Message agent
+                        </button>
+                      ) : null
+                    }
+                  />
                   <Info label="Created by" value={task.createdBy} />
                 </div>
               </section>
@@ -5809,11 +5895,12 @@ function MoveTaskButton({
   )
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value, action }: { label: string; value: string; action?: ReactNode }) {
   return (
     <div className="rounded-lg border bg-background p-2.5">
       <p className="text-[0.68rem] font-medium uppercase tracking-normal text-muted-foreground">{label}</p>
       <p className="mt-1 truncate text-sm font-medium">{value}</p>
+      {action}
     </div>
   )
 }
@@ -6579,9 +6666,13 @@ function ChatDock({
 
   // On a narrow screen a 380px corner panel is most of the viewport anyway, so
   // it takes the whole screen rather than fighting the page for room.
+  // Sized to be a usable chat rather than a notification corner: the composer
+  // carries a target picker, priority and attachments, and threads have code and
+  // images in them. Still capped against the viewport so it never overruns a
+  // small screen.
   const frame = isBelowLg
     ? "inset-2"
-    : "bottom-4 right-4 w-[min(26rem,calc(100vw-2rem))] h-[min(34rem,calc(100vh-6rem))]"
+    : "bottom-4 right-4 w-[min(34rem,calc(100vw-2rem))] h-[min(44rem,calc(100vh-4rem))]"
 
   return (
     <section

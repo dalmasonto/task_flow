@@ -17,8 +17,18 @@ export const TaskChipContext = createContext<((taskId: number) => void) | null>(
 /// the chip renders inert and says why rather than linking nowhere.
 export const GithubRepoContext = createContext<string | null>(null)
 
-/// #55: opens the docked chat on a conversation, from anywhere in the app.
-/// Deliberately the same shape as [[TaskChipContext]] — "click a reference
-/// anywhere, open the thing" — so any surface can offer chat without threading a
-/// callback down to it. Null (the default) means no dock is mounted.
-export const ChatDockContext = createContext<((chatId: string) => void) | null>(null)
+/// #55: opens the docked chat from anywhere in the app. Deliberately the same
+/// shape as [[TaskChipContext]] — "click a reference anywhere, open the thing" —
+/// so any surface can offer chat without threading a callback down to it. Null
+/// (the default) means no dock is mounted.
+///
+/// `openAgentChat` exists separately because a DM is not guaranteed to exist:
+/// direct rooms are membership-driven and are never invented as placeholders
+/// (see mapLiveDirectChats), so messaging an agent you have not DM'd before has
+/// to CREATE the room first. Callers should not have to know that.
+export type ChatDockApi = {
+  openChat: (chatId: string) => void
+  openAgentChat: (agentId: number) => void
+}
+
+export const ChatDockContext = createContext<ChatDockApi | null>(null)
