@@ -1168,6 +1168,7 @@ export type GithubProjectStatus = {
   github_repo: string | null
   can_publish: boolean
   post_as_me: boolean
+  auto_mirror: boolean
 }
 
 export class GithubNeedsConnectError extends Error {
@@ -1271,6 +1272,17 @@ export async function setGithubPostAsMe(
 ): Promise<{ post_as_me: boolean }> {
   const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/pref`, {
     post_as_me: postAsMe,
+  })
+  return response.json()
+}
+
+/** Owner/admin: toggle per-project auto-mirror of comments to the linked issue. */
+export async function setGithubAutoMirror(
+  projectId: number,
+  enabled: boolean,
+): Promise<{ auto_mirror: boolean }> {
+  const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/auto-mirror`, {
+    enabled,
   })
   return response.json()
 }

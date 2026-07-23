@@ -119,6 +119,7 @@ import {
   fetchGithubProjectStatus,
   linkGithubProject,
   setGithubPostAsMe,
+  setGithubAutoMirror,
   publishTaskAsIssue,
   commentOnIssueAsMe,
   GithubNeedsConnectError,
@@ -4734,8 +4735,9 @@ function TaskDetailSheet({
       await onAddComment(body)
       setCommentDraft("")
       // The comment is recorded; the GitHub mirror is best-effort on top. If it
-      // fails, the per-row "Post to issue" button remains for a retry.
-      if (alsoPostToGithub && canCommentAsMe) {
+      // fails, the per-row "Post to issue" button remains for a retry. Auto-mirror
+      // forces it regardless of the checkbox.
+      if ((alsoPostToGithub || Boolean(ghStatus?.auto_mirror)) && canCommentAsMe) {
         const projectId = liveId(project.id)
         const taskId = liveId(task.id)
         if (projectId !== null && taskId !== null) {
@@ -5143,19 +5145,22 @@ function TaskDetailSheet({
                             canCommentAsMe ? "text-muted-foreground" : "text-muted-foreground/60",
                           )}
                           title={
-                            canCommentAsMe
-                              ? `Also post this comment to GitHub issue #${issueNumber} as you`
-                              : "Connect GitHub and enable “post as me” in project settings to mirror comments"
+                            ghStatus?.auto_mirror
+                              ? "Auto-mirror is on for this project — comments post to the issue automatically"
+                              : canCommentAsMe
+                                ? `Also post this comment to GitHub issue #${issueNumber} as you`
+                                : "Connect GitHub and enable “post as me” in project settings to mirror comments"
                           }
                         >
                           <input
                             type="checkbox"
                             className="size-3.5 accent-primary"
-                            checked={alsoPostToGithub && canCommentAsMe}
-                            disabled={!canCommentAsMe}
+                            checked={(alsoPostToGithub || Boolean(ghStatus?.auto_mirror)) && canCommentAsMe}
+                            disabled={!canCommentAsMe || Boolean(ghStatus?.auto_mirror)}
                             onChange={(event) => setAlsoPostToGithub(event.target.checked)}
                           />
                           Post to issue #{issueNumber}
+                          {ghStatus?.auto_mirror ? " (auto)" : ""}
                         </label>
                       ) : null}
                       <Button size="xs" disabled={commentBusy || !commentDraft.trim()} onClick={() => void submitComment()}>
@@ -8886,6 +8891,48 @@ function ApiBasePage({
                   className={cn(
                     "inline-block size-5 transform rounded-full bg-background shadow transition-transform",
                     ghStatus.post_as_me ? "translate-x-5" : "translate-x-0.5",
+                  )}
+                />
+              </button>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Auto-mirror comments to the issue</p>
+                <p className="text-xs text-muted-foreground">
+                  Owner/admin. When on, task comments post to the issue automatically — each
+                  still under the commenter's own key, only if they've opted in.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={ghStatus.auto_mirror}
+                aria-label="Auto-mirror comments to the issue"
+                disabled={numericProjectId === null || !ghStatus.project_linked}
+                onClick={async () => {
+                  if (numericProjectId === null) return
+                  const next = !ghStatus.auto_mirror
+                  setGhStatus({ ...ghStatus, auto_mirror: next })
+                  try {
+                    await setGithubAutoMirror(numericProjectId, next)
+                  } catch (error) {
+                    setGhStatus({ ...ghStatus, auto_mirror: !next })
+                    setGhError(
+                      error instanceof GithubNeedsConnectError
+                        ? "Connect GitHub first."
+                        : (error as Error).message,
+                    )
+                  }
+                }}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+                  ghStatus.auto_mirror ? "bg-primary" : "bg-input",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block size-5 transform rounded-full bg-background shadow transition-transform",
+                    ghStatus.auto_mirror ? "translate-x-5" : "translate-x-0.5",
                   )}
                 />
               </button>

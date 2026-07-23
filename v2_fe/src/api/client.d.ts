@@ -397,6 +397,7 @@ export interface TaskflowProject {
   /** Foreign key into `auth_user`. */
   github_linked_by: number | null;
   github_default_branch: string | null;
+  github_auto_mirror: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -1950,6 +1951,9 @@ export interface TaskflowProjectFilters {
   "github_default_branch__startswith"?: string;
   "github_default_branch__in"?: string[];
   "github_default_branch__isnull"?: boolean;
+  "github_auto_mirror"?: boolean;
+  "github_auto_mirror__ne"?: boolean;
+  "github_auto_mirror__in"?: boolean[];
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1967,7 +1971,7 @@ export interface TaskflowProjectFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowProjectOrdering = "id" | "-id" | "name" | "-name" | "slug" | "-slug" | "description_markdown" | "-description_markdown" | "repository_url" | "-repository_url" | "default_api_base_url" | "-default_api_base_url" | "status" | "-status" | "owner" | "-owner" | "github_repo" | "-github_repo" | "github_linked_by" | "-github_linked_by" | "github_default_branch" | "-github_default_branch" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowProjectOrdering = "id" | "-id" | "name" | "-name" | "slug" | "-slug" | "description_markdown" | "-description_markdown" | "repository_url" | "-repository_url" | "default_api_base_url" | "-default_api_base_url" | "status" | "-status" | "owner" | "-owner" | "github_repo" | "-github_repo" | "github_linked_by" | "-github_linked_by" | "github_default_branch" | "-github_default_branch" | "github_auto_mirror" | "-github_auto_mirror" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_project`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowProjectCreate {
   name: string;
@@ -1980,6 +1984,7 @@ export interface TaskflowProjectCreate {
   github_repo?: string | null;
   github_linked_by?: number | null;
   github_default_branch?: string | null;
+  github_auto_mirror?: boolean;
   updated_at?: string | null;
 }
 /** Body for updating a `taskflow_project` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
@@ -1994,6 +1999,7 @@ export interface TaskflowProjectUpdate {
   github_repo?: string | null;
   github_linked_by?: number | null;
   github_default_branch?: string | null;
+  github_auto_mirror?: boolean;
 }
 
 /** Filterable query parameters for `taskflow_project_api_endpoint`. Every key is optional and AND-combined server-side. */
