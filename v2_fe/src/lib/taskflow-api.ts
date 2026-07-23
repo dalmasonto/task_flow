@@ -439,6 +439,13 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
   }
 }
 
+/// #56: the CORE workspace — what a board needs and nothing else.
+///
+/// This used to fetch all ~20 tables at once, so opening the board downloaded
+/// every chat message, prompt, terminal frame and 1000 activity rows that the
+/// board never renders (~1.2 MB of the 1.31 MB total). The heavy slices now load
+/// on demand via fetchWorkspaceChat / fetchWorkspaceActivity, and start empty
+/// here so every existing consumer keeps reading the same shape.
 export async function fetchTaskflowWorkspace(projectId: number): Promise<TaskflowWorkspace> {
   const [
     project,
@@ -447,20 +454,12 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     apiEndpoints,
     tasks,
     taskRelations,
-    taskActivity,
     taskSessions,
     taskAttachments,
     agents,
     agentCredentials,
     agentSessions,
-    agentChannels,
-    agentChannelMembers,
-    agentMessages,
-    messageAttachments,
-    terminalFrames,
-    channelReadCursors,
     taskReviews,
-    agentPrompts,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").list(),
@@ -468,28 +467,13 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").list(),
     taskflowApi.from(taskflowTables.tasks).filter({ project: projectId }).orderBy("sort_order", "id").list(),
     taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").list(),
-    taskflowApi.from(taskflowTables.taskActivity).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").list(),
     taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").list(),
     taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").list(),
     taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").list(),
-    taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").list(),
-    taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").list(),
-    // #46: load the NEWEST 1000 messages, not the oldest. NoPagination caps the
-    // list at 1000, so ascending order silently dropped the most RECENT messages
-    // once a project passed 1000 — the exact opposite of what a chat needs. The
-    // view re-sorts chronologically, so load order is display-transparent.
-    // (Full history beyond the newest 1000 still needs a cursor — see #46.)
-    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").list(),
-    taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
-    taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").list(),
     taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
   ])
-
-  const channelIds = new Set(agentChannels.results.map((channel) => channel.id))
 
   return {
     project,
@@ -498,21 +482,85 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     apiEndpoints: apiEndpoints.results,
     tasks: tasks.results,
     taskRelations: taskRelations.results,
-    taskActivity: taskActivity.results,
     taskSessions: taskSessions.results,
     taskAttachments: taskAttachments.results,
     agents: agents.results,
     agentCredentials: agentCredentials.results,
     agentSessions: agentSessions.results,
+    taskReviews: taskReviews.results,
+    // Deferred slices — see fetchWorkspaceChat / fetchWorkspaceActivity.
+    taskActivity: [],
+    agentChannels: [],
+    agentChannelMembers: [],
+    agentMessages: [],
+    messageAttachments: [],
+    terminalFrames: [],
+    channelReadCursors: [],
+    agentPrompts: [],
+  }
+}
+
+/// The chat slice: loaded when the Agents page or the chat dock is actually
+/// open, not when a board is. Terminal frames ride along because the terminal
+/// only exists inside a conversation.
+export type WorkspaceChatSlice = Pick<
+  TaskflowWorkspace,
+  | "agentChannels"
+  | "agentChannelMembers"
+  | "agentMessages"
+  | "messageAttachments"
+  | "terminalFrames"
+  | "channelReadCursors"
+  | "agentPrompts"
+>
+
+export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceChatSlice> {
+  const [
+    agentChannels,
+    agentChannelMembers,
+    agentMessages,
+    messageAttachments,
+    terminalFrames,
+    channelReadCursors,
+    agentPrompts,
+  ] = await Promise.all([
+    taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").list(),
+    taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").list(),
+    // #46: load the NEWEST 1000 messages, not the oldest. NoPagination caps the
+    // list at 1000, so ascending order silently dropped the most RECENT messages
+    // once a project passed 1000 — the exact opposite of what a chat needs. The
+    // view re-sorts chronologically, so load order is display-transparent.
+    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").list(),
+    taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
+    taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").list(),
+    taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+  ])
+
+  const channelIds = new Set(agentChannels.results.map((channel) => channel.id))
+
+  return {
     agentChannels: agentChannels.results,
     agentChannelMembers: agentChannelMembers.results.filter((member) => channelIds.has(member.channel)),
     agentMessages: agentMessages.results,
     messageAttachments: messageAttachments.results,
     terminalFrames: terminalFrames.results,
     channelReadCursors: channelReadCursors.results,
-    taskReviews: taskReviews.results,
     agentPrompts: agentPrompts.results,
   }
+}
+
+/// The activity slice — 898 KB of the old 1.31 MB, and the board renders none of
+/// it. Loaded for the activity feed and the task detail sheet only.
+export async function fetchWorkspaceActivity(
+  projectId: number
+): Promise<Pick<TaskflowWorkspace, "taskActivity">> {
+  const taskActivity = await taskflowApi
+    .from(taskflowTables.taskActivity)
+    .filter({ project: projectId })
+    .orderBy("-created_at", "-id")
+    .list()
+  return { taskActivity: taskActivity.results }
 }
 
 /// Advance the current user's read cursor for a channel to `lastReadMessage`.

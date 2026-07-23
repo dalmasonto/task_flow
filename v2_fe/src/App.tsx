@@ -119,6 +119,8 @@ import {
   fetchMyInvites,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
+  fetchWorkspaceChat,
+  fetchWorkspaceActivity,
   fetchGithubProjectStatus,
   linkGithubProject,
   setGithubPostAsMe,
@@ -2589,6 +2591,58 @@ function App() {
     () => ({ openChat: openDockChat, openAgentChat }),
     [openDockChat, openAgentChat]
   )
+
+  // #56: the heavy slices load only for the surfaces that render them. The board
+  // used to download every message, prompt, terminal frame and 1000 activity
+  // rows — ~1.2 MB of the 1.31 MB workspace — and display none of it.
+  //
+  // The flags are set BEFORE the request, not after: `activeLiveWorkspace` is in
+  // the dependency list, and applying the slice changes it, so a flag set on
+  // success would let the effect re-fire against its own result. On failure they
+  // reset, so a transient error still retries when the surface is next visited.
+  // A ref, not state: these flags gate a fetch, they do not belong in a render.
+  // Holding them in state also meant calling setState synchronously inside the
+  // effect, which is the cascading-render pattern the lint rule objects to.
+  const loadedSlices = useRef<{ project: number | null; chat: boolean; activity: boolean }>({
+    project: null,
+    chat: false,
+    activity: false,
+  })
+
+  const chatNeeded = dockOpen || location.pathname.startsWith("/dashboard/agents")
+  // The task sheet renders one task's activity; the feed renders the project's.
+  const activityNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/activity")
+
+  useEffect(() => {
+    if (!activeLiveProjectId || !activeLiveWorkspace) return
+    const projectId = activeLiveProjectId
+    const slices = loadedSlices.current
+    // Switching projects invalidates whatever was loaded for the previous one.
+    if (slices.project !== projectId) {
+      slices.project = projectId
+      slices.chat = false
+      slices.activity = false
+    }
+    // Marked BEFORE the request: applying a slice changes activeLiveWorkspace,
+    // which re-runs this effect, so a flag set on success would let it re-fire
+    // against its own result. Cleared on failure so the next visit retries.
+    if (chatNeeded && !slices.chat) {
+      slices.chat = true
+      void fetchWorkspaceChat(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.chat = false
+        })
+    }
+    if (activityNeeded && !slices.activity) {
+      slices.activity = true
+      void fetchWorkspaceActivity(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.activity = false
+        })
+    }
+  }, [chatNeeded, activityNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate])
 
   if (publicPath === "/") {
     return <LandingPage />
