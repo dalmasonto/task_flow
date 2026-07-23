@@ -5181,31 +5181,32 @@ function TaskDetailSheet({
                       )}
                     </span>
                     <div className="flex shrink-0 items-center gap-2">
-                      {issueNumber ? (
+                      {mirrorState.kind === "unknown" ? null : (
                         <label
                           className={cn(
                             "flex items-center gap-1.5 text-[11px]",
-                            canCommentAsMe ? "text-muted-foreground" : "text-muted-foreground/60",
+                            mirrorState.kind === "ready" || mirrorState.kind === "auto"
+                              ? "text-muted-foreground"
+                              : "text-muted-foreground/60",
                           )}
                           title={
-                            ghStatus?.auto_mirror
+                            mirrorReason ??
+                            (mirrorState.kind === "auto"
                               ? "Auto-mirror is on for this project — comments post to the issue automatically"
-                              : canCommentAsMe
-                                ? `Also post this comment to GitHub issue #${issueNumber} as you`
-                                : "Connect GitHub and enable “post as me” in project settings to mirror comments"
+                              : `Also post this comment to GitHub issue #${issueNumber} as you`)
                           }
                         >
                           <input
                             type="checkbox"
                             className="size-3.5 accent-primary"
-                            checked={(alsoPostToGithub || Boolean(ghStatus?.auto_mirror)) && canCommentAsMe}
-                            disabled={!canCommentAsMe || Boolean(ghStatus?.auto_mirror)}
+                            checked={mirrorState.kind === "auto" || (alsoPostToGithub && mirrorState.kind === "ready")}
+                            disabled={mirrorState.kind !== "ready"}
                             onChange={(event) => setAlsoPostToGithub(event.target.checked)}
                           />
-                          Post to issue #{issueNumber}
-                          {ghStatus?.auto_mirror ? " (auto)" : ""}
+                          {issueNumber ? `Post to issue #${issueNumber}` : "Post to issue"}
+                          {mirrorState.kind === "auto" ? " (auto)" : ""}
                         </label>
-                      ) : null}
+                      )}
                       <Button size="xs" disabled={commentBusy || !commentDraft.trim()} onClick={() => void submitComment()}>
                         {commentBusy ? "Posting…" : "Comment"}
                       </Button>
