@@ -158,6 +158,33 @@ describe("message delivery without a pane", () => {
     await events.options?.onReconnect(undefined as never);
     expect(markRead).toEqual([]);
   });
+
+  it("fetches NOTHING on a pane-less reconnect — the backlog could not be delivered anyway", async () => {
+    // Without the early return this costs `unread · (1 + channels)` round-trips
+    // on every reconnect, forever, and throws every response away: the unread
+    // set never drains, because nothing may mark it read with no pane.
+    const listChannels = vi.fn(async () => [{ id: 3 }]);
+    const listMessages = vi.fn(async () => ({ messages: [] }));
+    const client = { listChannels, listMessages, markRead: vi.fn(async () => ({})) } as never;
+
+    startAgentRuntime(contextFor(null, client), () => {});
+    await events.options?.onReconnect(undefined as never);
+
+    expect(listChannels).not.toHaveBeenCalled();
+    expect(listMessages).not.toHaveBeenCalled();
+  });
+
+  it("still catches up when there IS a pane — the skip is pane-specific, not a disable", async () => {
+    const listChannels = vi.fn(async () => [{ id: 3 }]);
+    const listMessages = vi.fn(async () => ({ messages: [] }));
+    const client = { listChannels, listMessages, markRead: vi.fn(async () => ({})) } as never;
+
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onReconnect(undefined as never);
+
+    expect(listChannels).toHaveBeenCalledTimes(1);
+    expect(listMessages).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("mirror status reporting", () => {
@@ -289,5 +316,30 @@ describe("connectAs", () => {
       stop: () => {},
     }));
     expect(connectAs(PROFILE, null)).toBeUndefined();
+  });
+
+  it("stops the connection it replaces, so the old identity stops heartbeating", () => {
+    const first = { settled: Promise.resolve(), beat: async () => {}, stop: vi.fn() };
+    const second = { settled: Promise.resolve(), beat: async () => {}, stop: vi.fn() };
+    connect.startConnection
+      .mockImplementationOnce(() => first)
+      .mockImplementationOnce(() => second);
+
+    connectAs(PROFILE, null);
+    expect(first.stop).not.toHaveBeenCalled();
+
+    // Switching profile: the superseded connection must be torn down, or its
+    // session row keeps beating and the dashboard shows one agent twice.
+    connectAs({ ...PROFILE, profileName: "reviewer" }, null);
+    expect(first.stop).toHaveBeenCalledTimes(1);
+    expect(second.stop).not.toHaveBeenCalled();
+  });
+
+  it("does not throw on the very first call, when there is nothing live to stop", async () => {
+    // A fresh module instance, so the slot really is empty — the other cases in
+    // this file have already populated it.
+    vi.resetModules();
+    const fresh = await import("./runtime.js");
+    expect(() => fresh.connectAs(PROFILE, null)).not.toThrow();
   });
 });

@@ -19,15 +19,21 @@ import {
   loadConfigFile,
   findConfigPath,
   resolveProfile,
+  resolveProfileOrAsk,
+  type ProfileChoice,
+  type ResolvedProfile,
   type TaskflowConfig,
 } from "./config.js";
-import { TaskflowClient, TaskflowApiError } from "./client.js";
+import { TaskflowClient, TaskflowApiError, type AgentSummary } from "./client.js";
 import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
 import { detectTmuxPane } from "./tmux.js";
 import { AGENT_INSTRUCTIONS } from "./instructions.js";
 import { sessionIdentifier } from "./session-identifier.js";
+import { getConnectionStatus } from "./connect.js";
+import { selectProfile } from "./runtime.js";
+import { readStickyProfile } from "./sessions-store.js";
 
 /**
  * The nudge attached to every check_messages result. A read cursor only advances
@@ -56,6 +62,73 @@ function fail(err: unknown): CallToolResult {
         ? err.message
         : String(err);
   return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+}
+
+/**
+ * The refusal returned instead of guessing an identity.
+ *
+ * The server cannot prompt a human — MCP has no such primitive — but it can
+ * return a machine-readable refusal naming the exact follow-up call that
+ * resolves it. This is the typed-error equivalent for a protocol with no
+ * interaction primitive.
+ */
+export function ambiguityRefusal(profiles: ProfileChoice[]): string {
+  return JSON.stringify(
+    {
+      error: "profile_ambiguous",
+      profiles,
+      hint:
+        "This repo defines several agent identities and nothing says which one this terminal is. " +
+        "Ask your human which to use (show each display_name; 'recommended' is the file's default " +
+        "and 'in_use' means another terminal is already that agent), then call " +
+        "select_profile with their choice. Do NOT guess.",
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * Annotate each choice with whether that agent already has a live session, so
+ * the human can see which identity another terminal has taken.
+ *
+ * `agents` is null when liveness could not be determined; `in_use` is then
+ * omitted rather than guessed — a picker with names only is still usable, but a
+ * wrong `in_use` would send the human to the wrong terminal.
+ */
+export function markInUse(
+  profiles: ProfileChoice[],
+  agents: AgentSummary[] | null,
+  agentIdByProfile: Record<string, number>,
+): ProfileChoice[] {
+  if (!agents) return profiles;
+  const live = new Set(agents.filter((a) => a.status === "connected").map((a) => a.id));
+  return profiles.map((p) => ({ ...p, in_use: live.has(agentIdByProfile[p.name] ?? -1) }));
+}
+
+/**
+ * The warning returned when a human picks an identity another terminal already
+ * holds.
+ *
+ * Deliberately NOT a refusal. A crashed terminal's session still looks live for
+ * the rest of the 90s window, so refusing would lock someone out of their own
+ * identity at the worst possible moment. The collision is real but recoverable;
+ * being unable to reconnect is neither.
+ *
+ * Returns undefined when there is nothing to warn about, so the caller can
+ * spread it into the result and have the field simply not appear.
+ */
+export function collisionWarning(
+  profileName: string,
+  live: AgentSummary | null,
+): string | undefined {
+  if (!live) return undefined;
+  const seen = live.last_seen_at ? ` (last seen ${live.last_seen_at})` : "";
+  return (
+    `'${profileName}' already has a live session${seen}. Two terminals sharing one ` +
+    `identity share one inbox and one read cursor, so messages meant for one will ` +
+    `be marked read by the other. Tell your human before you continue.`
+  );
 }
 
 export interface BuildServerOptions {
@@ -92,9 +165,53 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     { instructions: AGENT_INSTRUCTIONS },
   );
 
-  const clientFor = (profile?: string) => {
-    const resolved = resolveProfile(config, { profile, env, configPath });
-    return { resolved, client: new TaskflowClient({ server: resolved.server, key: resolved.key }) };
+  const paneOnce = detectTmuxPane().catch(() => null);
+
+  /**
+   * Resolve the identity for one tool call. Returns a refusal instead of a
+   * client when a human still has to choose.
+   */
+  const clientFor = async (
+    profile?: string,
+  ): Promise<
+    | { ok: true; resolved: ResolvedProfile; client: TaskflowClient }
+    | { ok: false; refusal: CallToolResult }
+  > => {
+    const pane = await paneOnce;
+    const sticky = readStickyProfile({ configPath, pane });
+    const resolution = resolveProfileOrAsk(config, { profile, env, configPath, sticky });
+    if (resolution.kind === "ambiguous") {
+      // Liveness is a courtesy, never a blocker: any profile's credential can
+      // read the project roster, since all profiles in a file share a project.
+      const anyKey = Object.values(config.profiles)[0]?.key;
+      let agents: AgentSummary[] | null = null;
+      if (anyKey) {
+        agents = await new TaskflowClient({ server: config.server, key: anyKey })
+          .listAgents()
+          .catch(() => null);
+      }
+      const byProfile = Object.fromEntries(
+        Object.entries(config.profiles).map(([name, p]) => [name, p.agent_id]),
+      );
+      return {
+        ok: false,
+        refusal: {
+          content: [
+            {
+              type: "text",
+              text: ambiguityRefusal(markInUse(resolution.profiles, agents, byProfile)),
+            },
+          ],
+          isError: true,
+        },
+      };
+    }
+    const resolved = resolution.profile;
+    return {
+      ok: true,
+      resolved,
+      client: new TaskflowClient({ server: resolved.server, key: resolved.key }),
+    };
   };
 
   /** Ensure a live session exists for a profile; register one if not. */
@@ -102,13 +219,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     client: TaskflowClient,
     profileName: string,
   ): Promise<number> => {
+    // `connect.ts` registered one at startup; reuse it so this process owns ONE
+    // session row rather than racing its own connection.
+    const connected = getConnectionStatus().session;
+    if (connected !== undefined) return connected;
     const existing = sessions.get(profileName);
     if (existing !== undefined) return existing;
     const session = await client.registerSession({
-      session_identifier: sessionIdentifier({
-        pane: await detectTmuxPane(),
-        profileName,
-      }),
+      session_identifier: sessionIdentifier({ pane: await paneOnce, profileName }),
       host: hostname(),
       pid: process.pid,
       cwd: process.cwd(),
@@ -124,17 +242,61 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "whoami",
-    "Confirm which TaskFlow agent identity and project this credential maps to, and whether the terminal mirror is running. Call first to verify the connection.",
+    "Confirm which TaskFlow agent identity and project this credential maps to, plus the connection and terminal-mirror state. Connection and heartbeat are automatic — this confirms them, it does not establish them. mirror.state 'off' just means there is no tmux pane to stream; it is not an error.",
     { ...profileArg },
     async ({ profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         const identity = await client.whoami();
         // The mirror's health rides along with identity because a dead mirror
         // is otherwise invisible: it only ever wrote one line to stderr, which
         // nobody reads, so "the dashboard terminal is stale" could only be
         // answered by inspecting /proc and open sockets.
-        return ok({ ...(identity as object), mirror: getMirrorStatus() });
+        return ok({
+          ...(identity as object),
+          connection: getConnectionStatus(),
+          mirror: getMirrorStatus(),
+        });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "select_profile",
+    "Choose which agent identity this terminal is, when the repo defines several. Call this ONLY after asking your human which one to use — never guess. The choice is remembered for this terminal, so you will not be asked again after a reconnect.",
+    { profile: z.string().describe("The profile name your human chose, e.g. 'main' or 'bear'.") },
+    async ({ profile }) => {
+      try {
+        // Throws with the available names if this one is not in the file.
+        const resolved = resolveProfile(config, { profile, env, configPath });
+
+        // BEFORE connecting, not after: `selectProfile` registers a session for
+        // this very agent, so a lookup afterwards would find OUR OWN row and
+        // warn about a collision with ourselves on every single call.
+        const live = await new TaskflowClient({ server: resolved.server, key: resolved.key })
+          .listAgents()
+          .then(
+            (agents) =>
+              agents.find((a) => a.id === resolved.agentId && a.status === "connected") ?? null,
+          )
+          .catch(() => null);
+
+        await selectProfile(resolved);
+
+        const warning = collisionWarning(resolved.profileName, live);
+        return ok({
+          selected: resolved.profileName,
+          display_name: resolved.displayName,
+          agent_id: resolved.agentId,
+          project: resolved.project,
+          connection: getConnectionStatus(),
+          ...(warning ? { warning } : {}),
+          note: "Connected. This terminal will use this identity from now on.",
+        });
       } catch (err) {
         return fail(err);
       }
@@ -151,7 +313,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ status, assigned, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.listTasks({ status, assigned }));
       } catch (err) {
         return fail(err);
@@ -165,7 +329,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     { ...profileArg },
     async ({ profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.listChannels());
       } catch (err) {
         return fail(err);
@@ -179,7 +345,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     { ...profileArg },
     async ({ profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.listAgents());
       } catch (err) {
         return fail(err);
@@ -204,7 +372,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ title, description, priority, claim, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(
           await client.createTask({
             title,
@@ -243,7 +413,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ task, status, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.updateTaskStatus(task, status));
       } catch (err) {
         return fail(err);
@@ -257,7 +429,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     { task: z.number().int().describe("Task id."), ...profileArg },
     async ({ task, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.claimTask(task));
       } catch (err) {
         return fail(err);
@@ -276,7 +450,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ task, decision, body, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.reportReview(task, decision, body));
       } catch (err) {
         return fail(err);
@@ -306,7 +482,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ channel, body, priority, files, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         const attachments = files?.length
           ? await resolveAttachments(files, dirname(configPath))
           : undefined;
@@ -340,7 +518,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ url, name, profile }) => {
       try {
-        const { resolved } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { resolved } = picked;
         return ok(
           await downloadAttachment({
             url,
@@ -384,7 +564,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ channel, unread_only, since, limit, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         const unread = unread_only !== false;
         if (channel !== undefined) {
           const page = await client.listMessages({ channel, since, limit, unread });
@@ -430,7 +612,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ channel, last_read_message, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.markRead(channel, last_read_message));
       } catch (err) {
         return fail(err);
@@ -450,7 +634,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ session_identifier, cwd, profile }) => {
       try {
-        const { client, resolved } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client, resolved } = picked;
         const session = await client.registerSession({
           // Prefer the tmux pane, exactly as `ensureSession` and the mirror do.
           // Calling this with no argument always produced `host:pid`, so an
@@ -482,7 +668,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ status, profile }) => {
       try {
-        const { client, resolved } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client, resolved } = picked;
         const sessionId = await ensureSession(client, resolved.profileName);
         return ok(await client.heartbeat(sessionId, status));
       } catch (err) {
@@ -507,7 +695,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ content, stream, profile }) => {
       try {
-        const { client, resolved } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client, resolved } = picked;
         const sessionId = await ensureSession(client, resolved.profileName);
         return ok(await client.appendFrame(sessionId, { content, stream }));
       } catch (err) {
@@ -533,7 +723,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ action, body, task, post_to_github, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(
           await client.logActivity({ action, body_markdown: body, task, post_to_github }),
         );
@@ -553,7 +745,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
     async ({ task, limit, profile }) => {
       try {
-        const { client } = clientFor(profile);
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
         return ok(await client.listActivity({ task, limit }));
       } catch (err) {
         return fail(err);

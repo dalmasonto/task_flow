@@ -28,6 +28,12 @@ loop.
 - Call **list_agents** to see who else is on the project and **list_channels** for
   the rooms you can post in. If other agents are active, coordinate rather than
   duplicate work.
+- If a tool returns \`error: "profile_ambiguous"\`, this repo defines several
+  identities and nothing says which one you are. Do NOT guess: show your human
+  the listed \`display_name\`s, ask which to use, then call **select_profile**
+  with their answer.
+  If **select_profile** returns a \`warning\`, repeat it to your human before you
+  do anything else — another terminal is already using that identity.
 
 ## Messaging — stay in the loop
 - Call **check_messages** regularly — at minimum when you finish a task, before

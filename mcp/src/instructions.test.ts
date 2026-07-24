@@ -44,6 +44,10 @@ describe("AGENT_INSTRUCTIONS", () => {
   // #54: a GitHub issue written as a bare `#12` renders as a TaskFlow task chip
   // and clicks through to a task that does not exist. Agents write most of the
   // messages in a project, so the convention has to reach them here.
+  it("tells the agent to relay a select_profile warning", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/warning/i);
+  });
+
   it("teaches the #gh<n> convention for GitHub issues", () => {
     expect(AGENT_INSTRUCTIONS).toContain("#gh");
   });

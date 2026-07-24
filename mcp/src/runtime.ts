@@ -36,7 +36,7 @@ import {
   type ResolvedProfile,
 } from "./config.js";
 import { readStickyProfile, writeStickyProfile } from "./sessions-store.js";
-import { setNeedsProfile, startConnection } from "./connect.js";
+import { setNeedsProfile, startConnection, type ConnectionHandle } from "./connect.js";
 import { reportMirror } from "./mirror.js";
 
 const stderrLog = (line: string) => void process.stderr.write(`taskflow-v2-mcp: ${line}\n`);
@@ -100,6 +100,11 @@ export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => 
   // unread (oldest first) closes it; already-delivered messages are past the
   // read cursor, so they are not repeated.
   const catchUpUnread = async () => {
+    // Nowhere to deliver, and `deliverMessageById` would drop every one of
+    // them anyway — so fetching the backlog is pure cost. `check_messages`
+    // still surfaces them on demand, which is the whole point of leaving
+    // them unread.
+    if (!pane) return;
     try {
       const channels = await client.listChannels();
       const ids: number[] = [];
@@ -253,6 +258,9 @@ export async function startAgent(options: { configPath?: string } = {}): Promise
   connectAs(resolution.profile, pane);
 }
 
+/** The live connection, so a profile switch can stop the one it replaces. */
+let current: ConnectionHandle | null = null;
+
 /**
  * Connect as a known profile and start the runtime. Used by `select_profile`.
  *
@@ -261,7 +269,10 @@ export async function startAgent(options: { configPath?: string } = {}): Promise
  * serving a single tool call until the backend came up.
  */
 export function connectAs(profile: ResolvedProfile, pane: string | null): void {
-  startConnection({
+  // A profile switch must not leave the old identity heartbeating: its session
+  // row would stay `connected` and the dashboard would show one agent twice.
+  current?.stop();
+  current = startConnection({
     profile,
     pane,
     log: stderrLog,
