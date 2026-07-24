@@ -76,8 +76,13 @@ impl Plugin for TaskflowTasksPlugin {
                     TaskflowTaskStatus::Done | TaskflowTaskStatus::Archived
                 );
                 if terminal && task.closed_at.is_none() {
-                    task.closed_at = task.updated_at;
-                    let _ = TaskflowTask::objects().save(task).await;
+                    if let Some(ts) = task.updated_at {
+                        task.closed_at = Some(ts);
+                        let _ = TaskflowTask::objects().save(task).await;
+                    }
+                    // else: leave closed_at null and do NOT save — a no-op save
+                    // would re-fire post_save -> reconcile -> stamp Utc::now(),
+                    // fabricating a close time for an un-dated historical row.
                 }
             }
         });

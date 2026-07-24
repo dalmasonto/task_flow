@@ -64,6 +64,24 @@ async fn reopening_to_in_progress_clears_closed_at() {
 }
 
 #[tokio::test]
+async fn moving_to_partial_done_clears_closed_at() {
+    init().await;
+    let project = seed_project().await;
+    let task = seed_task(project).await;
+
+    set_status(task, TaskflowTaskStatus::Done).await;
+    assert!(load_task(task).await.closed_at.is_some(), "closed first");
+
+    set_status(task, TaskflowTaskStatus::PartialDone).await;
+
+    let reloaded = load_task(task).await;
+    assert!(
+        reloaded.closed_at.is_none(),
+        "closed_at must clear on a non-in_progress terminal exit too"
+    );
+}
+
+#[tokio::test]
 async fn moving_to_archived_sets_closed_at() {
     init().await;
     let project = seed_project().await;
