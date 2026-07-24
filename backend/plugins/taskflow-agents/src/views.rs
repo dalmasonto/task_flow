@@ -2161,6 +2161,30 @@ async fn load_task(task_id: i64) -> Result<TaskflowTask, StatusCode> {
 /// Emit one `TaskflowTaskActivity` row for `task`. The activity stream is the
 /// single history feed the frontend renders; every task write here appends to
 /// it. Identity fields are derived by the caller, never accepted from a body.
+/// #57: name the task in an activity body — `#12 "Title"`.
+///
+/// Without it these rows read "created_task" / "claimed_task" with an empty body
+/// and "in_progress → partial_done" with no subject: you could see that
+/// something happened but not to what. The task id alone is not enough either —
+/// nobody recognises a project by its integers.
+///
+/// The backend is the only place this can be fixed: the PostToolUse hook writes
+/// a parallel row for the same event but only ever sees tool input, so it has
+/// the id and no title.
+///
+/// Title only, truncated. The description does not belong in a feed row — this
+/// table is paged by every client and its `metadata_json` already reaches 20 KB
+/// on tool rows.
+fn task_label(task: &TaskflowTask) -> String {
+    const MAX_TITLE: usize = 80;
+    let title: String = if task.title.chars().count() > MAX_TITLE {
+        format!("{}…", task.title.chars().take(MAX_TITLE).collect::<String>())
+    } else {
+        task.title.clone()
+    };
+    format!("#{} \"{}\"", task.id, title)
+}
+
 async fn emit_task_activity(
     project_id: i64,
     task_id: i64,
@@ -2273,7 +2297,7 @@ pub async fn create_task_as_agent(
         Some(agent.agent_id),
         agent.display_name.clone(),
         "created_task",
-        None,
+        Some(task_label(&task)),
     )
     .await?;
 
@@ -2333,7 +2357,7 @@ pub async fn update_task_status_as_agent(
         Some(agent.agent_id),
         agent.display_name.clone(),
         "status_changed",
-        Some(format!("{old} → {new}")),
+        Some(format!("{} · {old} → {new}", task_label(&task))),
     )
     .await?;
 
@@ -2364,7 +2388,7 @@ pub async fn claim_task_as_agent(
         Some(agent.agent_id),
         agent.display_name.clone(),
         "claimed_task",
-        None,
+        Some(task_label(&task)),
     )
     .await?;
 
