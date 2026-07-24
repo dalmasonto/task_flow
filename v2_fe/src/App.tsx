@@ -4350,12 +4350,15 @@ function AuthPage({ mode }: { mode: AuthMode }) {
   // useState initializer: takeOAuthError() has a side effect, and a lazy
   // initializer must stay pure (React may call it more than once).
   useEffect(() => {
+    // The notice belongs on the login screen only; an anonymous denial always
+    // lands there. Gate so a stashed error can't surface on signup/reset.
+    if (mode !== "login") return
     const oauthError = takeOAuthError()
     if (oauthError) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAuthResult({ ok: false, message: "Couldn't sign in with GitHub. Please try again." })
     }
-  }, [])
+  }, [mode])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const isLogin = mode === "login"
   const isSignup = mode === "signup"
