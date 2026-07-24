@@ -200,7 +200,61 @@ describe("startConnection", () => {
     // `onSession` is documented as firing ONCE. A re-registration is not a new
     // connection, so it must not re-announce.
     expect(announced).toEqual([77]);
+    // The successful re-registration must not leave a `detail: undefined` OWN
+    // property behind — `whoami` (a later task) checks the status shape with
+    // `Object.keys`, and a key with value `undefined` still shows up there.
+    expect(Object.keys(getConnectionStatus())).not.toContain("detail");
     handle.stop();
+  });
+
+  it("does not report itself active when stop() lands while a 404 re-register is in flight", async () => {
+    let release = () => {};
+    let registerCalls = 0;
+    const client = {
+      registerSession: async () => {
+        registerCalls += 1;
+        if (registerCalls === 1) {
+          // The initial connect — resolves immediately so the test gets past
+          // `handle.settled` before exercising the re-register race.
+          return { id: 77, session_identifier: "x", status: "connected" };
+        }
+        // The re-register triggered by the 404 below. Held open until the
+        // test has called `handle.stop()`, so the resolution races a
+        // torn-down connection exactly like the reported bug.
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { id: 77, session_identifier: "x", status: "connected" };
+      },
+      heartbeat: async () => {
+        throw new TaskflowApiError("POST", "/agent/sessions/77/heartbeat", 404, "gone");
+      },
+    } as never;
+    const handle = startConnection({
+      profile: PROFILE,
+      pane: null,
+      createClient: () => client,
+      sleep: fakeSleep(3).sleep,
+      autoHeartbeat: false,
+    });
+    await handle.settled;
+    expect(getConnectionStatus().state).toBe("active");
+
+    const beatPromise = handle.beat();
+    // Let `beat()` run far enough to hit the 404, catch it, and call
+    // `register()` again — which is now gated on `release()`.
+    await drain();
+    expect(registerCalls).toBe(2);
+
+    handle.stop();
+    expect(getConnectionStatus().state).toBe("stopped");
+
+    release();
+    await beatPromise;
+
+    // The gated register() resolved AFTER stop() — it must not flip a
+    // correctly torn-down connection back to a lying "active".
+    expect(getConnectionStatus().state).toBe("stopped");
   });
 
   it("does not re-register on a transient heartbeat failure", async () => {

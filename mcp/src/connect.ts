@@ -218,7 +218,16 @@ export function startConnection(options: ConnectOptions): ConnectionHandle {
       if (status_ === 404 || status_ === 401) {
         try {
           session = await register();
-          publish({ ...status, state: "active", session, detail: undefined });
+          // `stop()` may have landed while the re-register request was in
+          // flight — mirrors the same check in `run()`. Without it, a
+          // torn-down connection's `beat()` can resolve after `stop()` and
+          // flip a correctly-`stopped` status back to a lying `active`.
+          if (stopped) return;
+          // Built fresh, not spread from `status`: a spread-plus-`detail:
+          // undefined` creates an OWN `detail` key whose value is
+          // `undefined`, so `"detail" in status` reads true even though
+          // there is nothing to report.
+          publish({ state: "active", attempts: status.attempts, session });
           log(`session re-registered as ${session}`);
         } catch (reErr) {
           // The next tick tries again; a backend mid-restart is expected. But
@@ -245,10 +254,13 @@ export function startConnection(options: ConnectOptions): ConnectionHandle {
       }
       try {
         await beat();
-      } catch {
+      } catch (err) {
         // `beat` contains its own failures, but a defect in that containment
         // must cost one tick, not the whole loop: an escape here lands on an
         // unhandled rejection and the agent goes silently offline forever.
+        // Logged (via the guarded `log`, never the raw callback) so a
+        // regression in that containment leaves a trace instead of vanishing.
+        log(`heartbeat loop caught an escape from beat() (${reason(err)})`);
       }
     }
   };
