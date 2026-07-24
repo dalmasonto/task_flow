@@ -27,6 +27,8 @@ import { compactMetadata } from "./metadata.mjs";
 // #48: a tool-approval request arrives as a bare Notification with no options,
 // so they are read off the pane. Refuses rather than guesses — see the module.
 import { isPermissionNotification, parsePermissionPrompt } from "./permission-prompt.mjs";
+// #56: most tool calls are read-only noise that crowds the activity journal.
+import { shouldLogTool } from "./tool-logging.mjs";
 import { hostname, tmpdir } from "node:os";
 
 const REQUEST_TIMEOUT_MS = 2500;
@@ -420,7 +422,11 @@ async function main() {
       // pre/post distinction lived only in metadata the UI never surfaces.
       // PreToolUse still heartbeats — that's what keeps the agent showing as
       // busy while a long tool runs.
-      if (!isPre) {
+      // #56: log only tools worth a journal entry. The HEARTBEAT below is
+      // deliberately outside this gate — it is what keeps the agent showing as
+      // busy during a long run of Reads and Bashes, and skipping it would make a
+      // working agent look idle.
+      if (!isPre && shouldLogTool(toolName)) {
         await post(profile, "/api/taskflow/agents/activity", {
           action: `tool:${toolName}`,
           body_markdown: "completed",
