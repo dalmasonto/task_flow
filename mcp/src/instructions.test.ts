@@ -48,6 +48,10 @@ describe("AGENT_INSTRUCTIONS", () => {
     expect(AGENT_INSTRUCTIONS).toContain("#gh");
   });
 
+  it("teaches the #msg<n> convention for chat messages", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("#msg");
+  });
+
   it("warns against writing a bare #<n> for a GitHub issue", () => {
     const lower = AGENT_INSTRUCTIONS.toLowerCase();
     expect(lower).toContain("github issue");

@@ -10,6 +10,10 @@ export type TaskRefSegment =
   /// distinguishable from a task — a bare `#12` meaning a GitHub issue used to
   /// render as a task chip and click through to a task that does not exist.
   | { type: "github"; issue: number; raw: string }
+  /// A message in this project's chat. Written `#msg12` for the same reason
+  /// `#gh12` exists: a bare `#12` is read as a task, so an unqualified message
+  /// reference points confidently at the wrong thing.
+  | { type: "message"; message: number; raw: string }
 
 // One combined pattern, scanned left-to-right, so matches come out in order and
 // the raw text ("TASK#10" vs "#10") is preserved. A separate regex per form —
@@ -21,7 +25,7 @@ export type TaskRefSegment =
 // With `#` first, `#gh12` would match `#` and then fail on `g`, and the reference
 // would silently fall through as plain text. Group 1 is the prefix (which form
 // matched), group 2 is always the number.
-const TASK_REF = /(TASK#|#gh|#)(\d+)/gi
+const TASK_REF = /(TASK#|#gh|#msg|#)(\d+)/gi
 
 /**
  * Split a run of text into plain-text and reference segments. `TASK#10` (or
@@ -38,10 +42,13 @@ export function splitTaskRefs(text: string): TaskRefSegment[] {
   let match: RegExpExecArray | null
   while ((match = TASK_REF.exec(text))) {
     if (match.index > last) segments.push({ type: "text", value: text.slice(last, match.index) })
+    const prefix = match[1].toLowerCase()
     segments.push(
-      match[1].toLowerCase() === "#gh"
+      prefix === "#gh"
         ? { type: "github", issue: Number(match[2]), raw: match[0] }
-        : { type: "task", id: Number(match[2]), raw: match[0] },
+        : prefix === "#msg"
+          ? { type: "message", message: Number(match[2]), raw: match[0] }
+          : { type: "task", id: Number(match[2]), raw: match[0] },
     )
     last = match.index + match[0].length
   }

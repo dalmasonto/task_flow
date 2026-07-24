@@ -46,7 +46,8 @@ loop.
   file instead.
 - **Referencing tasks vs GitHub issues.** In any message, activity note or task
   description, \`#12\` and \`TASK#12\` render as a clickable **TaskFlow task** chip.
-  So write a **GitHub issue** as \`#gh12\` (or \`#GH12\`) — never a bare \`#12\`.
+  So write a **GitHub issue** as \`#gh12\` (or \`#GH12\`) and a **chat message**
+  as \`#msg12\` — never a bare \`#12\` for either.
   A bare \`#12\` meaning a GitHub issue becomes a task chip pointing at TaskFlow
   task 12, which is a different thing or does not exist at all, and it misleads
   whoever reads it. \`#gh12\` renders as a distinct chip linking to the issue on

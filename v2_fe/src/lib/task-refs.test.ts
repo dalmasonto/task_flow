@@ -97,3 +97,42 @@ describe("hasTaskRef", () => {
     expect(hasTaskRef("no refs")).toBe(false)
   })
 })
+
+// #56 follow-up: a bare `#12` meaning a MESSAGE was read as a task, the same
+// false positive `#gh` fixed for GitHub issues. `#msg12` is the explicit form.
+describe("splitTaskRefs — message references", () => {
+  it("parses #msg<n> as a message reference, not a task", () => {
+    expect(splitTaskRefs("see #msg286")).toEqual([
+      { type: "text", value: "see " },
+      { type: "message", message: 286, raw: "#msg286" },
+    ])
+  })
+
+  it("accepts uppercase and mixed case", () => {
+    expect(splitTaskRefs("#MSG7")).toEqual([{ type: "message", message: 7, raw: "#MSG7" }])
+    expect(splitTaskRefs("#Msg7")).toEqual([{ type: "message", message: 7, raw: "#Msg7" }])
+  })
+
+  // The alternation is ordered so `#msg` is tried before the bare `#`. Without
+  // that, `#msg286` matches `#`, fails on `m`, and falls through as plain text.
+  it("does not consume #msg<n> as a bare task ref", () => {
+    const segments = splitTaskRefs("#msg286")
+    expect(segments).toHaveLength(1)
+    expect(segments[0].type).toBe("message")
+  })
+
+  it("keeps all three reference kinds apart in one run of text", () => {
+    expect(splitTaskRefs("task #12, issue #gh12, message #msg12")).toEqual([
+      { type: "text", value: "task " },
+      { type: "task", id: 12, raw: "#12" },
+      { type: "text", value: ", issue " },
+      { type: "github", issue: 12, raw: "#gh12" },
+      { type: "text", value: ", message " },
+      { type: "message", message: 12, raw: "#msg12" },
+    ])
+  })
+
+  it("leaves #msg without digits as plain text", () => {
+    expect(splitTaskRefs("#msg alone")).toEqual([{ type: "text", value: "#msg alone" }])
+  })
+})

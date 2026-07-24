@@ -34,7 +34,9 @@ function remarkTaskChips() {
               url:
                 segment.type === "github"
                   ? `#gh-issue-${segment.issue}`
-                  : `#task-${segment.id}`,
+                  : segment.type === "message"
+                    ? `#chat-message-${segment.message}`
+                    : `#task-${segment.id}`,
               children: [{ type: "text", value: segment.raw }],
             })
           }
@@ -95,6 +97,22 @@ function GithubIssueChip({ issue, children }: { issue: number; children?: ReactN
   )
 }
 
+/// One `#msg<n>` chip. Styled apart from both the task chip and the GitHub chip —
+/// telling the three references apart at a glance is the entire point. Inert for
+/// now: a message id alone does not say which channel it lives in, and guessing
+/// would reopen exactly the "confidently wrong destination" problem these
+/// explicit prefixes exist to close.
+function MessageChip({ message, children }: { message: number; children?: ReactNode }) {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-md bg-sky-500/10 px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-sky-700 ring-1 ring-sky-500/25 dark:text-sky-300"
+      title={`Chat message #${message}`}
+    >
+      {children}
+    </span>
+  )
+}
+
 type MarkdownRendererProps = {
   content: string
   compact?: boolean
@@ -120,6 +138,8 @@ const markdownComponents: Components = {
     if (taskMatch) return <TaskChip taskId={Number(taskMatch[1])}>{children}</TaskChip>
     const issueMatch = /^#gh-issue-(\d+)$/.exec(href ?? "")
     if (issueMatch) return <GithubIssueChip issue={Number(issueMatch[1])}>{children}</GithubIssueChip>
+    const messageMatch = /^#chat-message-(\d+)$/.exec(href ?? "")
+    if (messageMatch) return <MessageChip message={Number(messageMatch[1])}>{children}</MessageChip>
     return (
       <a
         href={href}
