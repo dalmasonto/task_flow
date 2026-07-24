@@ -83,6 +83,28 @@ describe("startConnection", () => {
     handle.stop();
   });
 
+  it("says WHICH profile the live connection is for", async () => {
+    // Without this, a caller holding a session id cannot tell whether it
+    // belongs to the identity it is about to act as: `ensureSession` reused
+    // `main`'s session for a `profile: "reviewer"` call and the backend 403'd.
+    const fake = fakeClient();
+    const handle = startConnection({
+      profile: { ...PROFILE, profileName: "reviewer" },
+      pane: null,
+      createClient: () => fake.client,
+      sleep: fakeSleep().sleep,
+    });
+    await handle.settled;
+    expect(getConnectionStatus()).toMatchObject({
+      state: "active",
+      session: 77,
+      profile: "reviewer",
+    });
+    // It must survive stop() too — a stopped connection is still that profile's.
+    handle.stop();
+    expect(getConnectionStatus().profile).toBe("reviewer");
+  });
+
   it("announces the live session once, with the pane it has (or does not have)", async () => {
     const fake = fakeClient();
     const seen: Array<{ session: number; pane: string | null }> = [];

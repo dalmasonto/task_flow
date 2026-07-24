@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /** Captures the options `startAgentRuntime` hands the event stream. */
 const events = vi.hoisted(() => ({
   options: null as Record<string, (arg: never) => Promise<void> | void> | null,
+  stop: vi.fn(),
 }));
 
 vi.mock("./events.js", async (importOriginal) => {
@@ -21,22 +22,30 @@ vi.mock("./events.js", async (importOriginal) => {
     ...actual,
     startAgentEventStream: (options: never) => {
       events.options = options;
-      return { stop: () => {}, reconnectNow: () => {} };
+      return { stop: events.stop, reconnectNow: () => {} };
     },
   };
 });
 
-const tmux = vi.hoisted(() => ({
-  notifyPane: vi.fn(async () => {}),
-  sendKeySteps: vi.fn(async () => {}),
-  sendKeyToPane: vi.fn(async () => {}),
-  startMirrorLoop: vi.fn(() => () => {}),
-  detectTmuxPane: vi.fn(async (): Promise<string | null> => null),
-}));
+const tmux = vi.hoisted(() => {
+  // The real `startMirrorLoop` returns a stop function; the fake must too, or
+  // a test could pass against a runtime that never captured it.
+  const stopMirror = vi.fn();
+  return {
+    notifyPane: vi.fn(async () => {}),
+    sendKeySteps: vi.fn(async () => {}),
+    sendKeyToPane: vi.fn(async () => {}),
+    stopMirror,
+    startMirrorLoop: vi.fn(() => stopMirror),
+    detectTmuxPane: vi.fn(async (): Promise<string | null> => null),
+  };
+});
 vi.mock("./tmux.js", () => tmux);
 
 const connect = vi.hoisted(() => ({
-  startConnection: vi.fn(() => ({
+  // Typed with its options so a case can drive `onSession` — the callback the
+  // real connection fires once a session is registered.
+  startConnection: vi.fn((_options: { onSession?: (ctx: never) => unknown }) => ({
     settled: Promise.resolve(),
     beat: async () => {},
     stop: () => {},
@@ -114,8 +123,10 @@ const TWO = {
 
 beforeEach(() => {
   events.options = null;
+  events.stop.mockClear();
   resetMirrorStatus();
   tmux.notifyPane.mockClear();
+  tmux.stopMirror.mockClear();
   tmux.startMirrorLoop.mockClear();
   tmux.detectTmuxPane.mockClear();
   tmux.detectTmuxPane.mockImplementation(async () => null);
@@ -218,6 +229,33 @@ describe("mirror status reporting", () => {
     });
     // The connection's runtime is still fully attached.
     expect(events.options).not.toBeNull();
+  });
+});
+
+describe("runtime teardown", () => {
+  it("returns a teardown that stops the event stream AND the mirror", () => {
+    const { client } = fakeClient();
+    const stop = startAgentRuntime(contextFor("%4", client), () => {});
+    expect(events.stop).not.toHaveBeenCalled();
+    expect(tmux.stopMirror).not.toHaveBeenCalled();
+
+    stop();
+    // The mirror is the one that matters: the backend counts an appended frame
+    // as proof of life, so a mirror left running keeps the OLD identity online
+    // in the dashboard no matter what its heartbeat does.
+    expect(tmux.stopMirror).toHaveBeenCalledTimes(1);
+    expect(events.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("is idempotent and safe without a pane", () => {
+    const { client } = fakeClient();
+    const stop = startAgentRuntime(contextFor(null, client), () => {});
+    expect(() => {
+      stop();
+      stop();
+    }).not.toThrow();
+    expect(tmux.stopMirror).not.toHaveBeenCalled();
+    expect(events.stop).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -335,11 +373,64 @@ describe("connectAs", () => {
     expect(second.stop).not.toHaveBeenCalled();
   });
 
-  it("does not throw on the very first call, when there is nothing live to stop", async () => {
-    // A fresh module instance, so the slot really is empty — the other cases in
-    // this file have already populated it.
-    vi.resetModules();
-    const fresh = await import("./runtime.js");
-    expect(() => fresh.connectAs(PROFILE, null)).not.toThrow();
+  it("tears the previous RUNTIME down too, not just the heartbeat", () => {
+    // A connection that announces its session the moment it is started,
+    // exactly as a reachable backend does.
+    const announcing = () => (options: { onSession?: (ctx: never) => unknown }) => {
+      void options.onSession?.(contextFor("%4", fakeClient().client) as never);
+      return { settled: Promise.resolve(), beat: async () => {}, stop: vi.fn() };
+    };
+    connect.startConnection
+      .mockImplementationOnce(announcing())
+      .mockImplementationOnce(announcing());
+
+    connectAs(PROFILE, "%4");
+    expect(tmux.startMirrorLoop).toHaveBeenCalledTimes(1);
+    expect(tmux.stopMirror).not.toHaveBeenCalled();
+
+    // Switching identity inside tmux: the old mirror must stop appending
+    // frames (the backend reads a frame as proof of life, so the old identity
+    // would stay online regardless of its stopped heartbeat) and the old SSE
+    // stream must stop delivering that identity's DMs into this pane.
+    connectAs({ ...PROFILE, profileName: "reviewer" }, "%4");
+    expect(tmux.stopMirror).toHaveBeenCalledTimes(1);
+    expect(events.stop).toHaveBeenCalledTimes(1);
+    expect(tmux.startMirrorLoop).toHaveBeenCalledTimes(2);
   });
+
+  it("immediately tears down a runtime that arrives AFTER it was superseded", () => {
+    // With the backend down, the first connection's `onSession` can fire
+    // minutes late — after a switch. It must not install itself as the live
+    // runtime, or the next switch tears down the wrong one.
+    let late: ((ctx: never) => unknown) | undefined;
+    connect.startConnection
+      .mockImplementationOnce((options) => {
+        late = options.onSession;
+        return { settled: Promise.resolve(), beat: async () => {}, stop: vi.fn() };
+      })
+      .mockImplementationOnce(() => ({
+        settled: Promise.resolve(),
+        beat: async () => {},
+        stop: vi.fn(),
+      }));
+
+    connectAs(PROFILE, "%4");
+    connectAs({ ...PROFILE, profileName: "reviewer" }, "%4");
+    // The module keeps one live-runtime slot across calls (and so across the
+    // cases in this file); measure only what the LATE callback does.
+    tmux.startMirrorLoop.mockClear();
+    tmux.stopMirror.mockClear();
+    events.stop.mockClear();
+
+    late?.(contextFor("%4", fakeClient().client) as never);
+    // Started, then stopped again in the same breath.
+    expect(tmux.startMirrorLoop).toHaveBeenCalledTimes(1);
+    expect(tmux.stopMirror).toHaveBeenCalledTimes(1);
+    expect(events.stop).toHaveBeenCalledTimes(1);
+  });
+
+  // The "nothing live to stop yet" case needs a module whose connection slot
+  // has never been filled. It lives in `runtime-first-connect.test.ts`: a
+  // separate FILE gets its own module registry, where `vi.resetModules()` +
+  // dynamic import mutated this one's and only worked while it ran last.
 });

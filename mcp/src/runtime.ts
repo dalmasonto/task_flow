@@ -59,8 +59,18 @@ function messageSourceFor(client: TaskflowClient): MessageSource {
 /**
  * Attach the event stream (and, with a pane, the terminal mirror) to a live
  * session.
+ *
+ * Returns a teardown that detaches BOTH. A profile switch must be able to call
+ * it: the mirror keeps calling `appendFrame(oldSession, …)` every couple of
+ * seconds and the backend reads a frame as proof of life, so an abandoned
+ * runtime keeps the OLD identity online in the dashboard however thoroughly its
+ * heartbeat was stopped — and its SSE stream keeps delivering that identity's
+ * DMs into this pane and marking them read as it. Idempotent.
  */
-export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => void): void {
+export function startAgentRuntime(
+  ctx: ConnectedContext,
+  log: (line: string) => void,
+): () => void {
   const { client, session, profile, pane } = ctx;
   if (pane) log(`mirroring tmux pane ${pane}`);
 
@@ -205,8 +215,9 @@ export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => 
   // agent still registers, heartbeats and receives messages; it just doesn't
   // stream its terminal. (Before Task 6 this flag gated the whole startup, so
   // turning off the mirror also took the agent offline.)
+  let stopMirror: (() => void) | null = null;
   if (pane && process.env.TASKFLOW_MIRROR !== "off") {
-    startMirrorLoop({
+    stopMirror = startMirrorLoop({
       client,
       session,
       target: pane,
@@ -230,6 +241,17 @@ export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => 
       attempts: 0,
     });
   }
+
+  let stopped = false;
+  return () => {
+    // Idempotent: the caller may tear down a runtime it already replaced, and
+    // stopping a mirror twice must not be an error worth thinking about.
+    if (stopped) return;
+    stopped = true;
+    events.stop();
+    stopMirror?.();
+    stopMirror = null;
+  };
 }
 
 /**
@@ -260,6 +282,19 @@ export async function startAgent(options: { configPath?: string } = {}): Promise
 
 /** The live connection, so a profile switch can stop the one it replaces. */
 let current: ConnectionHandle | null = null;
+/** Its runtime (event stream + mirror), which must go down with it. */
+let currentRuntime: (() => void) | null = null;
+/**
+ * Which `connectAs` call owns the slots above.
+ *
+ * `onSession` fires whenever registration finally succeeds — which, with the
+ * backend down, can be minutes after a newer `connectAs` superseded this one.
+ * Without the token that late callback would overwrite the LIVE runtime's
+ * teardown with a stale one, and the next switch would tear down the wrong
+ * mirror while leaving the old one streaming. Same ownership rule as
+ * `connect.ts`'s status.
+ */
+let runtimeOwner: object | undefined;
 
 /**
  * Connect as a known profile and start the runtime. Used by `select_profile`.
@@ -271,12 +306,28 @@ let current: ConnectionHandle | null = null;
 export function connectAs(profile: ResolvedProfile, pane: string | null): void {
   // A profile switch must not leave the old identity heartbeating: its session
   // row would stay `connected` and the dashboard would show one agent twice.
+  // Stopping the heartbeat is not enough on its own — the old runtime's mirror
+  // keeps the row live by appending frames — so its runtime goes with it.
   current?.stop();
+  currentRuntime?.();
+  currentRuntime = null;
+
+  const token = {};
+  runtimeOwner = token;
   current = startConnection({
     profile,
     pane,
     log: stderrLog,
-    onSession: (ctx) => startAgentRuntime(ctx, stderrLog),
+    onSession: (ctx) => {
+      const teardown = startAgentRuntime(ctx, stderrLog);
+      // Superseded while this connection was still registering: attach nothing
+      // and take it straight back down.
+      if (runtimeOwner !== token) {
+        teardown();
+        return;
+      }
+      currentRuntime = teardown;
+    },
   });
 }
 

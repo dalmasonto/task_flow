@@ -40,6 +40,15 @@ export interface ConnectionStatus {
   attempts: number;
   /** The live session row id, once registered. */
   session?: number;
+  /**
+   * WHICH profile this connection is for. Absent before a connection exists
+   * (`starting` / `needs_profile` after a reset).
+   *
+   * A session id on its own is not enough for a caller to reuse: a tool called
+   * with an explicit `profile:` other than the connected one would send another
+   * agent's session under this profile's credential, which the backend rejects.
+   */
+  profile?: string;
 }
 
 export interface ConnectedContext {
@@ -172,11 +181,17 @@ export function startConnection(options: ConnectOptions): ConnectionHandle {
   // one keeps running but can no longer write to the shared status.
   const token = {};
   statusOwner = token;
-  status = { state: "starting", attempts: 0 };
-  /** Write the shared status — a no-op once this connection is superseded. */
+  status = { state: "starting", attempts: 0, profile: profile.profileName };
+  /**
+   * Write the shared status — a no-op once this connection is superseded.
+   *
+   * The profile is stamped HERE rather than at each call site: every published
+   * status describes this connection, so there is no state in which the field
+   * could correctly be omitted, and a new publish site cannot forget it.
+   */
   const publish = (next: ConnectionStatus): void => {
     if (statusOwner !== token) return;
-    status = next;
+    status = { ...next, profile: profile.profileName };
   };
 
   /**

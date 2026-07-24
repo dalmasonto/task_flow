@@ -45,7 +45,16 @@ describe("AGENT_INSTRUCTIONS", () => {
   // and clicks through to a task that does not exist. Agents write most of the
   // messages in a project, so the convention has to reach them here.
   it("tells the agent to relay a select_profile warning", () => {
-    expect(AGENT_INSTRUCTIONS).toMatch(/warning/i);
+    // The INSTRUCTION, not the word: a warning nobody repeats to the human is
+    // a collision nobody acts on, and "contains /warning/i" would still pass
+    // if the relay sentence were deleted down to a bare mention.
+    expect(AGENT_INSTRUCTIONS).toMatch(/select_profile[\s\S]{0,80}warning/i);
+    expect(AGENT_INSTRUCTIONS).toMatch(/warning[\s\S]{0,60}repeat it to your human/i);
+  });
+
+  it("names the refusal an agent must branch on, and forbids guessing", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("profile_ambiguous");
+    expect(AGENT_INSTRUCTIONS).toMatch(/do not guess/i);
   });
 
   it("teaches the #gh<n> convention for GitHub issues", () => {

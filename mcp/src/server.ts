@@ -89,6 +89,27 @@ export function ambiguityRefusal(profiles: ProfileChoice[]): string {
 }
 
 /**
+ * The statuses a LIVE agent can report.
+ *
+ * The backend hands back a live agent's STORED status — `connected`, `idle` or
+ * `busy` (`effective_agent_status` in taskflow-agents' views.rs) — and only
+ * rewrites it to `offline` once the liveness window has lapsed. Testing for
+ * `connected` alone therefore read an actively-working terminal (which the
+ * instructions tell agents to report as `busy`) as FREE, and it self-healed
+ * within one heartbeat, making it an intermittent false negative.
+ *
+ * An allow-list, not `!offline`: `blocked` / `revoked` are administrative
+ * states that must not read as live, and neither should a status this build
+ * has never heard of.
+ */
+const LIVE_AGENT_STATUSES = new Set(["connected", "idle", "busy"]);
+
+/** Whether a roster row describes an agent that is live right now. */
+export function isLiveAgentStatus(status: string): boolean {
+  return LIVE_AGENT_STATUSES.has(status);
+}
+
+/**
  * Annotate each choice with whether that agent already has a live session, so
  * the human can see which identity another terminal has taken.
  *
@@ -102,7 +123,7 @@ export function markInUse(
   agentIdByProfile: Record<string, number>,
 ): ProfileChoice[] {
   if (!agents) return profiles;
-  const live = new Set(agents.filter((a) => a.status === "connected").map((a) => a.id));
+  const live = new Set(agents.filter((a) => isLiveAgentStatus(a.status)).map((a) => a.id));
   return profiles.map((p) => ({ ...p, in_use: live.has(agentIdByProfile[p.name] ?? -1) }));
 }
 
@@ -168,6 +189,32 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const paneOnce = detectTmuxPane().catch(() => null);
 
   /**
+   * The project roster, fetched once for the life of the ambiguity.
+   *
+   * While a human has not picked, EVERY tool call is refused — and each refusal
+   * annotates the choices with liveness, which is a network round-trip against
+   * a 15s client timeout. Paying it per call, for as long as the ambiguity
+   * lasts, buys nothing: the answer cannot change without someone picking a
+   * profile, and picking one clears this cache.
+   *
+   * A FAILED fetch is not cached (the promise is dropped), so a backend that
+   * comes up later still gets asked.
+   */
+  let roster: Promise<AgentSummary[] | null> | undefined;
+  const rosterForAmbiguity = (): Promise<AgentSummary[] | null> => {
+    // Liveness is a courtesy, never a blocker: any profile's credential can
+    // read the project roster, since all profiles in a file share a project.
+    const anyKey = Object.values(config.profiles)[0]?.key;
+    if (!anyKey) return Promise.resolve(null);
+    return (roster ??= new TaskflowClient({ server: config.server, key: anyKey })
+      .listAgents()
+      .catch(() => {
+        roster = undefined;
+        return null;
+      }));
+  };
+
+  /**
    * Resolve the identity for one tool call. Returns a refusal instead of a
    * client when a human still has to choose.
    */
@@ -181,15 +228,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     const sticky = readStickyProfile({ configPath, pane });
     const resolution = resolveProfileOrAsk(config, { profile, env, configPath, sticky });
     if (resolution.kind === "ambiguous") {
-      // Liveness is a courtesy, never a blocker: any profile's credential can
-      // read the project roster, since all profiles in a file share a project.
-      const anyKey = Object.values(config.profiles)[0]?.key;
-      let agents: AgentSummary[] | null = null;
-      if (anyKey) {
-        agents = await new TaskflowClient({ server: config.server, key: anyKey })
-          .listAgents()
-          .catch(() => null);
-      }
+      const agents = await rosterForAmbiguity();
       const byProfile = Object.fromEntries(
         Object.entries(config.profiles).map(([name, p]) => [name, p.agent_id]),
       );
@@ -220,9 +259,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     profileName: string,
   ): Promise<number> => {
     // `connect.ts` registered one at startup; reuse it so this process owns ONE
-    // session row rather than racing its own connection.
-    const connected = getConnectionStatus().session;
-    if (connected !== undefined) return connected;
+    // session row rather than racing its own connection — but ONLY when it is
+    // this profile's. The connection belongs to one identity; handing its
+    // session id to a call made as a different `profile:` sends another agent's
+    // session under this credential, and the backend's `load_owned_session`
+    // 403s it.
+    const connection = getConnectionStatus();
+    if (connection.session !== undefined && connection.profile === profileName) {
+      return connection.session;
+    }
     const existing = sessions.get(profileName);
     if (existing !== undefined) return existing;
     const session = await client.registerSession({
@@ -236,7 +281,22 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     return session.id;
   };
 
-  const profileArg = { profile: z.string().optional().describe("Profile name to act as (default: main).") };
+  const profileArg = {
+    // Deliberately NOT `.min(1)` here, unlike `select_profile`: some clients
+    // send "" for an omitted optional string, and `resolveProfileOrAsk` already
+    // treats an empty value as ABSENT — which falls through to the per-terminal
+    // resolution and, when that is ambiguous, to the refusal. There is no
+    // silent guess on this path to protect against, only a needless hard error.
+    profile: z
+      .string()
+      .optional()
+      .describe(
+        "Which agent identity to act as. Normally omit it: the identity is resolved per terminal " +
+          "(TASKFLOW_PROFILE, this terminal's remembered pick, or the only profile in the file). " +
+          "In a repo with several identities and nothing saying which this terminal is, omitting it " +
+          "returns error 'profile_ambiguous' — ask your human, then call select_profile.",
+      ),
+  };
 
   // ---- identity / discovery ----
 
@@ -268,7 +328,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   server.tool(
     "select_profile",
     "Choose which agent identity this terminal is, when the repo defines several. Call this ONLY after asking your human which one to use — never guess. The choice is remembered for this terminal, so you will not be asked again after a reconnect.",
-    { profile: z.string().describe("The profile name your human chose, e.g. 'main' or 'bear'.") },
+    {
+      // `.min(1)`: `chooseProfileName` treats an empty string as ABSENT and
+      // falls back to `default_profile ?? "main"`, so `profile: ""` would
+      // silently select and stickie the default identity — the exact silent
+      // guess this tool exists to remove.
+      profile: z
+        .string()
+        .min(1)
+        .describe("The profile name your human chose, e.g. 'main' or 'bear'."),
+    },
     async ({ profile }) => {
       try {
         // Throws with the available names if this one is not in the file.
@@ -281,21 +350,36 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .listAgents()
           .then(
             (agents) =>
-              agents.find((a) => a.id === resolved.agentId && a.status === "connected") ?? null,
+              agents.find((a) => a.id === resolved.agentId && isLiveAgentStatus(a.status)) ?? null,
           )
           .catch(() => null);
 
         await selectProfile(resolved);
+        // The pick is made, so the ambiguity is over: drop the cached roster
+        // rather than let a stale one outlive what it was fetched for.
+        roster = undefined;
 
         const warning = collisionWarning(resolved.profileName, live);
+        const connection = getConnectionStatus();
         return ok({
           selected: resolved.profileName,
           display_name: resolved.displayName,
           agent_id: resolved.agentId,
           project: resolved.project,
-          connection: getConnectionStatus(),
+          connection,
           ...(warning ? { warning } : {}),
-          note: "Connected. This terminal will use this identity from now on.",
+          // Reports what the connection actually is. `selectProfile` starts the
+          // connection without awaiting it — deliberately, since `settled`
+          // stays pending for as long as the backend is down — so an
+          // unconditional "Connected." asserted a success nothing observed,
+          // sitting right beside a `connection.state` of `starting` or a
+          // `retrying` that may never end.
+          note:
+            connection.state === "active"
+              ? "Connected. This terminal will use this identity from now on."
+              : `Selected; the connection is ${connection.state}${
+                  connection.detail ? ` (${connection.detail})` : ""
+                }. This terminal will use this identity from now on — call whoami to check the connection.`,
         });
       } catch (err) {
         return fail(err);
