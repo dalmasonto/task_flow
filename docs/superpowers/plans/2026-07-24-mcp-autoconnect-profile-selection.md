@@ -1288,15 +1288,96 @@ you which this terminal is, then call select_profile — the pick is remembered
 per terminal in .taskflow/sessions.json. Set TASKFLOW_PROFILE to skip the ask.
 ```
 
-- [ ] **Step 3: Verify**
+- [ ] **Step 3: Stop swallowing messages when there is no pane**
+
+Task 5's review found this, and it is the most serious item in the plan. In
+`runtime.ts`'s `deliverMessageById`, `markRead` runs unconditionally — including
+when `pane` is null and the message was therefore never typed anywhere:
+
+```ts
+        if (pane) { await paneQueue(() => notifyPane(...)); }
+        await client.markRead(message.channel, message.id);   // <-- runs regardless
+```
+
+`check_messages` defaults to `unread_only=true` (`server.ts:388`), so a message
+delivered nowhere is also marked read and never surfaces again. That is exactly
+the loss described in `planning/spec-message-delivery.md` (message #56: "the
+message was marked read without being delivered, and by design it is never
+redelivered"), and Task 7's `select_profile` makes the pane-less path live.
+
+The read cursor means "the agent has seen this". Nothing saw it. So:
+
+```ts
+        if (!pane) return;                    // nothing consumed it — leave it unread
+        await paneQueue(() => notifyPane(...));
+        await client.markRead(message.channel, message.id);
+```
+
+Add a test in a new `src/runtime.test.ts` asserting that with `pane: null` a
+delivered event does NOT call `markRead`, and that with a pane it does.
+
+- [ ] **Step 4: Restore the mirror status `whoami` reports**
+
+Also from Task 5's review. Every writer of `mirror.ts`'s module-level status
+lives inside `startMirrorWithRetry`, whose only production caller was deleted in
+Task 5. `server.ts:137` still reports `getMirrorStatus()`, so `whoami` now
+answers `{state: "starting", attempts: 0}` forever — a live mirror reported as
+never-started, which inverts the very problem that field exists to solve.
+
+Export a setter from `src/mirror.ts` (leave `startMirrorWithRetry` and its tests
+alone — retiring them is out of scope here):
+
+```ts
+/** Publish the mirror's state from whoever is driving it — since Task 5 that is
+ *  `runtime.ts`, not `startMirrorWithRetry`. */
+export function reportMirror(next: MirrorStatus): void {
+  status = next;
+}
+```
+
+Then in `startAgentRuntime`, report both outcomes:
+
+```ts
+  if (pane && process.env.TASKFLOW_MIRROR !== "off") {
+    startMirrorLoop({ /* ...unchanged... */ });
+    reportMirror({ state: "active", pane, attempts: 1 });
+  } else {
+    reportMirror({
+      state: "off",
+      detail: pane ? "TASKFLOW_MIRROR=off" : "not running inside tmux — nothing to mirror",
+      attempts: 0,
+    });
+  }
+```
+
+Add a test asserting `getMirrorStatus()` reads `active` with a pane and `off`
+without one.
+
+- [ ] **Step 5: Contain a bad profile name at startup**
+
+Third finding from Task 5's review. `loadProfile()` throws `ConfigError` when the
+resolved profile name is not in the file — reachable via `TASKFLOW_PROFILE=typo`
+or a `default_profile` naming a deleted profile. `buildServer` does not catch it,
+because it loads the config *file* while `resolveProfile` runs per tool call. So
+the transport connects, prints `connected (stdio)`, then dies with an uncaught
+`ConfigError` and `exit(1)`. Before Task 5 the same throw was contained by
+`startMirrorWithRetry`'s loop and merely meant "no mirror".
+
+`startAgent` already runs inside `void startAgent().catch(...)` from Step 2,
+which contains it — but confirm that catch reports the message legibly rather
+than a stack, and that the server keeps serving. Add a test that `startAgent`
+with an unknown `TASKFLOW_PROFILE` rejects with a `ConfigError` whose message
+names the available profiles, so the catch has something useful to print.
+
+- [ ] **Step 6: Verify**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck clean; all tests PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/index.ts src/runtime.ts
+git add src/index.ts src/runtime.ts src/mirror.ts src/runtime.test.ts
 git commit -m "feat(mcp): autoconnect on startup instead of only when mirroring"
 ```
 
@@ -1829,6 +1910,6 @@ Update `agent-identity-rework.md` in the memory directory with the outcome, and 
 
 ## Notes for the implementer
 
-- **Do not "fix" `mirror.ts`'s 8-attempt limit.** It still governs `--tmux`, a foreground command a human is watching, where giving up is correct. Only the startup path moved to unbounded retry.
+- **CORRECTION (found in Task 5's review).** An earlier draft of this note claimed `startMirrorWithRetry` "still governs `--tmux`". That is false: `--tmux` runs `runTmuxMirror` (`src/tmux.ts:489`), which does its own `registerSession` and loop and has never touched `mirror.ts`. `startMirrorWithRetry`'s only production caller was the `index.ts` block Task 5 deleted, so it is now **orphaned**, along with its 8 tests. Leave it in place — Task 6 Step 4 re-uses `mirror.ts`'s status singleton, and retiring the function is a separate cleanup. Do not cite it as live code.
 - **`resolveProfile` keeps throwing.** Explicit callers asserted an identity; a wrong name is their error, not an invitation to ask.
 - **Never let `in_use` block anything by accident.** It is advisory. If `list_agents` fails, the field is omitted and the flow continues.
