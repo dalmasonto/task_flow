@@ -8480,7 +8480,13 @@ function AgentChatBubble({
           {/* Capture a spoken commitment as a task without leaving the thread —
               the whole point is that it costs one click, not a form. Hidden for
               a message still in flight: there is nothing durable to capture yet. */}
-          {onCreateTask && message.body.trim() && !message.status ? (
+          {/* `!message.status` was always false: a SAVED message carries
+              status "posted", only in-flight ones are "sending"/"failed". Test
+              the states that actually mean "not durable yet". */}
+          {onCreateTask &&
+          message.body.trim() &&
+          message.status !== "sending" &&
+          message.status !== "failed" ? (
             <button
               type="button"
               className="ml-auto cursor-pointer rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
