@@ -1343,6 +1343,51 @@ export function githubConnectUrl(returnPath?: string): string {
   return `${base}?next=${encodeURIComponent(`${origin}${returnPath}`)}`
 }
 
+/**
+ * Full-page LOGIN url for a social provider — the sign-in counterpart to
+ * `githubConnectUrl`. The backend mints a bearer token on a login flow with an
+ * allowlisted `next` and returns it in the URL fragment; `returnPath` is where
+ * the browser lands (default `/dashboard/board`).
+ *
+ * The target must NOT be an auth route: `App.tsx` renders the login form for
+ * `/login` BEFORE the auth check, so an already-authenticated user would be
+ * stuck there. `/dashboard/board` is the same landing a password login uses.
+ *
+ * Safe under SSR/vitest where `window` is absent (origin resolves to "").
+ */
+export function oauthLoginUrl(provider: string, returnPath = "/dashboard/board"): string {
+  const base = `${API_BASE_URL}/oauth/${provider}/login`
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
+  return `${base}?next=${encodeURIComponent(`${origin}${returnPath}`)}`
+}
+
+/** A social provider the backend has configured, for rendering only real buttons. */
+export type OAuthProvider = { key: string; label: string }
+
+/**
+ * The providers the backend has actually configured (`GET /oauth/providers`).
+ * Used to render a button only for a provider that will work — GitHub today,
+ * Google automatically once its env credentials are added. Never throws: a
+ * discovery failure must not break the login page, so it degrades to [].
+ */
+export async function fetchOAuthProviders(): Promise<OAuthProvider[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/oauth/providers`)
+    if (!res.ok) return []
+    const data = (await res.json()) as
+      | { providers?: Array<{ key?: unknown; label?: unknown }> }
+      | null
+    return (data?.providers ?? [])
+      .filter(
+        (p): p is { key: string; label: string } =>
+          typeof p?.key === "string" && typeof p?.label === "string",
+      )
+      .map((p) => ({ key: p.key, label: p.label }))
+  } catch {
+    return []
+  }
+}
+
 /** "https://github.com/acme/widgets/issues/7" -> "#7"; null if there is none. */
 export function issueRefFromUrl(url: string | null): string | null {
   if (!url) return null
