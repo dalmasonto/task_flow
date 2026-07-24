@@ -1820,6 +1820,9 @@ function App() {
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  // Incremented every time a fresh core workspace replaces the current one.
+  const [workspaceEpoch, setWorkspaceEpoch] = useState(0)
+
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
@@ -2077,6 +2080,13 @@ function App() {
           const nextProjectTasks = mapLiveTasks(workspace.tasks, workspace.members, workspace.agents)
 
           setLiveWorkspace(workspace)
+          // #56: a fresh CORE workspace carries empty chat/activity arrays, so
+          // it silently discards any slice already merged in. Bumping the epoch
+          // makes the slice loader treat this like a new project and refetch —
+          // without it the ref flag still said "loaded", the arrays stayed
+          // empty, and the Agents page showed "select a conversation" against a
+          // URL that named a real one.
+          setWorkspaceEpoch((current) => current + 1)
           setTasks((current) => mergeProjectTasks(current, nextActiveProjectId, nextProjectTasks))
           setSelectedTaskId((current) => {
             if (nextProjectTasks.some((task) => task.id === current)) return current
@@ -2625,8 +2635,9 @@ function App() {
   // A ref, not state: these flags gate a fetch, they do not belong in a render.
   // Holding them in state also meant calling setState synchronously inside the
   // effect, which is the cascading-render pattern the lint rule objects to.
-  const loadedSlices = useRef<{ project: number | null; chat: boolean; activity: boolean }>({
+  const loadedSlices = useRef<{ project: number | null; epoch: number; chat: boolean; activity: boolean }>({
     project: null,
+    epoch: -1,
     chat: false,
     activity: false,
   })
@@ -2657,9 +2668,11 @@ function App() {
     if (!activeLiveProjectId || !activeLiveWorkspace) return
     const projectId = activeLiveProjectId
     const slices = loadedSlices.current
-    // Switching projects invalidates whatever was loaded for the previous one.
-    if (slices.project !== projectId) {
+    // Switching projects invalidates the slices — and so does a core reload,
+    // which hands back empty chat/activity arrays and drops whatever was merged.
+    if (slices.project !== projectId || slices.epoch !== workspaceEpoch) {
       slices.project = projectId
+      slices.epoch = workspaceEpoch
       slices.chat = false
       slices.activity = false
     }
@@ -2690,7 +2703,7 @@ function App() {
           retrySlice()
         })
     }
-  }, [chatNeeded, activityNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice])
+  }, [chatNeeded, activityNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />
