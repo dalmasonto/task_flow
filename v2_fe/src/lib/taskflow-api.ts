@@ -500,6 +500,22 @@ export async function fetchChannelMessages(
   return { rows: res.results, count: res.count }
 }
 
+/// #56: every distinct `action` in a project's activity feed.
+///
+/// The tool filter is applied server-side, so the rows it returns depend on the
+/// filter — a dropdown derived from those rows narrows to its own selection and
+/// shifts as you page. Options must come from a source the filter does not
+/// affect. Fetched once per project.
+export async function fetchActivityActions(projectId: number): Promise<string[]> {
+  const res = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}/activity/actions`, {
+    credentials: "include",
+    headers: { ...(getStoredToken() ? { Authorization: `Bearer ${getStoredToken()}` } : {}) },
+  })
+  if (!res.ok) throw new Error(`Could not load activity tools (${res.status})`)
+  const body = (await res.json()) as { actions?: string[] }
+  return Array.isArray(body.actions) ? body.actions : []
+}
+
 /// #56: the CORE workspace — what a board needs and nothing else.
 ///
 /// This used to fetch all ~20 tables at once, so opening the board downloaded

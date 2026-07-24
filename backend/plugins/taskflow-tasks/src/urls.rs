@@ -13,5 +13,12 @@ use crate::views;
 /// Build this plugin's route table. Add one `.route(path, method(handler))`
 /// line per endpoint.
 pub fn router() -> Router {
-    Router::new().route("/api/taskflow/tasks/health", get(views::health))
+    Router::new()
+        .route("/api/taskflow/tasks/health", get(views::health))
+        // #56: distinct action names, so the activity page's tool filter has a
+        // stable option list that does not depend on the filter's own result.
+        .route(
+            "/api/taskflow/projects/{project}/activity/actions",
+            get(views::activity_actions),
+        )
 }

@@ -125,6 +125,7 @@ import {
   fetchChannelMessages,
   fetchWorkspaceChat,
   fetchWorkspaceActivity,
+  fetchActivityActions,
   fetchGithubProjectStatus,
   linkGithubProject,
   setGithubPostAsMe,
@@ -173,7 +174,7 @@ import { formatBytes } from "@/lib/attachment-kind"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
-import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
+import { filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
 import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
 import { taskRefState, type TaskRefState } from "@/lib/task-ref-state"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
@@ -1960,11 +1961,14 @@ function App() {
   // reason. Free-text search stays in the page — see the note on
   // fetchWorkspaceActivity for why it cannot go server-side.
   const [activityTool, setActivityTool] = useState<string>(ALL_TOOLS)
+  // The COMPLETE option list, from an endpoint the filter does not affect.
+  const [activityToolOptions, setActivityToolOptions] = useState<string[]>([])
 
   useEffect(() => {
     setActivityPage(1)
     setActivityTotal(0)
     setActivityTool(ALL_TOOLS)
+    setActivityToolOptions([])
   }, [activeProjectId])
 
   const activityEvents = useMemo<ActivityEvent[]>(
@@ -2650,6 +2654,9 @@ function App() {
     }
     if (activityNeeded && !slices.activity) {
       slices.activity = true
+      void fetchActivityActions(projectId)
+        .then(setActivityToolOptions)
+        .catch(() => setActivityToolOptions([]))
       void fetchWorkspaceActivity(projectId)
         .then(({ rows, count }) => {
           setActivityTotal(count)
@@ -3801,6 +3808,7 @@ function App() {
                     totalPages={activityTotalPages}
                     totalCount={activityTotal}
                     tool={activityTool}
+                    tools={activityToolOptions}
                     loading={loadingOlder}
                     onPageChange={(next) => void loadActivityPage(next, activityTool)}
                     onToolChange={(next) => void loadActivityPage(1, next)}
@@ -8992,6 +9000,7 @@ function ActivityLogPage({
   totalPages,
   totalCount,
   tool,
+  tools,
   loading = false,
   onPageChange,
   onToolChange,
@@ -9005,22 +9014,16 @@ function ActivityLogPage({
   totalCount: number
   /// Applied SERVER-side, so it filters the whole feed rather than this page.
   tool: string
+  /// The COMPLETE option list, from an endpoint the filter does not affect.
+  /// Deriving it from `events` made the dropdown narrow to its own selection
+  /// and change contents page to page.
+  tools: string[]
   loading?: boolean
   onPageChange: (page: number) => void
   onToolChange: (tool: string) => void
 }) {
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
   const [search, setSearch] = useState("")
-
-  // The tool list is derived from THIS page, plus whatever is currently
-  // selected so the active filter never vanishes from its own dropdown. A
-  // complete list would need a distinct-values query the REST layer does not
-  // offer — worth knowing: a tool absent from the current page cannot be
-  // picked until you land on a page containing it.
-  const tools = useMemo(() => {
-    const present = activityTools(events)
-    return tool !== ALL_TOOLS && !present.includes(tool) ? [tool, ...present] : present
-  }, [events, tool])
 
   // Search only — the TOOL filter was applied server-side across the whole feed.
   // Re-applying it here would be a no-op at best and could hide rows the server
@@ -9065,11 +9068,7 @@ function ActivityLogPage({
               className="pl-8"
             />
           </div>
-          {/* `tools.length > 1` alone hid the whole row once a tool was picked:
-              the server then returns only that tool's rows, so the derived list
-              collapsed to one entry and took the "All tools" escape with it —
-              a filter you could apply but not clear. */}
-          {tools.length > 1 || tool !== ALL_TOOLS ? (
+          {tools.length > 1 ? (
             <div className="flex flex-wrap gap-1.5">
               {[ALL_TOOLS, ...tools].map((option) => {
                 const active = tool === option
