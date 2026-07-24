@@ -1740,15 +1740,84 @@ and add a matching assertion to `src/instructions.test.ts`:
   });
 ```
 
-- [ ] **Step 10: Verify**
+- [ ] **Step 10: Stop the old connection when the profile changes**
+
+From Task 6's review. `connectAs` in `runtime.ts` discards the
+`ConnectionHandle` that `startConnection` returns. `connect.ts` explicitly
+anticipates two live connections — that is what its `stop()` and `statusOwner`
+machinery is for — but with the handle thrown away none of it is reachable from
+production.
+
+`select_profile` is exactly the case it was built for. Switching from `main` to
+`bear` currently leaves `main`'s connection heartbeating its own session row
+forever, so the dashboard shows the old identity permanently online and the
+agent appears to be in two places at once.
+
+Keep the handle in a module-level slot in `runtime.ts` and stop the previous one
+before connecting the next:
+
+```ts
+/** The live connection, so a profile switch can stop the one it replaces. */
+let current: ConnectionHandle | null = null;
+
+export function connectAs(profile: ResolvedProfile, pane: string | null): void {
+  // A profile switch must not leave the old identity heartbeating: its session
+  // row would stay `connected` and the dashboard would show one agent twice.
+  current?.stop();
+  current = startConnection({
+    profile,
+    pane,
+    log: stderrLog,
+    onSession: (ctx) => startAgentRuntime(ctx, stderrLog),
+  });
+}
+```
+
+Import the `ConnectionHandle` type from `./connect.js`. Add a test asserting a
+second `connectAs` stops the first handle, and that a first call with nothing
+live does not throw.
+
+Note the ordering already documented in the ledger: `startConnection` publishes
+`{state:"starting", attempts:0}` at construction, so immediately after a switch
+`whoami` briefly reports `starting` with no session. That is correct — the new
+connection owns the status — but do not mistake it for a bug while testing.
+
+- [ ] **Step 11: Skip the reconnect catch-up when there is no pane**
+
+Also from Task 6's review, and it becomes load-bearing here because
+`select_profile` makes the pane-less path ordinary.
+
+Task 6 correctly stopped `deliverMessageById` marking a message read when there
+is no pane to type it into. The consequence is that the unread set never drains,
+so `catchUpUnread` re-fetches a monotonically growing backlog on every single
+reconnect and throws all of it away. `resolveMessage` costs `1 + channelCount`
+HTTP round-trips *per message* (`resolve.ts:95-116`), so this is `U · (1 + N)`
+wasted requests per reconnect, forever. It also logs `reconnect catch-up — N
+missed message(s)` when it is about to deliver none.
+
+Add an early return at the top of `catchUpUnread` in `runtime.ts`:
+
+```ts
+      const catchUpUnread = async () => {
+        // Nowhere to deliver, and `deliverMessageById` would drop every one of
+        // them anyway — so fetching the backlog is pure cost. `check_messages`
+        // still surfaces them on demand, which is the whole point of leaving
+        // them unread.
+        if (!pane) return;
+```
+
+Add a test asserting a pane-less reconnect performs no channel or message
+fetches.
+
+- [ ] **Step 12: Verify**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck clean; all tests PASS.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add src/server.ts src/server.test.ts
+git add src/server.ts src/server.test.ts src/runtime.ts src/runtime.test.ts
 git commit -m "feat(mcp): refuse to guess an identity, and add select_profile"
 ```
 
