@@ -1848,6 +1848,19 @@ function App() {
   // Controlled state for the Create Task dialog's owner/operator/due fields.
   // shadcn Select and datetime-local are controlled, and handleCreateTask reads
   // these from state (not FormData); the rest of the form stays uncontrolled.
+  // #50: a message being turned into a task seeds the NEW TASK dialog rather
+  // than creating anything. The point is to add context — images, a due date,
+  // an owner — before saving, so a silent create was the wrong shape.
+  const [composeSeed, setComposeSeed] = useState<{ title: string; description: string; nonce: number } | null>(null)
+  const composeTaskFromMessage = useCallback((body: string) => {
+    const parsed = messageToTask(body)
+    if (!parsed) return
+    // The nonce keys the dialog: defaultValue only applies on mount, so opening
+    // it a second time with different text would otherwise show the first seed.
+    setComposeSeed({ ...parsed, nonce: Date.now() })
+    setDialogMode("new-task")
+  }, [])
+
   const [newTaskOwner, setNewTaskOwner] = useState<{ id: number; label: string } | null>(null)
   const [newTaskOperator, setNewTaskOperator] = useState<string>("") // "" | "user:N" | "agent:N"
   const [newTaskDue, setNewTaskDue] = useState<string>("") // datetime-local value
@@ -3525,7 +3538,7 @@ function App() {
           )}
           {activeProject ? <GithubHeaderButton project={activeProject} /> : null}
           {activeProject ? (
-            <Button size="sm" onClick={() => setDialogMode("new-task")}>
+            <Button size="sm" onClick={() => { setComposeSeed(null); setDialogMode("new-task") }}>
               <PlusIcon />
               New Task
             </Button>
@@ -3588,7 +3601,7 @@ function App() {
                       <GitBranchIcon />
                       API Contract
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setDialogMode("new-task")}>
+                    <Button variant="outline" size="sm" onClick={() => { setComposeSeed(null); setDialogMode("new-task") }}>
                       <PlusIcon />
                       Create Task
                     </Button>
@@ -3809,6 +3822,7 @@ function App() {
                     }}
                     onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
                     onActive={setChatSurfaceMounted}
+                    onComposeTask={composeTaskFromMessage}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
@@ -3980,11 +3994,25 @@ function App() {
         onStopSession={handleStopTaskSession}
       />
       <WorkspaceDialog
-        key={dialogMode ?? "closed"}
+        key={dialogMode === "new-task" && composeSeed ? `new-task-${composeSeed.nonce}` : (dialogMode ?? "closed")}
         mode={dialogMode}
         activeProject={activeProject}
         reviewTask={reviewTask}
-        editTask={editTaskSeed}
+        editTask={
+          dialogMode === "new-task"
+            ? composeSeed
+              ? {
+                  title: composeSeed.title,
+                  status: "not_started" as ColumnId,
+                  priority: "high" as Priority,
+                  estimate: "",
+                  description: composeSeed.description,
+                  notes: "",
+                  review: "",
+                }
+              : undefined
+            : editTaskSeed
+        }
         members={activeLiveWorkspace?.members ?? []}
         agents={activeLiveWorkspace?.agents ?? []}
         taskOwner={newTaskOwner}
@@ -4018,6 +4046,7 @@ function App() {
           onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
           chatId={dockChatId}
           onChangeChat={setDockChatId}
+          onComposeTask={composeTaskFromMessage}
           onClose={() => setDockOpen(false)}
         />
       ) : null}
@@ -6455,7 +6484,9 @@ function useAgentChat({
   onWorkspaceUpdate,
   onRefreshWorkspace,
   selectedChatId,
+  onComposeTask,
 }: {
+  onComposeTask: (body: string) => void
   project: Project
   liveWorkspace: TaskflowWorkspace | null
   currentUser: AuthUser | null
@@ -6766,23 +6797,7 @@ function useAgentChat({
   /// click. Refreshes the workspace afterwards rather than merging locally —
   /// `tasks` and `liveWorkspace.tasks` are separate stores, and a local merge
   /// into one leaves the board showing the other.
-  const createTaskFromMessage = useCallback(
-    (body: string) => {
-      const parsed = messageToTask(body)
-      const projectId = liveId(project.id)
-      if (!parsed || projectId === null) return
-      void createTaskflowTask({
-        project: projectId,
-        title: parsed.title,
-        description_markdown: parsed.description,
-      })
-        .then(() => onRefreshWorkspace())
-        .catch((error) => {
-          setMessageError(error instanceof Error ? error.message : "Could not create the task.")
-        })
-    },
-    [project.id, onRefreshWorkspace]
-  )
+  const createTaskFromMessage = onComposeTask
 
   const handleAnswerPrompt = useCallback(
     async (promptId: number, answers: number[][], cancel = false, texts: (string | null)[] = []) => {
@@ -6834,6 +6849,7 @@ function ChatDock({
   chatId,
   onChangeChat,
   onClose,
+  onComposeTask,
 }: {
   project: Project
   liveWorkspace: TaskflowWorkspace | null
@@ -6843,6 +6859,7 @@ function ChatDock({
   chatId: string | null
   onChangeChat: (chatId: string) => void
   onClose: () => void
+  onComposeTask: (body: string) => void
 }) {
   const [minimised, setMinimised] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
@@ -6856,6 +6873,7 @@ function ChatDock({
       onWorkspaceUpdate,
       onRefreshWorkspace,
       selectedChatId: chatId,
+      onComposeTask,
     })
 
   // Nothing selected yet (first open, or the stored id no longer resolves):
@@ -6981,8 +6999,10 @@ function AgentsPage({
   onWorkspaceUpdate,
   onRefreshWorkspace,
   onActive,
+  onComposeTask,
 }: {
   onActive?: (active: boolean) => void
+  onComposeTask: (body: string) => void
   project: Project
   liveWorkspace: TaskflowWorkspace | null
   currentUser: AuthUser | null
@@ -7012,6 +7032,7 @@ function AgentsPage({
     // (`direct-2`) via chatIdToSlug/slugToChatId so the address bar stays
     // readable. null on the index route, or when the param doesn't resolve.
     selectedChatId: conversationId ? slugToChatId(conversationId) : null,
+    onComposeTask,
   })
   // #42: explicit-conversation state — who you can start a chat with (project
   // members except yourself, plus every agent), and whether the picker is open.
