@@ -51,8 +51,6 @@ Vite origin `http://localhost:5173`, which is the `allow_return` allowlist.)
 - No backend changes. The flow, token minting, and provider registration all
   exist.
 - Not touching the connect flow or Account Settings.
-- Not forking `umbral-oauth` to improve its server-rendered error page (see the
-  known limitation).
 
 ## Design
 
@@ -191,14 +189,42 @@ Replace the decorative component (`App.tsx:4576`). It:
 The login screen reads `takeOAuthError()` on mount and, if set, shows the existing
 `AuthNotice` error styling ("Couldn't sign in with GitHub — please try again.").
 
-## Error handling & one known limitation
+## How the OAuth flow actually behaves
 
-| Case | Behavior |
+Verified against the `umbral-oauth-0.0.10` source (`routes.rs::oauth_callback`),
+which is the deployed version — the ground truth over the older published docs.
+Every path either returns the user to the SPA or fails closed with a safe
+message; there is no gap that needs a crate fork or a backend change.
+
+**Start.** Full-page navigation to `/oauth/github/login?next=<origin>/login`. The
+`next` must be prefix-allowlisted via the plugin's `allow_return` — `main.rs`
+already allowlists the app's base origin (the Vite origin in dev,
+`UMBRAL_OAUTH_REDIRECT_BASE` in prod), so `<origin>/login` passes. An
+un-allowlisted `next` is a 400 (we never send one).
+
+**Success.** The callback mints a bearer token and 302-redirects to
+`<next>#token=<…>&token_type=Bearer` (fragment, so the token is never sent to a
+server or logged by a proxy). The SPA consumes it pre-render (§2).
+
+**Every failure mode, from the source:**
+
+| Case | Backend behavior (`oauth_callback`) | What the user experiences |
+|---|---|---|
+| User denies consent / GitHub returns `?error=` | 302 → `login_redirect` (this app: `/account/settings?github=connected`); **not** an error page | Anonymous, so the auth gate routes them to the login screen. No token; they can retry. |
+| Account-link conflict (GitHub email already on another account) | `resolve_user_client_error` → a **client-safe** `(status, message)`; full detail logged server-side, never echoed | The crate's minimal safe message. Rare, and a deliberate secure default — no info leak. |
+| Invalid / missing CSRF `state`, no flow in session, missing code | plain `400` | Rare; a stale or tampered flow. Retrying from the login screen starts a clean flow. |
+| Token exchange / identity fetch / mint failure | `500` (safe text) | Transient provider/backend fault; retry. |
+
+So the two common paths (success, denial) both return the user to the SPA, and
+the rare hard-failures fail closed with a safe message. The SPA's job is only to
+consume the success token and, defensively, to surface any `#error=`/`?error=`
+that a flow does hand back (harmless if none ever does):
+
+| SPA-side | Behavior |
 |---|---|
-| Happy path | token in fragment → stored pre-render → dashboard |
-| User denies on GitHub, or any flow that redirects back with `#error=`/`?error=` | message stashed → login screen shows a notice |
-| Token expected but absent | no crash; user stays on the login screen (can retry) |
-| **Account-link conflict** (the GitHub email already belongs to another account) | **Known limitation:** `umbral-oauth`'s callback returns a server-rendered HTTP error page instead of redirecting with `#error=`, so the user lands on that page (proxied through Vite), not the SPA. Fixing it means forking a vendored crate — out of scope. Documented, not handled. |
+| `#token=` present | stored pre-render → dashboard |
+| `#error=` / `?error=` present | message stashed → login screen shows an `AuthNotice` |
+| neither (normal page load, or a denial that redirected to `login_redirect`) | no-op; the auth gate shows login as usual |
 
 ## Testing
 
@@ -215,8 +241,9 @@ The login screen reads `takeOAuthError()` on mount and, if set, shows the existi
   and storage untouched; `?error=` in the query is also caught.
 - **Manual** (needs a browser + the real GitHub app): click "Sign in with
   GitHub", authorize, confirm landing in the dashboard authenticated and that the
-  URL fragment is gone. This is the one path unit tests can't cover, like the MCP
-  cold-restart.
+  URL fragment is gone. Also verify the denial path — cancel on GitHub's consent
+  screen and confirm you return to the login screen (no crash, no error page).
+  This is the one path unit tests can't cover, like the MCP cold-restart.
 
 ## Migration & compatibility
 
