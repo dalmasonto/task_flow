@@ -441,7 +441,20 @@ async function main() {
     } else if (eventName === "Stop" || eventName === "SubagentStop") {
       const sessionId = readSessionId(claudeSessionId);
       if (sessionId != null) {
-        await post(profile, `/api/taskflow/agents/sessions/${sessionId}/close`, {});
+        // A finished TURN is not a finished SESSION. Closing here marked the
+        // agent `disconnected` seconds after every reply, so it read as offline
+        // for the whole time a human was actually reading that reply and typing
+        // back — which is precisely when they want to message it. The MCP
+        // connection is still open; the agent is idle, not gone.
+        //
+        // Nothing is lost by not closing: `isSessionLive` requires `connected`
+        // AND a heartbeat inside the window, so an agent that genuinely dies
+        // stops heartbeating and ages out on staleness. That is the honest
+        // signal — a dead process cannot announce its own death, which is why
+        // the close was never a reliable one anyway.
+        await post(profile, `/api/taskflow/agents/sessions/${sessionId}/heartbeat`, {
+          status: "idle",
+        });
       }
       await post(profile, "/api/taskflow/agents/activity", {
         action: "session_stop",
