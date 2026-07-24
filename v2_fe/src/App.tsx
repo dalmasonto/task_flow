@@ -1230,13 +1230,6 @@ function mapLiveTasks(
 /// paged API can answer.
 
 
-/// Keep the first row seen per id, preserving order — merges the live workspace
-/// feed with older windows fetched by cursor without double-counting an overlap.
-function dedupeById<T extends { id: number }>(rows: T[]): T[] {
-  const seen = new Set<number>()
-  return rows.filter((row) => (seen.has(row.id) ? false : (seen.add(row.id), true)))
-}
-
 function upsertById<T extends { id: number }>(items: T[], row: T) {
   const index = items.findIndex((item) => item.id === row.id)
   if (index < 0) return [...items, row]
@@ -1955,63 +1948,32 @@ function App() {
   // #38: the activity feed is capped at 1000 by the server (umbral NoPagination).
   // These hold older windows fetched by id cursor so history beyond the newest
   // 1000 can be walked in, on demand, rather than being silently truncated.
-  const [olderActivity, setOlderActivity] = useState<TaskflowWorkspace["taskActivity"]>([])
-  // #56: the project's TOTAL activity rows, from the paginated envelope. This is
-  // what says whether more pages exist — the old ACTIVITY_SERVER_CAP test
-  // ("did we get exactly 1000?") is meaningless once pages are 25.
+  // #56: the activity feed is TRUE pagination — one page held at a time, chosen
+  // from a page list. The old accumulate-and-append path (olderActivity,
+  // dedupeById, olderExhausted) is gone: it existed to walk past the 1000-row
+  // cap, and holding every page defeats the point of paging.
+  const [activityPage, setActivityPage] = useState(1)
   const [activityTotal, setActivityTotal] = useState(0)
-  const activityPage = useRef(1)
   const [loadingOlder, setLoadingOlder] = useState(false)
-  const [olderExhausted, setOlderExhausted] = useState(false)
-  // #56: no auto-loader means no runaway loop to guard against — #44's error
-  // latch is gone with it. A failed page simply leaves the feed unchanged and
-  // the "Load older" control clickable, so retrying IS the button.
+  // Server-side, so the tool filter applies to the WHOLE feed rather than to
+  // whichever page happens to be loaded. Lifted out of ActivityLogPage for that
+  // reason. Free-text search stays in the page — see the note on
+  // fetchWorkspaceActivity for why it cannot go server-side.
+  const [activityTool, setActivityTool] = useState<string>(ALL_TOOLS)
 
-  // Older windows belong to one project's feed; switching projects drops them.
   useEffect(() => {
-    setOlderActivity([])
-    setOlderExhausted(false)
+    setActivityPage(1)
     setActivityTotal(0)
-    activityPage.current = 1
+    setActivityTool(ALL_TOOLS)
   }, [activeProjectId])
 
-  const activityEvents = useMemo<ActivityEvent[]>(() => {
-    if (!activeLiveWorkspace) return []
-    const workspace = olderActivity.length
-      ? { ...activeLiveWorkspace, taskActivity: dedupeById([...activeLiveWorkspace.taskActivity, ...olderActivity]) }
-      : activeLiveWorkspace
-    return mapLiveActivityEvents(workspace, projectTasks)
-  }, [activeLiveWorkspace, projectTasks, olderActivity])
+  const activityEvents = useMemo<ActivityEvent[]>(
+    () => (activeLiveWorkspace ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks) : []),
+    [activeLiveWorkspace, projectTasks]
+  )
+  const activityTotalPages = Math.max(1, Math.ceil(activityTotal / ACTIVITY_PAGE_SIZE))
 
-  // Only offer "load older" when the loaded feed actually sits at the server cap
-  // — below it, every row is already here, so there is nothing older to fetch.
-  const activityLoadedCount = (activeLiveWorkspace?.taskActivity.length ?? 0) + olderActivity.length
-  const hasOlderActivity = !olderExhausted && activityLoadedCount < activityTotal
 
-  const loadOlderActivity = useCallback(async () => {
-    const projectId = activeLiveWorkspace?.project.id
-    if (!projectId || loadingOlder) return
-    setLoadingOlder(true)
-    const nextPage = activityPage.current + 1
-    try {
-      // #56: real pagination replaces the id__lt cursor. That cursor existed only
-      // to walk PAST the 1000-row NoPagination ceiling; with 25-row pages the
-      // server hands us page numbers directly, and `count` says when to stop.
-      const { rows, count } = await fetchWorkspaceActivity(projectId, nextPage)
-      setActivityTotal(count)
-      if (!rows.length) {
-        setOlderExhausted(true)
-      } else {
-        activityPage.current = nextPage
-        setOlderActivity((prev) => dedupeById([...prev, ...rows]))
-      }
-    } catch {
-      // Leave the page cursor where it was so the next click retries this page
-      // rather than skipping it.
-    } finally {
-      setLoadingOlder(false)
-    }
-  }, [activeLiveWorkspace, loadingOlder])
 
   // #56: activity loads ONLY when the user asks for the next page.
   //
@@ -2618,6 +2580,32 @@ function App() {
     },
     [activeLiveProjectId, applyWorkspaceUpdate, activeLiveWorkspace?.members, activeLiveWorkspace?.agents]
   )
+  /// Load one page, REPLACING the held rows. Changing the tool resets to page 1
+  /// because page 3 of an unfiltered feed is not page 3 of a filtered one.
+  const loadActivityPage = useCallback(
+    async (page: number, tool: string) => {
+      const projectId = activeLiveProjectId
+      if (!projectId) return
+      setLoadingOlder(true)
+      try {
+        const { rows, count } = await fetchWorkspaceActivity(
+          projectId,
+          page,
+          tool === ALL_TOOLS ? undefined : tool
+        )
+        setActivityTotal(count)
+        setActivityPage(page)
+        setActivityTool(tool)
+        applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: rows }))
+      } catch {
+        // Leave the current page in place; the controls stay live for a retry.
+      } finally {
+        setLoadingOlder(false)
+      }
+    },
+    [activeLiveProjectId, applyWorkspaceUpdate]
+  )
+
   // #56: the heavy slices load only for the surfaces that render them. The board
   // used to download every message, prompt, terminal frame and 1000 activity
   // rows — ~1.2 MB of the 1.31 MB workspace — and display none of it.
@@ -3809,9 +3797,13 @@ function App() {
                   <ActivityLogPage
                     title="Activity"
                     events={activityEvents}
-                    onLoadOlder={loadOlderActivity}
-                    hasOlder={hasOlderActivity}
-                    loadingOlder={loadingOlder}
+                    page={activityPage}
+                    totalPages={activityTotalPages}
+                    totalCount={activityTotal}
+                    tool={activityTool}
+                    loading={loadingOlder}
+                    onPageChange={(next) => void loadActivityPage(next, activityTool)}
+                    onToolChange={(next) => void loadActivityPage(1, next)}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
@@ -8996,38 +8988,49 @@ function ActivityDetailSheet({
 function ActivityLogPage({
   title,
   events,
-  onLoadOlder,
-  hasOlder = false,
-  loadingOlder = false,
+  page,
+  totalPages,
+  totalCount,
+  tool,
+  loading = false,
+  onPageChange,
+  onToolChange,
 }: {
   title: string
+  /// ONE page of rows. The component holds no history of its own — paging away
+  /// replaces these, which is the point of the rework.
   events: ActivityEvent[]
-  /// #38: fetch the next older window from the server (past the 1000-row cap).
-  onLoadOlder?: () => void
-  hasOlder?: boolean
-  loadingOlder?: boolean
-  /// #38: older history is still auto-loading up to the bound — show progress
-  /// rather than a manual button.
+  page: number
+  totalPages: number
+  totalCount: number
+  /// Applied SERVER-side, so it filters the whole feed rather than this page.
+  tool: string
+  loading?: boolean
+  onPageChange: (page: number) => void
+  onToolChange: (tool: string) => void
 }) {
-  const [visible, setVisible] = useState(ACTIVITY_PAGE_SIZE)
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
   const [search, setSearch] = useState("")
-  const [tool, setTool] = useState<string>(ALL_TOOLS)
 
-  const tools = useMemo(() => activityTools(events), [events])
-  const filtered = useMemo(() => filterActivityEvents(events, { search, tool }), [events, search, tool])
+  // The tool list is derived from THIS page, plus whatever is currently
+  // selected so the active filter never vanishes from its own dropdown. A
+  // complete list would need a distinct-values query the REST layer does not
+  // offer — worth knowing: a tool absent from the current page cannot be
+  // picked until you land on a page containing it.
+  const tools = useMemo(() => {
+    const present = activityTools(events)
+    return tool !== ALL_TOOLS && !present.includes(tool) ? [tool, ...present] : present
+  }, [events, tool])
 
-  // Reset the paged window whenever the filter changes, so "Load more" always
-  // starts from the top of the NEW result set rather than a stale offset.
-  useEffect(() => {
-    setVisible(ACTIVITY_PAGE_SIZE)
-  }, [search, tool])
+  // Search only — the TOOL filter was applied server-side across the whole feed.
+  // Re-applying it here would be a no-op at best and could hide rows the server
+  // already vouched for.
+  const filtered = useMemo(() => filterActivityEvents(events, { search, tool: ALL_TOOLS }), [events, search])
 
   // New events arrive at the TOP (the feed is ordered newest-first and realtime
   // now carries the whole row inline, so a live event prepends without a fetch).
   // Growing the window with them keeps everything already on screen in place.
-  const shown = filtered.slice(0, visible)
-  const remaining = filtered.length - shown.length
+  const shown = filtered
 
   return (
     <PageShell
@@ -9045,8 +9048,7 @@ function ActivityLogPage({
             {shown.length} of {filtered.length}
             {/* #38: a trailing "+" while older windows are still being pulled in,
                 so the count doesn't read as a hard 1000-row cap. */}
-            {hasOlder ? "+" : ""}
-            {loadingOlder ? " · loading older…" : ""}
+            {loading ? " · loading…" : ""}
             {filtered.length !== events.length ? ` · ${events.length} total` : ""}
           </span>
         </div>
@@ -9071,7 +9073,7 @@ function ActivityLogPage({
                   <button
                     key={option}
                     type="button"
-                    onClick={() => setTool(option)}
+                    onClick={() => onToolChange(option)}
                     className={cn(
                       "rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition",
                       active
@@ -9099,7 +9101,7 @@ function ActivityLogPage({
               className="font-medium text-primary hover:underline"
               onClick={() => {
                 setSearch("")
-                setTool(ALL_TOOLS)
+                onToolChange(ALL_TOOLS)
               }}
             >
               Clear filters
@@ -9116,30 +9118,55 @@ function ActivityLogPage({
               </div>
             </div>
 
-            {remaining > 0 ? (
-              <div className="mt-4 flex justify-center border-t pt-4">
+            {/* #56: a page LIST, not a load-more. Only this page's rows are
+                held, so navigating replaces them rather than accumulating. */}
+            {totalPages > 1 ? (
+              <nav
+                aria-label="Activity pages"
+                className="mt-4 flex flex-wrap items-center justify-center gap-1 border-t pt-4"
+              >
                 <Button
                   variant="outline"
-                  size="sm"
-                  onClick={() => setVisible((current) => current + ACTIVITY_PAGE_SIZE)}
+                  size="xs"
+                  disabled={page <= 1 || loading}
+                  onClick={() => onPageChange(page - 1)}
                 >
-                  Load {Math.min(remaining, ACTIVITY_PAGE_SIZE)} more
-                  <span className="text-muted-foreground">({remaining} left)</span>
+                  Previous
                 </Button>
-              </div>
-            ) : null}
-
-            {/* #38: older history auto-loads up to a bound (the count shows the
-                progress). Past that bound, more can still be pulled on demand. */}
-            {hasOlder ? (
-              <div className="mt-4 flex flex-col items-center gap-1 border-t pt-4">
-                <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={loadingOlder}>
-                  {loadingOlder ? "Loading…" : "Load older activity"}
+                {Array.from({ length: totalPages }, (_, index) => index + 1)
+                  // Windowed around the current page: a feed of 5000 rows is 200
+                  // pages, and rendering every number is its own scrolling problem.
+                  .filter(
+                    (n) => n === 1 || n === totalPages || Math.abs(n - page) <= 2
+                  )
+                  .map((n, index, list) => (
+                    <span key={n} className="flex items-center gap-1">
+                      {index > 0 && n - list[index - 1] > 1 ? (
+                        <span className="px-1 text-xs text-muted-foreground">…</span>
+                      ) : null}
+                      <Button
+                        variant={n === page ? "default" : "outline"}
+                        size="xs"
+                        disabled={loading}
+                        aria-current={n === page ? "page" : undefined}
+                        onClick={() => onPageChange(n)}
+                      >
+                        {n}
+                      </Button>
+                    </span>
+                  ))}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => onPageChange(page + 1)}
+                >
+                  Next
                 </Button>
-                <span className="text-[11px] text-muted-foreground">
-                  Fetch older entries from the server.
+                <span className="ml-2 text-[11px] text-muted-foreground">
+                  Page {page} of {totalPages} · {totalCount} entries
                 </span>
-              </div>
+              </nav>
             ) : null}
           </>
         )}

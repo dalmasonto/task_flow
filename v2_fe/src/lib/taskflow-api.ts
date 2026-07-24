@@ -631,11 +631,17 @@ export const ACTIVITY_PAGE_SIZE = 25
 
 export async function fetchWorkspaceActivity(
   projectId: number,
-  page = 1
+  page = 1,
+  /// Exact `action` to filter by, or undefined for all. Server-side so the tool
+  /// filter applies to the WHOLE feed rather than whichever page is loaded.
+  /// Free-text search stays client-side: it ORs across action/actor/detail/
+  /// title/task, and the REST layer AND-combines filters with no OR across
+  /// fields, so it cannot be expressed here without changing what it means.
+  action?: string
 ): Promise<{ rows: TaskflowTaskActivity[]; count: number }> {
   const res = await taskflowApi
     .from(taskflowTables.taskActivity)
-    .filter({ project: projectId })
+    .filter(action ? { project: projectId, action } : { project: projectId })
     .orderBy("-created_at", "-id")
     .param("page_size", ACTIVITY_PAGE_SIZE)
     .param("page", page)
