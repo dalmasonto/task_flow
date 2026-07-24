@@ -174,7 +174,7 @@ import { formatBytes } from "@/lib/attachment-kind"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
-import { filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
+import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
 import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
 import { taskRefState, type TaskRefState } from "@/lib/task-ref-state"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
@@ -9025,6 +9025,13 @@ function ActivityLogPage({
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
   const [search, setSearch] = useState("")
 
+  // `tools` is the complete list from the server and does not change with the
+  // page. The fallback matters: if that request fails the list arrives empty,
+  // and rendering nothing would remove the filter altogether — including the
+  // way back to "All tools". Deriving from the page is worse than the endpoint
+  // but far better than no filter at all.
+  const options = tools.length ? tools : activityTools(events)
+
   // Search only — the TOOL filter was applied server-side across the whole feed.
   // Re-applying it here would be a no-op at best and could hide rows the server
   // already vouched for.
@@ -9068,9 +9075,9 @@ function ActivityLogPage({
               className="pl-8"
             />
           </div>
-          {tools.length > 1 ? (
+          {options.length > 1 ? (
             <div className="flex flex-wrap gap-1.5">
-              {[ALL_TOOLS, ...tools].map((option) => {
+              {[ALL_TOOLS, ...options].map((option) => {
                 const active = tool === option
                 return (
                   <button
