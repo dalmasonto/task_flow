@@ -38,6 +38,6 @@ describe("the first connectAs of a process", () => {
   it("does not throw when there is no previous connection or runtime to stop", () => {
     // Both slots — the connection handle and its runtime teardown — are empty
     // here, which is exactly the shape at startup.
-    expect(connectAs(PROFILE, null)).toBeUndefined();
+    expect(() => connectAs(PROFILE, null)).not.toThrow();
   });
 });

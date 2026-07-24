@@ -309,6 +309,20 @@ describe("select_profile (end to end)", () => {
     expect(harness.calls).toEqual([]);
   });
 
+  it("rejects a WHITESPACE-ONLY profile the same way as empty", async () => {
+    // `.min(1)` alone accepts "   " — it is one space-bar away from the exact
+    // silent default-identity guess this tool exists to remove.
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "select_profile",
+      arguments: { profile: "   " },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/validation|Invalid arguments/i);
+    // Nothing was looked up and, crucially, nothing was connected or stickied.
+    expect(harness.calls).toEqual([]);
+  });
+
   it("reports the connection state it observed rather than asserting success", async () => {
     // With the backend down this reads `retrying` indefinitely; a note that
     // says "Connected." beside it is simply false.

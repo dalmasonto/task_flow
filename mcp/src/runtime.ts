@@ -248,9 +248,13 @@ export function startAgentRuntime(
     // stopping a mirror twice must not be an error worth thinking about.
     if (stopped) return;
     stopped = true;
-    events.stop();
+    // Mirror first: it is what keeps a stale identity showing as online (the
+    // backend counts appended terminal frames as proof of life), and this
+    // teardown is idempotent-gated — if `events.stop()` threw first, the
+    // mirror would never stop and this function could not be retried.
     stopMirror?.();
     stopMirror = null;
+    events.stop();
   };
 }
 

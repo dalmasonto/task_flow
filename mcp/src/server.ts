@@ -329,12 +329,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     "select_profile",
     "Choose which agent identity this terminal is, when the repo defines several. Call this ONLY after asking your human which one to use — never guess. The choice is remembered for this terminal, so you will not be asked again after a reconnect.",
     {
-      // `.min(1)`: `chooseProfileName` treats an empty string as ABSENT and
-      // falls back to `default_profile ?? "main"`, so `profile: ""` would
-      // silently select and stickie the default identity — the exact silent
-      // guess this tool exists to remove.
+      // `.trim().min(1)`: `chooseProfileName` treats an empty string as ABSENT
+      // and falls back to `default_profile ?? "main"`, so `profile: ""` (or,
+      // without the trim, whitespace like "   ") would silently select and
+      // stickie the default identity — the exact silent guess this tool
+      // exists to remove. zod trims before the length check, so the trimmed
+      // value is what reaches the handler.
       profile: z
         .string()
+        .trim()
         .min(1)
         .describe("The profile name your human chose, e.g. 'main' or 'bear'."),
     },
