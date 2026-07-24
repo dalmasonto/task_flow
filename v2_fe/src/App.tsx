@@ -56,6 +56,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
 import { loadDockOpen, loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
+import { type BoardColumnId } from "@/lib/board-columns"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -119,6 +120,7 @@ import {
   fetchMyInvites,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
+  fetchBoardColumn,
   fetchWorkspaceChat,
   fetchWorkspaceActivity,
   fetchGithubProjectStatus,
@@ -1829,15 +1831,19 @@ function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
-  // #26: how many cards each board column renders. Starts at one page; an
-  // intersection observer at the column's foot bumps it. Keyed by column id.
-  const [boardColumnLimits, setBoardColumnLimits] = useState<Record<string, number>>({})
-  const bumpBoardColumnLimit = useCallback((columnId: string) => {
-    setBoardColumnLimits((prev) => ({
-      ...prev,
-      [columnId]: (prev[columnId] ?? BOARD_PAGE_SIZE) + BOARD_PAGE_SIZE,
-    }))
-  }, [])
+  // #56: the last page fetched for each board column. A ref, not state — it
+  // guards a fetch and must not be stale inside the sentinel's callback, and it
+  // has no business triggering a render of its own.
+  //
+  // This replaces #26's client-side limit, which sliced an array that already
+  // held every task. The column now holds only what has been fetched, and the
+  // sentinel asks the server for the next 25.
+  const boardColumnPages = useRef<Record<string, number>>({})
+  useEffect(() => {
+    boardColumnPages.current = {}
+  }, [activeProjectId])
+
+
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null)
@@ -2592,6 +2598,29 @@ function App() {
     [openDockChat, openAgentChat]
   )
 
+  const loadMoreBoardColumn = useCallback(
+    async (columnId: BoardColumnId) => {
+      const projectId = activeLiveProjectId
+      if (!projectId) return
+      const nextPage = (boardColumnPages.current[columnId] ?? 1) + 1
+      // Claimed before the request so a second sentinel hit cannot fetch the
+      // same page twice; released on failure so it can be retried.
+      boardColumnPages.current[columnId] = nextPage
+      try {
+        const { rows, count } = await fetchBoardColumn(projectId, columnId, nextPage)
+        applyWorkspaceUpdate(projectId, (workspace) => ({
+          ...workspace,
+          tasks: rows.reduce((current, row) => upsertById(current, row), workspace.tasks),
+          // Refresh the total from the same response the rows came from, so the
+          // sentinel cannot chase a count that has since changed.
+          taskCounts: { ...workspace.taskCounts, [columnId]: count },
+        }))
+      } catch {
+        boardColumnPages.current[columnId] = nextPage - 1
+      }
+    },
+    [activeLiveProjectId, applyWorkspaceUpdate]
+  )
   // #56: the heavy slices load only for the surfaces that render them. The board
   // used to download every message, prompt, terminal frame and 1000 activity
   // rows — ~1.2 MB of the 1.31 MB workspace — and display none of it.
@@ -2711,6 +2740,8 @@ function App() {
     setSelectedTaskId((current) => tasks.find((task) => task.projectId === projectId)?.id ?? current)
     setLiveWorkspace({
       project,
+      // A brand-new project has no tasks yet, so every column total is zero.
+      taskCounts: { not_started: 0, in_progress: 0, review: 0, blocked: 0, done: 0 },
       members: [],
       invites: [],
       apiEndpoints: [],
@@ -3629,10 +3660,12 @@ function App() {
                         if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na
                         return b.id.localeCompare(a.id)
                       })
-                    // #26: render only a page at a time; the sentinel at the foot
-                    // loads more on scroll.
-                    const columnLimit = boardColumnLimits[column.id] ?? BOARD_PAGE_SIZE
-                    const shownColumnTasks = columnTasks.slice(0, columnLimit)
+                    // #56: the column holds only what has been FETCHED, so there
+                    // is nothing left to slice — render all of it. `count` from
+                    // the paginated envelope is the true total, which is what
+                    // says whether another page exists.
+                    const shownColumnTasks = columnTasks
+                    const columnTotal = activeLiveWorkspace?.taskCounts?.[column.id] ?? columnTasks.length
                     const ColumnIcon = column.icon
                     return (
                       <div
@@ -3660,7 +3693,9 @@ function App() {
                             </span>
                             <div className="min-w-0">
                               <h3 className="truncate text-sm font-semibold">{column.title}</h3>
-                              <p className="text-xs text-muted-foreground">{columnTasks.length} tasks</p>
+                              {/* The column's TOTAL, not how many are loaded — a
+                                  paged column showing "25 tasks" would be a lie. */}
+                              <p className="text-xs text-muted-foreground">{columnTotal} tasks</p>
                             </div>
                           </div>
                           <Button variant="ghost" size="icon-sm">
@@ -3708,10 +3743,10 @@ function App() {
                               ) : null}
                             </div>
                           ))}
-                          {columnTasks.length > shownColumnTasks.length ? (
+                          {shownColumnTasks.length < columnTotal ? (
                             <BoardLoadMoreSentinel
-                              onLoadMore={() => bumpBoardColumnLimit(column.id)}
-                              remaining={columnTasks.length - shownColumnTasks.length}
+                              onLoadMore={() => void loadMoreBoardColumn(column.id)}
+                              remaining={columnTotal - shownColumnTasks.length}
                             />
                           ) : null}
                           {columnTasks.length === 0 ? (

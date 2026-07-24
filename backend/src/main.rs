@@ -45,7 +45,8 @@ use umbral_oauth::providers::GitHubProvider;
 use umbral_openapi::OpenApiPlugin;
 use umbral_playground::PlaygroundPlugin;
 use umbral_rest::{
-    ChainAuthentication, IsAuthenticated, ResourceConfig, RestPlugin, UserRateThrottle,
+    ChainAuthentication, IsAuthenticated, PageNumberPagination, ResourceConfig, RestPlugin,
+    UserRateThrottle,
 };
 use umbral_security::{SecurityConfig, SecurityPlugin};
 use umbral_sessions::SessionsPlugin;
@@ -154,6 +155,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .authenticate(auth)
                 .default_permission(IsAuthenticated)
                 .default_throttle(UserRateThrottle::new("600/min"))
+                // #56: every list endpoint pages, 25 at a time.
+                //
+                // The default is NoPagination, which ignores every client
+                // parameter and returns up to MAX_LIST_ROWS (1000) rows — so the
+                // UI could not ask for less, and opening a board fetched every
+                // task, message and activity row in the project.
+                //
+                // Pagination is configured on the PLUGIN, not per resource, so
+                // this necessarily applies to every list. The envelope gains
+                // `count` (the true total), which is what lets a caller tell
+                // "end of data" apart from "end of page" — without it a short
+                // page is indistinguishable from the end, and silent truncation
+                // is the failure mode this whole change has to avoid.
+                .paginate(PageNumberPagination::new(25))
                 .resource(ResourceConfig::new(Post::table_name()))
                 .resource(backend::rest::project_resource())
                 .resource(backend::rest::user_settings_resource());

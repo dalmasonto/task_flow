@@ -31,6 +31,7 @@ import type {
   TaskflowUserSettingsTheme,
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken } from "@/lib/auth-api"
+import { BOARD_COLUMN_IDS, columnStatuses, type BoardColumnId } from "@/lib/board-columns"
 import type { ChatMessage } from "@/lib/message-store"
 
 export const taskflowTables = {
@@ -105,6 +106,9 @@ export type TaskflowWorkspace = {
   apiEndpoints: TaskflowProjectApiEndpoint[]
   tasks: TaskflowTask[]
   taskRelations: TaskflowTaskRelation[]
+  /// #56: total rows per board column, from the paginated envelope's `count`.
+  /// The board needs it to know whether another page exists — `loaded < count`.
+  taskCounts: Record<BoardColumnId, number>
   taskActivity: TaskflowTaskActivity[]
   taskSessions: TaskflowTaskSession[]
   taskAttachments: TaskflowTaskAttachment[]
@@ -439,6 +443,31 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
   }
 }
 
+/// #56: one page of ONE board column.
+///
+/// `status__in` is the raw-param escape hatch: a column is not always a single
+/// stored status (`review` is the board's name for `partial_done`), so the
+/// column id cannot be handed to the API directly — see lib/board-columns.
+export const BOARD_PAGE_SIZE = 25
+
+export async function fetchBoardColumn(
+  projectId: number,
+  column: BoardColumnId,
+  page = 1
+): Promise<{ rows: TaskflowTask[]; count: number }> {
+  const res = await taskflowApi
+    .from(taskflowTables.tasks)
+    .filter({ project: projectId })
+    .param("status__in", columnStatuses(column).join(","))
+    // Newest first, so a task created now lands at the top of page 1 rather than
+    // on some page the user has not scrolled to.
+    .orderBy("-id")
+    .param("page_size", BOARD_PAGE_SIZE)
+    .param("page", page)
+    .list()
+  return { rows: res.results, count: res.count }
+}
+
 /// #56: the CORE workspace — what a board needs and nothing else.
 ///
 /// This used to fetch all ~20 tables at once, so opening the board downloaded
@@ -452,7 +481,6 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     members,
     invites,
     apiEndpoints,
-    tasks,
     taskRelations,
     taskSessions,
     taskAttachments,
@@ -465,7 +493,6 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").list(),
     taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").list(),
-    taskflowApi.from(taskflowTables.tasks).filter({ project: projectId }).orderBy("sort_order", "id").list(),
     taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").list(),
     taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").list(),
     taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").list(),
@@ -475,12 +502,24 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
   ])
 
+  // #56: the board loads ONE page per column, not every task. Five small
+  // queries beat one unbounded list: each column knows its own total from the
+  // envelope's `count`, which is what tells the scroll sentinel whether another
+  // page exists.
+  const columnPages = await Promise.all(
+    BOARD_COLUMN_IDS.map(async (column) => ({ column, page: await fetchBoardColumn(projectId, column) }))
+  )
+  const taskCounts = Object.fromEntries(
+    columnPages.map(({ column, page }) => [column, page.count])
+  ) as Record<BoardColumnId, number>
+
   return {
     project,
+    tasks: columnPages.flatMap(({ page }) => page.rows),
+    taskCounts,
     members: members.results,
     invites: invites.results,
     apiEndpoints: apiEndpoints.results,
-    tasks: tasks.results,
     taskRelations: taskRelations.results,
     taskSessions: taskSessions.results,
     taskAttachments: taskAttachments.results,
