@@ -4027,7 +4027,7 @@ function App() {
       {activeProject && !dockOpen && !chatSurfaceMounted && !location.pathname.startsWith("/dashboard/agents") ? (
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-[60] flex items-center gap-1.5 rounded-3xl bg-primary px-3 py-3.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"
+          className="fixed bottom-4 right-4 z-[60] flex cursor-pointer items-center gap-1.5 rounded-3xl bg-primary px-3 py-3.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"
           onClick={() => setDockOpen(true)}
           title="Open chat"
         >
@@ -6849,7 +6849,7 @@ function ChatDock({
   // small screen.
   const frame = isBelowLg
     ? "inset-2"
-    : "bottom-4 right-4 w-[min(34rem,calc(100vw-2rem))] h-[min(44rem,calc(100vh-4rem))]"
+    : "bottom-4 right-4 w-[min(28rem,calc(100vw-2rem))] h-[min(52rem,calc(100vh-2rem))]"
 
   return (
     <section
@@ -6860,8 +6860,8 @@ function ChatDock({
         // backdrop). It has to be: "Message agent" lives INSIDE the task sheet,
         // so at z-40 clicking it opened the dock behind the very sheet you
         // clicked from — the feature was unreachable.
-        "fixed z-[60] flex flex-col overflow-hidden rounded-xl border bg-card shadow-2xl",
-        minimised ? "bottom-4 right-4 h-auto w-[min(20rem,calc(100vw-2rem))]" : frame
+        "fixed z-[60] flex flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl",
+        minimised ? "bottom-4 right-4 h-auto w-[min(18rem,calc(100vw-2rem))]" : frame
       )}
     >
       <header className="flex shrink-0 items-center gap-1 border-b px-3 py-2">
