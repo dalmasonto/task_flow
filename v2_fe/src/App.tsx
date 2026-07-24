@@ -2627,6 +2627,17 @@ function App() {
     activity: false,
   })
 
+  // Bumped when a slice fetch fails, purely to re-run the effect below. Clearing
+  // the ref flag on failure was not enough: none of the effect's other deps
+  // change when a request fails, so nothing re-triggered it and the retry never
+  // happened — the surface stayed empty until a full page reload rebuilt all the
+  // state. Bounded, so a persistently failing backend cannot spin.
+  const [sliceRetry, setSliceRetry] = useState(0)
+  const MAX_SLICE_RETRIES = 5
+  const retrySlice = useCallback(() => {
+    setSliceRetry((current) => (current < MAX_SLICE_RETRIES ? current + 1 : current))
+  }, [])
+
   const chatNeeded = dockOpen || location.pathname.startsWith("/dashboard/agents")
   // The task sheet renders one task's activity; the feed renders the project's.
   const activityNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/activity")
@@ -2650,6 +2661,7 @@ function App() {
         .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
         .catch(() => {
           slices.chat = false
+          retrySlice()
         })
     }
     if (activityNeeded && !slices.activity) {
@@ -2664,9 +2676,10 @@ function App() {
         })
         .catch(() => {
           slices.activity = false
+          retrySlice()
         })
     }
-  }, [chatNeeded, activityNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate])
+  }, [chatNeeded, activityNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice])
 
   if (publicPath === "/") {
     return <LandingPage />
