@@ -78,9 +78,12 @@ bumps on any edit — a task done last week but edited today would misreport).
 One session-authorized, project-scoped endpoint (same guard as
 `activity_actions`: `RequireAuth` + `can_access_project` → 404). `range`
 resolves to a UTC cutoff (`now - N days`; `all` = no cutoff; unknown value →
-400). Aggregation is done in SQL against the ambient pool (a `GROUP BY` per
-metric) rather than fetching rows and reducing in memory, so it scales past the
-large activity feed. Response:
+400). Aggregation follows the codebase's established pattern (`activity_actions`):
+fetch the project's rows via the ORM (`filter(col.eq(project_id)).fetch()`), then
+range-filter and reduce in Rust (HashMap tallies) — the ORM exposes no
+aggregation projection and the app uses no raw SQL. The range cutoff bounds the
+working set for the common 7d/30d/90d cases; `range=all` reads the full feed, the
+same cost `activity_actions` already pays per project. Response:
 
 ```json
 {
