@@ -175,6 +175,10 @@ import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
 import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
 import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-filter"
+
+/// The shared room every project gets. Named in one place so the auto-open
+/// preference and the create path cannot drift apart.
+const PROJECT_ROOM_TITLE = "Project room"
 import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
 import { taskRefState, type TaskRefState } from "@/lib/task-ref-state"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
@@ -2638,7 +2642,14 @@ function App() {
     setSliceRetry((current) => (current < MAX_SLICE_RETRIES ? current + 1 : current))
   }, [])
 
-  const chatNeeded = dockOpen || location.pathname.startsWith("/dashboard/agents")
+  // #56: the chat slice is needed when the dock is open, or when a chat surface
+  // is actually mounted. The route-string check stays as a fast path, but the
+  // MOUNT signal is the reliable one — matching on pathname assumes the route
+  // table and this string never drift, and a miss leaves the page permanently
+  // empty with no clue why.
+  const [chatSurfaceMounted, setChatSurfaceMounted] = useState(false)
+  const chatNeeded =
+    dockOpen || chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
   // The task sheet renders one task's activity; the feed renders the project's.
   const activityNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/activity")
 
@@ -3783,6 +3794,7 @@ function App() {
                       if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
                     }}
                     onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
+                    onActive={setChatSurfaceMounted}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
@@ -6495,7 +6507,7 @@ function useAgentChat({
     const channel = await createTaskflowChannel({
       project: projectId,
       kind: chat.mode === "direct" ? "direct" : "project",
-      title: chat.mode === "direct" ? chat.title : "Project room",
+      title: chat.mode === "direct" ? chat.title : PROJECT_ROOM_TITLE,
       topic: chat.detail,
       members,
     })
@@ -6924,7 +6936,9 @@ function AgentsPage({
   currentUser,
   onWorkspaceUpdate,
   onRefreshWorkspace,
+  onActive,
 }: {
+  onActive?: (active: boolean) => void
   project: Project
   liveWorkspace: TaskflowWorkspace | null
   currentUser: AuthUser | null
@@ -6934,6 +6948,12 @@ function AgentsPage({
   const navigate = useNavigate()
   const { conversationId } = useParams()
   const isBelowLg = useIsBelowLg()
+  // #56: tell App this surface needs the chat slice, and release it on unmount.
+  // Being mounted is the honest signal; a URL prefix is a guess about routing.
+  useEffect(() => {
+    onActive?.(true)
+    return () => onActive?.(false)
+  }, [onActive])
   // #55: the chat itself lives in useAgentChat so the dock can mount it too.
   // Destructured to the same names the render already used, so this page's
   // markup is untouched by the extraction. The conversation is addressed by the
@@ -6978,7 +6998,11 @@ function AgentsPage({
   // straight into a thread would hide the list behind a back button).
   useEffect(() => {
     if (conversationId || isBelowLg) return
-    const first = channelChats[0] ?? directChats[0]
+    // Prefer the PROJECT ROOM explicitly. channelChats is ordered by title, so
+    // "first channel" was really "alphabetically first" — a group called
+    // "Announcements" would win over the room everyone actually talks in.
+    const projectRoom = channelChats.find((chat) => chat.title === PROJECT_ROOM_TITLE)
+    const first = projectRoom ?? channelChats[0] ?? directChats[0]
     if (first) navigate(chatIdToSlug(first.id), { replace: true })
   }, [conversationId, isBelowLg, channelChats, directChats, navigate])
   // #42: create a DM or group explicitly, then open it. The server dedups DMs
