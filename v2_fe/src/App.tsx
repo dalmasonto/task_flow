@@ -2613,11 +2613,25 @@ function App() {
           // sentinel cannot chase a count that has since changed.
           taskCounts: { ...workspace.taskCounts, [columnId]: count },
         }))
+        // The board renders from `tasks`, NOT from liveWorkspace.tasks. Merging
+        // only into the workspace left the fetched rows invisible, so the
+        // column's loaded count never grew and the sentinel re-fired forever —
+        // a loader that spun without ever loading. Both stores must be fed.
+        setTasks((current) => {
+          const mapped = mapLiveTasks(
+            rows,
+            activeLiveWorkspace?.members ?? [],
+            activeLiveWorkspace?.agents ?? []
+          )
+          const known = new Set(current.map((task) => task.id))
+          const added = mapped.filter((task) => !known.has(task.id))
+          return added.length ? [...current, ...added] : current
+        })
       } catch {
         boardColumnPages.current[columnId] = nextPage - 1
       }
     },
-    [activeLiveProjectId, applyWorkspaceUpdate]
+    [activeLiveProjectId, applyWorkspaceUpdate, activeLiveWorkspace?.members, activeLiveWorkspace?.agents]
   )
   // #56: the heavy slices load only for the surfaces that render them. The board
   // used to download every message, prompt, terminal frame and 1000 activity
