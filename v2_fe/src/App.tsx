@@ -6033,7 +6033,7 @@ function PageShell({
             <MarkdownRenderer
               content={description}
               compact
-              className="mt-2 max-w-5xl [&_p]:text-sm [&_p]:leading-6"
+              className="mt-2 max-w-3xl [&_p]:text-sm [&_p]:leading-6"
             />
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -8378,11 +8378,7 @@ function AgentChatBubble({
     <article className={cn("flex", alignRight ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          // Bubbles stay inset so sender/receiver alignment still reads, but 82%
-          // was sized for one-line chat. Agent messages carry tables, code and
-          // long markdown, and the old cap wrapped them hard while ~a fifth of
-          // the thread sat empty.
-          "max-w-[94%] rounded-lg border p-3 shadow-sm sm:max-w-[90%]",
+          "max-w-[88%] rounded-lg border p-3 shadow-sm sm:max-w-[82%]",
           fromUser ? "agent-sent-bubble" : alignRight ? "bg-accent/75" : "bg-background/95"
         )}
       >
