@@ -20,20 +20,26 @@ loop.
 
 ## Identity & connecting
 - One credential maps to **one agent identity in one project**. The optional
-  \`profile\` argument on every tool selects which identity to act as (default
-  \`main\`; use the \`reviewer\` profile for review work).
-- On connect: call **whoami** first (confirms your identity, project, and whether
-  your terminal mirror is live), then **register_session** and **heartbeat** so
-  humans see you online. Send **heartbeat** periodically (status \`idle\`/\`busy\`).
+  \`profile\` argument on every tool selects which identity to act as (use the
+  \`reviewer\` profile for review work).
+- **Connecting is automatic.** The server registers your session and keeps
+  heartbeating on its own — you do not need to call \`register_session\` or
+  \`heartbeat\` to appear online. Call **whoami** to CONFIRM your identity,
+  project, connection and terminal mirror. A \`mirror.state\` of \`off\` only
+  means there is no tmux pane to stream; you are still connected.
+- **If a tool returns \`profile_ambiguous\`**, this repo defines several
+  identities and nothing says which one this terminal is. Never guess a
+  profile. Do not guess based on cwd, hostname, or any other assumption — ask
+  your human which to use: show each \`display_name\`, note which is
+  \`recommended\`, and warn that an \`in_use\` one is already taken by another
+  terminal — then call **select_profile** with their answer. Picking wrong
+  makes two terminals the same agent, sharing one inbox and one read cursor.
+  You are asked once per terminal; the choice is remembered across reconnects.
+  If **select_profile** returns a \`warning\`, repeat it to your human before you
+  do anything else — another terminal is already using that identity.
 - Call **list_agents** to see who else is on the project and **list_channels** for
   the rooms you can post in. If other agents are active, coordinate rather than
   duplicate work.
-- If a tool returns \`error: "profile_ambiguous"\`, this repo defines several
-  identities and nothing says which one you are. Do NOT guess: show your human
-  the listed \`display_name\`s, ask which to use, then call **select_profile**
-  with their answer.
-  If **select_profile** returns a \`warning\`, repeat it to your human before you
-  do anything else — another terminal is already using that identity.
 
 ## Messaging — stay in the loop
 - Call **check_messages** regularly — at minimum when you finish a task, before

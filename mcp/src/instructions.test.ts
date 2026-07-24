@@ -72,3 +72,31 @@ describe("AGENT_INSTRUCTIONS", () => {
     expect(lower).toMatch(/task chip|as a task|taskflow task/);
   });
 });
+
+describe("identity instructions", () => {
+  it("no longer tells the agent to register a session by hand", () => {
+    // Connection is automatic now; teaching the ritual makes the model do work
+    // the server owns, and go stale when it forgets to repeat it.
+    expect(AGENT_INSTRUCTIONS).not.toMatch(/then \*\*register_session\*\* and \*\*heartbeat\*\*/);
+    expect(AGENT_INSTRUCTIONS).not.toMatch(/Send \*\*heartbeat\*\* periodically/);
+  });
+
+  it("says connection and presence are automatic", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/automatic/i);
+  });
+
+  it("documents the profile_ambiguous protocol", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/profile_ambiguous/);
+    expect(AGENT_INSTRUCTIONS).toMatch(/select_profile/);
+  });
+
+  it("forbids guessing an identity", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/never guess/i);
+  });
+
+  it("mentions every tool it names", () => {
+    for (const tool of ["whoami", "select_profile", "list_agents", "list_channels"]) {
+      expect(AGENT_INSTRUCTIONS).toContain(tool);
+    }
+  });
+});
