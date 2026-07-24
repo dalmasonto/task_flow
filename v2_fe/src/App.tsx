@@ -9065,7 +9065,11 @@ function ActivityLogPage({
               className="pl-8"
             />
           </div>
-          {tools.length > 1 ? (
+          {/* `tools.length > 1` alone hid the whole row once a tool was picked:
+              the server then returns only that tool's rows, so the derived list
+              collapsed to one entry and took the "All tools" escape with it —
+              a filter you could apply but not clear. */}
+          {tools.length > 1 || tool !== ALL_TOOLS ? (
             <div className="flex flex-wrap gap-1.5">
               {[ALL_TOOLS, ...tools].map((option) => {
                 const active = tool === option
