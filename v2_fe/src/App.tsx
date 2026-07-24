@@ -181,6 +181,7 @@ import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-f
 const PROJECT_ROOM_TITLE = "Project room"
 import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
 import { taskRefState, type TaskRefState } from "@/lib/task-ref-state"
+import { messageToTask } from "@/lib/message-to-task"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MessageAttachments } from "@/components/message-attachments"
 import { AttachableTextarea, type AttachableFile } from "@/components/attachable-textarea"
@@ -6267,6 +6268,8 @@ export type AgentsOutletContext = {
   onAnswerPrompt: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
   /// #56: fetch the next page of older messages for the open conversation.
   onLoadOlder: () => void
+  /// Turn a message into a task — first line as the title, the rest as the body.
+  onCreateTask: (body: string) => void
 }
 
 function useAgentsOutletContext() {
@@ -6758,6 +6761,29 @@ function useAgentChat({
       })
   }, [selectedChat?.liveChannelId, onWorkspaceUpdate])
 
+  /// Capture a message as a task. Commitments made in conversation go missing
+  /// because opening a form costs more than the sentence did; this makes it one
+  /// click. Refreshes the workspace afterwards rather than merging locally —
+  /// `tasks` and `liveWorkspace.tasks` are separate stores, and a local merge
+  /// into one leaves the board showing the other.
+  const createTaskFromMessage = useCallback(
+    (body: string) => {
+      const parsed = messageToTask(body)
+      const projectId = liveId(project.id)
+      if (!parsed || projectId === null) return
+      void createTaskflowTask({
+        project: projectId,
+        title: parsed.title,
+        description_markdown: parsed.description,
+      })
+        .then(() => onRefreshWorkspace())
+        .catch((error) => {
+          setMessageError(error instanceof Error ? error.message : "Could not create the task.")
+        })
+    },
+    [project.id, onRefreshWorkspace]
+  )
+
   const handleAnswerPrompt = useCallback(
     async (promptId: number, answers: number[][], cancel = false, texts: (string | null)[] = []) => {
       await answerAgentPrompt(promptId, answers, cancel, texts)
@@ -6778,6 +6804,7 @@ function useAgentChat({
     pendingPrompt,
     onAnswerPrompt: handleAnswerPrompt,
     onLoadOlder: loadOlderMessages,
+    onCreateTask: createTaskFromMessage,
   }
 
   return {
@@ -7589,6 +7616,7 @@ function AgentsConversationView({
   pendingPrompt,
   onAnswerPrompt,
   onLoadOlder,
+  onCreateTask,
   currentUser,
   variant = "full",
 }: AgentsOutletContext & { variant?: "full" | "compact" }) {
@@ -8034,6 +8062,7 @@ function AgentsConversationView({
                 message={item.message}
                 onRetry={onRetryMessage}
                 onCancel={onCancelMessage}
+                onCreateTask={onCreateTask}
               />
             )
           )}
@@ -8421,10 +8450,12 @@ function AgentChatBubble({
   message,
   onRetry,
   onCancel,
+  onCreateTask,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
   onCancel?: (nonce: string) => void
+  onCreateTask?: (body: string) => void
 }) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
@@ -8445,6 +8476,19 @@ function AgentChatBubble({
             <span className={cn("rounded-full px-2 py-0.5 font-medium ring-1", messagePriorityBadgeClass(message.priority))}>
               {messagePriorityLabel(message.priority)}
             </span>
+          ) : null}
+          {/* Capture a spoken commitment as a task without leaving the thread —
+              the whole point is that it costs one click, not a form. Hidden for
+              a message still in flight: there is nothing durable to capture yet. */}
+          {onCreateTask && message.body.trim() && !message.status ? (
+            <button
+              type="button"
+              className="ml-auto cursor-pointer rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              title="Create a task from this message — first line becomes the title"
+              onClick={() => onCreateTask(message.body)}
+            >
+              + Task
+            </button>
           ) : null}
         </div>
         <MarkdownRenderer
