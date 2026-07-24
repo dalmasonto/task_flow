@@ -68,10 +68,12 @@ for OAuth URL helpers.
  * Full-page LOGIN url for a social provider — the sign-in counterpart to
  * `githubConnectUrl`. The backend mints a bearer token on a login flow with an
  * allowlisted `next` and returns it in the URL fragment; `returnPath` is where
- * it lands (default `/login`, which consumes the token pre-render). Safe under
+ * it lands (default `/dashboard/board`). The token is consumed pre-render;
+ * the target must NOT be an auth route (`/login` short-circuits to the login
+ * form BEFORE the auth check, so an authed user would be stuck there). Safe under
  * SSR/vitest where `window` is absent.
  */
-export function oauthLoginUrl(provider: string, returnPath = "/login"): string {
+export function oauthLoginUrl(provider: string, returnPath = "/dashboard/board"): string {
   const base = `${API_BASE_URL}/oauth/${provider}/login`
   const origin = typeof window !== "undefined" ? window.location.origin : ""
   return `${base}?next=${encodeURIComponent(`${origin}${returnPath}`)}`
@@ -196,10 +198,10 @@ which is the deployed version — the ground truth over the older published docs
 Every path either returns the user to the SPA or fails closed with a safe
 message; there is no gap that needs a crate fork or a backend change.
 
-**Start.** Full-page navigation to `/oauth/github/login?next=<origin>/login`. The
+**Start.** Full-page navigation to `/oauth/github/login?next=<origin>/dashboard/board`. The
 `next` must be prefix-allowlisted via the plugin's `allow_return` — `main.rs`
 already allowlists the app's base origin (the Vite origin in dev,
-`UMBRAL_OAUTH_REDIRECT_BASE` in prod), so `<origin>/login` passes. An
+`UMBRAL_OAUTH_REDIRECT_BASE` in prod), so `<origin>/dashboard/board` passes. An
 un-allowlisted `next` is a 400 (we never send one).
 
 **Success.** The callback mints a bearer token and 302-redirects to
@@ -222,7 +224,7 @@ that a flow does hand back (harmless if none ever does):
 
 | SPA-side | Behavior |
 |---|---|
-| `#token=` present | stored pre-render → dashboard |
+| `#token=` present | stored pre-render → lands on `/dashboard/board`, authenticated |
 | `#error=` / `?error=` present | message stashed → login screen shows an `AuthNotice` |
 | neither (normal page load, or a denial that redirected to `login_redirect`) | no-op; the auth gate shows login as usual |
 
@@ -230,15 +232,19 @@ that a flow does hand back (harmless if none ever does):
 
 - **`github-api.test.ts`** (already tests `githubConnectUrl`) — add `oauthLoginUrl`
   cases: targets `/oauth/<provider>/login`, includes an encoded `next` built from
-  the origin, defaults `returnPath` to `/login`, and is safe when `window` is
-  absent.
+  the origin, defaults `returnPath` to `/dashboard/board`, and is safe when
+  `window` is absent.
 - **`fetchOAuthProviders`** — a fetch-mocked test: maps a well-formed
   `{providers:[…]}`, drops malformed entries, returns `[]` on a non-ok response or
   bad JSON (never throws — a discovery failure must not break the login page).
-- **`consumeOAuthRedirect` / `takeOAuthError`** (new test file, jsdom) — token in
-  fragment → stored under `AUTH_TOKEN_KEY` and fragment stripped; `#error=` →
-  message retrievable once via `takeOAuthError` then null; neither present → no-op
-  and storage untouched; `?error=` in the query is also caught.
+- **`parseOAuthRedirect`** (new test file) — vitest runs in `node` env with no
+  jsdom, so the token/error LOGIC is extracted into a pure function
+  `parseOAuthRedirect(hash, search)` returning a tagged result, fully tested in
+  node: `#token=` → `{kind:"token"}`; `#error=` and `?error=` → `{kind:"error"}`;
+  neither → `{kind:"none"}`. `consumeOAuthRedirect` becomes a thin `window`-guarded
+  wrapper around it (glue, verified manually). `takeOAuthError(storage?)` takes an
+  injectable storage so its read-and-clear-once behavior is node-testable with a
+  fake `Storage`.
 - **Manual** (needs a browser + the real GitHub app): click "Sign in with
   GitHub", authorize, confirm landing in the dashboard authenticated and that the
   URL fragment is gone. Also verify the denial path — cancel on GitHub's consent
