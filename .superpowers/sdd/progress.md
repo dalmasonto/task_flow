@@ -66,6 +66,21 @@ All work is in `mcp/`. Run commands from `/home/dalmas/E/projects/local_task_tra
 - Task 7 Step 9 (`collisionPolicy`) is a decision reserved for dalmas — see
   pre-flight question. Do not let an implementer invent this policy.
 
+## FINAL REVIEW (whole branch, d8fb8f7..8105578): Ready to merge — YES
+No Critical, no Important blocker. 345 tests / 22 files green. Two tracked
+follow-ups, neither a merge blocker:
+1. **ppid-reuse sticky false-positive** (Important, `sessions-store.ts:48-54`).
+   Outside tmux the sticky key is `cwd:<hash>:<ppid>` with 30-day retention; a
+   recycled parent pid in the same repo within 30 days returns a stale profile
+   WITHOUT asking — the silent mis-identification the feature exists to prevent.
+   Narrow trigger (no tmux + multiple profiles + pid wrap). Fix: fold the
+   parent's start time (`/proc/<ppid>/stat` field 22) into the key, or shorten
+   retention for `cwd:`-keyed entries only.
+2. **runtime teardown doesn't reportMirror** (Minor, coherence). During a
+   backend-DOWN profile switch, `whoami` can briefly show `mirror.active` while
+   `connection.retrying`. Self-heals on reconnect; benign. One-liner:
+   `reportMirror({state:"off", detail:"reconnecting"})` in the teardown.
+
 ---
 
 ## Previous plan (completed): GitHub Mirror Affordance
