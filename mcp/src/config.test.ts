@@ -7,6 +7,7 @@ import {
   parseConfig,
   chooseProfileName,
   resolveProfile,
+  resolveProfileOrAsk,
   findConfigPath,
   loadProfile,
   ConfigError,
@@ -138,5 +139,91 @@ describe("findConfigPath / loadProfile", () => {
   it("throws when no config file exists", () => {
     const root = mkdtempSync(join(tmpdir(), "taskflow-empty-"));
     expect(() => findConfigPath({ startDir: root, env: {} })).toThrow(ConfigError);
+  });
+});
+
+const TWO_PROFILES: TaskflowConfig = {
+  server: "http://localhost:8000",
+  project: 2,
+  default_profile: "main",
+  profiles: {
+    main: { agent_id: 1, key: "tfk_a", display_name: "Claude (main)" },
+    bear: { agent_id: 2, key: "tfk_b", display_name: "Claude (bear)" },
+  },
+};
+
+const ONE_PROFILE: TaskflowConfig = {
+  server: "http://localhost:8000",
+  project: 2,
+  default_profile: "main",
+  profiles: { main: { agent_id: 1, key: "tfk_a", display_name: "Claude (main)" } },
+};
+
+describe("resolveProfileOrAsk", () => {
+  it("resolves silently when the file defines exactly one profile", () => {
+    const result = resolveProfileOrAsk(ONE_PROFILE, { env: {} });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") expect(result.profile.profileName).toBe("main");
+  });
+
+  it("is ambiguous with several profiles and nothing to disambiguate", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: {} });
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.profiles.map((p) => p.name).sort()).toEqual(["bear", "main"]);
+    }
+  });
+
+  it("is STILL ambiguous when default_profile is set — it only recommends", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: {} });
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.profiles.find((p) => p.name === "main")?.recommended).toBe(true);
+      expect(result.profiles.find((p) => p.name === "bear")?.recommended).toBe(false);
+    }
+  });
+
+  it("carries each profile's display name for the human's picker", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: {} });
+    if (result.kind !== "ambiguous") throw new Error("expected ambiguous");
+    expect(result.profiles.find((p) => p.name === "bear")?.display_name).toBe("Claude (bear)");
+  });
+
+  it("an explicit argument wins over ambiguity", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: {}, profile: "bear" });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") expect(result.profile.agentId).toBe(2);
+  });
+
+  it("TASKFLOW_PROFILE wins over ambiguity", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: { TASKFLOW_PROFILE: "bear" } });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") expect(result.profile.profileName).toBe("bear");
+  });
+
+  it("a sticky pick wins over ambiguity", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: {}, sticky: "bear" });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") expect(result.profile.profileName).toBe("bear");
+  });
+
+  it("TASKFLOW_PROFILE outranks a stale sticky pick", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, {
+      env: { TASKFLOW_PROFILE: "main" },
+      sticky: "bear",
+    });
+    if (result.kind !== "resolved") throw new Error("expected resolved");
+    expect(result.profile.profileName).toBe("main");
+  });
+
+  it("falls back to asking when the sticky pick is no longer in the file", () => {
+    const result = resolveProfileOrAsk(TWO_PROFILES, { env: {}, sticky: "deleted" });
+    expect(result.kind).toBe("ambiguous");
+  });
+
+  it("still throws for an explicit profile that does not exist", () => {
+    expect(() => resolveProfileOrAsk(TWO_PROFILES, { env: {}, profile: "nope" })).toThrow(
+      /not defined/,
+    );
   });
 });

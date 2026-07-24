@@ -1288,15 +1288,96 @@ you which this terminal is, then call select_profile — the pick is remembered
 per terminal in .taskflow/sessions.json. Set TASKFLOW_PROFILE to skip the ask.
 ```
 
-- [ ] **Step 3: Verify**
+- [ ] **Step 3: Stop swallowing messages when there is no pane**
+
+Task 5's review found this, and it is the most serious item in the plan. In
+`runtime.ts`'s `deliverMessageById`, `markRead` runs unconditionally — including
+when `pane` is null and the message was therefore never typed anywhere:
+
+```ts
+        if (pane) { await paneQueue(() => notifyPane(...)); }
+        await client.markRead(message.channel, message.id);   // <-- runs regardless
+```
+
+`check_messages` defaults to `unread_only=true` (`server.ts:388`), so a message
+delivered nowhere is also marked read and never surfaces again. That is exactly
+the loss described in `planning/spec-message-delivery.md` (message #56: "the
+message was marked read without being delivered, and by design it is never
+redelivered"), and Task 7's `select_profile` makes the pane-less path live.
+
+The read cursor means "the agent has seen this". Nothing saw it. So:
+
+```ts
+        if (!pane) return;                    // nothing consumed it — leave it unread
+        await paneQueue(() => notifyPane(...));
+        await client.markRead(message.channel, message.id);
+```
+
+Add a test in a new `src/runtime.test.ts` asserting that with `pane: null` a
+delivered event does NOT call `markRead`, and that with a pane it does.
+
+- [ ] **Step 4: Restore the mirror status `whoami` reports**
+
+Also from Task 5's review. Every writer of `mirror.ts`'s module-level status
+lives inside `startMirrorWithRetry`, whose only production caller was deleted in
+Task 5. `server.ts:137` still reports `getMirrorStatus()`, so `whoami` now
+answers `{state: "starting", attempts: 0}` forever — a live mirror reported as
+never-started, which inverts the very problem that field exists to solve.
+
+Export a setter from `src/mirror.ts` (leave `startMirrorWithRetry` and its tests
+alone — retiring them is out of scope here):
+
+```ts
+/** Publish the mirror's state from whoever is driving it — since Task 5 that is
+ *  `runtime.ts`, not `startMirrorWithRetry`. */
+export function reportMirror(next: MirrorStatus): void {
+  status = next;
+}
+```
+
+Then in `startAgentRuntime`, report both outcomes:
+
+```ts
+  if (pane && process.env.TASKFLOW_MIRROR !== "off") {
+    startMirrorLoop({ /* ...unchanged... */ });
+    reportMirror({ state: "active", pane, attempts: 1 });
+  } else {
+    reportMirror({
+      state: "off",
+      detail: pane ? "TASKFLOW_MIRROR=off" : "not running inside tmux — nothing to mirror",
+      attempts: 0,
+    });
+  }
+```
+
+Add a test asserting `getMirrorStatus()` reads `active` with a pane and `off`
+without one.
+
+- [ ] **Step 5: Contain a bad profile name at startup**
+
+Third finding from Task 5's review. `loadProfile()` throws `ConfigError` when the
+resolved profile name is not in the file — reachable via `TASKFLOW_PROFILE=typo`
+or a `default_profile` naming a deleted profile. `buildServer` does not catch it,
+because it loads the config *file* while `resolveProfile` runs per tool call. So
+the transport connects, prints `connected (stdio)`, then dies with an uncaught
+`ConfigError` and `exit(1)`. Before Task 5 the same throw was contained by
+`startMirrorWithRetry`'s loop and merely meant "no mirror".
+
+`startAgent` already runs inside `void startAgent().catch(...)` from Step 2,
+which contains it — but confirm that catch reports the message legibly rather
+than a stack, and that the server keeps serving. Add a test that `startAgent`
+with an unknown `TASKFLOW_PROFILE` rejects with a `ConfigError` whose message
+names the available profiles, so the catch has something useful to print.
+
+- [ ] **Step 6: Verify**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck clean; all tests PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/index.ts src/runtime.ts
+git add src/index.ts src/runtime.ts src/mirror.ts src/runtime.test.ts
 git commit -m "feat(mcp): autoconnect on startup instead of only when mirroring"
 ```
 
@@ -1556,19 +1637,187 @@ Add alongside `whoami`:
 
 Import `selectProfile` from `./runtime.js` and keep `resolveProfile` imported from `./config.js`.
 
-- [ ] **Step 9: YOUR CONTRIBUTION — the in-use collision policy**
+- [ ] **Step 9: The in-use collision policy — allow, but warn**
 
-See the request below this task. Implement the marked function in `src/server.ts`.
+Decided by the project owner: connect anyway, and return a `warning` the agent
+is instructed to relay. Refusing would lock a user out of their own identity for
+up to 90 s after a crash, since a dead terminal's session still looks live for
+the rest of the liveness window.
 
-- [ ] **Step 10: Verify**
+First, a test. Append to `src/server.test.ts`:
+
+```ts
+import { collisionWarning } from "./server.js";
+
+describe("collisionWarning", () => {
+  it("says nothing when the identity is free", () => {
+    expect(collisionWarning("bear", null)).toBeUndefined();
+  });
+
+  it("names the live session and the concrete consequence", () => {
+    const warning = collisionWarning("bear", {
+      id: 2,
+      display_name: "Claude (bear)",
+      identifier: "agent:2:x:bear",
+      status: "connected",
+      last_seen_at: "2026-07-24T09:00:00Z",
+    });
+    expect(warning).toMatch(/bear/);
+    expect(warning).toMatch(/inbox|read cursor/i);
+    expect(warning).toMatch(/tell your human/i);
+  });
+});
+```
+
+Then implement in `src/server.ts`:
+
+```ts
+/**
+ * The warning returned when a human picks an identity another terminal already
+ * holds.
+ *
+ * Deliberately NOT a refusal. A crashed terminal's session still looks live for
+ * the rest of the 90s window, so refusing would lock someone out of their own
+ * identity at the worst possible moment. The collision is real but recoverable;
+ * being unable to reconnect is neither.
+ *
+ * Returns undefined when there is nothing to warn about, so the caller can
+ * spread it into the result and have the field simply not appear.
+ */
+export function collisionWarning(
+  profileName: string,
+  live: AgentSummary | null,
+): string | undefined {
+  if (!live) return undefined;
+  const seen = live.last_seen_at ? ` (last seen ${live.last_seen_at})` : "";
+  return (
+    `'${profileName}' already has a live session${seen}. Two terminals sharing one ` +
+    `identity share one inbox and one read cursor, so messages meant for one will ` +
+    `be marked read by the other. Tell your human before you continue.`
+  );
+}
+```
+
+Wire it into the `select_profile` handler from Step 8. After `await selectProfile(resolved)`, look up the live agent and include the field:
+
+```ts
+        const live = await new TaskflowClient({ server: resolved.server, key: resolved.key })
+          .listAgents()
+          .then((agents) =>
+            agents.find((a) => a.id === resolved.agentId && a.status === "connected") ?? null,
+          )
+          .catch(() => null);
+        const warning = collisionWarning(resolved.profileName, live);
+        return ok({
+          selected: resolved.profileName,
+          display_name: resolved.displayName,
+          agent_id: resolved.agentId,
+          project: resolved.project,
+          connection: getConnectionStatus(),
+          ...(warning ? { warning } : {}),
+          note: "Connected. This terminal will use this identity from now on.",
+        });
+```
+
+Note the ordering hazard: this liveness check runs *after* `selectProfile` has
+already connected, so it would see **this** session. Capture the live agent
+**before** calling `selectProfile`, and pass it down. Restructure the handler so
+the `listAgents` lookup happens first.
+
+Finally, Task 8's instructions must tell the agent to relay it. Add to the
+`## Identity & connecting` section:
+
+```
+  If **select_profile** returns a \`warning\`, repeat it to your human before you
+  do anything else — another terminal is already using that identity.
+```
+
+and add a matching assertion to `src/instructions.test.ts`:
+
+```ts
+  it("tells the agent to relay a select_profile warning", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/warning/i);
+  });
+```
+
+- [ ] **Step 10: Stop the old connection when the profile changes**
+
+From Task 6's review. `connectAs` in `runtime.ts` discards the
+`ConnectionHandle` that `startConnection` returns. `connect.ts` explicitly
+anticipates two live connections — that is what its `stop()` and `statusOwner`
+machinery is for — but with the handle thrown away none of it is reachable from
+production.
+
+`select_profile` is exactly the case it was built for. Switching from `main` to
+`bear` currently leaves `main`'s connection heartbeating its own session row
+forever, so the dashboard shows the old identity permanently online and the
+agent appears to be in two places at once.
+
+Keep the handle in a module-level slot in `runtime.ts` and stop the previous one
+before connecting the next:
+
+```ts
+/** The live connection, so a profile switch can stop the one it replaces. */
+let current: ConnectionHandle | null = null;
+
+export function connectAs(profile: ResolvedProfile, pane: string | null): void {
+  // A profile switch must not leave the old identity heartbeating: its session
+  // row would stay `connected` and the dashboard would show one agent twice.
+  current?.stop();
+  current = startConnection({
+    profile,
+    pane,
+    log: stderrLog,
+    onSession: (ctx) => startAgentRuntime(ctx, stderrLog),
+  });
+}
+```
+
+Import the `ConnectionHandle` type from `./connect.js`. Add a test asserting a
+second `connectAs` stops the first handle, and that a first call with nothing
+live does not throw.
+
+Note the ordering already documented in the ledger: `startConnection` publishes
+`{state:"starting", attempts:0}` at construction, so immediately after a switch
+`whoami` briefly reports `starting` with no session. That is correct — the new
+connection owns the status — but do not mistake it for a bug while testing.
+
+- [ ] **Step 11: Skip the reconnect catch-up when there is no pane**
+
+Also from Task 6's review, and it becomes load-bearing here because
+`select_profile` makes the pane-less path ordinary.
+
+Task 6 correctly stopped `deliverMessageById` marking a message read when there
+is no pane to type it into. The consequence is that the unread set never drains,
+so `catchUpUnread` re-fetches a monotonically growing backlog on every single
+reconnect and throws all of it away. `resolveMessage` costs `1 + channelCount`
+HTTP round-trips *per message* (`resolve.ts:95-116`), so this is `U · (1 + N)`
+wasted requests per reconnect, forever. It also logs `reconnect catch-up — N
+missed message(s)` when it is about to deliver none.
+
+Add an early return at the top of `catchUpUnread` in `runtime.ts`:
+
+```ts
+      const catchUpUnread = async () => {
+        // Nowhere to deliver, and `deliverMessageById` would drop every one of
+        // them anyway — so fetching the backlog is pure cost. `check_messages`
+        // still surfaces them on demand, which is the whole point of leaving
+        // them unread.
+        if (!pane) return;
+```
+
+Add a test asserting a pane-less reconnect performs no channel or message
+fetches.
+
+- [ ] **Step 12: Verify**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck clean; all tests PASS.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add src/server.ts src/server.test.ts
+git add src/server.ts src/server.test.ts src/runtime.ts src/runtime.test.ts
 git commit -m "feat(mcp): refuse to guess an identity, and add select_profile"
 ```
 
@@ -1730,6 +1979,6 @@ Update `agent-identity-rework.md` in the memory directory with the outcome, and 
 
 ## Notes for the implementer
 
-- **Do not "fix" `mirror.ts`'s 8-attempt limit.** It still governs `--tmux`, a foreground command a human is watching, where giving up is correct. Only the startup path moved to unbounded retry.
+- **CORRECTION (found in Task 5's review).** An earlier draft of this note claimed `startMirrorWithRetry` "still governs `--tmux`". That is false: `--tmux` runs `runTmuxMirror` (`src/tmux.ts:489`), which does its own `registerSession` and loop and has never touched `mirror.ts`. `startMirrorWithRetry`'s only production caller was the `index.ts` block Task 5 deleted, so it is now **orphaned**, along with its 8 tests. Leave it in place — Task 6 Step 4 re-uses `mirror.ts`'s status singleton, and retiring the function is a separate cleanup. Do not cite it as live code.
 - **`resolveProfile` keeps throwing.** Explicit callers asserted an identity; a wrong name is their error, not an invitation to ask.
 - **Never let `in_use` block anything by accident.** It is advisory. If `list_agents` fails, the field is omitted and the flow continues.

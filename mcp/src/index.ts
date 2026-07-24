@@ -10,27 +10,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { ConfigError } from "./config.js";
 import { runDoctor } from "./doctor.js";
-import {
-  detectTmuxPane,
-  notifyPane,
-  runTmuxMirror,
-  sendKeySteps,
-  sendKeyToPane,
-  startMirrorLoop,
-} from "./tmux.js";
-import {
-  formatIncoming,
-  shouldDeliver,
-  startAgentEventStream,
-} from "./events.js";
-import { TaskflowClient } from "./client.js";
-import { startMirrorWithRetry } from "./mirror.js";
+import { runTmuxMirror } from "./tmux.js";
 import { runMint } from "./mint.js";
-import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
-import { createSerialQueue } from "./pane-queue.js";
-import { stepsForPrompt } from "./prompts.js";
-import { loadProfile } from "./config.js";
-import { hostname } from "node:os";
+import { startAgent } from "./runtime.js";
 
 const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
 
@@ -59,7 +41,13 @@ client, not typed as commands. To check the setup yourself, use --check.
 
 TERMINAL MIRRORING IS AUTOMATIC. When the agent runs inside tmux, the server
 finds its own pane and streams it to the dashboard — nothing to launch, no pane
-id to look up. Set TASKFLOW_MIRROR=off to disable it.
+id to look up. Set TASKFLOW_MIRROR=off to disable it. The agent still connects
+and appears online without tmux; only the streamed terminal needs a pane.
+
+WHICH IDENTITY AM I? With one profile in .taskflow.json the server connects as
+it silently. With several, it connects as NONE of them and the agent must ask
+you which this terminal is, then call select_profile — the pick is remembered
+per terminal in .taskflow/sessions.json. Set TASKFLOW_PROFILE to skip the ask.
 
 --tmux is only for mirroring a pane the agent is NOT running in (say, watching a
 build in another window). It runs in the foreground until Ctrl-C; the target
@@ -133,206 +121,16 @@ async function main(): Promise<void> {
   // Stderr only — stdout is the MCP transport and must stay clean.
   process.stderr.write("taskflow-v2-mcp: connected (stdio)\n");
 
-  // Mirror this agent's terminal automatically. The server is spawned BY the
-  // agent, so it can find the pane itself (see detectTmuxPane) — asking a human
-  // to run a second command with a pane id they have to look up is not a setup
-  // step, it's a thing to forget. Best-effort in every direction: no tmux, no
-  // credential, or a backend that is down all degrade to simply not mirroring.
-  if (process.env.TASKFLOW_MIRROR !== "off") {
-    void startMirrorForThisAgent();
-  }
-}
-
-/**
- * Adapt the client to {@link MessageSource}.
- *
- * `MessagesPage.messages` is `unknown[]` — the client deliberately does not
- * model every row shape — so the narrowing happens here, once, at the boundary
- * rather than inside the resolver.
- */
-function messageSourceFor(client: TaskflowClient): MessageSource {
-  return {
-    listChannels: () => client.listChannels(),
-    listMessages: (params) =>
-      client.listMessages(params) as Promise<{ messages: ResolvedMessage[] }>,
-  };
-}
-
-/**
- * Register a session for this process and stream its pane into the dashboard.
- * Never throws into the MCP transport: a mirror is a nice-to-have, and must not
- * be able to take the tool server down with it.
- *
- * Retried with backoff. Setup calls `registerSession`, so a backend that is
- * still booting when the MCP spawns used to kill mirroring for the whole life
- * of the process — one caught error, one stderr line nobody reads, and a
- * permanently stale terminal. Restarting the backend and reconnecting the MCP
- * together is the normal way to pick up a change, which is exactly when that
- * race happens.
- */
-async function startMirrorForThisAgent(): Promise<void> {
-  await startMirrorWithRetry({
-    detectPane: detectTmuxPane,
-    log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
-    start: async (pane) => {
-      const profile = loadProfile();
-      const client = new TaskflowClient({ server: profile.server, key: profile.key });
-      const session = await client.registerSession({
-        // Same identifier the tools use, so this is ONE session, not a duplicate.
-        session_identifier: `tmux:${hostname()}:${pane}`,
-        host: hostname(),
-        pid: process.pid,
-        cwd: process.cwd(),
-        transport: "tmux",
-      });
-      process.stderr.write(`taskflow-v2-mcp: mirroring tmux pane ${pane}\n`);
-
-      // Every write to the pane — message delivery, prompt replay, terminal
-      // keys — goes through this ONE serial queue. The event stream dispatches
-      // handlers fire-and-forget, so without serialization two writes that land
-      // together interleave their `send-keys <text>` / `send-keys Enter` steps
-      // and one message's Enter submits another's text (see pane-queue.ts).
-      const paneQueue = createSerialQueue();
-
-      // Deliver ONE message to the pane, resolving it by id (chat is id-only on
-      // the wire). Shared by the live stream and the reconnect catch-up so both
-      // apply the same shouldDeliver + notify + mark-read. The pane write itself
-      // is serialized; the resolve/markRead round-trips stay outside the lock so
-      // network latency doesn't stall other deliveries.
-      const deliverMessageById = async (id: number) => {
-        const message = await resolveMessage(messageSourceFor(client), id);
-        if (!message) return;
-        if (!shouldDeliver(message, profile.agentId)) return;
-        await paneQueue(() =>
-          notifyPane(formatIncoming(message, message.attachments ?? [], profile.agentId), pane, true),
-        );
-        await client.markRead(message.channel, message.id);
-      };
-
-      // On RE-connect, deliver anything that arrived while the stream was down.
-      // The live push is at-most-once and never redelivers, so a message sent
-      // during a backend/session restart would otherwise only surface via a
-      // manual check_messages — the "messages aren't coming" gap. Delivering
-      // unread (oldest first) closes it; already-delivered messages are past the
-      // read cursor, so they are not repeated.
-      const catchUpUnread = async () => {
-        try {
-          const channels = await client.listChannels();
-          const ids: number[] = [];
-          for (const channel of channels) {
-            const page = await client.listMessages({ channel: channel.id, unread: true });
-            for (const row of page.messages as Array<{ id?: number }>) {
-              if (typeof row.id === "number") ids.push(row.id);
-            }
-          }
-          ids.sort((a, b) => a - b);
-          if (ids.length) {
-            process.stderr.write(`taskflow-v2-mcp: reconnect catch-up — ${ids.length} missed message(s)\n`);
-          }
-          for (const id of ids) {
-            try {
-              await deliverMessageById(id);
-            } catch (err) {
-              process.stderr.write(
-                `taskflow-v2-mcp: catch-up could not deliver ${id} (${(err as Error).message.split("\n")[0]})\n`,
-              );
-            }
-          }
-        } catch (err) {
-          process.stderr.write(
-            `taskflow-v2-mcp: reconnect catch-up failed (${(err as Error).message.split("\n")[0]})\n`,
-          );
-        }
-      };
-
-      // Instant delivery: hold the event stream open and write each incoming
-      // message straight into the pane. Polling would make a message as slow to
-      // arrive as the capture interval, which is what "messages don't appear in
-      // the terminal" actually was.
-      const events = startAgentEventStream({
-        server: profile.server,
-        key: profile.key,
-        log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
-        // Deliver messages missed while the stream was down (see catchUpUnread).
-        onReconnect: catchUpUnread,
-        // A human answered a question the agent is blocked on: press the keys.
-        onPromptAnswered: async (prompt) => {
-          // A prompt may carry SEVERAL questions, each with its own kind, and
-          // the terminal shows them one at a time. stepsForPrompt replays them
-          // in order and returns nothing at all for a half-answered set —
-          // leftover digits would land on whichever screen came next. A
-          // free-text "Other" answer becomes a text step typed into the field.
-          const steps = stepsForPrompt(
-            prompt.options_json ?? "",
-            prompt.kind,
-            prompt.question,
-            prompt.answer_json,
-            prompt.answer,
-            prompt.answer_text_json ?? null,
-            prompt.status === "cancelled" ? "cancel" : "submit",
-          );
-          if (!steps.length) return;
-          try {
-            // Paced, not a tight loop: Claude Code's multi-select drops
-            // keystrokes that arrive while it is re-rendering a toggle.
-            // Serialized with message delivery so an incoming message can't type
-            // itself into the middle of this answer's key sequence.
-            await paneQueue(() => sendKeySteps(steps, pane));
-            process.stderr.write(
-              `taskflow-v2-mcp: answered prompt ${prompt.id} with ${steps.length} step(s)\n`,
-            );
-          } catch (err) {
-            process.stderr.write(
-              `taskflow-v2-mcp: could not answer prompt ${prompt.id} (${(err as Error).message.split("\n")[0]})\n`,
-            );
-          }
-        },
-        onMessage: async (event) => {
-          // The event carries the row id and NOTHING else — chat is id-only on
-          // the wire (its group is per-project while its rows are channel-
-          // scoped, see resolve.ts). deliverMessageById fetches the body/sender/
-          // attachments back over the authorized read API, applies shouldDeliver
-          // (a message this agent cannot see, or its own, is skipped), types it
-          // into the pane, and advances the read cursor.
-          try {
-            await deliverMessageById(event.id);
-          } catch (err) {
-            process.stderr.write(
-              `taskflow-v2-mcp: could not deliver message ${event.id} (${(err as Error).message.split("\n")[0]})\n`,
-            );
-          }
-        },
-        // A human pressed a key in the dashboard terminal. The event is broadcast
-        // to the whole project, so act only on keys addressed to THIS agent's
-        // pane; send-keys types it as a key NAME (not the literal word).
-        onTerminalKey: async (input) => {
-          if (input.agent !== profile.agentId) return;
-          try {
-            await paneQueue(() => sendKeyToPane(input.keys, pane));
-            process.stderr.write(`taskflow-v2-mcp: terminal key "${input.keys}" → pane ${pane}\n`);
-          } catch (err) {
-            process.stderr.write(
-              `taskflow-v2-mcp: could not send key "${input.keys}" (${(err as Error).message.split("\n")[0]})\n`,
-            );
-          }
-        },
-      });
-
-      startMirrorLoop({
-        client,
-        session: session.id,
-        target: pane,
-        log: (line) => process.stderr.write(`taskflow-v2-mcp: ${line}\n`),
-        // The mirror talks to the backend every couple of seconds, so it notices a
-        // restart long before the stream's idle watchdog would. Hand that over
-        // rather than making the stream wait for silence to accumulate.
-        onError: (err) => {
-          if (/network error|fetch failed|ECONNREFUSED/i.test(err.message)) {
-            events.reconnectNow();
-          }
-        },
-      });
-    },
+  // Bring the agent online. This is NOT conditional on tmux: registering a
+  // session is what makes the agent visible and reachable, and it must happen
+  // whether or not there is a pane to mirror. Best-effort in every direction —
+  // no credential, or a backend that is down, degrades to retrying quietly.
+  //
+  // Not awaited, and its rejection is caught here rather than by main()'s
+  // handler: the transport is already serving, so a bad TASKFLOW_PROFILE must
+  // cost the connection, not the tool server.
+  void startAgent().catch((err) => {
+    process.stderr.write(`taskflow-v2-mcp: could not start agent (${(err as Error).message})\n`);
   });
 }
 

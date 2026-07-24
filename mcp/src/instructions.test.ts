@@ -44,6 +44,19 @@ describe("AGENT_INSTRUCTIONS", () => {
   // #54: a GitHub issue written as a bare `#12` renders as a TaskFlow task chip
   // and clicks through to a task that does not exist. Agents write most of the
   // messages in a project, so the convention has to reach them here.
+  it("tells the agent to relay a select_profile warning", () => {
+    // The INSTRUCTION, not the word: a warning nobody repeats to the human is
+    // a collision nobody acts on, and "contains /warning/i" would still pass
+    // if the relay sentence were deleted down to a bare mention.
+    expect(AGENT_INSTRUCTIONS).toMatch(/select_profile[\s\S]{0,80}warning/i);
+    expect(AGENT_INSTRUCTIONS).toMatch(/warning[\s\S]{0,60}repeat it to your human/i);
+  });
+
+  it("names the refusal an agent must branch on, and forbids guessing", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("profile_ambiguous");
+    expect(AGENT_INSTRUCTIONS).toMatch(/do not guess/i);
+  });
+
   it("teaches the #gh<n> convention for GitHub issues", () => {
     expect(AGENT_INSTRUCTIONS).toContain("#gh");
   });
@@ -57,5 +70,33 @@ describe("AGENT_INSTRUCTIONS", () => {
     expect(lower).toContain("github issue");
     // It must state the consequence, not just the rule.
     expect(lower).toMatch(/task chip|as a task|taskflow task/);
+  });
+});
+
+describe("identity instructions", () => {
+  it("no longer tells the agent to register a session by hand", () => {
+    // Connection is automatic now; teaching the ritual makes the model do work
+    // the server owns, and go stale when it forgets to repeat it.
+    expect(AGENT_INSTRUCTIONS).not.toMatch(/then \*\*register_session\*\* and \*\*heartbeat\*\*/);
+    expect(AGENT_INSTRUCTIONS).not.toMatch(/Send \*\*heartbeat\*\* periodically/);
+  });
+
+  it("says connection and presence are automatic", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/automatic/i);
+  });
+
+  it("documents the profile_ambiguous protocol", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/profile_ambiguous/);
+    expect(AGENT_INSTRUCTIONS).toMatch(/select_profile/);
+  });
+
+  it("forbids guessing an identity", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/never guess/i);
+  });
+
+  it("mentions every tool it names", () => {
+    for (const tool of ["whoami", "select_profile", "list_agents", "list_channels"]) {
+      expect(AGENT_INSTRUCTIONS).toContain(tool);
+    }
   });
 });
