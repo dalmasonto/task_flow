@@ -1556,9 +1556,108 @@ Add alongside `whoami`:
 
 Import `selectProfile` from `./runtime.js` and keep `resolveProfile` imported from `./config.js`.
 
-- [ ] **Step 9: YOUR CONTRIBUTION — the in-use collision policy**
+- [ ] **Step 9: The in-use collision policy — allow, but warn**
 
-See the request below this task. Implement the marked function in `src/server.ts`.
+Decided by the project owner: connect anyway, and return a `warning` the agent
+is instructed to relay. Refusing would lock a user out of their own identity for
+up to 90 s after a crash, since a dead terminal's session still looks live for
+the rest of the liveness window.
+
+First, a test. Append to `src/server.test.ts`:
+
+```ts
+import { collisionWarning } from "./server.js";
+
+describe("collisionWarning", () => {
+  it("says nothing when the identity is free", () => {
+    expect(collisionWarning("bear", null)).toBeUndefined();
+  });
+
+  it("names the live session and the concrete consequence", () => {
+    const warning = collisionWarning("bear", {
+      id: 2,
+      display_name: "Claude (bear)",
+      identifier: "agent:2:x:bear",
+      status: "connected",
+      last_seen_at: "2026-07-24T09:00:00Z",
+    });
+    expect(warning).toMatch(/bear/);
+    expect(warning).toMatch(/inbox|read cursor/i);
+    expect(warning).toMatch(/tell your human/i);
+  });
+});
+```
+
+Then implement in `src/server.ts`:
+
+```ts
+/**
+ * The warning returned when a human picks an identity another terminal already
+ * holds.
+ *
+ * Deliberately NOT a refusal. A crashed terminal's session still looks live for
+ * the rest of the 90s window, so refusing would lock someone out of their own
+ * identity at the worst possible moment. The collision is real but recoverable;
+ * being unable to reconnect is neither.
+ *
+ * Returns undefined when there is nothing to warn about, so the caller can
+ * spread it into the result and have the field simply not appear.
+ */
+export function collisionWarning(
+  profileName: string,
+  live: AgentSummary | null,
+): string | undefined {
+  if (!live) return undefined;
+  const seen = live.last_seen_at ? ` (last seen ${live.last_seen_at})` : "";
+  return (
+    `'${profileName}' already has a live session${seen}. Two terminals sharing one ` +
+    `identity share one inbox and one read cursor, so messages meant for one will ` +
+    `be marked read by the other. Tell your human before you continue.`
+  );
+}
+```
+
+Wire it into the `select_profile` handler from Step 8. After `await selectProfile(resolved)`, look up the live agent and include the field:
+
+```ts
+        const live = await new TaskflowClient({ server: resolved.server, key: resolved.key })
+          .listAgents()
+          .then((agents) =>
+            agents.find((a) => a.id === resolved.agentId && a.status === "connected") ?? null,
+          )
+          .catch(() => null);
+        const warning = collisionWarning(resolved.profileName, live);
+        return ok({
+          selected: resolved.profileName,
+          display_name: resolved.displayName,
+          agent_id: resolved.agentId,
+          project: resolved.project,
+          connection: getConnectionStatus(),
+          ...(warning ? { warning } : {}),
+          note: "Connected. This terminal will use this identity from now on.",
+        });
+```
+
+Note the ordering hazard: this liveness check runs *after* `selectProfile` has
+already connected, so it would see **this** session. Capture the live agent
+**before** calling `selectProfile`, and pass it down. Restructure the handler so
+the `listAgents` lookup happens first.
+
+Finally, Task 8's instructions must tell the agent to relay it. Add to the
+`## Identity & connecting` section:
+
+```
+  If **select_profile** returns a \`warning\`, repeat it to your human before you
+  do anything else — another terminal is already using that identity.
+```
+
+and add a matching assertion to `src/instructions.test.ts`:
+
+```ts
+  it("tells the agent to relay a select_profile warning", () => {
+    expect(AGENT_INSTRUCTIONS).toMatch(/warning/i);
+  });
+```
 
 - [ ] **Step 10: Verify**
 
