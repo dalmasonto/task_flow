@@ -216,6 +216,71 @@ export function resolveProfile(
   };
 }
 
+/** One selectable identity, as offered to the human choosing among them. */
+export interface ProfileChoice {
+  name: string;
+  display_name: string;
+  /** True for the file's `default_profile` — a hint, never a decision. */
+  recommended: boolean;
+  /** Filled in by the caller from live session data; omitted if unknown. */
+  in_use?: boolean;
+}
+
+export type ProfileResolution =
+  | { kind: "resolved"; profile: ResolvedProfile }
+  | { kind: "ambiguous"; profiles: ProfileChoice[] };
+
+export interface AskProfileOptions extends ResolveProfileOptions {
+  /** This terminal's remembered pick, if any (see `sessions-store.ts`). */
+  sticky?: string | undefined;
+}
+
+/**
+ * Resolve a profile, or report that a human has to choose.
+ *
+ * Ambiguous means: several profiles defined, and nothing said which one this
+ * terminal is. `default_profile` deliberately does NOT settle it — `--mint`
+ * adds profiles without moving it, so honouring it would mean the prompt never
+ * fires and two terminals silently share one identity, which is the bug.
+ *
+ * `resolveProfile` keeps its throwing contract for callers that already have a
+ * name (`--tmux --profile=x`, `--mint`, a per-tool `profile` argument).
+ */
+export function resolveProfileOrAsk(
+  config: TaskflowConfig,
+  options: AskProfileOptions = {},
+): ProfileResolution {
+  const env = options.env ?? process.env;
+  const explicit = options.profile?.trim() || env.TASKFLOW_PROFILE?.trim();
+  if (explicit) {
+    // Unknown name is a real error, not an invitation to ask: the caller
+    // asserted an identity and got it wrong.
+    return { kind: "resolved", profile: resolveProfile(config, { ...options, profile: explicit }) };
+  }
+
+  const names = Object.keys(config.profiles);
+  // A stale sticky pick (profile since removed from the file) falls through to
+  // asking rather than throwing — the human never typed that name today.
+  const sticky = options.sticky?.trim();
+  if (sticky && config.profiles[sticky]) {
+    return { kind: "resolved", profile: resolveProfile(config, { ...options, profile: sticky }) };
+  }
+
+  if (names.length === 1) {
+    return { kind: "resolved", profile: resolveProfile(config, { ...options, profile: names[0] }) };
+  }
+
+  const recommended = config.default_profile ?? DEFAULT_PROFILE_NAME;
+  return {
+    kind: "ambiguous",
+    profiles: names.map((name) => ({
+      name,
+      display_name: config.profiles[name]?.display_name ?? name,
+      recommended: name === recommended,
+    })),
+  };
+}
+
 export interface LoadProfileOptions extends FindConfigOptions, ResolveProfileOptions {}
 
 /**
