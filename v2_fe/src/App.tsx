@@ -4020,7 +4020,11 @@ function App() {
           onClose={() => setDockOpen(false)}
         />
       ) : null}
-      {activeProject && !dockOpen ? (
+      {/* No launcher on the Agents page: it already IS the chat, so a floating
+          button to open a smaller copy of it is just clutter. Keyed on the same
+          two signals as chatNeeded — the mount is the honest one, the path check
+          covers the frame before it mounts. */}
+      {activeProject && !dockOpen && !chatSurfaceMounted && !location.pathname.startsWith("/dashboard/agents") ? (
         <button
           type="button"
           className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"
