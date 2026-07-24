@@ -198,7 +198,13 @@ export function MarkdownRenderer({ content, compact, tone = "default", className
   return (
     <div
       className={cn(
-        "max-w-full space-y-3 overflow-hidden text-sm text-foreground [overflow-wrap:anywhere]",
+        // `break-words` (overflow-wrap: break-word), NOT overflow-wrap: anywhere.
+        // `anywhere` also collapses the element's MIN-CONTENT width, so inside a
+        // flex or grid parent this box shrinks to roughly one character and the
+        // text wraps early — lines looked capped while the space beside them sat
+        // empty. `break-word` still breaks a long URL or token, but leaves
+        // intrinsic sizing alone, so the block claims the width it actually has.
+        "max-w-full space-y-3 overflow-hidden break-words text-sm text-foreground",
         compact &&
           "space-y-1.5 text-xs [&_h1]:text-sm [&_h1]:leading-5 [&_h2]:text-sm [&_h2]:leading-5 [&_h3]:text-xs [&_li]:leading-5 [&_p]:leading-5 [&_pre]:text-[0.72rem] [&_table]:text-xs",
         tone === "inverse" &&
