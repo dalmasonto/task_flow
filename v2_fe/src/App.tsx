@@ -86,6 +86,7 @@ import {
   logoutUser,
   registerUser,
   requestPasswordReset,
+  takeOAuthError,
   type AuthUser,
   type AuthResult,
 } from "@/lib/auth-api"
@@ -134,6 +135,8 @@ import {
   githubConnectUrl,
   commentOnIssueAsMe,
   GithubNeedsConnectError,
+  oauthLoginUrl,
+  fetchOAuthProviders,
   linkAgent,
   markChannelRead,
   openTaskflowRealtimeStream,
@@ -155,6 +158,7 @@ import {
   type TaskflowProjectSummary,
   type TaskflowWorkspace,
   type GithubProjectStatus,
+  type OAuthProvider,
 } from "@/lib/taskflow-api"
 import {
   addPending,
@@ -4340,7 +4344,16 @@ function AuthPage({ mode }: { mode: AuthMode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const resetTokenFromUrl = new URLSearchParams(location.search).get("token") ?? ""
-  const [authResult, setAuthResult] = useState<AuthResult | null>(null)
+  // An OAuth callback that returned an error (rare — see the spec) stashed a
+  // message pre-render; surface it here in the same notice password errors use.
+  // A lazy initializer (not a mount effect) so the notice is present on first
+  // paint and no setState call happens inside an effect body.
+  const [authResult, setAuthResult] = useState<AuthResult | null>(() => {
+    const oauthError = takeOAuthError()
+    return oauthError
+      ? { ok: false, message: "Couldn't sign in with GitHub. Please try again." }
+      : null
+  })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const isLogin = mode === "login"
   const isSignup = mode === "signup"
@@ -4573,21 +4586,63 @@ function AuthPage({ mode }: { mode: AuthMode }) {
   )
 }
 
+/** The official GitHub mark, inline so there is no external asset or CSP concern. */
+function GithubMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 012-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  )
+}
+
+/** Provider key → its brand icon; unknown providers fall back to a text glyph. */
+function providerIcon(key: string) {
+  if (key === "github") return <GithubMark className="size-4" />
+  return (
+    <span className="flex size-4 items-center justify-center rounded-full border text-[0.65rem] font-bold">
+      {key.charAt(0).toUpperCase()}
+    </span>
+  )
+}
+
 function SocialAuthButtons() {
+  const [providers, setProviders] = useState<OAuthProvider[]>([])
+  const [pending, setPending] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetchOAuthProviders().then((list) => {
+      if (active) setProviders(list)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // Nothing configured (or still loading) → render nothing rather than a dead
+  // button. A backend with no OAuth simply shows the password form alone.
+  if (providers.length === 0) return null
+
   return (
     <div className="mt-5 grid gap-2 sm:grid-cols-2">
-      <Button type="button" variant="outline" className="w-full justify-center">
-        <span className="flex size-4 items-center justify-center rounded-full bg-foreground text-[0.6rem] font-bold text-background">
-          GH
-        </span>
-        GitHub
-      </Button>
-      <Button type="button" variant="outline" className="w-full justify-center">
-        <span className="flex size-4 items-center justify-center rounded-full border text-[0.65rem] font-bold text-primary">
-          G
-        </span>
-        Google
-      </Button>
+      {providers.map((provider) => (
+        <Button
+          key={provider.key}
+          type="button"
+          variant="outline"
+          className="w-full justify-center"
+          disabled={pending !== null}
+          onClick={() => {
+            setPending(provider.key)
+            // Full-page navigation into the backend flow; the callback returns
+            // to /dashboard/board with the token in the fragment.
+            window.location.href = oauthLoginUrl(provider.key)
+          }}
+        >
+          {providerIcon(provider.key)}
+          {pending === provider.key ? "Redirecting…" : `Continue with ${provider.label}`}
+        </Button>
+      ))}
     </div>
   )
 }
