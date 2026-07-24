@@ -1229,10 +1229,6 @@ function mapLiveTasks(
 /// forced (#38) went with it: "did we get exactly 1000?" is not a question a
 /// paged API can answer.
 
-/// #38: how many rows the activity feed will pull in automatically before a
-/// manual "Load older" takes over, so a very large history never auto-fetches
-/// without bound.
-const ACTIVITY_AUTOLOAD_MAX = 6000
 
 /// Keep the first row seen per id, preserving order — merges the live workspace
 /// feed with older windows fetched by cursor without double-counting an overlap.
@@ -1967,17 +1963,14 @@ function App() {
   const activityPage = useRef(1)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [olderExhausted, setOlderExhausted] = useState(false)
-  // #44 FIX: a fetch error STOPS the auto-loader. Without this, a failing request
-  // (e.g. the backend is down → 502) re-fired the effect instantly and hammered
-  // the endpoint in a tight loop. The manual "Load older" button clears this to
-  // retry once.
-  const [olderError, setOlderError] = useState(false)
+  // #56: no auto-loader means no runaway loop to guard against — #44's error
+  // latch is gone with it. A failed page simply leaves the feed unchanged and
+  // the "Load older" control clickable, so retrying IS the button.
 
   // Older windows belong to one project's feed; switching projects drops them.
   useEffect(() => {
     setOlderActivity([])
     setOlderExhausted(false)
-    setOlderError(false)
     setActivityTotal(0)
     activityPage.current = 1
   }, [activeProjectId])
@@ -1999,7 +1992,6 @@ function App() {
     const projectId = activeLiveWorkspace?.project.id
     if (!projectId || loadingOlder) return
     setLoadingOlder(true)
-    setOlderError(false)
     const nextPage = activityPage.current + 1
     try {
       // #56: real pagination replaces the id__lt cursor. That cursor existed only
@@ -2014,27 +2006,20 @@ function App() {
         setOlderActivity((prev) => dedupeById([...prev, ...rows]))
       }
     } catch {
-      // STOP the auto-loader on any failure so a persistent error (backend down,
-      // 502) can't hammer the endpoint in a loop. The manual "Load older" button
-      // clears this and retries a single page.
-      setOlderError(true)
+      // Leave the page cursor where it was so the next click retries this page
+      // rather than skipping it.
     } finally {
       setLoadingOlder(false)
     }
   }, [activeLiveWorkspace, loadingOlder])
 
-  // #38: progressively pull older windows so the feed reflects the TRUE total
-  // rather than the server's 1000-row cap — up to a safety bound, past which the
-  // manual "Load older" control takes over. Re-runs after each window lands
-  // (activityLoadedCount changes) until the feed is exhausted or the bound is
-  // hit. This is what turns "40 of 1000" into "40 of ~2000".
-  useEffect(() => {
-    // `!olderError` is the loop-breaker: one failed fetch stops the auto-loader
-    // until the user manually retries.
-    if (hasOlderActivity && !loadingOlder && !olderError && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX) {
-      void loadOlderActivity()
-    }
-  }, [hasOlderActivity, loadingOlder, olderError, activityLoadedCount, loadOlderActivity])
+  // #56: activity loads ONLY when the user asks for the next page.
+  //
+  // #38's auto-loader is gone. It existed to work around the 1000-row
+  // NoPagination cap — walking older windows so the count reflected the true
+  // total instead of the cap. With real pagination the server reports that total
+  // directly, so the loop had nothing left to discover and simply pulled pages
+  // nobody had asked for, defeating the point of paging at all.
   const reviewFeed = useMemo<ReviewFeedItem[]>(
     () => (activeLiveWorkspace ? mapLiveReviews(activeLiveWorkspace, projectTasks) : []),
     [activeLiveWorkspace, projectTasks]
@@ -3827,7 +3812,6 @@ function App() {
                     onLoadOlder={loadOlderActivity}
                     hasOlder={hasOlderActivity}
                     loadingOlder={loadingOlder}
-                    autoLoadingOlder={hasOlderActivity && !olderError && activityLoadedCount < ACTIVITY_AUTOLOAD_MAX}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
@@ -9015,7 +8999,6 @@ function ActivityLogPage({
   onLoadOlder,
   hasOlder = false,
   loadingOlder = false,
-  autoLoadingOlder = false,
 }: {
   title: string
   events: ActivityEvent[]
@@ -9025,7 +9008,6 @@ function ActivityLogPage({
   loadingOlder?: boolean
   /// #38: older history is still auto-loading up to the bound — show progress
   /// rather than a manual button.
-  autoLoadingOlder?: boolean
 }) {
   const [visible, setVisible] = useState(ACTIVITY_PAGE_SIZE)
   const [selected, setSelected] = useState<ActivityEvent | null>(null)
@@ -9064,7 +9046,7 @@ function ActivityLogPage({
             {/* #38: a trailing "+" while older windows are still being pulled in,
                 so the count doesn't read as a hard 1000-row cap. */}
             {hasOlder ? "+" : ""}
-            {loadingOlder || autoLoadingOlder ? " · loading older…" : ""}
+            {loadingOlder ? " · loading older…" : ""}
             {filtered.length !== events.length ? ` · ${events.length} total` : ""}
           </span>
         </div>
@@ -9149,7 +9131,7 @@ function ActivityLogPage({
 
             {/* #38: older history auto-loads up to a bound (the count shows the
                 progress). Past that bound, more can still be pulled on demand. */}
-            {hasOlder && !autoLoadingOlder ? (
+            {hasOlder ? (
               <div className="mt-4 flex flex-col items-center gap-1 border-t pt-4">
                 <Button variant="outline" size="sm" onClick={onLoadOlder} disabled={loadingOlder}>
                   {loadingOlder ? "Loading…" : "Load older activity"}
