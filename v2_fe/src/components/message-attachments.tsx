@@ -1104,7 +1104,15 @@ function MarkdownPreview({ attachment }: { attachment: MessageAttachmentItem }) 
           <MarkdownRenderer content={raw} className="space-y-3 p-4 sm:p-6" />
         ) : html && !highlightFailed ? (
           <div
-            className="shiki-scroll min-h-full text-[13px]"
+            // Wrap to the dialog width instead of scrolling sideways. Shiki emits
+          // a bare <pre>, which keeps white-space: pre and runs off the edge.
+          //
+          // `anywhere` is correct HERE, unlike on the markdown root (28b5281):
+          // this sits inside an overflow-auto block rather than being sized by a
+          // flex parent, so collapsing its min-content width costs nothing — and
+          // code has long unbreakable tokens (paths, hashes, base64) that
+          // break-word will not split.
+          className="shiki-scroll min-h-full text-[13px] [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
             // Shiki output is generated from the file text on the client; safe to inject.
             dangerouslySetInnerHTML={{ __html: html }}
           />
@@ -1153,7 +1161,15 @@ function CodePreview({ attachment }: { attachment: MessageAttachmentItem }) {
         <TextSkeleton />
       ) : html && !highlightFailed ? (
         <div
-          className="shiki-scroll min-h-full text-[13px]"
+          // Wrap to the dialog width instead of scrolling sideways. Shiki emits
+          // a bare <pre>, which keeps white-space: pre and runs off the edge.
+          //
+          // `anywhere` is correct HERE, unlike on the markdown root (28b5281):
+          // this sits inside an overflow-auto block rather than being sized by a
+          // flex parent, so collapsing its min-content width costs nothing — and
+          // code has long unbreakable tokens (paths, hashes, base64) that
+          // break-word will not split.
+          className="shiki-scroll min-h-full text-[13px] [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
           // Shiki output is generated from the file text on the client; safe to inject.
           dangerouslySetInnerHTML={{ __html: html }}
         />
