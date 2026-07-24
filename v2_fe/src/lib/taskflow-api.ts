@@ -427,11 +427,11 @@ export function taskflowRealtimeGroups(projectId: number | null): string[] {
 
 export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSummary> {
   const [projects, members, tasks, agents, sessions] = await Promise.all([
-    taskflowApi.from(taskflowTables.projects).orderBy("name", "id").list(),
-    taskflowApi.from(taskflowTables.members).orderBy("project", "display_name").list(),
-    taskflowApi.from(taskflowTables.tasks).orderBy("project", "sort_order", "id").list(),
-    taskflowApi.from(taskflowTables.agents).orderBy("project", "display_name").list(),
-    taskflowApi.from(taskflowTables.agentSessions).orderBy("project", "-last_seen_at", "-id").list(),
+    taskflowApi.from(taskflowTables.projects).orderBy("name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.members).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.tasks).orderBy("project", "sort_order", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agents).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agentSessions).orderBy("project", "-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
   return {
@@ -448,6 +448,16 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
 /// `status__in` is the raw-param escape hatch: a column is not always a single
 /// stored status (`review` is the board's name for `partial_done`), so the
 /// column id cannot be handed to the API directly — see lib/board-columns.
+/// #56: reference lists — rosters, channels, endpoints — are read whole by the
+/// surfaces that use them, so they take ONE page sized to that use rather than a
+/// default 25 that would silently hide the rest. 100 is umbral's ceiling
+/// (max_page_size = page_size * 4).
+///
+/// This is a bounded page, not "load everything": a project that outgrows it
+/// needs these surfaces paged like the board and the feed. `count` is in the
+/// envelope, so that limit is detectable rather than silent.
+const REFERENCE_PAGE_SIZE = 100
+
 export const BOARD_PAGE_SIZE = 25
 
 export async function fetchBoardColumn(
@@ -463,6 +473,28 @@ export async function fetchBoardColumn(
     // on some page the user has not scrolled to.
     .orderBy("-id")
     .param("page_size", BOARD_PAGE_SIZE)
+    .param("page", page)
+    .list()
+  return { rows: res.results, count: res.count }
+}
+
+/// #56: one page of ONE channel's messages, newest first.
+///
+/// Scrolling to the top of a thread asks for the next page. Filtering by channel
+/// (not project) is what makes "older in THIS conversation" meaningful — a
+/// project-wide page would interleave other channels and exhaust itself long
+/// before this thread ran out.
+export const CHANNEL_MESSAGE_PAGE_SIZE = 25
+
+export async function fetchChannelMessages(
+  channelId: number,
+  page = 1
+): Promise<{ rows: TaskflowAgentMessage[]; count: number }> {
+  const res = await taskflowApi
+    .from(taskflowTables.agentMessages)
+    .filter({ channel: channelId })
+    .orderBy("-created_at", "-id")
+    .param("page_size", CHANNEL_MESSAGE_PAGE_SIZE)
     .param("page", page)
     .list()
   return { rows: res.results, count: res.count }
@@ -490,16 +522,16 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskReviews,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
-    taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").list(),
-    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").list(),
-    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").list(),
-    taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").list(),
-    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").list(),
-    taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").list(),
-    taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").list(),
-    taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
   // #56: the board loads ONE page per column, not every task. Five small
@@ -563,17 +595,17 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     channelReadCursors,
     agentPrompts,
   ] = await Promise.all([
-    taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").list(),
-    taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").list(),
+    taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
     // #46: load the NEWEST 1000 messages, not the oldest. NoPagination caps the
     // list at 1000, so ascending order silently dropped the most RECENT messages
     // once a project passed 1000 — the exact opposite of what a chat needs. The
     // view re-sorts chronologically, so load order is display-transparent.
-    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").list(),
-    taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").list(),
-    taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").list(),
-    taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
   const channelIds = new Set(agentChannels.results.map((channel) => channel.id))
@@ -591,15 +623,24 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
 
 /// The activity slice — 898 KB of the old 1.31 MB, and the board renders none of
 /// it. Loaded for the activity feed and the task detail sheet only.
+/// #56: ONE page of activity, newest first.
+///
+/// Activity is the dataset nobody needs whole — 5713 rows and growing ~1140/day.
+/// The feed shows a page and asks for the next as you scroll.
+export const ACTIVITY_PAGE_SIZE = 25
+
 export async function fetchWorkspaceActivity(
-  projectId: number
-): Promise<Pick<TaskflowWorkspace, "taskActivity">> {
-  const taskActivity = await taskflowApi
+  projectId: number,
+  page = 1
+): Promise<{ rows: TaskflowTaskActivity[]; count: number }> {
+  const res = await taskflowApi
     .from(taskflowTables.taskActivity)
     .filter({ project: projectId })
     .orderBy("-created_at", "-id")
+    .param("page_size", ACTIVITY_PAGE_SIZE)
+    .param("page", page)
     .list()
-  return { taskActivity: taskActivity.results }
+  return { rows: res.results, count: res.count }
 }
 
 /// Advance the current user's read cursor for a channel to `lastReadMessage`.

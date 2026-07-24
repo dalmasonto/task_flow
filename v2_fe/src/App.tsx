@@ -121,6 +121,8 @@ import {
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
   fetchBoardColumn,
+  BOARD_PAGE_SIZE,
+  fetchChannelMessages,
   fetchWorkspaceChat,
   fetchWorkspaceActivity,
   fetchGithubProjectStatus,
@@ -1221,19 +1223,15 @@ function mapLiveTasks(
   })
 }
 
-/// umbral's NoPagination hard-caps a list response at MAX_LIST_ROWS (1000). A
-/// single `.list()` therefore never returns more than this, so a feed longer
-/// than 1000 must be walked in older windows by id cursor (see #38).
-/// #26: how many board cards a column shows per page; the intersection observer
-/// at its foot loads another page as the user scrolls near the bottom.
-const BOARD_PAGE_SIZE = 20
+/// #56: the 1000-row NoPagination ceiling is gone — every list pages at 25 now
+/// (PageNumberPagination in backend/src/main.rs), and `count` in the envelope
+/// reports the true total. ACTIVITY_SERVER_CAP and the id-cursor windows it
+/// forced (#38) went with it: "did we get exactly 1000?" is not a question a
+/// paged API can answer.
 
-const ACTIVITY_SERVER_CAP = 1000
-
-/// #38: how much of the feed the activity page will pull in automatically (in
-/// older 1000-row windows) so the count reflects the real total, not the server
-/// cap. Beyond this, a manual "Load older" takes over so a very large history
-/// never auto-fetches without bound.
+/// #38: how many rows the activity feed will pull in automatically before a
+/// manual "Load older" takes over, so a very large history never auto-fetches
+/// without bound.
 const ACTIVITY_AUTOLOAD_MAX = 6000
 
 /// Keep the first row seen per id, preserving order — merges the live workspace
@@ -1962,6 +1960,11 @@ function App() {
   // These hold older windows fetched by id cursor so history beyond the newest
   // 1000 can be walked in, on demand, rather than being silently truncated.
   const [olderActivity, setOlderActivity] = useState<TaskflowWorkspace["taskActivity"]>([])
+  // #56: the project's TOTAL activity rows, from the paginated envelope. This is
+  // what says whether more pages exist — the old ACTIVITY_SERVER_CAP test
+  // ("did we get exactly 1000?") is meaningless once pages are 25.
+  const [activityTotal, setActivityTotal] = useState(0)
+  const activityPage = useRef(1)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [olderExhausted, setOlderExhausted] = useState(false)
   // #44 FIX: a fetch error STOPS the auto-loader. Without this, a failing request
@@ -1975,6 +1978,8 @@ function App() {
     setOlderActivity([])
     setOlderExhausted(false)
     setOlderError(false)
+    setActivityTotal(0)
+    activityPage.current = 1
   }, [activeProjectId])
 
   const activityEvents = useMemo<ActivityEvent[]>(() => {
@@ -1988,42 +1993,35 @@ function App() {
   // Only offer "load older" when the loaded feed actually sits at the server cap
   // — below it, every row is already here, so there is nothing older to fetch.
   const activityLoadedCount = (activeLiveWorkspace?.taskActivity.length ?? 0) + olderActivity.length
-  const hasOlderActivity = !olderExhausted && activityLoadedCount >= ACTIVITY_SERVER_CAP
+  const hasOlderActivity = !olderExhausted && activityLoadedCount < activityTotal
 
   const loadOlderActivity = useCallback(async () => {
     const projectId = activeLiveWorkspace?.project.id
     if (!projectId || loadingOlder) return
-    const known = [...(activeLiveWorkspace?.taskActivity ?? []), ...olderActivity]
-    if (!known.length) return
-    const oldestId = known.reduce((min, row) => Math.min(min, row.id), Infinity)
     setLoadingOlder(true)
     setOlderError(false)
+    const nextPage = activityPage.current + 1
     try {
-      const page = await taskflowApi
-        .from(taskflowTables.taskActivity)
-        .filter({ project: projectId })
-        // id__lt isn't in the generated filter type; the raw-param escape hatch
-        // cursors to rows strictly older than everything already loaded.
-        .param("id__lt", oldestId)
-        .orderBy("-created_at", "-id")
-        .list()
-      const rows = (page.results ?? []) as TaskflowWorkspace["taskActivity"]
+      // #56: real pagination replaces the id__lt cursor. That cursor existed only
+      // to walk PAST the 1000-row NoPagination ceiling; with 25-row pages the
+      // server hands us page numbers directly, and `count` says when to stop.
+      const { rows, count } = await fetchWorkspaceActivity(projectId, nextPage)
+      setActivityTotal(count)
       if (!rows.length) {
         setOlderExhausted(true)
       } else {
+        activityPage.current = nextPage
         setOlderActivity((prev) => dedupeById([...prev, ...rows]))
-        // A short window means we reached the start of the feed.
-        if (rows.length < ACTIVITY_SERVER_CAP) setOlderExhausted(true)
       }
     } catch {
       // STOP the auto-loader on any failure so a persistent error (backend down,
       // 502) can't hammer the endpoint in a loop. The manual "Load older" button
-      // clears this and retries a single window.
+      // clears this and retries a single page.
       setOlderError(true)
     } finally {
       setLoadingOlder(false)
     }
-  }, [activeLiveWorkspace, olderActivity, loadingOlder])
+  }, [activeLiveWorkspace, loadingOlder])
 
   // #38: progressively pull older windows so the feed reflects the TRUE total
   // rather than the server's 1000-row cap — up to a safety bound, past which the
@@ -2666,7 +2664,10 @@ function App() {
     if (activityNeeded && !slices.activity) {
       slices.activity = true
       void fetchWorkspaceActivity(projectId)
-        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .then(({ rows, count }) => {
+          setActivityTotal(count)
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: rows }))
+        })
         .catch(() => {
           slices.activity = false
         })
@@ -6224,6 +6225,8 @@ export type AgentsOutletContext = {
   /// The question the selected agent is blocked on, if any.
   pendingPrompt?: TaskflowWorkspace["agentPrompts"][number]
   onAnswerPrompt: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
+  /// #56: fetch the next page of older messages for the open conversation.
+  onLoadOlder: () => void
 }
 
 function useAgentsOutletContext() {
@@ -6688,6 +6691,33 @@ function useAgentChat({
       .sort((a, b) => b.id - a.id)[0]
   }, [selectedChat, liveWorkspace, currentUser])
 
+  // #56: last page fetched per channel. A ref for the same reasons as the board
+  // cursor: it guards a fetch, must not be stale inside a scroll handler, and
+  // has no business causing a render.
+  const messagePages = useRef<Record<number, number>>({})
+  const loadOlderMessages = useCallback(() => {
+    const channelId = selectedChat?.liveChannelId
+    if (channelId == null) return
+    const nextPage = (messagePages.current[channelId] ?? 1) + 1
+    // Claimed before the request: scrolling fires this repeatedly, and two hits
+    // must not fetch the same page twice. Released on failure so it can retry.
+    messagePages.current[channelId] = nextPage
+    void fetchChannelMessages(channelId, nextPage)
+      .then(({ rows }) => {
+        if (!rows.length) return
+        onWorkspaceUpdate((workspace) => ({
+          ...workspace,
+          // reconcile(), not upsertById: agentMessages holds optimistic
+          // PendingMessage rows that have no id yet, and it is the merge the
+          // realtime path already uses for saved rows.
+          agentMessages: rows.reduce((current, row) => reconcile(current, row), workspace.agentMessages),
+        }))
+      })
+      .catch(() => {
+        messagePages.current[channelId] = nextPage - 1
+      })
+  }, [selectedChat?.liveChannelId, onWorkspaceUpdate])
+
   const handleAnswerPrompt = useCallback(
     async (promptId: number, answers: number[][], cancel = false, texts: (string | null)[] = []) => {
       await answerAgentPrompt(promptId, answers, cancel, texts)
@@ -6707,6 +6737,7 @@ function useAgentChat({
     currentUser,
     pendingPrompt,
     onAnswerPrompt: handleAnswerPrompt,
+    onLoadOlder: loadOlderMessages,
   }
 
   return {
@@ -7505,6 +7536,7 @@ function AgentsConversationView({
   onAddMember,
   pendingPrompt,
   onAnswerPrompt,
+  onLoadOlder,
   currentUser,
   variant = "full",
 }: AgentsOutletContext & { variant?: "full" | "compact" }) {
@@ -7700,6 +7732,8 @@ function AgentsConversationView({
 
   const handleThreadScroll = (event: UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget
+    // #56: everything fetched is already revealed — ask the server for older.
+    if (el.scrollTop < 48 && visibleCount >= messageCount) onLoadOlder()
     if (el.scrollTop < 48 && visibleCount < messageCount) {
       pendingRevealAnchor.current = el.scrollHeight
       setVisibleCount((current) => Math.min(current + MESSAGE_PAGE_SIZE, messageCount))
