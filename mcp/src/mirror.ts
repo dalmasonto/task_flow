@@ -46,6 +46,19 @@ export function getMirrorStatus(): MirrorStatus {
   return { ...status };
 }
 
+/**
+ * Publish the mirror's state from whoever is driving it — since Task 5 that is
+ * `runtime.ts`, not `startMirrorWithRetry`.
+ *
+ * Without this, every writer of `status` lived inside `startMirrorWithRetry`,
+ * which the startup path no longer calls: `whoami` reported a streaming mirror
+ * as `{state: "starting"}` forever, inverting the very problem this field
+ * exists to solve.
+ */
+export function reportMirror(next: MirrorStatus): void {
+  status = next;
+}
+
 /** Test seam — reset the module-level status between cases. */
 export function resetMirrorStatus(): void {
   status = { state: "starting", attempts: 0 };

@@ -10,11 +10,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { buildServer } from "./server.js";
 import { ConfigError } from "./config.js";
 import { runDoctor } from "./doctor.js";
-import { detectTmuxPane, runTmuxMirror } from "./tmux.js";
+import { runTmuxMirror } from "./tmux.js";
 import { runMint } from "./mint.js";
-import { loadProfile } from "./config.js";
-import { startConnection } from "./connect.js";
-import { startAgentRuntime } from "./runtime.js";
+import { startAgent } from "./runtime.js";
 
 const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
 
@@ -43,7 +41,13 @@ client, not typed as commands. To check the setup yourself, use --check.
 
 TERMINAL MIRRORING IS AUTOMATIC. When the agent runs inside tmux, the server
 finds its own pane and streams it to the dashboard — nothing to launch, no pane
-id to look up. Set TASKFLOW_MIRROR=off to disable it.
+id to look up. Set TASKFLOW_MIRROR=off to disable it. The agent still connects
+and appears online without tmux; only the streamed terminal needs a pane.
+
+WHICH IDENTITY AM I? With one profile in .taskflow.json the server connects as
+it silently. With several, it connects as NONE of them and the agent must ask
+you which this terminal is, then call select_profile — the pick is remembered
+per terminal in .taskflow/sessions.json. Set TASKFLOW_PROFILE to skip the ask.
 
 --tmux is only for mirroring a pane the agent is NOT running in (say, watching a
 build in another window). It runs in the foreground until Ctrl-C; the target
@@ -117,22 +121,17 @@ async function main(): Promise<void> {
   // Stderr only — stdout is the MCP transport and must stay clean.
   process.stderr.write("taskflow-v2-mcp: connected (stdio)\n");
 
-  // Mirror this agent's terminal automatically. The server is spawned BY the
-  // agent, so it can find the pane itself (see detectTmuxPane) — asking a human
-  // to run a second command with a pane id they have to look up is not a setup
-  // step, it's a thing to forget. Best-effort in every direction: no tmux, no
-  // credential, or a backend that is down all degrade to simply not mirroring.
-  if (process.env.TASKFLOW_MIRROR !== "off") {
-    const log = (line: string) => void process.stderr.write(`taskflow-v2-mcp: ${line}\n`);
-    const profile = loadProfile();
-    const pane = await detectTmuxPane().catch(() => null);
-    startConnection({
-      profile,
-      pane,
-      log,
-      onSession: (ctx) => startAgentRuntime(ctx, log),
-    });
-  }
+  // Bring the agent online. This is NOT conditional on tmux: registering a
+  // session is what makes the agent visible and reachable, and it must happen
+  // whether or not there is a pane to mirror. Best-effort in every direction —
+  // no credential, or a backend that is down, degrades to retrying quietly.
+  //
+  // Not awaited, and its rejection is caught here rather than by main()'s
+  // handler: the transport is already serving, so a bad TASKFLOW_PROFILE must
+  // cost the connection, not the tool server.
+  void startAgent().catch((err) => {
+    process.stderr.write(`taskflow-v2-mcp: could not start agent (${(err as Error).message})\n`);
+  });
 }
 
 main().catch((err) => {

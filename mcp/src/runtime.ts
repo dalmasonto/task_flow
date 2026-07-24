@@ -10,15 +10,36 @@
  * The pane is optional. Without one there is nothing to mirror and nowhere to
  * type a message, so only the parts that need a pane are skipped; the session
  * itself is already live and `check_messages` still works.
+ *
+ * It also holds the STARTUP entry (`startAgent`) and the two ways in — the bin
+ * entry at boot, and `select_profile` once a human has chosen an identity — so
+ * both take exactly the same path to a live agent.
  */
 
 import type { ConnectedContext } from "./connect.js";
 import type { TaskflowClient } from "./client.js";
 import { formatIncoming, shouldDeliver, startAgentEventStream } from "./events.js";
-import { notifyPane, sendKeySteps, sendKeyToPane, startMirrorLoop } from "./tmux.js";
+import {
+  detectTmuxPane,
+  notifyPane,
+  sendKeySteps,
+  sendKeyToPane,
+  startMirrorLoop,
+} from "./tmux.js";
 import { createSerialQueue } from "./pane-queue.js";
 import { stepsForPrompt } from "./prompts.js";
 import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
+import {
+  findConfigPath,
+  loadConfigFile,
+  resolveProfileOrAsk,
+  type ResolvedProfile,
+} from "./config.js";
+import { readStickyProfile, writeStickyProfile } from "./sessions-store.js";
+import { setNeedsProfile, startConnection } from "./connect.js";
+import { reportMirror } from "./mirror.js";
+
+const stderrLog = (line: string) => void process.stderr.write(`taskflow-v2-mcp: ${line}\n`);
 
 /**
  * Adapt the client to {@link MessageSource}.
@@ -54,18 +75,21 @@ export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => 
   // the wire). Shared by the live stream and the reconnect catch-up so both
   // apply the same shouldDeliver + notify + mark-read. The pane write itself
   // is serialized; the resolve/markRead round-trips stay outside the lock so
-  // network latency doesn't stall other deliveries. Without a pane there is
-  // nowhere to type it, but the message is still resolved and still marked
-  // read — `check_messages` is how the agent sees it.
+  // network latency doesn't stall other deliveries.
+  //
+  // Without a pane there is nowhere to type it, so we stop BEFORE markRead: the
+  // read cursor means "the agent has seen this", and nothing saw it.
+  // `check_messages` defaults to unread_only, so advancing the cursor here
+  // would drop the message for good (see planning/spec-message-delivery.md) —
+  // leaving it unread is what makes `check_messages` still work.
   const deliverMessageById = async (id: number) => {
     const message = await resolveMessage(messageSourceFor(client), id);
     if (!message) return;
     if (!shouldDeliver(message, profile.agentId)) return;
-    if (pane) {
-      await paneQueue(() =>
-        notifyPane(formatIncoming(message, message.attachments ?? [], profile.agentId), pane, true),
-      );
-    }
+    if (!pane) return;
+    await paneQueue(() =>
+      notifyPane(formatIncoming(message, message.attachments ?? [], profile.agentId), pane, true),
+    );
     await client.markRead(message.channel, message.id);
   };
 
@@ -172,7 +196,11 @@ export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => 
     },
   });
 
-  if (pane) {
+  // TASKFLOW_MIRROR=off suppresses the MIRROR only — never the connection. The
+  // agent still registers, heartbeats and receives messages; it just doesn't
+  // stream its terminal. (Before Task 6 this flag gated the whole startup, so
+  // turning off the mirror also took the agent offline.)
+  if (pane && process.env.TASKFLOW_MIRROR !== "off") {
     startMirrorLoop({
       client,
       session,
@@ -187,5 +215,63 @@ export function startAgentRuntime(ctx: ConnectedContext, log: (line: string) => 
         }
       },
     });
+    // Publish what `whoami` reports. Since the mirror moved here, this module —
+    // not `startMirrorWithRetry` — is the only thing that knows the answer.
+    reportMirror({ state: "active", pane, attempts: 1 });
+  } else {
+    reportMirror({
+      state: "off",
+      detail: pane ? "TASKFLOW_MIRROR=off" : "not running inside tmux — nothing to mirror",
+      attempts: 0,
+    });
   }
+}
+
+/**
+ * Bring this agent online: resolve which identity this terminal is, then
+ * connect and start the runtime. When the repo defines several identities and
+ * nothing says which one this is, connect NOTHING and record `needs_profile` —
+ * guessing would silently collapse two terminals into one agent.
+ *
+ * Deliberately NOT conditional on tmux: registering a session is what makes the
+ * agent visible and reachable, and that must happen whether or not there is a
+ * pane to mirror.
+ */
+export async function startAgent(options: { configPath?: string } = {}): Promise<void> {
+  const configPath = options.configPath ?? findConfigPath();
+  const config = loadConfigFile(configPath);
+  const pane = await detectTmuxPane().catch(() => null);
+  const sticky = readStickyProfile({ configPath, pane });
+  const resolution = resolveProfileOrAsk(config, { env: process.env, configPath, sticky });
+
+  if (resolution.kind === "ambiguous") {
+    const names = resolution.profiles.map((p) => p.name).join(", ");
+    setNeedsProfile(`${resolution.profiles.length} profiles defined (${names}); waiting for select_profile`);
+    stderrLog(`multiple identities (${names}) — the agent must ask its human, then call select_profile`);
+    return;
+  }
+  connectAs(resolution.profile, pane);
+}
+
+/**
+ * Connect as a known profile and start the runtime. Used by `select_profile`.
+ *
+ * Nothing is awaited: `startConnection`'s `settled` stays pending for as long as
+ * the backend is down, so awaiting it here would keep the MCP server from
+ * serving a single tool call until the backend came up.
+ */
+export function connectAs(profile: ResolvedProfile, pane: string | null): void {
+  startConnection({
+    profile,
+    pane,
+    log: stderrLog,
+    onSession: (ctx) => startAgentRuntime(ctx, stderrLog),
+  });
+}
+
+/** Persist a human's pick for this terminal, then connect as it. */
+export async function selectProfile(profile: ResolvedProfile): Promise<void> {
+  const pane = await detectTmuxPane().catch(() => null);
+  writeStickyProfile(profile.profileName, { configPath: profile.configPath, pane });
+  connectAs(profile, pane);
 }
