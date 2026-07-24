@@ -70,12 +70,17 @@ function readStore(configPath: string): StoreShape {
 
 /** The profile this terminal chose last, or undefined if there is none/it expired. */
 export function readStickyProfile(options: StickyOptions): string | undefined {
-  const now = options.now ?? Date.now();
-  const entry = readStore(options.configPath).terminals[terminalKey(options)];
-  if (!entry) return undefined;
-  const chosenAt = Date.parse(entry.chosen_at);
-  if (Number.isNaN(chosenAt) || now - chosenAt > RETENTION_MS) return undefined;
-  return entry.profile;
+  try {
+    const now = options.now ?? Date.now();
+    const entry = readStore(options.configPath).terminals[terminalKey(options)];
+    if (!entry) return undefined;
+    const chosenAt = Date.parse(entry.chosen_at);
+    if (Number.isNaN(chosenAt) || now - chosenAt > RETENTION_MS) return undefined;
+    return entry.profile;
+  } catch {
+    // Best-effort: losing stickiness is acceptable, failing the connect is not.
+    return undefined;
+  }
 }
 
 /** Remember this terminal's pick, pruning anything past the retention window. */

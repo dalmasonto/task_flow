@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readStickyProfile, terminalKey, writeStickyProfile } from "./sessions-store.js";
 
 /** A throwaway repo root with a .taskflow.json in it; returns that config path. */
@@ -94,5 +94,17 @@ describe("sticky profile", () => {
     chmodSync(dir, 0o500);
     expect(() => writeStickyProfile("bear", { configPath, pane: "%0" })).not.toThrow();
     chmodSync(dir, 0o700);
+  });
+
+  it("degrades to undefined rather than throwing when terminalKey's process.cwd() blows up", () => {
+    const configPath = tempRepo();
+    vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("ENOENT: uv_cwd");
+    });
+    try {
+      expect(readStickyProfile({ configPath })).toBeUndefined();
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
