@@ -31,6 +31,7 @@ import { createSerialQueue } from "./pane-queue.js";
 import { stepsForPrompt } from "./prompts.js";
 import { loadProfile } from "./config.js";
 import { hostname } from "node:os";
+import { sessionIdentifier } from "./session-identifier.js";
 
 const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
 
@@ -179,7 +180,7 @@ async function startMirrorForThisAgent(): Promise<void> {
       const client = new TaskflowClient({ server: profile.server, key: profile.key });
       const session = await client.registerSession({
         // Same identifier the tools use, so this is ONE session, not a duplicate.
-        session_identifier: `tmux:${hostname()}:${pane}`,
+        session_identifier: sessionIdentifier({ pane, profileName: profile.profileName }),
         host: hostname(),
         pid: process.pid,
         cwd: process.cwd(),

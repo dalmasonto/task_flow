@@ -27,17 +27,7 @@ import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
 import { detectTmuxPane } from "./tmux.js";
 import { AGENT_INSTRUCTIONS } from "./instructions.js";
-
-/**
- * The session identifier for this agent process.
- *
- * Prefers the tmux pane, so the tools' session and the terminal mirror converge
- * on ONE row instead of registering two sessions for the same agent (register is
- * idempotent per identifier). Falls back to host:pid outside tmux.
- */
-function defaultSessionIdentifier(pane?: string | null): string {
-  return pane ? `tmux:${hostname()}:${pane}` : `${hostname()}:${process.pid}`;
-}
+import { sessionIdentifier } from "./session-identifier.js";
 
 /**
  * The nudge attached to every check_messages result. A read cursor only advances
@@ -115,7 +105,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     const existing = sessions.get(profileName);
     if (existing !== undefined) return existing;
     const session = await client.registerSession({
-      session_identifier: defaultSessionIdentifier(await detectTmuxPane()),
+      session_identifier: sessionIdentifier({
+        pane: await detectTmuxPane(),
+        profileName,
+      }),
       host: hostname(),
       pid: process.pid,
       cwd: process.cwd(),
@@ -466,7 +459,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           // the duplication the mirror's own comment says it is avoiding.
           session_identifier:
             session_identifier?.trim() ||
-            defaultSessionIdentifier(await detectTmuxPane()),
+            sessionIdentifier({ pane: await detectTmuxPane(), profileName: resolved.profileName }),
           host: hostname(),
           pid: process.pid,
           cwd: cwd ?? process.cwd(),
