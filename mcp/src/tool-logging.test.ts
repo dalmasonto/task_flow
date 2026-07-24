@@ -25,9 +25,31 @@ describe("shouldLogTool", () => {
     }
   });
 
-  it("logs TaskFlow's own tools, whatever they are called", () => {
-    expect(shouldLogTool("mcp__taskflow_v2__update_task_status")).toBe(true);
-    expect(shouldLogTool("mcp__taskflow_v2__send_message")).toBe(true);
+  // #57: TaskFlow's own tools write a SEMANTIC row already — `status_changed`
+  // carrying `#57 "title" · in_progress -> partial_done`, `note` carrying the
+  // note. The hook's parallel `tool:mcp__taskflow_v2__*` row describes the same
+  // event with strictly less: body "completed", no task link, the id buried in
+  // JSON. Measured on project 2: 594 rows, 10% of the feed, 257 KB — and
+  // send_message (112 KB) / log_activity (86 KB) embed whole message and note
+  // bodies that already exist in full as their own rows.
+  it("skips TaskFlow's own tools, which already write a better row", () => {
+    for (const tool of [
+      "mcp__taskflow_v2__update_task_status",
+      "mcp__taskflow_v2__send_message",
+      "mcp__taskflow_v2__log_activity",
+      "mcp__taskflow_v2__create_task",
+      "mcp__taskflow_v2__claim_task",
+      "mcp__taskflow_v2__heartbeat",
+    ]) {
+      expect(shouldLogTool(tool), `${tool} should be skipped`).toBe(false);
+    }
+  });
+
+  // Prefix-scoped: another MCP server's tools are somebody else's events, and
+  // nothing else writes a semantic row for them.
+  it("still logs MCP tools from other servers", () => {
+    expect(shouldLogTool("mcp__gitnexus__analyze")).toBe(true);
+    expect(shouldLogTool("mcp__some_other__thing")).toBe(true);
   });
 
   // An unfamiliar tool is more likely to matter than not, and one extra row is

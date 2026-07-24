@@ -33,6 +33,20 @@ const SKIP_TOOLS = new Set([
   "TodoWrite",
 ]);
 
+/// #57: TaskFlow's own tools already write a SEMANTIC row from the backend —
+/// `status_changed` carrying `#57 "title" · in_progress -> partial_done`, `note`
+/// carrying the note itself. The hook's parallel row describes the same event
+/// with strictly less: body "completed", no task link, the id buried in JSON.
+///
+/// Measured on project 2: 594 rows, 10% of the feed, 257 KB. The two worst are
+/// pure duplication of content that exists in full elsewhere —
+/// send_message (112 KB) embeds whole message bodies that ARE the message
+/// table, log_activity (86 KB) embeds the note body of the row it just created.
+///
+/// Scoped to this prefix on purpose: another MCP server's tools are somebody
+/// else's events, and nothing writes a semantic row for them.
+const TASKFLOW_TOOL_PREFIX = "mcp__taskflow_v2__";
+
 /**
  * Whether this tool call should be recorded as activity.
  *
@@ -41,6 +55,7 @@ const SKIP_TOOLS = new Set([
  */
 export function shouldLogTool(toolName) {
   if (!toolName) return false;
+  if (toolName.startsWith(TASKFLOW_TOOL_PREFIX)) return false;
   // Exact match only — a tool merely CONTAINING "Read" is not the Read tool.
   return !SKIP_TOOLS.has(toolName);
 }
