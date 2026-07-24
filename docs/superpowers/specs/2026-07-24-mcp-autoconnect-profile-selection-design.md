@@ -79,11 +79,28 @@ Mirroring becomes a layer bolted onto the session `connect` already registered.
 `startMirrorLoop` keeps its current behavior and is started only when
 `detectTmuxPane()` yields a pane.
 
-**Session identity is unchanged.** `connect` registers with the existing
-`defaultSessionIdentifier(pane)` (`server.ts:38`) — `tmux:{host}:{pane}` under
-tmux, `{host}:{pid}` outside. Registration is idempotent per identifier, so
-`server.ts`'s `ensureSession` must stop registering its own and instead read the
-session id `connect` holds. One process, one session row.
+**Session identifiers become profile-aware.** `defaultSessionIdentifier(pane)`
+(`server.ts:38`) keys a session on the pane alone — `tmux:{host}:{pane}`, or
+`{host}:{pid}` outside tmux. That breaks the moment a human switches identity,
+because the backend treats an identifier as globally unique:
+
+```rust
+// backend/plugins/taskflow-agents/src/views.rs:1813
+// The identifier is globally unique: a row owned by another agent is
+// not ours to reconnect. 409 CONFLICT — the caller cannot claim it.
+if row.agent.id() != agent.agent_id { return Err(StatusCode::CONFLICT); }
+```
+
+Selecting `bear` in a pane where `main` already registered would 409 — the
+feature failing on its own core path. The profile therefore joins the
+identifier (`tmux:{host}:{pane}#{profile}`), giving each identity its own row;
+the abandoned one goes stale by itself inside the 90s window.
+
+Registration remains idempotent per identifier and re-adopts the *same row id*
+(`views.rs:1809-1837`), so a re-register during a backend restart does not
+invalidate the session number the mirror already holds. `server.ts`'s
+`ensureSession` must stop registering its own session and read the id `connect`
+holds instead. One process, one session row.
 
 **Retry policy.** Indefinite, with the same capped-and-jittered backoff
 `events.ts:128` already uses (1s base, 30s ceiling, half-jittered). The
@@ -219,6 +236,7 @@ explicit `idle`/`busy` status hints — but stop being startup obligations.
 | `select_profile` with unknown name | Error listing available profiles; nothing persisted |
 | Sticky store unreadable/unwritable | Ignored; falls back to asking |
 | `list_agents` fails during ambiguity | `in_use` omitted; names still offered |
+| Switching profile inside one pane | Distinct profile-suffixed identifiers, so no 409; the old row goes stale in 90s |
 
 ## Testing
 
