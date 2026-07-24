@@ -4344,16 +4344,18 @@ function AuthPage({ mode }: { mode: AuthMode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const resetTokenFromUrl = new URLSearchParams(location.search).get("token") ?? ""
-  // An OAuth callback that returned an error (rare — see the spec) stashed a
-  // message pre-render; surface it here in the same notice password errors use.
-  // A lazy initializer (not a mount effect) so the notice is present on first
-  // paint and no setState call happens inside an effect body.
-  const [authResult, setAuthResult] = useState<AuthResult | null>(() => {
+  const [authResult, setAuthResult] = useState<AuthResult | null>(null)
+  // Surface an OAuth error stashed pre-render (rare — a GitHub denial or a flow
+  // that returned an error param). Read-and-clear belongs in an effect, not the
+  // useState initializer: takeOAuthError() has a side effect, and a lazy
+  // initializer must stay pure (React may call it more than once).
+  useEffect(() => {
     const oauthError = takeOAuthError()
-    return oauthError
-      ? { ok: false, message: "Couldn't sign in with GitHub. Please try again." }
-      : null
-  })
+    if (oauthError) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAuthResult({ ok: false, message: "Couldn't sign in with GitHub. Please try again." })
+    }
+  }, [])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const isLogin = mode === "login"
   const isSignup = mode === "signup"
