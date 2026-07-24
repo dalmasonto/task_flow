@@ -58,6 +58,65 @@ export function clearStoredSession() {
   window.localStorage.removeItem(AUTH_USER_KEY)
 }
 
+const OAUTH_ERROR_KEY = "taskflow.oauth.error"
+
+/** The meaning of an OAuth callback landing, parsed from the URL. */
+export type OAuthRedirect =
+  | { kind: "token"; token: string }
+  | { kind: "error"; message: string }
+  | { kind: "none" }
+
+/**
+ * Classify a callback landing from its URL fragment and query. Pure — no DOM —
+ * so the whole token/error decision is unit-tested in node without jsdom. A
+ * bearer token wins over any stray error param.
+ */
+export function parseOAuthRedirect(hash: string, search: string): OAuthRedirect {
+  const frag = new URLSearchParams(hash.replace(/^#/, ""))
+  const query = new URLSearchParams(search.replace(/^\?/, ""))
+  const token = frag.get("token")
+  if (token) return { kind: "token", token }
+  const error = frag.get("error") ?? query.get("error")
+  if (error) return { kind: "error", message: error }
+  return { kind: "none" }
+}
+
+/**
+ * If this page load is an OAuth callback landing, act on it BEFORE React mounts:
+ * a `#token=` is stored in the same slot password login uses (so the auth gate,
+ * which reads storage synchronously, sees it on first render); a `#error=` /
+ * `?error=` is stashed for the login screen. Either way the fragment/query is
+ * stripped so a refresh or a copied URL can't replay it. A no-op on an ordinary
+ * load, and `window`-guarded so it is inert under SSR/tests.
+ */
+export function consumeOAuthRedirect(): void {
+  if (typeof window === "undefined") return
+  const result = parseOAuthRedirect(window.location.hash, window.location.search)
+  if (result.kind === "none") return
+  if (result.kind === "token") {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, result.token)
+  } else {
+    window.sessionStorage.setItem(OAUTH_ERROR_KEY, result.message)
+  }
+  // Keep the path; drop the fragment and any oauth query so nothing lingers.
+  window.history.replaceState(null, "", window.location.pathname)
+}
+
+/**
+ * Read and clear a stashed OAuth error (one-shot), for the login screen to show.
+ * `storage` is injectable so this is node-testable; defaults to sessionStorage.
+ */
+export function takeOAuthError(
+  storage?: Pick<Storage, "getItem" | "removeItem">,
+): string | null {
+  const store =
+    storage ?? (typeof window !== "undefined" ? window.sessionStorage : null)
+  if (!store) return null
+  const value = store.getItem(OAUTH_ERROR_KEY)
+  if (value) store.removeItem(OAUTH_ERROR_KEY)
+  return value
+}
+
 async function readError(response: Response) {
   const fallback = response.statusText || "Request failed"
   const contentType = response.headers.get("content-type") ?? ""
