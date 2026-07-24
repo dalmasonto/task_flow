@@ -83,6 +83,24 @@ async fn reconcile(task_id: i64) {
         Err(_) => return,
     };
 
+    // Keep `closed_at` in lockstep with terminal status, idempotently. Setting
+    // it re-fires post_save → reconcile, but the guards below make the second
+    // pass a no-op, so it terminates. Done as its own task write so it is
+    // independent of the session bookkeeping below.
+    let is_terminal = matches!(
+        task.status,
+        TaskflowTaskStatus::Done | TaskflowTaskStatus::Archived
+    );
+    if is_terminal && task.closed_at.is_none() {
+        let mut t = task.clone();
+        t.closed_at = Some(chrono::Utc::now());
+        let _ = TaskflowTask::objects().save(t).await;
+    } else if !is_terminal && task.closed_at.is_some() {
+        let mut t = task.clone();
+        t.closed_at = None;
+        let _ = TaskflowTask::objects().save(t).await;
+    }
+
     if task.status == TaskflowTaskStatus::InProgress {
         // Only open a session when none is already running (covers a manually
         // started one too — it counts as open, so we don't stack a second).
