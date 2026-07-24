@@ -1096,7 +1096,12 @@ function MarkdownPreview({ attachment }: { attachment: MessageAttachmentItem }) 
         {content.status === "loading" ? (
           <TextSkeleton />
         ) : mode === "preview" ? (
-          <MarkdownRenderer content={raw} className="max-w-3xl space-y-3 p-4 sm:p-6" />
+          // No width cap: this preview is a FULL-SCREEN dialog, and max-w-3xl
+          // held the rendered file to a reading column while most of the screen
+          // sat empty. A markdown file being previewed is a document to inspect —
+          // tables and code blocks especially — not prose to read at an optimal
+          // measure, and the dialog was opened precisely to get more room.
+          <MarkdownRenderer content={raw} className="space-y-3 p-4 sm:p-6" />
         ) : html && !highlightFailed ? (
           <div
             className="shiki-scroll min-h-full text-[13px]"
