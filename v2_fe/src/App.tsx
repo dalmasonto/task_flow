@@ -195,6 +195,7 @@ import { ProfilePage } from "@/pages/account/ProfilePage"
 import { SettingsPage } from "@/pages/account/SettingsPage"
 import { InvitationsPage } from "@/pages/account/InvitationsPage"
 import { SecurityPage } from "@/pages/account/SecurityPage"
+import { MediaPage } from "@/pages/dashboard/MediaPage"
 import { OverviewPage } from "@/pages/dashboard/OverviewPage"
 
 type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
@@ -1919,6 +1920,19 @@ function App() {
         : activeProjectBase,
     [activeProjectBase, activeLiveWorkspace, appLivenessNow]
   )
+  // id -> title for the Media page's source chips ("#general" etc). Falls back
+  // to `#${id}` for a channel that isn't (yet) in the live workspace snapshot.
+  const liveChannelTitles = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const channel of activeLiveWorkspace?.agentChannels ?? []) {
+      map.set(channel.id, channel.title)
+    }
+    return map
+  }, [activeLiveWorkspace])
+  const mediaChannelName = useCallback(
+    (channelId: number | null) => (channelId != null ? liveChannelTitles.get(channelId) ?? `#${channelId}` : "Chat"),
+    [liveChannelTitles]
+  )
   const projectTasks = useMemo(
     () => (activeProject ? tasks.filter((task) => task.projectId === activeProject.id) : []),
     [activeProject, tasks]
@@ -3559,6 +3573,20 @@ function App() {
                 <OverviewPage
                   projectId={activeProject ? liveId(activeProject.id) : null}
                   currentUserId={currentUser?.id ?? null}
+                />
+              }
+            />
+            <Route
+              path="/dashboard/media"
+              element={
+                <MediaPage
+                  projectId={activeProject ? liveId(activeProject.id) : null}
+                  channelName={mediaChannelName}
+                  onOpenTask={(taskId) => {
+                    navigate("/dashboard/board")
+                    setOpenTaskId(String(taskId))
+                  }}
+                  onOpenChannel={() => navigate("/dashboard/agents")}
                 />
               }
             />

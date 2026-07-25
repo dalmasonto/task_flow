@@ -637,6 +637,22 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
   }
 }
 
+/// All attachments the caller can see in a project, from both chat + tasks.
+/// Channel-private chat attachments are excluded by the REST scope.
+export async function fetchProjectMedia(projectId: number): Promise<{
+  chat: TaskflowMessageAttachment[]
+  task: TaskflowTaskAttachment[]
+}> {
+  const [chat, task] = await Promise.all([
+    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+  ])
+  return {
+    chat: chat.results,
+    task: task.results,
+  }
+}
+
 /// The activity slice — 898 KB of the old 1.31 MB, and the board renders none of
 /// it. Loaded for the activity feed and the task detail sheet only.
 /// #56: ONE page of activity, newest first.
