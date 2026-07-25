@@ -15,7 +15,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "//build": "chmod is not decoration: `bin` is exec'd by name, and tsc emits 0644. npm sets the bit at install time, so a rebuild over an EXISTING dist inherits it and looks fine — but a clean build (rm -rf dist) emits a fresh, non-executable file and every launch then fails with EACCES.",
+    "build": "tsc && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
