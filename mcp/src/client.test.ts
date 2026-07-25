@@ -85,3 +85,53 @@ describe("sendMessage", () => {
     expect(body.getAll("files")).toHaveLength(2);
   });
 });
+
+describe("updateTask", () => {
+  it("posts only the fields it was given, so an edit is not an overwrite", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).updateTask(42, { title: "renamed" });
+
+    expect(calls[0].url).toContain("/agents/tasks/42");
+    expect(JSON.parse(calls[0].init.body)).toEqual({ title: "renamed" });
+  });
+
+  it("carries description, notes and priority when present", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).updateTask(7, {
+      description_markdown: "d",
+      notes_markdown: "n",
+      priority: "high",
+    });
+
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      description_markdown: "d",
+      notes_markdown: "n",
+      priority: "high",
+    });
+  });
+});
+
+describe("uploadTaskAttachments", () => {
+  it("posts multipart to the agent task attachment route", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).uploadTaskAttachments(9, [
+      { filename: "design.md", bytes: Buffer.from("# design\n") },
+    ]);
+
+    expect(calls[0].url).toContain("/agents/tasks/9/attachments");
+    const body = calls[0].init.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    const file = body.get("files") as File;
+    expect(file.name).toBe("design.md");
+  });
+});
+
+describe("createTask", () => {
+  it("posts JSON when there are no attachments", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).createTask({ title: "plain" });
+
+    expect(calls[0].init.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(calls[0].init.body)).toEqual({ title: "plain" });
+  });
+});

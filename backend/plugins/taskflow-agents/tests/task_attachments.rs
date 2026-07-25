@@ -128,3 +128,83 @@ async fn the_agent_task_read_surfaces_the_attachment() {
     assert_eq!(attachments[0]["name"], json!("shot.png"));
     assert!(attachments[0]["url"].as_str().expect("url").starts_with("/media/"));
 }
+
+/// Mint an agent credential for `user` in `project`, returning its key.
+async fn mint_agent_key(app: &TestApp, user: i64, project: i64) -> String {
+    let resp = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/link",
+            json!({ "project": project, "display_name": "Builder", "profile": "main" }),
+        )
+        .await;
+    assert_eq!(resp.status(), 200, "mint failed");
+    resp.json().await["key"].as_str().expect("key").to_string()
+}
+
+// An agent must be able to attach a file to a task, the same way a human does in
+// the UI. Until now attachment upload was human-authed only, so an agent could
+// write a spec and then had no way to hang it on the task it belongs to — the
+// document and the work item stayed in separate places.
+#[tokio::test]
+async fn an_agent_can_attach_a_file_to_a_task_in_its_project() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let key = mint_agent_key(&app, user, project).await;
+    let task = seed_task(project).await;
+
+    let (content_type, body) =
+        encode_multipart(&[file("files", "spec.md", "text/markdown", b"# design")]);
+    let resp = app
+        .post_multipart_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/tasks/{task}/attachments"),
+            &content_type,
+            body,
+        )
+        .await;
+    assert_eq!(resp.status(), 201, "an agent must be able to attach to its own task");
+
+    // Same response shape as the human endpoint — `{ attachments: [...] }`, 201.
+    let body = resp.json().await;
+    let rows = body["attachments"].as_array().expect("an array of created attachments");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["name"], json!("spec.md"));
+    assert_eq!(rows[0]["task"].as_i64().unwrap(), task);
+    assert_eq!(rows[0]["project"].as_i64().unwrap(), project);
+    assert!(
+        rows[0]["url"].as_str().unwrap_or_default().starts_with("/media"),
+        "the attachment must come back with a resolved media url"
+    );
+}
+
+// Same boundary as every other agent task endpoint: an agent may only touch
+// tasks in its own project.
+#[tokio::test]
+async fn an_agent_cannot_attach_to_another_projects_task() {
+    let app = TestApp::new().await;
+
+    let project_a = seed_project().await;
+    let user_a = app.create_user().await;
+    make_active_project_member(project_a, user_a).await;
+    let key_a = mint_agent_key(&app, user_a, project_a).await;
+
+    let project_b = seed_project().await;
+    let user_b = app.create_user().await;
+    make_active_project_member(project_b, user_b).await;
+    let their_task = seed_task(project_b).await;
+
+    let (content_type, body) =
+        encode_multipart(&[file("files", "x.md", "text/markdown", b"nope")]);
+    let resp = app
+        .post_multipart_as_agent(
+            &key_a,
+            &format!("/api/taskflow/agents/tasks/{their_task}/attachments"),
+            &content_type,
+            body,
+        )
+        .await;
+    assert_eq!(resp.status(), 403, "an agent must not attach to another project's task");
+}

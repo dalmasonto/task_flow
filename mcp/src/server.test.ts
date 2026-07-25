@@ -447,3 +447,46 @@ describe("the profile argument's description", () => {
     expect(description).toMatch(/profile_ambiguous/);
   });
 });
+
+describe("update_task", () => {
+  it("requires only the task id, so an edit names just what it changes", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const update = tools.tools.find((t) => t.name === "update_task");
+
+    expect(update, "update_task must be registered").toBeDefined();
+    const props = Object.keys(update?.inputSchema.properties ?? {});
+    expect(props).toEqual(
+      expect.arrayContaining(["task", "title", "description", "notes", "priority", "files"]),
+    );
+    const required = (update?.inputSchema.required ?? []) as string[];
+    expect(required).toContain("task");
+    expect(required).not.toContain("title");
+  });
+
+  it("refuses a call that names nothing to change", async () => {
+    // A no-op that returns the task unchanged reads as success and hides the
+    // forgotten argument, so it has to be an error rather than a silent pass.
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "update_task",
+      // An explicit profile: this harness defines two, so omitting it returns
+      // the ambiguity refusal before the tool's own validation is reached.
+      arguments: { task: 1, profile: "main" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/Nothing to update/);
+  });
+});
+
+describe("create_task", () => {
+  it("accepts files so a spec can be hung on the task it belongs to", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const create = tools.tools.find((t) => t.name === "create_task");
+
+    const props = Object.keys(create?.inputSchema.properties ?? {});
+    expect(props).toEqual(expect.arrayContaining(["title", "files", "notes"]));
+  });
+});

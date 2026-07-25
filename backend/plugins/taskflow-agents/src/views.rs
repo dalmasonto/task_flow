@@ -134,27 +134,9 @@ pub async fn upload_task_attachment(
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    if !is_multipart(content_type) {
-        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    }
-    let form = parse_multipart(content_type, raw_body)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
-    // A file part carried a filename; bodyless text parts are fields.
-    let files: Vec<FilePart> = form
-        .files
-        .into_iter()
-        .filter(|p| p.filename.as_deref().map(|n| !n.is_empty()).unwrap_or(false))
-        .collect();
-    if files.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    for part in &files {
-        if part.bytes.len() > MAX_ATTACHMENT_BYTES {
-            return Err(StatusCode::PAYLOAD_TOO_LARGE);
-        }
-    }
+        .unwrap_or_default()
+        .to_string();
+    let files = parse_attachment_files(&content_type, raw_body).await?;
 
     // Load the task; the attachment inherits its project. Unknown → 404.
     let task = TaskflowTask::objects()
@@ -175,6 +157,49 @@ pub async fn upload_task_attachment(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::FORBIDDEN)?;
 
+    store_task_attachments(&task, files).await
+}
+
+/// Pull the file parts out of a multipart body, rejecting anything that is not a
+/// real upload. Shared by the human and agent attachment endpoints so the two
+/// cannot drift on what counts as a file or how big it may be.
+async fn parse_attachment_files(
+    content_type: &str,
+    raw_body: Bytes,
+) -> Result<Vec<FilePart>, StatusCode> {
+    if !is_multipart(content_type) {
+        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+    let form = parse_multipart(content_type, raw_body)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    // A file part carried a filename; bodyless text parts are fields.
+    let files: Vec<FilePart> = form
+        .files
+        .into_iter()
+        .filter(|p| p.filename.as_deref().map(|n| !n.is_empty()).unwrap_or(false))
+        .collect();
+    if files.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    for part in &files {
+        if part.bytes.len() > MAX_ATTACHMENT_BYTES {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    }
+    Ok(files)
+}
+
+/// Store `files` against `task` and build the response. The attachment inherits
+/// the TASK's project, never one supplied by the caller.
+///
+/// Shared by both upload endpoints: the authorization differs (an active project
+/// member vs. an agent in the task's project) but what happens afterwards must
+/// not, or the two paths would produce different rows for the same upload.
+async fn store_task_attachments(
+    task: &TaskflowTask,
+    files: Vec<FilePart>,
+) -> Result<Response, StatusCode> {
     let Some(storage) = storage_opt() else {
         return Ok(storage_unavailable_response());
     };
@@ -212,6 +237,30 @@ pub async fn upload_task_attachment(
 
     let items: Vec<serde_json::Value> = created.iter().map(task_attachment_json).collect();
     Ok((StatusCode::CREATED, Json(json!({ "attachments": items }))).into_response())
+}
+
+/// `POST /api/taskflow/agents/tasks/{task}/attachments` (agent-authed,
+/// multipart) — an agent hangs a file on a task, the same way a human does from
+/// the UI. Without it an agent could write a spec and have nowhere to put it:
+/// the document and the work item stayed in separate places.
+///
+/// The project check is the authorization boundary, exactly as it is for the
+/// status, claim and edit endpoints: 404 for an unknown task, 403 for one
+/// belonging to another project.
+pub async fn upload_task_attachment_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Path(task_id): Path<i64>,
+    headers: HeaderMap,
+    raw_body: Bytes,
+) -> Result<Response, StatusCode> {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let files = parse_attachment_files(&content_type, raw_body).await?;
+    let task = load_task_in_project(task_id, agent.project_id).await?;
+    store_task_attachments(&task, files).await
 }
 
 /// Serialize one message with its attachments into a JSON object.
@@ -2337,6 +2386,81 @@ async fn load_task_in_project(task_id: i64, project_id: i64) -> Result<TaskflowT
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(task)
+}
+
+/// The body of `POST /api/taskflow/agents/tasks/{task}` (agent-authed). Every
+/// field is optional and only the ones PRESENT are written — a partial edit must
+/// not blank what it does not mention, which is the difference between an edit
+/// and an overwrite. `project`, creator and assignee are never accepted here:
+/// they are derived server-side or moved through their own endpoints (`claim`,
+/// `status`), so there is nothing to forge.
+#[derive(Debug, Deserialize)]
+pub struct AgentUpdateTaskInput {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description_markdown: Option<String>,
+    #[serde(default)]
+    pub notes_markdown: Option<String>,
+    #[serde(default)]
+    pub priority: Option<TaskflowTaskPriority>,
+}
+
+/// `POST /api/taskflow/agents/tasks/{task}` (agent-authed) — an agent corrects a
+/// task's content. Validates the task is in the agent's project (404 unknown,
+/// 403 foreign) exactly as the status and claim endpoints do, applies only the
+/// supplied fields under the same length limits as creation, and emits an
+/// `updated_task` activity so the edit is visible in the task's history rather
+/// than silently rewriting it.
+pub async fn update_task_as_agent(
+    RequireAgent(agent): RequireAgent,
+    Path(task_id): Path<i64>,
+    Json(input): Json<AgentUpdateTaskInput>,
+) -> Result<Response, StatusCode> {
+    let mut task = load_task_in_project(task_id, agent.project_id).await?;
+
+    if let Some(title) = input.title {
+        let title = title.trim().to_string();
+        if title.is_empty() || title.chars().count() > MAX_TASK_TITLE_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        task.title = title;
+    }
+    if let Some(description) = input.description_markdown {
+        if description.chars().count() > MAX_TASK_TEXT_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        task.description_markdown = description;
+    }
+    if let Some(notes) = input.notes_markdown {
+        if notes.chars().count() > MAX_TASK_TEXT_CHARS {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        task.notes_markdown = Some(notes);
+    }
+    if let Some(priority) = input.priority {
+        task.priority = priority;
+    }
+
+    task.updated_at = Some(chrono::Utc::now());
+    let task = TaskflowTask::objects()
+        .save(task)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    emit_task_activity(
+        agent.project_id,
+        task.id,
+        TaskflowActorKind::Agent,
+        None,
+        Some(agent.agent_id),
+        agent.display_name.clone(),
+        "updated_task",
+        Some(task_label(&task)),
+    )
+    .await?;
+
+    Ok((StatusCode::OK, Json(task)).into_response())
 }
 
 /// The body of `POST /api/taskflow/agents/tasks/{task}/status`. Only the target

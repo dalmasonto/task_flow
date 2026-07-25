@@ -120,6 +120,21 @@ export interface CreateTaskInput {
   claim?: boolean;
 }
 
+/**
+ * Fields of a task that an agent may edit. Every one is optional: what is
+ * absent is left alone rather than blanked.
+ *
+ * Status, assignment and project are deliberately NOT here — they move through
+ * `updateTaskStatus` and `claimTask`, and the project is derived from the
+ * credential and never accepted from a caller.
+ */
+export interface UpdateTaskInput {
+  title?: string;
+  description_markdown?: string;
+  notes_markdown?: string;
+  priority?: string;
+}
+
 export interface RegisterSessionInput {
   session_identifier: string;
   host?: string;
@@ -314,6 +329,35 @@ export class TaskflowClient {
   /** `POST /agents/tasks` — author a task in the agent's project (optionally claim). */
   createTask(input: CreateTaskInput): Promise<unknown> {
     return this.request("POST", `${API_PREFIX}/agents/tasks`, { body: input });
+  }
+
+  /**
+   * `POST /agents/tasks/{id}` — edit a task's content.
+   *
+   * Only the fields present in `input` are sent, and the server writes only what
+   * it receives: a partial edit must not blank what it does not mention, which
+   * is the difference between an edit and an overwrite.
+   */
+  updateTask(task: number, input: UpdateTaskInput): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/tasks/${task}`, { body: input });
+  }
+
+  /** `POST /agents/tasks/{id}/attachments` — hang files on a task (multipart). */
+  uploadTaskAttachments(
+    task: number,
+    attachments: { filename: string; bytes: Buffer }[],
+  ): Promise<unknown> {
+    const form = new FormData();
+    for (const file of attachments) {
+      // The server counts a part as a file only when it carries a non-empty
+      // filename, so the basename has to survive.
+      form.append("files", new Blob([file.bytes]), file.filename);
+    }
+    // 25MB may not finish inside the default 15s.
+    return this.request("POST", `${API_PREFIX}/agents/tasks/${task}/attachments`, {
+      form,
+      timeoutMs: 120_000,
+    });
   }
 
   /** `POST /agents/tasks/{id}/status` — advance a task's status. */

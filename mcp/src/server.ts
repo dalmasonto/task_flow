@@ -461,22 +461,117 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .enum(["low", "normal", "high", "critical"])
         .optional()
         .describe("Task priority (default: normal)."),
+      notes: z.string().optional().describe("Markdown notes."),
       claim: z.boolean().optional().describe("If true, assign the new task to this agent."),
+      files: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Paths to attach to the new task, relative to the project root (or absolute, inside it). Max 25MB each.",
+        ),
       ...profileArg,
     },
-    async ({ title, description, priority, claim, profile }) => {
+    async ({ title, description, notes, priority, claim, files, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
-        return ok(
-          await client.createTask({
+        const task = (await client.createTask({
+          title,
+          description_markdown: description,
+          notes_markdown: notes,
+          priority,
+          claim,
+        })) as { id?: number };
+
+        if (!files?.length) return ok(task);
+
+        // Attachments can only be hung on a task that exists, so this is a
+        // second call. If it fails the task is ALREADY created — reporting a
+        // plain error would send the caller off to create a duplicate, so say
+        // what happened and hand back the id it can retry against.
+        try {
+          const attachments = await resolveAttachments(files, dirname(configPath));
+          const uploaded = (await client.uploadTaskAttachments(task.id as number, attachments)) as {
+            attachments?: unknown[];
+          };
+          return ok({ ...task, attachments: uploaded?.attachments ?? [] });
+        } catch (err) {
+          return ok({
+            ...task,
+            attachments: [],
+            warning: `The task was created (id ${task.id}) but attaching files failed: ${
+              err instanceof Error ? err.message : String(err)
+            }. Do NOT create the task again — retry the upload against this id.`,
+          });
+        }
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "update_task",
+    "Edit a task's content in the agent's project: title, description, notes, priority, and/or attach files. Only the fields you pass are changed — anything you omit is left as it is. Use update_task_status to move a task's status, and claim_task to assign it. Returns the updated task.",
+    {
+      task: z.number().int().describe("Task id."),
+      title: z.string().min(1).optional().describe("New title."),
+      description: z.string().optional().describe("New markdown description (replaces)."),
+      notes: z.string().optional().describe("New markdown notes (replaces)."),
+      priority: z
+        .enum(["low", "normal", "high", "critical"])
+        .optional()
+        .describe("New task priority."),
+      files: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Paths to attach to this task, relative to the project root (or absolute, inside it). Max 25MB each. Attaching is additive — it never removes existing attachments.",
+        ),
+      ...profileArg,
+    },
+    async ({ task, title, description, notes, priority, files, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+
+        // Nothing to do is a caller mistake worth naming: a no-op that returns
+        // the task unchanged reads as success and hides the missing argument.
+        const hasFields =
+          title !== undefined ||
+          description !== undefined ||
+          notes !== undefined ||
+          priority !== undefined;
+        if (!hasFields && !files?.length) {
+          return fail(
+            new Error(
+              "Nothing to update: pass at least one of title, description, notes, priority or files.",
+            ),
+          );
+        }
+
+        let updated: unknown = undefined;
+        if (hasFields) {
+          updated = await client.updateTask(task, {
             title,
             description_markdown: description,
+            notes_markdown: notes,
             priority,
-            claim,
-          }),
-        );
+          });
+        }
+
+        if (!files?.length) return ok(updated);
+
+        const attachments = await resolveAttachments(files, dirname(configPath));
+        const uploaded = (await client.uploadTaskAttachments(task, attachments)) as {
+          attachments?: unknown[];
+        };
+        return ok({
+          ...(typeof updated === "object" && updated !== null ? updated : { id: task }),
+          attachments: uploaded?.attachments ?? [],
+        });
       } catch (err) {
         return fail(err);
       }

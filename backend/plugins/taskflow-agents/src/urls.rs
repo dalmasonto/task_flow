@@ -130,6 +130,12 @@ pub fn router() -> Router {
             "/api/taskflow/agents/tasks/{task}/status",
             post(views::update_task_status_as_agent),
         )
+        // Edit a task's content (title/description/notes/priority). Partial:
+        // only the fields present in the body are written.
+        .route(
+            "/api/taskflow/agents/tasks/{task}",
+            post(views::update_task_as_agent),
+        )
         // Human-authed: send one key to an agent's terminal. Broadcast on the
         // project's terminal_inputs realtime group; the target agent's mirror
         // types it into its pane. Allowlisted keys only.
@@ -148,6 +154,14 @@ pub fn router() -> Router {
         .route(
             "/api/taskflow/agents/tasks/{task}/claim",
             post(views::claim_task_as_agent),
+        )
+        // Agent-authed: an agent attaches files to a task in its own project —
+        // the counterpart of the human route above, so an agent can hang the
+        // spec it just wrote on the task it belongs to. Same raised body limit.
+        .route(
+            "/api/taskflow/agents/tasks/{task}/attachments",
+            post(views::upload_task_attachment_as_agent)
+                .layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
         )
         // Review workflow. The human path is auth-gated (active project member);
         // the agent path is `RequireAgent`-gated (task in the agent's project).

@@ -127,3 +127,110 @@ async fn task_activity_names_the_task_it_is_about() {
         "status_changed must still report the transition"
     );
 }
+
+// An agent must be able to correct a task it authored. Before this the agent API
+// could create a task and advance its status and nothing else — a task written
+// under a superseded scheme could never be fixed, only abandoned or duplicated,
+// and both lose history.
+#[tokio::test]
+async fn an_agent_can_edit_its_own_task() {
+    let f = fixture().await;
+    let created = f
+        .app
+        .post_as_agent(
+            &f.key,
+            "/api/taskflow/agents/tasks",
+            json!({ "title": "old title", "description_markdown": "old body" }),
+        )
+        .await
+        .json()
+        .await;
+    let id = created["id"].as_i64().expect("task id");
+
+    let resp = f
+        .app
+        .post_as_agent(
+            &f.key,
+            &format!("/api/taskflow/agents/tasks/{id}"),
+            json!({
+                "title": "new title",
+                "description_markdown": "new body",
+                "priority": "high",
+            }),
+        )
+        .await;
+    assert_eq!(resp.status(), 200, "an agent must be able to edit its own task");
+
+    let body = resp.json().await;
+    assert_eq!(body["id"].as_i64().unwrap(), id, "an edit must not create a new task");
+    assert_eq!(body["title"], json!("new title"));
+    assert_eq!(body["description_markdown"], json!("new body"));
+    assert_eq!(body["priority"], json!("high"));
+}
+
+// A partial edit must leave everything it did not name alone. Sending only a
+// title must not blank the description — the difference between an edit and an
+// overwrite.
+#[tokio::test]
+async fn an_edit_leaves_unnamed_fields_untouched() {
+    let f = fixture().await;
+    let created = f
+        .app
+        .post_as_agent(
+            &f.key,
+            "/api/taskflow/agents/tasks",
+            json!({ "title": "t", "description_markdown": "keep me", "notes_markdown": "and me" }),
+        )
+        .await
+        .json()
+        .await;
+    let id = created["id"].as_i64().expect("task id");
+
+    let body = f
+        .app
+        .post_as_agent(
+            &f.key,
+            &format!("/api/taskflow/agents/tasks/{id}"),
+            json!({ "title": "renamed" }),
+        )
+        .await
+        .json()
+        .await;
+
+    assert_eq!(body["title"], json!("renamed"));
+    assert_eq!(body["description_markdown"], json!("keep me"), "description must survive");
+    assert_eq!(body["notes_markdown"], json!("and me"), "notes must survive");
+}
+
+// The project boundary is the authorization boundary, exactly as it is for the
+// status and claim endpoints: an agent may only touch tasks in its own project.
+#[tokio::test]
+async fn an_agent_cannot_edit_a_task_in_another_project() {
+    let app = TestApp::new().await;
+
+    let project_a = seed_project().await;
+    let user_a = app.create_user().await;
+    make_active_project_member(project_a, user_a).await;
+    let (_id_a, key_a) = mint(&app, user_a, project_a).await;
+
+    let project_b = seed_project().await;
+    let user_b = app.create_user().await;
+    make_active_project_member(project_b, user_b).await;
+    let (_id_b, key_b) = mint(&app, user_b, project_b).await;
+
+    let theirs = app
+        .post_as_agent(&key_b, "/api/taskflow/agents/tasks", json!({ "title": "theirs" }))
+        .await
+        .json()
+        .await;
+    let id = theirs["id"].as_i64().expect("task id");
+
+    let resp = app
+        .post_as_agent(
+            &key_a,
+            &format!("/api/taskflow/agents/tasks/{id}"),
+            json!({ "title": "hijacked" }),
+        )
+        .await;
+    assert_eq!(resp.status(), 403, "an agent must not edit another project's task");
+}
