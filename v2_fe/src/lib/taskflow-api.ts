@@ -1481,3 +1481,28 @@ export async function setGithubAutoMirror(
   })
   return response.json()
 }
+
+// --- Dashboard stats ---------------------------------------------------------
+
+export type StatsRange = "7d" | "30d" | "90d" | "all"
+export type MemberSeconds = { kind: "user" | "agent"; id: number; label: string; seconds: number }
+export type MemberCount = { kind: "user" | "agent"; id: number; label: string; count: number }
+export type ProjectStats = {
+  range: string
+  generated_at: string
+  worked_per_member: MemberSeconds[]
+  tasks_closed_by_day: { day: string; count: number }[]
+  activity_by_tool: { tool: string; count: number }[]
+  activity_by_member: MemberCount[]
+  totals: { closed_in_range: number; open_now: number; active_members: number }
+}
+
+/** Project insights for the dashboard. Session-auth; 404 if not a member. */
+export async function fetchProjectStats(projectId: number, range: StatsRange): Promise<ProjectStats> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/taskflow/projects/${projectId}/stats?range=${range}`,
+    { headers: bearerHeaders(), credentials: "include" },
+  )
+  if (!res.ok) throw new Error(`Could not load dashboard stats (${res.status})`)
+  return (await res.json()) as ProjectStats
+}
