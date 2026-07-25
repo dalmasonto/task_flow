@@ -12,8 +12,8 @@ use chrono::{Datelike, Duration, TimeZone, Utc};
 use serde_json::Value;
 
 use support::{
-    TestApp, seed_active_member, seed_activity, seed_closed_task, seed_project, seed_session,
-    seed_task,
+    TestApp, TestResponse, seed_active_member, seed_activity, seed_closed_task, seed_project,
+    seed_session, seed_task,
 };
 use taskflow_tasks::models::TaskflowActorKind;
 
@@ -404,4 +404,157 @@ async fn non_member_gets_404() {
         .get_as(s.outsider, &format!("/api/taskflow/projects/{}/stats", s.project))
         .await;
     assert_eq!(resp.status(), 404);
+}
+
+/// `activity_by_tool` caps at the top 12 actions by count, folding everything
+/// past that into a single `{"tool":"Other","count":<sum of the tail>}` entry
+/// (see `views.rs`'s `if tools.len() > 12` branch). No other test in this
+/// file exceeds 2 distinct actions, so this is the only regression pin for
+/// the fold itself. Self-contained project/member so it can't perturb the
+/// shared `build_scenario` sums used by the tests above.
+#[tokio::test]
+async fn activity_by_tool_folds_the_tail_past_top_12_into_other() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let member = app.create_user().await;
+    seed_active_member(project, member).await;
+    let task = seed_task(project).await;
+
+    // 14 distinct actions, each with a distinct count so desc ordering is
+    // deterministic: tool01=14 events ... tool14=1 event.
+    for i in 1..=14i64 {
+        let action = format!("tool{i:02}");
+        let count = 15 - i; // tool01 -> 14, tool02 -> 13, ..., tool14 -> 1
+        for _ in 0..count {
+            seed_activity(
+                project,
+                task,
+                TaskflowActorKind::User,
+                Some(member),
+                None,
+                "Member",
+                &action,
+            )
+            .await;
+        }
+    }
+
+    let resp = s_get_stats_all(&app, member, project).await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json().await;
+
+    let by_tool = body["activity_by_tool"].as_array().expect("array");
+    assert_eq!(by_tool.len(), 13, "top 12 + one folded 'Other' entry");
+
+    // First 12 entries are the 12 highest-count actions (tool01..tool12,
+    // counts 14 down to 3), strictly descending.
+    for i in 1..=12i64 {
+        let action = format!("tool{i:02}");
+        let expected_count = 15 - i;
+        assert_eq!(
+            tool_count(by_tool, &action),
+            Some(expected_count),
+            "entry for {action} present with its own count in the top 12"
+        );
+    }
+    for i in 0..11 {
+        assert!(
+            by_tool[i]["count"].as_i64().unwrap() >= by_tool[i + 1]["count"].as_i64().unwrap(),
+            "activity_by_tool must be desc by count"
+        );
+    }
+
+    // 13th entry: "Other", summing the two smallest tails (tool13=2, tool14=1).
+    assert_eq!(by_tool[12]["tool"], "Other");
+    assert_eq!(
+        by_tool[12]["count"].as_i64(),
+        Some(2 + 1),
+        "'Other' sums the counts of the folded tail (tool13 + tool14)"
+    );
+    assert_eq!(tool_count(by_tool, "tool13"), None, "tool13 folded into Other, not listed on its own");
+    assert_eq!(tool_count(by_tool, "tool14"), None, "tool14 folded into Other, not listed on its own");
+}
+
+/// `active_members` counts a still-running session (`duration_seconds: None`,
+/// `ended_at: None`) — it is NOT gated on a completed duration the way
+/// `worked_per_member` is (see `views.rs`: `active` is built in its own pass
+/// over `sessions`, keyed only on `in_range(s.started_at)`, while `worked`
+/// additionally requires `s.duration_seconds` to be `Some`). This pins that
+/// split against a regression back to `active_members = worked.len()`.
+#[tokio::test]
+async fn active_members_counts_a_still_running_session_worked_per_member_does_not() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let member_a = app.create_user().await;
+    seed_active_member(project, member_a).await;
+    let task = seed_task(project).await;
+
+    let now = Utc::now();
+
+    // A's ONE session is still running: no duration, no ended_at.
+    seed_session(
+        project,
+        task,
+        TaskflowActorKind::User,
+        Some(member_a),
+        None,
+        "Member A",
+        now - Duration::hours(1),
+        None,
+    )
+    .await;
+
+    let resp = s_get_stats_all(&app, member_a, project).await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json().await;
+
+    assert!(
+        body["totals"]["active_members"].as_i64().unwrap_or(0) >= 1,
+        "a still-running session's actor counts toward active_members"
+    );
+
+    let worked = body["worked_per_member"].as_array().expect("array");
+    assert_eq!(
+        find_member(worked, "user", member_a),
+        None,
+        "a still-running (duration-less) session contributes nothing to worked_per_member"
+    );
+
+    // Belt-and-suspenders: add a second, completed session for the SAME
+    // member and confirm active_members counts them once (distinct actor),
+    // not twice across the two sessions.
+    seed_session(
+        project,
+        task,
+        TaskflowActorKind::User,
+        Some(member_a),
+        None,
+        "Member A",
+        now - Duration::hours(2),
+        Some(120),
+    )
+    .await;
+
+    let resp2 = s_get_stats_all(&app, member_a, project).await;
+    assert_eq!(resp2.status(), 200);
+    let body2 = resp2.json().await;
+    assert_eq!(
+        body2["totals"]["active_members"].as_i64(),
+        Some(1),
+        "one distinct member across a running + a completed session counts once"
+    );
+    let worked2 = body2["worked_per_member"].as_array().expect("array");
+    assert_eq!(
+        find_member(worked2, "user", member_a).and_then(|e| e["seconds"].as_i64()),
+        Some(120),
+        "worked_per_member only sums the completed session's duration"
+    );
+}
+
+/// Shared helper for the two self-contained tests above: GET stats with
+/// `range=all` (irrelevant to what they assert, but keeps every seeded
+/// session/activity — regardless of timestamp — in scope).
+async fn s_get_stats_all(app: &TestApp, user: i64, project: i64) -> TestResponse {
+    app.get_as(user, &format!("/api/taskflow/projects/{project}/stats?range=all"))
+        .await
 }
