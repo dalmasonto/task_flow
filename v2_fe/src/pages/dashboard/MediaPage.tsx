@@ -12,6 +12,7 @@ import {
   RefreshCwIcon,
 } from "lucide-react"
 
+import type { TaskflowMessageAttachment, TaskflowTaskAttachment } from "@/api/client"
 import { AttachmentPreviewDialog } from "@/components/message-attachments"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -51,10 +52,16 @@ export function MediaPage({
   onOpenChannel: (channelId: number | null) => void
 }) {
   const [filter, setFilter] = React.useState<MediaFilter>("all")
-  const [data, setData] = React.useState<MediaItem[] | null>(null)
-  // The projectId `data` was fetched for. Used to derive `displayData` below so
-  // a project switch can never render the previous project's attachments under
-  // the new header — same stale-guard as OverviewPage.
+  // Raw attachment rows, untouched by mapping — `channelName` identity changes
+  // (new events on the live workspace) must never trigger a refetch, so the
+  // fetch effect below reads/writes only this and never the mapped items.
+  const [rawData, setRawData] = React.useState<{
+    chat: TaskflowMessageAttachment[]
+    task: TaskflowTaskAttachment[]
+  } | null>(null)
+  // The projectId `rawData` was fetched for. Used to derive `displayItems`
+  // below so a project switch can never render the previous project's
+  // attachments under the new header — same stale-guard as OverviewPage.
   const [dataProjectId, setDataProjectId] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -75,16 +82,7 @@ export function MediaPage({
       try {
         const { chat, task } = await fetchProjectMedia(projectId)
         if (!active) return
-        const chatItems = chat.map((row) =>
-          messageRowToMediaItem(row, channelName(row.channel), "/dashboard/agents")
-        )
-        const taskItems = task.map((row) => taskRowToMediaItem(row, `task #${row.task}`, "/dashboard/board"))
-        const merged = [...chatItems, ...taskItems].sort((a, b) => {
-          const at = a.createdAt ? Date.parse(a.createdAt) : 0
-          const bt = b.createdAt ? Date.parse(b.createdAt) : 0
-          return bt - at
-        })
-        setData(merged)
+        setRawData({ chat, task })
         setDataProjectId(projectId)
       } catch (err) {
         if (!active) return
@@ -96,7 +94,44 @@ export function MediaPage({
     return () => {
       active = false
     }
-  }, [projectId, retryToken, channelName])
+    // `channelName` is intentionally excluded: it's derived from the whole
+    // live-workspace object and gets a new identity on nearly every realtime
+    // event, which would otherwise refetch on every task update/chat
+    // message/heartbeat. Row → MediaItem mapping (which needs channelName)
+    // happens at render in `displayItems` below, not here.
+  }, [projectId, retryToken])
+
+  // Only trust `rawData` when it was fetched for the project currently on
+  // screen — otherwise a project switch would briefly render the previous
+  // project's attachments under the new header.
+  const displayItems = React.useMemo(() => {
+    if (!rawData || dataProjectId !== projectId) return null
+    const chatItems = rawData.chat.map((row) =>
+      messageRowToMediaItem(row, channelName(row.channel), "/dashboard/agents")
+    )
+    const taskItems = rawData.task.map((row) => taskRowToMediaItem(row, `task #${row.task}`, "/dashboard/board"))
+    return [...chatItems, ...taskItems].sort((a, b) => {
+      const at = a.createdAt ? Date.parse(a.createdAt) : 0
+      const bt = b.createdAt ? Date.parse(b.createdAt) : 0
+      return bt - at
+    })
+  }, [rawData, dataProjectId, projectId, channelName])
+
+  const visible = React.useMemo(
+    () => displayItems?.filter((item) => matchesMediaFilter(item, filter)) ?? [],
+    [displayItems, filter]
+  )
+
+  // If the visible set shrinks while the lightbox is open (e.g. the filter or
+  // a background realtime change drops the active item), an out-of-range
+  // index would otherwise keep pointing at the wrong item in
+  // AttachmentPreviewDialog — close it instead.
+  React.useEffect(() => {
+    if (activeIndex !== null && activeIndex >= visible.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting a now-out-of-range index is a legitimate derived-state correction, not initial data loading
+      setActiveIndex(null)
+    }
+  }, [visible.length, activeIndex])
 
   if (projectId == null) {
     return (
@@ -114,12 +149,6 @@ export function MediaPage({
     )
   }
 
-  // Only trust `data` when it was fetched for the project currently on screen
-  // — otherwise a project switch would briefly render the previous project's
-  // attachments under the new header.
-  const displayData = data && dataProjectId === projectId ? data : null
-  const visible = displayData ? displayData.filter((item) => matchesMediaFilter(item, filter)) : []
-
   return (
     <section className="grid gap-5 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4 shadow-sm">
@@ -133,8 +162,8 @@ export function MediaPage({
           aria-label="Filter media"
         >
           {FILTERS.map((option) => {
-            const count = displayData
-              ? displayData.filter((item) => matchesMediaFilter(item, option.value)).length
+            const count = displayItems
+              ? displayItems.filter((item) => matchesMediaFilter(item, option.value)).length
               : 0
             const active = filter === option.value
             return (
@@ -174,19 +203,19 @@ export function MediaPage({
             Try again
           </Button>
         </div>
-      ) : loading && !displayData ? (
+      ) : loading && !displayItems ? (
         <MediaSkeleton />
-      ) : displayData && displayData.length === 0 ? (
+      ) : displayItems && displayItems.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-muted/40 p-10 text-center">
           <ImagesIcon className="size-6 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No media in this project yet.</p>
         </div>
-      ) : displayData && visible.length === 0 ? (
+      ) : displayItems && visible.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-muted/40 p-10 text-center">
           <ImagesIcon className="size-6 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">No items match this filter.</p>
         </div>
-      ) : displayData ? (
+      ) : displayItems ? (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
           {visible.map((item, index) => (
             <MediaTile
