@@ -109,6 +109,61 @@ async fn session_register_and_reconnect() {
     assert_eq!(conflict.status(), 409, "a foreign agent must not claim the identifier");
 }
 
+// A foreign row that stopped heartbeating is DEAD, and a dead agent's identifier
+// must not block a live one forever. Ownership was checked without consulting
+// liveness — the one place in this file that did so — while `session_is_live`
+// governs liveness everywhere else. A crashed process never calls `/close`, so
+// its row keeps `status = connected` for good: any agent that later computed the
+// same identifier got 409 on every attempt, and retrying could never resolve it
+// because neither the row nor the caller changes between tries.
+#[tokio::test]
+async fn a_dead_agents_identifier_can_be_reclaimed() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (dead_key, dead_id) = mint_agent(&app, user, project, "Ghost", "main").await;
+    let (live_key, live_id) = mint_agent(&app, user, project, "Heir", "main").await;
+
+    let session = register(&app, &dead_key, "sess-shared").await.json().await["id"]
+        .as_i64()
+        .unwrap();
+
+    // While it is still beating the identifier is genuinely taken.
+    let blocked = register(&app, &live_key, "sess-shared").await;
+    assert_eq!(blocked.status(), 409, "a LIVE agent's identifier must stay protected");
+
+    // The owner's process dies: no close, no further beats.
+    app.backdate_session_heartbeat(session, 600).await;
+
+    let reclaimed = register(&app, &live_key, "sess-shared").await;
+    // Status first, and only then the body: a 409 comes back with an empty body,
+    // so parsing it to build the failure message panics before the assertion can
+    // report what actually went wrong.
+    assert_eq!(
+        reclaimed.status(),
+        200,
+        "a dead agent's identifier must be reclaimable"
+    );
+    let row = reclaimed.json().await;
+    assert_eq!(row["id"].as_i64().unwrap(), session, "reclaim reuses the row");
+    assert_eq!(row["agent"], json!(live_id), "the row must now belong to the claimant");
+    assert_eq!(row["status"], json!("connected"));
+    assert_eq!(row["disconnected_at"], json!(null));
+
+    // And the reclaim is total: the dead agent no longer owns anything, so it
+    // cannot heartbeat the row back out from under its new owner.
+    let beat = app
+        .post_as_agent(
+            &dead_key,
+            &format!("/api/taskflow/agents/sessions/{session}/heartbeat"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(beat.status(), 403, "the dispossessed agent must not still own the session");
+    let _ = dead_id;
+}
+
 // A heartbeat bumps the session's and the agent's last_seen_at, and applies the
 // activity-status hint (idle/busy) to the agent.
 #[tokio::test]

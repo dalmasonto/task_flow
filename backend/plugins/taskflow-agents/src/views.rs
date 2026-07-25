@@ -1808,10 +1808,32 @@ pub async fn register_session(
 
     let session = match existing {
         Some(mut row) => {
-            // The identifier is globally unique: a row owned by another agent is
-            // not ours to reconnect. 409 CONFLICT — the caller cannot claim it.
+            // The identifier is globally unique, so a row owned by another agent
+            // is not ours to reconnect — but only while that owner is still
+            // ALIVE. Ownership without liveness is a deadlock: a process that
+            // dies never calls `/close`, so its row keeps `status = connected`
+            // forever (see `AGENT_HEARTBEAT_WINDOW_SECS`), and any agent that
+            // later computes the same identifier is refused on every attempt,
+            // with nothing about retrying able to change either side.
+            //
+            // So apply the same rule the rest of this file uses: liveness is
+            // `connected AND heartbeated recently`, never the stored column
+            // alone. A live owner is protected; a dead one is dispossessed.
             if row.agent.id() != agent.agent_id {
-                return Err(StatusCode::CONFLICT);
+                if session_is_live(&row, now) {
+                    return Err(StatusCode::CONFLICT);
+                }
+                // Reclaim moves the row wholesale, project included — the new
+                // owner may be in a different one, and a row left pointing at
+                // the dead agent's project would leak into that project's
+                // roster and session counts.
+                row.agent = ForeignKey::new(agent.agent_id);
+                row.project = ForeignKey::new(agent.project_id);
+                row.connected_by = None;
+                // This is a new connection, not a resumed one. Left alone, the
+                // dead agent's timestamp would claim the caller has been
+                // connected since whenever that process started.
+                row.connected_at = now;
             }
             row.status = TaskflowAgentSessionStatus::Connected;
             row.disconnected_at = None;
