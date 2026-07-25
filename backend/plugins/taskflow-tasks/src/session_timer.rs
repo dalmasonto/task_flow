@@ -94,11 +94,15 @@ async fn reconcile(task_id: i64) {
     if is_terminal && task.closed_at.is_none() {
         let mut t = task.clone();
         t.closed_at = Some(chrono::Utc::now());
-        let _ = TaskflowTask::objects().save(t).await;
+        if let Err(err) = TaskflowTask::objects().save(t).await {
+            tracing::warn!(task_id, ?err, "failed to stamp closed_at on task");
+        }
     } else if !is_terminal && task.closed_at.is_some() {
         let mut t = task.clone();
         t.closed_at = None;
-        let _ = TaskflowTask::objects().save(t).await;
+        if let Err(err) = TaskflowTask::objects().save(t).await {
+            tracing::warn!(task_id, ?err, "failed to clear closed_at on task");
+        }
     }
 
     if task.status == TaskflowTaskStatus::InProgress {

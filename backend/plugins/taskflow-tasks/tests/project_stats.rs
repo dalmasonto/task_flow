@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use support::{
     TestApp, TestResponse, seed_active_member, seed_activity, seed_closed_task, seed_project,
-    seed_session, seed_task,
+    seed_session, seed_task, seed_task_with_operator,
 };
 use taskflow_tasks::models::TaskflowActorKind;
 
@@ -107,8 +107,14 @@ async fn build_scenario() -> Scenario {
     )
     .await;
 
-    // A `system` session: must NEVER appear in worked_per_member or count
-    // toward active_members, at any range.
+    // A `system` session on `work_task`, which has NO operator set (plain
+    // `seed_task`): must NEVER appear in worked_per_member or count toward
+    // active_members, at any range — this is the "unattributable, skip it"
+    // half of the operator-credit rule. See
+    // `system_session_credits_the_operator_user` /
+    // `system_session_on_unoperated_task_is_unattributable` below for the
+    // dedicated, non-vacuous pin of the full rule (including the operated
+    // case).
     seed_session(
         project,
         work_task,
@@ -551,7 +557,189 @@ async fn active_members_counts_a_still_running_session_worked_per_member_does_no
     );
 }
 
-/// Shared helper for the two self-contained tests above: GET stats with
+/// The headline behavior this change exists for: the auto-timer
+/// (`session_timer.rs`) opens EVERY session as `actor_kind=System,
+/// actor_user=None`, so before this fix `actor_key`/`credited_key` dropped
+/// every auto-tracked session and every member's dashboard total read 0. A
+/// `system` session's duration must instead land on its task's OPERATOR —
+/// `operator_user` here — both in `worked_per_member`'s seconds and in
+/// `active_members`'s count.
+///
+/// Non-vacuous: reverting `credited_key` to the old "system always maps to
+/// None" behavior makes this fail (verified manually — see task report),
+/// since `worked_per_member` would then have no entry for `operator` at all.
+#[tokio::test]
+async fn system_session_credits_the_operator_user() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let operator = app.create_user().await;
+    seed_active_member(project, operator).await;
+    let task = seed_task_with_operator(project, Some(operator), None).await;
+
+    // The operator has never personally opened a session — the ONLY session
+    // on this task is the auto-tracked System one. Also pins the label
+    // fallback: `member_labels` has no `("user", operator)` entry from any
+    // non-system row, so the response must fall back to `default_member_label`
+    // rather than leaving the label blank or panicking.
+    seed_session(
+        project,
+        task,
+        TaskflowActorKind::System,
+        None,
+        None,
+        "System",
+        Utc::now() - Duration::hours(1),
+        Some(1_800),
+    )
+    .await;
+
+    let resp = s_get_stats_all(&app, operator, project).await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json().await;
+
+    let worked = body["worked_per_member"].as_array().expect("array");
+    assert_eq!(
+        find_member(worked, "user", operator).and_then(|e| e["seconds"].as_i64()),
+        Some(1_800),
+        "the System session's duration is credited to the task's operator_user"
+    );
+    assert_eq!(
+        find_member(worked, "system", 0),
+        None,
+        "the credited entry is keyed as the operator's own (kind, id), never \"system\""
+    );
+    assert_eq!(
+        body["totals"]["active_members"].as_i64(),
+        Some(1),
+        "the operator counts as an active member from the System session alone"
+    );
+    assert_eq!(
+        find_member(worked, "user", operator).and_then(|e| e["label"].as_str()),
+        Some(format!("User {operator}")).as_deref(),
+        "operator never appeared under their own actor_label, so the label falls back to \"User {{id}}\""
+    );
+}
+
+/// Same rule, the agent-operator half: `operator_agent_id` is used when
+/// `operator_user` is unset, keyed as `(\"agent\", id)`.
+#[tokio::test]
+async fn system_session_credits_the_operator_agent() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let member = app.create_user().await;
+    seed_active_member(project, member).await;
+    let agent_id = 4242i64;
+    let task = seed_task_with_operator(project, None, Some(agent_id)).await;
+
+    seed_session(
+        project,
+        task,
+        TaskflowActorKind::System,
+        None,
+        None,
+        "System",
+        Utc::now() - Duration::hours(1),
+        Some(900),
+    )
+    .await;
+
+    let resp = s_get_stats_all(&app, member, project).await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json().await;
+
+    let worked = body["worked_per_member"].as_array().expect("array");
+    assert_eq!(
+        find_member(worked, "agent", agent_id).and_then(|e| e["seconds"].as_i64()),
+        Some(900),
+        "the System session's duration is credited to the task's operator_agent_id"
+    );
+    assert_eq!(body["totals"]["active_members"].as_i64(), Some(1));
+}
+
+/// The other half of the rule: a `system` session on a task with NEITHER
+/// `operator_user` NOR `operator_agent_id` set is unattributable and must be
+/// dropped — not folded into some default bucket, not crashing the endpoint.
+#[tokio::test]
+async fn system_session_on_unoperated_task_is_unattributable() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let member = app.create_user().await;
+    seed_active_member(project, member).await;
+    // Plain `seed_task`: operator_user = None, operator_agent_id = None.
+    let task = seed_task(project).await;
+
+    seed_session(
+        project,
+        task,
+        TaskflowActorKind::System,
+        None,
+        None,
+        "System",
+        Utc::now() - Duration::hours(1),
+        Some(3_600),
+    )
+    .await;
+
+    let resp = s_get_stats_all(&app, member, project).await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json().await;
+
+    assert_eq!(
+        body["worked_per_member"].as_array().expect("array").len(),
+        0,
+        "an unoperated task's System session contributes to no member's worked time"
+    );
+    assert_eq!(
+        body["totals"]["active_members"], 0,
+        "an unoperated task's System session does not make anyone an active member"
+    );
+}
+
+/// A manual `user`/`agent` session still credits its own actor directly,
+/// completely unaffected by the operator-routing added for `system`
+/// sessions — even on a task that ALSO has a (different) operator set, to
+/// prove the two paths don't cross-contaminate each other's credit.
+#[tokio::test]
+async fn user_and_agent_sessions_still_credit_their_own_actor_regardless_of_operator() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let actor = app.create_user().await;
+    let operator = app.create_user().await;
+    seed_active_member(project, actor).await;
+    seed_active_member(project, operator).await;
+    // Operator is a DIFFERENT user than the one who opens the manual session.
+    let task = seed_task_with_operator(project, Some(operator), None).await;
+
+    seed_session(
+        project,
+        task,
+        TaskflowActorKind::User,
+        Some(actor),
+        None,
+        "Actor",
+        Utc::now() - Duration::hours(1),
+        Some(240),
+    )
+    .await;
+
+    let resp = s_get_stats_all(&app, actor, project).await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.json().await;
+
+    let worked = body["worked_per_member"].as_array().expect("array");
+    assert_eq!(
+        find_member(worked, "user", actor).and_then(|e| e["seconds"].as_i64()),
+        Some(240),
+        "a manual user session credits the session's own actor, not the task's operator"
+    );
+    assert_eq!(
+        find_member(worked, "user", operator),
+        None,
+        "the operator gets nothing from a session they didn't actually work"
+    );
+}
+
+/// Shared helper for the self-contained tests above: GET stats with
 /// `range=all` (irrelevant to what they assert, but keeps every seeded
 /// session/activity — regardless of timestamp — in scope).
 async fn s_get_stats_all(app: &TestApp, user: i64, project: i64) -> TestResponse {

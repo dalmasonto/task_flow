@@ -12,6 +12,7 @@ sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "ch
 chrono = { version = "0.4", features = ["serde"] }
 # The on_ready closed_at backfill spawns onto the runtime rather than blocking boot.
 tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
 
 [dev-dependencies]
 umbral-testing = "0.0.10"

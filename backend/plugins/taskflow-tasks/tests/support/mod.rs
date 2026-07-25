@@ -155,6 +155,52 @@ pub async fn seed_task(project: i64) -> i64 {
         .id
 }
 
+/// Seed a `not_started` task with an operator set — either a user (pass
+/// `operator_user: Some(id)`) or an agent (`operator_agent_id: Some(id)`), or
+/// neither for a task that is genuinely un-operated. `project_stats`'s
+/// `task_operators` map reads exactly these two fields to decide who a
+/// `system` session's time gets credited to.
+///
+/// Status is `not_started`, deliberately NOT `in_progress` — the latter would
+/// fire the `session_timer` reconciler and auto-open its own (unwanted,
+/// still-running) System session on this task, on top of whatever the test
+/// seeds explicitly.
+pub async fn seed_task_with_operator(
+    project: i64,
+    operator_user: Option<i64>,
+    operator_agent_id: Option<i64>,
+) -> i64 {
+    TaskflowTask::objects()
+        .create(TaskflowTask {
+            id: 0,
+            project: ForeignKey::new(project),
+            title: "Operated task".to_string(),
+            description_markdown: String::new(),
+            notes_markdown: None,
+            status: TaskflowTaskStatus::NotStarted,
+            priority: TaskflowTaskPriority::Normal,
+            sort_order: 0,
+            created_by: None,
+            assigned_user: None,
+            assigned_agent_id: None,
+            review_gate: None,
+            estimate_minutes: None,
+            operator_user: operator_user.map(ForeignKey::new),
+            operator_agent_id,
+            created_by_agent_id: None,
+            assignee_label: None,
+            due_at: None,
+            closed_at: None,
+            github_issue_number: None,
+            github_issue_url: None,
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .expect("create operated task")
+        .id
+}
+
 /// Load a task fresh by id.
 pub async fn load_task(task_id: i64) -> TaskflowTask {
     TaskflowTask::objects()

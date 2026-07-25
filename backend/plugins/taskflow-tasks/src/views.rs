@@ -159,6 +159,41 @@ fn actor_key(
     }
 }
 
+/// #60 follow-up: the auto-timer (`session_timer.rs`) opens EVERY session as
+/// `actor_kind=System, actor_user=None` — so before this, `actor_key` above
+/// dropped every single auto-tracked session from `worked_per_member`, and
+/// the dashboard's headline metric showed 0 for every member no matter how
+/// much time they'd actually put in. The work still happened under someone:
+/// the task's operator. So a `system` session is credited to its task's
+/// `operator_user` (preferred) or `operator_agent_id`, via `task_operators`
+/// (built once from the project's tasks). A `user`/`agent` session keeps
+/// crediting its own actor exactly as `actor_key` already does. A `system`
+/// session on a task with no operator at all is unattributable and is
+/// skipped, same as today.
+fn credited_key(
+    kind: &TaskflowActorKind,
+    user: Option<i64>,
+    agent: Option<i64>,
+    task_id: i64,
+    task_operators: &HashMap<i64, (String, i64)>,
+) -> Option<(String, i64)> {
+    match kind {
+        TaskflowActorKind::System => task_operators.get(&task_id).cloned(),
+        _ => actor_key(kind, user, agent),
+    }
+}
+
+/// Fallback label for a member key that never showed up with its own
+/// non-system `actor_label` (e.g. an operator who has never personally
+/// opened a session/activity row, only ever credited via System sessions on
+/// their operated tasks).
+fn default_member_label(kind: &str, id: i64) -> String {
+    match kind {
+        "agent" => format!("Agent {id}"),
+        _ => format!("User {id}"),
+    }
+}
+
 pub async fn project_stats(
     RequireAuth(user_id): RequireAuth<i64>,
     Path(project_id): Path<i64>,
@@ -173,40 +208,98 @@ pub async fn project_stats(
     let cut = cutoff(&range, now).map_err(|_| StatusCode::BAD_REQUEST)?;
     let in_range = |ts: DateTime<Utc>| cut.is_none_or(|c| ts >= c);
 
-    // --- worked_per_member + active_members (sessions) ---
+    // --- fetch: sessions, tasks, activity (all reused below) ---
     let sessions = TaskflowTaskSession::objects()
         .filter(taskflow_task_session::PROJECT.eq(project_id))
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tasks = TaskflowTask::objects()
+        .filter(taskflow_task::PROJECT.eq(project_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let activity = TaskflowTaskActivity::objects()
+        .filter(taskflow_task_activity::PROJECT.eq(project_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // task_id -> operator's member key, preferring `operator_user` over
+    // `operator_agent_id`; absent entirely for a task with no operator set.
+    // This is what a `system` session's time gets routed through below.
+    let mut task_operators: HashMap<i64, (String, i64)> = HashMap::new();
+    for t in &tasks {
+        if let Some(uid) = t.operator_user.as_ref().map(|f| f.id()) {
+            task_operators.insert(t.id, ("user".to_string(), uid));
+        } else if let Some(aid) = t.operator_agent_id {
+            task_operators.insert(t.id, ("agent".to_string(), aid));
+        }
+    }
+
+    // member key -> a display label, seeded from every non-system session's
+    // and activity row's `actor_label`. An operator credited only through
+    // System sessions (never having opened one under their own actor) falls
+    // back to `default_member_label` when resolving below. Built from ALL
+    // rows (not range-filtered) — a label is an identity fact, not a
+    // time-windowed one.
+    let mut member_labels: HashMap<(String, i64), String> = HashMap::new();
+    for s in &sessions {
+        if let Some(key) = actor_key(
+            &s.actor_kind,
+            s.actor_user.as_ref().map(|f| f.id()),
+            s.actor_agent_id,
+        ) {
+            member_labels.entry(key).or_insert_with(|| s.actor_label.clone());
+        }
+    }
+    for a in &activity {
+        if let Some(key) = actor_key(
+            &a.actor_kind,
+            a.actor_user.as_ref().map(|f| f.id()),
+            a.actor_agent_id,
+        ) {
+            member_labels.entry(key).or_insert_with(|| a.actor_label.clone());
+        }
+    }
+
+    // --- worked_per_member + active_members (sessions) ---
     let mut worked: HashMap<(String, i64), (String, i64)> = HashMap::new();
     for s in &sessions {
         let (Some(secs), true) = (s.duration_seconds, in_range(s.started_at)) else {
             continue;
         };
-        let Some(key) = actor_key(
+        let Some(key) = credited_key(
             &s.actor_kind,
             s.actor_user.as_ref().map(|f| f.id()),
             s.actor_agent_id,
+            s.task.id(),
+            &task_operators,
         ) else {
             continue;
         };
-        let e = worked.entry(key).or_insert((s.actor_label.clone(), 0));
+        let label = member_labels
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| default_member_label(&key.0, key.1));
+        let e = worked.entry(key).or_insert((label, 0));
         e.1 += secs;
     }
-    // active_members: distinct non-system actors with a session in range —
+    // active_members: distinct credited members with a session in range —
     // NOT gated on duration_seconds (a still-running session has none but the
-    // actor is still "active"), unlike worked_per_member above. Computed as
+    // member is still "active"), unlike worked_per_member above. Computed as
     // its own pass so the two aggregations can't silently drift together.
     let mut active: std::collections::HashSet<(String, i64)> = std::collections::HashSet::new();
     for s in &sessions {
         if !in_range(s.started_at) {
             continue;
         }
-        if let Some(key) = actor_key(
+        if let Some(key) = credited_key(
             &s.actor_kind,
             s.actor_user.as_ref().map(|f| f.id()),
             s.actor_agent_id,
+            s.task.id(),
+            &task_operators,
         ) {
             active.insert(key);
         }
@@ -224,11 +317,6 @@ pub async fn project_stats(
     worked_per_member.sort_by(|a, b| b.seconds.cmp(&a.seconds));
 
     // --- tasks: closed-by-day, closed_in_range, open_now (snapshot) ---
-    let tasks = TaskflowTask::objects()
-        .filter(taskflow_task::PROJECT.eq(project_id))
-        .fetch()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut by_day: HashMap<String, i64> = HashMap::new();
     let (mut closed_in_range, mut open_now) = (0i64, 0i64);
     for t in &tasks {
@@ -250,11 +338,6 @@ pub async fn project_stats(
     tasks_closed_by_day.sort_by(|a, b| a.day.cmp(&b.day));
 
     // --- activity: by tool (top 12 + "Other") and by member ---
-    let activity = TaskflowTaskActivity::objects()
-        .filter(taskflow_task_activity::PROJECT.eq(project_id))
-        .fetch()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut by_tool: HashMap<String, i64> = HashMap::new();
     let mut by_member: HashMap<(String, i64), (String, i64)> = HashMap::new();
     for a in &activity {
