@@ -256,8 +256,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   /** Ensure a live session exists for a profile; register one if not. */
   const ensureSession = async (
     client: TaskflowClient,
-    profileName: string,
+    profile: ResolvedProfile,
   ): Promise<number> => {
+    const { profileName } = profile;
     // `connect.ts` registered one at startup; reuse it so this process owns ONE
     // session row rather than racing its own connection — but ONLY when it is
     // this profile's. The connection belongs to one identity; handing its
@@ -271,7 +272,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     const existing = sessions.get(profileName);
     if (existing !== undefined) return existing;
     const session = await client.registerSession({
-      session_identifier: sessionIdentifier({ pane: await paneOnce, profileName }),
+      session_identifier: sessionIdentifier({
+        pane: await paneOnce,
+        profileName,
+        project: profile.project,
+        agentId: profile.agentId,
+        configPath: profile.configPath,
+      }),
       host: hostname(),
       pid: process.pid,
       cwd: process.cwd(),
@@ -732,7 +739,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           // the duplication the mirror's own comment says it is avoiding.
           session_identifier:
             session_identifier?.trim() ||
-            sessionIdentifier({ pane: await detectTmuxPane(), profileName: resolved.profileName }),
+            sessionIdentifier({
+              pane: await detectTmuxPane(),
+              profileName: resolved.profileName,
+              project: resolved.project,
+              agentId: resolved.agentId,
+              configPath: resolved.configPath,
+            }),
           host: hostname(),
           pid: process.pid,
           cwd: cwd ?? process.cwd(),
@@ -758,7 +771,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client, resolved } = picked;
-        const sessionId = await ensureSession(client, resolved.profileName);
+        const sessionId = await ensureSession(client, resolved);
         return ok(await client.heartbeat(sessionId, status));
       } catch (err) {
         return fail(err);
@@ -785,7 +798,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client, resolved } = picked;
-        const sessionId = await ensureSession(client, resolved.profileName);
+        const sessionId = await ensureSession(client, resolved);
         return ok(await client.appendFrame(sessionId, { content, stream }));
       } catch (err) {
         return fail(err);

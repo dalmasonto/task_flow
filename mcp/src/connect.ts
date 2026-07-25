@@ -206,7 +206,13 @@ export function startConnection(options: ConnectOptions): ConnectionHandle {
   let identifier: string | undefined;
   const clientOf = (): TaskflowClient => (client ??= createClient(profile));
   const identifierOf = (): string =>
-    (identifier ??= sessionIdentifier({ pane, profileName: profile.profileName }));
+    (identifier ??= sessionIdentifier({
+      pane,
+      profileName: profile.profileName,
+      project: profile.project,
+      agentId: profile.agentId,
+      configPath: profile.configPath,
+    }));
 
   const register = async (): Promise<number> => {
     const row = await clientOf().registerSession({
