@@ -195,6 +195,7 @@ import { ProfilePage } from "@/pages/account/ProfilePage"
 import { SettingsPage } from "@/pages/account/SettingsPage"
 import { InvitationsPage } from "@/pages/account/InvitationsPage"
 import { SecurityPage } from "@/pages/account/SecurityPage"
+import { OverviewPage } from "@/pages/dashboard/OverviewPage"
 
 type ColumnId = "not_started" | "in_progress" | "review" | "blocked" | "done"
 
@@ -3552,6 +3553,15 @@ function App() {
         <main className="h-[calc(100svh-3.5rem)] min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,var(--background),var(--muted))]">
           <Routes>
             <Route path="/dashboard" element={<Navigate to="/dashboard/board" replace />} />
+            <Route
+              path="/dashboard/overview"
+              element={
+                <OverviewPage
+                  projectId={activeProject ? liveId(activeProject.id) : null}
+                  currentUserId={currentUser?.id ?? null}
+                />
+              }
+            />
             <Route path="/dashboard/board" element={!activeProject ? (
           <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
         ) : (

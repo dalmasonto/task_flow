@@ -22,6 +22,7 @@ import {
   Clock3Icon,
   FileJsonIcon,
   KanbanSquareIcon,
+  LayoutDashboardIcon,
   ShieldCheckIcon,
   UserRoundPlusIcon,
 } from "lucide-react"
@@ -68,6 +69,12 @@ export function AppSidebar({
     if (isMobile) setOpenMobile(false)
   }, [isMobile, setOpenMobile])
   const navMain = [
+    {
+      title: "Dashboard",
+      url: "/dashboard/overview",
+      icon: <LayoutDashboardIcon />,
+      onSelect: closeMobileSidebar,
+    },
     {
       title: "Board",
       url: "/dashboard/board",
