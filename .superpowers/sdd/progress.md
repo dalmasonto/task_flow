@@ -41,3 +41,21 @@ Frontend: v2_fe/ (vitest node env, no jsdom).
 ## Previous plans this session (completed + merged)
 - MCP autoconnect + profile selection → main (cc1b8c4).
 - GitHub social login → main (31db1cf). Dev server was stale; restarted.
+
+## Post-review addition: operator attribution (commit 6946ff7)
+The final review + real data showed EVERY session is auto-tracked (System), so
+worked_per_member was empty. Per owner decision (credit the OPERATOR, dashboard-
+only), the stats endpoint now credits a System session's time to its task's
+operator (operator_user else operator_agent_id, else skip). Reviewed + approved,
+11/11 stats tests, non-vacuous. NOTE: against real project-2 data most System
+time credits to agent:1 (the agent operated the tasks); the human's operated
+time is low. Owner may want ASSIGNEE attribution instead — a one-line switch.
+
+## Final-review minors (triage)
+- Tile vs chart boundary seam: backend cutoff is rolling (now - N*24h), chart
+  shows N calendar UTC days; a task closed in the boundary partial-day counts in
+  the "Tasks done" tile but not the column chart. Cosmetic; fix = calendar-align
+  the cutoff. Non-blocking.
+- Attribution test gaps (Minor, logic verified correct): no test pins
+  operator_user-wins-when-both-set, nor a System still-running session on an
+  operated task, nor the agent label-fallback assertion.

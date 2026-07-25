@@ -104,9 +104,20 @@ same cost `activity_actions` already pays per project. Response:
 **Semantics (precise, so the SQL is unambiguous):**
 - `worked_per_member`: `SUM(duration_seconds)` over sessions with
   `project = {id}`, `started_at >= cutoff`, `duration_seconds IS NOT NULL`,
-  grouped by `(actor_kind, actor_user, actor_agent_id)`. `actor_kind = 'system'`
-  is **excluded** (auto-timer bookkeeping, not a person). Ordered by seconds
-  desc. `label` from the row's `actor_label`.
+  credited to a member. **Attribution (decided against real data — every session
+  is auto-tracked/System, so a naive "exclude System" leaves this empty):**
+  - a `user`/`agent` session credits its own actor (`actor_kind` + id);
+  - a `system` session (the auto-timer's) credits the **operator of its task**
+    (`operator_user` → a user member, else `operator_agent_id` → an agent
+    member). This is how a person's real drag-a-card-to-in-progress work counts
+    toward them without anyone pressing Start.
+  - a `system` session on a task with **no operator** is unattributable and
+    skipped.
+  Grouped by the resulting member key `(kind, id)` — kind is part of the key, so
+  a user id never collides with an agent id. Ordered by seconds desc. `label`
+  comes from a member→label map built from the project's activity/session
+  `actor_label`s (the operator has almost always acted); fall back to
+  `"User {id}"` / `"Agent {id}"` if no label is known.
 - `tasks_closed_by_day`: `COUNT(*)` of tasks with `project = {id}`,
   `closed_at >= cutoff`, grouped by `date(closed_at)` (UTC), ascending. Days with
   zero closures are omitted (the frontend fills the gaps for the chart).
@@ -122,8 +133,10 @@ same cost `activity_actions` already pays per project. Response:
 - `totals.closed_in_range`: count of tasks with `closed_at >= cutoff`.
 - `totals.open_now`: snapshot count of tasks whose status is **not** terminal
   (not `done`/`archived`) — range-independent, the current backlog.
-- `totals.active_members`: distinct non-system actors with a session
-  (`started_at >= cutoff`).
+- `totals.active_members`: distinct **member keys** (after the same operator-
+  attribution mapping as `worked_per_member`) with a session `started_at >=
+  cutoff`. So a System session on an operated task makes its operator count as
+  active; a System session on an operator-less task counts toward nobody.
 
 `all` uses no cutoff for every "in range" clause; `open_now` is always a
 snapshot.
