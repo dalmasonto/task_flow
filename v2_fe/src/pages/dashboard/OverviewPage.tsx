@@ -45,10 +45,19 @@ export function OverviewPage({
 }) {
   const [range, setRange] = React.useState<StatsRange>("30d")
   const [data, setData] = React.useState<ProjectStats | null>(null)
+  // The projectId `data` was fetched for. Used to derive `displayData` below so
+  // a project switch can never render the previous project's numbers under the
+  // new header — a mismatch always falls back to the loading/skeleton branch.
+  const [dataProjectId, setDataProjectId] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   // Bumped by the "Try again" button to re-run the effect without touching `range`.
   const [retryToken, setRetryToken] = React.useState(0)
+  // Fallback "now" for the day-series anchor if `generated_at` is ever missing
+  // or unparseable. `Date.now()` runs only inside this lazy initializer
+  // (called once, on mount) so the render body itself stays pure — same
+  // pattern as `useLivenessNow` in App.tsx.
+  const [mountedAt] = React.useState(() => Date.now())
 
   React.useEffect(() => {
     // Nothing to fetch, and the "no project" branch below never reads
@@ -64,6 +73,7 @@ export function OverviewPage({
         const stats = await fetchProjectStats(projectId, range)
         if (!active) return
         setData(stats)
+        setDataProjectId(projectId)
       } catch (err) {
         if (!active) return
         setError(err instanceof Error ? err.message : "Could not load dashboard stats.")
@@ -92,7 +102,18 @@ export function OverviewPage({
     )
   }
 
-  const yourSeconds = currentUserId != null && data ? findMemberSeconds(data.worked_per_member, "user", currentUserId) ?? 0 : 0
+  // Only trust `data` when it was fetched for the project currently on screen —
+  // otherwise a project switch would briefly render the previous project's
+  // stats (wrong "Your time", member names, leaderboard) under the new header.
+  const displayData = data && dataProjectId === projectId ? data : null
+  const isAccessError = error != null && /\(404\)/.test(error)
+  const yourSeconds =
+    currentUserId != null && displayData ? findMemberSeconds(displayData.worked_per_member, "user", currentUserId) ?? 0 : 0
+  // `generated_at` is always present today, but guard it: an invalid/missing
+  // value should fall back to "now" rather than silently producing a flat,
+  // empty day-series chart.
+  const parsedGeneratedAt = displayData ? Date.parse(displayData.generated_at) : NaN
+  const anchor = Number.isNaN(parsedGeneratedAt) ? mountedAt : parsedGeneratedAt
 
   return (
     <section className="grid gap-5 p-4 sm:p-5">
@@ -125,36 +146,47 @@ export function OverviewPage({
       </div>
 
       {error ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-muted/40 p-8 text-center">
-          <AlertCircleIcon className="size-6 text-destructive" />
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <Button variant="outline" size="sm" onClick={() => setRetryToken((n) => n + 1)}>
-            <RefreshCwIcon />
-            Try again
-          </Button>
-        </div>
-      ) : loading && !data ? (
+        isAccessError ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-muted/40 p-8 text-center">
+            <AlertCircleIcon className="size-6 text-destructive" />
+            <p className="text-sm text-muted-foreground">You don't have access to this project's dashboard.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-muted/40 p-8 text-center">
+            <AlertCircleIcon className="size-6 text-destructive" />
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => setRetryToken((n) => n + 1)}>
+              <RefreshCwIcon />
+              Try again
+            </Button>
+          </div>
+        )
+      ) : loading && !displayData ? (
         <OverviewSkeleton />
-      ) : data ? (
+      ) : displayData ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile label="Your time" value={formatWorkedTime(yourSeconds)} />
-            <StatTile label="Tasks done" value={String(data.totals.closed_in_range)} />
-            <StatTile label="Tasks open" value={String(data.totals.open_now)} />
-            <StatTile label="Active members" value={String(data.totals.active_members)} />
+            <StatTile label="Tasks done" value={String(displayData.totals.closed_in_range)} />
+            <StatTile label="Tasks open" value={String(displayData.totals.open_now)} />
+            <StatTile label="Active members" value={String(displayData.totals.active_members)} />
           </div>
 
           <div className="grid gap-3 xl:grid-cols-2">
-            <Panel title="Tasks closed over time" subtitle={rangeSubtitle(range)} empty={data.tasks_closed_by_day.length === 0}>
+            <Panel title="Tasks closed over time" subtitle={rangeSubtitle(range)} empty={displayData.tasks_closed_by_day.length === 0}>
               {/* `generated_at` is the server's aggregation instant — using it
                   (rather than a fresh `Date.now()` at render time) keeps the
                   fill deterministic across re-renders of the same response. */}
-              <Columns rows={fillDaySeries(data.tasks_closed_by_day, range, Date.parse(data.generated_at))} />
+              <Columns rows={fillDaySeries(displayData.tasks_closed_by_day, range, anchor)} />
             </Panel>
 
-            <Panel title="Time worked per member" subtitle="From completed task sessions" empty={data.worked_per_member.length === 0}>
+            <Panel
+              title="Time worked per member"
+              subtitle="From completed task sessions"
+              empty={displayData.worked_per_member.length === 0}
+            >
               <div className="space-y-1.5">
-                {barModel(data.worked_per_member, (r) => r.seconds).map((row) => (
+                {barModel(displayData.worked_per_member, (r) => r.seconds).map((row) => (
                   <HBar
                     key={`${row.kind}-${row.id}`}
                     label={row.label}
@@ -166,22 +198,22 @@ export function OverviewPage({
               </div>
             </Panel>
 
-            <Panel title="Activity per tool" subtitle="Actions logged in range" empty={data.activity_by_tool.length === 0}>
+            <Panel title="Activity per tool" subtitle="Actions logged in range" empty={displayData.activity_by_tool.length === 0}>
               <div className="space-y-1.5">
-                {barModel(data.activity_by_tool, (r) => r.count).map((row) => (
+                {barModel(displayData.activity_by_tool, (r) => r.count).map((row) => (
                   <HBar key={row.tool} label={row.tool} pct={row.pct} valueLabel={String(row.count)} />
                 ))}
               </div>
             </Panel>
 
-            <Panel title="Most active" subtitle="By number of actions" empty={data.activity_by_member.length === 0}>
+            <Panel title="Most active" subtitle="By number of actions" empty={displayData.activity_by_member.length === 0}>
               <ol className="divide-y">
-                {data.activity_by_member.map((row, index) => (
+                {displayData.activity_by_member.map((row, index) => (
                   <LeaderboardRow
                     key={`${row.kind}-${row.id}`}
                     rank={index + 1}
                     row={row}
-                    workedSeconds={findMemberSeconds(data.worked_per_member, row.kind, row.id)}
+                    workedSeconds={findMemberSeconds(displayData.worked_per_member, row.kind, row.id)}
                     highlighted={row.kind === "user" && currentUserId != null && row.id === currentUserId}
                   />
                 ))}
