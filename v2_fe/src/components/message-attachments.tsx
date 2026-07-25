@@ -21,6 +21,8 @@ import {
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
+import { ChatDockContext, TaskChipContext } from "@/lib/markdown-contexts"
+import { handOffFromPreview } from "@/lib/preview-ref-handoff"
 import { cn } from "@/lib/utils"
 import {
   formatBytes,
@@ -391,6 +393,12 @@ export function AttachmentPreviewDialog({
     null
   )
   const previewRef = React.useRef<HTMLDivElement>(null)
+  // The openers this dialog was rendered under. A chip inside the preview must
+  // NOT call them directly: this dialog is z-80/81 and the task sheet is
+  // z-40/50, so the sheet would mount underneath the document being read. See
+  // lib/preview-ref-handoff.ts for why closing first beats a bigger z-index.
+  const outerOpenTask = React.useContext(TaskChipContext)
+  const outerChatDock = React.useContext(ChatDockContext)
   const active = attachments[activeIndex]
   const kind = active ? kindOf(active) : "file"
   const canZoom = kind === "image" || kind === "pdf"
@@ -424,7 +432,30 @@ export function AttachmentPreviewDialog({
     onOpenChange(nextOpen)
   }
 
+  const closePreview = () => handleOpenChange(false)
+  const openTaskFromPreview = handOffFromPreview(closePreview, outerOpenTask)
+  // `#msg` chips have the same problem: the chat dock is z-[60], still under
+  // this dialog's z-80. Wrapped per method rather than per object so the null
+  // case stays "render inert" instead of "looks clickable, does nothing".
+  const openChatFromPreview = handOffFromPreview(
+    closePreview,
+    outerChatDock ? (chatId: string) => outerChatDock.openChat(chatId) : null,
+  )
+  const openAgentChatFromPreview = handOffFromPreview(
+    closePreview,
+    outerChatDock ? (agentId: number) => outerChatDock.openAgentChat(agentId) : null,
+  )
+  const chatDockFromPreview =
+    openChatFromPreview && openAgentChatFromPreview
+      ? { openChat: openChatFromPreview, openAgentChat: openAgentChatFromPreview }
+      : null
+
   return (
+    // Providers wrap the Root rather than the Popup: they render no DOM, and
+    // keeping them outside base-ui's own tree avoids any assumption it makes
+    // about its children.
+    <TaskChipContext.Provider value={openTaskFromPreview}>
+    <ChatDockContext.Provider value={chatDockFromPreview}>
     <DialogPrimitive.Root open={open} modal="trap-focus" onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-80 bg-[oklch(0.08_0.004_255_/_0.92)] transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
@@ -522,6 +553,8 @@ export function AttachmentPreviewDialog({
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+    </ChatDockContext.Provider>
+    </TaskChipContext.Provider>
   )
 }
 
