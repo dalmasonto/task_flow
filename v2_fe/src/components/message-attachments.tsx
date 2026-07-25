@@ -374,7 +374,7 @@ function PendingCard({
 // Popup carousel — hosts ALL rich content
 // ---------------------------------------------------------------------------
 
-function AttachmentPreviewDialog({
+export function AttachmentPreviewDialog({
   attachments,
   activeIndex,
   open,

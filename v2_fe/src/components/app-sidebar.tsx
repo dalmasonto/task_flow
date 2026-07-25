@@ -21,6 +21,7 @@ import {
   CheckCircle2Icon,
   Clock3Icon,
   FileJsonIcon,
+  ImageIcon,
   KanbanSquareIcon,
   LayoutDashboardIcon,
   ShieldCheckIcon,
@@ -73,6 +74,12 @@ export function AppSidebar({
       title: "Dashboard",
       url: "/dashboard/overview",
       icon: <LayoutDashboardIcon />,
+      onSelect: closeMobileSidebar,
+    },
+    {
+      title: "Media",
+      url: "/dashboard/media",
+      icon: <ImageIcon />,
       onSelect: closeMobileSidebar,
     },
     {
