@@ -22,7 +22,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { ChatDockContext, TaskChipContext } from "@/lib/markdown-contexts"
-import { handOffFromPreview } from "@/lib/preview-ref-handoff"
+import { handOffFromPreview, previewLayer } from "@/lib/preview-ref-handoff"
 import { cn } from "@/lib/utils"
 import {
   formatBytes,
@@ -393,10 +393,14 @@ export function AttachmentPreviewDialog({
     null
   )
   const previewRef = React.useRef<HTMLDivElement>(null)
-  // The openers this dialog was rendered under. A chip inside the preview must
-  // NOT call them directly: this dialog is z-80/81 and the task sheet is
-  // z-40/50, so the sheet would mount underneath the document being read. See
-  // lib/preview-ref-handoff.ts for why closing first beats a bigger z-index.
+  // Set once a chip in here has opened something that must sit in front. The
+  // preview stays OPEN and steps behind instead — closing it would lose the
+  // reader's place, which is the whole reason they clicked a reference while
+  // reading. See lib/preview-ref-handoff.ts.
+  const [backgrounded, setBackgrounded] = React.useState(false)
+  // The openers this dialog was rendered under. A chip must not call them
+  // directly: this dialog is z-80/81 and the task sheet is z-40/50, so the
+  // sheet would mount underneath the document being read.
   const outerOpenTask = React.useContext(TaskChipContext)
   const outerChatDock = React.useContext(ChatDockContext)
   const active = attachments[activeIndex]
@@ -428,21 +432,27 @@ export function AttachmentPreviewDialog({
   }
 
   function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen) setZoomState(null)
+    if (!nextOpen) {
+      setZoomState(null)
+      // A closed dialog reopens at the front. Left set, the next preview would
+      // open behind a task sheet that is no longer there.
+      setBackgrounded(false)
+    }
     onOpenChange(nextOpen)
   }
 
-  const closePreview = () => handleOpenChange(false)
-  const openTaskFromPreview = handOffFromPreview(closePreview, outerOpenTask)
+  const layer = previewLayer(backgrounded)
+  const stepBehind = () => setBackgrounded(true)
+  const openTaskFromPreview = handOffFromPreview(stepBehind, outerOpenTask)
   // `#msg` chips have the same problem: the chat dock is z-[60], still under
   // this dialog's z-80. Wrapped per method rather than per object so the null
   // case stays "render inert" instead of "looks clickable, does nothing".
   const openChatFromPreview = handOffFromPreview(
-    closePreview,
+    stepBehind,
     outerChatDock ? (chatId: string) => outerChatDock.openChat(chatId) : null,
   )
   const openAgentChatFromPreview = handOffFromPreview(
-    closePreview,
+    stepBehind,
     outerChatDock ? (agentId: number) => outerChatDock.openAgentChat(agentId) : null,
   )
   const chatDockFromPreview =
@@ -456,12 +466,33 @@ export function AttachmentPreviewDialog({
     // about its children.
     <TaskChipContext.Provider value={openTaskFromPreview}>
     <ChatDockContext.Provider value={chatDockFromPreview}>
-    <DialogPrimitive.Root open={open} modal="trap-focus" onOpenChange={handleOpenChange}>
+    <DialogPrimitive.Root
+      open={open}
+      // Both come from `previewLayer`: backgrounded means non-modal (so the
+      // surface in front can take focus) AND undismissable by pointer (so a
+      // click inside that surface, which is an "outside press" from here, does
+      // not close the document being read).
+      modal={layer.modal}
+      disablePointerDismissal={layer.disablePointerDismissal}
+      onOpenChange={handleOpenChange}
+    >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-80 bg-[oklch(0.08_0.004_255_/_0.92)] transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <DialogPrimitive.Backdrop
+          className={cn(
+            "fixed inset-0 bg-[oklch(0.08_0.004_255_/_0.92)] transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
+            layer.backdropClass,
+          )}
+        />
         <DialogPrimitive.Popup
           ref={previewRef}
-          className="fixed inset-0 z-81 flex flex-col bg-background text-foreground outline-none sm:inset-3 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-border/70 sm:shadow-2xl"
+          // Click-to-raise, the way a stacked window behaves: once whatever was
+          // opened in front is gone, touching the document brings it back to the
+          // front and restores its focus trap.
+          onPointerDown={() => setBackgrounded(false)}
+          className={cn(
+            "fixed inset-0 flex flex-col bg-background text-foreground outline-none sm:inset-3 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-border/70 sm:shadow-2xl",
+            layer.popupClass,
+          )}
         >
           <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-card/95 px-3 sm:h-16 sm:px-4">
             <DialogPrimitive.Title className="min-w-0 flex-1">
