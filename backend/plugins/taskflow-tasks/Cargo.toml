@@ -16,3 +16,7 @@ tokio = { version = "1", features = ["rt"] }
 [dev-dependencies]
 umbral-testing = "0.0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# `TestClient::set_default_header` takes `http` types; `project_stats.rs`
+# sends the bearer token that way (mirroring taskflow-agents's harness).
+http = "1"
+serde_json = "1"
