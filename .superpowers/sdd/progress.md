@@ -1,61 +1,29 @@
-# Dashboard Page (#60) — Progress Ledger
+# Media Page (#60 second half) — Progress Ledger
 
-Plan: docs/superpowers/plans/2026-07-25-dashboard-page.md
-Spec: docs/superpowers/specs/2026-07-25-dashboard-page-design.md
-Branch: feat/dashboard-page-60
+Plan: docs/superpowers/plans/2026-07-25-media-page.md
+Spec: docs/superpowers/specs/2026-07-25-media-page-design.md
+Branch: feat/media-page-60
 Merge base: main
-Pre-work restore point: 1d43317
-TaskFlow task: #60 (Dashboard half; Media page is a separate cycle)
+TaskFlow task: #60 (Dashboard half already merged; this completes it)
 
-Backend: backend/ (cargo test --workspace — bare `cargo test` skips plugins).
-Frontend: v2_fe/ (vitest node env, no jsdom).
+Frontend-only, v2_fe/. vitest node env, no jsdom (pure helpers tested; page by build+live).
 
 ## Tasks
-- [x] 1  closed_at column + reconciler stamping + backfill (taskflow-tasks) — complete (commits 7af6344..274ac87, review clean after fix; 6 reconciler tests, workspace green). Fixed an Important backfill bug (my plan's snippet): a no-op save for updated_at==None re-fired the reconciler and fabricated a boot-time closed_at.
-- [x] 2  project stats endpoint (taskflow-tasks views/urls) — complete (commits a8ae1e0..5190602, review clean; 7 project_stats tests, workspace green). Note: test filter is `--test project_stats` (not a bare name). active_members correctly counts any in-range session (not gated on duration) — spec fix over the brief's worked.len().
-- [x] 3  frontend stats fetch + pure shaping helpers (dashboard-stats.ts, taskflow-api.ts) — complete (commit 622c9d6, review clean; 8 dashboard-stats tests, 156 total; fillDaySeries verified UTC-safe across timezones). Minors (non-blocking): fillDaySeries param typed `string` not `StatsRange`; formatWorkedTime(NaN)→"NaNm" (backend never sends NaN).
-- [x] 4  Dashboard overview page UI (OverviewPage.tsx, App.tsx route+nav) — complete (commits 32598b6..0207583, review clean after fix; build clean, 0 new lint, 156 tests). Fixed an Important stale-data-on-project-switch bug (data now tagged with dataProjectId → displayData gate), a 404 access-notice branch, and a generated_at NaN guard.
-- [x] 5  live verification — backend+frontend suites green (workspace + 156 fe tests, builds clean); stats route confirmed LIVE on the running backend (401 auth-gated vs 404 garbage; closed_at migrated in live DB); fresh Vite serves the Dashboard nav + OverviewPage. Browser render of the charts is the user's manual pass (no browser here).
+- [x] 1  media-items.ts mapping/filter helpers + fetchProjectMedia (+ tests) — complete (commit 57c115b, review clean; 8 media-items tests, 164 total). Used REFERENCE_PAGE_SIZE + dropped redundant casts (improvements).
+- [x] 2  MediaPage.tsx gallery + export AttachmentPreviewDialog + route + nav — complete (commits 9c02f97..630f424, review clean after fix; build clean, 0 new lint, 164 tests). Fixed an Important refetch-churn bug (channelName in fetch deps → refetch on every realtime event); now fetches raw rows on [projectId,retryToken] and maps at render, plus a stale-carousel-index guard.
+- [ ] 3  live verification; mark #60 done
 
 ## Minor findings (for final review triage)
-- Task 1 (Minor): the boot backfill's `tokio::spawn` future is tied to the
-  triggering test's runtime in test binaries (can be dropped mid-flight in tests);
-  no production impact. Matters only if a later task adds a backfill-specific test.
-- Task 1 (Minor): backfill does an unfiltered `fetch()` of all tasks then filters
-  in Rust; a `.filter(status in [...] & closed_at.is_null())` would shrink the
-  one-time boot query. Not correctness.
-- KNOWN PRE-EXISTING failure (not ours): `taskflow-agents::send_message::
-  rejects_body_over_max_chars_with_400` fails on base too (message-length, unrelated).
-  Workspace is otherwise green.
+(none yet)
 
 ## Notes
-- Terminal statuses = Done, Archived (PartialDone is NOT terminal).
-- Reconciler is re-entrant; is_none()/is_some() guards make closed_at writes terminate.
-- No raw SQL / no ORM aggregation in this codebase — stats endpoint fetches by
-  project and reduces in memory (the activity_actions pattern).
-- Charts are dependency-free (SVG/CSS); do NOT add a chart library.
-- Restart the Vite dev server for the new page/route (stale long-running server).
+- Reuse the chat AttachmentPreviewDialog (export it) + getAttachmentKind (@/lib/attachment-kind); do NOT fork a preview.
+- Channel privacy is server-side (REST scope); no client filtering.
+- Match OverviewPage's project-switch stale guard (dataProjectId → displayData).
+- Restart Vite for the new route.
 
 ---
-
-## Previous plans this session (completed + merged)
-- MCP autoconnect + profile selection → main (cc1b8c4).
-- GitHub social login → main (31db1cf). Dev server was stale; restarted.
-
-## Post-review addition: operator attribution (commit 6946ff7)
-The final review + real data showed EVERY session is auto-tracked (System), so
-worked_per_member was empty. Per owner decision (credit the OPERATOR, dashboard-
-only), the stats endpoint now credits a System session's time to its task's
-operator (operator_user else operator_agent_id, else skip). Reviewed + approved,
-11/11 stats tests, non-vacuous. NOTE: against real project-2 data most System
-time credits to agent:1 (the agent operated the tasks); the human's operated
-time is low. Owner may want ASSIGNEE attribution instead — a one-line switch.
-
-## Final-review minors (triage)
-- Tile vs chart boundary seam: backend cutoff is rolling (now - N*24h), chart
-  shows N calendar UTC days; a task closed in the boundary partial-day counts in
-  the "Tasks done" tile but not the column chart. Cosmetic; fix = calendar-align
-  the cutoff. Non-blocking.
-- Attribution test gaps (Minor, logic verified correct): no test pins
-  operator_user-wins-when-both-set, nor a System still-running session on an
-  operated task, nor the agent label-fallback assertion.
+## Dashboard (first half of #60) — MERGED to main (5c8ff84) + hotfix 2e9936d
+Chart bars were invisible (percentage height w/o definite parent) — fixed.
+OPEN with user: operator vs assignee attribution ("Your time" reads 0m because
+the agent operated the tasks; assignee is a one-line switch if they want it).
