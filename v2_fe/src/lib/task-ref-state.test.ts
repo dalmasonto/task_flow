@@ -1,85 +1,80 @@
 import { describe, it, expect } from "vitest"
+
 import { taskRefState } from "./task-ref-state"
-import type { TaskRefLookup } from "./task-ref-state"
-
-/// The resolver only needs id + projectId off a task, and id + name off a
-/// project — deliberately narrow so it does not drag App.tsx's wide `Task` type
-/// (and its 20-odd display fields) into a unit test.
-const TASKS: TaskRefLookup["tasks"] = [
-  { id: "7", projectId: "p2" },
-  { id: "53", projectId: "p2" },
-  { id: "91", projectId: "p1" },
-]
-
-const PROJECTS: TaskRefLookup["projects"] = [
-  { id: "p1", name: "Umbral" },
-  { id: "p2", name: "TaskFlow v2" },
-]
-
-function lookup(overrides: Partial<TaskRefLookup> = {}): TaskRefLookup {
-  return {
-    tasks: TASKS,
-    projects: PROJECTS,
-    activeProjectId: "p2",
-    workspaceLoaded: true,
-    ...overrides,
-  }
-}
 
 describe("taskRefState", () => {
-  it("resolves a task in the active project", () => {
-    const state = taskRefState("53", lookup())
-    expect(state.kind).toBe("ready")
-    expect(state.kind === "ready" && state.taskId).toBe("53")
+  it("shows loading while the server is still being asked", () => {
+    expect(taskRefState({ status: "loading" }, "3")).toEqual({ kind: "loading" })
   })
 
-  // Not an error: the user can see this task, it just lives elsewhere. Opening
-  // it against the active project would render another project's task under
-  // this project's header, members, and relations.
-  it("reports a task that belongs to another project the user can see", () => {
-    const state = taskRefState("91", lookup())
-    expect(state.kind).toBe("other_project")
-    expect(state.kind === "other_project" && state.projectId).toBe("p1")
-    expect(state.kind === "other_project" && state.projectName).toBe("Umbral")
+  it("opens a task the server placed in the active project", () => {
+    expect(
+      taskRefState(
+        { status: "found", taskId: "64", projectId: "3", projectName: "ETHSafari" },
+        "3",
+      ),
+    ).toEqual({ kind: "ready", taskId: "64" })
   })
 
-  // #49: the reported bug. `#1000` used to resolve to undefined and render
-  // nothing at all, so a typo was indistinguishable from a broken app.
-  it("reports an unknown id as unavailable rather than resolving to nothing", () => {
-    const state = taskRefState("1000", lookup())
+  it("offers to switch when the server places it in another project", () => {
+    expect(
+      taskRefState(
+        { status: "found", taskId: "12", projectId: "2", projectName: "TaskFlow v2" },
+        "3",
+      ),
+    ).toEqual({
+      kind: "other_project",
+      taskId: "12",
+      projectId: "2",
+      projectName: "TaskFlow v2",
+    })
+  })
+
+  it("names the project by id when the server would not give a name", () => {
+    // The name is a second request and may fail on its own. Losing it must not
+    // downgrade a perfectly good answer into "doesn't exist".
+    const state = taskRefState(
+      { status: "found", taskId: "12", projectId: "2", projectName: null },
+      "3",
+    )
+    expect(state).toMatchObject({ kind: "other_project", projectId: "2" })
+    expect((state as { projectName: string }).projectName).toContain("2")
+  })
+
+  it("reports a server refusal as missing-or-forbidden, without inventing which", () => {
+    // The API answers 404 for a row outside the caller's scope rather than 403,
+    // deliberately, so ids cannot be probed for existence. The UI must not
+    // invent a distinction the server refuses to make.
+    expect(taskRefState({ status: "denied", taskId: "64" }, "3")).toEqual({
+      kind: "unavailable",
+      taskId: "64",
+      reason: "Task #64 doesn't exist, or you don't have access to it.",
+    })
+  })
+
+  it("does NOT claim a task is missing when the check itself failed", () => {
+    // The whole bug this replaced: a local cache miss was reported as "doesn't
+    // exist". An unreachable server is not evidence of absence, and saying so
+    // sends the user looking for a task that is sitting right there.
+    const state = taskRefState(
+      { status: "error", taskId: "64", message: "Failed to fetch" },
+      "3",
+    )
     expect(state.kind).toBe("unavailable")
+    const reason = (state as { reason: string }).reason
+    expect(reason).not.toContain("doesn't exist")
+    expect(reason).toContain("64")
+    expect(reason).toContain("Failed to fetch")
   })
 
-  // The API 404s an out-of-scope row rather than 403ing it, precisely so it does
-  // not leak which ids exist. The UI must not invent a distinction the server
-  // deliberately refuses to make.
-  it("does not claim an unavailable task definitely does not exist", () => {
-    const state = taskRefState("1000", lookup())
-    const reason = state.kind === "unavailable" ? state.reason : ""
-    expect(reason.length).toBeGreaterThan(0)
-    expect(reason).toMatch(/exist/i)
-    expect(reason).toMatch(/access/i)
-  })
-
-  it("carries the requested id so the message can name it", () => {
-    const state = taskRefState("1000", lookup())
-    expect(state.kind === "unavailable" && state.taskId).toBe("1000")
-  })
-
-  // Before the workspace arrives every id looks missing. Claiming "no such task"
-  // there would be a lie that resolves itself a moment later.
-  it("is loading, not unavailable, before the workspace has loaded", () => {
-    expect(taskRefState("53", lookup({ workspaceLoaded: false, tasks: [] })).kind).toBe("loading")
-  })
-
-  it("still resolves a known task once loaded, even with no active project", () => {
-    const state = taskRefState("91", lookup({ activeProjectId: null }))
-    expect(state.kind).toBe("other_project")
-  })
-
-  it("names an unknown project defensively rather than rendering undefined", () => {
-    const state = taskRefState("91", lookup({ projects: [] }))
-    expect(state.kind).toBe("other_project")
-    expect(state.kind === "other_project" && state.projectName.length).toBeGreaterThan(0)
+  it("treats a task as in-project only when the ids actually match", () => {
+    // No active project (still booting, or the user has none) cannot silently
+    // read as "same project".
+    expect(
+      taskRefState(
+        { status: "found", taskId: "64", projectId: "3", projectName: "ETHSafari" },
+        null,
+      ).kind,
+    ).toBe("other_project")
   })
 })

@@ -184,7 +184,8 @@ import { activityTools, filterActivityEvents, ALL_TOOLS } from "@/lib/activity-f
 /// preference and the create path cannot drift apart.
 const PROJECT_ROOM_TITLE = "Project room"
 import { githubMirrorState, githubMirrorReason } from "@/lib/github-mirror-state"
-import { taskRefState, type TaskRefState } from "@/lib/task-ref-state"
+import { taskRefState, type TaskRefAnswer, type TaskRefState } from "@/lib/task-ref-state"
+import { fetchTaskRef } from "@/lib/task-ref-fetch"
 import { messageToTask } from "@/lib/message-to-task"
 import { filterBoardTasks, ALL_PRIORITIES, BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MessageAttachments } from "@/components/message-attachments"
@@ -1949,17 +1950,30 @@ function App() {
   const selectedTask =
     projectTasks.find((task) => task.id === selectedTaskId) ?? projectTasks[0]
   const openTask = openTaskId ? tasks.find((task) => task.id === openTaskId) : undefined
-  // #49: a TASK#<n> chip must always explain itself. `tasks` holds every task the
-  // user can see (the backend never paginates), so a miss here is trustworthy
-  // enough to report without a server round-trip.
+  // #49: a TASK#<n> chip must always explain itself — and only the SERVER can
+  // say whether an id exists. This used to resolve against `tasks`, on the
+  // claim that it held everything the user could see. It does not: realtime is
+  // scoped to the subscribed project, the summary fetch takes one 100-row page,
+  // and a failed refetch leaves a hole. Every one of those reported a real task
+  // as "doesn't exist". See lib/task-ref-state.ts.
+  // The answer is stored WITH the id it answers, so "loading" is derived from
+  // "no answer for this id yet" rather than written by the effect. That removes
+  // a synchronous setState on every open and, more usefully, makes it
+  // impossible for a slow answer about a previous chip to be shown for this one.
+  const [taskRefAnswer, setTaskRefAnswer] = useState<{ id: string; answer: TaskRefAnswer } | null>(
+    null
+  )
   const openTaskRef: TaskRefState | null = openTaskId
-    ? taskRefState(openTaskId, {
-        tasks,
-        projects: workspaceProjects,
-        activeProjectId: activeProject?.id ?? null,
-        workspaceLoaded: usesLiveApi || tasks.length > 0,
-      })
+    ? taskRefState(
+        taskRefAnswer?.id === openTaskId ? taskRefAnswer.answer : { status: "loading" },
+        activeProject?.id ?? null
+      )
     : null
+
+  // The server says this task is in the active project but the local board has
+  // never seen it — precisely the staleness that caused the bug. The refetch
+  // that fixes it lives further down, after `loadLiveWorkspace` is defined.
+  const openTaskStale = openTaskRef?.kind === "ready" && !openTask
   const reviewTask = reviewTaskId ? tasks.find((task) => task.id === reviewTaskId) : selectedTask
   // Pre-fill the edit dialog from the LIVE task row (it keeps the raw ids/columns
   // that mapLiveTasks drops), converting live enums back into form values.
@@ -2485,6 +2499,29 @@ function App() {
     if (authGateStatus !== "authenticated") return
     void loadLiveWorkspace(activeProjectId)
   }, [activeProjectId, authGateStatus, loadLiveWorkspace])
+
+  // #49: ask the SERVER what a TASK#<n> chip points at. Lives here, below
+  // `loadLiveWorkspace`, because a confirmed task also refreshes the board: the
+  // local list may never have seen it (realtime is scoped to the subscribed
+  // project, and the summary fetch takes one page), and that staleness is what
+  // made chips report real tasks as missing.
+  useEffect(() => {
+    if (!openTaskId || authGateStatus !== "authenticated") return
+    let cancelled = false
+    void fetchTaskRef(openTaskId).then((answer) => {
+      if (cancelled) return
+      setTaskRefAnswer({ id: openTaskId, answer })
+      // Deliberately not conditioned on the local list: whether we already hold
+      // the row is not the question, and consulting it here would reintroduce
+      // the cache as an authority.
+      if (answer.status === "found" && answer.projectId === activeProjectId) {
+        void loadLiveWorkspace(activeProjectId)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [openTaskId, activeProjectId, authGateStatus, loadLiveWorkspace])
 
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
@@ -3962,9 +3999,11 @@ function App() {
           </Routes>
         </main>
       </SidebarInset>
-      {openTaskRef && openTaskRef.kind !== "ready" ? (
+      {openTaskRef && (openTaskRef.kind !== "ready" || openTaskStale) ? (
         <TaskRefNotice
-          state={openTaskRef}
+          // Stale-but-real reads as loading, because that is what it is: the
+          // server has confirmed the task and the board is being refetched.
+          state={openTaskStale ? { kind: "loading" } : (openTaskRef as Extract<TaskRefState, { kind: "loading" | "other_project" | "unavailable" }>)}
           onClose={() => setOpenTaskId(null)}
           onSwitchProject={(projectId) => {
             // Keep openTaskId set: once the new project's tasks land the
