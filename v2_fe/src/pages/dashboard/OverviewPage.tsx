@@ -337,7 +337,7 @@ function Columns({ rows }: { rows: { day: string; count: number }[] }) {
           return (
             <div
               key={row.day}
-              className="group relative min-w-[2px] flex-1"
+              className="group relative flex h-full min-w-[2px] flex-1 items-end"
               title={`${formatDay(row.day)}: ${row.count} closed`}
             >
               <div
