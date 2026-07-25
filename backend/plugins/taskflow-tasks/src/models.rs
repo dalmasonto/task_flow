@@ -102,6 +102,11 @@ pub struct TaskflowTask {
     #[umbral(string, max_length = 120)]
     pub assignee_label: Option<String>,
     pub due_at: Option<DateTime<Utc>>,
+    /// When the task most recently entered a terminal status (done/archived),
+    /// or null when it is not currently closed. System-maintained by the status
+    /// reconciler (`session_timer.rs`) so "closed in a period" is exact rather
+    /// than riding on `updated_at`. Cleared if the task is reopened.
+    pub closed_at: Option<DateTime<Utc>>,
     /// GitHub issue number once this task is published. `None` = not published.
     pub github_issue_number: Option<i64>,
     /// Convenience: full issue URL, so the UI links out without rebuilding it.

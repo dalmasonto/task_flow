@@ -58,6 +58,35 @@ impl Plugin for TaskflowTasksPlugin {
         // The system owns the task work-timer: opening a session when a task
         // enters in_progress and closing it when it leaves, on every write path.
         session_timer::register();
+
+        // Seed closed_at for tasks that were already terminal before the column
+        // existed, using updated_at as a best-effort close time. Idempotent: only
+        // rows with a terminal status AND a null closed_at are touched, so every
+        // boot after the first finds none.
+        tokio::spawn(async move {
+            use models::{TaskflowTask, TaskflowTaskStatus};
+
+            let rows = match TaskflowTask::objects().fetch().await {
+                Ok(r) => r,
+                Err(_) => return,
+            };
+            for mut task in rows {
+                let terminal = matches!(
+                    task.status,
+                    TaskflowTaskStatus::Done | TaskflowTaskStatus::Archived
+                );
+                if terminal && task.closed_at.is_none() {
+                    if let Some(ts) = task.updated_at {
+                        task.closed_at = Some(ts);
+                        let _ = TaskflowTask::objects().save(task).await;
+                    }
+                    // else: leave closed_at null and do NOT save — a no-op save
+                    // would re-fire post_save -> reconcile -> stamp Utc::now(),
+                    // fabricating a close time for an un-dated historical row.
+                }
+            }
+        });
+
         Ok(())
     }
 }

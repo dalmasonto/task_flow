@@ -308,6 +308,7 @@ async fn seed_task_inner(project: i64, title: &str, issue_number: Option<i64>) -
             created_by_agent_id: None,
             assignee_label: None,
             due_at: None,
+            closed_at: None,
             github_issue_number: issue_number,
             github_issue_url: issue_number.map(|n| format!("https://github.com/acme/widgets/issues/{n}")),
             created_at: None,

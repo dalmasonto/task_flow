@@ -2281,6 +2281,7 @@ pub async fn create_task_as_agent(
             estimate_minutes: None,
             assignee_label,
             due_at: None,
+            closed_at: None,
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,

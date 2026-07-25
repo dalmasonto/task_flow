@@ -21,4 +21,10 @@ pub fn router() -> Router {
             "/api/taskflow/projects/{project}/activity/actions",
             get(views::activity_actions),
         )
+        // #60: the dashboard's one-call aggregation over a project's
+        // sessions, tasks, and activity.
+        .route(
+            "/api/taskflow/projects/{project}/stats",
+            get(views::project_stats),
+        )
 }

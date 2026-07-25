@@ -10,3 +10,14 @@ taskflow-projects = { path = "../taskflow-projects" }
 serde = { version = "1", features = ["derive"] }
 sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
+# The on_ready closed_at backfill spawns onto the runtime rather than blocking boot.
+tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
+
+[dev-dependencies]
+umbral-testing = "0.0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# `TestClient::set_default_header` takes `http` types; `project_stats.rs`
+# sends the bearer token that way (mirroring taskflow-agents's harness).
+http = "1"
+serde_json = "1"
