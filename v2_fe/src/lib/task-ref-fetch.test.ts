@@ -23,6 +23,7 @@ describe("fetchTaskRef", () => {
     const asked: number[] = []
     const answer = await fetchTaskRef(
       "64",
+      null,
       deps({
         getTask: async (id) => {
           asked.push(id)
@@ -47,6 +48,7 @@ describe("fetchTaskRef", () => {
     // back to claiming a task is unavailable when the server just told us it is.
     const answer = await fetchTaskRef(
       "64",
+      null,
       deps({
         getProject: async () => {
           throw new Error("nope")
@@ -60,6 +62,7 @@ describe("fetchTaskRef", () => {
   it("reports a 404/403 as denied", async () => {
     const answer = await fetchTaskRef(
       "64",
+      null,
       deps({
         getTask: async () => {
           throw new Error("Not Found")
@@ -76,6 +79,7 @@ describe("fetchTaskRef", () => {
     // that the task is missing, and the UI must be able to say so.
     const answer = await fetchTaskRef(
       "64",
+      null,
       deps({
         getTask: async () => {
           throw new Error("Failed to fetch")
@@ -93,6 +97,7 @@ describe("fetchTaskRef", () => {
     let called = false
     const answer = await fetchTaskRef(
       "0",
+      null,
       deps({
         getTask: async (id) => {
           called = true
@@ -103,5 +108,42 @@ describe("fetchTaskRef", () => {
 
     expect(called).toBe(false)
     expect(answer).toEqual({ status: "denied", taskId: "0" })
+  })
+
+  it("does NOT fetch the project when the task is on the board already open", async () => {
+    // The name only ever appears in the "it's in another project" notice, so
+    // fetching it for your own board is a request whose result is discarded.
+    // Clicking a chip on the current board must cost ONE request.
+    let projectFetches = 0
+    const answer = await fetchTaskRef(
+      "64",
+      "3",
+      deps({
+        getProject: async () => {
+          projectFetches += 1
+          return { name: "ETHSafari" }
+        },
+      }),
+    )
+
+    expect(projectFetches).toBe(0)
+    expect(answer).toMatchObject({ status: "found", projectId: "3", projectName: null })
+  })
+
+  it("does fetch the project when the task is somewhere else", async () => {
+    let projectFetches = 0
+    const answer = await fetchTaskRef(
+      "64",
+      "9",
+      deps({
+        getProject: async () => {
+          projectFetches += 1
+          return { name: "ETHSafari" }
+        },
+      }),
+    )
+
+    expect(projectFetches).toBe(1)
+    expect(answer).toMatchObject({ projectName: "ETHSafari" })
   })
 })

@@ -1970,8 +1970,6 @@ function App() {
       )
     : null
 
-  const [refreshedTaskId, setRefreshedTaskId] = useState<string | null>(null)
-
   // Render the sheet from the SERVER's row when the board has not got it.
   // Requiring the local row was the last place the cache could veto opening a
   // task the server had already confirmed — it produced "the server confirmed
@@ -2520,44 +2518,24 @@ function App() {
     void loadLiveWorkspace(activeProjectId)
   }, [activeProjectId, authGateStatus, loadLiveWorkspace])
 
-  // Held in a ref, NOT read as a dependency. `loadLiveWorkspace` is a
-  // useCallback over `activeProjectId` and itself calls `setActiveProjectId`,
-  // so an effect that both depends on it and calls it is a cycle: refetch →
-  // new identity → effect reruns → refetch. That is what span forever.
-  const loadLiveWorkspaceRef = useRef(loadLiveWorkspace)
-  useEffect(() => {
-    loadLiveWorkspaceRef.current = loadLiveWorkspace
-  }, [loadLiveWorkspace])
-
-  // #49: ask the SERVER what a TASK#<n> chip points at. A confirmed task also
-  // refreshes the board once, because the local list may never have seen it
-  // (realtime is scoped to the subscribed project, and the summary fetch takes
-  // one page) — and that staleness is what made chips report real tasks as
-  // missing. ONCE per id: a repeated refresh is the loop above.
+  // #49: ask the SERVER what a TASK#<n> chip points at — and ask it for THAT
+  // TASK, nothing else.
+  //
+  // This used to refresh the whole workspace afterwards, on the theory that the
+  // board might not hold the row. Opening one task then cost ~35 requests: every
+  // project, every member, all 132 kB of tasks, every channel, message,
+  // terminal frame and activity row — and the page visibly lurched as all of it
+  // landed. The sheet renders from the row this returns, so none of that was
+  // ever needed to open the task.
   useEffect(() => {
     if (!openTaskId || authGateStatus !== "authenticated") return
     let cancelled = false
-    void fetchTaskRef(openTaskId).then((answer) => {
-      if (cancelled) return
-      setTaskRefAnswer({ id: openTaskId, answer })
-      if (
-        answer.status === "found" &&
-        answer.projectId === activeProjectId &&
-        refreshedTaskId !== openTaskId
-      ) {
-        // Marked BEFORE the call, so a refetch that re-runs this effect cannot
-        // trigger a second one.
-        setRefreshedTaskId(openTaskId)
-        void loadLiveWorkspaceRef.current(activeProjectId)
-      }
+    void fetchTaskRef(openTaskId, activeProjectId).then((answer) => {
+      if (!cancelled) setTaskRefAnswer({ id: openTaskId, answer })
     })
     return () => {
       cancelled = true
     }
-    // `refreshedTaskId` is deliberately NOT a dependency: this effect WRITES it,
-    // so depending on it would re-run the effect that just set it — the same
-    // shape of cycle that made the spinner run forever.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openTaskId, activeProjectId, authGateStatus])
 
   useEffect(() => {

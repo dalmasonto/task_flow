@@ -32,6 +32,10 @@ const liveDeps: TaskRefDeps = {
 
 export async function fetchTaskRef(
   taskId: string,
+  /// The project the user is already looking at. When the task turns out to be
+  /// in it, the project name is never displayed, so the second request is
+  /// skipped entirely — clicking a chip on your own board costs ONE request.
+  activeProjectId: string | null = null,
   deps: TaskRefDeps = liveDeps,
 ): Promise<TaskRefAnswer> {
   const numeric = Number(taskId)
@@ -53,14 +57,20 @@ export async function fetchTaskRef(
     }
   }
 
-  // The name is cosmetic and is fetched separately, so its failure must not
-  // discard an answer the server already gave us.
-  let projectName: string | null
-  try {
-    projectName = (await deps.getProject(task.project)).name
-  } catch {
-    projectName = null
+  const projectId = String(task.project)
+
+  // Only when it is somewhere else — the name appears only in the "this is in
+  // another project, switch?" notice. Fetching it for a task on the board the
+  // user is already looking at is a request whose result is thrown away.
+  let projectName: string | null = null
+  if (projectId !== activeProjectId) {
+    try {
+      projectName = (await deps.getProject(task.project)).name
+    } catch {
+      // Cosmetic: its failure must not discard an answer the server gave us.
+      projectName = null
+    }
   }
 
-  return { status: "found", taskId, projectId: String(task.project), projectName, row: task }
+  return { status: "found", taskId, projectId, projectName, row: task }
 }
