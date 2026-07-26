@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest"
 
 import { fetchTaskRef, type TaskRefDeps } from "./task-ref-fetch"
+import type { TaskRefRow } from "./task-ref-state"
+
+/// A server row. Cast rather than spelled out in full: these tests are about
+/// what `fetchTaskRef` does with the answer, not about the row's 20 columns.
+function row(id: number, project = 3): TaskRefRow {
+  return { id, project, title: "t" } as TaskRefRow
+}
 
 function deps(overrides: Partial<TaskRefDeps> = {}): TaskRefDeps {
   return {
-    getTask: async () => ({ project: 3 }),
+    getTask: async (id: number) => row(id),
     getProject: async () => ({ name: "ETHSafari" }),
     isDenial: () => false,
     ...overrides,
@@ -19,7 +26,7 @@ describe("fetchTaskRef", () => {
       deps({
         getTask: async (id) => {
           asked.push(id)
-          return { project: 3 }
+          return row(id)
         },
       }),
     )
@@ -30,6 +37,8 @@ describe("fetchTaskRef", () => {
       taskId: "64",
       projectId: "3",
       projectName: "ETHSafari",
+      // The row travels with the answer so the sheet never needs the board.
+      row: row(64),
     })
   })
 
@@ -85,9 +94,9 @@ describe("fetchTaskRef", () => {
     const answer = await fetchTaskRef(
       "0",
       deps({
-        getTask: async () => {
+        getTask: async (id) => {
           called = true
-          return { project: 3 }
+          return row(id)
         },
       }),
     )

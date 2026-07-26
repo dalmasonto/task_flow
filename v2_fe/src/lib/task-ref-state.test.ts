@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest"
 
-import { taskRefState } from "./task-ref-state"
+import { taskRefState, type TaskRefRow } from "./task-ref-state"
+
+/// The server's row, carried through so the sheet can render without the board.
+/// Cast rather than spelled out: this module never reads past `id`/`project`.
+const ROW = { id: 64, project: 3, title: "Incident register" } as TaskRefRow
 
 describe("taskRefState", () => {
   it("shows loading while the server is still being asked", () => {
@@ -10,7 +14,7 @@ describe("taskRefState", () => {
   it("opens a task the server placed in the active project", () => {
     expect(
       taskRefState(
-        { status: "found", taskId: "64", projectId: "3", projectName: "ETHSafari" },
+        { status: "found", taskId: "64", projectId: "3", projectName: "ETHSafari", row: ROW },
         "3",
       ),
     ).toEqual({ kind: "ready", taskId: "64" })
@@ -19,7 +23,7 @@ describe("taskRefState", () => {
   it("offers to switch when the server places it in another project", () => {
     expect(
       taskRefState(
-        { status: "found", taskId: "12", projectId: "2", projectName: "TaskFlow v2" },
+        { status: "found", taskId: "12", projectId: "2", projectName: "TaskFlow v2", row: ROW },
         "3",
       ),
     ).toEqual({
@@ -34,7 +38,7 @@ describe("taskRefState", () => {
     // The name is a second request and may fail on its own. Losing it must not
     // downgrade a perfectly good answer into "doesn't exist".
     const state = taskRefState(
-      { status: "found", taskId: "12", projectId: "2", projectName: null },
+      { status: "found", taskId: "12", projectId: "2", projectName: null, row: ROW },
       "3",
     )
     expect(state).toMatchObject({ kind: "other_project", projectId: "2" })
@@ -72,7 +76,7 @@ describe("taskRefState", () => {
     // read as "same project".
     expect(
       taskRefState(
-        { status: "found", taskId: "64", projectId: "3", projectName: "ETHSafari" },
+        { status: "found", taskId: "64", projectId: "3", projectName: "ETHSafari", row: ROW },
         null,
       ).kind,
     ).toBe("other_project")

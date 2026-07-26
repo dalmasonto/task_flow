@@ -21,13 +21,32 @@
 /// answer onto what the UI should show. A local cache can be stale; the server
 /// is the only thing that knows.
 
+import type { TaskflowTask } from "@/api/client"
+
+/// The task row as the server returns it. A type-only import, so this module
+/// still has no runtime dependency on the client — but the row is the real
+/// thing rather than a structural guess that drifts from it.
+export type TaskRefRow = TaskflowTask
+
 /// What the server said about the id.
 export type TaskRefAnswer =
   /// The request is in flight.
   | { status: "loading" }
-  /// The server returned the task. `projectName` is a second, best-effort
-  /// lookup and may be null without invalidating the answer.
-  | { status: "found"; taskId: string; projectId: string; projectName: string | null }
+  /// The server returned the task. `row` is that response, carried so the sheet
+  /// can be rendered from it: requiring the row to ALSO be in the local board
+  /// put the cache back in charge of whether a confirmed task could be opened,
+  /// and produced "the server confirmed this task, but it isn't on the loaded
+  /// board" about a task the server had just handed over.
+  ///
+  /// `projectName` is a second, best-effort lookup and may be null without
+  /// invalidating the answer.
+  | {
+      status: "found"
+      taskId: string
+      projectId: string
+      projectName: string | null
+      row: TaskRefRow
+    }
   /// The server refused: 404 or 403. It deliberately does not distinguish
   /// "no such row" from "not yours", so ids cannot be probed for existence —
   /// see `isScopeDenial` in taskflow-api.

@@ -9,11 +9,13 @@
 /// defaults are the real client.
 
 import { isScopeDenial, taskflowApi, taskflowTables } from "./taskflow-api"
-import type { TaskRefAnswer } from "./task-ref-state"
+import type { TaskRefAnswer, TaskRefRow } from "./task-ref-state"
 
 export type TaskRefDeps = {
-  /// Retrieve the task row. Must reject on 404/403 like the real client.
-  getTask: (id: number) => Promise<{ project: number }>
+  /// Retrieve the task row. Must reject on 404/403 like the real client. The
+  /// WHOLE row is kept: the sheet is rendered from it, so a task the local
+  /// board has never seen still opens.
+  getTask: (id: number) => Promise<TaskRefRow>
   /// Retrieve the task's project, for the display name only.
   getProject: (id: number) => Promise<{ name: string }>
   /// Whether a rejection means "the server refused" rather than "we could not
@@ -23,7 +25,7 @@ export type TaskRefDeps = {
 }
 
 const liveDeps: TaskRefDeps = {
-  getTask: (id) => taskflowApi.get(taskflowTables.tasks, id) as Promise<{ project: number }>,
+  getTask: (id) => taskflowApi.get(taskflowTables.tasks, id) as Promise<TaskRefRow>,
   getProject: (id) => taskflowApi.get(taskflowTables.projects, id) as Promise<{ name: string }>,
   isDenial: isScopeDenial,
 }
@@ -39,7 +41,7 @@ export async function fetchTaskRef(
     return { status: "denied", taskId }
   }
 
-  let task: { project: number }
+  let task: TaskRefRow
   try {
     task = await deps.getTask(numeric)
   } catch (error) {
@@ -60,5 +62,5 @@ export async function fetchTaskRef(
     projectName = null
   }
 
-  return { status: "found", taskId, projectId: String(task.project), projectName }
+  return { status: "found", taskId, projectId: String(task.project), projectName, row: task }
 }
