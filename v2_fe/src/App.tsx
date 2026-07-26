@@ -1971,9 +1971,18 @@ function App() {
     : null
 
   // The server says this task is in the active project but the local board has
-  // never seen it — precisely the staleness that caused the bug. The refetch
-  // that fixes it lives further down, after `loadLiveWorkspace` is defined.
+  // never seen it. One refresh is attempted (further down, once
+  // `loadLiveWorkspace` exists) and this records that it happened, so the wait
+  // can END: without an exit condition a row the board never delivers spins
+  // forever, which is worse than the wrong message it replaced.
+  const [refreshedTaskId, setRefreshedTaskId] = useState<string | null>(null)
   const openTaskStale = openTaskRef?.kind === "ready" && !openTask
+  const openTaskRefreshDone = refreshedTaskId === openTaskId && !isLiveSyncing
+  // Still waiting for the board — show the spinner.
+  const openTaskWaiting = openTaskStale && !openTaskRefreshDone
+  // Refreshed, finished, and the row still is not here. Say so instead of
+  // spinning: the server confirmed the task, so this is a board problem.
+  const openTaskUnreachable = openTaskStale && openTaskRefreshDone
   const reviewTask = reviewTaskId ? tasks.find((task) => task.id === reviewTaskId) : selectedTask
   // Pre-fill the edit dialog from the LIVE task row (it keeps the raw ids/columns
   // that mapLiveTasks drops), converting live enums back into form values.
@@ -2500,28 +2509,45 @@ function App() {
     void loadLiveWorkspace(activeProjectId)
   }, [activeProjectId, authGateStatus, loadLiveWorkspace])
 
-  // #49: ask the SERVER what a TASK#<n> chip points at. Lives here, below
-  // `loadLiveWorkspace`, because a confirmed task also refreshes the board: the
-  // local list may never have seen it (realtime is scoped to the subscribed
-  // project, and the summary fetch takes one page), and that staleness is what
-  // made chips report real tasks as missing.
+  // Held in a ref, NOT read as a dependency. `loadLiveWorkspace` is a
+  // useCallback over `activeProjectId` and itself calls `setActiveProjectId`,
+  // so an effect that both depends on it and calls it is a cycle: refetch →
+  // new identity → effect reruns → refetch. That is what span forever.
+  const loadLiveWorkspaceRef = useRef(loadLiveWorkspace)
+  useEffect(() => {
+    loadLiveWorkspaceRef.current = loadLiveWorkspace
+  }, [loadLiveWorkspace])
+
+  // #49: ask the SERVER what a TASK#<n> chip points at. A confirmed task also
+  // refreshes the board once, because the local list may never have seen it
+  // (realtime is scoped to the subscribed project, and the summary fetch takes
+  // one page) — and that staleness is what made chips report real tasks as
+  // missing. ONCE per id: a repeated refresh is the loop above.
   useEffect(() => {
     if (!openTaskId || authGateStatus !== "authenticated") return
     let cancelled = false
     void fetchTaskRef(openTaskId).then((answer) => {
       if (cancelled) return
       setTaskRefAnswer({ id: openTaskId, answer })
-      // Deliberately not conditioned on the local list: whether we already hold
-      // the row is not the question, and consulting it here would reintroduce
-      // the cache as an authority.
-      if (answer.status === "found" && answer.projectId === activeProjectId) {
-        void loadLiveWorkspace(activeProjectId)
+      if (
+        answer.status === "found" &&
+        answer.projectId === activeProjectId &&
+        refreshedTaskId !== openTaskId
+      ) {
+        // Marked BEFORE the call, so a refetch that re-runs this effect cannot
+        // trigger a second one.
+        setRefreshedTaskId(openTaskId)
+        void loadLiveWorkspaceRef.current(activeProjectId)
       }
     })
     return () => {
       cancelled = true
     }
-  }, [openTaskId, activeProjectId, authGateStatus, loadLiveWorkspace])
+    // `refreshedTaskId` is deliberately NOT a dependency: this effect WRITES it,
+    // so depending on it would re-run the effect that just set it — the same
+    // shape of cycle that made the spinner run forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTaskId, activeProjectId, authGateStatus])
 
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
@@ -4001,9 +4027,21 @@ function App() {
       </SidebarInset>
       {openTaskRef && (openTaskRef.kind !== "ready" || openTaskStale) ? (
         <TaskRefNotice
-          // Stale-but-real reads as loading, because that is what it is: the
-          // server has confirmed the task and the board is being refetched.
-          state={openTaskStale ? { kind: "loading" } : (openTaskRef as Extract<TaskRefState, { kind: "loading" | "other_project" | "unavailable" }>)}
+          // Stale-but-real reads as loading only while the board is actually
+          // being refetched. Once that has finished and the row is still
+          // absent, say so — a spinner with no end is the worse bug.
+          state={
+            openTaskWaiting
+              ? { kind: "loading" }
+              : openTaskUnreachable
+                ? {
+                    kind: "unavailable",
+                    taskId: openTaskId ?? "",
+                    reason:
+                      "The server confirmed this task, but it isn't on the loaded board. Reload the page to pull it in.",
+                  }
+                : (openTaskRef as Extract<TaskRefState, { kind: "loading" | "other_project" | "unavailable" }>)
+          }
           onClose={() => setOpenTaskId(null)}
           onSwitchProject={(projectId) => {
             // Keep openTaskId set: once the new project's tasks land the
