@@ -146,22 +146,22 @@ async fn a_dead_agents_identifier_can_be_reclaimed() {
         "a dead agent's identifier must be reclaimable"
     );
     let row = reclaimed.json().await;
-    assert_eq!(row["id"].as_i64().unwrap(), session, "reclaim reuses the row");
-    assert_eq!(row["agent"], json!(live_id), "the row must now belong to the claimant");
+    // A FRESH row, not the dead agent's. Transferring the row would hand the
+    // claimant the previous owner's terminal frames, whose prune helpers are
+    // scoped by session id alone — see
+    // `reclaiming_an_identifier_leaves_the_dead_owners_history_alone`.
+    assert_ne!(row["id"].as_i64().unwrap(), session, "reclaim must not reuse the dead row");
+    assert_eq!(row["agent"], json!(live_id), "the new row belongs to the claimant");
+    assert_eq!(row["session_identifier"], json!("sess-shared"));
     assert_eq!(row["status"], json!("connected"));
     assert_eq!(row["disconnected_at"], json!(null));
 
-    // And the reclaim is total: the dead agent no longer owns anything, so it
-    // cannot heartbeat the row back out from under its new owner.
-    let beat = app
-        .post_as_agent(
-            &dead_key,
-            &format!("/api/taskflow/agents/sessions/{session}/heartbeat"),
-            json!({}),
-        )
-        .await;
-    assert_eq!(beat.status(), 403, "the dispossessed agent must not still own the session");
-    let _ = dead_id;
+    // The dead agent's row is released: it keeps its history and its owner, but
+    // no longer holds the identifier, so it cannot collide with the new one.
+    let released = app.session(session).await;
+    assert_eq!(released.agent.id(), dead_id, "history stays with the agent that made it");
+    assert_ne!(released.session_identifier, "sess-shared");
+    assert_eq!(released.status, TaskflowAgentSessionStatus::Disconnected);
 }
 
 // A heartbeat bumps the session's and the agent's last_seen_at, and applies the
@@ -564,4 +564,74 @@ async fn output_frames_are_never_pruned() {
         8,
         "stdout frames are a transcript and must all survive"
     );
+}
+
+// A reclaim must NOT hand the claimant the dead owner's row.
+//
+// Terminal frames FK the session id, and both prune helpers are scoped by
+// session alone (`prune_snapshots`, `prune_transcript_frames`). Transferring the
+// row therefore lets the claimant's very first frames inherit the dead agent's
+// sequence counter and prune that agent's history — across projects, since the
+// claimant may be in a different one. No read leak (frames carry their own
+// denormalized project), but it destroys another project's audit trail.
+//
+// Releasing the identifier and creating a fresh row keeps history with the
+// session that produced it.
+#[tokio::test]
+async fn reclaiming_an_identifier_leaves_the_dead_owners_history_alone() {
+    let app = TestApp::new().await;
+
+    let project_a = seed_project().await;
+    let user_a = app.create_user().await;
+    make_active_project_member(project_a, user_a).await;
+    let (key_a, _agent_a) = mint_agent(&app, user_a, project_a, "Ghost", "main").await;
+
+    let project_b = seed_project().await;
+    let user_b = app.create_user().await;
+    make_active_project_member(project_b, user_b).await;
+    let (key_b, _agent_b) = mint_agent(&app, user_b, project_b, "Heir", "main").await;
+
+    // A registers and streams a frame.
+    let session_a = register(&app, &key_a, "sess-contested").await.json().await["id"]
+        .as_i64()
+        .expect("session id");
+    let framed = app
+        .post_as_agent(
+            &key_a,
+            &format!("/api/taskflow/agents/sessions/{session_a}/frames"),
+            json!({ "content": "a's history" }),
+        )
+        .await;
+    assert_eq!(framed.status(), 200);
+
+    // A's process dies: no close, no further beats, and past the grace window.
+    app.backdate_session_heartbeat(session_a, 6000).await;
+
+    // B claims the identifier.
+    let reclaimed = register(&app, &key_b, "sess-contested").await;
+    assert_eq!(reclaimed.status(), 200, "a long-dead identifier must be reclaimable");
+    let session_b = reclaimed.json().await["id"].as_i64().expect("session id");
+
+    assert_ne!(
+        session_b, session_a,
+        "the claimant must get a NEW session row, never the dead agent's"
+    );
+    let claimed = reclaimed.json().await;
+    assert_eq!(claimed["project"].as_i64().unwrap(), project_b);
+    assert_eq!(claimed["session_identifier"], json!("sess-contested"));
+
+    // A's frames still hang off A's session, in A's project, untouched.
+    let frames = TaskflowAgentTerminalFrame::objects()
+        .filter(taskflow_agent_terminal_frame::SESSION.eq(session_a))
+        .fetch()
+        .await
+        .expect("frames");
+    assert_eq!(frames.len(), 1, "the dead owner's history must survive the reclaim");
+    assert_eq!(frames[0].project.id(), project_a);
+
+    // And the released row no longer holds the identifier, so it cannot be
+    // reconnected into by its old owner and collide with the new one.
+    let old = app.session(session_a).await;
+    assert_ne!(old.session_identifier, "sess-contested");
+    assert_eq!(old.status, TaskflowAgentSessionStatus::Disconnected);
 }

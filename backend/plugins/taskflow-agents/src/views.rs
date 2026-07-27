@@ -20,7 +20,7 @@ use umbral::web::{HeaderMap, IntoResponse, Json, Path, Query, Response, StatusCo
 use umbral_auth::{AuthUser, RequireAuth, auth_user};
 use uuid::Uuid;
 
-use crate::agent_auth::{RequireAgent, hash_key};
+use crate::agent_auth::{AgentIdentity, RequireAgent, hash_key};
 use crate::models::{
     MessageTarget,
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
@@ -253,13 +253,17 @@ pub async fn upload_task_attachment_as_agent(
     headers: HeaderMap,
     raw_body: Bytes,
 ) -> Result<Response, StatusCode> {
+    // Authorize BEFORE parsing. `parse_attachment_files` buffers and parses up
+    // to the raised body limit, so doing it first lets any authenticated agent
+    // make the server chew through a large multipart body aimed at a task it
+    // cannot touch. Loading the task is one indexed lookup.
+    let task = load_task_in_project(task_id, agent.project_id).await?;
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_string();
     let files = parse_attachment_files(&content_type, raw_body).await?;
-    let task = load_task_in_project(task_id, agent.project_id).await?;
     store_task_attachments(&task, files).await
 }
 
@@ -1826,6 +1830,59 @@ pub struct RegisterSessionInput {
     pub transport: Option<String>,
 }
 
+/// Vacate a dead session's identifier so a new owner can take it, WITHOUT
+/// handing over the row.
+///
+/// `session_identifier` is NOT NULL UNIQUE, so the identifier is released by
+/// renaming rather than nulling. The row id makes the new value unique, and the
+/// prefix makes it obvious in a table scan what happened to it.
+///
+/// The row keeps its agent, its project and its terminal frames: it is the
+/// historical record of a process that ran, and it stays that.
+async fn release_identifier(
+    mut row: TaskflowAgentSession,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), StatusCode> {
+    row.session_identifier = format!("released:{}:{}", row.id, row.session_identifier);
+    row.status = TaskflowAgentSessionStatus::Disconnected;
+    row.disconnected_at = Some(now);
+    TaskflowAgentSession::objects()
+        .save(row)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(())
+}
+
+/// Create a fresh session row for `agent`. Shared by the first registration and
+/// by a reclaim, so the two cannot drift on what a new session looks like.
+async fn create_session(
+    agent: &AgentIdentity,
+    input: &RegisterSessionInput,
+    session_identifier: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<TaskflowAgentSession, StatusCode> {
+    TaskflowAgentSession::objects()
+        .create(TaskflowAgentSession {
+            id: 0,
+            // Scope is the agent's own project, never accepted from the body.
+            project: ForeignKey::new(agent.project_id),
+            agent: ForeignKey::new(agent.agent_id),
+            connected_by: None,
+            session_identifier: session_identifier.to_string(),
+            host: input.host.clone(),
+            pid: input.pid,
+            cwd: input.cwd.clone(),
+            transport: input.transport.clone(),
+            status: TaskflowAgentSessionStatus::Connected,
+            connected_at: now,
+            last_seen_at: Some(now),
+            disconnected_at: None,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 /// `POST /api/taskflow/agents/sessions` (agent-authed) — register or reconnect a
 /// live session, keyed by the globally-unique `session_identifier`.
 ///
@@ -1856,34 +1913,37 @@ pub async fn register_session(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let session = match existing {
-        Some(mut row) => {
-            // The identifier is globally unique, so a row owned by another agent
-            // is not ours to reconnect — but only while that owner is still
-            // ALIVE. Ownership without liveness is a deadlock: a process that
-            // dies never calls `/close`, so its row keeps `status = connected`
-            // forever (see `AGENT_HEARTBEAT_WINDOW_SECS`), and any agent that
-            // later computes the same identifier is refused on every attempt,
-            // with nothing about retrying able to change either side.
-            //
-            // So apply the same rule the rest of this file uses: liveness is
-            // `connected AND heartbeated recently`, never the stored column
-            // alone. A live owner is protected; a dead one is dispossessed.
-            if row.agent.id() != agent.agent_id {
-                if session_is_live(&row, now) {
-                    return Err(StatusCode::CONFLICT);
-                }
-                // Reclaim moves the row wholesale, project included — the new
-                // owner may be in a different one, and a row left pointing at
-                // the dead agent's project would leak into that project's
-                // roster and session counts.
-                row.agent = ForeignKey::new(agent.agent_id);
-                row.project = ForeignKey::new(agent.project_id);
-                row.connected_by = None;
-                // This is a new connection, not a resumed one. Left alone, the
-                // dead agent's timestamp would claim the caller has been
-                // connected since whenever that process started.
-                row.connected_at = now;
+        // A row owned by ANOTHER agent. Ownership is only a claim while that
+        // owner is alive: a process that dies never calls `/close`, so its row
+        // keeps `status = connected` forever (see `AGENT_HEARTBEAT_WINDOW_SECS`)
+        // and any agent that later computes the same identifier is refused on
+        // every attempt, with nothing about retrying able to change either side.
+        //
+        // Liveness is `connected AND heartbeated recently`, exactly as the rest
+        // of this file defines it. A live owner is protected; a dead one has its
+        // identifier released.
+        Some(row) if row.agent.id() != agent.agent_id => {
+            if session_is_live(&row, now) {
+                return Err(StatusCode::CONFLICT);
             }
+            // RELEASE the dead row; the claimant gets a FRESH one.
+            //
+            // Transferring the row to the claimant is the obvious alternative
+            // and it is wrong, quietly. Terminal frames FK the session id, and
+            // `prune_snapshots` / `prune_transcript_frames` are scoped by
+            // session alone — so the claimant's first frames would inherit the
+            // dead agent's sequence counter and prune that agent's history.
+            // The claimant may be in a different project, which makes that one
+            // project destroying another's audit trail.
+            //
+            // Releasing keeps history with the session that produced it, and
+            // makes the question of whether to move the row's project vanish
+            // rather than merely be handled carefully.
+            release_identifier(row, now).await?;
+            create_session(&agent, &input, &session_identifier, now).await?
+        }
+        // This agent's own row: a plain reconnect.
+        Some(mut row) => {
             row.status = TaskflowAgentSessionStatus::Connected;
             row.disconnected_at = None;
             row.last_seen_at = Some(now);
@@ -1906,26 +1966,7 @@ pub async fn register_session(
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         }
-        None => TaskflowAgentSession::objects()
-            .create(TaskflowAgentSession {
-                id: 0,
-                // Scope is the agent's own project, never accepted from the body.
-                project: ForeignKey::new(agent.project_id),
-                agent: ForeignKey::new(agent.agent_id),
-                connected_by: None,
-                session_identifier: session_identifier.clone(),
-                host: input.host.clone(),
-                pid: input.pid,
-                cwd: input.cwd.clone(),
-                transport: input.transport.clone(),
-                status: TaskflowAgentSessionStatus::Connected,
-                connected_at: now,
-                last_seen_at: Some(now),
-                disconnected_at: None,
-                created_at: None,
-            })
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => create_session(&agent, &input, &session_identifier, now).await?,
     };
 
     // Registering a session brings the agent online.
