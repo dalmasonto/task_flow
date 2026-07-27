@@ -490,9 +490,20 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         // second call. If it fails the task is ALREADY created — reporting a
         // plain error would send the caller off to create a duplicate, so say
         // what happened and hand back the id it can retry against.
+        // A malformed create response must not become a confusing 404 from
+        // `/agents/tasks/undefined/attachments`.
+        if (typeof task.id !== "number") {
+          return ok({
+            ...task,
+            attachments: [],
+            warning:
+              "The task was created but the server did not return its id, so the files could not be attached. Find the task and attach them to it.",
+          });
+        }
+
         try {
           const attachments = await resolveAttachments(files, dirname(configPath));
-          const uploaded = (await client.uploadTaskAttachments(task.id as number, attachments)) as {
+          const uploaded = (await client.uploadTaskAttachments(task.id, attachments)) as {
             attachments?: unknown[];
           };
           return ok({ ...task, attachments: uploaded?.attachments ?? [] });
@@ -564,14 +575,30 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
         if (!files?.length) return ok(updated);
 
-        const attachments = await resolveAttachments(files, dirname(configPath));
-        const uploaded = (await client.uploadTaskAttachments(task, attachments)) as {
-          attachments?: unknown[];
-        };
-        return ok({
-          ...(typeof updated === "object" && updated !== null ? updated : { id: task }),
-          attachments: uploaded?.attachments ?? [],
-        });
+        const base = typeof updated === "object" && updated !== null ? updated : { id: task };
+
+        // Same shape as `create_task`: the FIELDS are already written by the
+        // time an upload can fail, so reporting a bare error would tell the
+        // caller their edit did not land and invite them to send it again.
+        // `uploadTaskAttachments` carries no client_nonce, so a blind retry
+        // duplicates the attachments.
+        try {
+          const attachments = await resolveAttachments(files, dirname(configPath));
+          const uploaded = (await client.uploadTaskAttachments(task, attachments)) as {
+            attachments?: unknown[];
+          };
+          return ok({ ...base, attachments: uploaded?.attachments ?? [] });
+        } catch (err) {
+          return ok({
+            ...base,
+            attachments: [],
+            warning: `${
+              hasFields ? "The edit was applied" : "Nothing was changed"
+            } but attaching files failed: ${
+              err instanceof Error ? err.message : String(err)
+            }. Do NOT re-send the fields — retry only the upload.`,
+          });
+        }
       } catch (err) {
         return fail(err);
       }
