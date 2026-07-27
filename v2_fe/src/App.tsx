@@ -1963,19 +1963,30 @@ function App() {
   const [taskRefAnswer, setTaskRefAnswer] = useState<{ id: string; answer: TaskRefAnswer } | null>(
     null
   )
-  const openTaskRef: TaskRefState | null = openTaskId
-    ? taskRefState(
-        taskRefAnswer?.id === openTaskId ? taskRefAnswer.answer : { status: "loading" },
-        activeProject?.id ?? null
-      )
-    : null
+  const openTaskRef: TaskRefState | null = !openTaskId
+    ? null
+    : taskRefAnswer?.id === openTaskId
+      ? taskRefState(taskRefAnswer.answer, activeProject?.id ?? null)
+      : openTask && activeProject
+        ? // A cache HIT is not a veto — it is the server's own earlier answer,
+          // so open immediately and let the request refine it. Only a cache MISS
+          // has to wait, because none of the ways the board goes stale (realtime
+          // scoping, the 100-row summary page, a failed refetch) can invent a
+          // task that is not there. Without this, every board-card click dimmed
+          // the screen behind a modal spinner for one round trip.
+          { kind: "ready", taskId: openTaskId }
+        : taskRefState({ status: "loading" }, activeProject?.id ?? null)
 
   // Render the sheet from the SERVER's row when the board has not got it.
   // Requiring the local row was the last place the cache could veto opening a
   // task the server had already confirmed — it produced "the server confirmed
   // this task, but it isn't on the loaded board" about a task sitting in the
-  // response. The board refresh below still runs, to fill in relations and
-  // attachments, but nothing waits on it to OPEN the task.
+  // response.
+  //
+  // Attachments, relations and activity still come from the workspace, and a
+  // server-only row is not in it. The sheet must therefore SAY so rather than
+  // render "no attachments yet" over a task that may have several — see
+  // `openTaskOffBoard` below.
   const openTaskServerRow =
     taskRefAnswer?.id === openTaskId && taskRefAnswer.answer.status === "found"
       ? taskRefAnswer.answer.row
@@ -1992,6 +2003,11 @@ function App() {
   // Board row first (it carries whatever the board has enriched), server row
   // as the guarantee that a confirmed task always opens.
   const openTaskResolved = openTask ?? openTaskFromServer
+  // True when we are rendering from the server row alone. Everything the
+  // workspace owns — attachments, relations, activity — is unknown rather than
+  // absent, and the difference is exactly the class of lie this whole sequence
+  // of fixes exists to remove.
+  const openTaskOffBoard = !openTask && Boolean(openTaskFromServer)
   const reviewTask = reviewTaskId ? tasks.find((task) => task.id === reviewTaskId) : selectedTask
   // Pre-fill the edit dialog from the LIVE task row (it keeps the raw ids/columns
   // that mapLiveTasks drops), converting live enums back into form values.
@@ -4027,7 +4043,16 @@ function App() {
       ) : null}
       {openTaskRef?.kind === "ready" && openTaskResolved && activeProject ? (
         <TaskDetailSheet
+          // Keyed on the task id so opening a DIFFERENT task remounts the
+          // subtree. Without it, `MessageAttachments` keeps its `activeIndex`
+          // while its `attachments` prop is swapped underneath — so a TASK#n
+          // chip clicked inside an open preview silently retargets the preview
+          // at the new task's attachment at that index, or unmounts it when the
+          // new task has none. Either way the reader loses the document they
+          // were reading, which is the failure 32da9af exists to prevent.
+          key={openTaskResolved.id}
           task={openTaskResolved}
+          offBoard={openTaskOffBoard}
           project={activeProject}
           projectTasks={projectTasks}
           liveWorkspace={activeLiveWorkspace}
@@ -5107,11 +5132,16 @@ function TaskDetailSheet({
   onStopSession,
   onUploadAttachment,
   onAddComment,
+  offBoard = false,
 }: {
   task: Task
   project: Project
   projectTasks: Task[]
   liveWorkspace?: TaskflowWorkspace | null
+  /// True when this task was rendered from the server's row because the loaded
+  /// board does not hold it. Everything the workspace owns is then UNKNOWN, not
+  /// empty, and the sheet must say so instead of reporting an absence.
+  offBoard?: boolean
   onClose: () => void
   onEdit: () => void
   onDelete: () => void
@@ -5484,6 +5514,11 @@ function TaskDetailSheet({
               >
                 {attachments.length ? (
                   <MessageAttachments attachments={attachments} />
+                ) : offBoard ? (
+                  <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+                    Attachments can&rsquo;t be shown — this task isn&rsquo;t on the loaded board.
+                    Open its project to see them.
+                  </p>
                 ) : (
                   <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
                     No attachments yet. Attach an image to give the agent visual context.

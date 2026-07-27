@@ -60,6 +60,12 @@ export function MessageAttachments({
   const items = React.useMemo(() => attachments ?? [], [attachments])
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null)
 
+  // An index into a list that changed underneath us points at a different file.
+  // The caller should key this component by whatever owns the list — but a
+  // preview showing the WRONG document is bad enough to defend against twice,
+  // and clamping is cheaper than the bug.
+  const safeIndex = activeIndex !== null && activeIndex < items.length ? activeIndex : null
+
   if (!items.length) return null
 
   const images = items
@@ -91,8 +97,8 @@ export function MessageAttachments({
 
       <AttachmentPreviewDialog
         attachments={items}
-        activeIndex={activeIndex ?? 0}
-        open={activeIndex !== null}
+        activeIndex={safeIndex ?? 0}
+        open={safeIndex !== null}
         onIndexChange={setActiveIndex}
         onOpenChange={(open) => {
           if (!open) setActiveIndex(null)
