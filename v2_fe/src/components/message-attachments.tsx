@@ -815,7 +815,10 @@ function usePdfObjectUrl(attachment: MessageAttachmentItem): PdfState {
     let objectUrl: string | null = null
     setState({ status: "loading" })
 
-    fetch(attachment.url, { signal: controller.signal })
+    // credentials: the /media route is auth-gated (session cookie); in prod
+    // the API is a different origin, where the default "same-origin" policy
+    // would silently drop the cookie and 403 every preview.
+    fetch(attachment.url, { signal: controller.signal, credentials: "include" })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.blob()
@@ -1038,7 +1041,7 @@ async function parseSpreadsheet(
   signal: AbortSignal
 ): Promise<SpreadsheetSheet[]> {
   const XLSX = await import("xlsx")
-  const response = await fetch(url, { signal })
+  const response = await fetch(url, { signal, credentials: "include" })
   if (!response.ok) throw new Error("Unable to load spreadsheet")
 
   const buffer = await response.arrayBuffer()
@@ -1089,7 +1092,10 @@ function useTextContent(url: string): TextFetchState {
 
     async function load() {
       try {
-        const response = await fetch(url, { signal: controller.signal })
+        const response = await fetch(url, {
+          signal: controller.signal,
+          credentials: "include",
+        })
         if (!response.ok) throw new Error("fetch failed")
         const text = await response.text()
         if (!alive) return

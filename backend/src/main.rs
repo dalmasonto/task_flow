@@ -23,6 +23,7 @@
 //!   cargo run -- createsuperuser
 
 // --- Per-concern modules (the table of contents) ---------------------------
+mod media_access;
 mod realtime;
 mod realtime_auth;
 mod seed;
@@ -84,7 +85,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let settings = Settings::from_env()?;
     let pool = umbral::db::connect(&settings.database_url).await?;
 
-    let app = App::builder()
+    let mut builder = App::builder();
+
+    // Cross-origin FE: in production the SPA is served from a different
+    // origin (taskflow.supercodehive.com:10003) than this API
+    // (api.taskflow.supercodehive.com:10002) — ports exposed directly, no
+    // reverse proxy — so browsers preflight API calls. Comma-separated
+    // origins; unset (local dev via the Vite proxy) adds no CORS layer at
+    // all, which keeps same-origin dev behavior byte-identical.
+    if let Ok(origins) = std::env::var("TASKFLOW_CORS_ALLOWED_ORIGINS") {
+        let cfg = origins
+            .split(',')
+            .map(str::trim)
+            .filter(|o| !o.is_empty())
+            .fold(
+                // strict() already allows the methods + Content-Type/
+                // Authorization headers the API needs; credentials on because
+                // the FE fetches with `credentials: "include"`.
+                umbral::cors::CorsConfig::strict().allow_credentials(true),
+                |cfg, origin| cfg.allow_origin(origin),
+            );
+        builder = builder.cors(cfg);
+    }
+
+    let app = builder
         .settings(settings)
         .database("default", pool)
         // #41: let the realtime SSE authenticate with the bearer token via
@@ -200,7 +224,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // Uploaded-file storage for message attachments (FileField):
                 // registers the ambient backend, serves files at /media/<key>,
                 // and enforces the 25 MiB media cap.
-                .media("/media", "./media"),
+                .media("/media", "./media")
+                // Every media GET is authorized before bytes move: channel
+                // membership for message attachments, active project
+                // membership for task attachments, superuser bypass, orphan
+                // keys denied. See src/media_access.rs for the full policy.
+                .media_access(|headers: axum::http::HeaderMap, key: String| async move {
+                    media_access::media_access_allowed(&headers, &key).await
+                }),
         )
         // Security (on by default): CSRF + clickjacking/HSTS hardening
         // headers across the app. `/api` is exempt so token-authenticated

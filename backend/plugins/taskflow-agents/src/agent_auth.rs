@@ -51,12 +51,15 @@ pub struct AgentIdentity {
 /// ```
 pub struct RequireAgent(pub AgentIdentity);
 
-/// Pull the raw key out of the request headers. Prefers the scheme-qualified
+/// Pull the raw key out of a header map. Prefers the scheme-qualified
 /// `Authorization: Agent <key>`, falling back to the bare `x-taskflow-key`
 /// header. Returns `None` if neither is present or well-formed.
-fn read_key(parts: &Parts) -> Option<String> {
-    if let Some(value) = parts
-        .headers
+///
+/// Public (unlike the extractor's `read_key`) because the `/media` access
+/// gate resolves callers from a bare `HeaderMap` — there is no `Parts` in the
+/// storage plugin's callback.
+pub fn agent_key_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+    if let Some(value) = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
     {
@@ -68,13 +71,17 @@ fn read_key(parts: &Parts) -> Option<String> {
             }
         }
     }
-    parts
-        .headers
+    headers
         .get("x-taskflow-key")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
+}
+
+/// The extractor's view of [`agent_key_from_headers`].
+fn read_key(parts: &Parts) -> Option<String> {
+    agent_key_from_headers(&parts.headers)
 }
 
 /// The non-secret lookup prefix (`tfk_<prefix>`) of a raw key — everything up to
