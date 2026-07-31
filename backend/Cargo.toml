@@ -2,6 +2,8 @@
 name = "backend"
 version = "0.1.0"
 edition = "2024"
+# Two bins exist (backend + backup_media); keep `cargo run` = the app.
+default-run = "backend"
 
 # The plugins are workspace members, not just path dependencies. A path dep
 # that is not a member cannot be tested with dev-dependencies ("package X
@@ -48,7 +50,9 @@ umbral-logs     = "0.0.10"
 # Serves ./static at /static — including the compiled Tailwind bundle this
 # project ships. Not optional: the SecurityPlugin's CSP blocks third-party
 # script/style CDNs, so an app must serve its own assets.
-umbral-storage  = "0.0.10"
+# `s3`: the S3Storage backend for `collectstatic --storage s3` and the
+# `backup_media` bin (MinIO / R2 / S3 targets).
+umbral-storage  = { version = "0.0.10", features = ["s3"] }
 
 # ----- Available built-ins (uncomment + register in main.rs to enable) -----
 umbral-playground   = "0.0.10"  # Interactive API playground UI (think mini-Postman) at /playground/.
@@ -81,3 +85,22 @@ axum = "0.8"
 umbral-testing = "0.0.10"
 axum           = "0.8"
 http           = "1"
+
+# TEMPORARY (2026-07-31): the crates.io 0.0.10 media_access gate hands the
+# callback the raw percent-ENCODED path, so every spaced key ("Screenshot
+# from ...") fails the attachment lookup and 403s. `vendor/umbral-storage` is
+# the published 0.0.10 with ONLY the percent-decode fix applied; the real fix
+# + regression test live in the umbra checkout (plugins/umbral-storage) for
+# the 0.0.11 release. REMOVE the vendor dir and this patch at 0.0.11. The
+# in-repo relative path keeps the deploy workflow buildable meanwhile.
+[patch.crates-io]
+umbral-storage = { path = "vendor/umbral-storage" }
+# Same deal: published 0.0.10 + ONLY the AlterColumn varchar-widening render
+# fix (a max_length-only change previously rendered NO DDL, so widened models
+# never reached Postgres). Real fix + tests in the umbra checkout
+# (crates/umbral-core, tests/varchar_length_alter.rs). Remove at 0.0.11.
+umbral-core = { path = "vendor/umbral-core" }
+# Same deal: published 0.0.10 + ONLY the RestrictIn value-typing fix (scope
+# ids bound as text against bigint columns 500 every scoped LIST on Postgres).
+# Real fix + tests in umbra (plugins/umbral-rest, tests/restrict_in_typing.rs).
+umbral-rest = { path = "vendor/umbral-rest" }
