@@ -1,0 +1,120 @@
+# Production stack for TaskFlow. NO reverse proxy — the ports are published
+# directly (user decision 2026-07-31):
+#
+# - postgres : PostgreSQL 16, INTERNAL ONLY (no published ports).
+# - migrate  : one-shot, applies migrations then exits (web waits for it).
+# - web      : the Umbral backend on 0.0.0.0:10002 — REST API, SSE realtime,
+#              admin, media. Reached as api.taskflow.supercodehive.com:10002.
+# - frontend : the built v2_fe dist (synced to ../frontend by the deploy
+#              workflow), served by a caddy FILE SERVER (no proxying) on
+#              0.0.0.0:10003. Reached as taskflow.supercodehive.com:10003.
+#
+# The FE and API are therefore DIFFERENT ORIGINS (different subdomain + port):
+# the backend must allow the FE origin via TASKFLOW_CORS_ALLOWED_ORIGINS (set
+# in .prod.env, wired in main.rs). Session cookies still flow on media loads
+# because both hosts share the site supercodehive.com (SameSite=Lax is
+# site-scoped, not origin-scoped).
+#
+# The `web` image bakes .prod.env at BUILD time (the Dockerfile copies it to
+# /app/.env), so `web` needs no `env_file`. Postgres does — it reads its init
+# credentials from the same decrypted .prod.env, which keeps ONE secret file
+# instead of two that can drift apart.
+#
+# backend/.prod.env (decrypted from secret.env on deploy) must define:
+#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB      # postgres init + healthcheck
+#   UMBRAL_DATABASE_URL=postgres://USER:PASSWORD@postgres:5432/DB   # host = service name
+#   UMBRAL_BIND_ADDR=0.0.0.0:10002                     # NOT 127.0.0.1
+#   UMBRAL_ENVIRONMENT=prod
+#   UMBRAL_ALLOWED_HOSTS=api.taskflow.supercodehive.com,taskflow.supercodehive.com,...
+#   TASKFLOW_CORS_ALLOWED_ORIGINS=http://taskflow.supercodehive.com:10003
+#   UMBRAL_SECRET_KEY                                  # secrets
+# NB: UMBRAL_DATABASE_URL's USER/PASSWORD must match POSTGRES_USER/POSTGRES_PASSWORD.
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    env_file: .prod.env # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No `ports:` — postgres is reachable only inside the compose network.
+    healthcheck:
+      # `$$` -> a literal `$`, so the var expands inside the container, not here.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: apply pending migrations, then exit 0. `web` waits for it, so it
+  # never races an unmigrated schema. Idempotent — safe on every deploy.
+  #
+  # Reuses the image `web` builds rather than building its own. `docker compose
+  # up -d` alone would try to PULL taskflow-backend:latest, so the deploy runs
+  # `docker compose build` first (see the deploy workflow).
+  migrate:
+    image: taskflow-backend:latest
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      args:
+        ENV_FILE: .prod.env
+    image: taskflow-backend:latest
+    command: ["serve"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      # Published on ALL interfaces by design — there is no proxy in front.
+      # TLS is therefore not terminated anywhere for this port; see the deploy
+      # notes before putting real secrets behind plain HTTP.
+      - "10002:10002"
+    volumes:
+      # Uploaded attachments live here. A named volume, not an image layer:
+      # without it, every `docker compose build` would silently discard
+      # everything users uploaded.
+      - media:/app/media
+    healthcheck:
+      # The Host header is NOT incidental. In `prod`, the framework mounts a
+      # host guard that 400s any request whose Host is absent from
+      # UMBRAL_ALLOWED_HOSTS. A plain `curl localhost:10002` sends
+      # `Host: localhost:10002` — allowed only because localhost is also in
+      # UMBRAL_ALLOWED_HOSTS; sending the real host exercises the production
+      # path instead.
+      test:
+        ["CMD", "curl", "-fsS", "-H", "Host: api.taskflow.supercodehive.com", "http://127.0.0.1:10002/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s # first boot applies migrations before serving
+    restart: unless-stopped
+
+  # Static file server for the built v2_fe dist — a file server, NOT a proxy.
+  # The deploy workflow syncs the dist to /home/taskflow/frontend (= ../frontend
+  # relative to this compose file). frontend.Caddyfile adds the SPA fallback:
+  # unknown paths rewrite to /index.html so client-side routes deep-link.
+  frontend:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "10003:10003"
+    volumes:
+      - ../frontend:/srv:ro
+      - ./frontend.Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:10003/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
+  media:

@@ -1,4 +1,10 @@
 /target
 /backend.db*
 .env
-Cargo.lock
+data.json
+# collectstatic output + backup_media's filesystem target — artifacts, not source.
+/staticfiles
+/media_backup
+# CI builds with --locked, so Cargo.lock is COMMITTED (binaries pin deps).
+# dist/ holds the CI-built release binary staged for the Docker image.
+/dist

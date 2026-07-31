@@ -1,0 +1,14 @@
+# Static file server for the v2_fe SPA — serves /srv (the built dist) on
+# :10003 with the SPA fallback (client-routed paths rewrite to /index.html).
+# No proxying happens here; the FE talks to the API origin directly via the
+# baked VITE_API_BASE_URL.
+{
+	auto_https off
+}
+
+:10003 {
+	root * /srv
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}

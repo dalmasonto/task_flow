@@ -11,11 +11,20 @@ target/
 node_modules/
 dist/
 .vite/
+# Local compose-test FE build (the deploy workflow ships its own to the server)
+/frontend/
+# Local-only compose overrides (localhost CORS); the server never gets this file
+docker-compose.override.yml
 
 # Env / secrets
 .env
 .env.*
 !.env.example
+
+# sops/age: plaintext prod envs and the age PRIVATE key never enter git.
+# The encrypted secret.env files ARE committed.
+.prod.env
+keys.txt
 
 # Agent credentials — holds a raw `tfk_` key per profile. Never commit.
 .taskflow.json

@@ -1,0 +1,18 @@
+# Keep the image build context tiny: the Dockerfile COPYs only dist/,
+# templates/, migrations/, static/ and .prod.env. Everything below is either
+# huge (target/), secret-adjacent, or runtime state that must never bake into
+# a layer.
+target
+media
+media_backup
+staticfiles
+backend.db*
+.env
+data.json
+styles/node_modules
+src
+plugins
+tests
+vendor
+Cargo.toml
+Cargo.lock

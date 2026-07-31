@@ -1,0 +1,286 @@
+# Deploy TaskFlow (backend + v2_fe frontend) to the server.
+#
+# Manual-trigger only. Three jobs:
+#
+#   build     compiles the backend release binary in rust:1-bookworm.
+#   transfer  decrypts both envs, `vite build`s the frontend with its prod env
+#             baked in, stages a payload (backend files + binary + frontend
+#             dist), and scp's it to the server.
+#   release   ssh's in, rebuilds the backend image (COPY layers only) and
+#             restarts the stack, then waits for the healthcheck. Fails the run
+#             if `migrate` errors or `web` never turns healthy -- a deploy that
+#             silently leaves a broken API is worse than one that goes red.
+#
+# The server COMPILES NOTHING. Its `docker compose build` is a handful of COPY
+# layers instead of the full registry dependency tree. No image is published
+# anywhere: only the binary and the built frontend cross the wire, and
+# backend/.prod.env never leaves the box -- the image is assembled on the
+# server, where the secret already lives. The FRONTEND env is different by
+# nature: Vite bakes VITE_* vars into the JS bundle at build time, so
+# v2_fe/.prod.env is decrypted and consumed here in CI, never shipped.
+#
+# Server layout (NO reverse proxy -- ports are published directly: the API on
+# 0.0.0.0:10002 as api.taskflow.supercodehive.com:10002, the frontend dist
+# served by the compose `frontend` file-server on 0.0.0.0:10003 as
+# taskflow.supercodehive.com:10003):
+#
+#   /home/taskflow/backend/    Dockerfile, compose, frontend.Caddyfile,
+#                              templates, migrations, static, dist/backend,
+#                              .prod.env
+#   /home/taskflow/frontend/   the built v2_fe dist
+#
+# The `release` job brings the stack up for you. Dispatch with bring_up=false
+# to transfer the files and stop there (e.g. to inspect the box first).
+#
+# Required repo secrets: AGE_PRIVATE_KEY, CONTABO_HOST, CONTABO_USER, SSH_PRIVATE_KEY.
+
+name: deploy-backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      bring_up:
+        description: "Rebuild the image and restart the stack on the server"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false # never interrupt a transfer mid-flight
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    # Same base distro as the runtime's debian:bookworm-slim -- both are Debian
+    # 12 (glibc 2.36, OpenSSL 3). Compiling on the bare ubuntu-22.04 runner
+    # would link glibc 2.35 and only happen to run on the server.
+    #
+    # (No "stage at /app" step here, unlike the umbral website this workflow is
+    # copied from: no taskflow plugin bakes CARGO_MANIFEST_DIR paths into the
+    # binary, so the checkout path is fine.)
+    container: rust:1-bookworm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends pkg-config libssl-dev
+
+      # Keyed on Cargo.lock: registry deps only recompile when a dependency
+      # actually changes. The first-party crates rebuild every run.
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            backend/target
+          key: taskflow-backend-${{ runner.os }}-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            taskflow-backend-${{ runner.os }}-
+
+      - name: Build release binary
+        working-directory: backend
+        run: |
+          cargo build --release --locked
+          strip target/release/backend
+          mkdir -p dist
+          cp target/release/backend dist/backend
+          ls -lh dist/backend
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskflow-backend-binary
+          path: backend/dist/backend
+          retention-days: 3
+          if-no-files-found: error
+
+  transfer:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install sops
+        run: |
+          curl -fLo sops https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+
+      - name: Set up age for decryption
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.AGE_PRIVATE_KEY }}" > ~/.config/sops/age/keys.txt
+
+      # secret.env is committed; .prod.env is not. The backend plaintext exists
+      # only inside the payload we are about to ship -- the Dockerfile bakes it
+      # in as /app/.env ON THE SERVER. CI never puts a production secret in an
+      # image or an artifact.
+      - name: Decrypt the production envs
+        run: |
+          for d in backend v2_fe; do
+            test -f "$d/secret.env" || {
+              echo "::error::$d/secret.env is missing. Run 'bash scripts/encrypt_envs.sh <age-public-key>' and commit it."
+              exit 1
+            }
+          done
+          sops --decrypt backend/secret.env > backend/.prod.env.decrypted
+          sops --decrypt v2_fe/secret.env > v2_fe/.prod.env
+          # Fail loudly rather than shipping an env that boots into a broken state.
+          grep -q '^UMBRAL_BIND_ADDR=0\.0\.0\.0:' backend/.prod.env.decrypted || {
+            echo "::error::UMBRAL_BIND_ADDR must bind 0.0.0.0 — a loopback bind inside the container is unreachable even from its own host."
+            exit 1
+          }
+          grep -q '^UMBRAL_ALLOWED_HOSTS=' backend/.prod.env.decrypted || {
+            echo "::error::UMBRAL_ALLOWED_HOSTS is unset — behind Caddy every request would be rejected on the Host header."
+            exit 1
+          }
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v2_fe/package-lock.json
+
+      # VITE_* vars are baked into the bundle here, at build time. Sourcing the
+      # decrypted env (rather than renaming it to Vite's .env.production) keeps
+      # one canonical name -- .prod.env -- across both surfaces.
+      - name: Build the frontend with its prod env
+        working-directory: v2_fe
+        run: |
+          npm ci
+          set -a
+          . ./.prod.env
+          set +a
+          npm run build
+          test -f dist/index.html || {
+            echo "::error::vite build produced no dist/index.html"
+            exit 1
+          }
+
+      # Stage exactly what the server needs. scp-action has no --exclude, so
+      # explicit copies instead of shipping the source tree: the runtime needs
+      # no src/, tests/, or styles/. keys.txt and dev DBs never enter payload/.
+      - name: Stage the payload
+        run: |
+          mkdir -p payload/backend payload/frontend
+          cp backend/Dockerfile backend/docker-compose.yml backend/frontend.Caddyfile payload/backend/
+          cp -a backend/templates backend/migrations backend/static payload/backend/
+          cp backend/.prod.env.decrypted payload/backend/.prod.env
+          cp -a v2_fe/dist/. payload/frontend/
+
+      - name: Download the CI-built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: taskflow-backend-binary
+          path: payload/backend/dist
+
+      - name: Show what will be transferred
+        run: |
+          chmod +x payload/backend/dist/backend
+          echo "Payload contents:"
+          find payload -maxdepth 2 -not -path '*/assets/*' | sort
+          echo "Total size: $(du -sh payload/ | cut -f1)"
+
+      - name: Transfer to Contabo
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.CONTABO_HOST }}
+          username: ${{ secrets.CONTABO_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "payload"
+          strip_components: 1 # drop the leading payload/ path segment
+          target: "/home/taskflow/"
+          overwrite: true
+
+      - name: Transferred
+        run: |
+          echo "backend + prebuilt binary + frontend dist synced to /home/taskflow."
+
+  release:
+    needs: transfer
+    if: ${{ inputs.bring_up }}
+    runs-on: ubuntu-22.04
+    steps:
+      # `docker compose build` here is only COPY layers -- the binary arrived
+      # prebuilt. `up -d` runs postgres -> migrate -> web; compose fails the
+      # command if `migrate` exits non-zero (service_completed_successfully),
+      # which is how a bad migration turns this run red instead of quietly
+      # leaving the old container serving.
+      - name: Build the image and restart the stack
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.CONTABO_HOST }}
+          username: ${{ secrets.CONTABO_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 15m
+          script_stop: true # abort on the first failing command
+          script: |
+            set -euo pipefail
+            cd /home/taskflow/backend
+
+            echo "::group::docker compose build"
+            docker compose build
+            echo "::endgroup::"
+
+            echo "::group::docker compose up -d"
+            docker compose up -d
+            echo "::endgroup::"
+
+            # `up -d` returns as soon as the containers are CREATED; the web
+            # healthcheck needs a moment, and start_period is 30s. Poll rather
+            # than sleep a guess.
+            #
+            # Every command here is `|| true`-guarded and the result checked
+            # explicitly. `set -e` aborts on a failed command substitution in
+            # an assignment (`cid=$(cmd)`), which is exactly how the first
+            # version of this step died silently right after `up -d` in the
+            # umbral deploy -- reporting a failed release for a site that was
+            # in fact serving correctly.
+            echo "resolving the web container id..."
+            cid=$(docker compose ps -q web 2>/dev/null || true)
+            if [ -z "$cid" ]; then
+              cid=$(docker ps -q --filter "name=backend-web" | head -1 || true)
+            fi
+            echo "cid=${cid:-<empty>}"
+            if [ -z "$cid" ]; then
+              docker compose ps || true
+              echo "could not resolve the web container"
+              exit 1
+            fi
+
+            status=unknown
+            for i in $(seq 1 40); do
+              status=$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo unknown)
+              echo "  [$i] web health: $status"
+              if [ "$status" = "healthy" ] || [ "$status" = "unhealthy" ]; then
+                break
+              fi
+              sleep 5
+            done
+
+            echo "web health: $status"
+            docker compose ps || true
+
+            if [ "$status" != "healthy" ]; then
+              echo "----- migrate logs -----"; docker compose logs --no-color --tail=40 migrate || true
+              echo "----- web logs -----";     docker compose logs --no-color --tail=60 web || true
+              echo "web did not become healthy"
+              exit 1
+            fi
+
+            echo "----- migrations applied -----"
+            docker compose logs --no-color migrate 2>/dev/null | grep -iE "applied [0-9]+ migration|no pending" | tail -3 || true
+
+      - name: Deployed
+        run: |
+          echo "API up on 0.0.0.0:10002 (api.taskflow.supercodehive.com:10002)."
+          echo "Frontend served on 0.0.0.0:10003 (taskflow.supercodehive.com:10003)."
