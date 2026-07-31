@@ -53,3 +53,27 @@ published directly, no reverse proxy).
 
 Required GitHub secrets: `AGE_PRIVATE_KEY`, `CONTABO_HOST`, `CONTABO_USER`,
 `SSH_PRIVATE_KEY`.
+
+## TODO before/at umbral 0.0.11
+
+`backend/vendor/` carries copies of the **published umbral 0.0.10** crates,
+each patched with exactly one fix found live on 2026-07-31 (the real fixes +
+tests are committed in the umbra repo, queued for 0.0.11 behind the open
+gaps4.md items):
+
+| Vendored crate | The one fix it carries |
+|---|---|
+| `umbral-storage` | media_access gate receives the percent-decoded key (spaced uploads 403'd as orphans) |
+| `umbral-core` | `AlterColumn` renders a TYPE change for `max_length`-only diffs (widened models never reached Postgres DDL) |
+| `umbral-rest` | `RestrictIn` binds scope ids in the column's type (`bigint = text` 500'd every scoped LIST on Postgres) |
+
+**When umbral 0.0.11 is published:**
+
+1. Bump every `umbral*` pin in `backend/Cargo.toml` to `0.0.11`.
+2. Delete the `[patch.crates-io]` block at the bottom of `backend/Cargo.toml`.
+3. `rm -rf backend/vendor/`.
+4. `cargo test --workspace` in `backend/` — the media-access and scoped-REST
+   suites prove the published crates carry the fixes.
+
+Until then the vendor dir is load-bearing: removing it early reverts all
+three bugs in any fresh build/deploy.
