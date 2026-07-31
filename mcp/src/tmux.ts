@@ -233,11 +233,34 @@ export function normalizeSnapshot(raw: string, max = MAX_SNAPSHOT_CHARS): string
  *
  * Non-submit is for a human watching the pane; submit is for waking the agent.
  */
+
+/**
+ * Pause between typing a submitted notice and pressing Enter.
+ *
+ * #108: Codex's composer treats a CR that arrives in the same input burst as
+ * the preceding text as a PASTED newline, not a submit — so back-to-back
+ * `send-keys -l` + `send-keys Enter` left the notice sitting in the composer.
+ * Measured live against Codex 0.139: the immediate Enter is swallowed; the
+ * same Enter ≥50ms later submits every time. 150ms buys a 3× margin and is
+ * imperceptible next to the 1s mirror cadence. Claude Code tolerates the
+ * pause too, so it is unconditional rather than per-TUI.
+ */
+export const SUBMIT_ENTER_DELAY_MS = 150;
+
+/** Injected in tests so the type/pause/Enter ordering is checkable without tmux. */
+export interface NotifyPaneDeps {
+  exec?: (args: string[]) => Promise<unknown>;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export async function notifyPane(
   text: string,
   target?: string,
   submit = false,
+  deps: NotifyPaneDeps = {},
 ): Promise<void> {
+  const exec = deps.exec ?? ((args: string[]) => run("tmux", args));
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const base = target ? ["-t", target] : [];
   // The two modes have different limits because they are different surfaces.
   // `display-message` paints tmux's status line — one row, so a long notice is
@@ -246,11 +269,12 @@ export async function notifyPane(
   // request arrived half-written and was answered as if complete.
   const line = sanitizeForPane(text, submit ? MAX_TYPED_NOTICE_CHARS : 240);
   if (!submit) {
-    await run("tmux", ["display-message", ...base, line]);
+    await exec(["display-message", ...base, line]);
     return;
   }
-  await run("tmux", ["send-keys", ...base, "-l", line]);
-  await run("tmux", ["send-keys", ...base, "Enter"]);
+  await exec(["send-keys", ...base, "-l", line]);
+  await sleep(SUBMIT_ENTER_DELAY_MS);
+  await exec(["send-keys", ...base, "Enter"]);
 }
 
 /**

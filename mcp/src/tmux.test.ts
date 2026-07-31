@@ -134,6 +134,38 @@ describe("sendKeySequence", () => {
   });
 });
 
+import { notifyPane, SUBMIT_ENTER_DELAY_MS } from "./tmux.js";
+
+describe("notifyPane submit pacing", () => {
+  // #108: Codex's composer treats a CR arriving in the same input burst as the
+  // typed text as a PASTED newline, not a submit — the notice sat in the
+  // composer until a human pressed Enter. Measured live against Codex 0.139:
+  // Enter back-to-back with the text is swallowed; the same Enter ≥50ms later
+  // submits. The fix is a pause between typing the notice and pressing Enter.
+  it("pauses between typing the notice and pressing Enter", async () => {
+    const log: string[] = [];
+    await notifyPane("hello agent", "%7", true, {
+      exec: async (args) => void log.push(args.join(" ")),
+      sleep: async (ms) => void log.push(`sleep:${ms}`),
+    });
+    expect(log).toEqual([
+      "send-keys -t %7 -l hello agent",
+      `sleep:${SUBMIT_ENTER_DELAY_MS}`,
+      "send-keys -t %7 Enter",
+    ]);
+    expect(SUBMIT_ENTER_DELAY_MS).toBeGreaterThanOrEqual(100);
+  });
+
+  it("does not pause (or press Enter) for a status-line notice", async () => {
+    const log: string[] = [];
+    await notifyPane("fyi", "%7", false, {
+      exec: async (args) => void log.push(args.join(" ")),
+      sleep: async (ms) => void log.push(`sleep:${ms}`),
+    });
+    expect(log).toEqual(["display-message -t %7 fyi"]);
+  });
+});
+
 import { sendKeySteps } from "./tmux.js";
 
 describe("sendKeySteps", () => {
