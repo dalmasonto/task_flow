@@ -10,12 +10,6 @@ import { type ActivityEvent } from "@/lib/workspace-view"
 import { useMemo, useState } from "react"
 
 
-/// How many entries to show before "Load more". The feed reaches four figures on
-/// an active project — a row per tool call — and rendering all of it was both
-/// slow and unreadable.
-export const ACTIVITY_PAGE_SIZE = 40
-
-
 /// One line in the feed. Deliberately dense: the old card gave three lines and a
 /// row of chips to something like "tool:Read — completed", so a screen held five
 /// entries. Everything beyond the headline moves into the detail sheet.

@@ -36,7 +36,7 @@ import { ALL_TOOLS } from "@/lib/activity-filter"
 
 /// The shared room every project gets. Named in one place so the auto-open
 /// preference and the create path cannot drift apart.
-import { ACTIVITY_PAGE_SIZE, ActivityLogPage } from "@/pages/activity"
+import { ActivityLogPage } from "@/pages/activity"
 import { AgentsConversationEmpty, AgentsConversationRoute, AgentsPage } from "@/pages/agents"
 import { ApiBasePage } from "@/pages/api-base"
 import { AuthGateScreen, AuthPage } from "@/pages/auth"
@@ -275,6 +275,11 @@ function App() {
   // cap, and holding every page defeats the point of paging.
   const [activityPage, setActivityPage] = useState(1)
   const [activityTotal, setActivityTotal] = useState(0)
+  // From the response envelope, never derived: the SERVER pages the feed
+  // (PageNumberPagination in backend/src/main.rs), so only the server knows how
+  // many pages there are. A frontend ceil(count / OWN_CONSTANT) is how the
+  // pager once claimed 40-row pages over an API serving 25.
+  const [activityTotalPages, setActivityTotalPages] = useState(1)
   const [loadingOlder, setLoadingOlder] = useState(false)
   // Server-side, so the tool filter applies to the WHOLE feed rather than to
   // whichever page happens to be loaded. Lifted out of ActivityLogPage for that
@@ -287,6 +292,7 @@ function App() {
   useEffect(() => {
     setActivityPage(1)
     setActivityTotal(0)
+    setActivityTotalPages(1)
     setActivityTool(ALL_TOOLS)
     setActivityToolOptions([])
   }, [activeProjectId])
@@ -295,7 +301,6 @@ function App() {
     () => (activeLiveWorkspace ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks) : []),
     [activeLiveWorkspace, projectTasks]
   )
-  const activityTotalPages = Math.max(1, Math.ceil(activityTotal / ACTIVITY_PAGE_SIZE))
 
 
 
@@ -939,12 +944,13 @@ function App() {
       if (!projectId) return
       setLoadingOlder(true)
       try {
-        const { rows, count } = await fetchWorkspaceActivity(
+        const { rows, count, totalPages } = await fetchWorkspaceActivity(
           projectId,
           page,
           tool === ALL_TOOLS ? undefined : tool
         )
         setActivityTotal(count)
+        setActivityTotalPages(totalPages)
         setActivityPage(page)
         setActivityTool(tool)
         applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: rows }))
@@ -1027,8 +1033,9 @@ function App() {
         .then(setActivityToolOptions)
         .catch(() => setActivityToolOptions([]))
       void fetchWorkspaceActivity(projectId)
-        .then(({ rows, count }) => {
+        .then(({ rows, count, totalPages }) => {
           setActivityTotal(count)
+          setActivityTotalPages(totalPages)
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: rows }))
         })
         .catch(() => {

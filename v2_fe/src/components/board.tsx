@@ -2,7 +2,6 @@ import { type TaskRefState } from "@/lib/task-ref-state"
 import { Loader2 as LoaderIcon } from "lucide-react"
 import { ArrowLeftIcon, ArrowRightIcon, GripVerticalIcon } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { BOARD_PAGE_SIZE } from "@/lib/taskflow-api"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { priorityClass, type Task } from "@/lib/workspace-view"
@@ -198,7 +197,7 @@ export function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: (
       className="flex items-center justify-center gap-2 rounded-md py-2 text-[11px] text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
     >
       <LoaderIcon className={cn("size-3.5", pending && "animate-spin")} />
-      {pending ? "Loading" : "Load"} {Math.min(remaining, BOARD_PAGE_SIZE)} more…
+      {pending ? "Loading" : "Load"} more… ({remaining} left)
     </button>
   )
 }

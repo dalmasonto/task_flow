@@ -458,13 +458,29 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
 /// envelope, so that limit is detectable rather than silent.
 const REFERENCE_PAGE_SIZE = 100
 
-export const BOARD_PAGE_SIZE = 25
+/// One page of a paginated surface, as the SERVER paged it.
+///
+/// The paged surfaces (board columns, chat pages, the activity feed) send no
+/// `page_size` at all: the backend's paginator (`PageNumberPagination::new(25)`
+/// in backend/src/main.rs) decides, and every piece of page math on this side —
+/// pager counts, "load more" labels, windows — reads the envelope's
+/// `page_size` / `total_pages` instead of a frontend constant. Two constants
+/// (40 here, 25 there) once disagreed about the activity feed's page count;
+/// carrying the server's own numbers makes that drift impossible.
+export type ServerPage<T> = {
+  rows: T[]
+  count: number
+  /// Rows per page, as the server actually paged this response.
+  pageSize: number
+  /// Total pages at that size, straight from the envelope.
+  totalPages: number
+}
 
 export async function fetchBoardColumn(
   projectId: number,
   column: BoardColumnId,
   page = 1
-): Promise<{ rows: TaskflowTask[]; count: number }> {
+): Promise<ServerPage<TaskflowTask>> {
   const res = await taskflowApi
     .from(taskflowTables.tasks)
     .filter({ project: projectId })
@@ -472,10 +488,9 @@ export async function fetchBoardColumn(
     // Newest first, so a task created now lands at the top of page 1 rather than
     // on some page the user has not scrolled to.
     .orderBy("-id")
-    .param("page_size", BOARD_PAGE_SIZE)
     .param("page", page)
     .list()
-  return { rows: res.results, count: res.count }
+  return { rows: res.results, count: res.count, pageSize: res.page_size, totalPages: res.total_pages }
 }
 
 /// #56: one page of ONE channel's messages, newest first.
@@ -484,20 +499,17 @@ export async function fetchBoardColumn(
 /// (not project) is what makes "older in THIS conversation" meaningful — a
 /// project-wide page would interleave other channels and exhaust itself long
 /// before this thread ran out.
-export const CHANNEL_MESSAGE_PAGE_SIZE = 25
-
 export async function fetchChannelMessages(
   channelId: number,
   page = 1
-): Promise<{ rows: TaskflowAgentMessage[]; count: number }> {
+): Promise<ServerPage<TaskflowAgentMessage>> {
   const res = await taskflowApi
     .from(taskflowTables.agentMessages)
     .filter({ channel: channelId })
     .orderBy("-created_at", "-id")
-    .param("page_size", CHANNEL_MESSAGE_PAGE_SIZE)
     .param("page", page)
     .list()
-  return { rows: res.results, count: res.count }
+  return { rows: res.results, count: res.count, pageSize: res.page_size, totalPages: res.total_pages }
 }
 
 /// #56: every distinct `action` in a project's activity feed.
@@ -655,12 +667,9 @@ export async function fetchProjectMedia(projectId: number): Promise<{
 
 /// The activity slice — 898 KB of the old 1.31 MB, and the board renders none of
 /// it. Loaded for the activity feed and the task detail sheet only.
-/// #56: ONE page of activity, newest first.
-///
-/// Activity is the dataset nobody needs whole — 5713 rows and growing ~1140/day.
-/// The feed shows a page and asks for the next as you scroll.
-export const ACTIVITY_PAGE_SIZE = 25
-
+/// #56: ONE page of activity, newest first — sized by the SERVER (see
+/// ServerPage). The pager renders the envelope's `total_pages`, so the page
+/// count can never disagree with what a page actually holds again.
 export async function fetchWorkspaceActivity(
   projectId: number,
   page = 1,
@@ -670,15 +679,14 @@ export async function fetchWorkspaceActivity(
   /// title/task, and the REST layer AND-combines filters with no OR across
   /// fields, so it cannot be expressed here without changing what it means.
   action?: string
-): Promise<{ rows: TaskflowTaskActivity[]; count: number }> {
+): Promise<ServerPage<TaskflowTaskActivity>> {
   const res = await taskflowApi
     .from(taskflowTables.taskActivity)
     .filter(action ? { project: projectId, action } : { project: projectId })
     .orderBy("-created_at", "-id")
-    .param("page_size", ACTIVITY_PAGE_SIZE)
     .param("page", page)
     .list()
-  return { rows: res.results, count: res.count }
+  return { rows: res.results, count: res.count, pageSize: res.page_size, totalPages: res.total_pages }
 }
 
 /// Advance the current user's read cursor for a channel to `lastReadMessage`.
