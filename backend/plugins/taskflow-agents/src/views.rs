@@ -570,6 +570,7 @@ pub async fn send_message(
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
             client_nonce: client_nonce.clone(),
+            edited_at: None,
             created_at: None,
         })
         .await
@@ -638,6 +639,95 @@ pub struct CreateChannelMemberInput {
     pub user: Option<i64>,
     #[serde(default)]
     pub agent: Option<i64>,
+}
+
+/// The body of `POST /api/taskflow/messages/{message}/edit`. Only the new
+/// body — everything else about a message is immutable after send: the sender
+/// trio is identity, the channel/project are scope, and priority/targets keep
+/// meaning what the sender meant at send time.
+#[derive(Debug, Deserialize)]
+pub struct EditMessageInput {
+    pub body_markdown: String,
+}
+
+/// `POST /api/taskflow/messages/{message}/edit` (human-authed) — edit your OWN
+/// message's body.
+///
+/// A trusted endpoint for the same reason `send_message` is: auto-REST update
+/// on `taskflow_agent_message` would let any project member rewrite anyone's
+/// words under their name. Here the gate is authorship, which is stricter than
+/// channel membership — being allowed to READ a room does not make its history
+/// yours to revise. Not-yours answers 404, not 403: a 403 would confirm the id
+/// exists, handing any authenticated caller an oracle over other projects' DM
+/// ids. The UI only offers Edit on the caller's own bubbles, so nobody
+/// legitimate ever sees this 404.
+///
+/// Sets `edited_at`, and the save fans out an `updated` realtime event: the
+/// frontend reconciles the row in place, and the MCP redelivers the message to
+/// agent panes as an update so agents proceed from the revised content.
+pub async fn edit_message(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(message_id): Path<i64>,
+    Json(input): Json<EditMessageInput>,
+) -> Result<Response, StatusCode> {
+    let mut message = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::ID.eq(message_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Authorship, not membership: only the author may edit, and only a HUMAN
+    // author through this endpoint (an agent message's author is not this
+    // caller by construction).
+    if message.sender_kind != TaskflowChannelMemberKind::User
+        || message.sender_user.as_ref().map(ForeignKey::id) != Some(user_id)
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let body = input.body_markdown.trim();
+    if body.chars().count() > MAX_BODY_CHARS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Same rule as send: an empty body is valid only if files carry the
+    // message. Attachments are immutable here, so check what the row owns.
+    if body.is_empty() {
+        let has_files = TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::MESSAGE.eq(message.id))
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .is_some();
+        if !has_files {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
+    // A no-op edit is returned as-is rather than stamped: "(edited)" is a
+    // claim the words changed, and a cancelled edit dialog must not make it.
+    if body == message.body_markdown {
+        let attachments = TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::MESSAGE.eq(message.id))
+            .fetch()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return message_response(&message, &attachments);
+    }
+
+    message.body_markdown = body.to_string();
+    message.edited_at = Some(chrono::Utc::now());
+    let message = TaskflowAgentMessage::objects()
+        .save(message)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let attachments = TaskflowMessageAttachment::objects()
+        .filter(taskflow_message_attachment::MESSAGE.eq(message.id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    message_response(&message, &attachments)
 }
 
 /// The channel to create. Identity is NOT a body field: the creator comes from
@@ -1420,6 +1510,7 @@ pub async fn send_message_as_agent(
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
             client_nonce: client_nonce.clone(),
+            edited_at: None,
             created_at: None,
         })
         .await
@@ -2793,6 +2884,7 @@ async fn apply_review(
                     body_markdown: message_body,
                     priority: TaskflowMessagePriority::Normal,
                     client_nonce: None,
+                    edited_at: None,
                     created_at: None,
                 })
                 .await

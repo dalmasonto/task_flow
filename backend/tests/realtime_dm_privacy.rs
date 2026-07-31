@@ -195,6 +195,7 @@ async fn a_project_member_off_the_roster_never_receives_a_dm_body() {
             sender_label: "dm-alice".to_string(),
             body_markdown: SECRET.to_string(),
             priority: TaskflowMessagePriority::Normal,
+            edited_at: None,
             created_at: None,
         })
         .await

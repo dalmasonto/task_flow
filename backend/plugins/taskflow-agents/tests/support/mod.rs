@@ -552,6 +552,7 @@ pub async fn seed_message(project: i64, channel: i64) -> i64 {
             body_markdown: format!("seeded message {n}"),
             priority: TaskflowMessagePriority::Normal,
             client_nonce: None,
+            edited_at: None,
             created_at: None,
         })
         .await

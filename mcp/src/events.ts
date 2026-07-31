@@ -80,8 +80,9 @@ export interface TerminalKeyEvent {
 export interface EventStreamOptions {
   server: string;
   key: string;
-  /** Called for each message created in this agent's project. */
-  onMessage: (message: AgentMessageEvent) => void | Promise<void>;
+  /** Called for each message created — or edited (#107) — in this agent's
+   *  project. `action` says which; absent means "created" (older callers). */
+  onMessage: (message: AgentMessageEvent, action?: "created" | "updated") => void | Promise<void>;
   /** Called when a human answers a question this agent is blocked on. */
   onPromptAnswered?: (prompt: PromptEvent) => void | Promise<void>;
   /** Called when a human sends a terminal key from the dashboard. Broadcast to
@@ -266,9 +267,10 @@ export function handleFrame(
     return;
   }
 
-  // Only creations matter for delivery: an edit or a delete is not a new thing
-  // for the agent to read.
-  if (envelope.e !== "created") return;
+  // Creations AND edits matter for delivery (#107): an edited message is the
+  // sender saying "proceed with THIS version", so it must reach the pane again.
+  // Deletes stay silent — there is nothing new for the agent to read.
+  if (envelope.e !== "created" && envelope.e !== "updated") return;
   // Every table in a project shares the `project:{id}:*` room family, and a chat
   // event is now id-only — indistinguishable from an id-only task or read-cursor
   // row except by the group name. Without this check every task edit would be
@@ -280,7 +282,7 @@ export function handleFrame(
   // Requiring `body_markdown` here is what silently killed live delivery when
   // chat became id-only — the guard rejected every real event.
   if (!row || typeof row.id !== "number") return;
-  void options.onMessage(row as AgentMessageEvent);
+  void options.onMessage(row as AgentMessageEvent, envelope.e);
 }
 
 /**
@@ -384,6 +386,7 @@ export function formatIncoming(
   message: AgentMessageEvent,
   attachments: NoticeAttachment[] = [],
   selfAgentId?: number,
+  edited = false,
 ): string {
   const who = message.sender_label || (message.sender_kind === "user" ? "User" : "Agent");
   // #40 review: a non-target still receives the message but is told, clearly and
@@ -394,7 +397,11 @@ export function formatIncoming(
     selfAgentId != null && !canActOnMessage(message, selfAgentId)
       ? "🚫 DO NOT ACT — you are not the target of this message. You may reply or add information in chat, but do not build or execute on it. "
       : "";
-  const head = `[taskflow] ${guard}Message from ${who}: `;
+  // #107: an edit is redelivered so the agent proceeds from the REVISED words —
+  // said explicitly, or the agent reads it as a brand-new (duplicate) request.
+  const head = edited
+    ? `[taskflow] ${guard}✏️ EDITED message from ${who} (supersedes the earlier version — continue from this revision): `
+    : `[taskflow] ${guard}Message from ${who}: `;
 
   const manifest = attachments.length
     ? ` 📎 ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}: ` +

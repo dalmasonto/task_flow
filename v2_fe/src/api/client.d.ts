@@ -270,6 +270,7 @@ export interface TaskflowAgentMessage {
   body_markdown: string;
   priority: TaskflowAgentMessagePriority;
   client_nonce: string | null;
+  edited_at: string | null;
   created_at: string | null;
 }
 
@@ -487,6 +488,7 @@ export interface TaskflowTask {
   created_by_agent_id: number | null;
   assignee_label: string | null;
   due_at: string | null;
+  closed_at: string | null;
   github_issue_number: number | null;
   github_issue_url: string | null;
   created_at: string | null;
@@ -1366,6 +1368,14 @@ export interface TaskflowAgentMessageFilters {
   "client_nonce__startswith"?: string;
   "client_nonce__in"?: string[];
   "client_nonce__isnull"?: boolean;
+  "edited_at"?: string;
+  "edited_at__ne"?: string;
+  "edited_at__gte"?: string;
+  "edited_at__lte"?: string;
+  "edited_at__gt"?: string;
+  "edited_at__lt"?: string;
+  "edited_at__in"?: string[];
+  "edited_at__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1375,7 +1385,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1390,6 +1400,7 @@ export interface TaskflowAgentMessageCreate {
   body_markdown: string;
   priority?: TaskflowAgentMessagePriority;
   client_nonce?: string | null;
+  edited_at?: string | null;
 }
 /** Body for updating a `taskflow_agent_message` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowAgentMessageUpdate {
@@ -2419,6 +2430,14 @@ export interface TaskflowTaskFilters {
   "due_at__lt"?: string;
   "due_at__in"?: string[];
   "due_at__isnull"?: boolean;
+  "closed_at"?: string;
+  "closed_at__ne"?: string;
+  "closed_at__gte"?: string;
+  "closed_at__lte"?: string;
+  "closed_at__gt"?: string;
+  "closed_at__lt"?: string;
+  "closed_at__in"?: string[];
+  "closed_at__isnull"?: boolean;
   "github_issue_number"?: number;
   "github_issue_number__ne"?: number;
   "github_issue_number__gte"?: number;
@@ -2451,7 +2470,7 @@ export interface TaskflowTaskFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "github_issue_number" | "-github_issue_number" | "github_issue_url" | "-github_issue_url" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "closed_at" | "-closed_at" | "github_issue_number" | "-github_issue_number" | "github_issue_url" | "-github_issue_url" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_task`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowTaskCreate {
   project: number;
@@ -2471,6 +2490,7 @@ export interface TaskflowTaskCreate {
   created_by_agent_id?: number | null;
   assignee_label?: string | null;
   due_at?: string | null;
+  closed_at?: string | null;
   github_issue_number?: number | null;
   github_issue_url?: string | null;
   updated_at?: string | null;
@@ -2494,6 +2514,7 @@ export interface TaskflowTaskUpdate {
   created_by_agent_id?: number | null;
   assignee_label?: string | null;
   due_at?: string | null;
+  closed_at?: string | null;
   github_issue_number?: number | null;
   github_issue_url?: string | null;
 }
@@ -2973,6 +2994,11 @@ export interface TaskflowUserSettingsUpdate {
 export interface Paginated<T> {
   results: T[];
   count: number;
+  total_pages: number;
+  current_page: number;
+  page_size: number;
+  next: number | null;
+  previous: number | null;
 }
 
 /** Maps each REST-exposed table to its row, filter, and ordering types. `Umbral.from` keys off this. */
@@ -3101,6 +3127,12 @@ export declare class Query<Row, Filters, Ordering> {
   search(term: string): this;
   /** `?ordering=` — pass fields; prefix `-` for descending. */
   orderBy(...fields: Ordering[]): this;
+
+  /** 1-based page number (`?page=`). */
+  page(v: number): this;
+
+  /** Rows per page (`?page_size=`). */
+  pageSize(v: number): this;
 
   /** Set any raw query param — the escape hatch for params the typed methods don't cover. */
   param(key: string, value: string | number | boolean): this;

@@ -281,6 +281,12 @@ pub struct TaskflowAgentMessage {
     /// re-posting the same nonce to the same channel returns the stored row.
     #[umbral(string, max_length = 64)]
     pub client_nonce: Option<String>,
+    /// When the body was last edited through the trusted edit endpoint. Null
+    /// for a never-edited message. Set server-side only — the UI renders it as
+    /// an "(edited)" marker, and the MCP redelivers an edited message to agent
+    /// panes so an agent can proceed from the revised content.
+    #[umbral(noedit)]
+    pub edited_at: Option<DateTime<Utc>>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

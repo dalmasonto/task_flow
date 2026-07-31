@@ -74,6 +74,14 @@ pub fn router() -> Router {
             post(views::send_message_as_agent)
                 .layer(DefaultBodyLimit::max(SEND_MESSAGE_BODY_LIMIT)),
         )
+        // Human-authed: edit your OWN message's body. Authorship is the gate —
+        // channel membership grants reading, never revising someone else's
+        // words. Stamps `edited_at`; the update fans out over realtime so the
+        // UI reconciles in place and the MCP redelivers to agent panes.
+        .route(
+            "/api/taskflow/messages/{message}/edit",
+            post(views::edit_message),
+        )
         // Read receipts / unread cursors. The human path is auth-gated; the agent
         // path is `RequireAgent`-gated. Both upsert the caller's own cursor
         // forward-only; the channel comes from the path.

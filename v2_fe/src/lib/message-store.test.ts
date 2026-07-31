@@ -34,6 +34,7 @@ const row = (id: number, nonce: string | null): TaskflowAgentMessage => ({
   sender_label: "dev",
   body_markdown: "hello",
   priority: "normal",
+  edited_at: null,
   created_at: "2026-07-17T10:00:00Z",
 })
 

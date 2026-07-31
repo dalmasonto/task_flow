@@ -872,6 +872,27 @@ export async function sendTaskflowAgentMessage(
   return response.json()
 }
 
+/// Edit YOUR OWN message's body (#107). Authorship is checked server-side; the
+/// response is the updated row (same shape as send, attachments included) so
+/// the caller can reconcile it in place without waiting for the SSE echo. The
+/// backend answers 404 for a message that is not yours — the UI never offers
+/// Edit on those, so any 404 here reads as "message gone".
+export async function editTaskflowAgentMessage(
+  messageId: number,
+  bodyMarkdown: string
+): Promise<SendMessageResult> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/messages/${messageId}/edit`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...bearerHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({ body_markdown: bodyMarkdown }),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not edit the message (${response.status}).`))
+  }
+  return response.json()
+}
+
 /// What a human caller sends to link a coding agent to a project. `project` MUST
 /// be the numeric project id; membership is checked server-side against the
 /// authenticated caller. `profile` is the role key written into `.taskflow.json`

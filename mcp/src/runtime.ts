@@ -92,14 +92,21 @@ export function startAgentRuntime(
   // `check_messages` defaults to unread_only, so advancing the cursor here
   // would drop the message for good (see planning/spec-message-delivery.md) —
   // leaving it unread is what makes `check_messages` still work.
-  const deliverMessageById = async (id: number) => {
+  const deliverMessageById = async (id: number, edited = false) => {
     const message = await resolveMessage(messageSourceFor(client), id);
     if (!message) return;
     if (!shouldDeliver(message, profile.agentId)) return;
     if (!pane) return;
     await paneQueue(() =>
-      notifyPane(formatIncoming(message, message.attachments ?? [], profile.agentId), pane, true),
+      notifyPane(
+        formatIncoming(message, message.attachments ?? [], profile.agentId, edited),
+        pane,
+        true,
+      ),
     );
+    // For an edit of an already-read message this is a no-op — the cursor only
+    // ever moves forward — which is exactly right: redelivery is a notice, not
+    // new unread state.
     await client.markRead(message.channel, message.id);
   };
 
@@ -182,15 +189,17 @@ export function startAgentRuntime(
         );
       }
     },
-    onMessage: async (event) => {
+    onMessage: async (event, action) => {
       // The event carries the row id and NOTHING else — chat is id-only on
       // the wire (its group is per-project while its rows are channel-
       // scoped, see resolve.ts). deliverMessageById fetches the body/sender/
       // attachments back over the authorized read API, applies shouldDeliver
       // (a message this agent cannot see, or its own, is skipped), types it
-      // into the pane, and advances the read cursor.
+      // into the pane, and advances the read cursor. An "updated" action is
+      // an edit (#107), delivered with an EDITED framing so the agent
+      // continues from the revised content rather than treating it as new.
       try {
-        await deliverMessageById(event.id);
+        await deliverMessageById(event.id, action === "updated");
       } catch (err) {
         log(`could not deliver message ${event.id} (${(err as Error).message.split("\n")[0]})`);
       }

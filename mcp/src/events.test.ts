@@ -50,11 +50,26 @@ describe("handleFrame", () => {
     expect(onTerminalKey).not.toHaveBeenCalled();
   });
 
-  // An edit or delete is not something new to read; delivering it would re-prompt
-  // the agent with something it has already seen.
-  it("ignores updates and deletes", () => {
+  // #107: an EDIT is redelivered — the sender revised their words and the agent
+  // must proceed from the new version. The action rides along so the delivery
+  // layer can frame it as an edit rather than a brand-new request.
+  it("dispatches an updated message with its action", () => {
     const onMessage = vi.fn();
     handleFrame(frame({ c: "project:1:messages", e: "updated", d: message() }), { onMessage });
+    expect(onMessage).toHaveBeenCalledOnce();
+    expect(onMessage.mock.calls[0]?.[1]).toBe("updated");
+  });
+
+  it("passes the created action through too", () => {
+    const onMessage = vi.fn();
+    handleFrame(frame({ c: "project:1:messages", e: "created", d: message() }), { onMessage });
+    expect(onMessage.mock.calls[0]?.[1]).toBe("created");
+  });
+
+  // A delete is not something new to read; delivering it would re-prompt the
+  // agent with something it has already seen.
+  it("ignores deletes", () => {
+    const onMessage = vi.fn();
     handleFrame(frame({ c: "project:1:messages", e: "deleted", d: message() }), { onMessage });
     expect(onMessage).not.toHaveBeenCalled();
   });
@@ -165,6 +180,15 @@ describe("formatIncoming", () => {
 
   it("adds nothing when there are no attachments", () => {
     expect(formatIncoming(message(), [])).toBe("[taskflow] Message from Dalmas: ship it");
+  });
+
+  // #107: an edit says so, and says the revision supersedes what came before —
+  // otherwise the agent reads the redelivery as a new duplicate request.
+  it("frames an edited redelivery as superseding the original", () => {
+    const out = formatIncoming(message(), [], undefined, true);
+    expect(out).toContain("EDITED message from Dalmas");
+    expect(out).toContain("supersedes");
+    expect(out).toContain("ship it");
   });
 
   // #40 review: a non-target still receives the message but is told not to act.

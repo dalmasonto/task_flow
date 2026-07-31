@@ -41,6 +41,12 @@ export class Query {
   /** `?ordering=` — pass fields; prefix `-` for descending. */
   orderBy(...fields) { this.params.set("ordering", fields.join(",")); return this; }
 
+  /** 1-based page number (`?page=`). */
+  page(v) { this.params.set("page", String(v)); return this; }
+
+  /** Rows per page (`?page_size=`). */
+  pageSize(v) { this.params.set("page_size", String(v)); return this; }
+
   /** Set any raw query param — the escape hatch for params the typed builder
       methods don't cover (a custom paginator's cursor, a one-off flag). */
   param(key, value) { this.params.set(key, String(value)); return this; }

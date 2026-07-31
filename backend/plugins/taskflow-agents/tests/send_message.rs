@@ -192,7 +192,10 @@ async fn rejects_body_over_max_chars_with_400() {
             "/api/taskflow/agents/messages",
             json!({
                 "channel": channel,
-                "body_markdown": "a".repeat(20_001),
+                // One past MAX_BODY_CHARS (10 MiB). The old 20_001 tested a
+                // 20k cap that was raised long ago, so it green-lit bodies the
+                // server actually accepts.
+                "body_markdown": "a".repeat(10 * 1024 * 1024 + 1),
             }),
         )
         .await;

@@ -74,6 +74,7 @@ async fn user_message(project: i64, channel: i64, user: i64) {
             body_markdown: "please do X".to_string(),
             priority: TaskflowMessagePriority::Normal,
             client_nonce: None,
+            edited_at: None,
             created_at: None,
         })
         .await
