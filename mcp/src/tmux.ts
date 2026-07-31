@@ -247,6 +247,20 @@ export function normalizeSnapshot(raw: string, max = MAX_SNAPSHOT_CHARS): string
  */
 export const SUBMIT_ENTER_DELAY_MS = 150;
 
+/**
+ * #108 round two: for a LARGE notice (~1KB — a full message with attachment
+ * manifest), Codex collapses the burst into a "[Pasted Content N chars]" chip
+ * and CONSUMES the first Enter outright — no delay fixes it (measured on
+ * Codex 0.139: a single Enter still failed 2s after the text). What does work
+ * is pressing Enter AGAIN once the paste has settled. So after the first
+ * Enter, press it twice more on this schedule. The retries are no-ops when
+ * the first press already submitted: an empty composer ignores Enter, and a
+ * running turn does too (verified live with small and large payloads on
+ * Codex 0.139 and 0.146, and Claude Code behaves the same). Cost: ~2.7s per
+ * delivery inside the serial pane queue — chat cadence, not a hot path.
+ */
+export const SUBMIT_ENTER_RETRIES_MS: readonly number[] = [1000, 1500];
+
 /** Injected in tests so the type/pause/Enter ordering is checkable without tmux. */
 export interface NotifyPaneDeps {
   exec?: (args: string[]) => Promise<unknown>;
@@ -275,6 +289,11 @@ export async function notifyPane(
   await exec(["send-keys", ...base, "-l", line]);
   await sleep(SUBMIT_ENTER_DELAY_MS);
   await exec(["send-keys", ...base, "Enter"]);
+  // Re-press Enter after the paste settles — see SUBMIT_ENTER_RETRIES_MS.
+  for (const delay of SUBMIT_ENTER_RETRIES_MS) {
+    await sleep(delay);
+    await exec(["send-keys", ...base, "Enter"]);
+  }
 }
 
 /**

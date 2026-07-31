@@ -134,15 +134,18 @@ describe("sendKeySequence", () => {
   });
 });
 
-import { notifyPane, SUBMIT_ENTER_DELAY_MS } from "./tmux.js";
+import { notifyPane, SUBMIT_ENTER_DELAY_MS, SUBMIT_ENTER_RETRIES_MS } from "./tmux.js";
 
 describe("notifyPane submit pacing", () => {
   // #108: Codex's composer treats a CR arriving in the same input burst as the
   // typed text as a PASTED newline, not a submit — the notice sat in the
-  // composer until a human pressed Enter. Measured live against Codex 0.139:
-  // Enter back-to-back with the text is swallowed; the same Enter ≥50ms later
-  // submits. The fix is a pause between typing the notice and pressing Enter.
-  it("pauses between typing the notice and pressing Enter", async () => {
+  // composer until a human pressed Enter. And for a LARGE notice the composer
+  // collapses the burst into a paste chip that CONSUMES the first Enter no
+  // matter how late it lands — only a REPEATED Enter after the paste settles
+  // submits. So: type, pause, Enter, then re-press Enter on the retry
+  // schedule. Extra Enters are no-ops once submitted (empty composer /
+  // running turn), verified live on Codex 0.139 + 0.146 and Claude Code.
+  it("types, pauses, presses Enter, then re-presses on the retry schedule", async () => {
     const log: string[] = [];
     await notifyPane("hello agent", "%7", true, {
       exec: async (args) => void log.push(args.join(" ")),
@@ -152,8 +155,13 @@ describe("notifyPane submit pacing", () => {
       "send-keys -t %7 -l hello agent",
       `sleep:${SUBMIT_ENTER_DELAY_MS}`,
       "send-keys -t %7 Enter",
+      ...SUBMIT_ENTER_RETRIES_MS.flatMap((ms) => [`sleep:${ms}`, "send-keys -t %7 Enter"]),
     ]);
     expect(SUBMIT_ENTER_DELAY_MS).toBeGreaterThanOrEqual(100);
+    // The whole point of round two: at least one retry press exists, and it
+    // waits long enough for the paste chip to settle.
+    expect(SUBMIT_ENTER_RETRIES_MS.length).toBeGreaterThanOrEqual(1);
+    expect(SUBMIT_ENTER_RETRIES_MS[0]).toBeGreaterThanOrEqual(500);
   });
 
   it("does not pause (or press Enter) for a status-line notice", async () => {
