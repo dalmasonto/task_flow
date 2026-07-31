@@ -97,4 +97,4 @@ What kind of MCP server utility are you looking to build (e.g., a security guard
 
 How can we use this hooks to enrich the system far better ie I can leave an AI agent coding and I can track everything that it does without relying on coming back to read the json. So if it runs a command, I can tell which command it ran and why, if it writes a message, I can see what it wrote to the terminal. In other words, we are being told AI built the system, and we ask well, tell us how it did, nobody can reproduce that. We dont need to capture every code snippet but atleast we need to capture some steps etc.
 
-https://code.claude.com/docs/en/hooks -
+https://code.claude.com/docs/en/hooks - Learn from here how hooks work and how to use them to enrich the system.
