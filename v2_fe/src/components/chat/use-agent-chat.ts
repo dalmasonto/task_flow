@@ -1,10 +1,10 @@
 import { type AgentsOutletContext } from "@/pages/agents"
 import { PROJECT_ROOM_TITLE, type AgentChatContext, type MessagePriority, type Project, type TargetMember } from "@/lib/workspace-view"
-import { addChannelMember, answerAgentPrompt, createTaskflowChannel, editTaskflowAgentMessage, fetchChannelMessages, sendTaskflowAgentMessage, type TaskflowWorkspace } from "@/lib/taskflow-api"
-import { addPending, dismissPending, findPending, markFailed, markRetrying, reconcile, type PendingAttachment } from "@/lib/message-store"
+import { addChannelMember, answerAgentPrompt, createTaskflowChannel, editTaskflowAgentMessage, fetchAttachmentsForMessages, fetchChannelMessages, sendTaskflowAgentMessage, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { addPending, dismissPending, findPending, isPending, markFailed, markRetrying, reconcile, type PendingAttachment } from "@/lib/message-store"
 import { liveId, mapLiveChannelChats, mapLiveDirectChats, mapLiveTerminalSessions, revokeBlobUrls, toLiveMessagePriority, upsertById } from "@/lib/live-mappers"
 import { type AuthUser } from "@/lib/auth-api"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 
 
@@ -319,6 +319,72 @@ export function useAgentChat({
   // cursor: it guards a fetch, must not be stale inside a scroll handler, and
   // has no business causing a render.
   const messagePages = useRef<Record<number, number>>({})
+
+  /// Merge one server page of a channel into the workspace: the rows plus the
+  /// attachments belonging to exactly those rows, so a bubble never renders
+  /// with its files missing because a project-wide attachment window happened
+  /// not to cover it.
+  const mergeChannelPage = useCallback(
+    async (rows: Awaited<ReturnType<typeof fetchChannelMessages>>["rows"]) => {
+      if (!rows.length) return
+      const attachments = await fetchAttachmentsForMessages(rows.map((row) => row.id))
+      onWorkspaceUpdate((workspace) => ({
+        ...workspace,
+        // reconcile(), not upsertById: agentMessages holds optimistic
+        // PendingMessage rows that have no id yet, and it is the merge the
+        // realtime path already uses for saved rows.
+        agentMessages: rows.reduce((current, row) => reconcile(current, row), workspace.agentMessages),
+        messageAttachments: attachments.reduce(
+          (current, row) => upsertById(current, row),
+          workspace.messageAttachments
+        ),
+      }))
+    },
+    [onWorkspaceUpdate]
+  )
+
+  // The open conversation loads its OWN first page. The chat slice only
+  // carries the project's newest server page for list previews, so a channel
+  // whose traffic is older than that would open empty — this fetch is what
+  // fills it, and scroll-up (loadOlderMessages) continues from page 2.
+  //
+  // Tiny state machine per `${project}:${channel}`, because "have I loaded
+  // this?" has three answers that must not be confused: "pending" stops a
+  // double-fetch, "loaded" stops refetching on every realtime event, "empty"
+  // stops an empty channel from being re-probed forever. A "loaded" channel
+  // whose rows have VANISHED (a core-workspace reload handed back fresh empty
+  // slices) is fetched again — the ref alone would have said "done" and left
+  // the open thread blank.
+  const channelPageState = useRef<Record<string, "pending" | "loaded" | "empty">>({})
+  useEffect(() => {
+    const channelId = selectedChat?.liveChannelId
+    const projectId = liveWorkspace?.project.id
+    if (channelId == null || projectId == null || !liveWorkspace) return
+    const key = `${projectId}:${channelId}`
+    const state = channelPageState.current[key]
+    if (state === "pending") return
+    const hasRows = liveWorkspace.agentMessages.some(
+      (message) => !isPending(message) && message.channel === channelId
+    )
+    if (state === "loaded" && hasRows) return
+    if (state === "empty") {
+      // Realtime can populate an "empty" channel; note it and stop probing.
+      if (hasRows) channelPageState.current[key] = "loaded"
+      return
+    }
+    channelPageState.current[key] = "pending"
+    void fetchChannelMessages(channelId, 1)
+      .then(async ({ rows }) => {
+        await mergeChannelPage(rows)
+        channelPageState.current[key] = rows.length ? "loaded" : "empty"
+        messagePages.current[channelId] = 1
+      })
+      .catch(() => {
+        // Retried the next time the effect runs (any workspace change).
+        delete channelPageState.current[key]
+      })
+  }, [selectedChat?.liveChannelId, liveWorkspace, mergeChannelPage])
+
   const loadOlderMessages = useCallback(() => {
     const channelId = selectedChat?.liveChannelId
     if (channelId == null) return
@@ -327,20 +393,11 @@ export function useAgentChat({
     // must not fetch the same page twice. Released on failure so it can retry.
     messagePages.current[channelId] = nextPage
     void fetchChannelMessages(channelId, nextPage)
-      .then(({ rows }) => {
-        if (!rows.length) return
-        onWorkspaceUpdate((workspace) => ({
-          ...workspace,
-          // reconcile(), not upsertById: agentMessages holds optimistic
-          // PendingMessage rows that have no id yet, and it is the merge the
-          // realtime path already uses for saved rows.
-          agentMessages: rows.reduce((current, row) => reconcile(current, row), workspace.agentMessages),
-        }))
-      })
+      .then(({ rows }) => mergeChannelPage(rows))
       .catch(() => {
         messagePages.current[channelId] = nextPage - 1
       })
-  }, [selectedChat?.liveChannelId, onWorkspaceUpdate])
+  }, [selectedChat?.liveChannelId, mergeChannelPage])
 
   /// Capture a message as a task. Commitments made in conversation go missing
   /// because opening a form costs more than the sentence did; this makes it one

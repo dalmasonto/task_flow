@@ -625,12 +625,15 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
   ] = await Promise.all([
     taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    // #46: load the NEWEST 1000 messages, not the oldest. NoPagination caps the
-    // list at 1000, so ascending order silently dropped the most RECENT messages
-    // once a project passed 1000 — the exact opposite of what a chat needs. The
-    // view re-sorts chronologically, so load order is display-transparent.
-    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("message", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    // Messages: ONE server page of the project's newest, no page_size sent —
+    // this feeds the chat LIST (last-message previews, unread badges), not a
+    // thread. The open conversation loads its own first page per channel (see
+    // useAgentChat's page-1 loader) and older pages on scroll-up, so bulk-
+    // loading 100 here was paying for messages nobody was reading.
+    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    // Newest-first so the attachments that ride along belong to the messages
+    // fetched above, not to the oldest rows in the project.
+    taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
     taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
@@ -647,6 +650,21 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     channelReadCursors: channelReadCursors.results,
     agentPrompts: agentPrompts.results,
   }
+}
+
+/// The attachments belonging to EXACTLY these messages — fetched alongside a
+/// page of channel messages so their bubbles render complete. Id-scoped, not
+/// paged: the list is bounded by the message page that produced it.
+export async function fetchAttachmentsForMessages(
+  messageIds: number[]
+): Promise<TaskflowMessageAttachment[]> {
+  if (!messageIds.length) return []
+  const res = await taskflowApi
+    .from(taskflowTables.messageAttachments)
+    .param("message__in", messageIds.join(","))
+    .orderBy("message", "id")
+    .list()
+  return res.results
 }
 
 /// All attachments the caller can see in a project, from both chat + tasks.
