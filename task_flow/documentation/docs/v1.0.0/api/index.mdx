@@ -1,0 +1,91 @@
+---
+title: API Reference
+description: TaskFlow MCP tools reference
+sidebar_position: 1
+icon: book-open
+tab_group: api
+---
+
+## MCP Tools Reference
+
+TaskFlow provides 50 MCP tools organized by domain. Each tool is callable via the Model Context Protocol by any compatible AI agent.
+
+### Core Tools
+
+| Tool | Description |
+|------|-------------|
+| `bootstrap` | Initialize agent with full project context and workflow rules |
+| `get_agent_instructions` | Get onboarding instructions and behavioral rules |
+
+### Task Management
+
+| Tool | Description |
+|------|-------------|
+| `create_task` | Create a new task with title, description, priority, tags, dependencies |
+| `list_tasks` | List tasks with optional filters (status, project, priority, tag) |
+| `get_task` | Get full task details by ID |
+| `update_task` | Update task fields (title, description, priority, etc.) |
+| `update_task_status` | Change task status (not_started, in_progress, paused, blocked, done) |
+| `delete_task` | Delete a task by ID |
+| `bulk_create_tasks` | Create multiple tasks at once with dependencies |
+| `search_tasks` | Search tasks by title or description keyword |
+
+### Project Management
+
+| Tool | Description |
+|------|-------------|
+| `create_project` | Create a new project |
+| `list_projects` | List all projects |
+| `get_project` | Get project details by ID |
+| `update_project` | Update project fields |
+| `delete_project` | Delete a project |
+| `search_projects` | Search projects by name or description |
+
+### Time Tracking
+
+| Tool | Description |
+|------|-------------|
+| `start_timer` | Start a timer session for a task |
+| `pause_timer` | Pause the active timer |
+| `stop_timer` | Stop timer and set final status (done, partial_done, blocked) |
+| `list_sessions` | List timer sessions with optional filters |
+
+### Activity & Debug
+
+| Tool | Description |
+|------|-------------|
+| `log_debug` | Log a debug entry to the activity log |
+| `get_activity_log` | Get recent activity log entries |
+| `clear_activity_log` | Clear all activity log entries |
+| `compact_activity_log` | Compress old log entries |
+
+### Agent Communication
+
+| Tool | Description |
+|------|-------------|
+| `register_agent` | Register this agent with a custom name |
+| `list_agents` | List all connected agents |
+| `send_to_agent` | Send a message to another agent |
+| `ask_agent` | Ask another agent a question and wait for response |
+| `check_messages` | Check for incoming messages |
+| `respond_to_message` | Respond to a received message |
+| `broadcast_agents` | Send a message to multiple agents |
+| `check_broadcast` | Check responses to a broadcast |
+| `ask_user` | Post a question to the Agent Inbox for user response |
+| `check_response` | Check if the user has responded to an ask_user question |
+
+### Analytics
+
+| Tool | Description |
+|------|-------------|
+| `get_analytics` | Get time spent and completion rates |
+| `get_timeline` | Get project timeline view |
+| `get_tool_stats` | Get MCP tool execution statistics |
+| `get_task_cost` | Get estimated cost for a task |
+
+### Terminal
+
+| Tool | Description |
+|------|-------------|
+| `capture_terminal` | Capture visible text from an agent's tmux pane |
+| `send_keys` | Send keystrokes to an agent's tmux pane |

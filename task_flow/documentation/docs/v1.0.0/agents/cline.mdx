@@ -1,0 +1,75 @@
+---
+title: Cline
+description: Set up TaskFlow with Cline (VS Code extension)
+sidebar_position: 6
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- VS Code with [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) extension installed
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+1. Open VS Code
+2. Click the **MCP Servers** icon in Cline's top bar
+3. This opens `cline_mcp_settings.json` - add the TaskFlow server:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "alwaysAllow": [],
+      "disabled": false
+    }
+  }
+}
+```
+
+## Step 3: Auto-Approve Tools (Optional)
+
+Add tool names to the `alwaysAllow` array for hands-free operation:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "alwaysAllow": [
+        "bootstrap",
+        "get_agent_instructions",
+        "create_task",
+        "list_tasks",
+        "start_timer",
+        "stop_timer",
+        "log_debug"
+      ],
+      "disabled": false
+    }
+  }
+}
+```
+
+## Step 4: Verify
+
+Open Cline in VS Code and ask:
+
+> "What TaskFlow MCP tools do you have available?"
+
+Click the MCP Servers icon to confirm `taskflow` appears in the server list.
+
+## Tips
+
+- Cline stores MCP config in VS Code's global storage (not a project file)
+- Default tool timeout is 60 seconds, max 1 hour
+- The `alwaysAllow` array accepts tool names without the `mcp__taskflow__` prefix

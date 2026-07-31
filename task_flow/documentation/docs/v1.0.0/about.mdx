@@ -1,0 +1,57 @@
+---
+title: About TaskFlow
+description: Local-first task and time tracking with MCP integration for AI agents
+sidebar_position: 1
+icon: info
+tab_group: guides
+---
+
+## What is TaskFlow?
+
+TaskFlow is a **local-first task and time tracking application** designed specifically for AI-powered development workflows. It provides 50 MCP (Model Context Protocol) tools that let AI agents autonomously manage tasks, track time, log debug breadcrumbs, and coordinate with other agents.
+
+## Key Principles
+
+- **Local-first**: All data stays on your machine in a SQLite database. No cloud accounts, no telemetry, no data leaving your system.
+- **Agent-native**: Built from the ground up for AI agents. Every feature is accessible via MCP tools, not just a human GUI.
+- **Real-time sync**: SSE (Server-Sent Events) broadcasts changes instantly from the MCP server to the Tauri desktop app.
+- **Multi-agent**: Multiple AI agents can collaborate on the same project, communicate via messages, and coordinate through task dependencies.
+
+## Architecture
+
+```
+AI Agent (Claude / Codex / Cursor)
+        ↓ stdio (MCP protocol)
+taskflow-mcp (Node.js server)
+        ↓                ↓
+   SQLite DB        SSE :3456
+                        ↓
+                  Tauri Desktop App
+                  (React + Dexie.js)
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop App | Tauri v2 + React 19 |
+| Local Database | Dexie.js (IndexedDB) |
+| MCP Server | Node.js + better-sqlite3 |
+| Real-time Sync | Server-Sent Events (SSE) |
+| UI Components | shadcn/ui + Tailwind CSS |
+
+## Features at a Glance
+
+- **50 MCP Tools**: Tasks, projects, timers, analytics, notifications, agent messaging, terminal capture
+- **Dependency Graph**: Interactive DAG visualization with automatic cycle detection
+- **Activity Pulse**: Real-time event log showing agent actions, debug entries, and status changes
+- **Agent Inbox**: Remote Q&A system where agents ask questions and users respond from any device
+- **Multi-Agent Collaboration**: Agent registry, messaging, broadcasts, and coordinated task assignment
+- **Remote Control**: Optional relay server for controlling agents from anywhere (outbound-only, no VPN needed)
+
+## License
+
+TaskFlow is open source under **Apache 2.0 with Commons Clause**: free to use, modify, and share, but not to sell as a product.
+
+- [GitHub Repository](https://github.com/dalmasonto/task_flow)
+- [npm Package](https://www.npmjs.com/package/@dalmasonto/taskflow-mcp)

@@ -1,0 +1,63 @@
+name: Deploy Relay Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install sops
+        run: |
+          curl -Lo sops https://github.com/mozilla/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+
+      - name: Set up age for decryption
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.AGE_PRIVATE_KEY }}" > ~/.config/sops/age/keys.txt
+
+      - name: Decrypt .env files
+        run: |
+          sops --decrypt ./relay-server/secret.env > ./relay-server/.env
+
+      - name: Transfer relay server to remote
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "relay-server/"
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Build and start on remote
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}/relay-server
+
+            echo "Stopping current container..."
+            docker compose down --remove-orphans || true
+
+            echo "Building image on server..."
+            docker compose build --no-cache
+
+            echo "Starting relay server..."
+            docker compose up -d
+
+            echo "Pruning unused images..."
+            docker image prune -f
+
+            echo "Deployment complete!"

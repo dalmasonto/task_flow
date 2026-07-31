@@ -1,0 +1,55 @@
+---
+title: Cursor
+description: Set up TaskFlow with Cursor IDE
+sidebar_position: 4
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- [Cursor](https://cursor.com) IDE installed
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+Create `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project):
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+## Step 3: Enable Tools
+
+1. Open Cursor Settings
+2. Navigate to **Tools & MCP**
+3. Find the `taskflow` server
+4. Toggle on the tools you want to enable
+
+Cursor does not have a file-based auto-approve mechanism - you enable/disable tools through the Settings UI.
+
+## Step 4: Verify
+
+Open Cursor in your project and use the Agent mode. Ask:
+
+> "What TaskFlow MCP tools do you have available?"
+
+The agent should list all TaskFlow tools and be able to create tasks, start timers, and log debug entries.
+
+## Tips
+
+- Cursor uses the same `.mcp.json` format as Claude Code
+- MCP tools are available in **Agent mode** (not Ask mode)
+- The agent calls `bootstrap` on startup to learn TaskFlow workflows automatically

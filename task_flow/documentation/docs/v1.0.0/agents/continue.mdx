@@ -1,0 +1,61 @@
+---
+title: Continue
+description: Set up TaskFlow with Continue (VS Code / JetBrains)
+sidebar_position: 7
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- VS Code or JetBrains IDE with [Continue](https://continue.dev) extension installed
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+Create `.continue/mcpServers/taskflow.yaml` in your project root:
+
+```yaml
+name: TaskFlow MCP
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: taskflow
+    type: stdio
+    command: taskflow-mcp
+    args: []
+```
+
+Alternatively, use JSON format (compatible with Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Save this as `.continue/mcpServers/mcp.json` in your project.
+
+## Step 3: Verify
+
+Open Continue's panel in VS Code or JetBrains and switch to **Agent mode**. Ask:
+
+> "What TaskFlow MCP tools do you have available?"
+
+MCP tools are only available in Agent mode, not in Chat mode.
+
+## Tips
+
+- Continue supports both YAML and JSON config formats
+- MCP tools only work in **Agent mode**: they are not available in Chat mode
+- No explicit approval settings - tools are available once configured

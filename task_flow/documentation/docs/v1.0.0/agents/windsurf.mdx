@@ -1,0 +1,76 @@
+---
+title: Windsurf
+description: Set up TaskFlow with Windsurf (Codeium)
+sidebar_position: 5
+tab_group: agents
+---
+
+## Prerequisites
+
+- Node.js 18+
+- [Windsurf](https://windsurf.com) IDE installed
+
+## Step 1: Install TaskFlow MCP Server
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Step 2: Configure MCP Server
+
+Edit `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "disabled": false,
+      "alwaysAllow": []
+    }
+  }
+}
+```
+
+## Step 3: Auto-Approve Tools (Optional)
+
+To allow specific tools without prompting, add their names to the `alwaysAllow` array:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "disabled": false,
+      "alwaysAllow": [
+        "bootstrap",
+        "get_agent_instructions",
+        "create_task",
+        "list_tasks",
+        "search_tasks",
+        "start_timer",
+        "stop_timer",
+        "log_debug"
+      ]
+    }
+  }
+}
+```
+
+Leave the array empty to approve each tool call manually.
+
+## Step 4: Verify
+
+Open Windsurf and start a Cascade conversation. Ask:
+
+> "What TaskFlow MCP tools do you have available?"
+
+The agent should detect the MCP server and list all available tools.
+
+## Tips
+
+- Windsurf uses the same JSON format as Claude Desktop
+- MCP tools are available through **Cascade** (Windsurf's AI assistant)
+- The `alwaysAllow` array accepts tool names without the `mcp__taskflow__` prefix

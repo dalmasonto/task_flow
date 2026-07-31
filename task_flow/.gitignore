@@ -1,0 +1,44 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Tauri
+src-tauri/target
+src-tauri/gen
+src-tauri/Cargo.lock
+
+# MCP config (contains absolute paths)
+.mcp.json
+
+# Editor directories and files
+.vscode/*
+info
+keys.txt
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.tgz
+*.zip
+.svelte-kit
+.svelte
+build
