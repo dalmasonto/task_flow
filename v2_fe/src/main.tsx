@@ -29,9 +29,15 @@ if (import.meta.env.DEV) {
   }, 30_000)
 }
 
+// Vite's BASE_URL is "/" for the server deploy and a custom-domain Pages site,
+// or "/<repo>/" when built with `--base` for GitHub project pages. Router
+// basename wants no trailing slash (and "" at root), so the same bundle routes
+// correctly under either layout without a hardcoded path.
+const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, "")
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename}>
       <TooltipProvider>
         <App />
       </TooltipProvider>
