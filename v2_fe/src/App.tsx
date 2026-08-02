@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceChat, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -991,11 +991,12 @@ function App() {
   // A ref, not state: these flags gate a fetch, they do not belong in a render.
   // Holding them in state also meant calling setState synchronously inside the
   // effect, which is the cascading-render pattern the lint rule objects to.
-  const loadedSlices = useRef<{ project: number | null; epoch: number; chat: boolean; activity: boolean }>({
+  const loadedSlices = useRef<{ project: number | null; epoch: number; chat: boolean; activity: boolean; terminal: boolean }>({
     project: null,
     epoch: -1,
     chat: false,
     activity: false,
+    terminal: false,
   })
 
   // Bumped when a slice fetch fails, purely to re-run the effect below. Clearing
@@ -1019,6 +1020,10 @@ function App() {
     dockOpen || chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
   // The task sheet renders one task's activity; the feed renders the project's.
   const activityNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/activity")
+  // #56: terminal frames (heavy raw capture) render ONLY on the agents surface —
+  // NOT in the chat dock — so they load with the agents view, not merely when the
+  // dock is open. This keeps the 96 KB frame page off the board and dock.
+  const terminalNeeded = chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
 
   useEffect(() => {
     if (!activeLiveProjectId || !activeLiveWorkspace) return
@@ -1031,6 +1036,7 @@ function App() {
       slices.epoch = workspaceEpoch
       slices.chat = false
       slices.activity = false
+      slices.terminal = false
     }
     // Marked BEFORE the request: applying a slice changes activeLiveWorkspace,
     // which re-runs this effect, so a flag set on success would let it re-fire
@@ -1041,6 +1047,15 @@ function App() {
         .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
         .catch(() => {
           slices.chat = false
+          retrySlice()
+        })
+    }
+    if (terminalNeeded && !slices.terminal) {
+      slices.terminal = true
+      void fetchWorkspaceTerminalFrames(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.terminal = false
           retrySlice()
         })
     }
@@ -1060,7 +1075,7 @@ function App() {
           retrySlice()
         })
     }
-  }, [chatNeeded, activityNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
+  }, [chatNeeded, activityNeeded, terminalNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />

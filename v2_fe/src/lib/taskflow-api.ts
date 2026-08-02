@@ -608,7 +608,6 @@ export type WorkspaceChatSlice = Pick<
   | "agentChannelMembers"
   | "agentMessages"
   | "messageAttachments"
-  | "terminalFrames"
   | "channelReadCursors"
   | "agentPrompts"
 >
@@ -619,7 +618,6 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     agentChannelMembers,
     agentMessages,
     messageAttachments,
-    terminalFrames,
     channelReadCursors,
     agentPrompts,
   ] = await Promise.all([
@@ -634,7 +632,6 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     // Newest-first so the attachments that ride along belong to the messages
     // fetched above, not to the oldest rows in the project.
     taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.terminalFrames).filter({ project: projectId }).orderBy("agent", "sequence", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
@@ -646,10 +643,25 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     agentChannelMembers: agentChannelMembers.results.filter((member) => channelIds.has(member.channel)),
     agentMessages: agentMessages.results,
     messageAttachments: messageAttachments.results,
-    terminalFrames: terminalFrames.results,
     channelReadCursors: channelReadCursors.results,
     agentPrompts: agentPrompts.results,
   }
+}
+
+export type WorkspaceTerminalSlice = Pick<TaskflowWorkspace, "terminalFrames">
+
+// #56: terminal frames are heavy raw capture (~100 rows / 96 KB measured) and
+// ONLY the terminal surface renders them — split out of the chat slice so the
+// chat dock and the board don't pay for them. Loaded when a terminal surface is
+// mounted; realtime appends live frames on top.
+export async function fetchWorkspaceTerminalFrames(projectId: number): Promise<WorkspaceTerminalSlice> {
+  const terminalFrames = await taskflowApi
+    .from(taskflowTables.terminalFrames)
+    .filter({ project: projectId })
+    .orderBy("agent", "sequence", "id")
+    .param("page_size", REFERENCE_PAGE_SIZE)
+    .list()
+  return { terminalFrames: terminalFrames.results }
 }
 
 /// The attachments belonging to EXACTLY these messages — fetched alongside a
