@@ -353,6 +353,11 @@ function App() {
     [workspaceProjects]
   )
 
+  // Guards the effect below (keyed on activeProjectId) from re-firing the ENTIRE
+  // load when loadLiveWorkspace itself resolves null/preferred -> a real project
+  // id and sets it. Without this, first paint ran the whole summary+workspace
+  // fetch TWICE (every request duplicated — confirmed in a prod HAR).
+  const justResolvedProjectRef = useRef<string | null>(null)
   const loadLiveWorkspace = useCallback(
     async (preferredProjectId: string | null = activeProjectId) => {
       setIsLiveSyncing(true)
@@ -385,6 +390,11 @@ function App() {
 
         setWorkspaceProjects(nextProjects)
         setUsesLiveApi(true)
+        // Record a genuine change so the activeProjectId effect skips the single
+        // re-fire this setState triggers (the workspace is already loading here).
+        if (nextActiveProjectId !== activeProjectId) {
+          justResolvedProjectRef.current = nextActiveProjectId
+        }
         setActiveProjectId(nextActiveProjectId)
         setTasks(summaryTasks)
         setLiveWorkspace((current) => (current?.project.id === nextProjectId ? current : null))
@@ -768,6 +778,13 @@ function App() {
 
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
+    // Skip the re-fire caused by loadLiveWorkspace resolving+setting
+    // activeProjectId itself — that project's workspace is already loading, so a
+    // second full summary+workspace fetch is pure duplication.
+    if (activeProjectId != null && activeProjectId === justResolvedProjectRef.current) {
+      justResolvedProjectRef.current = null
+      return
+    }
     void loadLiveWorkspace(activeProjectId)
   }, [activeProjectId, authGateStatus, loadLiveWorkspace])
 
