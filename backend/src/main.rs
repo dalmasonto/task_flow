@@ -136,19 +136,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // is `repo` (issue create + comments), overriding the default identity
         // scopes.
         .plugin({
-            // `redirect_base` is the app's public, browser-facing origin: the
-            // GitHub callback is `{base}/oauth/github/callback` and it's where
-            // relative redirects resolve. In dev that's the Vite origin (:5173,
-            // which proxies /oauth to this backend), NOT the backend's own port.
-            // Override with UMBRAL_OAUTH_REDIRECT_BASE in staging/prod.
+            // `redirect_base` is the origin the OAuth flow itself runs on: the
+            // GitHub callback is `{base}/oauth/github/callback`, and `/connect`
+            // + `/callback` MUST share it so the single-use state+PKCE cookie is
+            // sent on the callback. In dev that's the Vite origin (:5173, which
+            // proxies /oauth to this backend). In prod the SPA calls
+            // `/oauth/github/connect` on the API origin (VITE_API_BASE_URL), so
+            // set UMBRAL_OAUTH_REDIRECT_BASE to that API origin
+            // (https://api.taskflow.supercodehive.com), and register the same
+            // callback URL on the GitHub app.
             let base = std::env::var("UMBRAL_OAUTH_REDIRECT_BASE")
                 .unwrap_or_else(|_| "http://localhost:5173".to_string());
+            // The browser-facing SPA origin the flow returns to via `?next=`. In
+            // dev the SPA and the OAuth routes share the Vite origin, so this is
+            // `base`; in prod they are SPLIT origins (SPA on
+            // https://taskflow.supercodehive.com, API/callback on
+            // api.taskflow.supercodehive.com), so the `next` target is a
+            // DIFFERENT host that must be allowlisted or every `next` is
+            // rejected as an open-redirect. Set UMBRAL_OAUTH_RETURN_ORIGIN to
+            // the SPA origin in prod.
+            let return_origin = std::env::var("UMBRAL_OAUTH_RETURN_ORIGIN")
+                .unwrap_or_else(|_| base.clone());
             let mut oauth = OAuthPlugin::new(base.clone())
                 // After a connect, return to settings so the SPA shows "Connected".
                 .login_redirect("/account/settings?github=connected")
-                // Allow the SPA's own origin as a `?next=` return target (the
-                // open-redirect allowlist; a `next` off this origin is rejected).
+                // Allow the callback origin's own paths as a `?next=` target.
                 .allow_return(base.clone());
+            // And the split SPA origin, when configured, as the real return home.
+            if return_origin != base {
+                oauth = oauth.allow_return(return_origin.clone());
+            }
             if let Some(gh) = GitHubProvider::from_env() {
                 oauth = oauth.provider(gh.scopes("repo"));
             }
