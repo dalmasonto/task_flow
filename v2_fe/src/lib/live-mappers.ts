@@ -674,7 +674,7 @@ export function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
 
 
 export function mapLiveTasks(
-  tasks: TaskflowProjectSummary["tasks"] | TaskflowWorkspace["tasks"],
+  tasks: TaskflowWorkspace["tasks"],
   members: TaskflowProjectMember[],
   agents: TaskflowAgent[]
 ): Task[] {

@@ -128,7 +128,6 @@ export type TaskflowWorkspace = {
 export type TaskflowProjectSummary = {
   projects: TaskflowProject[]
   members: TaskflowProjectMember[]
-  tasks: TaskflowTask[]
   agents: TaskflowAgent[]
   sessions: TaskflowAgentSession[]
 }
@@ -426,10 +425,12 @@ export function taskflowRealtimeGroups(projectId: number | null): string[] {
 }
 
 export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSummary> {
-  const [projects, members, tasks, agents, sessions] = await Promise.all([
+  // #56: no all-project task rows here — the board loads the active project's
+  // columns (fetchTaskflowWorkspace), so pulling every project's tasks (~152 KB,
+  // and capped at 100 anyway) just to seed a sidebar count was pure waste.
+  const [projects, members, agents, sessions] = await Promise.all([
     taskflowApi.from(taskflowTables.projects).orderBy("name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.members).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.tasks).orderBy("project", "sort_order", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agents).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentSessions).orderBy("project", "-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
@@ -437,7 +438,6 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
   return {
     projects: projects.results,
     members: members.results,
-    tasks: tasks.results,
     agents: agents.results,
     sessions: sessions.results,
   }

@@ -386,7 +386,6 @@ function App() {
             ? preferredProjectId
             : nextProjects[0].id
         const nextProjectId = liveId(nextActiveProjectId) ?? summary.projects[0].id
-        const summaryTasks = mapLiveTasks(summary.tasks, summary.members, summary.agents)
 
         setWorkspaceProjects(nextProjects)
         setUsesLiveApi(true)
@@ -396,12 +395,12 @@ function App() {
           justResolvedProjectRef.current = nextActiveProjectId
         }
         setActiveProjectId(nextActiveProjectId)
-        setTasks(summaryTasks)
+        // #56: the summary no longer ships all-project task rows (was ~152 KB and
+        // capped at 100). The board loads the active project's columns below, and
+        // the per-project sidebar count reflects loaded tasks. Leaving the tasks
+        // state untouched here preserves counts for already-visited projects; the
+        // active project's tasks + selection are set from the columns below.
         setLiveWorkspace((current) => (current?.project.id === nextProjectId ? current : null))
-        setSelectedTaskId((current) => {
-          if (summaryTasks.some((task) => task.projectId === nextActiveProjectId && task.id === current)) return current
-          return summaryTasks.find((task) => task.projectId === nextActiveProjectId)?.id ?? current
-        })
 
         try {
           const workspace = await fetchTaskflowWorkspace(nextProjectId)
