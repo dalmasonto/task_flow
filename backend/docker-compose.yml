@@ -97,6 +97,23 @@ services:
       start_period: 30s # first boot applies migrations before serving
     restart: unless-stopped
 
+  # Object storage (S3-compatible) for static assets (public `taskflow-static`
+  # bucket) and media (private `taskflow-media`, served to browsers as short-TTL
+  # presigned URLs). Loopback ports ONLY — host Caddy fronts TLS:
+  # s3.taskflow.supercodehive.com -> :9000 (S3 API + public assets),
+  # minio.taskflow.supercodehive.com -> :9001 (admin console). Creds + the two
+  # MINIO_*_URL vars come from .prod.env (see its `MinIO / S3` section).
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file: .prod.env # MINIO_ROOT_USER/PASSWORD, MINIO_SERVER_URL, MINIO_BROWSER_REDIRECT_URL
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+
   # Static file server for the built v2_fe dist — a file server, NOT a proxy.
   # The deploy workflow syncs the dist to /home/taskflow/frontend (= ../frontend
   # relative to this compose file). frontend.Caddyfile adds the SPA fallback:
@@ -119,3 +136,4 @@ services:
 volumes:
   pgdata:
   media:
+  minio_data:

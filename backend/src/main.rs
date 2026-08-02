@@ -235,21 +235,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         //
         // The same plugin also gives you uploaded-file storage (local FS or S3)
         // when you add a FileField / ImageField: `.media("/media", "./media")`.
-        .plugin(
-            StoragePlugin::new()
+        .plugin({
+            // Media backend: S3/MinIO in prod (when `UMBRAL_S3_BUCKET` is set),
+            // local filesystem in dev. `static_files` stays local — static is
+            // pushed to the `taskflow-static` bucket by `collectstatic --storage
+            // s3` and browsers fetch it via `UMBRAL_STATIC_URL`, so the runtime
+            // static route is unused in prod.
+            let storage = StoragePlugin::new()
                 .static_files("/static", "./static")
-                // Uploaded-file storage for message attachments (FileField):
-                // registers the ambient backend, serves files at /media/<key>,
-                // and enforces the 25 MiB media cap.
-                .media("/media", "./media")
                 // Every media GET is authorized before bytes move: channel
-                // membership for message attachments, active project
-                // membership for task attachments, superuser bypass, orphan
-                // keys denied. See src/media_access.rs for the full policy.
+                // membership for message attachments, active project membership
+                // for task attachments, superuser bypass, orphan keys denied
+                // (src/media_access.rs). NOTE: this gate wraps ONLY the local
+                // ServeDir route below — under S3 (`media_s3`) media is served
+                // as short-TTL PRESIGNED URLs fetched straight from the bucket,
+                // so the gate does not run; access there = private bucket +
+                // presign TTL + the API only issuing URLs to authorized members.
                 .media_access(|headers: axum::http::HeaderMap, key: String| async move {
                     media_access::media_access_allowed(&headers, &key).await
-                }),
-        )
+                });
+            if std::env::var("UMBRAL_S3_BUCKET").is_ok() {
+                // Prod: FileField URLs become presigned GETs against the
+                // `default` (media) bucket built from `UMBRAL_S3_*`.
+                match umbral_storage::S3Storage::from_env() {
+                    Ok(s3) => storage.media_s3("/media", s3),
+                    Err(e) => {
+                        eprintln!("UMBRAL_S3_BUCKET is set but S3Storage::from_env failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                // Dev / no-S3: local filesystem media served at /media/<key>,
+                // gated per request, 25 MiB cap.
+                storage.media("/media", "./media")
+            }
+        })
         // Security (on by default): CSRF + clickjacking/HSTS hardening
         // headers across the app. `/api` is exempt so token-authenticated
         // JSON clients can POST without a browser form CSRF cookie.
