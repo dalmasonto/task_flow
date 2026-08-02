@@ -1,4 +1,5 @@
 import { getAttachmentKind } from "@/lib/attachment-kind"
+import { API_BASE_URL } from "@/lib/auth-api"
 import type { MessageAttachmentItem } from "@/components/message-attachments"
 
 export type MediaSource =
@@ -16,9 +17,14 @@ export type MediaFilter = "all" | "images" | "files" | "chat" | "tasks"
  *  blobs pass through. */
 export function mediaUrlFromKey(key: string): string {
   if (!key) return ""
-  return key.startsWith("/") || key.startsWith("blob:") || key.startsWith("http")
-    ? key
-    : `/media/${key}`
+  if (key.startsWith("blob:") || key.startsWith("http")) return key
+  // Media lives on the BACKEND. In prod the SPA and API are different origins,
+  // so a bare key or a relative `/media/<key>` (from a REST read) must resolve
+  // to the API origin — otherwise it hits the SPA's file-server and 404s to
+  // index.html. API_BASE_URL is "" in dev (same origin, Vite proxies /media).
+  if (key.startsWith("/media/")) return `${API_BASE_URL}${key}`
+  if (key.startsWith("/")) return key
+  return `${API_BASE_URL}/media/${key}`
 }
 
 /** The attachment-row fields both tables share. */

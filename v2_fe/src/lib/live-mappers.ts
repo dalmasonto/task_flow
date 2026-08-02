@@ -1,7 +1,7 @@
 import { columns, type ActivityEvent, type AgentAttachment, type AgentChatContext, type AgentMessage, type AgentTerminalSessionView, type ColumnId, type ConversationMember, type DropTarget, type InviteRecord, type MessagePriority, type Priority, type Project, type Task, type TaskActivityItem, type TaskLink, type TaskRelation, type TaskSession, type TerminalLine } from "@/lib/workspace-view"
 import { formatEstimateMinutes } from "@/lib/tasks"
 import { isPending, type PendingAttachment } from "@/lib/message-store"
-import { type AuthUser } from "@/lib/auth-api"
+import { API_BASE_URL, type AuthUser } from "@/lib/auth-api"
 import { type TaskflowAgent, type TaskflowAgentMessage, type TaskflowAgentMessagePriority, type TaskflowAgentSession, type TaskflowMessageAttachment, type TaskflowProjectInviteRole, type TaskflowProjectInviteStatus, type TaskflowProjectMember, type TaskflowTaskPriority, type TaskflowTaskRelationKind, type TaskflowTaskReviewDecision, type TaskflowTaskStatus } from "@/api/client"
 import { type TaskflowProjectSummary, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
 
@@ -1255,8 +1255,13 @@ export function mapLiveTerminalSessions(workspace: TaskflowWorkspace, now: numbe
 /// resolved.
 export function resolveAttachmentUrl(raw: string | null | undefined): string {
   if (!raw) return ""
-  if (/^(https?:|blob:|\/)/.test(raw)) return raw
-  return `/media/${raw}`
+  if (/^(https?:|blob:)/.test(raw)) return raw
+  // A relative `/media/<key>` (REST read) or a bare key both resolve to the API
+  // origin — media is served by the backend, a different origin than the SPA in
+  // prod. API_BASE_URL is "" in dev, so this stays same-origin there.
+  if (raw.startsWith("/media/")) return `${API_BASE_URL}${raw}`
+  if (raw.startsWith("/")) return raw
+  return `${API_BASE_URL}/media/${raw}`
 }
 
 
