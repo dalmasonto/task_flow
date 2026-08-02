@@ -129,10 +129,17 @@ export type TaskflowProjectSummary = {
   projects: TaskflowProject[]
   members: TaskflowProjectMember[]
   agents: TaskflowAgent[]
-  sessions: TaskflowAgentSession[]
-  // Per-project total task count (keyed by project id) for the sidebar list —
-  // cheap count queries, not the full task rows.
+  // #56: NO agent sessions here. The summary runs on EVERY dashboard route (it
+  // is the sidebar's data source), and the sessions list is presence detail that
+  // only the API-Base page and the task sheet render. Sidebar online counts fall
+  // back to the agent roster's own heartbeat (isAgentOnline), which the summary
+  // already loads — see mapLiveProjects. Sessions load as a slice on their surface.
+  // Per-project counts (keyed by project id) for the always-visible sidebar —
+  // cheap page_size=1 count queries, not the full task rows.
   taskCounts: Record<number, number>
+  // Pending-review count (stored status partial_done) per project, for the
+  // sidebar's Reviews badge — honest on every page without loading the board.
+  reviewCounts: Record<number, number>
 }
 
 export type TaskflowRealtimeAction = "created" | "updated" | "deleted"
@@ -431,25 +438,31 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
   // #56: no all-project task rows here — the board loads the active project's
   // columns (fetchTaskflowWorkspace), so pulling every project's tasks (~152 KB,
   // and capped at 100 anyway) just to seed a sidebar count was pure waste.
-  const [projects, members, agents, sessions] = await Promise.all([
+  // #56: no agent sessions — presence detail loads on its own surface. The agent
+  // ROSTER stays (small, and the sidebar's online counts read its heartbeat).
+  const [projects, members, agents] = await Promise.all([
     taskflowApi.from(taskflowTables.projects).orderBy("name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.members).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agents).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.agentSessions).orderBy("project", "-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
-  // #56 review: the sidebar project list shows a per-project task count. Instead
-  // of the old all-project row pull (152 KB, capped), ask each project for just
-  // its COUNT — page_size=1 returns the envelope's total in ~one row. Cheap and
-  // honest (a project shows its real total, not 0-until-clicked).
+  // #56 review: the sidebar shows a per-project task count AND a Reviews badge.
+  // Instead of pulling task rows (152 KB, capped) just to count them, ask each
+  // project for two COUNTS — page_size=1 returns the envelope total in ~one row.
+  // Cheap and honest (real totals on every page, not 0-until-clicked).
   const countEntries = await Promise.all(
     projects.results.map(async (project) => {
-      const page = await taskflowApi
-        .from(taskflowTables.tasks)
-        .filter({ project: project.id })
-        .param("page_size", 1)
-        .list()
-      return [project.id, page.count] as const
+      const [total, review] = await Promise.all([
+        taskflowApi.from(taskflowTables.tasks).filter({ project: project.id }).param("page_size", 1).list(),
+        taskflowApi
+          .from(taskflowTables.tasks)
+          .filter({ project: project.id })
+          // `partial_done` is the stored status the board calls the "review" column.
+          .param("status__in", "partial_done")
+          .param("page_size", 1)
+          .list(),
+      ])
+      return { id: project.id, total: total.count, review: review.count }
     })
   )
 
@@ -457,8 +470,8 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
     projects: projects.results,
     members: members.results,
     agents: agents.results,
-    sessions: sessions.results,
-    taskCounts: Object.fromEntries(countEntries) as Record<number, number>,
+    taskCounts: Object.fromEntries(countEntries.map((e) => [e.id, e.total])) as Record<number, number>,
+    reviewCounts: Object.fromEntries(countEntries.map((e) => [e.id, e.review])) as Record<number, number>,
   }
 }
 
@@ -555,19 +568,23 @@ export async function fetchActivityActions(projectId: number): Promise<string[]>
 /// on demand via fetchWorkspaceChat / fetchWorkspaceActivity, and start empty
 /// here so every existing consumer keeps reading the same shape.
 export async function fetchTaskflowWorkspace(projectId: number): Promise<TaskflowWorkspace> {
-  // #56: the CORE workspace loads only what every dashboard surface (and the
-  // always-mounted board + session dock) needs: the project, its roster, agents,
-  // agent sessions (presence dots) and task sessions (the global running-timer
-  // dock). Everything else is a deferred slice loaded by the surface that shows
-  // it — settings (invites/api endpoints/credentials), reviews, and task detail
-  // (attachments/relations). See the slice loaders below.
+  // #56: the CORE workspace loads only what is needed on EVERY dashboard route,
+  // regardless of which page component is mounted: the project, its member roster,
+  // its agent roster, invites (the always-visible sidebar pending-invites badge)
+  // and task sessions (the global running-timer dock, persistent across pages).
+  //
+  // NOT here anymore, because react-router mounts one page at a time and these
+  // are page-specific — they load as slices when their surface is up:
+  //   - board task columns  -> fetchWorkspaceBoard (board/reviews/activity/open task)
+  //   - agent SESSIONS       -> fetchWorkspacePresence (API-Base page / task sheet)
+  // plus the existing slices (chat, terminal, settings, reviews, task detail,
+  // activity). See the slice loaders below and App.tsx's slice effect.
   const [
     project,
     members,
     invites,
     taskSessions,
     agents,
-    agentSessions,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
@@ -576,30 +593,22 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
-
-  // #56: the board loads ONE page per column, not every task. Five small
-  // queries beat one unbounded list: each column knows its own total from the
-  // envelope's `count`, which is what tells the scroll sentinel whether another
-  // page exists.
-  const columnPages = await Promise.all(
-    BOARD_COLUMN_IDS.map(async (column) => ({ column, page: await fetchBoardColumn(projectId, column) }))
-  )
-  const taskCounts = Object.fromEntries(
-    columnPages.map(({ column, page }) => [column, page.count])
-  ) as Record<BoardColumnId, number>
 
   return {
     project,
-    tasks: columnPages.flatMap(({ page }) => page.rows),
-    taskCounts,
+    // Board columns are a slice now (fetchWorkspaceBoard) — the board is not
+    // always mounted, so its five column queries must not fire on every route.
+    tasks: [],
+    taskCounts: EMPTY_TASK_COUNTS,
     members: members.results,
     invites: invites.results,
     taskSessions: taskSessions.results,
     agents: agents.results,
-    agentSessions: agentSessions.results,
+    // Presence detail is a slice now (fetchWorkspacePresence).
+    agentSessions: [],
     // Deferred slices — loaded by the surface that renders them:
+    // board (fetchWorkspaceBoard), presence (fetchWorkspacePresence),
     // settings (fetchWorkspaceSettings), reviews (fetchWorkspaceReviews),
     // task detail (fetchWorkspaceTaskDetail), chat (fetchWorkspaceChat),
     // terminal (fetchWorkspaceTerminalFrames), activity (fetchWorkspaceActivity).
@@ -617,6 +626,52 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     channelReadCursors: [],
     agentPrompts: [],
   }
+}
+
+/// Empty per-column counts — the shape board consumers read before the board
+/// slice fills it in. Kept in one place so the default matches BOARD_COLUMN_IDS.
+const EMPTY_TASK_COUNTS = Object.fromEntries(
+  BOARD_COLUMN_IDS.map((column) => [column, 0])
+) as Record<BoardColumnId, number>
+
+/// #56: the board slice — the five column pages + their totals.
+///
+/// The board is ONE route among many, so its task loads belong to the board
+/// surface, not the core workspace. `tasks` is also the app's task-lookup table
+/// (title resolution in the activity + reviews feeds, and the open task sheet),
+/// so this slice loads for any of those surfaces, not the board alone — see the
+/// `tasksNeeded` gate in App.tsx.
+export type WorkspaceBoardSlice = Pick<TaskflowWorkspace, "tasks" | "taskCounts">
+
+export async function fetchWorkspaceBoard(projectId: number): Promise<WorkspaceBoardSlice> {
+  // ONE page per column, not every task: each column knows its own total from
+  // the envelope's `count`, which is what tells the scroll sentinel whether
+  // another page exists.
+  const columnPages = await Promise.all(
+    BOARD_COLUMN_IDS.map(async (column) => ({ column, page: await fetchBoardColumn(projectId, column) }))
+  )
+  const taskCounts = Object.fromEntries(
+    columnPages.map(({ column, page }) => [column, page.count])
+  ) as Record<BoardColumnId, number>
+  return { tasks: columnPages.flatMap(({ page }) => page.rows), taskCounts }
+}
+
+/// #56: the presence slice — agent SESSIONS (heartbeat rows).
+///
+/// Only the API-Base page and the task sheet render session detail; every other
+/// surface's "online" state falls back to the agent roster's own heartbeat
+/// (isAgentOnline), which the core already loads. So sessions load only where a
+/// surface shows them — see the `presenceNeeded` gate in App.tsx.
+export type WorkspacePresenceSlice = Pick<TaskflowWorkspace, "agentSessions">
+
+export async function fetchWorkspacePresence(projectId: number): Promise<WorkspacePresenceSlice> {
+  const agentSessions = await taskflowApi
+    .from(taskflowTables.agentSessions)
+    .filter({ project: projectId })
+    .orderBy("-last_seen_at", "-id")
+    .param("page_size", REFERENCE_PAGE_SIZE)
+    .list()
+  return { agentSessions: agentSessions.results }
 }
 
 /// The chat slice: loaded when the Agents page or the chat dock is actually

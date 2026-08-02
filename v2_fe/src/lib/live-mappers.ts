@@ -648,11 +648,12 @@ export function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
   const now = Date.now()
   return summary.projects.map((project, index) => {
     const members = summary.members.filter((member) => member.project === project.id && member.status === "active").length
+    // #56: the summary no longer loads agent sessions (presence detail loads on
+    // its own surface). isAgentOnline falls back to the agent row's own status +
+    // heartbeat when no session is passed, which is exactly what the sidebar's
+    // online count needs — so pass an empty session list here.
     const onlineAgents = summary.agents.filter(
-      (agent) => agent.project === project.id && isAgentOnline(agent.id, summary.agents, summary.sessions, now)
-    ).length
-    const connectedSessions = summary.sessions.filter(
-      (session) => session.project === project.id && isSessionLive(session, now)
+      (agent) => agent.project === project.id && isAgentOnline(agent.id, summary.agents, [], now)
     ).length
 
     return {
@@ -660,10 +661,10 @@ export function mapLiveProjects(summary: TaskflowProjectSummary): Project[] {
       name: project.name,
       code: toInitials(project.slug || project.name),
       status: project.status,
-      health: project.status === "active" ? `${connectedSessions} connected sessions` : project.status,
+      health: project.status === "active" ? `${onlineAgents} agents online` : project.status,
       tint: liveProjectTint(index),
       owner: project.owner ? `User #${project.owner}` : "Workspace",
-      cadence: connectedSessions ? `${connectedSessions} sessions live` : "Realtime ready",
+      cadence: onlineAgents ? `${onlineAgents} agents online` : "Realtime ready",
       objective: project.description_markdown || "Live TaskFlow project.",
       members,
       agentsOnline: onlineAgents,

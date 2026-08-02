@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -63,6 +63,9 @@ function App() {
   // Per-project total task counts (from the summary's cheap count queries) so the
   // sidebar list shows a real count for every project, not 0-until-clicked.
   const [projectTaskCounts, setProjectTaskCounts] = useState<Record<number, number>>({})
+  // Per-project pending-review counts (also from the summary), so the sidebar's
+  // Reviews badge is honest on every page without loading the board's task rows.
+  const [projectReviewCounts, setProjectReviewCounts] = useState<Record<number, number>>({})
   // Incremented every time a fresh core workspace replaces the current one.
   const [workspaceEpoch, setWorkspaceEpoch] = useState(0)
 
@@ -258,7 +261,14 @@ function App() {
         review: editTaskRow.review_gate ?? "",
       }
     : undefined
-  const pendingReviews = tasks.filter((task) => task.status === "review").length
+  // #56: the sidebar Reviews badge shows the active project's pending-review count
+  // on every page. Prefer the summary's cheap count (accurate even when the board
+  // slice has not loaded here); fall back to the loaded rows on a surface that has
+  // them, so a realtime status change reflects immediately.
+  const pendingReviews =
+    activeLiveProjectId != null && projectReviewCounts[activeLiveProjectId] != null
+      ? projectReviewCounts[activeLiveProjectId]
+      : tasks.filter((task) => task.status === "review").length
   const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : []
   const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
   const blockedCount = projectTasks.filter((task) => task.status === "blocked").length
@@ -399,6 +409,7 @@ function App() {
 
         setWorkspaceProjects(nextProjects)
         setProjectTaskCounts(summary.taskCounts)
+        setProjectReviewCounts(summary.reviewCounts)
         setUsesLiveApi(true)
         // Record a genuine change so the activeProjectId effect skips the single
         // re-fire this setState triggers (the workspace is already loading here).
@@ -415,21 +426,16 @@ function App() {
 
         try {
           const workspace = await fetchTaskflowWorkspace(nextProjectId)
-          const nextProjectTasks = mapLiveTasks(workspace.tasks, workspace.members, workspace.agents)
 
           setLiveWorkspace(workspace)
-          // #56: a fresh CORE workspace carries empty chat/activity arrays, so
-          // it silently discards any slice already merged in. Bumping the epoch
+          // #56: a fresh CORE workspace carries empty board/chat/activity arrays,
+          // so it silently discards any slice already merged in. Bumping the epoch
           // makes the slice loader treat this like a new project and refetch —
           // without it the ref flag still said "loaded", the arrays stayed
-          // empty, and the Agents page showed "select a conversation" against a
-          // URL that named a real one.
+          // empty, and the surface showed nothing against a URL that named a row.
+          // The board's tasks + selection are set by the board slice, not here:
+          // core no longer ships task rows (the board is not always mounted).
           setWorkspaceEpoch((current) => current + 1)
-          setTasks((current) => mergeProjectTasks(current, nextActiveProjectId, nextProjectTasks))
-          setSelectedTaskId((current) => {
-            if (nextProjectTasks.some((task) => task.id === current)) return current
-            return nextProjectTasks[0]?.id ?? current
-          })
           setLiveSyncError(null)
         } catch (error) {
           setLiveWorkspace(null)
@@ -1001,9 +1007,11 @@ function App() {
   // A ref, not state: these flags gate a fetch, they do not belong in a render.
   // Holding them in state also meant calling setState synchronously inside the
   // effect, which is the cascading-render pattern the lint rule objects to.
-  const loadedSlices = useRef<{ project: number | null; epoch: number; chat: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: boolean }>({
+  const loadedSlices = useRef<{ project: number | null; epoch: number; board: boolean; presence: boolean; chat: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: boolean }>({
     project: null,
     epoch: -1,
+    board: false,
+    presence: false,
     chat: false,
     activity: false,
     terminal: false,
@@ -1045,6 +1053,20 @@ function App() {
   const settingsNeeded = location.pathname.startsWith("/dashboard/api")
   const reviewsNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/reviews")
   const taskDetailNeeded = openTaskId !== null
+  // #56: board task rows are ALSO the app's task-lookup table — the activity and
+  // reviews feeds resolve task titles from them, and the task sheet reads the open
+  // task. So the board slice loads for any of those surfaces, not the board route
+  // alone. It does NOT load on the overview, agents, api or media pages — that is
+  // the whole point: the board is one route, its five column queries must not fire
+  // everywhere. The sidebar's per-project + review counts come from the summary.
+  const tasksNeeded =
+    openTaskId !== null ||
+    location.pathname.startsWith("/dashboard/board") ||
+    location.pathname.startsWith("/dashboard/reviews") ||
+    location.pathname.startsWith("/dashboard/activity")
+  // #56: agent SESSIONS (presence detail) render only on the API-Base page and in
+  // the task sheet; everywhere else "online" reads the agent roster's heartbeat.
+  const presenceNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/api")
 
   useEffect(() => {
     if (!activeLiveProjectId || !activeLiveWorkspace) return
@@ -1055,6 +1077,8 @@ function App() {
     if (slices.project !== projectId || slices.epoch !== workspaceEpoch) {
       slices.project = projectId
       slices.epoch = workspaceEpoch
+      slices.board = false
+      slices.presence = false
       slices.chat = false
       slices.activity = false
       slices.terminal = false
@@ -1065,6 +1089,32 @@ function App() {
     // Marked BEFORE the request: applying a slice changes activeLiveWorkspace,
     // which re-runs this effect, so a flag set on success would let it re-fire
     // against its own result. Cleared on failure so the next visit retries.
+    if (tasksNeeded && !slices.board) {
+      slices.board = true
+      void fetchWorkspaceBoard(projectId)
+        .then((slice) => {
+          applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, tasks: slice.tasks, taskCounts: slice.taskCounts }))
+          // The board renders from the flat `tasks` state, not liveWorkspace.tasks
+          // — mirror the merge loadLiveWorkspace used to do, now that the board's
+          // rows arrive here. members/agents come from the core (already loaded).
+          const mapped = mapLiveTasks(slice.tasks, activeLiveWorkspace.members, activeLiveWorkspace.agents)
+          setTasks((current) => mergeProjectTasks(current, String(projectId), mapped))
+          setSelectedTaskId((current) => (mapped.some((task) => task.id === current) ? current : mapped[0]?.id ?? current))
+        })
+        .catch(() => {
+          slices.board = false
+          retrySlice()
+        })
+    }
+    if (presenceNeeded && !slices.presence) {
+      slices.presence = true
+      void fetchWorkspacePresence(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.presence = false
+          retrySlice()
+        })
+    }
     if (chatNeeded && !slices.chat) {
       slices.chat = true
       void fetchWorkspaceChat(projectId)
@@ -1126,7 +1176,7 @@ function App() {
           retrySlice()
         })
     }
-  }, [chatNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, taskDetailNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
+  }, [tasksNeeded, presenceNeeded, chatNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, taskDetailNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />
