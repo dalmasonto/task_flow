@@ -60,6 +60,15 @@ interface RequestOptions {
   body?: unknown;
   form?: FormData;
   timeoutMs?: number;
+  /**
+   * Opt in to a single network-error retry with a fresh connection. ONLY safe
+   * for idempotent operations: a `fetch failed` cannot tell "never reached the
+   * server" from "processed, but the response was lost", so retrying a
+   * non-idempotent write (create task, post message, log activity, append frame,
+   * submit review) could duplicate it. Reads and cursor/liveness updates set
+   * this; content-creating writes do not. See the retry loop in `request`.
+   */
+  idempotent?: boolean;
 }
 
 const API_PREFIX = "/api/taskflow";
@@ -215,10 +224,15 @@ export class TaskflowClient {
     // throws `fetch failed` before the request reaches the server — a second
     // attempt gets a new socket and usually succeeds, which is what turns a
     // wedged connection into a self-healing one instead of needing a restart.
-    // Only genuine network throws are retried: a non-2xx is a real answer, and a
-    // timeout abort means the caller's deadline already passed. Multipart form
-    // bodies are NOT retried — a FormData body may not survive a second send.
-    const canRetry = options.form === undefined;
+    //
+    // Gated on `options.idempotent`: a `fetch failed` cannot distinguish "never
+    // reached the server" from "processed, response lost", so only operations
+    // that are safe to run twice opt in (reads, mark_read, heartbeat, close).
+    // Content-creating writes (create task, send message, report review, log
+    // activity, append frames) never retry — a duplicate would be worse than a
+    // surfaced error. Multipart form bodies are excluded regardless (a FormData
+    // body may not survive a second send).
+    const canRetry = options.idempotent === true && options.form === undefined;
     let res: Awaited<ReturnType<FetchLike>> | undefined;
     let lastErr: unknown;
     for (let tryNo = 0; tryNo < (canRetry ? 2 : 1); tryNo++) {
@@ -265,24 +279,25 @@ export class TaskflowClient {
 
   /** `GET /agents/whoami` — the identity behind the presented credential. */
   whoami(): Promise<Whoami> {
-    return this.request("GET", `${API_PREFIX}/agents/whoami`);
+    return this.request("GET", `${API_PREFIX}/agents/whoami`, { idempotent: true });
   }
 
   /** `GET /agents/tasks?status=&assigned=` — tasks in the agent's project. */
   listTasks(params: { status?: string; assigned?: string } = {}): Promise<unknown[]> {
     return this.request("GET", `${API_PREFIX}/agents/tasks`, {
       query: { status: params.status, assigned: params.assigned },
+      idempotent: true,
     });
   }
 
   /** `GET /agents/channels` — channels the agent may see. */
   listChannels(): Promise<ChannelSummary[]> {
-    return this.request("GET", `${API_PREFIX}/agents/channels`);
+    return this.request("GET", `${API_PREFIX}/agents/channels`, { idempotent: true });
   }
 
   /** `GET /agents/agents` — the other agents in the caller's project. */
   listAgents(): Promise<AgentSummary[]> {
-    return this.request("GET", `${API_PREFIX}/agents/agents`);
+    return this.request("GET", `${API_PREFIX}/agents/agents`, { idempotent: true });
   }
 
   /** `GET /agents/messages?channel=&since=&limit=` → `{ messages, read_cursor }`. */
@@ -300,6 +315,7 @@ export class TaskflowClient {
         limit: params.limit,
         unread: params.unread,
       },
+      idempotent: true,
     });
   }
 
@@ -307,6 +323,7 @@ export class TaskflowClient {
   listActivity(params: { task?: number; limit?: number } = {}): Promise<unknown[]> {
     return this.request("GET", `${API_PREFIX}/agents/activity`, {
       query: { task: params.task, limit: params.limit },
+      idempotent: true,
     });
   }
 
@@ -337,10 +354,12 @@ export class TaskflowClient {
     });
   }
 
-  /** `POST /channels/{id}/agent/read` — advance this agent's read cursor. */
+  /** `POST /channels/{id}/agent/read` — advance this agent's read cursor.
+   *  Idempotent: sets the cursor to a specific message id, so a retry is safe. */
   markRead(channel: number, lastReadMessage: number): Promise<unknown> {
     return this.request("POST", `${API_PREFIX}/channels/${channel}/agent/read`, {
       body: { last_read_message: lastReadMessage },
+      idempotent: true,
     });
   }
 
@@ -406,11 +425,15 @@ export class TaskflowClient {
     return this.request("POST", `${API_PREFIX}/agents/sessions`, { body: input });
   }
 
-  /** `POST /agents/sessions/{id}/heartbeat` — bump liveness (status hint idle/busy). */
+  /** `POST /agents/sessions/{id}/heartbeat` — bump liveness (status hint idle/busy).
+   *  Idempotent: sets last-seen/status to the current values, so a retry is safe. */
   heartbeat(session: number, status?: string): Promise<SessionRow> {
     const body: { status?: string } = {};
     if (status !== undefined) body.status = status;
-    return this.request("POST", `${API_PREFIX}/agents/sessions/${session}/heartbeat`, { body });
+    return this.request("POST", `${API_PREFIX}/agents/sessions/${session}/heartbeat`, {
+      body,
+      idempotent: true,
+    });
   }
 
   /** `POST /agents/sessions/{id}/frames` — append one terminal frame. */
@@ -427,9 +450,13 @@ export class TaskflowClient {
     });
   }
 
-  /** `POST /agents/sessions/{id}/close` — disconnect a session. */
+  /** `POST /agents/sessions/{id}/close` — disconnect a session.
+   *  Idempotent: closing an already-closed session is a no-op, so a retry is safe. */
   closeSession(session: number): Promise<SessionRow> {
-    return this.request("POST", `${API_PREFIX}/agents/sessions/${session}/close`, { body: {} });
+    return this.request("POST", `${API_PREFIX}/agents/sessions/${session}/close`, {
+      body: {},
+      idempotent: true,
+    });
   }
 
   /** `POST /agents/activity` — log one real activity event. */

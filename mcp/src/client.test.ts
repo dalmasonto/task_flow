@@ -137,7 +137,32 @@ describe("createTask", () => {
 });
 
 describe("network-error retry", () => {
-  it("retries a JSON write once on a network error and succeeds on the second try", async () => {
+  // Counts fetch attempts and always throws a network error, to prove how many
+  // times a given call hits the wire.
+  function throwingFetch(): { impl: FetchLike; count: () => number } {
+    let n = 0;
+    const impl: FetchLike = async () => {
+      n += 1;
+      throw new Error("fetch failed");
+    };
+    return { impl, count: () => n };
+  }
+
+  // --- idempotent operations DO retry once ---
+
+  it("retries an idempotent read (whoami) once and succeeds on the second try", async () => {
+    let n = 0;
+    const impl: FetchLike = async () => {
+      n += 1;
+      if (n === 1) throw new Error("fetch failed");
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ agent_id: 1 }) };
+    };
+    const res = await client(impl).whoami();
+    expect(n).toBe(2);
+    expect((res as { agent_id: number }).agent_id).toBe(1);
+  });
+
+  it("retries markRead (idempotent cursor set) once on a network error", async () => {
     let n = 0;
     const impl: FetchLike = async () => {
       n += 1;
@@ -149,22 +174,50 @@ describe("network-error retry", () => {
     expect(res).toEqual({ id: 9 });
   });
 
-  it("gives up after one retry and surfaces the network error", async () => {
-    let n = 0;
-    const impl: FetchLike = async () => {
-      n += 1;
-      throw new Error("fetch failed");
-    };
+  it("gives up after one retry on a persistent network error (idempotent call)", async () => {
+    const { impl, count } = throwingFetch();
     await expect(client(impl).markRead(1, 5)).rejects.toThrow(/network error: fetch failed/);
-    expect(n).toBe(2);
+    expect(count()).toBe(2);
+  });
+
+  // --- non-idempotent writes do NOT retry (one fetch only) ---
+  // A `fetch failed` cannot prove the server didn't already process the write, so
+  // retrying could duplicate the task/message/review/activity/frame.
+
+  it("does NOT retry createTask", async () => {
+    const { impl, count } = throwingFetch();
+    await expect(client(impl).createTask({ title: "x" })).rejects.toThrow(/network error/);
+    expect(count()).toBe(1);
+  });
+
+  it("does NOT retry a JSON sendMessage", async () => {
+    const { impl, count } = throwingFetch();
+    await expect(client(impl).sendMessage({ channel: 1, body_markdown: "x" })).rejects.toThrow(
+      /network error/,
+    );
+    expect(count()).toBe(1);
+  });
+
+  it("does NOT retry reportReview", async () => {
+    const { impl, count } = throwingFetch();
+    await expect(client(impl).reportReview(1, "approved")).rejects.toThrow(/network error/);
+    expect(count()).toBe(1);
+  });
+
+  it("does NOT retry logActivity", async () => {
+    const { impl, count } = throwingFetch();
+    await expect(client(impl).logActivity({ action: "note" })).rejects.toThrow(/network error/);
+    expect(count()).toBe(1);
+  });
+
+  it("does NOT retry appendFrame", async () => {
+    const { impl, count } = throwingFetch();
+    await expect(client(impl).appendFrame(1, { content: "x" })).rejects.toThrow(/network error/);
+    expect(count()).toBe(1);
   });
 
   it("does NOT retry a multipart upload (FormData body may not survive a resend)", async () => {
-    let n = 0;
-    const impl: FetchLike = async () => {
-      n += 1;
-      throw new Error("fetch failed");
-    };
+    const { impl, count } = throwingFetch();
     await expect(
       client(impl).sendMessage({
         channel: 1,
@@ -172,6 +225,6 @@ describe("network-error retry", () => {
         attachments: [{ filename: "a.txt", bytes: Buffer.from("a") }],
       }),
     ).rejects.toThrow(/network error/);
-    expect(n).toBe(1);
+    expect(count()).toBe(1);
   });
 });
