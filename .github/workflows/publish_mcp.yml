@@ -1,0 +1,67 @@
+# Publish @dalmasonto/taskflow-mcp to npm.
+#
+# Triggers on a tag matching `mcp-v*` (e.g. `mcp-v2.0.0`), or a manual dispatch.
+# Tests and builds in mcp/ before publishing so a red suite never ships.
+#
+# The package version comes from mcp/package.json — bump it there and tag to
+# match. Publishing an already-published version fails the run (npm rejects it),
+# which is the intended guard against a double-publish.
+#
+# Required repo secret: NPM_TOKEN (an npm automation token with publish rights
+# on the @dalmasonto scope).
+
+name: Publish MCP Server to npm
+
+on:
+  push:
+    tags:
+      - "mcp-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # A tag push should ship exactly the version in package.json. If the tag
+      # and the manifest disagree, fail loudly rather than publish a surprise.
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/mcp-v')
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          tag_version="${GITHUB_REF_NAME#mcp-v}"
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME expects version $tag_version but package.json is $pkg_version"
+            exit 1
+          fi
+          echo "Publishing @dalmasonto/taskflow-mcp@$pkg_version"
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

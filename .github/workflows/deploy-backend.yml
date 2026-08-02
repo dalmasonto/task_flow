@@ -24,15 +24,18 @@
 # served by the compose `frontend` file-server on 0.0.0.0:10003 as
 # taskflow.supercodehive.com:10003):
 #
-#   /home/taskflow/backend/    Dockerfile, compose, frontend.Caddyfile,
-#                              templates, migrations, static, dist/backend,
-#                              .prod.env
-#   /home/taskflow/frontend/   the built v2_fe dist
+#   $DEPLOY_PATH/backend/     Dockerfile, compose, frontend.Caddyfile,
+#                             templates, migrations, static, dist/backend,
+#                             .prod.env
+#   $DEPLOY_PATH/frontend/    the built v2_fe dist
 #
 # The `release` job brings the stack up for you. Dispatch with bring_up=false
 # to transfer the files and stop there (e.g. to inspect the box first).
 #
-# Required repo secrets: AGE_PRIVATE_KEY, CONTABO_HOST, CONTABO_USER, SSH_PRIVATE_KEY.
+# Required repo secrets — ALL already configured on dalmasonto/task_flow from the
+# original v1 deploy, so nothing new to set up: AGE_PRIVATE_KEY, DEPLOY_HOST,
+# DEPLOY_USER, DEPLOY_PATH (the base dir; the backend lands in $DEPLOY_PATH/backend
+# and the built frontend in $DEPLOY_PATH/frontend), SSH_PRIVATE_KEY.
 
 name: deploy-backend
 
@@ -193,17 +196,17 @@ jobs:
       - name: Transfer to Contabo
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.CONTABO_HOST }}
-          username: ${{ secrets.CONTABO_USER }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "payload"
           strip_components: 1 # drop the leading payload/ path segment
-          target: "/home/taskflow/"
+          target: ${{ secrets.DEPLOY_PATH }}
           overwrite: true
 
       - name: Transferred
         run: |
-          echo "backend + prebuilt binary + frontend dist synced to /home/taskflow."
+          echo "backend + prebuilt binary + frontend dist synced to \$DEPLOY_PATH."
 
   release:
     needs: transfer
@@ -218,14 +221,14 @@ jobs:
       - name: Build the image and restart the stack
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.CONTABO_HOST }}
-          username: ${{ secrets.CONTABO_USER }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 15m
           script_stop: true # abort on the first failing command
           script: |
             set -euo pipefail
-            cd /home/taskflow/backend
+            cd ${{ secrets.DEPLOY_PATH }}/backend
 
             echo "::group::docker compose build"
             docker compose build
