@@ -239,6 +239,16 @@ jobs:
             docker compose up -d
             echo "::endgroup::"
 
+            # The transfer step replaced ../frontend (a new directory inode), but
+            # `up -d` only recreates the WEB container (its image changed) — the
+            # frontend service config is unchanged, so compose leaves it running
+            # with a now-stale bind mount to the deleted inode ("cwd outside
+            # mount namespace" -> 404). Force-recreate it so it re-mounts the
+            # freshly-synced dist. --no-deps keeps postgres/web untouched.
+            echo "::group::force-recreate frontend (fresh dist bind mount)"
+            docker compose up -d --force-recreate --no-deps frontend
+            echo "::endgroup::"
+
             # `up -d` returns as soon as the containers are CREATED; the web
             # healthcheck needs a moment, and start_period is 30s. Poll rather
             # than sleep a guess.

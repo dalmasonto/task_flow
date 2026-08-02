@@ -104,10 +104,12 @@ jobs:
           overwrite: true
           rm: true # clear stale assets so old hashed bundles don't linger
 
-      # The dist is a read-only bind mount (../frontend), so new files are served
-      # the moment they land. `up -d frontend` starts the container on a cold box
-      # and is a no-op refresh when it is already running.
-      - name: Ensure the frontend container is up
+      # The dist is a bind mount (../frontend). The scp above (rm:true) replaced
+      # that directory's inode, so a container already running holds a stale
+      # mount to the deleted inode ("cwd outside mount namespace" -> 404).
+      # --force-recreate re-mounts the fresh dist; it also cold-starts the
+      # container if it was down.
+      - name: Recreate the frontend container on the fresh dist
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -118,7 +120,7 @@ jobs:
           script: |
             set -euo pipefail
             cd ${{ secrets.DEPLOY_PATH }}/backend
-            docker compose up -d frontend
+            docker compose up -d --force-recreate --no-deps frontend
             echo "frontend serving $(ls -1 ${{ secrets.DEPLOY_PATH }}/frontend | wc -l) top-level entries"
 
       - name: Deployed
