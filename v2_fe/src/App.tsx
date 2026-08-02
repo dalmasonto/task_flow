@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -990,12 +990,15 @@ function App() {
   // A ref, not state: these flags gate a fetch, they do not belong in a render.
   // Holding them in state also meant calling setState synchronously inside the
   // effect, which is the cascading-render pattern the lint rule objects to.
-  const loadedSlices = useRef<{ project: number | null; epoch: number; chat: boolean; activity: boolean; terminal: boolean }>({
+  const loadedSlices = useRef<{ project: number | null; epoch: number; chat: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: boolean }>({
     project: null,
     epoch: -1,
     chat: false,
     activity: false,
     terminal: false,
+    settings: false,
+    reviews: false,
+    taskDetail: false,
   })
 
   // Bumped when a slice fetch fails, purely to re-run the effect below. Clearing
@@ -1023,6 +1026,13 @@ function App() {
   // NOT in the chat dock — so they load with the agents view, not merely when the
   // dock is open. This keeps the 96 KB frame page off the board and dock.
   const terminalNeeded = chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
+  // #56: settings lists (invites/api endpoints/credentials) render on the Invites
+  // / API Base surfaces; reviews on the Reviews feed or the open task sheet; task
+  // attachments/relations only in the sheet. Load each with its surface.
+  const settingsNeeded =
+    location.pathname.startsWith("/dashboard/api") || location.pathname.startsWith("/dashboard/invites")
+  const reviewsNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/reviews")
+  const taskDetailNeeded = openTaskId !== null
 
   useEffect(() => {
     if (!activeLiveProjectId || !activeLiveWorkspace) return
@@ -1036,6 +1046,9 @@ function App() {
       slices.chat = false
       slices.activity = false
       slices.terminal = false
+      slices.settings = false
+      slices.reviews = false
+      slices.taskDetail = false
     }
     // Marked BEFORE the request: applying a slice changes activeLiveWorkspace,
     // which re-runs this effect, so a flag set on success would let it re-fire
@@ -1058,6 +1071,33 @@ function App() {
           retrySlice()
         })
     }
+    if (settingsNeeded && !slices.settings) {
+      slices.settings = true
+      void fetchWorkspaceSettings(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.settings = false
+          retrySlice()
+        })
+    }
+    if (reviewsNeeded && !slices.reviews) {
+      slices.reviews = true
+      void fetchWorkspaceReviews(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.reviews = false
+          retrySlice()
+        })
+    }
+    if (taskDetailNeeded && !slices.taskDetail) {
+      slices.taskDetail = true
+      void fetchWorkspaceTaskDetail(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.taskDetail = false
+          retrySlice()
+        })
+    }
     if (activityNeeded && !slices.activity) {
       slices.activity = true
       void fetchActivityActions(projectId)
@@ -1074,7 +1114,7 @@ function App() {
           retrySlice()
         })
     }
-  }, [chatNeeded, activityNeeded, terminalNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
+  }, [chatNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, taskDetailNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />

@@ -536,30 +536,24 @@ export async function fetchActivityActions(projectId: number): Promise<string[]>
 /// on demand via fetchWorkspaceChat / fetchWorkspaceActivity, and start empty
 /// here so every existing consumer keeps reading the same shape.
 export async function fetchTaskflowWorkspace(projectId: number): Promise<TaskflowWorkspace> {
+  // #56: the CORE workspace loads only what every dashboard surface (and the
+  // always-mounted board + session dock) needs: the project, its roster, agents,
+  // agent sessions (presence dots) and task sessions (the global running-timer
+  // dock). Everything else is a deferred slice loaded by the surface that shows
+  // it — settings (invites/api endpoints/credentials), reviews, and task detail
+  // (attachments/relations). See the slice loaders below.
   const [
     project,
     members,
-    invites,
-    apiEndpoints,
-    taskRelations,
     taskSessions,
-    taskAttachments,
     agents,
-    agentCredentials,
     agentSessions,
-    taskReviews,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
   // #56: the board loads ONE page per column, not every task. Five small
@@ -578,16 +572,19 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     tasks: columnPages.flatMap(({ page }) => page.rows),
     taskCounts,
     members: members.results,
-    invites: invites.results,
-    apiEndpoints: apiEndpoints.results,
-    taskRelations: taskRelations.results,
     taskSessions: taskSessions.results,
-    taskAttachments: taskAttachments.results,
     agents: agents.results,
-    agentCredentials: agentCredentials.results,
     agentSessions: agentSessions.results,
-    taskReviews: taskReviews.results,
-    // Deferred slices — see fetchWorkspaceChat / fetchWorkspaceActivity.
+    // Deferred slices — loaded by the surface that renders them:
+    // settings (fetchWorkspaceSettings), reviews (fetchWorkspaceReviews),
+    // task detail (fetchWorkspaceTaskDetail), chat (fetchWorkspaceChat),
+    // terminal (fetchWorkspaceTerminalFrames), activity (fetchWorkspaceActivity).
+    invites: [],
+    apiEndpoints: [],
+    agentCredentials: [],
+    taskReviews: [],
+    taskRelations: [],
+    taskAttachments: [],
     taskActivity: [],
     agentChannels: [],
     agentChannelMembers: [],
@@ -662,6 +659,45 @@ export async function fetchWorkspaceTerminalFrames(projectId: number): Promise<W
     .param("page_size", REFERENCE_PAGE_SIZE)
     .list()
   return { terminalFrames: terminalFrames.results }
+}
+
+export type WorkspaceSettingsSlice = Pick<TaskflowWorkspace, "invites" | "apiEndpoints" | "agentCredentials">
+
+// #56: settings lists (invites, API endpoints, agent credentials) render only on
+// the Invites / API Base surfaces — load them with those, not on every open.
+export async function fetchWorkspaceSettings(projectId: number): Promise<WorkspaceSettingsSlice> {
+  const [invites, apiEndpoints, agentCredentials] = await Promise.all([
+    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+  ])
+  return { invites: invites.results, apiEndpoints: apiEndpoints.results, agentCredentials: agentCredentials.results }
+}
+
+export type WorkspaceReviewsSlice = Pick<TaskflowWorkspace, "taskReviews">
+
+// #56: reviews (the biggest tail item, ~15 KB) render on the Reviews feed and
+// per-task in the task sheet — the board's "review" column is status-based, so it
+// never needs them.
+export async function fetchWorkspaceReviews(projectId: number): Promise<WorkspaceReviewsSlice> {
+  const taskReviews = await taskflowApi
+    .from(taskflowTables.taskReviews)
+    .filter({ project: projectId })
+    .orderBy("-created_at", "-id")
+    .param("page_size", REFERENCE_PAGE_SIZE)
+    .list()
+  return { taskReviews: taskReviews.results }
+}
+
+export type WorkspaceTaskDetailSlice = Pick<TaskflowWorkspace, "taskAttachments" | "taskRelations">
+
+// #56: task attachments + relations render only in the open task sheet.
+export async function fetchWorkspaceTaskDetail(projectId: number): Promise<WorkspaceTaskDetailSlice> {
+  const [taskAttachments, taskRelations] = await Promise.all([
+    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+  ])
+  return { taskAttachments: taskAttachments.results, taskRelations: taskRelations.results }
 }
 
 /// The attachments belonging to EXACTLY these messages — fetched alongside a
