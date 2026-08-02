@@ -210,20 +210,40 @@ export class TaskflowClient {
       init!.body = JSON.stringify(options.body);
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      options.timeoutMs ?? this.timeoutMs,
-    );
-    init!.signal = controller.signal;
-
-    let res: Awaited<ReturnType<FetchLike>>;
-    try {
-      res = await this.fetchImpl(url, init);
-    } catch (err) {
-      throw new TaskflowApiError(method, path, 0, `network error: ${(err as Error).message}`);
-    } finally {
-      clearTimeout(timer);
+    // Retry ONCE on a network-level failure with a fresh connection. A reused
+    // keep-alive socket that a stateful gateway (NAT64 here) silently dropped
+    // throws `fetch failed` before the request reaches the server — a second
+    // attempt gets a new socket and usually succeeds, which is what turns a
+    // wedged connection into a self-healing one instead of needing a restart.
+    // Only genuine network throws are retried: a non-2xx is a real answer, and a
+    // timeout abort means the caller's deadline already passed. Multipart form
+    // bodies are NOT retried — a FormData body may not survive a second send.
+    const canRetry = options.form === undefined;
+    let res: Awaited<ReturnType<FetchLike>> | undefined;
+    let lastErr: unknown;
+    for (let tryNo = 0; tryNo < (canRetry ? 2 : 1); tryNo++) {
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(),
+        options.timeoutMs ?? this.timeoutMs,
+      );
+      init!.signal = controller.signal;
+      try {
+        res = await this.fetchImpl(url, init);
+        lastErr = undefined;
+        break;
+      } catch (err) {
+        lastErr = err;
+        // A timeout (the controller aborted) is not worth a second try — the
+        // deadline is spent. A raw connection failure is.
+        if (controller.signal.aborted) break;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    if (lastErr !== undefined || res === undefined) {
+      const message = lastErr instanceof Error ? lastErr.message : "request failed";
+      throw new TaskflowApiError(method, path, 0, `network error: ${message}`);
     }
 
     const raw = await res.text();

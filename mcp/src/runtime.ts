@@ -157,6 +157,30 @@ export function startAgentRuntime(
     log,
     // Deliver messages missed while the stream was down (see catchUpUnread).
     onReconnect: catchUpUnread,
+    // The stream has failed to reconnect for a sustained stretch — tell the
+    // agent its live feed is paused so it does not sit waiting on a dead stream.
+    // Typed through the same serial queue as messages so it cannot interleave
+    // with a delivery. Without a pane there is nowhere to type it.
+    onUnreachable: async (failures) => {
+      if (!pane) return;
+      await paneQueue(() =>
+        notifyPane(
+          `[taskflow] ⚠️ TaskFlow server unreachable — ${failures} reconnect attempts failed. ` +
+            `Live message delivery is paused; I'll keep retrying and catch up automatically when it returns. ` +
+            `If this persists, check the backend/connection.`,
+          pane,
+          true,
+        ),
+      );
+    },
+    // Back after an outage the agent was told about: say so, so it knows live
+    // delivery has resumed (catchUpUnread has already replayed anything missed).
+    onRecovered: async () => {
+      if (!pane) return;
+      await paneQueue(() =>
+        notifyPane(`[taskflow] ✅ Reconnected to TaskFlow — live message delivery resumed.`, pane, true),
+      );
+    },
     // A human answered a question the agent is blocked on: press the keys.
     onPromptAnswered: async (prompt) => {
       // No pane, no keyboard to replay the answer on.

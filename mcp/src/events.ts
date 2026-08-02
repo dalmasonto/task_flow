@@ -14,9 +14,32 @@
 
 import { TaskflowClient } from "./client.js";
 
-/** Backoff between reconnects: fast first retry, then double, capped. */
-const RECONNECT_BASE_MS = 1_000;
-const RECONNECT_MAX_MS = 30_000;
+/**
+ * Tiered reconnect backoff: retry FAST while a drop is probably a blip, then
+ * step the delay up the longer the server stays away — so a NAT64 socket drop
+ * recovers in seconds, while a real outage does not hammer a dead server. The
+ * argument is the count of CONSECUTIVE failures (reset to 0 on a live connect).
+ *
+ *   attempts  1–10 → 5s      (a transient drop: recover quickly)
+ *   attempts 11–20 → 10s     (still down: ease off)
+ *   attempts 21+   → 20s     (looks like an outage: slow, steady retries)
+ *
+ * Exported so the schedule is unit-tested directly rather than through timers.
+ */
+export function reconnectDelayMs(consecutiveFailures: number): number {
+  if (consecutiveFailures <= 10) return 5_000;
+  if (consecutiveFailures <= 20) return 10_000;
+  return 20_000;
+}
+
+/**
+ * After this many consecutive failed reconnects the server looks genuinely
+ * unreachable: tell the agent ONCE (so it stops waiting on a dead feed), then
+ * keep retrying quietly at the top tier so delivery self-heals when the server
+ * returns. The counter resets on a successful connect, so a later outage
+ * notifies again.
+ */
+const UNREACHABLE_AFTER_ATTEMPTS = 30;
 
 /**
  * Treat the stream as dead after this long with NOTHING on it — not even a
@@ -27,9 +50,12 @@ const RECONNECT_MAX_MS = 30_000;
  * listener sits there believing it is connected while nothing is delivered.
  * Waiting for an error is waiting for an event that never comes; the only sound
  * signal is the absence of expected traffic. The server sends SSE keep-alives
- * every ~15s, so silence well past that means the stream is gone.
+ * every ~15s, so ~25s of silence (one missed keep-alive plus slack) means the
+ * stream is gone. Kept tight on purpose: a stateful NAT64 gateway silently drops
+ * idle long-lived sockets, and the faster this trips the faster delivery
+ * recovers — a needless reconnect only costs a catch-up round trip.
  */
-const STREAM_IDLE_TIMEOUT_MS = 45_000;
+const STREAM_IDLE_TIMEOUT_MS = 25_000;
 
 /**
  * Hard cap on the SSE read buffer (#44). Frames here are id-only and tiny; a
@@ -93,6 +119,15 @@ export interface EventStreamOptions {
    *  push is at-most-once, so the handler catches up on messages that arrived
    *  while the stream was down. */
   onReconnect?: () => void | Promise<void>;
+  /** Called ONCE when reconnects have failed {@link UNREACHABLE_AFTER_ATTEMPTS}
+   *  times in a row — the server looks genuinely unreachable, so tell the agent
+   *  its live feed is paused. Fires again only after a successful reconnect
+   *  resets the failure counter. */
+  onUnreachable?: (consecutiveFailures: number) => void | Promise<void>;
+  /** Called when the stream reconnects AFTER an `onUnreachable` notice — the
+   *  "we're back" counterpart, so the agent is not left thinking it is offline.
+   *  Not fired for ordinary reconnects (that is `onReconnect`'s catch-up). */
+  onRecovered?: () => void | Promise<void>;
   log?: (line: string) => void;
   /** Injected in tests. */
   fetchImpl?: typeof fetch;
@@ -121,16 +156,26 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
   const doFetch = options.fetchImpl ?? fetch;
   const url = `${options.server.replace(/\/+$/, "")}/api/taskflow/agents/events`;
   let stopped = false;
+  // Count of CONSECUTIVE failed (re)connects; 0 while connected.
   let attempt = 0;
+  // Whether the agent has already been told the server is unreachable this spell
+  // — so the notice fires once per outage, not once per retry.
+  let unreachableNotified = false;
   let everConnected = false;
   let controller: AbortController | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const scheduleRetry = () => {
     if (stopped) return;
-    const ceiling = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS);
-    const delay = Math.round(ceiling / 2 + Math.random() * (ceiling / 2));
     attempt += 1;
+    // A sustained outage: tell the agent once its feed is dead, then keep
+    // retrying at the top tier so it recovers on its own when the server returns.
+    if (attempt >= UNREACHABLE_AFTER_ATTEMPTS && !unreachableNotified) {
+      unreachableNotified = true;
+      log(`event stream unreachable after ${attempt} attempts — notifying agent`);
+      void options.onUnreachable?.(attempt);
+    }
+    const delay = reconnectDelayMs(attempt);
     retryTimer = setTimeout(connect, delay);
     retryTimer.unref?.();
   };
@@ -149,6 +194,13 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
       }
       attempt = 0;
       log("event stream connected");
+      // Recovered from a sustained outage the agent was told about: say so, so it
+      // is not left believing the feed is still dead. Ordinary reconnects skip
+      // this — only the catch-up below runs for those.
+      if (unreachableNotified) {
+        unreachableNotified = false;
+        void options.onRecovered?.();
+      }
       // A RE-connect may have missed messages while it was down; let the caller
       // catch up. The first connect needs no catch-up — nothing was missed yet.
       if (everConnected) void options.onReconnect?.();
@@ -225,6 +277,9 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
       if (stopped) return;
       // Abort settles the pending read, which lands in the reconnect path.
       // Reset the backoff: this is a known-cause drop, not a flapping server.
+      // The unreachable flag stays as-is: if we were in an outage, the next
+      // successful connect clears it and fires onRecovered; if this abort fails
+      // too, scheduleRetry keeps counting from 0 without re-notifying yet.
       attempt = 0;
       controller?.abort();
     },

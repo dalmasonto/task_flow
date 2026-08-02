@@ -4,6 +4,8 @@ import {
   shouldDeliver,
   canActOnMessage,
   formatIncoming,
+  reconnectDelayMs,
+  startAgentEventStream,
   type AgentMessageEvent,
 } from "./events.js";
 
@@ -368,5 +370,80 @@ describe("isAnsweredPrompt", () => {
   it("ignores junk", () => {
     expect(isAnsweredPrompt(null)).toBe(false);
     expect(isAnsweredPrompt({ status: "answered" })).toBe(false);
+  });
+});
+
+describe("reconnectDelayMs (tiered backoff)", () => {
+  it("holds 5s for the first 10 attempts", () => {
+    expect(reconnectDelayMs(1)).toBe(5_000);
+    expect(reconnectDelayMs(10)).toBe(5_000);
+  });
+  it("steps to 10s for attempts 11–20", () => {
+    expect(reconnectDelayMs(11)).toBe(10_000);
+    expect(reconnectDelayMs(20)).toBe(10_000);
+  });
+  it("settles at 20s from attempt 21 on", () => {
+    expect(reconnectDelayMs(21)).toBe(20_000);
+    expect(reconnectDelayMs(100)).toBe(20_000);
+  });
+});
+
+describe("startAgentEventStream reconnect notices", () => {
+  const NETWORK_FAIL = () => Promise.reject(new Error("fetch failed"));
+  // A Response-like whose body ends immediately: connect() succeeds, reads one
+  // "done", then treats it as a server-closed stream and reschedules.
+  const okClosedBody = () =>
+    Promise.resolve({
+      ok: true,
+      body: { getReader: () => ({ read: () => Promise.resolve({ done: true }) }) },
+    } as unknown as Response);
+
+  it("notifies the agent ONCE after 30 consecutive reconnect failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const onUnreachable = vi.fn();
+      const handle = startAgentEventStream({
+        server: "http://x",
+        key: "k",
+        onMessage: () => {},
+        onUnreachable,
+        fetchImpl: NETWORK_FAIL as unknown as typeof fetch,
+      });
+      // 1–10 @5s (50s) + 11–20 @10s (100s) + 21–29 @20s (180s) = 330s to the
+      // 30th failure; advance past it with margin.
+      await vi.advanceTimersByTimeAsync(400_000);
+      expect(onUnreachable).toHaveBeenCalledTimes(1);
+      expect(onUnreachable).toHaveBeenCalledWith(30);
+      handle.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fires onRecovered once when it reconnects after an unreachable spell", async () => {
+    vi.useFakeTimers();
+    try {
+      const onUnreachable = vi.fn();
+      const onRecovered = vi.fn();
+      let calls = 0;
+      const fetchImpl = (() => {
+        calls += 1;
+        return calls <= 30 ? NETWORK_FAIL() : okClosedBody();
+      }) as unknown as typeof fetch;
+      const handle = startAgentEventStream({
+        server: "http://x",
+        key: "k",
+        onMessage: () => {},
+        onUnreachable,
+        onRecovered,
+        fetchImpl,
+      });
+      await vi.advanceTimersByTimeAsync(400_000);
+      expect(onUnreachable).toHaveBeenCalledTimes(1);
+      expect(onRecovered).toHaveBeenCalledTimes(1);
+      handle.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

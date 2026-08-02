@@ -135,3 +135,43 @@ describe("createTask", () => {
     expect(JSON.parse(calls[0].init.body)).toEqual({ title: "plain" });
   });
 });
+
+describe("network-error retry", () => {
+  it("retries a JSON write once on a network error and succeeds on the second try", async () => {
+    let n = 0;
+    const impl: FetchLike = async () => {
+      n += 1;
+      if (n === 1) throw new Error("fetch failed");
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ id: 9 }) };
+    };
+    const res = await client(impl).markRead(1, 5);
+    expect(n).toBe(2);
+    expect(res).toEqual({ id: 9 });
+  });
+
+  it("gives up after one retry and surfaces the network error", async () => {
+    let n = 0;
+    const impl: FetchLike = async () => {
+      n += 1;
+      throw new Error("fetch failed");
+    };
+    await expect(client(impl).markRead(1, 5)).rejects.toThrow(/network error: fetch failed/);
+    expect(n).toBe(2);
+  });
+
+  it("does NOT retry a multipart upload (FormData body may not survive a resend)", async () => {
+    let n = 0;
+    const impl: FetchLike = async () => {
+      n += 1;
+      throw new Error("fetch failed");
+    };
+    await expect(
+      client(impl).sendMessage({
+        channel: 1,
+        body_markdown: "x",
+        attachments: [{ filename: "a.txt", bytes: Buffer.from("a") }],
+      }),
+    ).rejects.toThrow(/network error/);
+    expect(n).toBe(1);
+  });
+});
