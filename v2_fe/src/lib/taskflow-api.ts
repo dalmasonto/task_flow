@@ -130,6 +130,9 @@ export type TaskflowProjectSummary = {
   members: TaskflowProjectMember[]
   agents: TaskflowAgent[]
   sessions: TaskflowAgentSession[]
+  // Per-project total task count (keyed by project id) for the sidebar list —
+  // cheap count queries, not the full task rows.
+  taskCounts: Record<number, number>
 }
 
 export type TaskflowRealtimeAction = "created" | "updated" | "deleted"
@@ -435,11 +438,27 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
     taskflowApi.from(taskflowTables.agentSessions).orderBy("project", "-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
+  // #56 review: the sidebar project list shows a per-project task count. Instead
+  // of the old all-project row pull (152 KB, capped), ask each project for just
+  // its COUNT — page_size=1 returns the envelope's total in ~one row. Cheap and
+  // honest (a project shows its real total, not 0-until-clicked).
+  const countEntries = await Promise.all(
+    projects.results.map(async (project) => {
+      const page = await taskflowApi
+        .from(taskflowTables.tasks)
+        .filter({ project: project.id })
+        .param("page_size", 1)
+        .list()
+      return [project.id, page.count] as const
+    })
+  )
+
   return {
     projects: projects.results,
     members: members.results,
     agents: agents.results,
     sessions: sessions.results,
+    taskCounts: Object.fromEntries(countEntries) as Record<number, number>,
   }
 }
 
@@ -545,12 +564,16 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
   const [
     project,
     members,
+    invites,
     taskSessions,
     agents,
     agentSessions,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
     taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    // invites are core, not a settings slice: the ALWAYS-visible sidebar renders
+    // a per-project pending-invites badge, so it must be loaded on every surface.
+    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentSessions).filter({ project: projectId }).orderBy("-last_seen_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
@@ -572,6 +595,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     tasks: columnPages.flatMap(({ page }) => page.rows),
     taskCounts,
     members: members.results,
+    invites: invites.results,
     taskSessions: taskSessions.results,
     agents: agents.results,
     agentSessions: agentSessions.results,
@@ -579,7 +603,6 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     // settings (fetchWorkspaceSettings), reviews (fetchWorkspaceReviews),
     // task detail (fetchWorkspaceTaskDetail), chat (fetchWorkspaceChat),
     // terminal (fetchWorkspaceTerminalFrames), activity (fetchWorkspaceActivity).
-    invites: [],
     apiEndpoints: [],
     agentCredentials: [],
     taskReviews: [],
@@ -661,17 +684,17 @@ export async function fetchWorkspaceTerminalFrames(projectId: number): Promise<W
   return { terminalFrames: terminalFrames.results }
 }
 
-export type WorkspaceSettingsSlice = Pick<TaskflowWorkspace, "invites" | "apiEndpoints" | "agentCredentials">
+export type WorkspaceSettingsSlice = Pick<TaskflowWorkspace, "apiEndpoints" | "agentCredentials">
 
-// #56: settings lists (invites, API endpoints, agent credentials) render only on
-// the Invites / API Base surfaces — load them with those, not on every open.
+// #56: API endpoints + agent credentials render ONLY on the API Base surface, so
+// they load with it. (invites are core — the always-visible sidebar badge needs
+// them on every surface.)
 export async function fetchWorkspaceSettings(projectId: number): Promise<WorkspaceSettingsSlice> {
-  const [invites, apiEndpoints, agentCredentials] = await Promise.all([
-    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+  const [apiEndpoints, agentCredentials] = await Promise.all([
     taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").param("page_size", REFERENCE_PAGE_SIZE).list(),
     taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
-  return { invites: invites.results, apiEndpoints: apiEndpoints.results, agentCredentials: agentCredentials.results }
+  return { apiEndpoints: apiEndpoints.results, agentCredentials: agentCredentials.results }
 }
 
 export type WorkspaceReviewsSlice = Pick<TaskflowWorkspace, "taskReviews">

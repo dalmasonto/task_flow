@@ -60,6 +60,9 @@ function App() {
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  // Per-project total task counts (from the summary's cheap count queries) so the
+  // sidebar list shows a real count for every project, not 0-until-clicked.
+  const [projectTaskCounts, setProjectTaskCounts] = useState<Record<number, number>>({})
   // Incremented every time a fresh core workspace replaces the current one.
   const [workspaceEpoch, setWorkspaceEpoch] = useState(0)
 
@@ -264,7 +267,11 @@ function App() {
   const completion = projectTasks.length ? Math.round((doneCount / projectTasks.length) * 100) : 0
   const sidebarProjects = workspaceProjects.map((project) => ({
     ...project,
-    taskCount: tasks.filter((task) => task.projectId === project.id).length,
+    // Live count for a project whose tasks are loaded (active/visited); otherwise
+    // the summary's snapshot count so the list never shows a false 0.
+    taskCount:
+      tasks.filter((task) => task.projectId === project.id).length ||
+      (projectTaskCounts[Number(project.id)] ?? 0),
   }))
   // #38: the activity feed is capped at 1000 by the server (umbral NoPagination).
   // These hold older windows fetched by id cursor so history beyond the newest
@@ -388,6 +395,7 @@ function App() {
         const nextProjectId = liveId(nextActiveProjectId) ?? summary.projects[0].id
 
         setWorkspaceProjects(nextProjects)
+        setProjectTaskCounts(summary.taskCounts)
         setUsesLiveApi(true)
         // Record a genuine change so the activeProjectId effect skips the single
         // re-fire this setState triggers (the workspace is already loading here).
@@ -1029,8 +1037,9 @@ function App() {
   // #56: settings lists (invites/api endpoints/credentials) render on the Invites
   // / API Base surfaces; reviews on the Reviews feed or the open task sheet; task
   // attachments/relations only in the sheet. Load each with its surface.
-  const settingsNeeded =
-    location.pathname.startsWith("/dashboard/api") || location.pathname.startsWith("/dashboard/invites")
+  // API endpoints + credentials are API-Base-only. (invites are core — the
+  // sidebar badge + the invites page both read them from the core workspace.)
+  const settingsNeeded = location.pathname.startsWith("/dashboard/api")
   const reviewsNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/reviews")
   const taskDetailNeeded = openTaskId !== null
 
