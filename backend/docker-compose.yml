@@ -1,13 +1,14 @@
-# Production stack for TaskFlow. NO reverse proxy — the ports are published
-# directly (user decision 2026-07-31):
+# Production stack for TaskFlow. The host Caddy fronts everything with TLS, so
+# the containers publish ONLY to loopback (127.0.0.1) — never 0.0.0.0, which
+# would expose them on the public IP (http://<ip>:10002) and bypass Caddy.
 #
 # - postgres : PostgreSQL 16, INTERNAL ONLY (no published ports).
 # - migrate  : one-shot, applies migrations then exits (web waits for it).
-# - web      : the Umbral backend on 0.0.0.0:10002 — REST API, SSE realtime,
-#              admin, media. Reached as api.taskflow.supercodehive.com:10002.
+# - web      : the Umbral backend on 127.0.0.1:10002 — REST API, SSE realtime,
+#              admin, media. Host Caddy proxies api.taskflow.supercodehive.com.
 # - frontend : the built v2_fe dist (synced to ../frontend by the deploy
 #              workflow), served by a caddy FILE SERVER (no proxying) on
-#              0.0.0.0:10003. Reached as taskflow.supercodehive.com:10003.
+#              127.0.0.1:10003. Host Caddy proxies taskflow.supercodehive.com.
 #
 # The FE and API are therefore DIFFERENT ORIGINS (different subdomain + port):
 # the backend must allow the FE origin via TASKFLOW_CORS_ALLOWED_ORIGINS (set
@@ -75,7 +76,7 @@ services:
       # Published on ALL interfaces by design — there is no proxy in front.
       # TLS is therefore not terminated anywhere for this port; see the deploy
       # notes before putting real secrets behind plain HTTP.
-      - "10002:10002"
+      - "127.0.0.1:10002:10002"
     volumes:
       # Uploaded attachments live here. A named volume, not an image layer:
       # without it, every `docker compose build` would silently discard
@@ -104,7 +105,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
-      - "10003:10003"
+      - "127.0.0.1:10003:10003"
     volumes:
       - ../frontend:/srv:ro
       - ./frontend.Caddyfile:/etc/caddy/Caddyfile:ro

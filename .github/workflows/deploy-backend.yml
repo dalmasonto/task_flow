@@ -19,10 +19,11 @@
 # nature: Vite bakes VITE_* vars into the JS bundle at build time, so
 # v2_fe/.prod.env is decrypted and consumed here in CI, never shipped.
 #
-# Server layout (NO reverse proxy -- ports are published directly: the API on
-# 0.0.0.0:10002 as api.taskflow.supercodehive.com:10002, the frontend dist
-# served by the compose `frontend` file-server on 0.0.0.0:10003 as
-# taskflow.supercodehive.com:10003):
+# Server layout: the host Caddy fronts TLS and reverse-proxies both subdomains,
+# so the containers publish ONLY to loopback -- the API on 127.0.0.1:10002
+# (proxied as https://api.taskflow.supercodehive.com) and the compose `frontend`
+# file-server on 127.0.0.1:10003 (proxied as https://taskflow.supercodehive.com).
+# Binding 0.0.0.0 would expose them on the public IP and bypass Caddy:
 #
 #   $DEPLOY_PATH/backend/     Dockerfile, compose, frontend.Caddyfile,
 #                             templates, migrations, static, dist/backend,
@@ -285,5 +286,5 @@ jobs:
 
       - name: Deployed
         run: |
-          echo "API up on 0.0.0.0:10002 (api.taskflow.supercodehive.com:10002)."
-          echo "Frontend served on 0.0.0.0:10003 (taskflow.supercodehive.com:10003)."
+          echo "API up on 127.0.0.1:10002 (https://api.taskflow.supercodehive.com via Caddy)."
+          echo "Frontend on 127.0.0.1:10003 (https://taskflow.supercodehive.com via Caddy)."
