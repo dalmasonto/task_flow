@@ -267,11 +267,14 @@ function App() {
   const completion = projectTasks.length ? Math.round((doneCount / projectTasks.length) * 100) : 0
   const sidebarProjects = workspaceProjects.map((project) => ({
     ...project,
-    // Live count for a project whose tasks are loaded (active/visited); otherwise
-    // the summary's snapshot count so the list never shows a false 0.
+    // The summary's count is the TRUE total (envelope count), so use it for every
+    // project — the live `tasks` state only holds the board's loaded/paginated
+    // rows and would under-count a large active project. `??` (not `||`) so a
+    // genuine 0 shows 0; fall back to the live count only before the summary
+    // count has arrived.
     taskCount:
-      tasks.filter((task) => task.projectId === project.id).length ||
-      (projectTaskCounts[Number(project.id)] ?? 0),
+      projectTaskCounts[Number(project.id)] ??
+      tasks.filter((task) => task.projectId === project.id).length,
   }))
   // #38: the activity feed is capped at 1000 by the server (umbral NoPagination).
   // These hold older windows fetched by id cursor so history beyond the newest
