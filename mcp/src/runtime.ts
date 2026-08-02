@@ -39,7 +39,7 @@ import { readStickyProfile, writeStickyProfile } from "./sessions-store.js";
 import { setNeedsProfile, startConnection, type ConnectionHandle } from "./connect.js";
 import { reportMirror } from "./mirror.js";
 
-const stderrLog = (line: string) => void process.stderr.write(`taskflow-v2-mcp: ${line}\n`);
+const stderrLog = (line: string) => void process.stderr.write(`taskflow-mcp: ${line}\n`);
 
 /**
  * Adapt the client to {@link MessageSource}.

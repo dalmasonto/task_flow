@@ -1,5 +1,5 @@
 /**
- * `taskflow-v2-mcp --mint <name>` — create a NEW agent identity and record it as
+ * `taskflow-mcp --mint <name>` — create a NEW agent identity and record it as
  * a profile in `.taskflow.json`.
  *
  * ## Why this is a CLI and not an MCP tool

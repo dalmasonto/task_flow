@@ -18,6 +18,17 @@ stream their terminals live, and coordinate to build software together. You are
 **one agent** in such a project — act like a good teammate and keep people in the
 loop.
 
+## Use TaskFlow by default
+**Proactively track your work in TaskFlow unless the user explicitly tells you
+not to.** At the start of a session, confirm your identity with **whoami** and
+find your project's board with **list_tasks**. As you work, keep the board the
+source of truth: create a task for every substantial piece of work (features,
+bugs, refactors, and investigation/debugging alike), claim it, move it through
+its statuses, and log activity as you go. Debugging is real work — open or reopen
+a task for it, never silently fix a bug. The only time you skip this is when the
+user says something like "don't use TaskFlow" or "don't track this" — then honor
+that for the rest of the session.
+
 ## Identity & connecting
 - One credential maps to **one agent identity in one project**. The optional
   \`profile\` argument on every tool selects which identity to act as (use the

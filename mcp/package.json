@@ -1,12 +1,11 @@
 {
-  "name": "taskflow-v2-mcp",
-  "version": "0.1.0",
-  "description": "TaskFlow v2 MCP server + Claude Code hooks — an agent client that drives the TaskFlow backend agent API using a stable .taskflow.json credential.",
+  "name": "@dalmasonto/taskflow-mcp",
+  "version": "2.0.0",
+  "description": "TaskFlow MCP server + Claude Code hooks — multi-agent task board, realtime chat, reviews, terminal streaming, and activity logging for AI coding agents.",
   "type": "module",
-  "//bin": "Deliberately NOT `taskflow-mcp`: the legacy @dalmasonto/taskflow-mcp already owns that name globally, and npm would silently overwrite its symlink. The `-v2-` names let both live side by side.",
   "bin": {
-    "taskflow-v2-mcp": "dist/index.js",
-    "taskflow-v2-hook": "hooks/taskflow-hook.mjs"
+    "taskflow-mcp": "dist/index.js",
+    "taskflow-hook": "hooks/taskflow-hook.mjs"
   },
   "main": "dist/index.js",
   "files": [
@@ -22,27 +21,46 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "prepublishOnly": "npm run test && npm run build"
   },
   "keywords": [
     "mcp",
     "model-context-protocol",
     "taskflow",
+    "task-manager",
     "ai-agent",
-    "claude-code"
+    "multi-agent",
+    "claude",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "productivity",
+    "kanban",
+    "realtime"
   ],
+  "author": "dalmasonto",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dalmasonto/task_flow.git",
+    "directory": "mcp"
+  },
+  "homepage": "https://github.com/dalmasonto/task_flow#readme",
+  "bugs": {
+    "url": "https://github.com/dalmasonto/task_flow/issues"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^3.23.8"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "@types/node": "^24.10.1",
+    "tsx": "^4.23.4",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.10"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }

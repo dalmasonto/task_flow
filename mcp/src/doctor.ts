@@ -1,5 +1,5 @@
 /**
- * `taskflow-v2-mcp --check` — verify the whole agent chain from a terminal.
+ * `taskflow-mcp --check` — verify the whole agent chain from a terminal.
  *
  * The MCP tools can only be called by a model through an MCP client, so there is
  * otherwise no way for a human to answer "is this thing actually wired up?"

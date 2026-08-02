@@ -14,20 +14,20 @@ import { runTmuxMirror } from "./tmux.js";
 import { runMint } from "./mint.js";
 import { startAgent } from "./runtime.js";
 
-const USAGE = `taskflow-v2-mcp — TaskFlow v2 MCP server
+const USAGE = `taskflow-mcp — TaskFlow MCP server
 
-  taskflow-v2-mcp                 Serve over stdio (how an MCP client runs it).
-  taskflow-v2-mcp --check         Verify config + backend auth, then exit.
-  taskflow-v2-mcp --tmux [target] Mirror a tmux pane into the dashboard terminal.
-  taskflow-v2-mcp --mint <name>   Create a NEW agent identity + profile, then exit.
-  taskflow-v2-mcp --help          This message.
+  taskflow-mcp                 Serve over stdio (how an MCP client runs it).
+  taskflow-mcp --check         Verify config + backend auth, then exit.
+  taskflow-mcp --tmux [target] Mirror a tmux pane into the dashboard terminal.
+  taskflow-mcp --mint <name>   Create a NEW agent identity + profile, then exit.
+  taskflow-mcp --help          This message.
 
 GIVING A SECOND TERMINAL ITS OWN IDENTITY. An agent is identified by
 project + profile, so two terminals sharing the default \`main\` profile are ONE
 agent: one row in the dashboard, one DM inbox, one shared read cursor. --mint
 creates a separate identity and writes it to .taskflow.json:
 
-  taskflow-v2-mcp --mint bear --display-name "Claude (bear)"
+  taskflow-mcp --mint bear --display-name "Claude (bear)"
   export TASKFLOW_PROFILE=bear     # then start that terminal's agent
 
 It needs YOUR user token (--token, or TASKFLOW_USER_TOKEN), not an agent key:
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     server = buildServer();
   } catch (err) {
     if (err instanceof ConfigError) {
-      process.stderr.write(`taskflow-v2-mcp: ${err.message}\n`);
+      process.stderr.write(`taskflow-mcp: ${err.message}\n`);
       process.exit(1);
     }
     throw err;
@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Stderr only — stdout is the MCP transport and must stay clean.
-  process.stderr.write("taskflow-v2-mcp: connected (stdio)\n");
+  process.stderr.write("taskflow-mcp: connected (stdio)\n");
 
   // Bring the agent online. This is NOT conditional on tmux: registering a
   // session is what makes the agent visible and reachable, and it must happen
@@ -130,11 +130,11 @@ async function main(): Promise<void> {
   // handler: the transport is already serving, so a bad TASKFLOW_PROFILE must
   // cost the connection, not the tool server.
   void startAgent().catch((err) => {
-    process.stderr.write(`taskflow-v2-mcp: could not start agent (${(err as Error).message})\n`);
+    process.stderr.write(`taskflow-mcp: could not start agent (${(err as Error).message})\n`);
   });
 }
 
 main().catch((err) => {
-  process.stderr.write(`taskflow-v2-mcp: fatal: ${(err as Error).stack ?? err}\n`);
+  process.stderr.write(`taskflow-mcp: fatal: ${(err as Error).stack ?? err}\n`);
   process.exit(1);
 });

@@ -1,5 +1,5 @@
 /**
- * `taskflow-v2-mcp --tmux [target]` — mirror a tmux pane into TaskFlow so humans
+ * `taskflow-mcp --tmux [target]` — mirror a tmux pane into TaskFlow so humans
  * can watch what an agent is doing.
  *
  * WHY A MIRROR AND NOT A LOG. The obvious design is to tail new output and append

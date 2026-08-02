@@ -1,12 +1,12 @@
 {
-  "//": "Copy the relevant parts into your project's .claude/settings.json. Replace ABS_PATH with the absolute path to this mcp/ directory. The hook is best-effort and never blocks the agent.",
+  "//": "Copy the hooks block into your project's .claude/settings.json. With the package installed globally (npm i -g @dalmasonto/taskflow-mcp) the `taskflow-hook` bin is on PATH — use it directly as shown. For a local checkout instead, replace each command with `node ABS_PATH/mcp/hooks/taskflow-hook.mjs`. The hook is best-effort and never blocks the agent.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+            "command": "taskflow-hook"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+            "command": "taskflow-hook"
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+            "command": "taskflow-hook"
           }
         ]
       }
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+            "command": "taskflow-hook"
           }
         ]
       }
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ABS_PATH/mcp/hooks/taskflow-hook.mjs"
+            "command": "taskflow-hook"
           }
         ]
       }

@@ -34,12 +34,15 @@ describe("shouldLogTool", () => {
   // bodies that already exist in full as their own rows.
   it("skips TaskFlow's own tools, which already write a better row", () => {
     for (const tool of [
+      "mcp__taskflow__update_task_status",
+      "mcp__taskflow__send_message",
+      "mcp__taskflow__log_activity",
+      "mcp__taskflow__create_task",
+      "mcp__taskflow__claim_task",
+      "mcp__taskflow__heartbeat",
+      // configs written before the 2.0.0 rename keep the old server key
       "mcp__taskflow_v2__update_task_status",
       "mcp__taskflow_v2__send_message",
-      "mcp__taskflow_v2__log_activity",
-      "mcp__taskflow_v2__create_task",
-      "mcp__taskflow_v2__claim_task",
-      "mcp__taskflow_v2__heartbeat",
     ]) {
       expect(shouldLogTool(tool), `${tool} should be skipped`).toBe(false);
     }

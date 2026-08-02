@@ -43,9 +43,11 @@ const SKIP_TOOLS = new Set([
 /// send_message (112 KB) embeds whole message bodies that ARE the message
 /// table, log_activity (86 KB) embeds the note body of the row it just created.
 ///
-/// Scoped to this prefix on purpose: another MCP server's tools are somebody
-/// else's events, and nothing writes a semantic row for them.
-const TASKFLOW_TOOL_PREFIX = "mcp__taskflow_v2__";
+/// Scoped to these prefixes on purpose: another MCP server's tools are somebody
+/// else's events, and nothing writes a semantic row for them. The prefix is the
+/// user's server key in .mcp.json — "taskflow" is the documented name, and
+/// "taskflow_v2" survives from configs written before the 2.0.0 rename.
+const TASKFLOW_TOOL_PREFIXES = ["mcp__taskflow__", "mcp__taskflow_v2__"];
 
 /**
  * Whether this tool call should be recorded as activity.
@@ -55,7 +57,7 @@ const TASKFLOW_TOOL_PREFIX = "mcp__taskflow_v2__";
  */
 export function shouldLogTool(toolName) {
   if (!toolName) return false;
-  if (toolName.startsWith(TASKFLOW_TOOL_PREFIX)) return false;
+  if (TASKFLOW_TOOL_PREFIXES.some((p) => toolName.startsWith(p))) return false;
   // Exact match only — a tool merely CONTAINING "Read" is not the Read tool.
   return !SKIP_TOOLS.has(toolName);
 }

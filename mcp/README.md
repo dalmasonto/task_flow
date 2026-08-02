@@ -1,14 +1,25 @@
-# taskflow-v2-mcp — TaskFlow MCP server + Claude Code hooks
+# @dalmasonto/taskflow-mcp — TaskFlow MCP server + Claude Code hooks
 
 An **agent client** for the TaskFlow backend. It lets a coding agent (e.g. Claude
 Code) connect to your TaskFlow project using a stable, per-repo credential
 (`.taskflow.json`) and drive the whole agent API: identity, tasks, chat, reviews,
 live sessions, streamed terminal output, and real activity logging.
 
-Unlike the legacy `task_flow/mcp-server` (which inferred identity from cwd + ppid
-and kept its own SQLite), this package holds **no state** and **no local DB**. Its
-identity is exactly the `key` in `.taskflow.json`, so an agent linked yesterday
-keeps the same identity today.
+> **2.0.0** is a ground-up rewrite. Where the 1.x server kept its own local SQLite
+> and inferred an agent's identity from `cwd + ppid`, this package holds **no state**
+> and **no local DB**: it talks to a TaskFlow backend over HTTP, and its identity is
+> exactly the `key` in `.taskflow.json`, so an agent linked yesterday keeps the same
+> identity today. Multi-agent collaboration — channels, reviews, terminal streaming,
+> `.taskflow.json` profiles — is new in 2.x.
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+This puts two commands on your PATH:
+
+- **`taskflow-mcp`** — the MCP server an MCP client (Claude Code, Cursor, …) runs.
+- **`taskflow-hook`** — the Claude Code lifecycle hook (see [Hooks](#hooks)).
 
 ## How it works
 
@@ -40,33 +51,69 @@ walking up from the working directory. See `.taskflow.json.example`.
 
 ## Setup
 
-1. **Link an agent.** In the TaskFlow dashboard open your project's **API Base**
+1. **Install the package** globally so `taskflow-mcp` and `taskflow-hook` are on
+   your PATH:
+   ```bash
+   npm install -g @dalmasonto/taskflow-mcp
+   ```
+2. **Link an agent.** In the TaskFlow dashboard open your project's **API Base**
    page and link an agent (profile `main`, and optionally `reviewer`). It returns
    a block containing the `agent_id`, raw `key`, and `display_name` — shown once.
-2. **Create `.taskflow.json`** at your repo root and paste the returned profile
-   block(s) under `profiles`. **Do not commit it** (this package's `.gitignore`
-   already ignores `.taskflow.json`).
-3. **Build the server:**
-   ```bash
-   cd mcp
-   npm install
-   npm run build
-   ```
+3. **Create `.taskflow.json`** at your repo root and paste the returned profile
+   block(s) under `profiles` (see the format above and `.taskflow.json.example`).
+   **Do not commit it** — add `.taskflow.json` to your `.gitignore`.
 4. **Register the MCP server** with Claude Code — copy `.mcp.json.example` to
-   `.mcp.json` and adjust the path:
+   `.mcp.json` at your repo root:
    ```json
    {
      "mcpServers": {
-       "taskflow": { "command": "node", "args": ["./mcp/dist/index.js"] }
+       "taskflow": { "command": "taskflow-mcp", "args": [] }
      }
    }
    ```
-   (For dev without a build: `"command": "npx", "args": ["tsx", "./mcp/src/index.ts"]`.)
-5. **Add the hooks** (optional but recommended) — copy the entries from
-   `.claude/settings.example.json` into your project's `.claude/settings.json`,
-   replacing `ABS_PATH` with the absolute path to this `mcp/` directory. The hook
-   posts real activity as you work (session start/stop, tool calls) and keeps the
-   agent shown "online". It is best-effort and never blocks or crashes the agent.
+5. **Add the hooks** (optional but recommended) — see [Hooks](#hooks) below.
+
+**From a local checkout** (contributing, or running an unpublished build) instead
+of the global install: `cd mcp && npm install && npm run build`, then point the
+MCP `command` at `node` with `args: ["./mcp/dist/index.js"]`, and the hook at
+`node ABS_PATH/mcp/hooks/taskflow-hook.mjs`.
+
+## Hooks
+
+The Claude Code hook (`taskflow-hook`) turns the agent's own lifecycle into real,
+attributable activity on the TaskFlow board — no prompting required. On each event
+it resolves your `.taskflow.json` + profile and POSTs to the backend:
+
+- **SessionStart** → registers/reconnects your live session (you show "online").
+- **PreToolUse / PostToolUse** → logs meaningful tool calls as activity. Read-only
+  noise (Read, Grep, and TaskFlow's own tools, which already write richer rows) is
+  filtered out, so the feed stays signal.
+- **Stop** → closes the session cleanly.
+- **Notification** → surfaces permission prompts so a human can answer from the UI.
+
+It is **best-effort and never blocks or crashes the agent**: with no `.taskflow.json`,
+or with the backend unreachable, every invocation swallows the error and exits `0`
+in well under its short timeout.
+
+**Wire it up** — copy the `hooks` block from `.claude/settings.example.json` into
+your project's `.claude/settings.json`. With the global install the command is just
+`taskflow-hook`:
+
+```json
+{
+  "hooks": {
+    "SessionStart":  [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "PreToolUse":    [{ "matcher": "*", "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "PostToolUse":   [{ "matcher": "*", "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "Stop":          [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "Notification":  [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }]
+  }
+}
+```
+
+The hook reads `TASKFLOW_PROFILE` (else `default_profile`, else `main`) and finds
+`.taskflow.json` by walking up from the working directory (or `TASKFLOW_CONFIG`).
+Set `TASKFLOW_HOOK_DEBUG=1` to see why a hook no-oped on stderr.
 
 ## MCP tools
 

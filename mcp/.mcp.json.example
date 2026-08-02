@@ -1,8 +1,9 @@
 {
+  "//": "Copy to .mcp.json at your repo root. With the package installed globally (npm i -g @dalmasonto/taskflow-mcp) the `taskflow-mcp` bin is on PATH. For a local checkout instead, use \"command\": \"node\", \"args\": [\"./mcp/dist/index.js\"].",
   "mcpServers": {
     "taskflow": {
-      "command": "node",
-      "args": ["./mcp/dist/index.js"],
+      "command": "taskflow-mcp",
+      "args": [],
       "env": {
         "TASKFLOW_PROFILE": "main"
       }

@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "taskflow_v2": {
-      "command": "taskflow-v2-mcp",
+    "taskflow": {
+      "command": "taskflow-mcp",
       "args": [],
       "env": {}
     }
