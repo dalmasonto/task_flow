@@ -1,12 +1,15 @@
 mod support;
-use support::{TestApp, seed_pref, seed_project_linked, seed_task_with_issue};
+use support::{TestApp, seed_member, seed_pref, seed_project_linked, seed_task_with_issue};
 use serde_json::json;
+use taskflow_projects::models::TaskflowProjectRole;
 
 #[tokio::test]
 async fn comment_posts_under_actor_token_when_opted_in() {
     let app = TestApp::with_user_token("alice", "alice-tok").await;
     let alice = app.user("alice");
     let project = seed_project_linked(alice.id, "acme/widgets").await;
+    // SEC-1: commenting is active-member gated.
+    seed_member(project, alice.id, TaskflowProjectRole::Developer).await;
     let task = seed_task_with_issue(project, "Fix", 7).await;
     seed_pref(alice.id, project, true).await; // opted in
 
@@ -31,6 +34,8 @@ async fn comment_needs_connect_when_opted_out() {
     let app = TestApp::with_user_token("alice", "alice-tok").await;
     let alice = app.user("alice");
     let project = seed_project_linked(alice.id, "acme/widgets").await;
+    // SEC-1: commenting is active-member gated.
+    seed_member(project, alice.id, TaskflowProjectRole::Developer).await;
     let task = seed_task_with_issue(project, "Fix", 7).await;
     seed_pref(alice.id, project, false).await; // opted OUT
 

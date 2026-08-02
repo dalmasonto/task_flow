@@ -10,6 +10,8 @@ async fn status_reflects_connected_linked_and_optin() {
     let app = TestApp::with_owner_token("owner-tok").await;
     let owner = app.owner_user();
     let project = seed_project_linked(owner.id, "acme/widgets").await;
+    // SEC-1: reading status is active-member gated.
+    seed_member(project, owner.id, TaskflowProjectRole::Owner).await;
     seed_pref(owner.id, project, true).await;
 
     let res = app
@@ -30,6 +32,8 @@ async fn status_shows_disconnected_and_unlinked() {
     let app = TestApp::with_no_tokens().await;
     let user = app.owner_user();
     let project = seed_project().await; // not linked
+    // SEC-1: reading status is active-member gated.
+    seed_member(project, user.id, TaskflowProjectRole::Developer).await;
 
     let res = app
         .get_as(user.id, &format!("/api/taskflow/github/projects/{project}/status"))

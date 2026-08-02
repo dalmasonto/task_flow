@@ -45,9 +45,18 @@ fn needs_connect() -> ApiError {
 /// the returned issue number/url back on the task.
 pub async fn publish_issue(
     State(deps): State<GithubDeps>,
-    RequireAuth(_user_id): RequireAuth<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Json<Value>, ApiError> {
+    // SEC-1: authorize BEFORE any project fetch, owner-token resolution, or
+    // GitHub call. Publishing spends the project owner's GitHub authority on an
+    // external action, so it is owner/admin only. A non-member is rejected before
+    // learning whether the project exists or is linked (anti-enumeration).
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
     let project = TaskflowProject::objects()
         .filter(taskflow_project::ID.eq(project_id))
         .first()
@@ -117,10 +126,25 @@ pub struct CommentBody {
 /// key under their name).
 pub async fn comment_on_issue(
     State(deps): State<GithubDeps>,
-    RequireAuth(user_id): RequireAuth<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
     Path((project_id, task_id)): Path<(i64, i64)>,
     Json(input): Json<CommentBody>,
 ) -> Result<StatusCode, ApiError> {
+    // SEC-1: active-member gate, then an explicit task-in-project preflight —
+    // both BEFORE mirror_comment can resolve a token or reach GitHub. The
+    // preflight stays even though mirror_comment re-checks internally, so the
+    // handler's side-effect boundary is obvious and testable.
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_member(user_id, identity.is_superuser, project_id).await?;
+    TaskflowTask::objects()
+        .filter(taskflow_task::ID.eq(task_id) & taskflow_task::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "task"))?;
+
     match mirror_comment(
         deps.api.as_ref(),
         deps.tokens.as_ref(),
@@ -145,9 +169,16 @@ pub async fn comment_on_issue(
 /// The caller's opt-in for this project. Get-or-default-false; never creates a
 /// row on read. User derived from the token, not the path/body.
 pub async fn get_pref(
-    RequireAuth(user_id): RequireAuth<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
     Path(project_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
+    // SEC-1: the pref is per-user, per-project, so any active member may read
+    // their own. Gate before the query so a non-member cannot probe project ids.
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_member(user_id, identity.is_superuser, project_id).await?;
+    ensure_project_exists(project_id).await?;
     let post_as_me = TaskflowGithubPref::objects()
         .filter(
             taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
@@ -167,11 +198,18 @@ pub struct PrefBody {
 
 /// `POST /api/taskflow/github/projects/{project}/pref` — upsert the opt-in.
 pub async fn set_pref(
-    RequireAuth(user_id): RequireAuth<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
     Path(project_id): Path<i64>,
     Json(input): Json<PrefBody>,
 ) -> Result<Json<Value>, ApiError> {
     use umbral::orm::ForeignKey;
+    // SEC-1: gate BEFORE any read or write, so a non-member cannot create a pref
+    // row for a project they don't belong to.
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_member(user_id, identity.is_superuser, project_id).await?;
+    ensure_project_exists(project_id).await?;
     let existing = TaskflowGithubPref::objects()
         .filter(
             taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),
@@ -249,16 +287,95 @@ async fn require_admin(
     Ok(())
 }
 
+/// Authorize any project action open to members: superuser bypasses; everyone
+/// else must be an ACTIVE member of this project at any role. Sibling of
+/// `require_admin` without the rank check.
+///
+/// Deliberately runs BEFORE the handler fetches the project, so a non-member and
+/// a nonexistent project both resolve to `403 not_a_member` — the caller cannot
+/// use the response to tell a real project id from a missing one (anti-
+/// enumeration). This is intended; the SEC-1 tests pin it so it is not "fixed"
+/// back into a project-existence oracle.
+async fn require_member(
+    user_id: i64,
+    is_superuser: bool,
+    project_id: i64,
+) -> Result<(), ApiError> {
+    if is_superuser {
+        return Ok(());
+    }
+    TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq("active"),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::FORBIDDEN, "not_a_member"))?;
+    Ok(())
+}
+
+/// Whether the caller may perform an owner/admin action, as a plain boolean (not
+/// a gate): superuser, or an active member at Admin rank or above. Used so the
+/// status response's `can_publish` reflects the CALLER's permission — otherwise
+/// the UI shows an enabled Publish control to a developer whom the backend then
+/// 403s. The gate itself is still `require_admin`; this only informs the UI.
+async fn caller_is_admin(
+    user_id: i64,
+    is_superuser: bool,
+    project_id: i64,
+) -> Result<bool, ApiError> {
+    if is_superuser {
+        return Ok(true);
+    }
+    let member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq("active"),
+        )
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    Ok(member
+        .map(|m| role_rank(m.role) >= role_rank(TaskflowProjectRole::Admin))
+        .unwrap_or(false))
+}
+
+/// After authorization, confirm the project actually exists. A normal member
+/// always has one (the membership FK implies it), but the superuser bypass in
+/// `require_member` authorizes WITHOUT a membership row — so a missing project
+/// must 404 here rather than returning defaults (GET) or hitting a downstream FK
+/// error (POST). Handlers that already fetch the project (status, publish) don't
+/// need this; the pref handlers do.
+async fn ensure_project_exists(project_id: i64) -> Result<(), ApiError> {
+    TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "project"))?;
+    Ok(())
+}
+
 /// `GET /api/taskflow/github/projects/{project}/status`
 ///
 /// One call the UI uses to render every enabled/disabled state: is the caller's
-/// GitHub connected, is the project linked, can it publish (owner key ready),
-/// and the caller's per-project opt-in.
+/// GitHub connected, is the project linked, can THE CALLER publish (owner key
+/// ready AND caller is owner/admin — SEC-1), and the caller's per-project opt-in.
 pub async fn get_status(
     State(deps): State<GithubDeps>,
-    RequireAuth(user_id): RequireAuth<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
     Path(project_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
+    // SEC-1: gate before the project fetch so a non-member gets 403 and never
+    // learns whether the project exists or is GitHub-linked (anti-enumeration).
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_member(user_id, identity.is_superuser, project_id).await?;
     let project = TaskflowProject::objects()
         .filter(taskflow_project::ID.eq(project_id))
         .first()
@@ -268,10 +385,16 @@ pub async fn get_status(
 
     let user_connected = deps.tokens.token_for_user(user_id).await.is_some();
     let linked_by = project.github_linked_by.as_ref().map(|fk| fk.id());
-    let can_publish = matches!(
+    // can_publish reflects the CALLER's actual ability to publish: the owner
+    // token must be ready AND the caller must be owner/admin (publish is
+    // require_admin gated). Without the role term a developer would see an
+    // enabled Publish button and get a 403 on click.
+    let owner_token_ready = matches!(
         resolve_owner_token(deps.tokens.as_ref(), linked_by).await,
         TokenOutcome::Ready(_)
     );
+    let can_publish =
+        owner_token_ready && caller_is_admin(user_id, identity.is_superuser, project_id).await?;
     let post_as_me = TaskflowGithubPref::objects()
         .filter(
             taskflow_github_pref::USER.eq(user_id) & taskflow_github_pref::PROJECT.eq(project_id),

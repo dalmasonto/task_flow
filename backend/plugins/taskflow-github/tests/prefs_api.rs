@@ -1,12 +1,15 @@
 mod support;
 use serde_json::json;
-use support::{TestApp, seed_project};
+use support::{TestApp, seed_member, seed_project};
+use taskflow_projects::models::TaskflowProjectRole;
 
 #[tokio::test]
 async fn pref_defaults_false_then_toggles_on() {
     let app = TestApp::with_user_token("alice", "t").await;
     let alice = app.user("alice");
     let project = seed_project().await;
+    // SEC-1: prefs are gated to active members (each manages their own).
+    seed_member(project, alice.id, TaskflowProjectRole::Developer).await;
 
     let got = app
         .get_as(alice.id, &format!("/api/taskflow/github/projects/{project}/pref"))

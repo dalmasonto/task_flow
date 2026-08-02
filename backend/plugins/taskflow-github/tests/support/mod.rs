@@ -139,6 +139,30 @@ async fn make_user() -> (TestUser, String) {
     (TestUser { id: user.id, email }, plaintext.0)
 }
 
+/// Like `make_user`, but a superuser — for testing the `is_superuser` bypass in
+/// `require_member`/`require_admin`.
+async fn make_superuser() -> (TestUser, String) {
+    let n = seq();
+    let email = format!("super-{n}@example.test");
+    let user = AuthUser::objects()
+        .create(AuthUser {
+            id: 0,
+            username: format!("super-{n}"),
+            email: email.clone(),
+            password_hash: "unused".into(),
+            is_active: true,
+            is_staff: true,
+            is_superuser: true,
+            date_joined: Utc::now(),
+            last_login: None,
+            email_verified_at: None,
+        })
+        .await
+        .expect("create superuser");
+    let (_, plaintext) = AuthToken::create_for(&user, "test").await.expect("token");
+    (TestUser { id: user.id, email }, plaintext.0)
+}
+
 impl TestApp {
     fn assemble(client: TestClient, api: Arc<FakeGithubApi>, primary: Option<(TestUser, String)>) -> Self {
         let mut bearer = HashMap::new();
@@ -203,6 +227,13 @@ impl TestApp {
     /// General user factory for tests that need an ad-hoc user (pure ORM tests).
     pub async fn create_user(&self) -> TestUser {
         let (user, bearer) = make_user().await;
+        self.bearer.lock().unwrap().insert(user.id, bearer);
+        user
+    }
+
+    /// A superuser, for asserting the `is_superuser` authorization bypass.
+    pub async fn create_superuser(&self) -> TestUser {
+        let (user, bearer) = make_superuser().await;
         self.bearer.lock().unwrap().insert(user.id, bearer);
         user
     }
@@ -349,6 +380,19 @@ pub async fn project_github_link(project: i64) -> (Option<String>, Option<i64>) 
         .expect("load project")
         .expect("project exists");
     (p.github_repo, p.github_linked_by.map(|fk| fk.id()))
+}
+
+/// The stored `post_as_me` for a user's project pref, or `None` if no row exists.
+/// Used to assert that a forbidden `set_pref` created no row.
+pub async fn pref_row(user: i64, project: i64) -> Option<bool> {
+    TaskflowGithubPref::objects()
+        .filter(
+            taskflow_github_pref::USER.eq(user) & taskflow_github_pref::PROJECT.eq(project),
+        )
+        .first()
+        .await
+        .expect("load pref")
+        .map(|p| p.post_as_me)
 }
 
 pub async fn seed_pref(user: i64, project: i64, post_as_me: bool) {
