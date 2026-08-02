@@ -1,0 +1,183 @@
+# Deploy the v2_fe frontend.
+#
+# v2_fe is the whole app now (landing + dashboard), not just a landing page, so
+# the primary target is the SERVER: build the static bundle in CI and sync it to
+# $DEPLOY_PATH/frontend, which the compose `frontend` container serves on
+# :10003 via a read-only bind mount. The host Caddy on the VPS terminates TLS
+# and reverse-proxies taskflow.supercodehive.com -> :10003 (and
+# api.taskflow.supercodehive.com -> :10002) — the container itself only exposes
+# a plain-HTTP port. All artifacts are built here; the server compiles nothing.
+#
+# A second, OPT-IN job publishes the same app to GitHub Pages as a public mirror
+# (enable by setting the repo variable DEPLOY_PAGES=true).
+#
+# This overlaps deploy-backend.yml on purpose: that workflow ships the frontend
+# too as part of bringing up the full stack, so a cold deploy is self-sufficient.
+# Use THIS workflow for fast frontend-only updates — the dist is a bind mount, so
+# `up -d frontend` picks up new files without touching the backend.
+#
+# Secrets (all already on dalmasonto/task_flow): AGE_PRIVATE_KEY, DEPLOY_HOST,
+# DEPLOY_USER, DEPLOY_PATH, SSH_PRIVATE_KEY.
+# Frontend prod env (committed, sops-encrypted): v2_fe/secret.env — must carry
+#   VITE_API_BASE_URL=https://api.taskflow.supercodehive.com
+# so the bundle's API calls resolve to the TLS'd API origin.
+# Optional repo variables: DEPLOY_PAGES ("true" to also publish to Pages),
+#   PAGES_BASE_PATH (Pages sub-path, default "/task_flow/").
+
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "v2_fe/**"
+      - ".github/workflows/deploy_frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false # never interrupt an in-flight transfer
+
+jobs:
+  # ── Primary: the real site on the VPS ──────────────────────────────────
+  server:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install sops
+        run: |
+          curl -fLo sops https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+
+      - name: Set up age for decryption
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.AGE_PRIVATE_KEY }}" > ~/.config/sops/age/keys.txt
+
+      - name: Decrypt the frontend prod env
+        run: |
+          test -f v2_fe/secret.env || {
+            echo "::error::v2_fe/secret.env is missing. Run 'bash scripts/encrypt_envs.sh <age-public-key>' and commit it."
+            exit 1
+          }
+          sops --decrypt v2_fe/secret.env > v2_fe/.prod.env
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v2_fe/package-lock.json
+
+      # Served at the domain root on the VPS, so base "/". VITE_* vars from the
+      # decrypted prod env are baked into the bundle here, at build time.
+      - name: Build the app (server / root base)
+        working-directory: v2_fe
+        run: |
+          npm ci
+          set -a
+          . ./.prod.env
+          set +a
+          npm run build -- --base /
+          test -f dist/index.html || {
+            echo "::error::vite build produced no dist/index.html"
+            exit 1
+          }
+
+      - name: Sync dist to the server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "v2_fe/dist/*"
+          strip_components: 2 # drop the leading v2_fe/dist/ segments
+          target: ${{ secrets.DEPLOY_PATH }}/frontend
+          overwrite: true
+          rm: true # clear stale assets so old hashed bundles don't linger
+
+      # The dist is a read-only bind mount (../frontend), so new files are served
+      # the moment they land. `up -d frontend` starts the container on a cold box
+      # and is a no-op refresh when it is already running.
+      - name: Ensure the frontend container is up
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd ${{ secrets.DEPLOY_PATH }}/backend
+            docker compose up -d frontend
+            echo "frontend serving $(ls -1 ${{ secrets.DEPLOY_PATH }}/frontend | wc -l) top-level entries"
+
+      - name: Deployed
+        run: echo "Frontend synced to \$DEPLOY_PATH/frontend and served via host Caddy at https://taskflow.supercodehive.com"
+
+  # ── Optional: public mirror on GitHub Pages (set repo var DEPLOY_PAGES=true) ─
+  pages:
+    if: ${{ vars.DEPLOY_PAGES == 'true' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install sops
+        run: |
+          curl -fLo sops https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+
+      - name: Set up age for decryption
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.AGE_PRIVATE_KEY }}" > ~/.config/sops/age/keys.txt
+
+      - name: Decrypt the frontend prod env
+        run: sops --decrypt v2_fe/secret.env > v2_fe/.prod.env
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v2_fe/package-lock.json
+
+      - name: Build the app (Pages base)
+        working-directory: v2_fe
+        env:
+          BASE_PATH: ${{ vars.PAGES_BASE_PATH || '/task_flow/' }}
+        run: |
+          npm ci
+          set -a
+          . ./.prod.env
+          set +a
+          npm run build -- --base "$BASE_PATH"
+          # SPA fallback + no Jekyll (same reasons as the container's Caddyfile).
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: v2_fe/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
