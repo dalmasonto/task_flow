@@ -300,6 +300,13 @@ export class TaskflowClient {
     return this.request("GET", `${API_PREFIX}/agents/agents`, { idempotent: true });
   }
 
+  /** `GET /agents/prompts` — this agent's OPEN (pending) prompts. #127: the MCP
+   *  hydrates its message gate from this on connect/reconnect so a prompt raised
+   *  while the stream was down still pauses pane delivery. */
+  listOpenPrompts(): Promise<Array<{ id: number; agent: number; session: number; status: string }>> {
+    return this.request("GET", `${API_PREFIX}/agents/prompts`, { idempotent: true });
+  }
+
   /** `GET /agents/messages?channel=&since=&limit=` → `{ messages, read_cursor }`. */
   listMessages(params: {
     channel: number;

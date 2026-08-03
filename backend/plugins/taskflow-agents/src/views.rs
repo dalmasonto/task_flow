@@ -3563,6 +3563,43 @@ pub async fn list_agents_as_agent(
     Ok((StatusCode::OK, Json(json!(items))).into_response())
 }
 
+/// `GET /api/taskflow/agents/prompts` — this agent's currently OPEN (pending)
+/// prompts.
+///
+/// #127: the MCP hydrates its message gate from this on connect/reconnect. Prompt
+/// creation is a realtime `:prompts` event, but those are at-most-once and not
+/// replayed — so a prompt raised while the stream was down, or one already
+/// pending when the MCP (re)starts, would otherwise be invisible and let chat be
+/// typed into the open prompt. This authoritative read closes that gap. Scoped to
+/// the caller's own agent id, so it never leaks another agent's prompts.
+pub async fn list_open_prompts_as_agent(
+    RequireAgent(agent): RequireAgent,
+) -> Result<Response, StatusCode> {
+    let prompts = TaskflowAgentPrompt::objects()
+        .filter(
+            taskflow_agent_prompt::AGENT.eq(agent.agent_id)
+                & taskflow_agent_prompt::STATUS.eq(PENDING_PROMPT),
+        )
+        .order_by(taskflow_agent_prompt::ID.asc())
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let items: Vec<serde_json::Value> = prompts
+        .into_iter()
+        .map(|p| {
+            json!({
+                "id": p.id,
+                "agent": p.agent.id(),
+                "session": p.session.id(),
+                "status": p.status,
+            })
+        })
+        .collect();
+
+    Ok((StatusCode::OK, Json(json!(items))).into_response())
+}
+
 /// Query for `GET /api/taskflow/agents/activity`. `task` optionally narrows to
 /// one task's activity; `limit` caps the page (default 50, max 200).
 #[derive(Debug, Deserialize)]

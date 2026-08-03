@@ -87,6 +87,7 @@ function fakeClient() {
     client: {
       listChannels: async () => [{ id: 3 }],
       listMessages: async () => ({ messages: [message] }),
+      listOpenPrompts: async () => [],
       markRead: async (channel: number, id: number) => {
         markRead.push({ channel, id });
         return {};
@@ -166,7 +167,7 @@ describe("message delivery without a pane", () => {
   it("leaves a pane-less catch-up unread too, so nothing is lost on reconnect", async () => {
     const { client, markRead } = fakeClient();
     startAgentRuntime(contextFor(null, client), () => {});
-    await events.options?.onReconnect(undefined as never);
+    await events.options?.onConnected!(true as never);
     expect(markRead).toEqual([]);
   });
 
@@ -176,10 +177,10 @@ describe("message delivery without a pane", () => {
     // set never drains, because nothing may mark it read with no pane.
     const listChannels = vi.fn(async () => [{ id: 3 }]);
     const listMessages = vi.fn(async () => ({ messages: [] }));
-    const client = { listChannels, listMessages, markRead: vi.fn(async () => ({})) } as never;
+    const client = { listChannels, listMessages, listOpenPrompts: vi.fn(async () => []), markRead: vi.fn(async () => ({})) } as never;
 
     startAgentRuntime(contextFor(null, client), () => {});
-    await events.options?.onReconnect(undefined as never);
+    await events.options?.onConnected!(true as never);
 
     expect(listChannels).not.toHaveBeenCalled();
     expect(listMessages).not.toHaveBeenCalled();
@@ -188,13 +189,67 @@ describe("message delivery without a pane", () => {
   it("still catches up when there IS a pane — the skip is pane-specific, not a disable", async () => {
     const listChannels = vi.fn(async () => [{ id: 3 }]);
     const listMessages = vi.fn(async () => ({ messages: [] }));
-    const client = { listChannels, listMessages, markRead: vi.fn(async () => ({})) } as never;
+    const client = { listChannels, listMessages, listOpenPrompts: vi.fn(async () => []), markRead: vi.fn(async () => ({})) } as never;
 
     startAgentRuntime(contextFor("%4", client), () => {});
-    await events.options?.onReconnect(undefined as never);
+    await events.options?.onConnected!(true as never);
 
     expect(listChannels).toHaveBeenCalledTimes(1);
     expect(listMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("#127: a hydrated open prompt queues an inbound message until it resolves", async () => {
+    const { client, markRead } = fakeClient();
+    (client as unknown as { listOpenPrompts: () => Promise<unknown[]> }).listOpenPrompts = async () => [
+      { id: 900, agent: 1, session: 77, status: "pending" },
+    ];
+    startAgentRuntime(contextFor("%4", client), () => {});
+
+    // The connect barrier hydrates the gate: this agent has an open prompt.
+    await events.options?.onConnected!(false as never);
+
+    // A message arrives — it must NOT be typed into the pane or marked read while
+    // the prompt is open (this is the race the whole task is about).
+    await events.options?.onMessage({ id: 56 } as never);
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
+    expect(markRead).toEqual([]);
+
+    // Resolve the prompt → the queued message flushes exactly once.
+    events.options?.onPromptState!({ id: 900, agent: 1, status: "answered" } as never);
+    await vi.waitFor(() => expect(markRead).toEqual([{ channel: 3, id: 56 }]));
+    expect(tmux.notifyPane).toHaveBeenCalledTimes(1);
+  });
+
+  it("#127: reconnect catch-up + a buffered live frame for the same id deliver only once", async () => {
+    const { client, markRead } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+
+    // Reconnect barrier: hydrate + catch-up delivers the one unread message (56).
+    await events.options?.onConnected!(true as never);
+    expect(tmux.notifyPane).toHaveBeenCalledTimes(1);
+    expect(markRead).toEqual([{ channel: 3, id: 56 }]);
+
+    // The buffered live `created` frame for the SAME message arrives after the
+    // barrier. resolveMessage fetches by id (not unread), so the catch-up markRead
+    // doesn't suppress it — dedup must, or it would be typed twice.
+    await events.options?.onMessage({ id: 56 } as never);
+    expect(tmux.notifyPane).toHaveBeenCalledTimes(1); // deduped — not typed twice
+    expect(markRead).toEqual([{ channel: 3, id: 56 }]); // no second markRead
+  });
+
+  it("#127: an edit (updated) still redelivers after the created message was delivered", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    const onMessage = events.options?.onMessage as unknown as (
+      e: unknown,
+      action?: unknown,
+    ) => Promise<void>;
+
+    await onMessage({ id: 56 }); // created
+    expect(tmux.notifyPane).toHaveBeenCalledTimes(1);
+
+    await onMessage({ id: 56 }, "updated"); // edit — must bypass dedup
+    expect(tmux.notifyPane).toHaveBeenCalledTimes(2);
   });
 });
 

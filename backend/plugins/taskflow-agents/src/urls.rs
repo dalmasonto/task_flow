@@ -51,6 +51,9 @@ pub fn router() -> Router {
             get(views::list_channels_as_agent),
         )
         .route("/api/taskflow/agents/agents", get(views::list_agents_as_agent))
+        // #127: authoritative open-prompt state for the MCP to hydrate its message
+        // gate on connect/reconnect (realtime prompt events are not replayed).
+        .route("/api/taskflow/agents/prompts", get(views::list_open_prompts_as_agent))
         // The only authorized way to CREATE a channel. Auto-REST's
         // POST /api/taskflow_agent_channel/ creates a channel with no roster —
         // an orphan its own creator cannot see — and leaves the roster table

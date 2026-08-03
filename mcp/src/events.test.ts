@@ -373,6 +373,41 @@ describe("isAnsweredPrompt", () => {
   });
 });
 
+describe("handleFrame prompt routing (#127)", () => {
+  const promptFrame = (over: Record<string, unknown>) =>
+    frame({ c: "project:1:prompts", e: "updated", d: { id: 3, agent: 1, status: "pending", ...over } });
+
+  it("emits onPromptState for a pending prompt without firing onPromptAnswered", () => {
+    const onPromptState = vi.fn();
+    const onPromptAnswered = vi.fn();
+    handleFrame(promptFrame({ status: "pending" }), { onMessage: vi.fn(), onPromptState, onPromptAnswered });
+    expect(onPromptState).toHaveBeenCalledWith(expect.objectContaining({ id: 3, agent: 1, status: "pending" }));
+    expect(onPromptAnswered).not.toHaveBeenCalled();
+  });
+
+  it("emits BOTH onPromptAnswered and onPromptState for a human-answered prompt", () => {
+    const onPromptState = vi.fn();
+    const onPromptAnswered = vi.fn();
+    handleFrame(
+      promptFrame({ status: "answered", answer: 2, answer_json: "[2]", answered_by: 5 }),
+      { onMessage: vi.fn(), onPromptState, onPromptAnswered },
+    );
+    expect(onPromptAnswered).toHaveBeenCalledTimes(1);
+    expect(onPromptState).toHaveBeenCalledWith(expect.objectContaining({ id: 3, status: "answered" }));
+  });
+
+  it("emits onPromptState (resolve) for an agent-cleared cancel, but not onPromptAnswered", () => {
+    const onPromptState = vi.fn();
+    const onPromptAnswered = vi.fn();
+    handleFrame(
+      promptFrame({ status: "cancelled", answer: null, answer_json: null, answered_by: null }),
+      { onMessage: vi.fn(), onPromptState, onPromptAnswered },
+    );
+    expect(onPromptState).toHaveBeenCalledWith(expect.objectContaining({ status: "cancelled" }));
+    expect(onPromptAnswered).not.toHaveBeenCalled(); // agent-cleared: nothing to replay
+  });
+});
+
 describe("reconnectDelayMs (tiered backoff)", () => {
   it("holds 5s for the first 10 attempts", () => {
     expect(reconnectDelayMs(1)).toBe(5_000);
@@ -445,5 +480,57 @@ describe("startAgentEventStream reconnect notices", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("startAgentEventStream onConnected barrier (#127)", () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("awaits onConnected before dispatching any frame (hydration ordering)", async () => {
+    const onMessage = vi.fn();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const onConnected = vi.fn(async () => {
+      await gate;
+    });
+
+    // A body that yields ONE message frame, then blocks (keeps the stream open).
+    const frameBytes = new TextEncoder().encode(
+      'data: {"c":"project:1:messages","e":"created","d":{"id":7}}\n\n',
+    );
+    let sent = false;
+    const body = {
+      getReader: () => ({
+        read: () =>
+          sent
+            ? new Promise(() => {})
+            : ((sent = true), Promise.resolve({ done: false, value: frameBytes })),
+      }),
+    };
+    const fetchImpl = (() => Promise.resolve({ ok: true, body })) as unknown as typeof fetch;
+
+    const handle = startAgentEventStream({
+      server: "http://x",
+      key: "k",
+      onMessage,
+      onConnected,
+      fetchImpl,
+    });
+
+    await tick();
+    await tick();
+    expect(onConnected).toHaveBeenCalledTimes(1);
+    // BARRIER: the frame must NOT be dispatched until onConnected resolves.
+    expect(onMessage).not.toHaveBeenCalled();
+
+    release();
+    await tick();
+    await tick();
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ id: 7 }));
+
+    handle.stop();
   });
 });

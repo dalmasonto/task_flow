@@ -27,6 +27,7 @@ import {
   startMirrorLoop,
 } from "./tmux.js";
 import { createSerialQueue } from "./pane-queue.js";
+import { createPromptGate } from "./prompt-gate.js";
 import { stepsForPrompt } from "./prompts.js";
 import { resolveMessage, type MessageSource, type ResolvedMessage } from "./resolve.js";
 import {
@@ -92,22 +93,81 @@ export function startAgentRuntime(
   // `check_messages` defaults to unread_only, so advancing the cursor here
   // would drop the message for good (see planning/spec-message-delivery.md) —
   // leaving it unread is what makes `check_messages` still work.
+  // #127: created-message deliveries this runtime has already made, so the same
+  // id is never typed into the pane twice. The reconnect catch-up (unread REST)
+  // and the buffered live `:messages` frame can both target a message posted just
+  // after reconnect — `resolveMessage` fetches by id (not `unread=true`), so the
+  // catch-up `markRead` does NOT suppress the live frame. Bounded (ids only).
+  const deliveredIds = new Set<number>();
+  const DELIVERED_CAP = 1000;
+
   const deliverMessageById = async (id: number, edited = false) => {
-    const message = await resolveMessage(messageSourceFor(client), id);
-    if (!message) return;
-    if (!shouldDeliver(message, profile.agentId)) return;
-    if (!pane) return;
-    await paneQueue(() =>
-      notifyPane(
-        formatIncoming(message, message.attachments ?? [], profile.agentId, edited),
-        pane,
-        true,
-      ),
-    );
-    // For an edit of an already-read message this is a no-op — the cursor only
-    // ever moves forward — which is exactly right: redelivery is a notice, not
-    // new unread state.
-    await client.markRead(message.channel, message.id);
+    // Reserve the id SYNCHRONOUSLY (before any await) so two concurrent
+    // deliveries of the same created message can't both pass the check and type
+    // it twice. An edit (edited=true, #107) is an intentional re-delivery and is
+    // never deduped.
+    if (!edited) {
+      if (deliveredIds.has(id)) return;
+      deliveredIds.add(id);
+      if (deliveredIds.size > DELIVERED_CAP) {
+        // Sets keep insertion order — drop the oldest to stay bounded.
+        const oldest = deliveredIds.values().next().value;
+        if (oldest !== undefined) deliveredIds.delete(oldest);
+      }
+    }
+    let delivered = false;
+    try {
+      const message = await resolveMessage(messageSourceFor(client), id);
+      if (!message) return;
+      if (!shouldDeliver(message, profile.agentId)) return;
+      if (!pane) return;
+      await paneQueue(() =>
+        notifyPane(
+          formatIncoming(message, message.attachments ?? [], profile.agentId, edited),
+          pane,
+          true,
+        ),
+      );
+      // For an edit of an already-read message this is a no-op — the cursor only
+      // ever moves forward — which is exactly right: redelivery is a notice, not
+      // new unread state.
+      await client.markRead(message.channel, message.id);
+      delivered = true;
+    } finally {
+      // Reserved but not actually delivered (no pane, unresolved, or an error):
+      // release the id so a later attempt (catch-up/retry) can still deliver it.
+      // A skipped own-message (shouldDeliver=false) is released too — harmless,
+      // it never writes to the pane.
+      if (!edited && !delivered) deliveredIds.delete(id);
+    }
+  };
+
+  // #127: gate pane delivery on this agent's open prompts. While a prompt is
+  // pending, gate.onMessage queues instead of calling deliverMessageById, so no
+  // chat text is typed into the prompt and nothing marks the message read; on
+  // answer/cancel it flushes in order. Prompt-answer key replay is NOT gated (it
+  // is the human's deliberate response) and is enqueued into the pane BEFORE the
+  // gate flushes — see handleFrame's ordering in events.ts.
+  const promptGate = createPromptGate({
+    selfAgentId: profile.agentId,
+    deliver: deliverMessageById,
+    log,
+  });
+
+  // #127: hydrate the gate's open-prompt state from an authoritative read.
+  // Realtime `:prompts` events are at-most-once and never replayed, so a prompt
+  // raised while the stream was down — or one already pending when this process
+  // (re)starts — would be invisible to the gate and let catch-up type chat into
+  // the open prompt. Reconciling against the backend's current pending set before
+  // catch-up delivery closes that gap (and resumes if it resolved during an
+  // outage). Best-effort: a failed read must not wedge startup.
+  const hydrateOpenPrompts = async () => {
+    try {
+      const prompts = await client.listOpenPrompts();
+      promptGate.setOpenPrompts(prompts.map((p) => p.id));
+    } catch (err) {
+      log(`could not hydrate open prompts (${(err as Error).message.split("\n")[0]})`);
+    }
   };
 
   // On RE-connect, deliver anything that arrived while the stream was down.
@@ -137,7 +197,9 @@ export function startAgentRuntime(
       }
       for (const id of ids) {
         try {
-          await deliverMessageById(id);
+          // Through the gate: if a prompt is open, these queue too (and stay
+          // unread) rather than typing into the prompt.
+          await promptGate.onMessage(id);
         } catch (err) {
           log(`catch-up could not deliver ${id} (${(err as Error).message.split("\n")[0]})`);
         }
@@ -155,8 +217,14 @@ export function startAgentRuntime(
     server: profile.server,
     key: profile.key,
     log,
-    // Deliver messages missed while the stream was down (see catchUpUnread).
-    onReconnect: catchUpUnread,
+    // #127 barrier (awaited before any frame is parsed — see events.ts): hydrate
+    // this agent's open-prompt state first, so a live message or catch-up can't be
+    // typed into an already-open prompt; then, on a reconnect only, deliver what
+    // was missed while the stream was down.
+    onConnected: async (isReconnect) => {
+      await hydrateOpenPrompts();
+      if (isReconnect) await catchUpUnread();
+    },
     // The stream has failed to reconnect for a sustained stretch — tell the
     // agent its live feed is paused so it does not sit waiting on a dead stream.
     // Typed through the same serial queue as messages so it cannot interleave
@@ -223,11 +291,15 @@ export function startAgentRuntime(
       // an edit (#107), delivered with an EDITED framing so the agent
       // continues from the revised content rather than treating it as new.
       try {
-        await deliverMessageById(event.id, action === "updated");
+        // #127: through the gate — queued (not typed) while a prompt is open.
+        await promptGate.onMessage(event.id, action === "updated");
       } catch (err) {
         log(`could not deliver message ${event.id} (${(err as Error).message.split("\n")[0]})`);
       }
     },
+    // #127: track this agent's prompt open/resolved state so message delivery is
+    // paused while a prompt waits and flushed once it is answered/cancelled.
+    onPromptState: (prompt) => promptGate.onPromptState(prompt),
     // A human pressed a key in the dashboard terminal. The event is broadcast
     // to the whole project, so act only on keys addressed to THIS agent's
     // pane; send-keys types it as a key NAME (not the literal word).

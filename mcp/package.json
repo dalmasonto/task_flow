@@ -1,6 +1,6 @@
 {
   "name": "@dalmasonto/taskflow-mcp",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "TaskFlow MCP server + Claude Code hooks — multi-agent task board, realtime chat, reviews, terminal streaming, and activity logging for AI coding agents.",
   "type": "module",
   "bin": {

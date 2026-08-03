@@ -111,14 +111,22 @@ export interface EventStreamOptions {
   onMessage: (message: AgentMessageEvent, action?: "created" | "updated") => void | Promise<void>;
   /** Called when a human answers a question this agent is blocked on. */
   onPromptAnswered?: (prompt: PromptEvent) => void | Promise<void>;
+  /** #127: called for EVERY `:prompts` event (pending/answered/cancelled), so the
+   *  runtime can pause pane message delivery while a prompt is open and flush it
+   *  once resolved. Distinct from `onPromptAnswered`, which fires only on a human
+   *  answer to replay keys. */
+  onPromptState?: (prompt: PromptEvent) => void | Promise<void>;
   /** Called when a human sends a terminal key from the dashboard. Broadcast to
    *  the whole project, so `agent` says which pane it is for — the handler must
    *  ignore keys addressed to other agents. */
   onTerminalKey?: (input: TerminalKeyEvent) => void | Promise<void>;
-  /** Called each time the stream RE-connects (not the first connect). The live
-   *  push is at-most-once, so the handler catches up on messages that arrived
-   *  while the stream was down. */
-  onReconnect?: () => void | Promise<void>;
+  /** Called after EVERY successful connect, AWAITED before any frame is parsed —
+   *  a barrier so hydration/catch-up finishes before a live message or prompt
+   *  frame can be dispatched (#127). `isReconnect` is false on the first connect
+   *  (nothing to catch up) and true after. Frames sent during the hook buffer in
+   *  TCP and are read right after it resolves. The hook must own its own errors;
+   *  a throw is logged and does not stop the read loop. */
+  onConnected?: (isReconnect: boolean) => void | Promise<void>;
   /** Called ONCE when reconnects have failed {@link UNREACHABLE_AFTER_ATTEMPTS}
    *  times in a row — the server looks genuinely unreachable, so tell the agent
    *  its live feed is paused. Fires again only after a successful reconnect
@@ -201,10 +209,18 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
         unreachableNotified = false;
         void options.onRecovered?.();
       }
-      // A RE-connect may have missed messages while it was down; let the caller
-      // catch up. The first connect needs no catch-up — nothing was missed yet.
-      if (everConnected) void options.onReconnect?.();
+      const isReconnect = everConnected;
       everConnected = true;
+      // #127 BARRIER: run hydration/catch-up to completion BEFORE parsing any
+      // frame, so a live message can't be handled before the gate learns of an
+      // already-open prompt, and a stale hydration response can't race a prompt
+      // event. Frames sent meanwhile buffer in TCP and are read right after. The
+      // hook owns its errors; a failure must not wedge the read loop.
+      try {
+        await options.onConnected?.(isReconnect);
+      } catch (err) {
+        log(`onConnected hook failed: ${(err as Error).message.split("\n")[0]}`);
+      }
 
       // Parse SSE frames. `data:` may be split across TCP chunks, so text is
       // buffered until a blank line terminates the frame.
@@ -289,7 +305,7 @@ export function startAgentEventStream(options: EventStreamOptions): EventStreamH
 /** Pull the `data:` lines out of one SSE frame and dispatch a message event. */
 export function handleFrame(
   frame: string,
-  options: Pick<EventStreamOptions, "onMessage" | "onPromptAnswered" | "onTerminalKey">,
+  options: Pick<EventStreamOptions, "onMessage" | "onPromptAnswered" | "onPromptState" | "onTerminalKey">,
 ): void {
   const data = frame
     .split("\n")
@@ -308,7 +324,14 @@ export function handleFrame(
   // when the question appeared. So prompts are routed before the created-only
   // filter below, or every answer would be dropped.
   if (envelope.c?.endsWith(":prompts")) {
-    if (isAnsweredPrompt(envelope.d)) void options.onPromptAnswered?.(envelope.d);
+    const prompt = envelope.d as Partial<PromptEvent> | undefined;
+    if (!prompt || typeof prompt.id !== "number") return;
+    // #127 ordering: replay the answer keys FIRST so they are enqueued into the
+    // pane before onPromptState lets the gate flush any queued chat — otherwise a
+    // queued message could be typed into the prompt before the answer submits it.
+    if (isAnsweredPrompt(prompt)) void options.onPromptAnswered?.(prompt as PromptEvent);
+    // Then update the message gate's open/resolved state (every prompt event).
+    void options.onPromptState?.(prompt as PromptEvent);
     return;
   }
 
@@ -523,6 +546,9 @@ export function answerKeystrokes(choices: number[], kind: string): string[] {
 export interface PromptEvent {
   id: number;
   session: number;
+  /** #127: the agent whose terminal the prompt is on (projected in
+   *  `PROMPT_FIELDS`). The message gate blocks only on this agent's prompts. */
+  agent?: number | null;
   question: string;
   kind: string;
   status: string;
