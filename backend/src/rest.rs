@@ -40,7 +40,6 @@ const PROJECT_SCOPED_TABLES: &[&str] = &[
     "taskflow_task",
     "taskflow_task_relation",
     "taskflow_task_activity",
-    "taskflow_task_session",
     "taskflow_agent",
     "taskflow_agent_channel",
     "taskflow_agent_channel_member",
@@ -106,6 +105,12 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // an arbitrary storage key it does not own. Read-only + project-scoped so the
     // dashboard can `.list()` them for the workspace.
     "taskflow_task_attachment",
+    // Focused-work sessions are system-managed from task status writes by the
+    // taskflow-tasks reconciler. A client REST create/update could manually
+    // start or close timers out of band, bypassing the automatic lifecycle and
+    // racing the backend guard. Read-only keeps the dashboard's session history
+    // visible while making the task status the only public write surface.
+    "taskflow_task_session",
     // Terminal keys are written ONLY by the trusted send-terminal-key endpoint
     // (allowlisted, member-gated). Read-only + project-scoped keeps them off the
     // unscoped auto-REST default; a client create could fire keys at a pane.
@@ -158,7 +163,6 @@ pub fn project_scope(column: &'static str) -> impl Fn(Option<Identity>) -> Scope
     }
 }
 
-
 /// The channels a caller may SEE: every shared room in their active projects,
 /// plus only the direct channels they are actually on the roster of.
 ///
@@ -177,7 +181,10 @@ async fn visible_channel_ids(identity: &Identity) -> Vec<String> {
     if project_ids.is_empty() {
         return Vec::new();
     }
-    let projects: Vec<i64> = project_ids.iter().filter_map(|id| id.parse().ok()).collect();
+    let projects: Vec<i64> = project_ids
+        .iter()
+        .filter_map(|id| id.parse().ok())
+        .collect();
 
     let channels = TaskflowAgentChannel::objects()
         .fetch()
@@ -288,7 +295,11 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
         .map(|table| ResourceConfig::new(*table).scope_async(project_scope("project")));
 
     let chat = CHANNEL_SCOPED_TABLES.iter().map(|table| {
-        let column = if *table == "taskflow_agent_channel" { "id" } else { "channel" };
+        let column = if *table == "taskflow_agent_channel" {
+            "id"
+        } else {
+            "channel"
+        };
         let config = ResourceConfig::new(*table).scope_async(channel_scope(column));
         match *table {
             // Channels are created, renamed, and archived ONLY through the

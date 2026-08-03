@@ -45,6 +45,8 @@ struct Seed {
     root: i64,
     /// The project alice belongs to.
     project_p: i64,
+    /// A real task in project P, for resource-write boundary tests.
+    project_p_task: i64,
     /// A project alice is NOT a member of.
     project_q: i64,
     /// A second ACTIVE member of project P — the person alice must not spy on.
@@ -187,7 +189,7 @@ async fn make_member(project: i64, user: i64, status: TaskflowMembershipStatus) 
         .expect("create member");
 }
 
-async fn make_task(project: i64, title: &str) {
+async fn make_task(project: i64, title: &str) -> i64 {
     TaskflowTask::objects()
         .create(TaskflowTask {
             id: 0,
@@ -215,7 +217,8 @@ async fn make_task(project: i64, title: &str) {
             updated_at: None,
         })
         .await
-        .expect("create task");
+        .expect("create task")
+        .id
 }
 
 async fn seed() -> Seed {
@@ -232,7 +235,7 @@ async fn seed() -> Seed {
     make_member(project_p, alice, TaskflowMembershipStatus::Active).await;
     make_member(project_q, alice, TaskflowMembershipStatus::Invited).await;
 
-    make_task(project_p, "P task").await;
+    let project_p_task = make_task(project_p, "P task").await;
     make_task(project_q, "Q task").await;
 
     // Two people in the SAME project, each with their own DM. Project scope
@@ -242,13 +245,15 @@ async fn seed() -> Seed {
     let carol = make_user("carol", false).await;
     make_member(project_p, carol, TaskflowMembershipStatus::Active).await;
 
-    let shared_channel = make_channel(project_p, "Project room", TaskflowChannelKind::Project).await;
+    let shared_channel =
+        make_channel(project_p, "Project room", TaskflowChannelKind::Project).await;
     make_channel_member(project_p, shared_channel, alice).await;
     make_channel_member(project_p, shared_channel, carol).await;
     let shared_message = make_message(project_p, shared_channel, "shared hello").await;
     // A file in a room both alice and carol are on — the control case, proving
     // the new scope does not over-restrict.
-    let shared_attachment = make_attachment(project_p, shared_channel, shared_message, "shared-deck.pdf").await;
+    let shared_attachment =
+        make_attachment(project_p, shared_channel, shared_message, "shared-deck.pdf").await;
 
     let alice_dm = make_channel(project_p, "alice dm", TaskflowChannelKind::Direct).await;
     make_channel_member(project_p, alice_dm, alice).await;
@@ -276,6 +281,7 @@ async fn seed() -> Seed {
         bob,
         root,
         project_p,
+        project_p_task,
         project_q,
         carol,
         shared_channel,
@@ -387,7 +393,6 @@ async fn make_attachment(project: i64, channel: i64, message: i64, name: &str) -
         .id
 }
 
-
 /// Status only — a 404 renders an HTML error page, and `body_json` panics on it.
 async fn status_as(user: i64, path: &str) -> u16 {
     let (router, _) = app().await;
@@ -445,9 +450,7 @@ async fn patch_as(user: i64, path: &str, body: Value) -> (u16, Value) {
         HeaderValue::from_static("application/json"),
     );
     let bytes = serde_json::to_vec(&body).expect("serialize body");
-    let res = client
-        .send(Method::PATCH, path, Body::from(bytes))
-        .await;
+    let res = client.send(Method::PATCH, path, Body::from(bytes)).await;
     (res.status().as_u16(), res.body_json())
 }
 
@@ -475,11 +478,7 @@ fn result_ids(body: &Value) -> Vec<i64> {
 fn result_project_ids(body: &Value) -> Vec<i64> {
     body["results"]
         .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|r| r["project"].as_i64())
-                .collect()
-        })
+        .map(|rows| rows.iter().filter_map(|r| r["project"].as_i64()).collect())
         .unwrap_or_default()
 }
 
@@ -674,6 +673,36 @@ async fn non_member_cannot_create_agent_credential() {
 }
 
 #[tokio::test]
+async fn member_can_read_but_not_create_task_sessions_via_auto_rest() {
+    let (_, seed) = app().await;
+
+    let (read_status, read_body) = get_as(seed.alice, false, "/api/taskflow_task_session/").await;
+    assert_eq!(
+        read_status, 200,
+        "session history stays readable for the dashboard; got {read_status}: {read_body}",
+    );
+
+    let (status, body) = post_as(
+        seed.alice,
+        "/api/taskflow_task_session/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "task": seed.project_p_task,
+            "state": "running",
+            "actor_kind": "user",
+            "actor_label": "alice",
+            "started_at": chrono::Utc::now().to_rfc3339(),
+        }),
+    )
+    .await;
+
+    assert_eq!(
+        status, 405,
+        "task sessions are system-managed from task status; auto-REST create must be refused, got {status}: {body}",
+    );
+}
+
+#[tokio::test]
 async fn superuser_sees_all_projects() {
     let (_, seed) = app().await;
     let (status, body) = get_as(seed.root, true, "/api/taskflow_project/").await;
@@ -684,7 +713,6 @@ async fn superuser_sees_all_projects() {
         "a superuser must see every project; got {body}",
     );
 }
-
 
 // --- DM privacy -------------------------------------------------------------
 //
@@ -704,7 +732,10 @@ async fn a_member_cannot_list_another_members_dm() {
         .filter_map(|row| row["id"].as_i64())
         .collect();
 
-    assert!(ids.contains(&seed.shared_channel), "shared rooms stay visible");
+    assert!(
+        ids.contains(&seed.shared_channel),
+        "shared rooms stay visible"
+    );
     assert!(ids.contains(&seed.alice_dm), "her own DM stays visible");
     assert!(
         !ids.contains(&seed.carol_dm),
@@ -725,8 +756,14 @@ async fn a_member_cannot_read_messages_from_another_members_dm() {
         .filter_map(|row| row["body_markdown"].as_str().map(str::to_string))
         .collect();
 
-    assert!(bodies.iter().any(|b| b == "shared hello"), "shared room messages stay visible");
-    assert!(bodies.iter().any(|b| b == "alice private"), "her own DM stays readable");
+    assert!(
+        bodies.iter().any(|b| b == "shared hello"),
+        "shared room messages stay visible"
+    );
+    assert!(
+        bodies.iter().any(|b| b == "alice private"),
+        "her own DM stays readable"
+    );
     assert!(
         !bodies.iter().any(|b| b == "carol private"),
         "another member's DM message leaked: {bodies:?}"
@@ -780,7 +817,10 @@ async fn fetching_another_members_dm_attachment_by_id_is_not_found() {
     let (_, seed) = app().await;
     let status = status_as(
         seed.alice,
-        &format!("/api/taskflow_message_attachment/{}", seed.carol_dm_attachment),
+        &format!(
+            "/api/taskflow_message_attachment/{}",
+            seed.carol_dm_attachment
+        ),
     )
     .await;
     assert_eq!(
@@ -795,10 +835,16 @@ async fn the_dm_owner_still_sees_their_own_attachment() {
     let (_, seed) = app().await;
     let status = status_as(
         seed.carol,
-        &format!("/api/taskflow_message_attachment/{}", seed.carol_dm_attachment),
+        &format!(
+            "/api/taskflow_message_attachment/{}",
+            seed.carol_dm_attachment
+        ),
     )
     .await;
-    assert_eq!(status, 200, "carol is on this DM and must still read its file");
+    assert_eq!(
+        status, 200,
+        "carol is on this DM and must still read its file"
+    );
 }
 
 // Retrieve-by-id must be gated too: hiding a row from the list while serving it
@@ -806,14 +852,25 @@ async fn the_dm_owner_still_sees_their_own_attachment() {
 #[tokio::test]
 async fn fetching_another_members_dm_by_id_is_not_found() {
     let (_, seed) = app().await;
-    let status = status_as(seed.alice, &format!("/api/taskflow_agent_channel/{}", seed.carol_dm)).await;
-    assert_eq!(status, 404, "a DM you are not on must not be retrievable by id");
+    let status = status_as(
+        seed.alice,
+        &format!("/api/taskflow_agent_channel/{}", seed.carol_dm),
+    )
+    .await;
+    assert_eq!(
+        status, 404,
+        "a DM you are not on must not be retrievable by id"
+    );
 }
 
 #[tokio::test]
 async fn the_dm_owner_still_sees_their_own() {
     let (_, seed) = app().await;
-    let status = status_as(seed.carol, &format!("/api/taskflow_agent_channel/{}", seed.carol_dm)).await;
+    let status = status_as(
+        seed.carol,
+        &format!("/api/taskflow_agent_channel/{}", seed.carol_dm),
+    )
+    .await;
     assert_eq!(status, 200, "carol must still see her own DM");
 }
 
@@ -974,7 +1031,10 @@ async fn channels_and_rosters_are_still_readable() {
     let (_, seed) = app().await;
 
     let (status, channels) = get_as(seed.carol, false, "/api/taskflow_agent_channel/").await;
-    assert_eq!(status, 200, "listing channels must still work; got {channels}");
+    assert_eq!(
+        status, 200,
+        "listing channels must still work; got {channels}"
+    );
     assert!(
         result_ids(&channels).contains(&seed.carol_dm),
         "carol must still list her own DM; got {channels}",
@@ -1042,7 +1102,10 @@ async fn messages_are_still_readable() {
     let (_, seed) = app().await;
 
     let (status, messages) = get_as(seed.carol, false, "/api/taskflow_agent_message/").await;
-    assert_eq!(status, 200, "listing messages must still work; got {messages}");
+    assert_eq!(
+        status, 200,
+        "listing messages must still work; got {messages}"
+    );
 
     let bodies: Vec<String> = messages["results"]
         .as_array()

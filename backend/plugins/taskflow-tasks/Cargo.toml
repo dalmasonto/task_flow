@@ -10,8 +10,9 @@ taskflow-projects = { path = "../taskflow-projects" }
 serde = { version = "1", features = ["derive"] }
 sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
-# The on_ready closed_at backfill spawns onto the runtime rather than blocking boot.
-tokio = { version = "1", features = ["rt"] }
+# The session reconciler serializes per-task work with tokio::sync::Mutex, and
+# the closed_at backfill spawns onto the runtime rather than blocking boot.
+tokio = { version = "1", features = ["rt", "sync"] }
 tracing = "0.1"
 
 [dev-dependencies]

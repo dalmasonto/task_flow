@@ -23,7 +23,7 @@ pub mod session_timer;
 pub mod urls;
 pub mod views;
 
-use umbral::plugin::{AppContext, Plugin, PluginError};
+use umbral::plugin::{AppContext, Plugin, PluginError, block_on_ready};
 use umbral::web::Router;
 
 #[derive(Debug, Default, Clone)]
@@ -54,7 +54,13 @@ impl Plugin for TaskflowTasksPlugin {
         urls::router()
     }
 
-    fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+    fn on_ready(&self, ctx: &AppContext) -> Result<(), PluginError> {
+        // Install the database-side invariant before serving task writes: one
+        // still-open focused-work session per task. The reconciler lock handles
+        // process-local signal races; the partial unique index is the durable
+        // cross-client/backing-store guard.
+        block_on_ready(session_timer::install_open_session_guard(&ctx.pool))?;
+
         // The system owns the task work-timer: opening a session when a task
         // enters in_progress and closing it when it leaves, on every write path.
         session_timer::register();

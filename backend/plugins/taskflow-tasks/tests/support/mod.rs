@@ -95,6 +95,9 @@ pub async fn init() {
             .plugin(MediaTestPlugin)
     })
     .await;
+    taskflow_tasks::session_timer::install_open_session_guard(umbral::db::pool_dispatched())
+        .await
+        .expect("install task session guard");
 }
 
 /// Seed a project, returning its id.

@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -47,7 +47,7 @@ import { TaskDetailSheet } from "@/components/task-sheet"
 import { overlayTaskDetail, pruneTaskDetail } from "@/lib/task-detail-overlay"
 import { InvitesPage } from "@/pages/invites"
 import { LandingPage } from "@/pages/landing"
-import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, countOnlineAgents, formatDuration, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, sessionDurationSeconds, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
+import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, countOnlineAgents, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
 import { ReviewsPage } from "@/pages/reviews"
 import { TaskSessionDock } from "@/components/session-dock"
 import { WorkspaceDialog } from "@/components/workspace-dialog"
@@ -1751,13 +1751,6 @@ function App() {
     })
   }
 
-  function applyLiveTaskSessionRow(session: TaskflowWorkspace["taskSessions"][number]) {
-    applyWorkspaceUpdate(session.project, (workspace) => ({
-      ...workspace,
-      taskSessions: upsertById(workspace.taskSessions, session),
-    }))
-  }
-
   function applyLiveTaskActivityRow(activity: TaskflowWorkspace["taskActivity"][number]) {
     applyWorkspaceUpdate(activity.project, (workspace) => ({
       ...workspace,
@@ -1782,35 +1775,6 @@ function App() {
     applyLiveTaskActivityRow(activity)
   }
 
-  async function closeRunningTaskSessions(
-    workspace: TaskflowWorkspace,
-    taskId: number,
-    state: "paused" | "stopped" | "failed",
-    summary: string,
-    endedAt = new Date()
-  ) {
-    const endedAtIso = endedAt.toISOString()
-    const runningSessions = workspace.taskSessions.filter(
-      (session) => session.task === taskId && session.state === "running" && !session.ended_at
-    )
-
-    if (!runningSessions.length) return []
-
-    const closedSessions = await Promise.all(
-      runningSessions.map((session) =>
-        updateTaskflowTaskSession(session.id, {
-          state,
-          ended_at: endedAtIso,
-          duration_seconds: sessionDurationSeconds(session, endedAt),
-          summary_markdown: summary,
-        })
-      )
-    )
-
-    closedSessions.forEach(applyLiveTaskSessionRow)
-    return closedSessions
-  }
-
   function handleStartTaskSession(task: Task) {
     const projectId = liveId(task.projectId)
     const taskId = liveId(task.id)
@@ -1824,22 +1788,10 @@ function App() {
       return
     }
 
-    const startedAt = new Date().toISOString()
-
-    void createTaskflowTaskSession({
-      project: projectId,
-      task: taskId,
-      state: "running",
-      actor_kind: "user",
-      actor_user: currentUser?.id ?? null,
-      actor_label: taskSessionActorLabel(),
-      started_at: startedAt,
-      summary_markdown: `Started focused work on **${task.title}**.`,
-    })
-      .then(async (session) => {
-        applyLiveTaskSessionRow(session)
-        const updatedTask = await updateTaskflowTask(taskId, { status: "in_progress" })
+    void updateTaskflowTask(taskId, { status: "in_progress" })
+      .then(async (updatedTask) => {
         applyLiveTaskRow(updatedTask)
+        await loadTaskSessions(String(taskId))
         await recordTaskSessionActivity(projectId, taskId, "timer_started", `Started a focused session on **${task.title}**.`)
         setLiveSyncError(null)
       })
@@ -1856,21 +1808,18 @@ function App() {
       return
     }
 
-    void closeRunningTaskSessions(
-      activeLiveWorkspace,
-      taskId,
-      "paused",
-      `Paused focused work on **${task.title}**.`
-    )
-      .then(async (closedSessions) => {
-        const updatedTask = await updateTaskflowTask(taskId, { status: "paused" })
+    const hadRunningSession = Boolean(getRunningLiveTaskSession(task, activeLiveWorkspace))
+
+    void updateTaskflowTask(taskId, { status: "paused" })
+      .then(async (updatedTask) => {
         applyLiveTaskRow(updatedTask)
+        await loadTaskSessions(String(taskId))
         await recordTaskSessionActivity(
           projectId,
           taskId,
           "timer_paused",
-          closedSessions.length
-            ? `Paused **${task.title}** after ${formatDuration(closedSessions[0].duration_seconds)}.`
+          hadRunningSession
+            ? `Paused **${task.title}**.`
             : `Marked **${task.title}** paused without a running session.`
         )
         setLiveSyncError(null)
@@ -1895,21 +1844,18 @@ function App() {
           ? "ready for review"
           : "blocked"
 
-    void closeRunningTaskSessions(
-      activeLiveWorkspace,
-      taskId,
-      "stopped",
-      `Stopped focused work on **${task.title}** and marked it ${statusLabel}.`
-    )
-      .then(async (closedSessions) => {
-        const updatedTask = await updateTaskflowTask(taskId, { status: finalStatus })
+    const hadRunningSession = Boolean(getRunningLiveTaskSession(task, activeLiveWorkspace))
+
+    void updateTaskflowTask(taskId, { status: finalStatus })
+      .then(async (updatedTask) => {
         applyLiveTaskRow(updatedTask)
+        await loadTaskSessions(String(taskId))
         await recordTaskSessionActivity(
           projectId,
           taskId,
           "timer_stopped",
-          closedSessions.length
-            ? `Stopped **${task.title}** after ${formatDuration(closedSessions[0].duration_seconds)} and marked it ${statusLabel}.`
+          hadRunningSession
+            ? `Stopped **${task.title}** and marked it ${statusLabel}.`
             : `Marked **${task.title}** ${statusLabel} without a running session.`
         )
         setLiveSyncError(null)

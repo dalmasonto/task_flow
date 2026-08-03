@@ -24,8 +24,6 @@ import type {
   TaskflowTaskRelationCreate,
   TaskflowTaskReview,
   TaskflowTaskSession,
-  TaskflowTaskSessionCreate,
-  TaskflowTaskSessionUpdate,
   TaskflowTaskUpdate,
   TaskflowUserSettings,
   TaskflowUserSettingsTheme,
@@ -968,14 +966,6 @@ export function createTaskflowTaskRelation(input: TaskflowTaskRelationCreate) {
 /// #39: remove a task link by its row id.
 export function deleteTaskflowTaskRelation(relationId: number) {
   return taskflowApi.delete(taskflowTables.taskRelations, relationId)
-}
-
-export function createTaskflowTaskSession(input: TaskflowTaskSessionCreate) {
-  return taskflowApi.create(taskflowTables.taskSessions, input)
-}
-
-export function updateTaskflowTaskSession(sessionId: number, input: TaskflowTaskSessionUpdate) {
-  return taskflowApi.update(taskflowTables.taskSessions, sessionId, input)
 }
 
 /// What the client is allowed to say. sender_kind/sender_user/sender_label and
