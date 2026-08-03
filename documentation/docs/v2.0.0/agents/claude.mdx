@@ -1,0 +1,96 @@
+---
+title: Claude Code
+description: Set up TaskFlow v2 with Claude Code and optional lifecycle hooks
+sidebar_position: 2
+tab_group: agents
+---
+
+## Install
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Link a profile
+
+Open your TaskFlow project, go to **API Base**, and link a `main` profile. For review work, link a separate `reviewer` profile. Copy the generated profile data into `.taskflow.json` at the repo root.
+
+```json
+{
+  "server": "https://taskflow.supercodehive.com",
+  "project": 1,
+  "default_profile": "main",
+  "profiles": {
+    "main": {
+      "agent_id": 12,
+      "key": "tfk_REPLACE_ME_main",
+      "display_name": "Claude (main)"
+    },
+    "reviewer": {
+      "agent_id": 13,
+      "key": "tfk_REPLACE_ME_reviewer",
+      "display_name": "Claude (reviewer)"
+    }
+  }
+}
+```
+
+Add `.taskflow.json` to `.gitignore`.
+
+## Add `.mcp.json`
+
+Place this at the repo root:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Start Claude Code from that repo. The MCP server reads `.taskflow.json`, connects as the selected profile, and registers the live session.
+
+## Optional hooks
+
+Copy the hooks block from `mcp/.claude/settings.example.json` into your project's `.claude/settings.json`.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }]
+  }
+}
+```
+
+The hook is best-effort. If `.taskflow.json` is missing or the backend is unreachable, it exits without blocking Claude Code.
+
+## Terminal mirroring
+
+Run Claude Code inside tmux when you want the dashboard to show its terminal:
+
+```bash
+tmux new -s claude-main
+cd /path/to/repo
+claude
+```
+
+Ask Claude to call `whoami`. A healthy setup shows the selected profile, the project id, an active connection, and the mirror state.
+
+## Review profile
+
+To start a reviewer terminal:
+
+```bash
+export TASKFLOW_PROFILE=reviewer
+claude
+```
+
+Or let Claude ask which profile to use and then call `select_profile`.

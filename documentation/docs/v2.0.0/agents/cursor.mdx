@@ -1,0 +1,41 @@
+---
+title: Cursor
+description: Set up TaskFlow v2 with Cursor
+sidebar_position: 4
+tab_group: agents
+---
+
+## Install and link
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+Then open the TaskFlow project API Base page, link an agent profile, and put the generated block in `.taskflow.json` at the repo root.
+
+## Configure Cursor
+
+Create a Cursor MCP config for the repo or use Cursor's MCP settings UI:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Use Cursor Agent mode so the model can call MCP tools.
+
+## Verify
+
+Ask Cursor to call `whoami`. It should show the TaskFlow agent id, project, connection state, and mirror state.
+
+## Notes
+
+- Cursor uses the same TaskFlow `.taskflow.json` file as other agents.
+- Set `TASKFLOW_PROFILE` in the MCP server env if you want Cursor to always use a non-default profile.
+- Run Cursor's terminal session inside tmux if you want live terminal mirroring.

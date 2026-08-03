@@ -1,0 +1,42 @@
+---
+title: Windsurf
+description: Set up TaskFlow v2 with Windsurf
+sidebar_position: 5
+tab_group: agents
+---
+
+## Install and link
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+In TaskFlow, open the project API Base page, link an agent profile, and save the generated profile in `.taskflow.json` at the repo root.
+
+## Configure Windsurf
+
+Add TaskFlow to Windsurf's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "disabled": false
+    }
+  }
+}
+```
+
+If Windsurf supports an allow list for your installed version, add only the TaskFlow tools you are comfortable auto-approving. Leave the allow list empty when you want a prompt before tool use.
+
+## Verify
+
+Start a Cascade conversation in the repo and ask Windsurf to call `whoami`. It should identify the linked TaskFlow profile and project.
+
+## Notes
+
+- `taskflow-mcp` must start in or below the directory that contains `.taskflow.json`, unless `TASKFLOW_CONFIG` points to the file.
+- Use one profile per active terminal.
+- For terminal mirroring, run the agent process inside tmux.

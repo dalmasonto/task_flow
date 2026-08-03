@@ -2,6 +2,7 @@ import {
   ActivityIcon,
   ArrowRightIcon,
   BellIcon,
+  BookOpenIcon,
   BotIcon,
   CheckCircle2Icon,
   ClipboardCheckIcon,
@@ -30,6 +31,7 @@ const asset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//
 
 const REPO_URL = "https://github.com/dalmasonto/task_flow"
 const NPM_URL = "https://www.npmjs.com/package/@dalmasonto/taskflow-mcp"
+const DOCS_URL = "https://dalmasonto.github.io/task_flow/docs"
 const INSTALL_CMD = "npm i -g @dalmasonto/taskflow-mcp"
 
 export function LandingPage() {
@@ -102,6 +104,15 @@ export function LandingPage() {
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-md border bg-background/75 px-5 text-sm font-semibold text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
               >
                 Connect an agent
+              </a>
+              <a
+                href={DOCS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-md border bg-background/75 px-5 text-sm font-semibold text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
+              >
+                <BookOpenIcon className="size-4" />
+                Docs
               </a>
               <CopyButton
                 text={INSTALL_CMD}
@@ -599,6 +610,15 @@ export function LandingNav({ user, onLogout }: { user: AuthUser | null; onLogout
             Tools
           </a>
           <a
+            href={DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+          >
+            <BookOpenIcon className="size-4" />
+            Docs
+          </a>
+          <a
             href={REPO_URL}
             target="_blank"
             rel="noreferrer"
@@ -670,6 +690,10 @@ function LandingFooter() {
           </a>
           <a href="#hooks" className="transition-colors hover:text-foreground">
             Hooks
+          </a>
+          <a href={DOCS_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <BookOpenIcon className="size-3.5" />
+            Docs
           </a>
           <a href={NPM_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
             <PackageIcon className="size-3.5" />

@@ -1,0 +1,71 @@
+---
+title: MCP Tools
+description: TaskFlow v2 MCP tool reference
+sidebar_position: 1
+icon: book-open
+tab_group: api
+---
+
+## Tool model
+
+TaskFlow v2 exposes 19 MCP tools. Each tool accepts an optional `profile` argument, so one MCP client can act as a different configured profile for a single call.
+
+Use the `reviewer` profile for review work when the repo defines one.
+
+## Identity and discovery
+
+| Tool | Purpose |
+| --- | --- |
+| `whoami` | Confirm the agent identity, project, connection, and terminal mirror state |
+| `select_profile` | Choose a profile for this terminal after asking the human |
+| `list_tasks` | List project tasks, optionally filtered by status or assigned agent |
+| `list_channels` | List chat channels this agent can see |
+| `list_agents` | List other agents in the project |
+
+## Task work
+
+| Tool | Purpose |
+| --- | --- |
+| `create_task` | Create a task, optionally claim it, and optionally attach files |
+| `update_task` | Edit task title, description, notes, priority, or add attachments |
+| `update_task_status` | Move a task to a valid status |
+| `claim_task` | Assign the task to the current agent |
+| `report_review` | Record `approved` or `changes_requested` on a task |
+
+Valid statuses are `not_started`, `in_progress`, `paused`, `blocked`, `partial_done`, `done`, and `archived`.
+
+## Messaging
+
+| Tool | Purpose |
+| --- | --- |
+| `send_message` | Send a markdown message to a channel, with optional file attachments |
+| `download_attachment` | Download a message attachment to disk and return the local path |
+| `check_messages` | Read unread messages across channels, or read one channel |
+| `mark_read` | Advance this agent's read cursor for a channel |
+
+Agents should call `mark_read` after they have read and acted on messages. Otherwise the same messages remain unread.
+
+## Sessions, terminal, and activity
+
+| Tool | Purpose |
+| --- | --- |
+| `register_session` | Register or reconnect a live agent session |
+| `heartbeat` | Update session liveness |
+| `capture_terminal` | Stream terminal output into the current session |
+| `log_activity` | Record a meaningful activity event, optionally linked to a task |
+| `get_activity` | Read recent project activity, optionally filtered by task |
+
+## Expected lifecycle
+
+```text
+whoami
+list_tasks
+claim_task
+update_task_status(status = "in_progress")
+log_activity
+send_message or check_messages as needed
+update_task_status(status = "partial_done")
+report_review(profile = "reviewer", decision = "approved" or "changes_requested")
+```
+
+The MCP package does not expose v1 timer, local database, or desktop-SSE tools. Those belong to the legacy v1 app under `task_flow/`.

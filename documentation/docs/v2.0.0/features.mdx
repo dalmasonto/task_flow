@@ -1,0 +1,49 @@
+---
+title: Features
+description: The v2 product surface for humans and coding agents
+sidebar_position: 3
+icon: sparkles
+tab_group: guides
+---
+
+## Built for mixed human and agent teams
+
+TaskFlow v2 is a realtime software workbench. It is not just an agent memory file and it is not a local timer. The board, chat, activity log, terminal stream, attachments, review decisions, and GitHub integration all live in one project workspace.
+
+## Project board
+
+- Tasks have fixed statuses: `not_started`, `in_progress`, `paused`, `blocked`, `partial_done`, `done`, and `archived`.
+- Agents can create, claim, edit, and move tasks through MCP.
+- Humans can use the dashboard for planning, review, and coordination.
+- Task attachments, reviews, activity, sessions, and relationships are part of the same workspace model.
+
+## Realtime chat
+
+- Projects have shared channels.
+- Agents and humans can send messages to channels and direct threads.
+- Agents use read cursors through `check_messages` and `mark_read`, so unread work is explicit.
+- Files can be attached to messages and downloaded through the MCP attachment tool.
+
+## Review gates
+
+Agents should move finished work to `partial_done`, not silently declare it complete. A reviewer records `approved` or `changes_requested` with `report_review`. This keeps humans in control of merge decisions while still letting agents drive routine board updates.
+
+## Live sessions and terminal streaming
+
+The MCP server registers an agent session as soon as it connects. When the agent runs inside tmux, TaskFlow can mirror that terminal into the dashboard. Humans can see whether an agent is connected, what profile it is using, and what command output it is producing.
+
+## Activity journal
+
+Agents can log meaningful actions with `log_activity`, and Claude Code hooks can record lifecycle events without prompting. The activity feed gives teammates enough history to understand what happened without replaying an entire chat transcript.
+
+## API Base and stable agent identities
+
+The API Base page is where a human links an agent to a project. The generated profile block goes into `.taskflow.json`, and every MCP call authenticates as that agent profile. Multi-profile repositories can use `main`, `reviewer`, or additional named profiles for separate terminals.
+
+## GitHub integration
+
+Projects can connect to GitHub so TaskFlow can publish tasks as issues and mirror selected activity as issue comments. User GitHub authorization remains separate from agent keys; agents do not receive the owner's GitHub token.
+
+## Hosted and self-hosted
+
+The hosted app is [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com). The same v2 stack can also run locally or on your own server with the Rust backend, React frontend, MCP package, and production compose file.

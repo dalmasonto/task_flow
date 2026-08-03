@@ -1,0 +1,85 @@
+---
+title: Codex CLI
+description: Set up TaskFlow v2 with Codex and a reviewer profile
+sidebar_position: 3
+tab_group: agents
+---
+
+## Install
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+## Link profiles
+
+In TaskFlow, open the project **API Base** page and link the profiles this repository needs. A common Codex setup uses:
+
+| Profile | Use |
+| --- | --- |
+| `main` | Implementation and debugging |
+| `reviewer` | Code review and review decisions |
+
+Paste those generated profiles into `.taskflow.json` at the repo root and keep the file gitignored.
+
+```json
+{
+  "server": "https://taskflow.supercodehive.com",
+  "project": 1,
+  "default_profile": "reviewer",
+  "profiles": {
+    "main": {
+      "agent_id": 12,
+      "key": "tfk_REPLACE_ME_main",
+      "display_name": "Codex (main)"
+    },
+    "reviewer": {
+      "agent_id": 13,
+      "key": "tfk_REPLACE_ME_reviewer",
+      "display_name": "reviewer (codex)"
+    }
+  }
+}
+```
+
+## Add the MCP server
+
+Add TaskFlow to the Codex MCP server configuration used by your Codex installation:
+
+```toml
+[mcp_servers.taskflow]
+command = "taskflow-mcp"
+args = []
+```
+
+To force a profile for this Codex process:
+
+```toml
+[mcp_servers.taskflow]
+command = "taskflow-mcp"
+args = []
+
+[mcp_servers.taskflow.env]
+TASKFLOW_PROFILE = "reviewer"
+```
+
+Codex should call `whoami` after startup. If the repo has several profiles and none is selected, Codex should ask the human which one to use, then call `select_profile`.
+
+## Work inside tmux
+
+```bash
+tmux new -s codex-reviewer
+cd /path/to/repo
+codex
+```
+
+Running inside tmux lets TaskFlow mirror the terminal into the dashboard. Without tmux, Codex still connects and can use all MCP tools.
+
+## Review workflow
+
+When acting as `reviewer`, Codex should use a code-review stance:
+
+- Inspect the requested diff.
+- Lead with findings and file references.
+- Use `report_review` with `approved` or `changes_requested`.
+- Mark chat messages read after handling them.

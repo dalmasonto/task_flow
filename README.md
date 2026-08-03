@@ -1,79 +1,144 @@
 # TaskFlow
 
-Local-first task board and realtime chat with MCP integration, built for
-multi-agent collaboration.
+TaskFlow v2 is a shared task board and realtime chat for software teams that work with AI coding agents. People and agents coordinate in one project: tasks, channels, reviews, activity logs, live sessions, terminal mirroring, attachments, and GitHub issue integration.
+
+- Hosted app: <https://taskflow.supercodehive.com>
+- Documentation: <https://dalmasonto.github.io/task_flow/docs>
+- MCP package: <https://www.npmjs.com/package/@dalmasonto/taskflow-mcp>
+- Repository: <https://github.com/dalmasonto/task_flow>
+
+## Repository Layout
 
 | Directory | What it is |
-|---|---|
-| `backend/` | v2 Rust backend (Umbral): REST API, SSE realtime, admin, media |
-| `v2_fe/` | v2 frontend: React 19 + Vite + TypeScript |
-| `mcp/` | MCP server bridging agents into projects, channels and tasks |
-| `task_flow/` | v1 app (Tauri + SQLite), kept with its full history |
-| `scripts/` | `encrypt_envs.sh` (sops + age), `build_binary.sh` |
+| --- | --- |
+| `backend/` | v2 Rust backend (Umbral): REST API, SSE realtime, auth, admin, media, plugins |
+| `v2_fe/` | v2 React 19 dashboard and hosted frontend |
+| `mcp/` | `@dalmasonto/taskflow-mcp`, the MCP server and Claude Code hook package |
+| `documentation/` | Specra/SvelteKit docs site deployed to GitHub Pages |
+| `task_flow/` | Legacy v1 Tauri and SQLite app, kept with its history |
+| `scripts/` | Deployment helpers such as `encrypt_envs.sh` and `build_binary.sh` |
 
-## Secrets (sops + age)
+## Hosted Setup
 
-`backend/.prod.env` and `v2_fe/.prod.env` hold the production environments and
-are gitignored. Each is encrypted with [sops](https://github.com/getsops/sops)
-+ [age](https://github.com/FiloSottile/age) into a `secret.env` next to it,
-which **is** committed, and decrypted by CI on deploy.
+1. Open <https://taskflow.supercodehive.com>.
+2. Create or select a project.
+3. Open the project **API Base** page.
+4. Link an agent profile such as `main`; add `reviewer` when you want a separate review identity.
+5. Put the generated profile block in `.taskflow.json` at your repo root and keep it gitignored.
+6. Install the MCP package and configure your agent client to run `taskflow-mcp`.
 
 ```bash
-age-keygen -o keys.txt                              # one-time: generate a key pair
-bash scripts/encrypt_envs.sh <your-age-public-key>  # both .prod.env -> secret.env
+npm install -g @dalmasonto/taskflow-mcp
+taskflow-mcp --check
 ```
 
-Decrypt locally with `sops --decrypt backend/secret.env > backend/.prod.env`
-(same for `v2_fe/`). Put the private key from `keys.txt` into the
-`AGE_PRIVATE_KEY` repo secret. `keys.txt` and both `.prod.env` files are
-gitignored and excluded from the deploy payload and the Docker image.
+Example MCP config for clients that read `.mcp.json`:
 
-The two envs differ in where they are consumed:
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
 
-- **backend/.prod.env** travels to the server inside the deploy payload; the
-  Dockerfile bakes it into the image as `/app/.env` on the box. It never
-  passes through a CI artifact or a published image.
-- **v2_fe/.prod.env** never leaves CI: Vite bakes `VITE_*` vars into the JS
-  bundle at build time, so the workflow decrypts it, sources it around
-  `npm run build`, and ships only the built `dist/`.
+Run the agent inside tmux when you want live terminal mirroring:
 
-sops's dotenv parser rejects blank lines, so `.prod.env` uses `#` comment
-lines as separators. `encrypt_envs.sh` strips blank lines if any reappear.
+```bash
+tmux new -s taskflow-main
+cd /path/to/your/repo
+claude
+```
 
-## Deploy
+The agent should call `whoami` to confirm the selected profile, project, connection, and mirror state. v2 agent setup is not based on the old v1 `TASKFLOW_DB_PATH` or local MCP SQLite database.
 
-`.github/workflows/deploy-backend.yml` is manual (`workflow_dispatch`): CI
-compiles the backend binary in `rust:1-bookworm` (same Debian 12 / glibc as
-the runtime image), builds the frontend with its prod env, and ships both to
-the server, where `docker compose build` assembles the runtime image from a
-handful of COPY layers — the server compiles nothing. See
-`backend/docker-compose.yml` for the stack (postgres → migrate → web on
-:10002, plus a static file server for the frontend dist on :10003 — ports are
-published directly, no reverse proxy).
+## Run Locally
 
-Required GitHub secrets: `AGE_PRIVATE_KEY`, `CONTABO_HOST`, `CONTABO_USER`,
-`SSH_PRIVATE_KEY`.
+Backend:
 
-## TODO before/at umbral 0.0.11
+```bash
+cd backend
+cargo run -- migrate
+cargo run
+```
 
-`backend/vendor/` carries copies of the **published umbral 0.0.10** crates,
-each patched with exactly one fix found live on 2026-07-31 (the real fixes +
-tests are committed in the umbra repo, queued for 0.0.11 behind the open
-gaps4.md items):
+Run the migration once after checkout or after schema changes. The default `backend/umbral.toml` uses SQLite and binds to `127.0.0.1:8000`.
 
-| Vendored crate | The one fix it carries |
-|---|---|
-| `umbral-storage` | media_access gate receives the percent-decoded key (spaced uploads 403'd as orphans) |
-| `umbral-core` | `AlterColumn` renders a TYPE change for `max_length`-only diffs (widened models never reached Postgres DDL) |
-| `umbral-rest` | `RestrictIn` binds scope ids in the column's type (`bigint = text` 500'd every scoped LIST on Postgres) |
+Frontend:
 
-**When umbral 0.0.11 is published:**
+```bash
+cd v2_fe
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api`, `/oauth`, `/media`, `/openapi`, and `/realtime` to `http://localhost:8000`. Set `VITE_API_PROXY_TARGET` only when your backend is elsewhere.
+
+MCP package from this checkout:
+
+```bash
+cd mcp
+npm install
+npm run build
+```
+
+Docs site:
+
+```bash
+cd documentation
+pnpm install
+pnpm dev
+```
+
+## Self-Hosting
+
+For a production-style host, use the backend compose stack and built frontend assets. `backend/docker-compose.yml` runs Postgres, a one-shot migration service, the Rust backend on loopback `127.0.0.1:10002`, MinIO-compatible storage, and a static frontend server on loopback `127.0.0.1:10003`. The public deployment currently expects the host proxy to expose:
+
+- API: `https://api.taskflow.supercodehive.com`
+- Frontend: `https://taskflow.supercodehive.com`
+
+`backend/.prod.env` and `v2_fe/.prod.env` hold production configuration and are gitignored. Each is encrypted with `sops` and `age` into a committed `secret.env` next to it.
+
+```bash
+age-keygen -o keys.txt
+bash scripts/encrypt_envs.sh <your-age-public-key>
+```
+
+Decrypt locally when needed:
+
+```bash
+sops --decrypt backend/secret.env > backend/.prod.env
+sops --decrypt v2_fe/secret.env > v2_fe/.prod.env
+```
+
+Required GitHub secrets for the deploy workflow are `AGE_PRIVATE_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, and `SSH_PRIVATE_KEY`.
+
+`.github/workflows/deploy-backend.yml` builds the backend binary in CI, builds the frontend with its production Vite env, copies the payload to the server, and lets the server run `docker compose build` plus `docker compose up -d`. The server compiles nothing.
+
+`.github/workflows/deploy_docs.yml` builds `documentation/` and publishes the static Specra site to GitHub Pages.
+
+## v1 Status
+
+`task_flow/` is the legacy v1 product. It is retained for history, but current product work is v2: `backend/`, `v2_fe/`, `mcp/`, and `documentation/`.
+
+## TODO Before Umbral 0.0.11
+
+`backend/vendor/` carries copies of the published Umbral 0.0.10 crates, each patched with exactly one fix found live on 2026-07-31. The real fixes and tests are committed in the Umbral repo and queued for 0.0.11.
+
+| Vendored crate | Fix it carries |
+| --- | --- |
+| `umbral-storage` | `media_access` gate receives the percent-decoded key |
+| `umbral-core` | `AlterColumn` renders a type change for `max_length`-only diffs |
+| `umbral-rest` | `RestrictIn` binds scope ids in the column's type |
+
+When Umbral 0.0.11 is published:
 
 1. Bump every `umbral*` pin in `backend/Cargo.toml` to `0.0.11`.
 2. Delete the `[patch.crates-io]` block at the bottom of `backend/Cargo.toml`.
-3. `rm -rf backend/vendor/`.
-4. `cargo test --workspace` in `backend/` — the media-access and scoped-REST
-   suites prove the published crates carry the fixes.
+3. Remove `backend/vendor/`.
+4. Run `cargo test --workspace` in `backend/`.
 
-Until then the vendor dir is load-bearing: removing it early reverts all
-three bugs in any fresh build/deploy.
+Until then the vendor directory is load-bearing for fresh builds and deploys.

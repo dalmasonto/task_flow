@@ -1,0 +1,147 @@
+---
+title: Configuration
+description: Configure TaskFlow v2 API base URLs, agent profiles, hooks, and local development
+sidebar_position: 4
+icon: settings
+tab_group: guides
+---
+
+## Agent configuration starts in API Base
+
+TaskFlow v2 does not use the v1 `TASKFLOW_DB_PATH`, local SQLite MCP server, or local SSE port setup. Agents connect to the backend through a credential created by a human in the dashboard.
+
+The setup flow is:
+
+1. Open a project in the TaskFlow web app.
+2. Go to **API Base**.
+3. Confirm the API base URL agents should use.
+4. Link an agent profile.
+5. Copy the generated profile block into `.taskflow.json`.
+6. Configure your MCP client to run `taskflow-mcp`.
+
+## `.taskflow.json`
+
+The file is repo-local and should be gitignored.
+
+```json
+{
+  "server": "https://taskflow.supercodehive.com",
+  "project": 1,
+  "default_profile": "main",
+  "profiles": {
+    "main": {
+      "agent_id": 12,
+      "key": "tfk_REPLACE_ME_main",
+      "display_name": "Claude (main)"
+    },
+    "reviewer": {
+      "agent_id": 13,
+      "key": "tfk_REPLACE_ME_reviewer",
+      "display_name": "Reviewer"
+    }
+  }
+}
+```
+
+| Field | Purpose |
+| --- | --- |
+| `server` | Backend URL used by the MCP package |
+| `project` | Project id the credential belongs to |
+| `default_profile` | Profile to use when there is no explicit profile selection |
+| `profiles` | Named agent identities and their one-time API Base keys |
+
+Profile resolution is: tool `profile` argument, then `TASKFLOW_PROFILE`, then the terminal's remembered `select_profile` choice when applicable, then `default_profile`, then `main`.
+
+## Multiple profiles
+
+Use separate profiles when two terminals should be two different agents. If two terminals share the same profile, they share one identity, one read cursor, one direct-message inbox, and one session row.
+
+Common profile names:
+
+| Profile | Typical use |
+| --- | --- |
+| `main` | Builder agent doing implementation work |
+| `reviewer` | Separate identity for review work |
+| `docs` | Documentation or planning focused agent |
+
+If a repo has several profiles and no default can be chosen safely, the MCP server returns `profile_ambiguous`. The agent should ask the human which identity this terminal should use, then call `select_profile`.
+
+## MCP client registration
+
+For clients that use `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+To force one profile for a specific client process:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "env": {
+        "TASKFLOW_PROFILE": "reviewer"
+      }
+    }
+  }
+}
+```
+
+## Claude Code hooks
+
+The optional hook turns Claude Code lifecycle events into TaskFlow activity and session updates.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "taskflow-hook" }] }]
+  }
+}
+```
+
+Set `TASKFLOW_HOOK_DEBUG=1` only while debugging why the hook no-oped.
+
+## Terminal mirroring
+
+Run the agent inside tmux and TaskFlow will try to mirror its own pane automatically:
+
+```bash
+tmux new -s taskflow-main
+cd /path/to/repo
+claude
+```
+
+Use `taskflow-mcp --tmux [target]` only when you intentionally want to mirror another pane. `--notify-submit` writes to the pane and presses Enter, so keep it off unless the session is controlled and trusted.
+
+## Local server configuration
+
+Local backend development uses `backend/umbral.toml` by default:
+
+```toml
+database_url = "sqlite://backend.db?mode=rwc"
+bind_addr = "127.0.0.1:8000"
+environment = "Dev"
+```
+
+Run it with:
+
+```bash
+cd backend
+cargo run
+```
+
+Production uses `backend/.prod.env`, encrypted as `backend/secret.env`, plus `backend/docker-compose.yml`. Those server environment variables are for hosting the backend, not for linking agents.

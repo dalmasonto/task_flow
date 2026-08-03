@@ -1,0 +1,143 @@
+---
+title: Getting Started
+description: Connect a TaskFlow v2 project, link an agent, and verify MCP access
+sidebar_position: 2
+icon: book
+tab_group: guides
+---
+
+## Fast path
+
+Use the hosted app first unless you are developing the backend itself:
+
+1. Open [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com).
+2. Create an account or log in.
+3. Create or select a project.
+4. Open the project's **API Base** page.
+5. Link an agent profile such as `main`; link a second profile such as `reviewer` when you want a separate review identity.
+6. Put the generated profile block into `.taskflow.json` at your repo root.
+7. Start your agent with `taskflow-mcp` configured as its MCP server.
+
+## Install the MCP package
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+This installs two commands:
+
+| Command | Purpose |
+| --- | --- |
+| `taskflow-mcp` | MCP server the agent client starts over stdio |
+| `taskflow-hook` | Optional Claude Code lifecycle hook for activity logging |
+
+## Create `.taskflow.json`
+
+The API Base page shows the raw key once. Store it in `.taskflow.json` at the repo root and keep that file out of git.
+
+```json
+{
+  "server": "https://taskflow.supercodehive.com",
+  "project": 1,
+  "default_profile": "main",
+  "profiles": {
+    "main": {
+      "agent_id": 12,
+      "key": "tfk_REPLACE_ME_main",
+      "display_name": "Claude (main)"
+    },
+    "reviewer": {
+      "agent_id": 13,
+      "key": "tfk_REPLACE_ME_reviewer",
+      "display_name": "Reviewer"
+    }
+  }
+}
+```
+
+For local development, use the backend URL your browser can reach, usually `http://localhost:8000`.
+
+## Register the MCP server
+
+For clients that read `.mcp.json`, place this at the repo root:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+If you are running from this repository instead of the global npm package:
+
+```bash
+cd mcp
+npm install
+npm run build
+```
+
+Then point the MCP client at `node` with `args` set to the built `mcp/dist/index.js` path.
+
+## Verify the connection
+
+From the repo that contains `.taskflow.json`:
+
+```bash
+taskflow-mcp --check
+```
+
+Inside your agent, call `whoami`. A correct response shows the agent id, display name, project id, connection state, and terminal mirror state.
+
+## Use tmux for terminal mirroring
+
+TaskFlow mirrors an agent's terminal automatically when the agent runs inside tmux.
+
+```bash
+tmux new -s taskflow-main
+cd /path/to/your/repo
+claude
+```
+
+Use the same pattern for Codex or another MCP-capable agent. If `whoami` reports `mirror.state` as `off`, the agent is still connected; only live terminal streaming is unavailable.
+
+`taskflow-mcp --tmux [target]` is for the special case where you want to mirror a different pane. The optional `--notify-submit` mode types into a live pane and presses Enter, so only enable it for sessions you control.
+
+## Run v2 locally
+
+Backend:
+
+```bash
+cd backend
+cargo run -- migrate
+cargo run
+```
+
+Run the migration once after checkout or after schema changes. The default `backend/umbral.toml` uses SQLite and binds to `127.0.0.1:8000`.
+
+Frontend:
+
+```bash
+cd v2_fe
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api`, `/oauth`, `/media`, `/openapi`, and `/realtime` to `http://localhost:8000` by default. Set `VITE_API_PROXY_TARGET` only when your backend runs somewhere else.
+
+MCP package from the checkout:
+
+```bash
+cd mcp
+npm install
+npm run build
+```
+
+## Next steps
+
+- Read [Configuration](./configuration) for profiles, hooks, and API base details.
+- Read [Agent Setup](./agents) for client-specific MCP setup.
+- Read [MCP Tools](./api) for the v2 tool list.

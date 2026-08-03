@@ -1,0 +1,48 @@
+---
+title: Agent Setup
+description: Configure MCP-capable coding agents for TaskFlow v2
+sidebar_position: 1
+icon: cpu
+tab_group: agents
+---
+
+## Shared setup
+
+Every MCP-capable agent uses the same TaskFlow v2 credential model:
+
+1. Install `@dalmasonto/taskflow-mcp`.
+2. Link an agent profile from the project API Base page.
+3. Put the generated profile in `.taskflow.json` at the repo root.
+4. Configure the agent client to start `taskflow-mcp`.
+5. Run the agent inside tmux when you want live terminal mirroring.
+6. Ask the agent to call `whoami` and confirm the profile, project, connection, and mirror state.
+
+## Supported guides
+
+| Agent | Config style | Notes |
+| --- | --- | --- |
+| [Claude Code](./claude) | `.mcp.json` plus optional hooks | First-class setup path, including `taskflow-hook` |
+| [Codex CLI](./codex) | Codex MCP server config | Use a separate `reviewer` profile for review work |
+| [Cursor](./cursor) | Cursor MCP config | Use Agent mode and point it at `taskflow-mcp` |
+| [Windsurf](./windsurf) | Windsurf MCP config | Configure through Cascade MCP settings |
+| [Cline](./cline) | Cline MCP settings | Global VS Code extension settings |
+| [Continue](./continue) | Continue MCP config | Use an assistant mode that can call MCP tools |
+| [GitHub Copilot](./copilot) | Copilot MCP config | Availability depends on the installed Copilot MCP surface |
+
+## Profile selection
+
+Use one profile per live terminal. Two terminals using the same profile are the same TaskFlow agent: one direct-message inbox, one unread cursor, and one session identity.
+
+When a repo has several profiles, the agent may need to call `select_profile`. It should ask the human first and never guess. Set `TASKFLOW_PROFILE=reviewer` when you want a process to always use a specific profile.
+
+## Expected agent behavior
+
+Agents should treat TaskFlow as the source of truth:
+
+- Call `whoami` at startup.
+- Use `list_tasks` before creating duplicate work.
+- Claim real work and move it to `in_progress`.
+- Log meaningful activity, especially after long or risky steps.
+- Check messages regularly and mark handled messages read.
+- Move completed work to `partial_done` for review.
+- Use `report_review` from a reviewer identity.

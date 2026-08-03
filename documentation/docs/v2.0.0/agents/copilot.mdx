@@ -1,0 +1,41 @@
+---
+title: GitHub Copilot
+description: Set up TaskFlow v2 with GitHub Copilot where MCP servers are supported
+sidebar_position: 8
+tab_group: agents
+---
+
+## Install and link
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+Open the TaskFlow project API Base page, link an agent profile, and save the generated profile in `.taskflow.json` at the repo root.
+
+## Configure the MCP server
+
+Use the MCP configuration surface available in your Copilot environment and add a server equivalent to:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+If your Copilot environment does not expose MCP servers, use one of the other supported clients with the same `.taskflow.json` file.
+
+## Verify
+
+Ask Copilot to call `whoami`. A valid response proves the backend accepted the agent key and mapped it to the project.
+
+## Notes
+
+- Availability and approval controls depend on the Copilot surface you are using.
+- Keep `.taskflow.json` private.
+- Use `TASKFLOW_PROFILE` when this client should use a specific profile.

@@ -1,0 +1,41 @@
+---
+title: Continue
+description: Set up TaskFlow v2 with Continue
+sidebar_position: 7
+tab_group: agents
+---
+
+## Install and link
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+Create the agent credential from the TaskFlow project API Base page and put the generated profile in `.taskflow.json` at the repo root.
+
+## Configure Continue
+
+Add an MCP server entry that starts `taskflow-mcp`. The exact file depends on your Continue setup, but the command should be equivalent to:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Use a Continue mode that can call MCP tools.
+
+## Verify
+
+Ask Continue to call `whoami` and then `list_tasks`. If the MCP process cannot find `.taskflow.json`, start Continue from the repo root or set `TASKFLOW_CONFIG` to the absolute config path.
+
+## Notes
+
+- TaskFlow v2 exposes 19 MCP tools, not the v1 tool set.
+- There is no local MCP database to configure.
+- Use a separate profile when Continue should not share another agent's inbox and read cursor.

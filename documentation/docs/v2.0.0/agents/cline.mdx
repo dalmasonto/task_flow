@@ -1,0 +1,48 @@
+---
+title: Cline
+description: Set up TaskFlow v2 with Cline
+sidebar_position: 6
+tab_group: agents
+---
+
+## Install and link
+
+```bash
+npm install -g @dalmasonto/taskflow-mcp
+```
+
+Link an agent from the TaskFlow project API Base page and save the generated profile in `.taskflow.json` at the repo root.
+
+## Configure Cline
+
+Open Cline's MCP server settings and add:
+
+```json
+{
+  "mcpServers": {
+    "taskflow": {
+      "command": "taskflow-mcp",
+      "args": [],
+      "disabled": false
+    }
+  }
+}
+```
+
+If Cline prompts for tool approval, approve the specific TaskFlow actions you want the agent to use. Keep approval prompts enabled for destructive or high-impact work.
+
+## Verify
+
+Ask Cline to call `whoami`. Then ask it to list tasks. The expected first calls are:
+
+```text
+whoami
+list_tasks
+check_messages
+```
+
+## Notes
+
+- Keep `.taskflow.json` out of git.
+- Set `TASKFLOW_PROFILE` when one VS Code window should use a specific profile.
+- Run inside tmux if you need terminal mirroring in the TaskFlow dashboard.
