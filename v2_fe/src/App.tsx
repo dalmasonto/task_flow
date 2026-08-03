@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTaskSession, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, updateTaskflowTaskSession, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -44,6 +44,7 @@ import { BoardLoadMoreSentinel, DropIndicator, EndDropIndicator, Metric, TaskCar
 import { ChatDock } from "@/components/chat/chat-dock"
 import { GithubHeaderButton, NoProjectEmptyState } from "@/components/layout"
 import { TaskDetailSheet } from "@/components/task-sheet"
+import { overlayTaskDetail, pruneTaskDetail } from "@/lib/task-detail-overlay"
 import { InvitesPage } from "@/pages/invites"
 import { LandingPage } from "@/pages/landing"
 import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, countOnlineAgents, formatDuration, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, sessionDurationSeconds, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
@@ -53,6 +54,16 @@ import { WorkspaceDialog } from "@/components/workspace-dialog"
 import { columns, nextStatus, previousStatus, type ActivityEvent, type AuthGateStatus, type ColumnId, type DialogMode, type DropTarget, type Priority, type Project, type Task } from "@/lib/workspace-view"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 
+// #56 review: which open-task-detail field a deleted row belongs to, by realtime
+// table. Used to prune `openTaskDetail` on delete so the sheet overlay can't
+// resurrect a removed row. Module-level so it's stable across renders.
+const TASK_DETAIL_FIELD_BY_TABLE: Partial<Record<string, keyof WorkspaceTaskDetailSlice>> = {
+  [taskflowTables.taskAttachments]: "taskAttachments",
+  [taskflowTables.taskRelations]: "taskRelations",
+  [taskflowTables.taskReviews]: "taskReviews",
+  [taskflowTables.taskActivity]: "taskActivity",
+  [taskflowTables.taskSessions]: "taskSessions",
+}
 
 function App() {
   const location = useLocation()
@@ -86,6 +97,12 @@ function App() {
 
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
+  // #56: the OPEN task's own detail (attachments/relations/reviews/activity/
+  // sessions), loaded task-scoped so the sheet's "No X yet" states are truthful.
+  // Overlaid onto the workspace for the sheet only (see sheetWorkspace); pruned on
+  // realtime deletes so the overlay can't resurrect a removed row. Declared here
+  // (above applyRealtimeDeletion) because that handler prunes it on delete.
+  const [openTaskDetail, setOpenTaskDetail] = useState<({ taskId: number } & WorkspaceTaskDetailSlice) | null>(null)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null)
   // The task.id being edited; the edit dialog reuses the Create Task form.
@@ -471,6 +488,15 @@ function App() {
       }
 
       if (!projectId) return
+
+      // #56 review: keep the open-task detail store in sync with deletes, so the
+      // sheet overlay (which fills only gaps the live base lacks) can't re-add a
+      // row realtime just removed. Live UPDATES need no help — the base holds the
+      // newer row and the overlay defers to it.
+      const detailField = TASK_DETAIL_FIELD_BY_TABLE[event.table]
+      if (detailField) {
+        setOpenTaskDetail((current) => (current ? pruneTaskDetail(current, detailField, rowId) : current))
+      }
 
       switch (event.table) {
         case taskflowTables.members:
@@ -1007,7 +1033,9 @@ function App() {
   // A ref, not state: these flags gate a fetch, they do not belong in a render.
   // Holding them in state also meant calling setState synchronously inside the
   // effect, which is the cascading-render pattern the lint rule objects to.
-  const loadedSlices = useRef<{ project: number | null; epoch: number; board: boolean; presence: boolean; chat: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: boolean }>({
+  // #56: taskDetail is keyed by the LOADED task id (not a boolean), so opening a
+  // different task reloads that task's detail instead of reusing the first one's.
+  const loadedSlices = useRef<{ project: number | null; epoch: number; board: boolean; presence: boolean; chat: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: number | null }>({
     project: null,
     epoch: -1,
     board: false,
@@ -1017,8 +1045,20 @@ function App() {
     terminal: false,
     settings: false,
     reviews: false,
-    taskDetail: false,
+    taskDetail: null,
   })
+  // The workspace the task sheet reads: the live workspace with the open task's
+  // freshly-loaded detail overlaid (upsert by id). This keeps the sheet's per-task
+  // filters complete WITHOUT mutating the shared arrays the paginated activity/
+  // reviews feeds read — so the feeds keep their page while the sheet sees the
+  // whole task. Falls back to the plain workspace until this task's detail lands.
+  const sheetWorkspace = useMemo<TaskflowWorkspace | null>(() => {
+    if (!activeLiveWorkspace) return activeLiveWorkspace
+    if (!openTaskDetail || openTaskId === null || openTaskDetail.taskId !== Number(openTaskId)) {
+      return activeLiveWorkspace
+    }
+    return overlayTaskDetail(activeLiveWorkspace, openTaskDetail)
+  }, [activeLiveWorkspace, openTaskDetail, openTaskId])
 
   // Bumped when a slice fetch fails, purely to re-run the effect below. Clearing
   // the ref flag on failure was not enough: none of the effect's other deps
@@ -1039,8 +1079,10 @@ function App() {
   const [chatSurfaceMounted, setChatSurfaceMounted] = useState(false)
   const chatNeeded =
     dockOpen || chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
-  // The task sheet renders one task's activity; the feed renders the project's.
-  const activityNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/activity")
+  // #56 review: the project-wide activity FEED loads here (its own paginated
+  // slice). The open task's activity is NOT this — it loads task-scoped via the
+  // taskDetail slice — so this gate is the feed route only, not openTaskId.
+  const activityNeeded = location.pathname.startsWith("/dashboard/activity")
   // #56: terminal frames (heavy raw capture) render ONLY on the agents surface —
   // NOT in the chat dock — so they load with the agents view, not merely when the
   // dock is open. This keeps the 96 KB frame page off the board and dock.
@@ -1051,8 +1093,13 @@ function App() {
   // API endpoints + credentials are API-Base-only. (invites are core — the
   // sidebar badge + the invites page both read them from the core workspace.)
   const settingsNeeded = location.pathname.startsWith("/dashboard/api")
-  const reviewsNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/reviews")
-  const taskDetailNeeded = openTaskId !== null
+  // #56 review: the project-wide reviews FEED loads here; the open task's reviews
+  // load task-scoped via the taskDetail slice, so this is the feed route only.
+  const reviewsNeeded = location.pathname.startsWith("/dashboard/reviews")
+  // The open task's numeric id — the taskDetail slice loads THIS task's rows and
+  // is keyed by it, so switching tasks reloads (a boolean would reuse the first).
+  const openTaskNumericId =
+    openTaskId !== null && Number.isFinite(Number(openTaskId)) ? Number(openTaskId) : null
   // #56: board task rows are ALSO the app's task-lookup table — the activity and
   // reviews feeds resolve task titles from them, and the task sheet reads the open
   // task. So the board slice loads for any of those surfaces, not the board route
@@ -1084,7 +1131,7 @@ function App() {
       slices.terminal = false
       slices.settings = false
       slices.reviews = false
-      slices.taskDetail = false
+      slices.taskDetail = null
     }
     // Marked BEFORE the request: applying a slice changes activeLiveWorkspace,
     // which re-runs this effect, so a flag set on success would let it re-fire
@@ -1151,12 +1198,17 @@ function App() {
           retrySlice()
         })
     }
-    if (taskDetailNeeded && !slices.taskDetail) {
-      slices.taskDetail = true
-      void fetchWorkspaceTaskDetail(projectId)
-        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+    // #56 review: load the OPEN task's detail task-scoped and keyed by its id, so
+    // switching tasks reloads and the sheet never shows a false empty state from a
+    // capped project-wide page. Stored separately (setOpenTaskDetail) and overlaid
+    // onto the workspace for the sheet only — not merged into the shared arrays the
+    // paginated feeds read.
+    if (openTaskNumericId !== null && slices.taskDetail !== openTaskNumericId) {
+      slices.taskDetail = openTaskNumericId
+      void fetchWorkspaceTaskDetail(projectId, openTaskNumericId)
+        .then((slice) => setOpenTaskDetail({ taskId: openTaskNumericId, ...slice }))
         .catch(() => {
-          slices.taskDetail = false
+          slices.taskDetail = null
           retrySlice()
         })
     }
@@ -1176,7 +1228,7 @@ function App() {
           retrySlice()
         })
     }
-  }, [tasksNeeded, presenceNeeded, chatNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, taskDetailNeeded, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
+  }, [tasksNeeded, presenceNeeded, chatNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, openTaskNumericId, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />
@@ -2427,7 +2479,10 @@ function App() {
           offBoard={openTaskOffBoard}
           project={activeProject}
           projectTasks={projectTasks}
-          liveWorkspace={activeLiveWorkspace}
+          // #56: the sheet reads the workspace with THIS task's task-scoped detail
+          // overlaid, so its "No X yet" states reflect the whole task, not a
+          // capped project-wide page.
+          liveWorkspace={sheetWorkspace}
           onClose={() => setOpenTaskId(null)}
           onEdit={() => {
             const row = activeLiveWorkspace?.tasks.find((task) => String(task.id) === openTaskResolved.id)

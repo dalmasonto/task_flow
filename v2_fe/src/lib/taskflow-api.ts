@@ -697,7 +697,12 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     agentPrompts,
   ] = await Promise.all([
     taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.agentChannelMembers).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    // #56 review: filter by the denormalized `project` BEFORE the page cap.
+    // Without it, channel-member rows from other projects could fill the 100-row
+    // page and truncate THIS project's roster, leaving chat labels/participants
+    // incomplete. The channel-id filter below is now a within-project refinement,
+    // not the only scope.
+    taskflowApi.from(taskflowTables.agentChannelMembers).filter({ project: projectId }).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
     // Messages: ONE server page of the project's newest, no page_size sent —
     // this feeds the chat LIST (last-message previews, unread badges), not a
     // thread. The open conversation loads its own first page per channel (see
@@ -767,15 +772,41 @@ export async function fetchWorkspaceReviews(projectId: number): Promise<Workspac
   return { taskReviews: taskReviews.results }
 }
 
-export type WorkspaceTaskDetailSlice = Pick<TaskflowWorkspace, "taskAttachments" | "taskRelations">
+export type WorkspaceTaskDetailSlice = Pick<
+  TaskflowWorkspace,
+  "taskAttachments" | "taskRelations" | "taskReviews" | "taskActivity" | "taskSessions"
+>
 
-// #56: task attachments + relations render only in the open task sheet.
-export async function fetchWorkspaceTaskDetail(projectId: number): Promise<WorkspaceTaskDetailSlice> {
-  const [taskAttachments, taskRelations] = await Promise.all([
-    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId }).orderBy("task", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId }).orderBy("kind", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+// #56 review: load THE OPEN TASK's detail specifically, not a project-wide capped
+// page. The task sheet renders definitive "No X yet" empty states, so a partial
+// project-wide array (a task's rows past the 100-row cap, or its activity not on
+// the feed's page 1) made the opened sheet lie. Everything here is filtered to
+// `taskId`; relations are fetched in BOTH directions (source_task / target_task)
+// and merged, since a relation can name this task either way. Keyed by task id in
+// App.tsx so switching tasks reloads, and overlaid onto the workspace for the
+// sheet only — the project-wide activity/reviews FEEDS keep their own paged loads.
+export async function fetchWorkspaceTaskDetail(
+  projectId: number,
+  taskId: number
+): Promise<WorkspaceTaskDetailSlice> {
+  const [attachments, relSource, relTarget, reviews, activity, sessions] = await Promise.all([
+    taskflowApi.from(taskflowTables.taskAttachments).filter({ project: projectId, task: taskId }).orderBy("id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId, source_task: taskId }).orderBy("kind", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskRelations).filter({ project: projectId, target_task: taskId }).orderBy("kind", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskReviews).filter({ project: projectId, task: taskId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskActivity).filter({ project: projectId, task: taskId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId, task: taskId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
-  return { taskAttachments: taskAttachments.results, taskRelations: taskRelations.results }
+  // A relation can name this task as source OR target; merge both, unique by id.
+  const relations = new Map<number, (typeof relSource.results)[number]>()
+  for (const r of [...relSource.results, ...relTarget.results]) relations.set(r.id, r)
+  return {
+    taskAttachments: attachments.results,
+    taskRelations: [...relations.values()],
+    taskReviews: reviews.results,
+    taskActivity: activity.results,
+    taskSessions: sessions.results,
+  }
 }
 
 /// The attachments belonging to EXACTLY these messages — fetched alongside a
