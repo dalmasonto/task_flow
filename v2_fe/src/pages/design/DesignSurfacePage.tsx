@@ -1,0 +1,850 @@
+/// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
+/// panel. The canvas is the hero — everything else stays quiet and collapsible.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
+import {
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  CrosshairIcon,
+  MonitorSmartphoneIcon,
+  MoonIcon,
+  SunIcon,
+  LayersIcon,
+  PaletteIcon,
+  FileCodeIcon,
+} from "lucide-react"
+
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  fetchDesignAgents,
+  fetchDesignComments,
+  fetchDesignFile,
+  fetchDesignManifest,
+  fetchSandboxToken,
+  putDesignFile,
+  sendDesignPrompt,
+  type ComponentEntry,
+  type DesignAgent,
+  type DesignComment,
+  type DesignManifest,
+  type ValidationError,
+  sandboxUrl,
+} from "@/lib/design-api"
+import { openTaskflowRealtimeStream, taskflowTables } from "@/lib/taskflow-api"
+import {
+  DEFAULT_DEVICE_ID,
+  DEVICE_PRESETS,
+  DEVICE_GROUP_LABELS,
+  artboardKey,
+  deviceById,
+  makeArtboard,
+  type Artboard,
+  type DeviceGroup,
+} from "@/lib/design-devices"
+import {
+  DesignCanvas,
+  ZOOM_STEP,
+  type CanvasTransform,
+} from "./design-canvas"
+import { CommentPins, DesignInspector } from "./design-inspector"
+import { sanitizeSelection, type SelectionState } from "./design-selection"
+import { CommandPalette, type PaletteItem } from "./design-palette"
+import { DesignPromptBar, type AgentLogRow } from "./design-prompt-bar"
+
+export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
+  const navigate = useNavigate()
+  const [manifest, setManifest] = useState<DesignManifest | null>(null)
+  const [sandboxToken, setSandboxToken] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [transform, setTransform] = useState<CanvasTransform>({ x: 40, y: 40, scale: 0.6 })
+  const [deviceIds, setDeviceIds] = useState<string[]>([DEFAULT_DEVICE_ID])
+  const [picking, setPicking] = useState(false)
+  const [theme, setTheme] = useState("light")
+  /** Bumped on server-side file changes so iframes remount with fresh content. */
+  const [contentEpoch, setContentEpoch] = useState(0)
+  const [comments, setComments] = useState<DesignComment[]>([])
+  const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
+  const [agents, setAgents] = useState<DesignAgent[]>([])
+  const [promptAgentId, setPromptAgentId] = useState<number | null>(null)
+  /** Per-agent tail windows: output from one pane must never read as if it answered for another. */
+  const [logsByAgent, setLogsByAgent] = useState<Record<number, AgentLogRow[]>>({})  // Persisted per project so canvas layout survives reloads.
+  const boardsByProject = useRef<Map<number, Artboard[]>>(new Map())
+  const [artboards, setArtboards] = useState<Artboard[]>([])
+
+  const refreshComments = useCallback(() => {
+    if (!projectId) return
+    fetchDesignComments(projectId).then(setComments).catch(() => null)
+  }, [projectId])
+
+  useEffect(() => {
+    refreshComments()
+  }, [refreshComments])
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    fetchDesignAgents(projectId)
+      .then((rows) => {
+        if (cancelled) return
+        setAgents(rows)
+        setPromptAgentId((cur) => cur ?? rows[0]?.id ?? null)
+      })
+      .catch(() => null)
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  // Design realtime: file writes remount artboards; comment updates refresh
+  // pins. One small dedicated SSE connection over the same hub — the groups
+  // are derived server-side from the caller's membership.
+  useEffect(() => {
+    if (!projectId) return
+    return openTaskflowRealtimeStream({
+      groups: [
+        `project:${projectId}:design_files`,
+        `project:${projectId}:design_comments`,
+        // Terminal frames stream inline (server projects the fields), which is
+        // what feeds the prompt bar's live-output strip.
+        `project:${projectId}:terminal_frames`,
+      ],
+      onEvent: (event) => {
+        if (event.table === taskflowTables.designFiles) {
+          setContentEpoch((e) => e + 1)
+        } else if (event.table === taskflowTables.designComments) {
+          refreshComments()
+        } else if (event.table === taskflowTables.terminalFrames) {
+          const row = event.row as { agent?: number; content?: string; stream?: string; id?: number }
+          if (typeof row.agent !== "number") return
+          const line: AgentLogRow = {
+            key: row.id != null ? String(row.id) : `${Date.now()}-${Math.random()}`,
+            content: typeof row.content === "string" ? row.content : "",
+            stream: typeof row.stream === "string" ? row.stream : null,
+          }
+          // Bounded per-agent tail window — a strip, not a transcript.
+          setLogsByAgent((current) => ({
+            ...current,
+            [row.agent as number]: (current[row.agent as number] ?? []).concat(line).slice(-80),
+          }))
+        }
+      },
+    })
+  }, [projectId, refreshComments])
+
+  // --- load manifest + token ------------------------------------------------
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    Promise.all([fetchDesignManifest(projectId), fetchSandboxToken(projectId)])
+      .then(([m, token]) => {
+        if (cancelled) return
+        setManifest(m)
+        setSandboxToken(token)
+        setError(null)
+        // Seed one board per route at the default device when arriving empty.
+        setArtboards((current) => {
+          if (current.length) return current
+          const saved = boardsByProject.current.get(projectId)
+          if (saved?.length) return saved
+          let cursorX = 0
+          return m.routes.map((route) => {
+            const board = makeArtboard(route.path, DEFAULT_DEVICE_ID, cursorX, 0)
+            cursorX += deviceById(DEFAULT_DEVICE_ID).width + 80
+            return board
+          })
+        })
+      })
+      .catch((err: Error) => !cancelled && setError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    if (projectId != null && artboards.length) boardsByProject.current.set(projectId, artboards)
+  }, [projectId, artboards])
+
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [leftSection, setLeftSection] = useState<"pages" | "components" | "tokens">("pages")
+
+  // --- keyboard shortcuts (§9.7) --------------------------------------------
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const typing =
+        target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable
+      if (!typing) {
+        if (e.key.toLowerCase() === "c") setPicking((p) => !p)
+        if (e.key === "Escape") setPicking(false)
+        if (e.key === "+" || e.key === "=")
+          setTransform((t) => ({ ...t, scale: Math.min(2, t.scale * ZOOM_STEP) }))
+        if (e.key === "-")
+          setTransform((t) => ({ ...t, scale: Math.max(0.25, t.scale / ZOOM_STEP) }))
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setPaletteOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+
+  const addArtboard = useCallback(
+    (route: string, deviceId: string) => {
+      setArtboards((current) => {
+        const key = artboardKey(route, deviceId)
+        if (current.some((b) => b.key === key)) return current
+        const maxX = Math.max(0, ...current.map((b) => b.x + deviceById(b.deviceId).width))
+        return [...current, makeArtboard(route, deviceId, maxX + 80, 0)]
+      })
+    },
+    []
+  )
+
+  const responsiveReview = useCallback(() => {
+    if (!manifest?.routes.length) return
+    const route = manifest.routes[0].path
+    const ids = ["iphone-16-pro", "ipad-mini", "laptop"]
+    for (const id of ids) addArtboard(route, id)
+    setDeviceIds((prev) => [...new Set([...prev, ...ids])])
+    setTransform({ x: 60, y: 80, scale: 0.5 })
+  }, [manifest, addArtboard])
+
+  // Keep the canvas in sync with the toolbar device multi-select: one artboard
+  // per selected device for every route already on the canvas. Previously the
+  // picker only called setDeviceIds, so selecting a device flipped the "+N"
+  // label but never created (or removed) a screen.
+  const handleDevicesChange = useCallback((nextIds: string[]) => {
+    setArtboards((current) => {
+      const routes = [...new Set(current.map((b) => b.route))]
+      // Drop boards whose device was deselected.
+      let next = current.filter((b) => nextIds.includes(b.deviceId))
+      // Add a board per route for each newly selected device.
+      for (const id of nextIds) {
+        for (const route of routes) {
+          if (next.some((b) => b.key === artboardKey(route, id))) continue
+          const maxX = next.length
+            ? Math.max(...next.map((b) => b.x + deviceById(b.deviceId).width))
+            : 0
+          next = [...next, makeArtboard(route, id, maxX + 80, 0)]
+        }
+      }
+      return next
+    })
+    setDeviceIds(nextIds)
+  }, [])
+
+  const handleSelect = useCallback(
+    (raw: Record<string, unknown>, board: Artboard) => {
+      const clean = sanitizeSelection(raw, board.route, deviceById(board.deviceId).id)
+      if (!clean) return
+      setSelection({ ...clean, boardKey: board.key })
+      setPicking(false)
+    },
+    [],
+  )
+
+  const selectionOverlay = useMemo(() => {
+    if (!selection) return null
+    return { rect: selection.rect, boardKey: selection.boardKey }
+  }, [selection])
+
+  const pins = useMemo(
+    () => (
+      <CommentPins
+        comments={comments}
+        boards={artboards}
+        selectedPinId={null}
+        onSelectPin={(comment) => {
+          // Zoom to the pin's artboard and flash the element inside the frame.
+          const board = artboards.find((b) => b.route === comment.pagePath)
+          if (board) {
+            focusBoard(board.key, transform)
+            const frame = document.querySelector<HTMLIFrameElement>(
+              `iframe[data-board-key="${CSS.escape(board.key)}"]`,
+            )
+            frame?.contentWindow?.postMessage({ type: "design:flash", selector: comment.elementPath }, "*")
+          }
+        }}
+      />
+    ),
+    [comments, artboards, transform],
+  )
+
+  const paletteItems: PaletteItem[] = useMemo(() => {
+    if (!manifest) return []
+    const routeItems: PaletteItem[] = manifest.routes.map((r) => ({
+      key: `route:${r.path}`,
+      label: r.title,
+      hint: r.path,
+      group: "Routes",
+      run: () => {
+        addArtboard(r.path, deviceIds[0] ?? DEFAULT_DEVICE_ID)
+      },
+    }))
+    const componentItems: PaletteItem[] = manifest.components.map((c) => ({
+      key: `comp:${c.name}`,
+      label: c.name,
+      hint: `${c.usageCount} use(s)`,
+      group: "Components",
+      run: () => {
+        setLeftSection("components")
+      },
+    }))
+    const commentItems: PaletteItem[] = comments.map((c) => ({
+      key: `comment:${c.id}`,
+      label: c.body.slice(0, 60),
+      hint: c.pagePath,
+      group: "Comments",
+      run: () => {
+        const board = artboards.find((b) => b.route === c.pagePath)
+        if (board) focusBoard(board.key, transform)
+      },
+    }))
+    return [...routeItems, ...componentItems, ...commentItems]
+  }, [manifest, comments, artboards, transform, deviceIds, addArtboard])
+
+  if (!projectId) {
+    return (
+      <EmptyCanvas message="Pick a project first — the design surface hangs off a project workspace." />
+    )
+  }
+
+  return (
+    <section className="flex h-full min-h-0 flex-col bg-background">
+      {/* Toolbar */}
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard/board")}>
+          <ChevronLeftIcon className="size-4" />
+          Back
+        </Button>
+        <span className="text-sm font-semibold">Design</span>
+
+        <PagePicker
+          routes={manifest?.routes ?? []}
+          onOpen={(route) => {
+            addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)
+            focusBoard(artboardKey(route, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
+          }}
+        />
+
+        <DevicePicker deviceIds={deviceIds} onChange={handleDevicesChange} />
+
+        <ZoomControl transform={transform} onChange={setTransform} />
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={responsiveReview}>
+            Responsive review
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Toggle theme"
+            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+          >
+            {theme === "light" ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
+          </Button>
+          <Button
+            variant={picking ? "default" : "outline"}
+            size="sm"
+            onClick={() => setPicking((p) => !p)}
+          >
+            <CrosshairIcon className="size-4" />
+            {picking ? "Picking…" : "Pick"}
+          </Button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <LeftPanel
+          manifest={manifest}
+          sandboxToken={sandboxToken}
+          section={leftSection}
+          onSection={setLeftSection}
+          projectId={projectId}
+          onFilesChanged={() => setContentEpoch((e) => e + 1)}
+          onOpenRoute={(route) => {
+            addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)
+          }}
+        />
+
+        <main className="relative min-w-0 flex-1">
+          {error ? (
+            <EmptyCanvas message={error} />
+          ) : manifest && manifest.routes.length === 0 ? (
+            <EmptyCanvas
+              message={
+                "No pages yet.\nPrompt an agent: “design_get_tokens, then design_write_page('/')" +
+                " — or write styles/tokens.css and pages/index.html by hand."
+              }
+            />
+          ) : (
+            <DesignCanvas
+              artboards={artboards}
+              transform={transform}
+              onTransformChange={setTransform}
+              picking={picking}
+              theme={theme}
+              sandboxToken={sandboxToken}
+              contentEpoch={contentEpoch}
+              selection={selectionOverlay}
+              pins={pins}
+              onSelect={handleSelect}
+            />
+          )}
+        </main>
+
+        <aside className="hidden w-[320px] shrink-0 flex-col overflow-y-auto border-l lg:flex">
+          <DesignInspector
+            selection={selection}
+            manifest={manifest}
+            projectId={projectId}
+            onDeselect={() => setSelection(null)}
+            onCommentCreated={() => refreshComments()}
+          />
+        </aside>
+      </div>
+
+      <div className="relative">
+        <DesignPromptBar
+          agents={agents}
+          agentId={promptAgentId}
+          onAgentChange={setPromptAgentId}
+          selection={selection}
+          onClearSelection={() => setSelection(null)}
+          logRows={promptAgentId != null ? (logsByAgent[promptAgentId] ?? []) : []}
+          onSend={async (text) => {
+            if (!promptAgentId) throw new Error("No agent linked to this project yet.")
+            await sendDesignPrompt(projectId!, {
+              agent_id: promptAgentId,
+              text,
+              selection: selection
+                ? {
+                    route: selection.route,
+                    component: selection.component,
+                    elementPath: selection.elementPath,
+                    srcRef: selection.srcRef,
+                  }
+                : null,
+            })
+          }}
+        />
+      </div>
+
+      {paletteOpen ? (
+        <CommandPalette onClose={() => setPaletteOpen(false)} items={paletteItems} />
+      ) : null}
+    </section>
+  )
+}
+
+function focusBoard(key: string, transform: CanvasTransform) {
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`[data-artboard-key="${CSS.escape(key)}"]`)
+    el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" })
+    void transform
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar pieces
+// ---------------------------------------------------------------------------
+
+function PagePicker({
+  routes,
+  onOpen,
+}: {
+  routes: { path: string; title: string }[]
+  onOpen: (route: string) => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="gap-1" />}>
+        Open
+        <ChevronDownIcon className="size-3.5 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        {/* GroupLabel requires Menu.Group context — keep the label INSIDE the
+            group or Base UI throws "MenuGroupContext is missing" on open. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Pages</DropdownMenuLabel>
+          {routes.map((r) => (
+            <DropdownMenuItem key={r.path} onClick={() => onOpen(r.path)}>
+              <span>{r.title}</span>
+              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{r.path}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+        {!routes.length ? (
+          <p className="px-2 py-4 text-center text-xs text-muted-foreground">No pages yet.</p>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function DevicePicker({
+  deviceIds,
+  onChange,
+}: {
+  deviceIds: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const grouped = useMemo(() => {
+    const groups = new Map<DeviceGroup, typeof DEVICE_PRESETS>()
+    for (const d of DEVICE_PRESETS) {
+      const list = groups.get(d.group) ?? []
+      list.push(d)
+      groups.set(d.group, list)
+    }
+    return groups
+  }, [])
+
+  // Multi-select via checkbox items; the last remaining device can never be
+  // unchecked — a canvas with zero artboard sizes has nothing to render.
+  const toggle = (id: string, next: boolean) => {
+    if (!next && deviceIds.length === 1) return
+    const set = new Set(deviceIds)
+    if (next) set.add(id)
+    else set.delete(id)
+    // Preserve the preset table's order for stable layout math.
+    onChange(DEVICE_PRESETS.filter((d) => set.has(d.id)).map((d) => d.id))
+  }
+
+  const triggerLabel =
+    deviceIds.length === 1
+      ? deviceById(deviceIds[0]).label
+      : `${deviceById(deviceIds[0]).label} +${deviceIds.length - 1}`
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="outline" size="sm" className="max-w-44 gap-1 font-normal" />}
+      >
+        <MonitorSmartphoneIcon className="size-3.5 opacity-70" />
+        <span className="truncate">{triggerLabel}</span>
+        <ChevronDownIcon className="size-3.5 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-96 w-56 overflow-y-auto">
+        {[...grouped.entries()].map(([group, presets]) => (
+          <DropdownMenuGroup key={group}>
+            <DropdownMenuLabel>{DEVICE_GROUP_LABELS[group]}</DropdownMenuLabel>
+            {presets.map((d) => (
+              <DropdownMenuCheckboxItem
+                key={d.id}
+                checked={deviceIds.includes(d.id)}
+                onCheckedChange={(checked) => toggle(d.id, checked === true)}
+                closeOnClick={false}
+              >
+                <span className="flex-1">{d.label}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {d.width}×{d.height}
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
+          </DropdownMenuGroup>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ZoomControl({
+  transform,
+  onChange,
+}: {
+  transform: CanvasTransform
+  onChange: (t: CanvasTransform) => void
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded border px-1">
+      <button
+        className="px-2 py-0.5 text-sm hover:bg-muted"
+        title="Zoom out (-)"
+        onClick={() => onChange({ ...transform, scale: Math.max(0.25, transform.scale / ZOOM_STEP) })}
+      >
+        −
+      </button>
+      <span className="w-12 text-center font-mono text-xs">
+        {Math.round(transform.scale * 100)}%
+      </span>
+      <button
+        className="px-2 py-0.5 text-sm hover:bg-muted"
+        title="Zoom in (+)"
+        onClick={() => onChange({ ...transform, scale: Math.min(2, transform.scale * ZOOM_STEP) })}
+      >
+        +
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Panels
+// ---------------------------------------------------------------------------
+
+function LeftPanel({
+  manifest,
+  sandboxToken,
+  section,
+  onSection,
+  projectId,
+  onFilesChanged,
+  onOpenRoute,
+}: {
+  manifest: DesignManifest | null
+  sandboxToken: string | null
+  section: "pages" | "components" | "tokens"
+  onSection: (s: "pages" | "components" | "tokens") => void
+  projectId: number
+  onFilesChanged: () => void
+  onOpenRoute: (route: string) => void
+}) {
+  return (
+    <aside className="hidden w-[260px] shrink-0 flex-col overflow-y-auto border-r md:flex">
+      <PanelSection
+        icon={<FileCodeIcon className="size-3.5" />}
+        title="Pages"
+        open={section === "pages"}
+        onToggle={() => onSection("pages")}
+      >
+        {(manifest?.routes ?? []).map((route) => (
+          <button
+            key={route.path}
+            className="flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm hover:bg-muted"
+            onClick={() => onOpenRoute(route.path)}
+          >
+            <span>{route.title}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>
+          </button>
+        ))}
+        {!manifest?.routes.length && <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>}
+      </PanelSection>
+
+      <PanelSection
+        icon={<LayersIcon className="size-3.5" />}
+        title={`Components${manifest ? ` (${manifest.components.length})` : ""}`}
+        open={section === "components"}
+        onToggle={() => onSection("components")}
+      >
+        {(manifest?.components ?? []).map((c: ComponentEntry) => (
+          <div key={c.name} className="px-3 py-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs">{c.name}</span>
+              <span
+                className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                title={`Used on ${c.usedOn.length} route(s)`}
+              >
+                ×{c.usageCount}
+              </span>
+            </div>
+            {/* Live preview: the real component in the real sandbox against
+                the project's tokens — not a mock rendering. */}
+            {sandboxToken ? (
+              <div className="mt-1 overflow-hidden rounded border bg-zinc-50">
+                <iframe
+                  src={`${sandboxUrl(sandboxToken, `/preview/${c.name}`)}?preview=1`}
+                  title={`Preview of ${c.name}`}
+                  sandbox="allow-scripts allow-same-origin"
+                  className="h-14 w-[452px] origin-top-left scale-50 border-0"
+                  loading="lazy"
+                />
+              </div>
+            ) : null}
+            {c.attrs.length ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {c.attrs.map((a) => (
+                  <span key={a} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+                    {a}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {!manifest?.components.length && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">Registry is empty.</p>
+        )}
+      </PanelSection>
+
+      <PanelSection
+        icon={<PaletteIcon className="size-3.5" />}
+        title={`Tokens${manifest ? ` (${manifest.tokens.reduce((n, g) => n + g.variables.length, 0)})` : ""}`}
+        open={section === "tokens"}
+        onToggle={() => onSection("tokens")}
+      >
+        {/* Inline token editor (§6b): an edit is a design_write_tokens
+            equivalent — same validator, every artboard reloads via SSE. */}
+        {projectId ? (
+          <TokenEditor projectId={projectId} tokens={manifest?.tokens ?? []} onSaved={onFilesChanged} />
+        ) : null}
+      </PanelSection>
+    </aside>
+  )
+}
+
+/// Editable token palette. Click a value → inline input → Save rewrites
+/// styles/tokens.css through the SAME validated write agents use; a rejected
+/// edit shows the rule inline rather than disappearing.
+function TokenEditor({
+  projectId,
+  tokens,
+  onSaved,
+}: {
+  projectId: number
+  tokens: DesignManifest["tokens"]
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState<string | null>(null) // variable name
+  const [draft, setDraft] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [errors, setErrors] = useState<ValidationError[] | null>(null)
+
+  if (!tokens.length && !editing) {
+    return <p className="px-3 py-2 text-xs text-muted-foreground">No tokens.css yet.</p>
+  }
+
+  const saveVariable = async (variable: string, value: string) => {
+    setSaving(true)
+    setErrors(null)
+    try {
+      const file = await fetchDesignFile(projectId, "styles/tokens.css")
+      if (!file) {
+        setErrors([{ line: 0, rule: "missing", message: "styles/tokens.css does not exist yet." }])
+        return
+      }
+      // Replace only THIS declaration; leave everything else untouched.
+      const pattern = new RegExp(`(${variable.replace(/[-]/g, "\\-")}\\s*:\\s*)[^;]+;`)
+      const next = file.content.replace(pattern, `$1${value};`)
+      if (next === file.content) {
+        setErrors([{ line: 0, rule: "not-found", message: `Could not find ${variable} in styles/tokens.css.` }])
+        return
+      }
+      const result = await putDesignFile(projectId, "styles/tokens.css", next, file.version)
+      if (!result.ok) {
+        if ("errors" in result) setErrors(result.errors)
+        else setErrors([{ line: 0, rule: "conflict", message: "Someone edited tokens.css concurrently — reopen and retry." }])
+        return
+      }
+      setEditing(null)
+      onSaved()
+    } catch (err) {
+      setErrors([{ line: 0, rule: "network", message: err instanceof Error ? err.message : "Save failed." }])
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      {tokens.map((group) => (
+        <div key={group.name} className="px-3 py-1.5">
+          <p className="mb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{group.name}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {group.variables.map(([name, value]) =>
+              editing === name ? (
+                <form
+                  key={name}
+                  className="flex items-center gap-1"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!saving) void saveVariable(name, draft.trim())
+                  }}
+                >
+                  <input
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={() => !saving && setEditing(null)}
+                    className="h-6 w-24 rounded border bg-transparent px-1 font-mono text-[10px]"
+                  />
+                  <button type="submit" className="rounded bg-accent px-1.5 py-0.5 text-[10px] text-white">
+                    ✓
+                  </button>
+                </form>
+              ) : (
+                <button
+                  key={name}
+                  title={`${name}: ${value} — click to edit`}
+                  onClick={() => {
+                    setEditing(name)
+                    setDraft(value)
+                    setErrors(null)
+                  }}
+                  className={cn(
+                    "inline-flex h-6 min-w-6 items-center justify-center rounded border border-black/10 font-mono text-[10px]",
+                    group.name === "color" ? "w-8" : "bg-muted px-1",
+                  )}
+                  style={group.name === "color" ? { background: value } : undefined}
+                >
+                  {group.name === "color" ? "" : value}
+                </button>
+              ),
+            )}
+          </div>
+        </div>
+      ))}
+      {errors?.length ? (
+        <div className="mx-3 mb-2 rounded border border-destructive/40 bg-destructive/10 p-2">
+          {errors.map((e, i) => (
+            <p key={i} className="text-[11px] text-destructive">
+              {e.rule}: {e.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function PanelSection({
+  icon,
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="border-b">
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+        onClick={onToggle}
+      >
+        {icon}
+        {title}
+      </button>
+      {open ? <div className="pb-2">{children}</div> : null}
+    </div>
+  )
+}
+
+function EmptyCanvas({ message }: { message: string }) {
+  return (
+    <div className="flex h-full items-center justify-center p-10">
+      <div className="max-w-md text-center">
+        <p className="whitespace-pre-line text-sm text-muted-foreground">{message}</p>
+      </div>
+    </div>
+  )
+}

@@ -25,6 +25,9 @@ taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }
 taskflow-projects = { path = "plugins/taskflow-projects" }
 taskflow-github = { path = "plugins/taskflow-github" }
+# Design Surface: the agent-editable UI canvas (pages/components/tokens rows,
+# validator, sandbox composer). See plugins/taskflow-design/src/lib.rs.
+taskflow-design = { path = "plugins/taskflow-design" }
 
 # ----- Framework core (always required) ------------------------------------
 umbral         = "0.0.10"

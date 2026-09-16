@@ -1,0 +1,300 @@
+//! The shell composer — the thing that guarantees consistency.
+//!
+//! Agents never write `<html>`, `<head>` or `<body>`; the server generates the
+//! document on every request from the manifest + the page fragment. Identical
+//! head, identical tokens, identical component definitions, identical picker —
+//! there is nothing for an agent to copy-paste and nothing to drift.
+//!
+//! Also owns source annotation (`data-src="pages/x.html:12"`), sandbox-URL
+//! rewriting of internal links, and the overlay `state` hook screenshots use.
+
+use crate::manifest::DesignManifest;
+
+/// The picker runtime, injected verbatim into every composed document. This is
+/// SYSTEM-owned: it is never read from a design row, so agents cannot alter or
+/// disable selection. Capture-phase listeners so a page's own handlers cannot
+/// swallow the click; `stopImmediatePropagation` keeps links dead while picking.
+const PICKER_RUNTIME: &str = r#"(() => {
+  let on = false;
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;' +
+    'border:2px solid var(--pick,#6366f1);border-radius:3px;transition:all .06s';
+  const label = document.createElement('div');
+  label.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;' +
+    'font:11px ui-monospace;background:#6366f1;color:#fff;padding:1px 5px;border-radius:3px';
+
+  const pathTo = (el) => {
+    const parts = [];
+    while (el && el !== document.body && parts.length < 8) {
+      const i = [...el.parentElement.children].indexOf(el) + 1;
+      parts.unshift(el.tagName.toLowerCase() + ':nth-child(' + i + ')');
+      if (el.dataset.component) break;
+      el = el.parentElement;
+    }
+    return parts.join(' > ');
+  };
+
+  addEventListener('mousemove', (e) => {
+    if (!on) return;
+    const el = e.target;
+    const r = el.getBoundingClientRect();
+    Object.assign(box.style, { top: r.top + 'px', left: r.left + 'px',
+      width: r.width + 'px', height: r.height + 'px' });
+    Object.assign(label.style, { top: Math.max(0, r.top - 18) + 'px', left: r.left + 'px' });
+    const host = el.closest('[data-component]');
+    label.textContent = host ? host.dataset.component : el.tagName.toLowerCase();
+    document.body.append(box, label);
+  }, true);
+
+  addEventListener('click', (e) => {
+    if (!on) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const el = e.target, host = el.closest('[data-component]');
+    const r = el.getBoundingClientRect();
+    parent.postMessage({ type: 'design:select',
+      component: host && host.dataset.component || null,
+      elementPath: pathTo(el),
+      src: el.closest('[data-src]') ? el.closest('[data-src]').dataset.src : null,
+      tag: el.tagName.toLowerCase(),
+      text: (el.textContent || '').trim().slice(0, 80),
+      rect: { x: r.x, y: r.y, w: r.width, h: r.height },
+      snippet: el.outerHTML.slice(0, 600),
+      ancestors: (() => { const a = []; let n = el;
+        while (n && n !== document.body) { a.unshift((n.dataset && n.dataset.component) || n.tagName.toLowerCase()); n = n.parentElement; }
+        return a.slice(-6); })()
+    }, '*');
+  }, true);
+
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') parent.postMessage({ type: 'design:deselect' }, '*');
+    if (on && e.key !== 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+
+  const ro = new ResizeObserver(() => parent.postMessage(
+    { type: 'design:size', h: document.documentElement.scrollHeight }, '*'));
+  ro.observe(document.documentElement);
+
+  addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'design:mode') { on = !!m.picking;
+      document.documentElement.style.cursor = on ? 'crosshair' : '';
+      if (!on) { box.remove(); label.remove(); } }
+    if (m.type === 'design:theme') document.documentElement.dataset.theme = m.theme;
+    if (m.type === 'design:flash') {
+      try {
+        const target = m.elementPath ? document.querySelector(m.elementPath)
+          : (m.selector ? document.querySelector(m.selector) : null);
+        if (target) {
+          const prev = target.style.outline;
+          target.style.outline = '3px solid var(--pick,#6366f1)';
+          setTimeout(() => { target.style.outline = prev; }, 900);
+          if (target.scrollIntoViewIfNeeded) target.scrollIntoViewIfNeeded();
+          else target.scrollIntoView({ block: 'center' });
+        }
+      } catch (_) {}
+    }
+  });
+
+  parent.postMessage({ type: 'design:ready',
+    h: document.documentElement.scrollHeight }, '*');
+})();"#;
+
+/// Escape text for interpolation into HTML.
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Rewrite sandbox-relative hrefs to tokenized URLs so `<a href="/settings">`
+/// navigates natively inside the frame — no router needed.
+fn rewrite_hrefs(html: &str, base: &str) -> String {
+    // Match href="/..." and href="./..." and href="#..."; only path-form hrefs
+    // need the prefix. Anchors pass through untouched.
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(pos) = rest.find("href=\"") {
+        let abs = pos;
+        out.push_str(&rest[..abs]);
+        let after = &rest[abs + "href=\"".len()..];
+        let end = after.find('"').unwrap_or(after.len());
+        let href = &after[..end];
+        let rewritten = if href.starts_with('/') && !href.starts_with("/s/") && !href.starts_with("//")
+        {
+            format!("{}{}", base.trim_end_matches('/'), href)
+        } else if href.starts_with('#') || href.is_empty() || href.starts_with("http") {
+            href.to_string()
+        } else {
+            // Relative like "settings" → sibling route.
+            format!("{}/{}", base.trim_end_matches('/'), href)
+        };
+        out.push_str(&format!("href=\"{rewritten}\""));
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Stamp `data-src="{file}:{line}"` on every element that does not already
+/// carry one. Line numbers come from counting newlines up to each start tag —
+/// exactly what an agent needs to land an edit on `pages/settings.html:41`.
+pub fn annotate_sources(fragment: &str, file: &str) -> String {
+    let bytes = fragment.as_bytes();
+    let mut out = String::with_capacity(fragment.len() + fragment.len() / 8);
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'<' || i + 1 >= bytes.len() {
+            out.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+        let next = bytes[i + 1];
+        if !next.is_ascii_alphabetic() {
+            // Closing tags, comments, doctypes: copy through byte-wise to stay
+            // UTF-8 safe on multibyte content.
+            let ch = fragment[i..].chars().next().unwrap_or('<');
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
+        // Find the real end of the start tag (quote-aware).
+        let mut j = i + 1;
+        let mut in_quote: Option<u8> = None;
+        while j < bytes.len() {
+            let b = bytes[j];
+            if let Some(q) = in_quote {
+                if b == q {
+                    in_quote = None;
+                }
+            } else if b == b'"' || b == b'\'' {
+                in_quote = Some(b);
+            } else if b == b'>' {
+                break;
+            }
+            j += 1;
+        }
+        if j >= bytes.len() {
+            out.push_str(&fragment[i..]);
+            break;
+        }
+        let tag_src = &fragment[i..=j];
+        if tag_src.contains("data-src=") {
+            out.push_str(tag_src);
+        } else {
+            let line = fragment[..i].matches('\n').count() + 1;
+            // Insert just before the closing `>` (or `/>`).
+            let trimmed = tag_src.trim_end();
+            let self_closing = trimmed.ends_with("/>");
+            let head = if self_closing {
+                trimmed.strip_suffix("/>").expect("checked")
+            } else {
+                trimmed.strip_suffix('>').expect("checked")
+            };
+            out.push_str(head);
+            out.push_str(&format!(" data-src=\"{}:{}\"", file, line));
+            if self_closing {
+                out.push_str("/>");
+            } else {
+                out.push('>');
+            }
+        }
+        i = j + 1;
+    }
+    out
+}
+
+/// Compose the full document for one route.
+///
+/// * `token`     — the sandbox read token for this project
+/// * `manifest`  — the current derived manifest
+/// * `route`     — `/`, `/settings`, …
+/// * `page_path` — `pages/settings.html` (must map back to `route`)
+/// * `fragment`  — the raw body fragment
+/// * `state`     — optional overlay state (`dialog:confirm-delete`) the
+///   composer wires to open on load so screenshot review can reach UI that
+///   only exists after a click.
+pub fn compose_document(
+    token: &str,
+    manifest: &DesignManifest,
+    _route: &str,
+    page_path: &str,
+    fragment: &str,
+    theme: &str,
+    state: Option<&str>,
+) -> String {
+    let base = format!("/s/{token}");
+    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base), page_path);
+
+    let mut component_tags = String::new();
+    for c in &manifest.components {
+        component_tags
+            .push_str(&format!("<script src=\"/s/{token}/f/components/{}.js\"></script>\n", esc(&c.name)));
+    }
+
+    // Overlay state hook: a tiny system-owned script mapping `?state=` names to
+    // elements. Convention: `state="dialog:<name>"` opens `[data-state=<name>]`
+    // (removing [hidden], adding open) on load. Components opt in by stamping
+    // data-state on their overlays; pages that name no such element simply
+    // render normally.
+    let state_script = match state {
+        Some(s) if !s.is_empty() => {
+            let kind = s.split(':').next().unwrap_or("");
+            let name = s.split_once(':').map(|x| x.1).unwrap_or("");
+            if (kind == "dialog" || kind == "overlay") && !name.is_empty() {
+                format!(
+                    r#"<script>
+document.addEventListener('DOMContentLoaded', () => {{
+  const el = document.querySelector('[data-state="{}"], dialog[name="{}"]');
+  if (!el) return;
+  if (el instanceof HTMLDialogElement) {{ try {{ el.showModal(); }} catch (_) {{}} }}
+  else {{ el.removeAttribute('hidden'); el.setAttribute('open', ''); }}
+}});
+</script>"#,
+                    esc(name),
+                    esc(name)
+                )
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    };
+
+    format!(
+        r#"<!doctype html>
+<html lang="en" data-theme="{theme}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
+  {component_tags}<script>{PICKER_RUNTIME}</script>
+  {state_script}
+</head>
+<body class="bg-[var(--bg)] text-[var(--fg)] antialiased">
+{annotated}
+</body>
+</html>"#,
+    )
+}
+
+/// CSP for the sandbox origin. Tight `connect-src` (self + Tailwind CDN only):
+/// without it, agent-authored JS could `fetch()` the operator's localhost and
+/// internal network from inside their browser. Inline scripts are allowed
+/// because the composer's own picker/state scripts are inline by design.
+pub fn sandbox_csp(token: &str) -> String {
+    let _ = token;
+    format!(
+        "default-src 'self'; \
+         script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: blob:; \
+         font-src 'self' data:; \
+         connect-src 'self' https://cdn.jsdelivr.net; \
+         form-action 'none'; \
+         base-uri 'none'; \
+         frame-ancestors *"
+    )
+}

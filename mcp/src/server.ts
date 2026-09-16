@@ -977,5 +977,267 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
+  // ---- Design Surface -------------------------------------------------------
+  // The design tools are the ONLY sanctioned way an agent touches a project's
+  // generated UI. There is no generic write_file on purpose: pages compose from
+  // registered custom elements and one token scale, and anything else is a
+  // rejected write (that rejection is the feature — read the errors, they name
+  // the rule and the token to use instead).
+
+  /** Resolve the tool's `project` argument against this credential's project. */
+  const designProjectArg = {
+    project: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        "The project id whose design you are editing. Normally OMIT it: your credential pins " +
+          "one project and that is what will be used. Passing another id is refused, not routed.",
+      ),
+  };
+
+  async function resolveDesignProject(
+    client: TaskflowClient,
+    project?: number,
+  ): Promise<number> {
+    if (project !== undefined) return project;
+    const identity = (await client.whoami()) as { project?: number };
+    if (typeof identity.project !== "number") {
+      throw new Error("Could not resolve your project id; call whoami.");
+    }
+    return identity.project;
+  }
+
+  server.tool(
+    "design_get_tokens",
+    "Read the design token scale (colors, spacing, radius, fonts) as CSS + parsed groups. ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]).",
+    { ...designProjectArg, ...profileArg },
+    async ({ project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.designContext(await resolveDesignProject(client, project)));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_list_components",
+    "List the project's component registry: every custom element, its attributes, where it is used (usedOn routes + usage counts), and the page routes. Compose pages from THESE — do not invent new tags.",
+    { ...designProjectArg, ...profileArg },
+    async ({ project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.designContext(await resolveDesignProject(client, project)));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_read_component",
+    "Read one component's source, version, and the routes that use it.",
+    {
+      name: z.string().min(1).describe("Component name, e.g. 'app-header'."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ name, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.readDesignComponent(await resolveDesignProject(client, project), name));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_read_page",
+    "Read one page's HTML body fragment (never a full document — the shell is server-composed) plus its version for optimistic writes.",
+    {
+      route: z.string().min(1).describe("Route path, e.g. '/' or '/settings'."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ route, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.readDesignPage(await resolveDesignProject(client, project), route));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_write_page",
+    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Styling via Tailwind classes on the TOKEN scale only: bg-[#3b82f6] is rejected; bg-[var(--accent)] is not. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently.",
+    {
+      route: z.string().min(1).describe("Route path to write, e.g. '/settings'."),
+      html: z.string().min(1).describe("The full replacement fragment."),
+      base_version: z.number().int().optional().describe("Version from design_read_page; omit to force."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ route, html, base_version, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeDesignPage(await resolveDesignProject(client, project), route, html, base_version),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_write_component",
+    "Register or update ONE custom element (one per file, light DOM, Tailwind + tokens). Requires `reason` — state why the registry must change; instance tweaks belong in page attributes instead. Banned inside components: fetch/XHR, eval/new Function/import(), localStorage/cookies, attachShadow. The response names every route you just touched.",
+    {
+      name: z.string().min(1).regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/)
+        .describe("Custom element name WITH a hyphen, e.g. 'app-header' — must match the define() in js."),
+      js: z.string().min(1).describe("Full file source with exactly one customElements.define('<name>', …)."),
+      reason: z.string().min(8).describe("Why the registry must change (e.g. 'no text input in registry')."),
+      base_version: z.number().int().optional(),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ name, js, reason, base_version, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeDesignComponent(await resolveDesignProject(client, project), name, js, reason, base_version),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_write_tokens",
+    "Replace styles/tokens.css wholesale (@theme block required, no remote @import). Touches EVERY route and component at once — requires `reason`. Prefer adding variables over changing existing ones mid-project.",
+    {
+      css: z.string().min(1).describe("Complete new tokens.css content."),
+      reason: z.string().min(8).describe("Why the whole scale must change now."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ css, reason, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.writeDesignTokens(await resolveDesignProject(client, project), css, reason));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_screenshot",
+    "Render a route in headless Chromium at a named viewport and return a PNG. You cannot see the UI otherwise — call this on a route BEFORE and AFTER your edits and self-critique the result. state='dialog:confirm-delete' opens that overlay first so click-only UI is reviewable.",
+    {
+      route: z.string().min(1).describe("Route path to render, e.g. '/settings'."),
+      viewport: z.string().min(1).default("laptop").describe("Device preset id (iphone-16-pro, ipad-mini, laptop…)."),
+      state: z.string().optional().describe("Overlay state to open on load, e.g. 'dialog:confirm-delete'."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ route, viewport, state, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        const projectId = await resolveDesignProject(client, project);
+        const shot = await client.designScreenshot(projectId, route, viewport, state);
+        if (!shot.png_base64) throw new Error("Renderer returned no image.");
+        return {
+          content: [
+            {
+              type: "image",
+              data: shot.png_base64,
+              mimeType: "image/png",
+            },
+            {
+              type: "text",
+              text:
+                `Screenshot of ${shot.route} at ${shot.viewport}. Self-critique it against ` +
+                `the tokens scale and your instruction before calling it done.`,
+            },
+          ],
+        };
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_list_comments",
+    "Read operator comments on the rendered design as STRUCTURED TARGETS: which file, which component, which element path, how many routes it affects, plus the instruction itself. Default status 'open'.",
+    {
+      status: z.enum(["open", "sent", "addressed", "dismissed"]).optional().describe("Default open."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ status, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.listDesignComments(await resolveDesignProject(client, project), status ?? "open"));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_resolve_comment",
+    "Mark one comment addressed after you actually changed the thing it points at, with a short note of what you did (shown to the operator on the artboard).",
+    {
+      id: z.string().min(1).describe("Comment id from design_list_comments (cm_… form) — the numeric row id also works."),
+      note: z.string().min(4).describe("What you changed to address it."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ id, note, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        const projectId = await resolveDesignProject(client, project);
+        // cm_<hex> → numeric row id; bare numbers pass through.
+        const rowId = /^cm_[0-9a-f]+$/i.test(id.trim())
+          ? parseInt(id.trim().slice(3), 16)
+          : Number.parseInt(id, 10);
+        if (!Number.isFinite(rowId)) {
+          throw new Error(`Unreadable comment id '${id}'.`);
+        }
+        return ok(await client.resolveDesignComment(projectId, rowId, note));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
   return server;
 }

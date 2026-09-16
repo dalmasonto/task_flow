@@ -472,8 +472,111 @@ export class TaskflowClient {
   }
 
   /** `POST /agents/activity` — log a batch of activity events. */
-  logActivityBatch(events: ActivityEventInput[]): Promise<{ created: number }> {
+  logActivityBatch(events: ActivityEventInput[]): Promise<unknown> {
     return this.request("POST", `${API_PREFIX}/agents/activity`, { body: { events } });
+  }
+
+  // ---- Design Surface (§8 of the design-surface spec) -----------------------
+  //
+  // One method per MCP tool call. `project` is always the tool's argument; the
+  // backend refuses anything other than the credential's own project, so the
+  // parameter is an assertion, not an authority.
+
+  /** `GET /agents/design/context` — tokens + component registry. */
+  designContext(project: number): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/context`, {
+      query: { project },
+      idempotent: true,
+    });
+  }
+
+  /** `GET /agents/design/page?route=` — one page fragment + version. */
+  readDesignPage(project: number, route: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/page`, {
+      query: { project, route },
+      idempotent: true,
+    });
+  }
+
+  /** `GET /agents/design/component?name=` — source + blast radius. */
+  readDesignComponent(project: number, name: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/component`, {
+      query: { project, name },
+      idempotent: true,
+    });
+  }
+
+  /** `PUT /agents/design/page` — validated page-fragment write. */
+  writeDesignPage(
+    project: number,
+    route: string,
+    html: string,
+    baseVersion?: number,
+  ): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/design/page`, {
+      body: {
+        project,
+        route,
+        html,
+        ...(baseVersion !== undefined ? { base_version: baseVersion } : {}),
+      },
+    });
+  }
+
+  /** `PUT /agents/design/component` — registry write; REQUIRES reason. */
+  writeDesignComponent(
+    project: number,
+    name: string,
+    js: string,
+    reason: string,
+    baseVersion?: number,
+  ): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/design/component`, {
+      body: {
+        project,
+        name,
+        js,
+        reason,
+        ...(baseVersion !== undefined ? { base_version: baseVersion } : {}),
+      },
+    });
+  }
+
+  /** `PUT /agents/design/tokens` — touches every route; REQUIRES reason. */
+  writeDesignTokens(project: number, css: string, reason: string): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/design/tokens`, {
+      body: { project, css, reason },
+    });
+  }
+
+  /** `GET /agents/design/screenshot` — render a route; `{png_base64}`. */
+  designScreenshot(
+    project: number,
+    route: string,
+    viewport: string,
+    state?: string,
+  ): Promise<{ route: string; viewport: string; mime: string; png_base64: string }> {
+    return this.request("GET", `${API_PREFIX}/agents/design/screenshot`, {
+      query: { project, route, viewport, ...(state ? { state } : {}) },
+      timeoutMs: 45_000,
+    });
+  }
+
+  /** `GET /agents/design/comments` — open comments as structured targets. */
+  listDesignComments(project: number, status = "open"): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/comments`, {
+      query: { project, status },
+      idempotent: true,
+    });
+  }
+
+  /** `POST /agents/design/comments/{id}/resolve` — mark addressed + note. */
+  resolveDesignComment(project: number, commentRowId: number, note: string): Promise<unknown> {
+    return this.request(
+      "POST",
+      `${API_PREFIX}/agents/design/comments/${commentRowId}/resolve`,
+      { body: { project, note } },
+    );
   }
 }
 

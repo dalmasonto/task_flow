@@ -37,6 +37,7 @@ import { ALL_TOOLS } from "@/lib/activity-filter"
 /// The shared room every project gets. Named in one place so the auto-open
 /// preference and the create path cannot drift apart.
 import { ActivityLogPage } from "@/pages/activity"
+import { DesignSurfacePage } from "@/pages/design/DesignSurfacePage"
 import { AgentsConversationEmpty, AgentsConversationRoute, AgentsPage } from "@/pages/agents"
 import { ApiBasePage } from "@/pages/api-base"
 import { AuthGateScreen, AuthPage } from "@/pages/auth"
@@ -2362,6 +2363,10 @@ function App() {
               }
             />
             <Route path="/dashboard/settings" element={<Navigate to="/dashboard/api" replace />} />
+            <Route
+              path="/dashboard/design"
+              element={<DesignSurfacePage projectId={activeProject ? Number(liveId(activeProject.id)) : null} />}
+            />
             <Route
               path="/dashboard/api"
               element={

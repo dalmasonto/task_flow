@@ -53,6 +53,10 @@ export const taskflowTables = {
   channelReadCursors: "taskflow_channel_read_cursor",
   taskReviews: "taskflow_task_review",
   agentPrompts: "taskflow_agent_prompt",
+  // Design Surface rows live in their own tables and ride their own groups;
+  // the design page listens for these two directly.
+  designFiles: "design_file",
+  designComments: "design_comment",
 } as const
 
 /// Group suffixes are a contract with backend/src/realtime.rs — short labels,
@@ -77,6 +81,8 @@ const realtimeGroupSuffixes = {
   [taskflowTables.channelReadCursors]: "read_cursors",
   [taskflowTables.taskReviews]: "task_reviews",
   [taskflowTables.agentPrompts]: "prompts",
+  [taskflowTables.designFiles]: "design_files",
+  [taskflowTables.designComments]: "design_comments",
 } as const satisfies Record<Exclude<RealtimeTableName, typeof taskflowTables.projects>, string>
 
 export const taskflowGroups = {
@@ -162,6 +168,8 @@ type RealtimeTableName =
   | typeof taskflowTables.channelReadCursors
   | typeof taskflowTables.taskReviews
   | typeof taskflowTables.agentPrompts
+  | typeof taskflowTables.designFiles
+  | typeof taskflowTables.designComments
 
 export type TaskflowRealtimeEvent = {
   table: RealtimeTableName

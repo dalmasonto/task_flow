@@ -31,6 +31,7 @@ use taskflow_agents::models::{
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
     TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview, TaskflowTerminalInput,
 };
+use taskflow_design::models::{DesignComment, DesignFile};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
 };
@@ -63,6 +64,8 @@ const PROMPTS: &str = "prompts";
 const PROJECT_MEMBERS: &str = "project_members";
 const PROJECT_INVITES: &str = "project_invites";
 const API_ENDPOINTS: &str = "api_endpoints";
+const DESIGN_FILES: &str = "design_files";
+const DESIGN_COMMENTS: &str = "design_comments";
 const PRESENCE: &str = "presence";
 
 // The chat tables carry NO projected fields — see the `expose` calls below for
@@ -276,6 +279,17 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowChannelReadCursor>(Expose::to_group_with(|ev| {
             group_for(READ_CURSORS, &ev.instance)
         }))
+        // Design Surface: file writes (agent or operator) and comment updates
+        // ping their project groups; `GET /api/design/{project}/events` serves
+        // exactly these two groups to members. Files are id-only — the chrome
+        // refetches content + recomputes the manifest over REST, so a stale
+        // projection can never render. Comments are projected inline: pins and
+        // status badges render straight from the event, and a comment row is
+        // already readable by every project member over REST.
+        .expose::<DesignFile>(Expose::to_group_with(|ev| group_for(DESIGN_FILES, &ev.instance)))
+        .expose::<DesignComment>(
+            Expose::to_group_with(|ev| group_for(DESIGN_COMMENTS, &ev.instance)),
+        )
 }
 
 /// `project:{id}:{suffix}` for a row carrying a `project` FK, else the
@@ -387,6 +401,8 @@ const ALL_SUFFIXES: &[&str] = &[
     PROJECT_MEMBERS,
     PROJECT_INVITES,
     API_ENDPOINTS,
+    DESIGN_FILES,
+    DESIGN_COMMENTS,
     PRESENCE,
 ];
 

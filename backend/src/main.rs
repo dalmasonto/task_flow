@@ -32,6 +32,7 @@ mod widgets;
 
 use std::sync::Arc;
 use taskflow_agents::TaskflowAgentsPlugin;
+use taskflow_design::TaskflowDesignPlugin;
 use taskflow_github::TaskflowGithubPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
@@ -129,6 +130,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .plugin(TaskflowProjectsPlugin::default())
         .plugin(TaskflowTasksPlugin::default())
         .plugin(TaskflowAgentsPlugin::default())
+        // Design Surface: agent-editable UI canvas per project. Chrome-facing
+        // JSON at /api/design/{project}/..., the origin-isolated sandbox frame
+        // at /s/{token}/... (HMAC read token, no cookies).
+        .plugin(TaskflowDesignPlugin::default())
         // GitHub OAuth: social login + account-linking. Requires SessionsPlugin
         // (wired above) for the single-use `state` + PKCE. Providers load from
         // env (UMBRAL_OAUTH_GITHUB_CLIENT_ID/SECRET); absent env => no provider

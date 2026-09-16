@@ -1,0 +1,45 @@
+[package]
+name = "taskflow-design"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+umbral = "0.0.10"
+umbral-auth = "0.0.10"
+# Project scoping: every design surface hangs off a TaskflowProject, and
+# membership checks reuse `taskflow_projects::scope::can_access_project`.
+taskflow-projects = { path = "../taskflow-projects" }
+# Agent-authed endpoints (`RequireAgent`) for the MCP design tools. No cycle:
+# taskflow-agents depends on projects/tasks/github only.
+taskflow-agents = { path = "../taskflow-agents" }
+taskflow-tasks = { path = "../taskflow-tasks" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+# Writes are serialized per project through an async mutex registry.
+tokio = { version = "1", features = ["sync", "rt", "process", "io-util", "fs", "time", "macros"] }
+# Sandbox tokens are HMAC-SHA256 over (project_id, expiry).
+hmac = "0.12"
+sha2 = "0.10"
+# The design SSE endpoint registers directly with the realtime hub (same shape
+# as the agent event stream) so it can serve `GET /api/design/{project}/events`
+# without widening the user-facing group policy.
+umbral-realtime = "0.0.10"
+axum = "0.8"
+tokio-stream = "0.1"
+# HeaderValue / typed header names for the sandbox response headers (same usage
+# as umbral-storage's static server).
+http = "1"
+# Raster assets are stored base64-wrapped in the TEXT content column.
+base64 = "0.22"
+
+[dev-dependencies]
+umbral-testing = "0.0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+http = "1"
+base64 = "0.22"
+# The agent-surface tests seed real agent credentials, which means the
+# taskflow-agents models must exist in the throwaway schema.
+taskflow-agents = { path = "../taskflow-agents" }
+taskflow-tasks = { path = "../taskflow-tasks" }

@@ -24,6 +24,7 @@ import {
   ImageIcon,
   KanbanSquareIcon,
   LayoutDashboardIcon,
+  PenToolIcon,
   ShieldCheckIcon,
   UserRoundPlusIcon,
 } from "lucide-react"
@@ -86,6 +87,12 @@ export function AppSidebar({
       title: "Board",
       url: "/dashboard/board",
       icon: <KanbanSquareIcon />,
+      onSelect: closeMobileSidebar,
+    },
+    {
+      title: "Design",
+      url: "/dashboard/design",
+      icon: <PenToolIcon />,
       onSelect: closeMobileSidebar,
     },
     {
