@@ -23,6 +23,16 @@ fn esc_attr(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Escape a value that is interpolated into element TEXT (not an attribute):
+/// only `<` and `>` are neutralized so a `<script>` smuggled through an
+/// attribute value like `title`/`trigger`/`label` cannot become a live tag.
+/// `&` and quotes are deliberately left untouched so author-written entities
+/// (e.g. `&amp;`, `&mdash;`) survive verbatim, consistent with page-content
+/// authoring.
+fn esc_text(s: &str) -> String {
+    s.replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// Deterministic id source: one counter per `expand_primitives` call so
 /// output for a given input is stable across runs.
 struct Counter(usize);
@@ -99,6 +109,50 @@ fn find_tag_end(haystack: &str, start: usize) -> Option<usize> {
     None
 }
 
+/// Byte after `<{tag}` (or `</{tag}`) that confirms the tag NAME ends there,
+/// rather than this being a longer tag that merely shares the prefix (so
+/// `ui-tab` never matches `ui-tabs`).
+fn name_boundary(b: Option<&u8>) -> bool {
+    b.is_none_or(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/'))
+}
+
+/// Find the byte index (of the `<`) of the `</{tag}>` close tag that MATCHES
+/// the already-opened `<{tag}>` whose inner content starts at `content_start`,
+/// counting nested same-name opens so self-nesting (e.g. a `ui-tabs` inside a
+/// `ui-tabs`) resolves to the correct close. Returns `None` if unbalanced.
+fn find_matching_close(haystack: &str, tag: &str, content_start: usize) -> Option<usize> {
+    let open_needle = format!("<{tag}");
+    let close_needle = format!("</{tag}>");
+    let bytes = haystack.as_bytes();
+    let mut depth = 1usize;
+    let mut i = content_start;
+    while i < haystack.len() {
+        let rest = &haystack[i..];
+        let next_close = rest.find(close_needle.as_str()).map(|r| i + r);
+        let next_open = rest.find(open_needle.as_str()).map(|r| i + r);
+        let close_pos = next_close?;
+        if let Some(open_pos) = next_open {
+            if open_pos < close_pos {
+                let ends = name_boundary(bytes.get(open_pos + open_needle.len()));
+                // Advance past this token either way; only a real, boundary-
+                // terminated open increases depth (a prefix like `<ui-tabs`
+                // when scanning for `ui-tab` is skipped without nesting).
+                i = open_pos + open_needle.len();
+                if ends {
+                    depth += 1;
+                }
+                continue;
+            }
+        }
+        depth -= 1;
+        if depth == 0 {
+            return Some(close_pos);
+        }
+        i = close_pos + close_needle.len();
+    }
+    None
+}
+
 fn is_known_primitive(name: &str) -> bool {
     matches!(name, "ui-accordion" | "ui-dialog" | "ui-sheet" | "ui-tabs")
 }
@@ -116,9 +170,11 @@ fn extract_slot(inner: &str, tag: &str) -> String {
         return String::new();
     };
     let open_end = start + gt_rel + 1;
-    let close_tag = format!("</{tag}>");
-    match inner[open_end..].find(close_tag.as_str()) {
-        Some(close_rel) => inner[open_end..open_end + close_rel].to_string(),
+    // Depth-aware so an outer slot whose content contains a nested primitive
+    // with a same-named slot (e.g. a ui-dialog inside a ui-dialog-body) is
+    // captured whole, not truncated at the inner close tag.
+    match find_matching_close(inner, tag, open_end) {
+        Some(close_pos) => inner[open_end..close_pos].to_string(),
         None => String::new(),
     }
 }
@@ -146,10 +202,11 @@ fn extract_tabs(inner: &str) -> Vec<(String, String)> {
         let open_tag = &inner[start..=end];
         let label = get_attr(open_tag, "label").unwrap_or_default();
         let close = "</ui-tab>";
-        match inner[end + 1..].find(close) {
-            Some(close_rel) => {
+        // Depth-aware so a tab panel that contains a nested ui-tabs (whose
+        // own ui-tab children close first) is captured whole.
+        match find_matching_close(inner, "ui-tab", end + 1) {
+            Some(content_end) => {
                 let content_start = end + 1;
-                let content_end = content_start + close_rel;
                 let panel = inner[content_start..content_end].to_string();
                 tabs.push((label, panel));
                 i = content_end + close.len();
@@ -160,14 +217,15 @@ fn extract_tabs(inner: &str) -> Vec<(String, String)> {
     tabs
 }
 
-fn render_accordion(open_tag: &str, inner: &str) -> String {
-    let title = get_attr(open_tag, "title").unwrap_or_default();
+fn render_accordion(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
+    let title = esc_text(&get_attr(open_tag, "title").unwrap_or_default());
     let data_src = get_data_src(open_tag);
     // Recurse so a primitive nested inside the accordion body (e.g. another
-    // ui-accordion, or a ui-dialog) is fully expanded before splicing.
+    // ui-accordion, or a ui-dialog) is fully expanded before splicing. Uses
+    // the SAME counter so nested primitives get unique ids across the tree.
     // Terminates because this level's outer <ui-accordion>...</ui-accordion>
     // has already been consumed by the caller.
-    let inner = expand_primitives(inner);
+    let inner = expand_with(inner, counter);
     format!(
         r#"<details class="group border-b border-[var(--border)]"{data_src}>
   <summary class="flex cursor-pointer list-none items-center justify-between py-4 font-medium text-[var(--foreground)] marker:content-['']">{title}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="size-4 shrink-0 text-[var(--muted-foreground)] transition-transform group-open:rotate-180"><path d="m6 9 6 6 6-6"/></svg></summary>
@@ -179,14 +237,15 @@ fn render_accordion(open_tag: &str, inner: &str) -> String {
 fn render_dialog(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     let n = counter.next();
     let id = format!("dialog-{n}");
-    let trigger = get_attr(open_tag, "trigger").unwrap_or_else(|| "Open".to_string());
+    let trigger = esc_text(&get_attr(open_tag, "trigger").unwrap_or_else(|| "Open".to_string()));
     let name = get_attr(open_tag, "name").unwrap_or_else(|| id.clone());
     let name = esc_attr(&name);
     let data_src = get_data_src(open_tag);
     // Recurse into each slot so a nested primitive (e.g. a ui-accordion
-    // inside ui-dialog-body) is fully expanded before splicing.
-    let title = expand_primitives(&extract_slot(inner, "ui-dialog-title"));
-    let body = expand_primitives(&extract_slot(inner, "ui-dialog-body"));
+    // inside ui-dialog-body) is fully expanded before splicing. Uses the SAME
+    // counter so nested primitives get unique ids across the tree.
+    let title = expand_with(&extract_slot(inner, "ui-dialog-title"), counter);
+    let body = expand_with(&extract_slot(inner, "ui-dialog-body"), counter);
     format!(
         r#"<button type="button" command="show-modal" commandfor="{id}" class="inline-flex items-center rounded-[var(--radius)] bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)]">{trigger}</button>
 <dialog id="{id}" data-state="{name}" class="m-auto w-full max-w-lg rounded-[var(--radius)] border border-[var(--border)] bg-[var(--popover)] p-6 text-[var(--popover-foreground)] shadow-lg backdrop:bg-black/50"{data_src}>
@@ -203,7 +262,7 @@ const SHEET_CLASSES_LEFT: &str = "fixed inset-y-0 left-0 right-auto m-0 h-full m
 fn render_sheet(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     let n = counter.next();
     let id = format!("sheet-{n}");
-    let trigger = get_attr(open_tag, "trigger").unwrap_or_else(|| "Open".to_string());
+    let trigger = esc_text(&get_attr(open_tag, "trigger").unwrap_or_else(|| "Open".to_string()));
     let name = get_attr(open_tag, "name").unwrap_or_else(|| id.clone());
     let name = esc_attr(&name);
     let data_src = get_data_src(open_tag);
@@ -213,8 +272,8 @@ fn render_sheet(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     } else {
         SHEET_CLASSES_RIGHT
     };
-    let title = expand_primitives(&extract_slot(inner, "ui-sheet-title"));
-    let body = expand_primitives(&extract_slot(inner, "ui-sheet-body"));
+    let title = expand_with(&extract_slot(inner, "ui-sheet-title"), counter);
+    let body = expand_with(&extract_slot(inner, "ui-sheet-body"), counter);
     format!(
         r#"<button type="button" command="show-modal" commandfor="{id}" class="inline-flex items-center rounded-[var(--radius)] bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)]">{trigger}</button>
 <dialog id="{id}" data-state="{name}" class="{classes}"{data_src}>
@@ -235,31 +294,33 @@ fn render_tabs(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     for (k, (label, panel)) in tabs.iter().enumerate() {
         let checked = if k == 0 { " checked" } else { "" };
         // Recurse so a primitive nested inside a tab's panel (e.g. a
-        // ui-dialog inside a ui-tab) is fully expanded before splicing.
-        let panel = expand_primitives(panel);
+        // ui-dialog inside a ui-tab) is fully expanded before splicing. Uses
+        // the SAME counter so nested primitives get unique ids/group names.
+        let panel = expand_with(panel, counter);
+        let label = esc_text(label);
         inputs.push_str(&format!(
-            "<input type=\"radio\" name=\"tabs-{g}\" id=\"{g}-t{k}\" class=\"peer/t{k} sr-only\"{checked}>\n"
+            "<input type=\"radio\" name=\"tabs-{g}\" id=\"{g}-t{k}\" class=\"peer/t{k} sr-only\"{checked}>"
         ));
         labels.push_str(&format!(
-            "<label for=\"{g}-t{k}\" class=\"cursor-pointer px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] peer-checked/t{k}:border-b-2 peer-checked/t{k}:border-[var(--primary)] peer-checked/t{k}:text-[var(--foreground)]\">{label}</label>\n"
+            "<label for=\"{g}-t{k}\" class=\"cursor-pointer px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] border-b-2 border-transparent peer-checked/t{k}:border-[var(--primary)] peer-checked/t{k}:text-[var(--foreground)]\">{label}</label>"
         ));
         panels.push_str(&format!(
-            "<div class=\"hidden peer-checked/t{k}:block text-[var(--foreground)]\">{panel}</div>\n"
+            "<div class=\"order-last hidden w-full py-4 text-[var(--foreground)] peer-checked/t{k}:block\">{panel}</div>"
         ));
     }
+    // Radios, labels, a full-width divider and panels are ALL direct children
+    // of one flex-wrap container so the labels/panels are LATER SIBLINGS of
+    // each `peer/tK` radio — otherwise `peer-checked/tK:*` can never reach
+    // them and panels stay hidden. The divider (order-1 w-full) wraps below
+    // the default-order labels, and panels (order-last w-full) below that.
     format!(
-        r#"<div class="w-full"{data_src}>
-  {inputs}  <div role="tablist" class="flex gap-1 border-b border-[var(--border)]">
-    {labels}  </div>
-  <div class="py-4">
-    {panels}  </div>
-</div>"#
+        r#"<div class="flex w-full flex-wrap items-end"{data_src}>{inputs}{labels}<div class="order-1 w-full border-b border-[var(--border)]"></div>{panels}</div>"#
     )
 }
 
 fn render_primitive(tag_name: &str, open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     match tag_name {
-        "ui-accordion" => render_accordion(open_tag, inner),
+        "ui-accordion" => render_accordion(open_tag, inner, counter),
         "ui-dialog" => render_dialog(open_tag, inner, counter),
         "ui-sheet" => render_sheet(open_tag, inner, counter),
         "ui-tabs" => render_tabs(open_tag, inner, counter),
@@ -267,12 +328,67 @@ fn render_primitive(tag_name: &str, open_tag: &str, inner: &str, counter: &mut C
     }
 }
 
+/// Known slot/child tags: expanded only when inside their container, so a
+/// stray standalone one would otherwise leak raw `<ui-...>` into the output.
+const SLOT_TAGS: [&str; 5] = [
+    "ui-dialog-title",
+    "ui-dialog-body",
+    "ui-sheet-title",
+    "ui-sheet-body",
+    "ui-tab",
+];
+
 /// Expand every recognized `<ui-*>` primitive block in `fragment` into real
 /// Tailwind+token HTML. Non-primitive markup is left byte-identical; unknown
-/// `<ui-foo>` tags (including primitive slot tags encountered outside their
-/// parent, like a stray `<ui-dialog-title>`) are left untouched.
+/// `<ui-foo>` tags are left untouched.
+///
+/// One `Counter` is threaded through the ENTIRE tree (all nested recursion
+/// goes through `expand_with(.., &mut counter)`), so ids/group names are
+/// unique across nesting. A final safety pass unwraps any residual known
+/// slot/child tags (a stray `<ui-sheet-body>` outside its container) so the
+/// hard "no `<ui-` in output" invariant always holds.
 pub fn expand_primitives(fragment: &str) -> String {
     let mut counter = Counter::new();
+    let expanded = expand_with(fragment, &mut counter);
+    unwrap_stray_slots(&expanded)
+}
+
+/// Remove just the start/end tag tokens of any known slot/child tag left in
+/// `s`, keeping their inner content. Leaves unknown `<ui-foo>` and the four
+/// container tags (already expanded) untouched.
+fn unwrap_stray_slots(s: &str) -> String {
+    let mut out = s.to_string();
+    for tag in SLOT_TAGS {
+        // Remove close tags first (fixed form), then open tags (which may
+        // carry attributes and so need quote-aware end-finding).
+        out = out.replace(&format!("</{tag}>"), "");
+        loop {
+            let open_needle = format!("<{tag}");
+            let Some(start) = out.find(open_needle.as_str()) else {
+                break;
+            };
+            // Confirm the tag name ends here (not e.g. "ui-tab" matching
+            // "ui-tabs") before stripping the token.
+            let after = start + open_needle.len();
+            let ends_name = out.as_bytes().get(after).is_none_or(|b| {
+                matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/')
+            });
+            let Some(end) = find_tag_end(&out, start) else {
+                break;
+            };
+            if ends_name {
+                out.replace_range(start..=end, "");
+            } else {
+                // Not this tag (e.g. ui-tabs): can't easily skip in a
+                // replace loop, so leave the whole string as-is for this tag.
+                break;
+            }
+        }
+    }
+    out
+}
+
+fn expand_with(fragment: &str, counter: &mut Counter) -> String {
     let bytes = fragment.as_bytes();
     let mut out = String::with_capacity(fragment.len());
     let mut i = 0usize;
@@ -298,11 +414,12 @@ pub fn expand_primitives(fragment: &str) -> String {
 
             if is_known_primitive(tag_name) && !self_closing {
                 let close_tag = format!("</{tag_name}>");
-                if let Some(close_rel) = fragment[j + 1..].find(close_tag.as_str()) {
+                // Depth-aware so a self-nested container (e.g. ui-tabs inside
+                // ui-tabs) matches its OWN close, not the inner one.
+                if let Some(inner_end) = find_matching_close(fragment, tag_name, j + 1) {
                     let inner_start = j + 1;
-                    let inner_end = inner_start + close_rel;
                     let inner = &fragment[inner_start..inner_end];
-                    let expanded = render_primitive(tag_name, open_tag, inner, &mut counter);
+                    let expanded = render_primitive(tag_name, open_tag, inner, counter);
                     out.push_str(&expanded);
                     i = inner_end + close_tag.len();
                     continue;
@@ -348,7 +465,7 @@ pub fn catalog() -> serde_json::Value {
             "name": "ui-sheet",
             "attrs": ["trigger", "name", "side"],
             "slots": ["ui-sheet-title", "ui-sheet-body"],
-            "usage": "<ui-sheet trigger=\"Menu\" name=\"nav\" side=\"right|left\"><ui-sheet-title>Menu</ui-sheet-title><ui-sheet-body>Links here.</ui-sheet-body></ui-sheet>"
+            "usage": "<ui-sheet trigger=\"Menu\" name=\"nav\" side=\"right\"><ui-sheet-title>Menu</ui-sheet-title><ui-sheet-body>Links here.</ui-sheet-body></ui-sheet>"
         },
         {
             "name": "ui-tabs",
@@ -410,9 +527,16 @@ mod tests {
         let out = expand_primitives(
             r#"<ui-tabs><ui-tab label="One">first</ui-tab><ui-tab label="Two">second</ui-tab></ui-tabs>"#,
         );
+        // Flattened structure: no wrapper divs that would break peer-checked
+        // sibling reach.
+        assert!(!out.contains(r#"<div role="tablist">"#), "{out}");
+        assert!(!out.contains(r#"<div class="py-4">"#), "{out}");
         assert!(out.matches("type=\"radio\"").count() == 2);
+        // First radio carries ` checked`.
+        let first_radio = out.find("type=\"radio\"").expect("has a radio");
+        let first_tag_end = out[first_radio..].find('>').expect("radio tag closes") + first_radio;
+        assert!(out[first_radio..=first_tag_end].contains(" checked"), "{out}");
         assert!(out.contains("peer-checked/t0:block") && out.contains("peer-checked/t1:block"));
-        assert!(out.contains(" checked")); // first tab
         assert!(out.contains("One") && out.contains("second"));
         assert!(!out.contains("<ui-") && !out.contains("<script"));
     }
@@ -511,6 +635,46 @@ mod tests {
             r#"<ui-tabs><ui-tab label="One"><ui-accordion title="Q">A</ui-accordion></ui-tab></ui-tabs>"#,
         );
         assert!(out.contains("<details"), "{out}");
+        assert!(!out.contains("<ui-"), "{out}");
+    }
+
+    #[test]
+    fn nested_dialogs_get_distinct_ids_across_nesting() {
+        // A top-level dialog AND a dialog nested in an accordion body must not
+        // share `id="dialog-0"` — one counter is threaded through the tree.
+        let out = expand_primitives(
+            r#"<ui-dialog><ui-dialog-title>A</ui-dialog-title><ui-dialog-body>a</ui-dialog-body></ui-dialog><ui-accordion title="More"><ui-dialog><ui-dialog-title>B</ui-dialog-title><ui-dialog-body>b</ui-dialog-body></ui-dialog></ui-accordion>"#,
+        );
+        assert!(out.contains("dialog-0"), "{out}");
+        assert!(out.contains("dialog-1"), "{out}");
+        assert!(!out.contains("<ui-"), "{out}");
+    }
+
+    #[test]
+    fn nested_tabs_get_distinct_group_names() {
+        let out = expand_primitives(
+            r#"<ui-tabs><ui-tab label="Outer"><ui-tabs><ui-tab label="Inner">x</ui-tab></ui-tabs></ui-tab></ui-tabs>"#,
+        );
+        assert!(out.contains(r#"name="tabs-0""#), "{out}");
+        assert!(out.contains(r#"name="tabs-1""#), "{out}");
+        assert!(!out.contains("<ui-"), "{out}");
+    }
+
+    #[test]
+    fn primitive_text_attrs_are_escaped() {
+        let out = expand_primitives(
+            r#"<ui-accordion title="</summary><script>alert(1)</script>">x</ui-accordion>"#,
+        );
+        assert!(!out.contains("<script>"), "{out}");
+        assert!(!out.contains("</summary>x"), "{out}");
+        assert!(out.contains("&lt;script&gt;"), "{out}");
+        assert!(out.contains("&lt;/summary&gt;"), "{out}");
+    }
+
+    #[test]
+    fn stray_slot_tag_is_unwrapped() {
+        let out = expand_primitives("<ui-sheet-body>hello</ui-sheet-body>");
+        assert!(out.contains("hello"), "{out}");
         assert!(!out.contains("<ui-"), "{out}");
     }
 
