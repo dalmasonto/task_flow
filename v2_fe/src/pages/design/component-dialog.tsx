@@ -58,8 +58,12 @@ export function ComponentDialog({
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-70 bg-[oklch(0.08_0.004_255_/_0.92)] transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <DialogPrimitive.Popup className="fixed inset-3 z-71 flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-background text-foreground shadow-2xl outline-none sm:inset-8">
+        {/* z-75/76: above WorkspaceDialog's z-[60]/z-[70] backdrop+popup, below
+            AttachmentPreviewDialog's foreground z-80/81 — this dialog is never
+            opened underneath another surface, but must not collide with one
+            still on screen behind it. */}
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-75 bg-[oklch(0.08_0.004_255_/_0.92)] transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <DialogPrimitive.Popup className="fixed inset-3 z-76 flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-background text-foreground shadow-2xl outline-none sm:inset-8">
           <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-card/95 px-3 sm:px-4">
             <DialogPrimitive.Title className="min-w-0 flex-1">
               <span className="block truncate font-mono text-sm font-semibold">{component.name}</span>

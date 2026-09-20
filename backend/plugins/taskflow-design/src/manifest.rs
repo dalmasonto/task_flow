@@ -39,6 +39,7 @@ pub struct ComponentEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenGroup {
     pub name: String,
     /// `--name: value` entries (the light/default value), in source order.

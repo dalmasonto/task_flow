@@ -57,6 +57,20 @@ async fn export_endpoint_downloads_generated_css() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn export_endpoint_rejects_non_member() {
+    let app = TestApp::new().await;
+    let (_user_id, project_id) = seed_project_with_tokens_json(&app).await;
+    // A user who belongs to a different project entirely, mirroring
+    // `foreign_project_is_refused_not_routed` in phase3_agent_surface.rs.
+    let (other_user, _other_project) = app.create_member_with_project().await;
+
+    let res = app
+        .get_as(other_user.id, &format!("/api/design/{project_id}/tokens.css"))
+        .await;
+    assert_eq!(res.status(), 403, "non-member must be refused: {}", res.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn sandbox_serve_generates_css_from_json_row() {
     let app = TestApp::new().await;
     let (_user_id, project_id) = seed_project_with_tokens_json(&app).await;
