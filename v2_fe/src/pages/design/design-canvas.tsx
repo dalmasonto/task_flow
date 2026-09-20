@@ -22,10 +22,10 @@ import {
   EllipsisIcon,
 } from "lucide-react"
 
-import { cn } from "@/lib/utils"
 import {
   type Artboard,
   type DevicePreset,
+  chromeStyleForGroup,
   deviceById,
 } from "@/lib/design-devices"
 import { sandboxUrl } from "@/lib/design-api"
@@ -336,8 +336,12 @@ function ArtboardHeader({ route, device }: { route: string; device: DevicePreset
   )
 }
 
-/// Physical device chrome: phone frames get a notch/home-indicator inset and
-/// expose --safe-top/--safe-bottom into the document.
+/// Physical device chrome, per group (`chromeStyleForGroup`, pure + tested):
+/// phones get a notch/home-indicator inset, tablets a thinner bezel + camera
+/// dot, laptops a light browser-chrome top bar, breakpoints stay a plain
+/// rectangle. All of it is decorative padding/border around the true-size
+/// iframe — nothing here resizes the iframe or touches canvas zoom. Phones
+/// additionally expose --safe-top/--safe-bottom into the document.
 function DeviceChrome({
   device,
   children,
@@ -345,26 +349,41 @@ function DeviceChrome({
   device: DevicePreset
   children: React.ReactNode
 }) {
-  const isPhone = device.group === "phone"
+  const chrome = chromeStyleForGroup(device.group)
+  const { padding, safeArea } = chrome
   return (
     <div
-      className={cn(
-        "relative bg-black shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)]",
-        isPhone ? "rounded-[44px] border border-zinc-700/80 p-3 pt-6 pb-5" : "border border-zinc-700/80"
-      )}
+      className="relative border border-zinc-700/80 bg-black shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)]"
       style={
-        isPhone
-          ? ({ "--safe-top": "24px", "--safe-bottom": "20px" } as React.CSSProperties)
-          : undefined
+        {
+          borderRadius: chrome.outerRadius,
+          paddingTop: padding.top,
+          paddingRight: padding.right,
+          paddingBottom: padding.bottom,
+          paddingLeft: padding.left,
+          ...(safeArea
+            ? { "--safe-top": `${safeArea.top}px`, "--safe-bottom": `${safeArea.bottom}px` }
+            : {}),
+        } as React.CSSProperties
       }
     >
-      {isPhone ? (
-        <>
-          <div className="absolute top-2 left-1/2 h-4 w-24 -translate-x-1/2 rounded-full bg-zinc-900 ring-1 ring-zinc-800" />
-          <div className="absolute bottom-1.5 left-1/2 h-1 w-28 -translate-x-1/2 rounded-full bg-zinc-700" />
-        </>
+      {chrome.notch ? (
+        <div className="absolute top-2 left-1/2 h-4 w-24 -translate-x-1/2 rounded-full bg-zinc-900 ring-1 ring-zinc-800" />
       ) : null}
-      <div className="overflow-hidden bg-white" style={{ borderRadius: isPhone ? 32 : 0 }}>
+      {chrome.homeIndicator ? (
+        <div className="absolute bottom-1.5 left-1/2 h-1 w-28 -translate-x-1/2 rounded-full bg-zinc-700" />
+      ) : null}
+      {chrome.cameraDot ? (
+        <div className="absolute top-1.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-zinc-800 ring-1 ring-zinc-600/60" />
+      ) : null}
+      {chrome.topBar ? (
+        <div className="absolute top-0 left-0 right-0 flex h-[22px] items-center gap-1.5 rounded-t-[10px] bg-zinc-900 px-3">
+          <span className="size-2 rounded-full bg-zinc-700" />
+          <span className="size-2 rounded-full bg-zinc-700" />
+          <span className="size-2 rounded-full bg-zinc-700" />
+        </div>
+      ) : null}
+      <div className="overflow-hidden bg-white" style={{ borderRadius: chrome.innerRadius }}>
         {children}
       </div>
     </div>

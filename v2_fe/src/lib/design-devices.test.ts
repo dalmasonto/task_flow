@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   DEVICE_PRESETS,
   artboardKey,
+  chromeStyleForGroup,
   deviceById,
   layoutRows,
   makeArtboard,
@@ -95,5 +96,62 @@ describe("design devices", () => {
     const board = makeArtboard("/billing", "pixel-8", 10, 20)
     expect(board.key).toBe("/billing@pixel-8")
     expect(board.deviceId).toBe("pixel-8")
+  })
+
+  describe("chromeStyleForGroup", () => {
+    it("phones get a notch + home indicator + safe-area insets", () => {
+      const chrome = chromeStyleForGroup("phone")
+      expect(chrome.notch).toBe(true)
+      expect(chrome.homeIndicator).toBe(true)
+      expect(chrome.cameraDot).toBe(false)
+      expect(chrome.topBar).toBe(false)
+      expect(chrome.safeArea).toEqual({ top: 24, bottom: 20 })
+      expect(chrome.outerRadius).toBeGreaterThan(0)
+    })
+
+    it("tablets get a thinner uniform bezel with a camera dot, no notch", () => {
+      const tablet = chromeStyleForGroup("tablet")
+      const phone = chromeStyleForGroup("phone")
+      expect(tablet.notch).toBe(false)
+      expect(tablet.homeIndicator).toBe(false)
+      expect(tablet.cameraDot).toBe(true)
+      expect(tablet.topBar).toBe(false)
+      expect(tablet.safeArea).toBeNull()
+      // Uniform on all four sides.
+      expect(tablet.padding.top).toBe(tablet.padding.right)
+      expect(tablet.padding.right).toBe(tablet.padding.bottom)
+      expect(tablet.padding.bottom).toBe(tablet.padding.left)
+      // Thinner than the phone's bezel, and less round.
+      expect(tablet.padding.top).toBeLessThan(phone.padding.top)
+      expect(tablet.outerRadius).toBeLessThan(phone.outerRadius)
+      expect(tablet.outerRadius).toBeGreaterThan(0)
+    })
+
+    it("laptops get a light top bar only, flush sides/bottom", () => {
+      const chrome = chromeStyleForGroup("laptop")
+      expect(chrome.topBar).toBe(true)
+      expect(chrome.notch).toBe(false)
+      expect(chrome.homeIndicator).toBe(false)
+      expect(chrome.cameraDot).toBe(false)
+      expect(chrome.safeArea).toBeNull()
+      expect(chrome.padding.top).toBeGreaterThan(0)
+      expect(chrome.padding.right).toBe(0)
+      expect(chrome.padding.bottom).toBe(0)
+      expect(chrome.padding.left).toBe(0)
+    })
+
+    it("breakpoints stay a plain rectangle — no bezel at all", () => {
+      const chrome = chromeStyleForGroup("breakpoint")
+      expect(chrome).toEqual({
+        outerRadius: 0,
+        innerRadius: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        notch: false,
+        homeIndicator: false,
+        cameraDot: false,
+        topBar: false,
+        safeArea: null,
+      })
+    })
   })
 })

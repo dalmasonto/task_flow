@@ -58,6 +58,82 @@ export const DEVICE_GROUP_LABELS: Record<DeviceGroup, string> = {
   breakpoint: "Tailwind breakpoint",
 }
 
+/// Pure, size-agnostic decorative chrome tokens for `DeviceChrome`. Never
+/// touches the iframe's true `width`×`height` — this only describes the
+/// bezel drawn AROUND it (padding is bezel thickness, not a resize).
+export type ChromeStyle = {
+  /** Outer bezel corner radius (px). 0 = plain rectangle (breakpoints). */
+  outerRadius: number
+  /** Inner (screen cut-out) corner radius (px). */
+  innerRadius: number
+  /** Bezel thickness per side (px) — decorative padding around the iframe. */
+  padding: { top: number; right: number; bottom: number; left: number }
+  /** Phone-style notch pill at the top. */
+  notch: boolean
+  /** Phone-style home-indicator bar at the bottom. */
+  homeIndicator: boolean
+  /** Tablet-style front camera dot, centered at the top. */
+  cameraDot: boolean
+  /** Laptop-style browser-chrome top bar (traffic-light dots). */
+  topBar: boolean
+  /** `--safe-top`/`--safe-bottom` CSS vars to expose to the iframe content,
+   * or null when the device has no safe-area insets to simulate. */
+  safeArea: { top: number; bottom: number } | null
+}
+
+export function chromeStyleForGroup(group: DeviceGroup): ChromeStyle {
+  switch (group) {
+    case "phone":
+      return {
+        outerRadius: 44,
+        innerRadius: 32,
+        padding: { top: 24, right: 12, bottom: 20, left: 12 },
+        notch: true,
+        homeIndicator: true,
+        cameraDot: false,
+        topBar: false,
+        safeArea: { top: 24, bottom: 20 },
+      }
+    case "tablet":
+      // Thinner, uniform bezel — no notch, just a small front camera dot.
+      return {
+        outerRadius: 24,
+        innerRadius: 14,
+        padding: { top: 14, right: 14, bottom: 14, left: 14 },
+        notch: false,
+        homeIndicator: false,
+        cameraDot: true,
+        topBar: false,
+        safeArea: null,
+      }
+    case "laptop":
+      // Light-touch: a subtle browser-chrome top bar, flush sides/bottom.
+      return {
+        outerRadius: 10,
+        innerRadius: 4,
+        padding: { top: 22, right: 0, bottom: 0, left: 0 },
+        notch: false,
+        homeIndicator: false,
+        cameraDot: false,
+        topBar: true,
+        safeArea: null,
+      }
+    case "breakpoint":
+    default:
+      // Abstract widths, not devices — keep the plain rectangle.
+      return {
+        outerRadius: 0,
+        innerRadius: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        notch: false,
+        homeIndicator: false,
+        cameraDot: false,
+        topBar: false,
+        safeArea: null,
+      }
+  }
+}
+
 /// An artboard: one route rendered at one device size. Position persists per
 /// project so the canvas layout survives reloads (localStorage keyed by
 /// project; canvas geometry is chrome state, not design data).
