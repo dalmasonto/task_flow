@@ -92,6 +92,30 @@ async fn pages_render_as_styled_documents_with_working_links() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn composed_head_includes_thin_scrollbar_css() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+    seed_samples(user_id, project_id, &app).await;
+
+    let token = taskflow_design::sandbox::mint(project_id);
+    let root = app.get_sandbox(&format!("/s/{token}/")).await;
+    assert_eq!(root.status(), 200);
+    let html = root.text();
+
+    // Small-device previews must scroll with a thin/overlay scrollbar, not
+    // the ~16px OS desktop scrollbar, inside the fixed device width. Scoped
+    // to the composed sandbox document only.
+    assert!(
+        html.contains("::-webkit-scrollbar"),
+        "composed head missing webkit thin-scrollbar rule"
+    );
+    assert!(
+        html.contains("scrollbar-width"),
+        "composed head missing standard thin-scrollbar property"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn manifest_reports_routes_components_and_usage() {
     let app = TestApp::new().await;
     let (user_id, project_id) = seed_minimal_project(&app).await;

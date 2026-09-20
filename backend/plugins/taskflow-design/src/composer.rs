@@ -268,6 +268,15 @@ document.addEventListener('DOMContentLoaded', () => {{
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    /* Sandbox-only thin/overlay scrollbar so small-device previews scroll
+       like a real device instead of showing the ~16px OS desktop scrollbar
+       inside the fixed device width. */
+    ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+    ::-webkit-scrollbar-track {{ background: transparent; }}
+    ::-webkit-scrollbar-thumb {{ background: rgba(0,0,0,.25); border-radius: 3px; }}
+    html {{ scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.25) transparent; }}
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
   {component_tags}<script>{PICKER_RUNTIME}</script>
