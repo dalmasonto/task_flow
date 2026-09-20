@@ -163,6 +163,11 @@ fn extract_tabs(inner: &str) -> Vec<(String, String)> {
 fn render_accordion(open_tag: &str, inner: &str) -> String {
     let title = get_attr(open_tag, "title").unwrap_or_default();
     let data_src = get_data_src(open_tag);
+    // Recurse so a primitive nested inside the accordion body (e.g. another
+    // ui-accordion, or a ui-dialog) is fully expanded before splicing.
+    // Terminates because this level's outer <ui-accordion>...</ui-accordion>
+    // has already been consumed by the caller.
+    let inner = expand_primitives(inner);
     format!(
         r#"<details class="group border-b border-[var(--border)]"{data_src}>
   <summary class="flex cursor-pointer list-none items-center justify-between py-4 font-medium text-[var(--foreground)] marker:content-['']">{title}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="size-4 shrink-0 text-[var(--muted-foreground)] transition-transform group-open:rotate-180"><path d="m6 9 6 6 6-6"/></svg></summary>
@@ -178,8 +183,10 @@ fn render_dialog(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     let name = get_attr(open_tag, "name").unwrap_or_else(|| id.clone());
     let name = esc_attr(&name);
     let data_src = get_data_src(open_tag);
-    let title = extract_slot(inner, "ui-dialog-title");
-    let body = extract_slot(inner, "ui-dialog-body");
+    // Recurse into each slot so a nested primitive (e.g. a ui-accordion
+    // inside ui-dialog-body) is fully expanded before splicing.
+    let title = expand_primitives(&extract_slot(inner, "ui-dialog-title"));
+    let body = expand_primitives(&extract_slot(inner, "ui-dialog-body"));
     format!(
         r#"<button type="button" command="show-modal" commandfor="{id}" class="inline-flex items-center rounded-[var(--radius)] bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)]">{trigger}</button>
 <dialog id="{id}" data-state="{name}" class="m-auto w-full max-w-lg rounded-[var(--radius)] border border-[var(--border)] bg-[var(--popover)] p-6 text-[var(--popover-foreground)] shadow-lg backdrop:bg-black/50"{data_src}>
@@ -206,8 +213,8 @@ fn render_sheet(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     } else {
         SHEET_CLASSES_RIGHT
     };
-    let title = extract_slot(inner, "ui-sheet-title");
-    let body = extract_slot(inner, "ui-sheet-body");
+    let title = expand_primitives(&extract_slot(inner, "ui-sheet-title"));
+    let body = expand_primitives(&extract_slot(inner, "ui-sheet-body"));
     format!(
         r#"<button type="button" command="show-modal" commandfor="{id}" class="inline-flex items-center rounded-[var(--radius)] bg-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary-foreground)]">{trigger}</button>
 <dialog id="{id}" data-state="{name}" class="{classes}"{data_src}>
@@ -227,6 +234,9 @@ fn render_tabs(open_tag: &str, inner: &str, counter: &mut Counter) -> String {
     let mut panels = String::new();
     for (k, (label, panel)) in tabs.iter().enumerate() {
         let checked = if k == 0 { " checked" } else { "" };
+        // Recurse so a primitive nested inside a tab's panel (e.g. a
+        // ui-dialog inside a ui-tab) is fully expanded before splicing.
+        let panel = expand_primitives(panel);
         inputs.push_str(&format!(
             "<input type=\"radio\" name=\"tabs-{g}\" id=\"{g}-t{k}\" class=\"peer/t{k} sr-only\"{checked}>\n"
         ));
@@ -450,5 +460,23 @@ mod tests {
         let src = r#"<ui-tabs data-src="pages/x.html:9"><ui-tab label="A">a</ui-tab></ui-tabs>"#;
         let out = expand_primitives(src);
         assert!(out.contains(r#"data-src="pages/x.html:9""#), "{out}");
+    }
+
+    #[test]
+    fn nested_accordion_inside_dialog_body_is_expanded() {
+        let out = expand_primitives(
+            r#"<ui-dialog><ui-dialog-title>T</ui-dialog-title><ui-dialog-body><ui-accordion title="Q">A</ui-accordion></ui-dialog-body></ui-dialog>"#,
+        );
+        assert!(out.contains("<details"), "{out}");
+        assert!(!out.contains("<ui-"), "{out}");
+    }
+
+    #[test]
+    fn nested_accordion_inside_tab_panel_is_expanded() {
+        let out = expand_primitives(
+            r#"<ui-tabs><ui-tab label="One"><ui-accordion title="Q">A</ui-accordion></ui-tab></ui-tabs>"#,
+        );
+        assert!(out.contains("<details"), "{out}");
+        assert!(!out.contains("<ui-"), "{out}");
     }
 }
