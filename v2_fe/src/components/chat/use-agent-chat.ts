@@ -117,7 +117,8 @@ export function useAgentChat({
     body: string,
     priority: MessagePriority,
     files: File[],
-    targets: TargetMember[] = []
+    targets: TargetMember[] = [],
+    opts?: { isDesign?: boolean }
   ) => {
     const projectId = liveId(project.id)
     if (!projectId || !liveWorkspace) {
@@ -152,6 +153,7 @@ export function useAgentChat({
         channel: channelId,
         status: "pending",
         attachments: pendingAttachments,
+        is_design: opts?.isDesign ?? false,
       }),
     }))
 
@@ -163,6 +165,7 @@ export function useAgentChat({
           priority: toLiveMessagePriority(priority),
           client_nonce: nonce,
           targets: targets.map((target) => ({ kind: target.kind, id: target.id })),
+          is_design: opts?.isDesign ?? false,
         },
         files
       )
@@ -221,6 +224,7 @@ export function useAgentChat({
         body_markdown: failed.body_markdown,
         priority: failed.priority,
         client_nonce: nonce,          // same nonce: the send endpoint is idempotent
+        is_design: failed.is_design ?? false, // preserve the design flag across a retry
       })
       onWorkspaceUpdate((workspace) => ({
         ...workspace,

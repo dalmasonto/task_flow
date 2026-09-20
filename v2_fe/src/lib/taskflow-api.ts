@@ -995,6 +995,9 @@ export type SendMessageInput = {
   /// #29: direct the message at several members (agents + users). Empty/undefined
   /// broadcasts to every agent. Authoritative when present.
   targets?: MessageTargetInput[]
+  /// Design-rail send (Task 2): true routes the message into the filtered
+  /// design view instead of the ordinary project chat.
+  is_design?: boolean
 }
 
 /// The send-message response: the saved message row plus the attachments the
@@ -1027,6 +1030,7 @@ export async function sendTaskflowAgentMessage(
     if (input.target_agent != null) form.append("target_agent", String(input.target_agent))
     // The backend parses `targets` as a JSON array of {kind,id}.
     if (input.targets && input.targets.length) form.append("targets", JSON.stringify(input.targets))
+    if (input.is_design != null) form.append("is_design", input.is_design ? "true" : "false")
     for (const file of files!) form.append("files", file, file.name)
     body = form
     // No content-type header: the browser sets multipart/form-data + boundary.
