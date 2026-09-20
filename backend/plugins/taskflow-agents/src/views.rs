@@ -1343,6 +1343,11 @@ pub struct AgentSendMessageInput {
     pub priority: Option<TaskflowMessagePriority>,
     #[serde(default)]
     pub client_nonce: Option<String>,
+    /// Agent-set design flag. The agent passes `true` when answering a design
+    /// request; there is no server inference (no targets/reply linkage on this
+    /// path), so an omitted value defaults to false.
+    #[serde(default)]
+    pub is_design: bool,
 }
 
 /// `POST /api/taskflow/agents/agent/messages` (agent-authed) — the trusted write
@@ -1373,12 +1378,13 @@ pub async fn send_message_as_agent(
 
     // Normalise both transports to the same logical input, exactly as the human
     // `send_message` does. JSON posts carry no file parts.
-    let (channel_id, body_markdown, priority, client_nonce, files): (
+    let (channel_id, body_markdown, priority, client_nonce, files, is_design): (
         i64,
         String,
         Option<TaskflowMessagePriority>,
         Option<String>,
         Vec<FilePart>,
+        bool,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
             .await
@@ -1388,12 +1394,14 @@ pub async fn send_message_as_agent(
         let mut body_field: Option<String> = None;
         let mut priority_field: Option<String> = None;
         let mut nonce_field: Option<String> = None;
+        let mut is_design_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
                 "body_markdown" => body_field = Some(value),
                 "priority" => priority_field = Some(value),
                 "client_nonce" => nonce_field = Some(value),
+                "is_design" => is_design_field = Some(value),
                 _ => {}
             }
         }
@@ -1410,6 +1418,12 @@ pub async fn send_message_as_agent(
             .filter(|s| !s.is_empty())
             .and_then(|s| serde_json::from_value::<TaskflowMessagePriority>(json!(s)).ok());
 
+        // A design-composer message flags itself; anything but "true" is false.
+        let is_design = is_design_field
+            .as_deref()
+            .map(|s| s.trim().eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
         // A "file part" is one that carried a filename; bodyless text parts are
         // fields, not attachments.
         let files: Vec<FilePart> = form
@@ -1424,6 +1438,7 @@ pub async fn send_message_as_agent(
             priority,
             nonce_field,
             files,
+            is_design,
         )
     } else {
         let input: AgentSendMessageInput =
@@ -1434,6 +1449,7 @@ pub async fn send_message_as_agent(
             input.priority,
             input.client_nonce,
             Vec::new(),
+            input.is_design,
         )
     };
 
@@ -1524,7 +1540,7 @@ pub async fn send_message_as_agent(
             sender_label: agent.display_name.clone(),
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
-            is_design: false,
+            is_design,
             client_nonce: client_nonce.clone(),
             edited_at: None,
             created_at: None,

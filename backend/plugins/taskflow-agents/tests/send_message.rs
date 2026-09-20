@@ -5,7 +5,8 @@ use serde_json::json;
 
 mod support;
 use support::{
-    TestApp, seed_channel_with_member, seed_channel_without_member, seed_project_member_off_roster,
+    TestApp, make_active_project_member, seed_channel_of_kind, seed_channel_with_member,
+    seed_channel_without_member, seed_project, seed_project_member_off_roster,
 };
 use taskflow_agents::models::TaskflowChannelKind;
 use taskflow_projects::models::TaskflowMembershipStatus;
@@ -319,5 +320,64 @@ async fn human_send_sets_is_design_when_requested() {
         .await;
 
     assert_eq!(response.status(), 200);
+    assert_eq!(response.json().await["is_design"], json!(true));
+}
+
+// ---------------------------------------------------------------------------
+// The AGENT send route (`/api/taskflow/agents/agent/messages`). Same idiom as
+// message_attachments.rs's agent-path helpers: an agent-authed key, a project
+// room it may post in by project scope alone.
+// ---------------------------------------------------------------------------
+
+const AGENT_SEND: &str = "/api/taskflow/agents/agent/messages";
+
+/// Mint a fresh agent key in `project` (the human minting it must be an active
+/// project member). Returns the raw `tfk_…` key.
+async fn mint_agent_key(app: &TestApp, project: i64, label: &str) -> String {
+    let human = app.create_user().await;
+    make_active_project_member(project, human).await;
+    let resp = app
+        .post_as(
+            human,
+            "/api/taskflow/agents/link",
+            json!({
+                "project": project,
+                "display_name": label,
+                "profile": label,
+            }),
+        )
+        .await;
+    assert_eq!(resp.status(), 200, "mint failed: {:?}", resp.json().await);
+    resp.json().await["key"]
+        .as_str()
+        .expect("minted key")
+        .to_string()
+}
+
+/// A shared project room the agent may post in by project scope alone, plus a
+/// key for an agent in that project. Returns `(channel, key)`.
+async fn seed_channel_with_agent(app: &TestApp) -> (i64, String) {
+    let project = seed_project().await;
+    let channel = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    let key = mint_agent_key(app, project, "Design Agent").await;
+    (channel, key)
+}
+
+#[tokio::test]
+async fn agent_send_honors_is_design_param() {
+    let app = TestApp::new().await;
+    // Reuse the same seeding the other agent-path tests use to get an agent
+    // credential + a channel the agent is a member of.
+    let (channel, key) = seed_channel_with_agent(&app).await;
+
+    let response = app
+        .post_as_agent(
+            &key,
+            AGENT_SEND,
+            json!({ "channel": channel, "body_markdown": "design reply", "is_design": true }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
     assert_eq!(response.json().await["is_design"], json!(true));
 }
