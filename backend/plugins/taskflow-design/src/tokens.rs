@@ -206,9 +206,12 @@ pub fn var_name_to_category(var_name: &str) -> (&'static str, String) {
 ///
 /// Emits, in order: `@theme { <light values> }` (all light values, so
 /// Tailwind's scale container is present), `:root { <light values> }` (the
-/// runtime vars pages reference), then `.dark { <only tokens with a dark
-/// value> }`. Category/key iteration order follows `doc.categories`'
-/// insertion order so the output is stable and diffable.
+/// runtime vars pages reference), then `:root[data-theme="dark"] { <only tokens
+/// with a dark value> }`. The dark selector matches how the sandbox applies the
+/// theme — `document.documentElement.dataset.theme = "dark"` (composer.rs), i.e.
+/// `<html data-theme="dark">` — NOT a `.dark` class, so the theme toggle
+/// actually swaps the variables. Category/key iteration order follows
+/// `doc.categories`' insertion order so the output is stable and diffable.
 pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
     let mut light_lines: Vec<String> = Vec::new();
     let mut dark_lines: Vec<String> = Vec::new();
@@ -237,7 +240,7 @@ pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
     out.push_str("}\n");
 
     if !dark_lines.is_empty() {
-        out.push_str("\n.dark {\n");
+        out.push_str("\n:root[data-theme=\"dark\"] {\n");
         for line in &dark_lines {
             out.push_str(line);
             out.push('\n');
@@ -286,8 +289,15 @@ fn parse_decls(block: &str) -> Vec<(String, String)> {
 /// Parse legacy/hand-authored CSS (or CSS-shaped input from an agent) back
 /// into a [`TokensDoc`]. Scans `@theme` and `:root` for light values (merged,
 /// first occurrence per name wins — they're normally identical since the
-/// generator emits both) and `.dark` for dark overrides, then buckets each
-/// `--var` name into a category via [`var_name_to_category`].
+/// generator emits both) and the dark block for dark overrides, then buckets
+/// each `--var` name into a category via [`var_name_to_category`].
+///
+/// The dark block is read from BOTH our generated `:root[data-theme="dark"]`
+/// selector AND a `.dark` class selector, so hand-authored / pasted CSS that
+/// uses the common `.dark { … }` convention still imports its dark values. The
+/// `@theme`/`:root` light scan must run first: `extract_block(":root")` matches
+/// the `:root` inside `:root[data-theme="dark"]`, so scanning light before dark
+/// (and de-duping by name) keeps light values from the plain `:root` block.
 pub fn css_to_tokens_json(css: &str) -> TokensDoc {
     let mut lights: Vec<(String, String)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -302,9 +312,18 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
         }
     }
 
-    let darks: std::collections::HashMap<String, String> = extract_block(css, ".dark")
-        .map(|block| parse_decls(block).into_iter().collect())
-        .unwrap_or_default();
+    // Dark overrides: prefer the generated `[data-theme="dark"]` selector, and
+    // also accept a `.dark` class block (hand-authored CSS convention). A name
+    // present in both takes the data-theme value (inserted first, `.dark` fills
+    // only what's missing).
+    let mut darks: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for selector in ["[data-theme=\"dark\"]", ".dark"] {
+        if let Some(block) = extract_block(css, selector) {
+            for (name, value) in parse_decls(block) {
+                darks.entry(name).or_insert(value);
+            }
+        }
+    }
 
     let mut categories: OrderedMap<OrderedMap<TokenValue>> = OrderedMap::new();
 

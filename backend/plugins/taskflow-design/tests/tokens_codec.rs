@@ -15,14 +15,32 @@ fn json_generates_css_with_root_and_dark_preserving_var_names() {
     assert!(css.contains("--accent: #6366f1"), "css: {css}");
     assert!(css.contains("--bg: #ffffff"));
     assert!(css.contains("--radius-md: 8px") || css.contains("--md: 8px"));
-    // Dark values go under .dark; light under :root.
-    let root = css.split(".dark").next().unwrap();
+    // Dark values go under the sandbox's data-theme selector (NOT `.dark`),
+    // matching how the composer applies the theme; light under :root.
+    let dark_sel = "[data-theme=\"dark\"]";
+    assert!(css.contains(dark_sel), "dark block selector missing: {css}");
+    let root = css.split(dark_sel).next().unwrap();
     assert!(root.contains("--accent: #6366f1"));
-    let dark = &css[css.find(".dark").expect("dark block")..];
+    let dark = &css[css.find(dark_sel).expect("dark block")..];
     assert!(dark.contains("--accent: #818cf8"));
     assert!(dark.contains("--bg: #0b0b10"));
     // @theme block present (Tailwind scale container, matches existing contract).
     assert!(css.contains("@theme"));
+}
+
+#[test]
+fn parses_dark_from_both_data_theme_and_dot_dark() {
+    // Our generated CSS uses :root[data-theme="dark"]; hand-authored CSS may use
+    // a .dark class. Both must import their dark overrides.
+    let generated = "@theme {\n  --accent: #6366f1;\n}\n:root {\n  --accent: #6366f1;\n}\n:root[data-theme=\"dark\"] {\n  --accent: #818cf8;\n}\n";
+    let via_data_theme = css_to_tokens_json(generated);
+    assert!(tokens_json_to_css(&via_data_theme).contains("--accent: #818cf8"));
+
+    let hand = ":root {\n  --accent: #6366f1;\n}\n.dark {\n  --accent: #818cf8;\n}\n";
+    let via_dot_dark = css_to_tokens_json(hand);
+    let regen = tokens_json_to_css(&via_dot_dark);
+    assert!(regen.contains("--accent: #6366f1"));
+    assert!(regen.contains("--accent: #818cf8"), "pasted .dark must import: {regen}");
 }
 
 #[test]

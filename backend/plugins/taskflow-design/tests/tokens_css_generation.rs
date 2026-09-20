@@ -45,7 +45,7 @@ async fn export_endpoint_downloads_generated_css() {
 
     let body = res.text();
     assert!(body.contains("--accent: #6366f1"), "light value missing: {body}");
-    assert!(body.contains(".dark"), ".dark block missing: {body}");
+    assert!(body.contains("[data-theme=\"dark\"]"), "dark block missing: {body}");
     assert!(body.contains("--accent: #818cf8"), "dark value missing: {body}");
 
     let ct = res.header("content-type").unwrap_or_default();
@@ -84,7 +84,7 @@ async fn sandbox_serve_generates_css_from_json_row() {
 
     let body = res.text();
     assert!(body.contains("--accent: #6366f1"), "light value missing: {body}");
-    assert!(body.contains(".dark"), ".dark block missing: {body}");
+    assert!(body.contains("[data-theme=\"dark\"]"), "dark block missing: {body}");
     assert!(body.contains("--accent: #818cf8"), "dark value missing: {body}");
 
     let ct = res.header("content-type").unwrap_or_default();
