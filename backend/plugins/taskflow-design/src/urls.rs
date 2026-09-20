@@ -35,6 +35,10 @@ pub fn router() -> Router {
             get(views::export_tokens_css),
         )
         .route(
+            "/api/design/{project}/page.html",
+            get(views::export_page_html),
+        )
+        .route(
             "/api/design/{project}/comments",
             get(views::list_comments).post(views::create_comment),
         )

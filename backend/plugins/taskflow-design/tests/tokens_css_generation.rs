@@ -96,6 +96,86 @@ async fn sandbox_serve_generates_css_from_json_row() {
     );
 }
 
+/// Seed a project whose `pages/index.html` uses a `<ui-accordion>` primitive,
+/// via the real HTTP write path (Task 5 allowlisted `ui-*` tags in page
+/// validation, so this no longer needs the ORM-seed workaround
+/// `phase1_storage_composer.rs`'s composer test uses).
+async fn seed_project_with_accordion_page(app: &TestApp) -> (i64, i64) {
+    let (user, project_id) = app.create_member_with_project().await;
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "pages/index.html",
+                "content": r#"<main class="p-4"><ui-accordion title="Q">A</ui-accordion></main>"#
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed page with ui-accordion failed: {}", res.text());
+    (user.id, project_id)
+}
+
+/// `GET /api/design/{project}/page.html?route=/` — the same expanded HTML the
+/// sandbox serves, downloaded as an attachment.
+#[tokio::test(flavor = "multi_thread")]
+async fn page_html_export_downloads_expanded_document() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_project_with_accordion_page(&app).await;
+
+    let res = app
+        .get_as(user_id, &format!("/api/design/{project_id}/page.html?route=/"))
+        .await;
+    assert_eq!(res.status(), 200, "export failed: {}", res.text());
+
+    let cd = res.header("content-disposition").unwrap_or_default();
+    assert!(cd.contains("attachment"), "content-disposition: {cd}");
+
+    let body = res.text();
+    assert!(body.contains("<details"), "primitive was not expanded: {body}");
+    assert!(!body.contains("<ui-accordion"), "raw <ui-accordion> tag leaked: {body}");
+}
+
+/// `?fragment=1` returns only the expanded body markup, inline, with no
+/// document shell and no surviving `<ui-` tags.
+#[tokio::test(flavor = "multi_thread")]
+async fn page_html_export_fragment_returns_body_only() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_project_with_accordion_page(&app).await;
+
+    let res = app
+        .get_as(
+            user_id,
+            &format!("/api/design/{project_id}/page.html?route=/&fragment=1"),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "fragment export failed: {}", res.text());
+
+    let cd = res.header("content-disposition").unwrap_or_default();
+    assert!(!cd.contains("attachment"), "fragment must be inline, not attachment: {cd}");
+
+    let body = res.text();
+    assert!(body.contains("<details"), "primitive was not expanded: {body}");
+    assert!(!body.contains("<ui-"), "raw primitive tag leaked: {body}");
+    assert!(
+        !body.to_lowercase().contains("<!doctype html>"),
+        "fragment must not include the document shell: {body}"
+    );
+}
+
+/// A non-member is refused, mirroring `export_endpoint_rejects_non_member`.
+#[tokio::test(flavor = "multi_thread")]
+async fn page_html_export_rejects_non_member() {
+    let app = TestApp::new().await;
+    let (_user_id, project_id) = seed_project_with_accordion_page(&app).await;
+    let (other_user, _other_project) = app.create_member_with_project().await;
+
+    let res = app
+        .get_as(other_user.id, &format!("/api/design/{project_id}/page.html?route=/"))
+        .await;
+    assert_eq!(res.status(), 403, "non-member must be refused: {}", res.text());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn sandbox_serve_falls_back_to_legacy_css_row_when_no_json() {
     let app = TestApp::new().await;

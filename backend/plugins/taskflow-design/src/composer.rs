@@ -205,6 +205,16 @@ pub fn annotate_sources(fragment: &str, file: &str) -> String {
     out
 }
 
+/// The body-fragment pipeline shared by [`compose_document`] and the
+/// chrome-facing `page.html` export (`fragment=1`): rewrite sandbox-relative
+/// hrefs, stamp `data-src`, then expand `<ui-*>` primitives into real markup.
+/// Kept as one function so the two callers can never drift apart.
+pub fn compose_body_fragment(token: &str, page_path: &str, fragment: &str) -> String {
+    let base = format!("/s/{token}");
+    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base), page_path);
+    crate::primitives::expand_primitives(&annotated)
+}
+
 /// Compose the full document for one route.
 ///
 /// * `token`     — the sandbox read token for this project
@@ -224,9 +234,7 @@ pub fn compose_document(
     theme: &str,
     state: Option<&str>,
 ) -> String {
-    let base = format!("/s/{token}");
-    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base), page_path);
-    let annotated = crate::primitives::expand_primitives(&annotated);
+    let annotated = compose_body_fragment(token, page_path, fragment);
 
     let mut component_tags = String::new();
     for c in &manifest.components {

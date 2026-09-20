@@ -819,6 +819,95 @@ pub async fn export_tokens_css(
     Ok(response)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ExportPageHtmlQuery {
+    pub route: String,
+    #[serde(default)]
+    pub fragment: Option<String>,
+}
+
+/// `GET /api/design/{project}/page.html?route=<route>&fragment=<0|1>` —
+/// chrome-facing copy/download of one route's composed HTML. Reuses the exact
+/// manifest + page lookup [`serve_sandbox_page`] uses, and the exact body
+/// pipeline [`composer::compose_document`] runs, so `<ui-*>` primitives are
+/// already expanded to real markup and the two surfaces cannot drift apart.
+/// Same membership gate as the other `/api/design/{project}/...` reads.
+///
+/// `fragment=1` returns ONLY the expanded body markup (`text/html`, inline) —
+/// meant for pasting elsewhere, never wrapped in the document shell. The
+/// default returns the full standalone document as a download
+/// (`Content-Disposition: attachment`).
+pub async fn export_page_html(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Query(params): Query<ExportPageHtmlQuery>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+
+    let normalized = if params.route.is_empty() || params.route == "/" {
+        "/".to_string()
+    } else if let Some(stripped) = params.route.strip_prefix('/') {
+        format!("/{stripped}")
+    } else {
+        format!("/{}", params.route)
+    };
+    let Some(page_path) = manifest::page_path_for_route(&normalized) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    let files = store::list_files(project_id).await;
+    let Some(page_file) = files.iter().find(|f| f.path == page_path) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    let token = sandbox::mint(project_id);
+    let is_fragment = matches!(params.fragment.as_deref(), Some("1") | Some("true"));
+
+    if is_fragment {
+        let body = composer::compose_body_fragment(&token, &page_path, &page_file.content);
+        let mut response = body.into_response();
+        let headers = response.headers_mut();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        return Ok(response);
+    }
+
+    let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
+    let m = manifest::build(project_id, &files, revision);
+    let html = composer::compose_document(
+        &token,
+        &m,
+        &normalized,
+        &page_path,
+        &page_file.content,
+        "light",
+        None,
+    );
+
+    let filename = safe_filename_for_route(&normalized);
+    let mut response = html.into_response();
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{filename}.html\""))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    Ok(response)
+}
+
+/// Sanitize a route to a filesystem-safe download filename stem: `/` →
+/// `index`, `/pricing` → `pricing`. [`manifest::page_path_for_route`] already
+/// rejects routes with nested slashes, so a plain leaf name is all this needs
+/// to produce.
+fn safe_filename_for_route(route: &str) -> String {
+    let trimmed = route.trim_matches('/');
+    if trimmed.is_empty() {
+        "index".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Decode `data:<mime>;base64,<payload>` into bytes; plain content passes
 /// through unchanged.
 fn decoded_asset_bytes(content: &str) -> Option<Vec<u8>> {
