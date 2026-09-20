@@ -226,6 +226,7 @@ pub fn compose_document(
 ) -> String {
     let base = format!("/s/{token}");
     let annotated = annotate_sources(&rewrite_hrefs(fragment, &base), page_path);
+    let annotated = crate::primitives::expand_primitives(&annotated);
 
     let mut component_tags = String::new();
     for c in &manifest.components {

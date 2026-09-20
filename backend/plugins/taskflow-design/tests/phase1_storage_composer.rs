@@ -8,6 +8,8 @@ mod support;
 
 use serde_json::json;
 use support::{TestApp, sample_header_component, sample_index_page, sample_settings_page, sample_tokens};
+use taskflow_design::models::{DesignFile, DesignFileKind};
+use umbral::orm::ForeignKey;
 
 async fn seed_minimal_project(app: &TestApp) -> (i64, i64) {
     let (user, project) = app.create_member_with_project().await;
@@ -138,6 +140,62 @@ async fn composed_head_includes_thin_scrollbar_css() {
     assert!(
         !body_tag.contains("var(--bg)") && !body_tag.contains("var(--fg)"),
         "composed <body> still references removed legacy --bg/--fg tokens: {body_tag}"
+    );
+}
+
+/// `<ui-*>` primitives are expanded server-side during composition: a page
+/// fragment stored with a `<ui-accordion>` tag must be served as real
+/// `<details>`/`<summary>` markup, never with the raw primitive tag surviving
+/// into the sandbox document. The page-validation allowlist for these tags
+/// (Task 5) has not landed yet, so this seeds the fragment directly through
+/// the ORM rather than the HTTP write path, which would still reject the
+/// unregistered `<ui-accordion>` custom element.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_accordion_primitive_expands_during_compose() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+    let _ = user_id;
+
+    DesignFile::objects()
+        .create(DesignFile {
+            id: 0,
+            project: ForeignKey::new(project_id),
+            kind: DesignFileKind::Token,
+            path: "styles/tokens.css".to_string(),
+            content: sample_tokens(),
+            version: 1,
+            updated_by: "operator:seed".to_string(),
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .expect("seed tokens.css");
+
+    DesignFile::objects()
+        .create(DesignFile {
+            id: 0,
+            project: ForeignKey::new(project_id),
+            kind: DesignFileKind::Page,
+            path: "pages/index.html".to_string(),
+            content: r#"<main class="p-4"><ui-accordion title="Q">A</ui-accordion></main>"#
+                .to_string(),
+            version: 1,
+            updated_by: "operator:seed".to_string(),
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .expect("seed page with ui-accordion");
+
+    let token = taskflow_design::sandbox::mint(project_id);
+    let root = app.get_sandbox(&format!("/s/{token}/")).await;
+    assert_eq!(root.status(), 200, "root page failed to serve");
+    let html = root.text();
+
+    assert!(html.contains("<details"), "primitive was not expanded: {html}");
+    assert!(
+        !html.contains("<ui-accordion"),
+        "raw <ui-accordion> tag leaked into composed output: {html}"
     );
 }
 
