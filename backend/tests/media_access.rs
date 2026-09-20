@@ -298,6 +298,7 @@ async fn seed_message_attachment(project: i64, channel: i64) -> String {
             sender_label: format!("Seeder {n}"),
             body_markdown: format!("attachment carrier {n}"),
             priority: TaskflowMessagePriority::Normal,
+            is_design: false,
             client_nonce: None,
             edited_at: None,
             created_at: None,

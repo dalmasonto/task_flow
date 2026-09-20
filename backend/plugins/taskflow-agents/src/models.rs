@@ -275,6 +275,12 @@ pub struct TaskflowAgentMessage {
     pub body_markdown: String,
     #[umbral(choices, default = "normal")]
     pub priority: TaskflowMessagePriority,
+    /// Marks a message as belonging to the design conversation. Ordinary chat
+    /// messages are `false`; the design page filters the Project-room channel to
+    /// `is_design = true`. Set by the design composer (human) or explicitly by an
+    /// agent via the MCP `send_message` `is_design` param.
+    #[umbral(default = "false")]
+    pub is_design: bool,
     /// Client-generated correlation id. The sender renders its bubble
     /// optimistically keyed by this value, then reconciles whichever arrives
     /// first — the SSE echo or the POST response. Also the idempotency key:

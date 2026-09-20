@@ -364,6 +364,7 @@ async fn make_message(project: i64, channel: i64, body: &str) -> i64 {
             sender_label: "someone".to_string(),
             body_markdown: body.to_string(),
             priority: TaskflowMessagePriority::Normal,
+            is_design: false,
             client_nonce: None,
             edited_at: None,
             created_at: None,

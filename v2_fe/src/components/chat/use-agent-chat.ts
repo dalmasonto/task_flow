@@ -23,6 +23,7 @@ export function useAgentChat({
   onRefreshWorkspace,
   selectedChatId,
   onComposeTask,
+  isDesign = false,
 }: {
   onComposeTask: (body: string) => void
   project: Project
@@ -31,6 +32,13 @@ export function useAgentChat({
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
   onRefreshWorkspace: () => Promise<void>
   selectedChatId: string | null
+  /// #Task10: scope this instance to design messages. When set, the first-page
+  /// effect and `loadOlderMessages` fetch `is_design`-scoped pages and sends
+  /// carry `is_design: true`. Defaults OFF so `/agents` and the dock are
+  /// unaffected. The design rail instantiates its own scoped instance; a
+  /// separate `useAgentChat` opens no SSE of its own (realtime feeds the shared
+  /// `liveWorkspace` at the app level), so this does not duplicate the stream.
+  isDesign?: boolean
 }) {
   const [messageError, setMessageError] = useState<string | null>(null)
   // `livenessNow` is passed in, not read inside: these mappers decide who is
@@ -117,7 +125,8 @@ export function useAgentChat({
     body: string,
     priority: MessagePriority,
     files: File[],
-    targets: TargetMember[] = []
+    targets: TargetMember[] = [],
+    opts?: { isDesign?: boolean }
   ) => {
     const projectId = liveId(project.id)
     if (!projectId || !liveWorkspace) {
@@ -152,6 +161,7 @@ export function useAgentChat({
         channel: channelId,
         status: "pending",
         attachments: pendingAttachments,
+        is_design: opts?.isDesign ?? false,
       }),
     }))
 
@@ -163,6 +173,7 @@ export function useAgentChat({
           priority: toLiveMessagePriority(priority),
           client_nonce: nonce,
           targets: targets.map((target) => ({ kind: target.kind, id: target.id })),
+          is_design: opts?.isDesign ?? false,
         },
         files
       )
@@ -221,6 +232,7 @@ export function useAgentChat({
         body_markdown: failed.body_markdown,
         priority: failed.priority,
         client_nonce: nonce,          // same nonce: the send endpoint is idempotent
+        is_design: failed.is_design ?? false, // preserve the design flag across a retry
       })
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
@@ -266,7 +278,7 @@ export function useAgentChat({
     if (!trimmedBody && files.length === 0) return
 
     setMessageError(null)
-    void sendLiveMessage(chat, trimmedBody, priority, files, targets).catch((error) => {
+    void sendLiveMessage(chat, trimmedBody, priority, files, targets, { isDesign }).catch((error) => {
       setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
     })
   }
@@ -373,7 +385,7 @@ export function useAgentChat({
       return
     }
     channelPageState.current[key] = "pending"
-    void fetchChannelMessages(channelId, 1)
+    void fetchChannelMessages(channelId, 1, { isDesign })
       .then(async ({ rows }) => {
         await mergeChannelPage(rows)
         channelPageState.current[key] = rows.length ? "loaded" : "empty"
@@ -383,7 +395,7 @@ export function useAgentChat({
         // Retried the next time the effect runs (any workspace change).
         delete channelPageState.current[key]
       })
-  }, [selectedChat?.liveChannelId, liveWorkspace, mergeChannelPage])
+  }, [selectedChat?.liveChannelId, liveWorkspace, mergeChannelPage, isDesign])
 
   const loadOlderMessages = useCallback(() => {
     const channelId = selectedChat?.liveChannelId
@@ -392,12 +404,12 @@ export function useAgentChat({
     // Claimed before the request: scrolling fires this repeatedly, and two hits
     // must not fetch the same page twice. Released on failure so it can retry.
     messagePages.current[channelId] = nextPage
-    void fetchChannelMessages(channelId, nextPage)
+    void fetchChannelMessages(channelId, nextPage, { isDesign })
       .then(({ rows }) => mergeChannelPage(rows))
       .catch(() => {
         messagePages.current[channelId] = nextPage - 1
       })
-  }, [selectedChat?.liveChannelId, mergeChannelPage])
+  }, [selectedChat?.liveChannelId, mergeChannelPage, isDesign])
 
   /// Capture a message as a task. Commitments made in conversation go missing
   /// because opening a form costs more than the sentence did; this makes it one

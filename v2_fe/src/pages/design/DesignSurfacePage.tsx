@@ -29,21 +29,24 @@ import {
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
-  fetchDesignAgents,
   fetchDesignComments,
   fetchDesignFile,
   fetchDesignManifest,
   fetchSandboxToken,
   putDesignFile,
-  sendDesignPrompt,
   type ComponentEntry,
-  type DesignAgent,
   type DesignComment,
   type DesignManifest,
   type ValidationError,
   sandboxUrl,
 } from "@/lib/design-api"
-import { openTaskflowRealtimeStream, taskflowTables } from "@/lib/taskflow-api"
+import { openTaskflowRealtimeStream, taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { useAgentChat } from "@/components/chat/use-agent-chat"
+import { AgentsConversationView } from "@/components/chat/conversation-view"
+import { mapLiveChannelChats } from "@/lib/live-mappers"
+import { PROJECT_ROOM_TITLE, type Project } from "@/lib/workspace-view"
+import { type AuthUser } from "@/lib/auth-api"
+import { type DesignRef } from "@/lib/design-ref"
 import {
   DEFAULT_DEVICE_ID,
   DEVICE_PRESETS,
@@ -62,9 +65,24 @@ import {
 import { CommentPins, DesignInspector } from "./design-inspector"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
-import { DesignPromptBar, type AgentLogRow } from "./design-prompt-bar"
 
-export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
+export function DesignSurfacePage({
+  projectId,
+  project,
+  liveWorkspace,
+  currentUser,
+  onWorkspaceUpdate,
+  onRefreshWorkspace,
+  onComposeTask,
+}: {
+  projectId: number | null
+  project: Project | null
+  liveWorkspace: TaskflowWorkspace | null
+  currentUser: AuthUser | null
+  onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
+  onRefreshWorkspace: () => Promise<void>
+  onComposeTask: (body: string) => void
+}) {
   const navigate = useNavigate()
   const [manifest, setManifest] = useState<DesignManifest | null>(null)
   const [sandboxToken, setSandboxToken] = useState<string | null>(null)
@@ -77,10 +95,7 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
   const [contentEpoch, setContentEpoch] = useState(0)
   const [comments, setComments] = useState<DesignComment[]>([])
   const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
-  const [agents, setAgents] = useState<DesignAgent[]>([])
-  const [promptAgentId, setPromptAgentId] = useState<number | null>(null)
-  /** Per-agent tail windows: output from one pane must never read as if it answered for another. */
-  const [logsByAgent, setLogsByAgent] = useState<Record<number, AgentLogRow[]>>({})  // Persisted per project so canvas layout survives reloads.
+  // Persisted per project so canvas layout survives reloads.
   const boardsByProject = useRef<Map<number, Artboard[]>>(new Map())
   const [artboards, setArtboards] = useState<Artboard[]>([])
 
@@ -93,21 +108,6 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
     refreshComments()
   }, [refreshComments])
 
-  useEffect(() => {
-    if (!projectId) return
-    let cancelled = false
-    fetchDesignAgents(projectId)
-      .then((rows) => {
-        if (cancelled) return
-        setAgents(rows)
-        setPromptAgentId((cur) => cur ?? rows[0]?.id ?? null)
-      })
-      .catch(() => null)
-    return () => {
-      cancelled = true
-    }
-  }, [projectId])
-
   // Design realtime: file writes remount artboards; comment updates refresh
   // pins. One small dedicated SSE connection over the same hub — the groups
   // are derived server-side from the caller's membership.
@@ -117,28 +117,12 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
       groups: [
         `project:${projectId}:design_files`,
         `project:${projectId}:design_comments`,
-        // Terminal frames stream inline (server projects the fields), which is
-        // what feeds the prompt bar's live-output strip.
-        `project:${projectId}:terminal_frames`,
       ],
       onEvent: (event) => {
         if (event.table === taskflowTables.designFiles) {
           setContentEpoch((e) => e + 1)
         } else if (event.table === taskflowTables.designComments) {
           refreshComments()
-        } else if (event.table === taskflowTables.terminalFrames) {
-          const row = event.row as { agent?: number; content?: string; stream?: string; id?: number }
-          if (typeof row.agent !== "number") return
-          const line: AgentLogRow = {
-            key: row.id != null ? String(row.id) : `${Date.now()}-${Math.random()}`,
-            content: typeof row.content === "string" ? row.content : "",
-            stream: typeof row.stream === "string" ? row.stream : null,
-          }
-          // Bounded per-agent tail window — a strip, not a transcript.
-          setLogsByAgent((current) => ({
-            ...current,
-            [row.agent as number]: (current[row.agent as number] ?? []).concat(line).slice(-80),
-          }))
         }
       },
     })
@@ -263,6 +247,23 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
     return { rect: selection.rect, boardKey: selection.boardKey }
   }, [selection])
 
+  // The inspected element rides into the design rail's composer as a context
+  // chip; the conversation view encodes it as a design-ref block on send. Map
+  // the sandbox SelectionState fields onto the DesignRef shape (nulls → absent).
+  const contextChip = useMemo<{ label: string; ref: DesignRef } | null>(() => {
+    if (!selection) return null
+    return {
+      label: selection.component ?? selection.route ?? "Selected element",
+      ref: {
+        pagePath: selection.route,
+        componentName: selection.component ?? undefined,
+        elementPath: selection.elementPath,
+        srcRef: selection.srcRef ?? undefined,
+        viewport: selection.viewport,
+      },
+    }
+  }, [selection])
+
   const pins = useMemo(
     () => (
       <CommentPins
@@ -370,18 +371,25 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <LeftPanel
-          manifest={manifest}
-          sandboxToken={sandboxToken}
-          section={leftSection}
-          onSection={setLeftSection}
-          projectId={projectId}
-          onFilesChanged={() => setContentEpoch((e) => e + 1)}
-          onOpenRoute={(route) => {
-            addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)
-          }}
-        />
+        {/* LEFT: the design chat rail — the reusable chat, filtered to design. */}
+        <aside className="flex w-[380px] shrink-0 flex-col border-r">
+          {project ? (
+            <DesignChatRail
+              project={project}
+              liveWorkspace={liveWorkspace}
+              currentUser={currentUser}
+              onWorkspaceUpdate={onWorkspaceUpdate}
+              onRefreshWorkspace={onRefreshWorkspace}
+              onComposeTask={onComposeTask}
+              contextChip={contextChip}
+              onClearContextChip={() => setSelection(null)}
+            />
+          ) : (
+            <EmptyCanvas message={"Loading design conversation…"} />
+          )}
+        </aside>
 
+        {/* MIDDLE: the canvas (unchanged). */}
         <main className="relative min-w-0 flex-1">
           {error ? (
             <EmptyCanvas message={error} />
@@ -408,7 +416,9 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
           )}
         </main>
 
-        <aside className="hidden w-[320px] shrink-0 flex-col overflow-y-auto border-l lg:flex">
+        {/* RIGHT: interim — inspector + the pages/components/tokens panel that
+            used to sit on the left. Phase 2 turns this into proper tabs. */}
+        <aside className="hidden w-[340px] shrink-0 flex-col overflow-y-auto border-l lg:flex">
           <DesignInspector
             selection={selection}
             manifest={manifest}
@@ -416,33 +426,16 @@ export function DesignSurfacePage({ projectId }: { projectId: number | null }) {
             onDeselect={() => setSelection(null)}
             onCommentCreated={() => refreshComments()}
           />
+          <LeftPanel
+            manifest={manifest}
+            sandboxToken={sandboxToken}
+            section={leftSection}
+            onSection={setLeftSection}
+            projectId={projectId}
+            onFilesChanged={() => setContentEpoch((e) => e + 1)}
+            onOpenRoute={(route) => addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)}
+          />
         </aside>
-      </div>
-
-      <div className="relative">
-        <DesignPromptBar
-          agents={agents}
-          agentId={promptAgentId}
-          onAgentChange={setPromptAgentId}
-          selection={selection}
-          onClearSelection={() => setSelection(null)}
-          logRows={promptAgentId != null ? (logsByAgent[promptAgentId] ?? []) : []}
-          onSend={async (text) => {
-            if (!promptAgentId) throw new Error("No agent linked to this project yet.")
-            await sendDesignPrompt(projectId!, {
-              agent_id: promptAgentId,
-              text,
-              selection: selection
-                ? {
-                    route: selection.route,
-                    component: selection.component,
-                    elementPath: selection.elementPath,
-                    srcRef: selection.srcRef,
-                  }
-                : null,
-            })
-          }}
-        />
       </div>
 
       {paletteOpen ? (
@@ -458,6 +451,84 @@ function focusBoard(key: string, transform: CanvasTransform) {
     el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" })
     void transform
   })
+}
+
+// ---------------------------------------------------------------------------
+// The design chat rail
+// ---------------------------------------------------------------------------
+
+/// The left rail is the SAME `useAgentChat` + `AgentsConversationView` the
+/// Agents page and the dock use, so @mentions, attachments, prompt cards and the
+/// media lightbox all work here for free. Two things make it design-specific:
+///   1. This instance is `isDesign`-scoped, so its first-page + older fetches
+///      are `is_design`-scoped and its sends carry `is_design: true` (the hook's
+///      shared `handleSendMessage` does NOT forward the flag, so we rely on the
+///      scoped instance rather than the shared one).
+///   2. The rail reads the shared Project-room channel but DISPLAYS only design
+///      messages — the shared workspace still holds the whole channel.
+/// It opens no SSE of its own: realtime feeds the shared `liveWorkspace` at the
+/// app level, and this instance only reads it and fetches scoped pages.
+function DesignChatRail({
+  project,
+  liveWorkspace,
+  currentUser,
+  onWorkspaceUpdate,
+  onRefreshWorkspace,
+  onComposeTask,
+  contextChip,
+  onClearContextChip,
+}: {
+  project: Project
+  liveWorkspace: TaskflowWorkspace | null
+  currentUser: AuthUser | null
+  onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
+  onRefreshWorkspace: () => Promise<void>
+  onComposeTask: (body: string) => void
+  contextChip: { label: string; ref: DesignRef } | null
+  onClearContextChip: () => void
+}) {
+  // Point the shared hook at the Project-room chat so its is_design-scoped
+  // loaders fire for the right channel. Derived from the same mapper + title the
+  // Agents page uses; falls back to the first channel, then null (placeholder).
+  const projectRoomChatId = useMemo(() => {
+    if (!liveWorkspace) return null
+    const chats = mapLiveChannelChats(liveWorkspace, currentUser)
+    return (chats.find((chat) => chat.title === PROJECT_ROOM_TITLE) ?? chats[0])?.id ?? null
+  }, [liveWorkspace, currentUser])
+
+  const { outletContext } = useAgentChat({
+    project,
+    liveWorkspace,
+    currentUser,
+    onWorkspaceUpdate,
+    onRefreshWorkspace,
+    selectedChatId: projectRoomChatId,
+    onComposeTask,
+    isDesign: true,
+  })
+
+  // Only design messages render in the rail even though the shared workspace
+  // holds the whole channel; the is_design-scoped fetches keep "newest 20 design
+  // first, older on scroll" correct.
+  const designChat = useMemo(() => {
+    const chat = outletContext.selectedChat
+    return chat ? { ...chat, messages: chat.messages.filter((message) => message.isDesign) } : null
+  }, [outletContext.selectedChat])
+
+  if (!designChat) {
+    return <EmptyCanvas message={"Loading design conversation…"} />
+  }
+
+  return (
+    <AgentsConversationView
+      {...outletContext}
+      selectedChat={designChat}
+      variant="design"
+      showDesignBadge={false}
+      contextChip={contextChip}
+      onClearContextChip={onClearContextChip}
+    />
+  )
 }
 
 // ---------------------------------------------------------------------------

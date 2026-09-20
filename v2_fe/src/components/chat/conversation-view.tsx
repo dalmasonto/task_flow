@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MESSAGE_PAGE_SIZE, buildThreadItems } from "@/lib/live-mappers"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { appendDesignRef, type DesignRef } from "@/lib/design-ref"
 import { cn } from "@/lib/utils"
 import { composerEmojiGroups, messagePriorityOptions, type MessagePriority, type StagedFile, type TargetMember } from "@/lib/workspace-view"
 import { detectMention } from "@/lib/mention"
@@ -40,8 +41,17 @@ export function AgentsConversationView({
   onEditMessage,
   currentUser,
   variant = "full",
-}: AgentsOutletContext & { variant?: "full" | "compact" }) {
+  contextChip = null,
+  onClearContextChip,
+  showDesignBadge = true,
+}: AgentsOutletContext & {
+  variant?: "full" | "compact" | "design"
+  contextChip?: { label: string; ref: DesignRef } | null
+  onClearContextChip?: () => void
+  showDesignBadge?: boolean
+}) {
   const compact = variant === "compact"
+  const isDesign = variant === "design"
   const navigate = useNavigate()
 
   const [draftMessage, setDraftMessage] = useState("")
@@ -334,9 +344,15 @@ export function AgentsConversationView({
     const trimmedMessage = draftMessage.trim()
     if (!trimmedMessage && stagedFiles.length === 0) return
 
+    // #Task8: the design rail appends the inspected element's encoded ref to
+    // the body here; `is_design` itself is set by the rail's own
+    // `onSendMessage` wiring (Task 9/10), keeping this component send-agnostic.
+    const outgoingBody =
+      isDesign && contextChip ? appendDesignRef(trimmedMessage, contextChip.ref) : trimmedMessage
+
     onSendMessage(
       selectedChat,
-      trimmedMessage,
+      outgoingBody,
       messagePriority,
       stagedFiles.map((staged) => staged.file),
       selectedChat.mode === "channel" ? targetMembers : []
@@ -352,6 +368,7 @@ export function AgentsConversationView({
     setEmojiPickerOpen(false)
     setTargetMembers([])
     setTargetPickerOpen(false)
+    onClearContextChip?.()
     requestAnimationFrame(focusComposer)
   }
 
@@ -388,7 +405,7 @@ export function AgentsConversationView({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* #55: the dock draws its own header (title, switcher, minimise,
             close), so this one would be a second title bar in a 380px panel. */}
-        <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", compact && "hidden")}>
+        <div className={cn("flex items-center justify-between gap-3 border-b px-4 py-3", (compact || isDesign) && "hidden")}>
           <div className="flex min-w-0 items-center gap-2">
             {/* Mobile-only back control: returns to the full-screen list. On
                 lg+ the list is always visible beside the thread, so it's hidden. */}
@@ -485,6 +502,7 @@ export function AgentsConversationView({
                 onCancel={onCancelMessage}
                 onCreateTask={onCreateTask}
                 onEdit={onEditMessage}
+                showDesignBadge={showDesignBadge}
               />
             )
           )}
@@ -493,6 +511,20 @@ export function AgentsConversationView({
         {pendingPrompt ? (
           <div className="shrink-0 border-t bg-background px-3 pt-3">
             <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} />
+          </div>
+        ) : null}
+
+        {isDesign && contextChip ? (
+          <div className="mx-4 mb-1 inline-flex items-center gap-1 self-start rounded-md border bg-muted/50 px-2 py-1 text-xs">
+            <span className="truncate">{contextChip.label}</span>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => onClearContextChip?.()}
+              aria-label="Remove selection"
+            >
+              ×
+            </button>
           </div>
         ) : null}
 

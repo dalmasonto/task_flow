@@ -117,6 +117,9 @@ export interface SendMessageInput {
   body_markdown: string;
   priority?: string;
   client_nonce?: string;
+  /** Flags this message as a design-conversation answer. No server inference
+   *  on the agent path — an omitted value defaults to false. */
+  is_design?: boolean;
   /** Resolved by `resolveAttachments`; switches the POST to multipart. */
   attachments?: { filename: string; bytes: Buffer }[];
 }
@@ -348,6 +351,7 @@ export class TaskflowClient {
     form.set("body_markdown", fields.body_markdown);
     if (fields.priority) form.set("priority", fields.priority);
     if (fields.client_nonce) form.set("client_nonce", fields.client_nonce);
+    if (fields.is_design) form.set("is_design", "true");
     for (const file of attachments) {
       // The server treats a part as a file only when it carries a non-empty
       // filename (views.rs:180-186), so the basename must be preserved.

@@ -135,6 +135,12 @@ export type AgentMessage = {
   /// #107: true on the user's OWN saved messages — the only ones Edit is
   /// offered on. The server enforces authorship regardless.
   canEdit?: boolean
+  /// True when this message belongs to the design conversation (is_design on the
+  /// server row). Drives the design rail filter and the /agents "Design" badge.
+  isDesign?: boolean
+  /// The inspected-element reference parsed out of the body's design-ref block,
+  /// or null. Rendered as a chip; the block itself is stripped from `body`.
+  designRef?: import("./design-ref").DesignRef | null
 }
 
 

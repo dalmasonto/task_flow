@@ -1,10 +1,11 @@
 import { MessageAttachments } from "@/components/message-attachments"
 import { Button } from "@/components/ui/button"
-import { CheckCheckIcon, CheckIcon, CopyIcon, FileIcon, ImageIcon, PencilIcon, RotateCcwIcon, XIcon } from "lucide-react"
+import { CheckCheckIcon, CheckIcon, CopyIcon, CrosshairIcon, FileIcon, ImageIcon, PencilIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/attachment-kind"
 import { formatMessageTime } from "@/lib/live-mappers"
+import type { DesignRef } from "@/lib/design-ref"
 import { messagePriorityOptions, type AgentMessage, type MessagePriority, type StagedFile } from "@/lib/workspace-view"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
@@ -27,6 +28,22 @@ function messagePriorityBadgeClass(priority: MessagePriority) {
 }
 
 
+/// Pure gate for the header "Design" badge: shown only when the caller opted
+/// in (false in the design rail, where every message already is design) AND
+/// the message itself is flagged is_design.
+export function shouldShowDesignBadge(showDesignBadge: boolean | undefined, isDesign: boolean | undefined): boolean {
+  return Boolean(showDesignBadge) && Boolean(isDesign)
+}
+
+
+/// Label for the compact design-ref chip: the element's name if we have one,
+/// falling back to the page it lives on, then a generic "element"; the source
+/// location (component file/line) is appended when present.
+export function designRefChipLabel(ref: DesignRef | null | undefined): string | null {
+  if (!ref) return null
+  const base = ref.componentName ?? ref.pagePath ?? "element"
+  return ref.srcRef ? `${base} · ${ref.srcRef}` : base
+}
 
 
 /// Removable chips/thumbnails for files staged in the composer before send.
@@ -144,12 +161,17 @@ export function AgentChatBubble({
   onCancel,
   onCreateTask,
   onEdit,
+  showDesignBadge = true,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
   onCancel?: (nonce: string) => void
   onCreateTask?: (body: string) => void
   onEdit?: (messageId: number, body: string) => Promise<void>
+  /// Shows the header "Design" badge for is_design messages. Defaults to true
+  /// so /agents is unchanged; the design rail passes false since every
+  /// message shown there is already known to be design.
+  showDesignBadge?: boolean
 }) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
@@ -207,6 +229,11 @@ export function AgentChatBubble({
           {message.priority && message.priority !== "normal" ? (
             <span className={cn("rounded-full px-2 py-0.5 font-medium ring-1", messagePriorityBadgeClass(message.priority))}>
               {messagePriorityLabel(message.priority)}
+            </span>
+          ) : null}
+          {shouldShowDesignBadge(showDesignBadge, message.isDesign) ? (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary ring-1 ring-primary/20">
+              Design
             </span>
           ) : null}
           {/* Capture a spoken commitment as a task without leaving the thread —
@@ -282,12 +309,20 @@ export function AgentChatBubble({
             </div>
           </div>
         ) : (
-          <div ref={renderedRef}>
-            <MarkdownRenderer
-              content={message.body}
-              compact
-            />
-          </div>
+          <>
+            {message.designRef ? (
+              <div className="mb-2 inline-flex max-w-full items-center gap-1 truncate rounded-md border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
+                <CrosshairIcon className="size-3 shrink-0" />
+                <span className="truncate">{designRefChipLabel(message.designRef)}</span>
+              </div>
+            ) : null}
+            <div ref={renderedRef}>
+              <MarkdownRenderer
+                content={message.body}
+                compact
+              />
+            </div>
+          </>
         )}
         {message.attachments?.length ? (
           <div className="mt-3">

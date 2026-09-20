@@ -694,9 +694,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .describe(
           "Paths to attach, relative to the project root (or absolute, inside it). Max 25MB each.",
         ),
+      is_design: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set true when this message answers a DESIGN request (an inspect/design-ref message from the design page). It then appears in the design conversation, not just general chat.",
+        ),
       ...profileArg,
     },
-    async ({ channel, body, priority, files, profile }) => {
+    async ({ channel, body, priority, files, is_design, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -709,6 +715,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             channel,
             body_markdown: body,
             priority,
+            is_design,
             attachments,
           }),
         );
