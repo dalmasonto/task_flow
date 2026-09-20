@@ -196,6 +196,13 @@ const projectScopedRealtimeTables = [
   taskflowTables.channelReadCursors,
   taskflowTables.taskReviews,
   taskflowTables.agentPrompts,
+  // Design surface: carried on the ONE app-level stream so the design page does
+  // not open a second EventSource (which would wedge realtime app-wide — see
+  // ProfilePage.tsx). App.tsx forwards these to the design-realtime bus; there
+  // is no `fetchAndApplyRealtimeEvent` case for them (consumers read only the
+  // table, no row refetch).
+  taskflowTables.designFiles,
+  taskflowTables.designComments,
 ] satisfies RealtimeTableName[]
 
 /// Tables whose events carry the whole row (projected in backend/src/realtime.rs)

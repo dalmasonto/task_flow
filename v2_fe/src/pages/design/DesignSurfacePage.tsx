@@ -43,7 +43,8 @@ import {
   sandboxUrl,
 } from "@/lib/design-api"
 import { TokenEditor } from "@/pages/design/token-editor"
-import { openTaskflowRealtimeStream, taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { onDesignRealtimeEvent } from "@/lib/design-realtime"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { mapLiveChannelChats } from "@/lib/live-mappers"
@@ -127,22 +128,18 @@ export function DesignSurfacePage({
   }, [refreshComments])
 
   // Design realtime: file writes remount artboards; comment updates refresh
-  // pins. One small dedicated SSE connection over the same hub — the groups
-  // are derived server-side from the caller's membership.
+  // pins. These ride the ONE app-level SSE stream (App.tsx) and are fanned out
+  // here via the design-realtime bus. Opening a second EventSource for this page
+  // would hold an HTTP/1.1 slot for its whole life and wedge realtime app-wide
+  // (see ProfilePage.tsx) — which is exactly why chat stopped autoloading here.
   useEffect(() => {
     if (!projectId) return
-    return openTaskflowRealtimeStream({
-      groups: [
-        `project:${projectId}:design_files`,
-        `project:${projectId}:design_comments`,
-      ],
-      onEvent: (event) => {
-        if (event.table === taskflowTables.designFiles) {
-          setContentEpoch((e) => e + 1)
-        } else if (event.table === taskflowTables.designComments) {
-          refreshComments()
-        }
-      },
+    return onDesignRealtimeEvent((event) => {
+      if (event.table === taskflowTables.designFiles) {
+        setContentEpoch((e) => e + 1)
+      } else if (event.table === taskflowTables.designComments) {
+        refreshComments()
+      }
     })
   }, [projectId, refreshComments])
 
@@ -643,6 +640,10 @@ function DesignChatRail({
       showDesignBadge={false}
       contextChip={contextChip}
       onClearContextChip={onClearContextChip}
+      // Render only design messages, but advance the read cursor over the WHOLE
+      // channel (like the Agents page) — the watermark must not lag on the last
+      // design message.
+      readCursorMessages={outletContext.selectedChat?.messages}
     />
   )
 }

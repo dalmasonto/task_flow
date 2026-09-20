@@ -9,7 +9,7 @@ import { MESSAGE_PAGE_SIZE, buildThreadItems } from "@/lib/live-mappers"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { appendDesignRef, type DesignRef } from "@/lib/design-ref"
 import { cn } from "@/lib/utils"
-import { composerEmojiGroups, messagePriorityOptions, type MessagePriority, type StagedFile, type TargetMember } from "@/lib/workspace-view"
+import { composerEmojiGroups, messagePriorityOptions, type AgentMessage, type MessagePriority, type StagedFile, type TargetMember } from "@/lib/workspace-view"
 import { detectMention } from "@/lib/mention"
 import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
 import { markChannelRead } from "@/lib/taskflow-api"
@@ -44,11 +44,17 @@ export function AgentsConversationView({
   contextChip = null,
   onClearContextChip,
   showDesignBadge = true,
+  readCursorMessages,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   contextChip?: { label: string; ref: DesignRef } | null
   onClearContextChip?: () => void
   showDesignBadge?: boolean
+  /// Messages used ONLY to compute the mark-read watermark. Defaults to
+  /// `selectedChat.messages`. The design rail RENDERS a filtered (is_design)
+  /// view but must advance the read cursor over the WHOLE channel — same as the
+  /// Agents page — so it passes the unfiltered channel here.
+  readCursorMessages?: AgentMessage[]
 }) {
   const compact = variant === "compact"
   const isDesign = variant === "design"
@@ -200,16 +206,20 @@ export function AgentsConversationView({
   // has no server id yet. Debounced so a burst of arrivals fires at most one POST
   // once activity settles, and best-effort (a failed cursor update is silent).
   const liveChannelId = selectedChat?.liveChannelId ?? null
+  // Watermark over the WHOLE channel (readCursorMessages) when given, else the
+  // rendered thread. The design rail renders only is_design messages but marks
+  // the full channel read, so it passes the unfiltered messages here.
+  const cursorMessages = readCursorMessages ?? selectedChat?.messages ?? null
   const latestReadableMessageId = useMemo(() => {
-    if (!selectedChat) return null
-    for (let index = selectedChat.messages.length - 1; index >= 0; index -= 1) {
-      const message = selectedChat.messages[index]
+    if (!cursorMessages) return null
+    for (let index = cursorMessages.length - 1; index >= 0; index -= 1) {
+      const message = cursorMessages[index]
       if (message.status !== "posted") continue
       const numericId = Number(message.id)
       if (Number.isFinite(numericId)) return numericId
     }
     return null
-  }, [selectedChat])
+  }, [cursorMessages])
   useEffect(() => {
     if (!liveChannelId || latestReadableMessageId == null) return
     const timer = setTimeout(() => {

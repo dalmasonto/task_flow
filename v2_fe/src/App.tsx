@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
+import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
 import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
@@ -873,6 +874,14 @@ function App() {
     return openTaskflowRealtimeStream({
       groups: taskflowRealtimeGroups(projectId),
       onEvent: (event) => {
+        // Design events ride this one stream (the design page opens no stream of
+        // its own — a second EventSource wedges realtime app-wide). They carry
+        // no row we store centrally, so fan them out to the design surface and
+        // skip the table dispatch below.
+        if (event.table === taskflowTables.designFiles || event.table === taskflowTables.designComments) {
+          emitDesignRealtimeEvent(event)
+          return
+        }
         void fetchAndApplyRealtimeEvent(event, projectId)
       },
       // loadLiveWorkspace refetches the project summary AND the active
