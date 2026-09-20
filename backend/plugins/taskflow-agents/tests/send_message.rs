@@ -5,11 +5,23 @@ use serde_json::json;
 
 mod support;
 use support::{
-    TestApp, make_active_project_member, seed_channel_of_kind, seed_channel_with_member,
-    seed_channel_without_member, seed_project, seed_project_member_off_roster,
+    MultipartPart, TestApp, encode_multipart, make_active_project_member, seed_channel_of_kind,
+    seed_channel_with_member, seed_channel_without_member, seed_project,
+    seed_project_member_off_roster,
 };
 use taskflow_agents::models::TaskflowChannelKind;
 use taskflow_projects::models::TaskflowMembershipStatus;
+
+/// Same idiom as message_attachments.rs's `field` helper: a plain (non-file)
+/// multipart part.
+fn field(name: &str, value: &str) -> MultipartPart {
+    MultipartPart {
+        field_name: name.to_string(),
+        filename: None,
+        content_type: None,
+        bytes: value.as_bytes().to_vec(),
+    }
+}
 
 #[tokio::test]
 async fn derives_sender_from_identity_and_ignores_client_claims() {
@@ -304,6 +316,30 @@ async fn message_defaults_is_design_false() {
     let row = response.json().await;
     // The column exists and defaults to false for an ordinary message.
     assert_eq!(row["is_design"], json!(false));
+}
+
+// The multipart branch parses `is_design` from a form field (a string), not
+// from JSON — a distinct code path from `human_send_sets_is_design_when_requested`
+// above. Send a file alongside it so this genuinely exercises the multipart
+// parser, not a fallback to the JSON branch.
+#[tokio::test]
+async fn multipart_send_sets_is_design_when_requested() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    let (content_type, body) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "design ask via multipart"),
+        field("is_design", "true"),
+    ]);
+
+    let response = app
+        .post_multipart_as(user, "/api/taskflow/agents/messages", &content_type, body)
+        .await;
+
+    assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
+    let row = response.json().await;
+    assert_eq!(row["is_design"], json!(true));
 }
 
 #[tokio::test]

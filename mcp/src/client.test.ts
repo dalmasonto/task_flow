@@ -84,6 +84,32 @@ describe("sendMessage", () => {
     const body = calls[0].init.body as FormData;
     expect(body.getAll("files")).toHaveLength(2);
   });
+
+  it("forwards is_design: true in the JSON body to the agent messages route", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).sendMessage({ channel: 3, body_markdown: "design ask", is_design: true });
+
+    expect(calls[0].url).toContain("/agents/agent/messages");
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      channel: 3,
+      body_markdown: "design ask",
+      is_design: true,
+    });
+  });
+
+  it("sets is_design=true on the multipart form when attachments are present", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).sendMessage({
+      channel: 3,
+      body_markdown: "design ask with a file",
+      is_design: true,
+      attachments: [{ filename: "spec.md", bytes: Buffer.from("# spec\n") }],
+    });
+
+    expect(calls[0].url).toContain("/agents/agent/messages");
+    const body = calls[0].init.body as FormData;
+    expect(body.get("is_design")).toBe("true");
+  });
 });
 
 describe("updateTask", () => {
