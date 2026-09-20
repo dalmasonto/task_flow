@@ -2365,7 +2365,19 @@ function App() {
             <Route path="/dashboard/settings" element={<Navigate to="/dashboard/api" replace />} />
             <Route
               path="/dashboard/design"
-              element={<DesignSurfacePage projectId={activeProject ? Number(liveId(activeProject.id)) : null} />}
+              element={
+                <DesignSurfacePage
+                  projectId={activeProject ? Number(liveId(activeProject.id)) : null}
+                  project={activeProject}
+                  liveWorkspace={activeLiveWorkspace}
+                  currentUser={currentUser}
+                  onWorkspaceUpdate={(updater) => {
+                    if (activeLiveProjectId) applyWorkspaceUpdate(activeLiveProjectId, updater)
+                  }}
+                  onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
+                  onComposeTask={composeTaskFromMessage}
+                />
+              }
             />
             <Route
               path="/dashboard/api"
