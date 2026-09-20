@@ -288,6 +288,160 @@ async fn comments_surface_as_structured_targets_and_resolve() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn agent_write_tokens_json_stores_json_row_and_get_tokens_returns_it() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            "/api/taskflow/agents/design/tokens",
+            json!({
+                "project": project,
+                "tokens": {
+                    "version": 1,
+                    "categories": {
+                        "colors": { "accent": { "light": "#4f46e5" } }
+                    }
+                },
+                "reason": "seed the scale as structured json"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(res.json()["file"]["path"], "styles/tokens.json");
+
+    let ctx = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("/api/taskflow/agents/design/context?project={project}"),
+        )
+        .await;
+    assert_eq!(ctx.status(), 200);
+    let v = ctx.json();
+    assert_eq!(v["tokens_json"]["categories"]["colors"]["accent"]["light"], "#4f46e5");
+    assert!(
+        v["tokens_css"].as_str().unwrap().contains("--accent: #4f46e5;"),
+        "{}",
+        v["tokens_css"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_write_tokens_requires_exactly_one_of_tokens_or_css() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    // Neither.
+    let neither = app
+        .put_as_agent(
+            key.as_str(),
+            "/api/taskflow/agents/design/tokens",
+            json!({ "project": project, "reason": "bootstrap the scale now" }),
+        )
+        .await;
+    assert_eq!(neither.status(), 422, "{}", neither.text());
+
+    // Both.
+    let both = app
+        .put_as_agent(
+            key.as_str(),
+            "/api/taskflow/agents/design/tokens",
+            json!({
+                "project": project,
+                "css": "@theme { --accent: #fff; }",
+                "tokens": {"version": 1, "categories": {}},
+                "reason": "bootstrap the scale now"
+            }),
+        )
+        .await;
+    assert_eq!(both.status(), 422, "{}", both.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_tokens_css_only_project_context_derives_json_without_a_write() {
+    use taskflow_design::models::{DesignFile, DesignFileKind};
+    use umbral::orm::ForeignKey;
+
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    // Seed ONLY a legacy tokens.css row directly (no json row, no agent write).
+    DesignFile::objects()
+        .create(DesignFile {
+            id: 0,
+            project: ForeignKey::new(project),
+            kind: DesignFileKind::Token,
+            path: "styles/tokens.css".to_string(),
+            content: "@theme { --accent: #112233; }".to_string(),
+            version: 1,
+            updated_by: "operator".to_string(),
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .expect("seed legacy tokens.css");
+
+    let ctx = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("/api/taskflow/agents/design/context?project={project}"),
+        )
+        .await;
+    assert_eq!(ctx.status(), 200);
+    let v = ctx.json();
+    // A bare `--accent` var (no known category prefix) round-trips into the
+    // `custom` bucket with the full var name kept verbatim as the key — see
+    // `tokens.rs::var_name_to_category`.
+    assert_eq!(v["tokens_json"]["categories"]["custom"]["--accent"]["light"], "#112233");
+    assert!(v["tokens_css"].as_str().unwrap().contains("--accent: #112233;"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_write_tokens_css_migrates_legacy_project_to_json_row() {
+    use taskflow_design::models::{DesignFile, DesignFileKind};
+    use umbral::orm::ForeignKey;
+
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    // Legacy-only project (mirrors a pre-Phase-2 project on disk).
+    DesignFile::objects()
+        .create(DesignFile {
+            id: 0,
+            project: ForeignKey::new(project),
+            kind: DesignFileKind::Token,
+            path: "styles/tokens.css".to_string(),
+            content: "@theme { --accent: #112233; }".to_string(),
+            version: 1,
+            updated_by: "operator".to_string(),
+            created_at: None,
+            updated_at: None,
+        })
+        .await
+        .expect("seed legacy tokens.css");
+
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            "/api/taskflow/agents/design/tokens",
+            json!({
+                "project": project,
+                "css": "@theme { --accent: #445566; --spacing-1: 4px; }",
+                "reason": "brand refresh migrates the legacy file"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(res.json()["file"]["path"], "styles/tokens.json");
+
+    let row = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("/api/taskflow/agents/design/context?project={project}"),
+        )
+        .await;
+    let v = row.json();
+    assert_eq!(v["tokens_json"]["categories"]["custom"]["--accent"]["light"], "#445566");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn foreign_project_is_refused_not_routed() {
     let (app, project, _user, _agent, key) = setup_app().await;
     // Another project the agent does NOT belong to.

@@ -18,6 +18,7 @@ use taskflow_agents::agent_auth::RequireAgent;
 use crate::manifest;
 use crate::models::{CommentStatus, DesignComment, DesignFileKind, design_comment};
 use crate::store::{self, WriteOutcome};
+use crate::tokens::{TokensDoc, css_to_tokens_json, tokens_json_to_css};
 use crate::validation;
 use crate::views::{conflict_response, project_locks, rejection_response};
 
@@ -33,6 +34,26 @@ fn authorized_project(agent: &taskflow_agents::agent_auth::AgentIdentity, reques
 
 async fn load_files(project_id: i64) -> Vec<crate::models::DesignFile> {
     store::list_files(project_id).await
+}
+
+/// Resolve the project's tokens as a [`TokensDoc`], preferring the
+/// `styles/tokens.json` source of truth and falling back to deriving one
+/// from a legacy `styles/tokens.css` row (via [`css_to_tokens_json`]) when no
+/// json row exists yet. This is the READ side of the json migration: a
+/// project that has only ever been written as CSS still answers
+/// `design_get_tokens`/`context` with a proper json map, no write required.
+fn resolve_tokens_doc(files: &[crate::models::DesignFile]) -> TokensDoc {
+    files
+        .iter()
+        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.json")
+        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
+        .or_else(|| {
+            files
+                .iter()
+                .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
+                .map(|f| css_to_tokens_json(&f.content))
+        })
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -56,14 +77,13 @@ pub async fn context(
     let files = load_files(agent.project_id).await;
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
     let m = manifest::build(agent.project_id, &files, revision);
-    let tokens_css = files
-        .iter()
-        .find(|f| f.kind == DesignFileKind::Token)
-        .map(|f| f.content.clone())
-        .unwrap_or_default();
+    let tokens_doc = resolve_tokens_doc(&files);
+    let tokens_css = tokens_json_to_css(&tokens_doc);
+    let tokens_json = serde_json::to_value(&tokens_doc).unwrap_or_else(|_| json!({}));
 
     Ok(Json(json!({
         "tokens_css": tokens_css,
+        "tokens_json": tokens_json,
         "tokens": manifest::to_json(&m)["tokens"],
         "components": manifest::to_json(&m)["components"],
         "routes": manifest::to_json(&m)["routes"],
@@ -215,12 +235,39 @@ pub async fn write_component(
 #[derive(Debug, Deserialize)]
 pub struct AgentWriteTokensInput {
     pub project: i64,
-    pub css: String,
+    /// Preferred shape: a `TokensDoc`-shaped JSON object.
+    #[serde(default)]
+    pub tokens: Option<serde_json::Value>,
+    /// Legacy shape: raw `styles/tokens.css` content, parsed via
+    /// `css_to_tokens_json` before storage. Exactly one of `tokens`/`css`.
+    #[serde(default)]
+    pub css: Option<String>,
     pub reason: String,
+}
+
+fn tokens_validation_error(rule: &'static str, message: String) -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({
+            "ok": false,
+            "errors": [{
+                "line": 0,
+                "rule": rule,
+                "message": message,
+            }]
+        })),
+    )
+        .into_response()
 }
 
 /// `PUT /api/taskflow/agents/design/tokens` — touches EVERY route, so it is the
 /// highest-friction write: required reason, and the response names all routes.
+///
+/// Accepts EXACTLY ONE of `tokens` (a `TokensDoc`-shaped JSON object, the
+/// preferred shape) or `css` (legacy `styles/tokens.css` text, parsed via
+/// `css_to_tokens_json`). Either way the write lands at `styles/tokens.json`
+/// — a project whose only row so far was a legacy `styles/tokens.css` is
+/// migrated to json by this write, same as any other write to that path.
 pub async fn write_tokens(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentWriteTokensInput>,
@@ -228,25 +275,61 @@ pub async fn write_tokens(
     authorized_project(&agent, input.project)?;
     let reason = input.reason.trim();
     if reason.is_empty() || reason.len() < 8 {
-        return Ok((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({
-                "ok": false,
-                "errors": [{
-                    "line": 0,
-                    "rule": "missing-reason",
-                    "message": "design_write_tokens requires a real `reason` — tokens touch \
-                                every page and every component at once."
-                }]
-            })),
-        )
-            .into_response());
+        return Ok(tokens_validation_error(
+            "missing-reason",
+            "design_write_tokens requires a real `reason` — tokens touch \
+             every page and every component at once."
+                .to_string(),
+        ));
     }
+
+    let doc = match (input.tokens, input.css) {
+        (Some(_), Some(_)) => {
+            return Ok(tokens_validation_error(
+                "tokens-or-css",
+                "design_write_tokens takes exactly ONE of `tokens` or `css`, not both."
+                    .to_string(),
+            ));
+        }
+        (None, None) => {
+            return Ok(tokens_validation_error(
+                "tokens-or-css",
+                "design_write_tokens requires exactly ONE of `tokens` (a JSON token map, \
+                 preferred) or `css` (legacy tokens.css text)."
+                    .to_string(),
+            ));
+        }
+        (Some(tokens), None) => match serde_json::from_value::<TokensDoc>(tokens) {
+            Ok(doc) => doc,
+            Err(err) => {
+                return Ok(tokens_validation_error(
+                    "invalid-json",
+                    format!(
+                        "`tokens` does not match the tokens document shape: {err}. Expected \
+                         {{\"version\": 1, \"categories\": {{ \"colors\": {{ \"accent\": \
+                         {{ \"light\": \"#6366f1\" }} }} }} }}."
+                    ),
+                ));
+            }
+        },
+        (None, Some(css)) => css_to_tokens_json(&css),
+    };
+
+    let content = match serde_json::to_string(&doc) {
+        Ok(s) => s,
+        Err(_) => {
+            return Ok(tokens_validation_error(
+                "storage",
+                "Could not serialize the tokens document; try again.".to_string(),
+            ));
+        }
+    };
+
     agent_write(
         agent.project_id,
         &format!("{} ({})", agent.display_name, agent.agent_id),
-        "styles/tokens.css",
-        &input.css,
+        "styles/tokens.json",
+        &content,
         None,
     )
     .await

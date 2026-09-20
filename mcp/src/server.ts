@@ -1017,7 +1017,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_get_tokens",
-    "Read the design token scale (colors, spacing, radius, fonts) as CSS + parsed groups. ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]).",
+    "Read the design token scale as BOTH the json map (`tokens_json`, the source of truth) and generated CSS (`tokens_css`). ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]).",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1139,19 +1139,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_tokens",
-    "Replace styles/tokens.css wholesale (@theme block required, no remote @import). Touches EVERY route and component at once — requires `reason`. Prefer adding variables over changing existing ones mid-project.",
+    "Replace the design token scale wholesale. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of `tokens` (a JSON token map — PREFERRED: {\"version\":1,\"categories\":{\"colors\":{\"accent\":{\"light\":\"#6366f1\",\"dark\":\"#818cf8\"}}}}) or `css` (legacy tokens.css text with an @theme block, no remote @import — still accepted, parsed into the same json shape). Prefer adding variables over changing existing ones mid-project.",
     {
-      css: z.string().min(1).describe("Complete new tokens.css content."),
+      tokens: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe(
+          "Preferred. The full tokens document: {version, categories: {colors|spacing|radius|typography|shadows|custom: {<key>: {light, dark?}}}}.",
+        ),
+      css: z.string().min(1).optional().describe("Legacy: complete tokens.css content (parsed into the json shape)."),
       reason: z.string().min(8).describe("Why the whole scale must change now."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ css, reason, project, profile }) => {
+    async ({ tokens, css, reason, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
-        return ok(await client.writeDesignTokens(await resolveDesignProject(client, project), css, reason));
+        return ok(
+          await client.writeDesignTokens(await resolveDesignProject(client, project), reason, { tokens, css }),
+        );
       } catch (err) {
         return fail(err);
       }

@@ -546,10 +546,20 @@ export class TaskflowClient {
     });
   }
 
-  /** `PUT /agents/design/tokens` — touches every route; REQUIRES reason. */
-  writeDesignTokens(project: number, css: string, reason: string): Promise<unknown> {
+  /** `PUT /agents/design/tokens` — touches every route; REQUIRES reason.
+   *  Exactly one of `tokens` (JSON, preferred) or `css` (legacy) must be set. */
+  writeDesignTokens(
+    project: number,
+    reason: string,
+    opts: { tokens?: unknown; css?: string },
+  ): Promise<unknown> {
     return this.request("PUT", `${API_PREFIX}/agents/design/tokens`, {
-      body: { project, css, reason },
+      body: {
+        project,
+        reason,
+        ...(opts.tokens !== undefined ? { tokens: opts.tokens } : {}),
+        ...(opts.css !== undefined ? { css: opts.css } : {}),
+      },
     });
   }
 

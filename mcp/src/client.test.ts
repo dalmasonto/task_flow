@@ -254,3 +254,30 @@ describe("network-error retry", () => {
     expect(count()).toBe(1);
   });
 });
+
+describe("writeDesignTokens", () => {
+  it("forwards `tokens` (JSON) in the request body when present", async () => {
+    const { calls, impl } = stubFetch();
+    const tokens = { version: 1, categories: { colors: { accent: { light: "#6366f1" } } } };
+    await client(impl).writeDesignTokens(3, "brand refresh across all surfaces", { tokens });
+
+    const body = JSON.parse(calls[0].init.body);
+    expect(body).toEqual({ project: 3, reason: "brand refresh across all surfaces", tokens });
+    expect(body.css).toBeUndefined();
+  });
+
+  it("forwards `css` (legacy) in the request body when present", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).writeDesignTokens(3, "brand refresh across all surfaces", {
+      css: "@theme { --accent: #6366f1; }",
+    });
+
+    const body = JSON.parse(calls[0].init.body);
+    expect(body).toEqual({
+      project: 3,
+      reason: "brand refresh across all surfaces",
+      css: "@theme { --accent: #6366f1; }",
+    });
+    expect(body.tokens).toBeUndefined();
+  });
+});
