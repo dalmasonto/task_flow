@@ -77,6 +77,9 @@ pub struct SendMessageInput {
     /// is authoritative and `target_agent` is derived from it.
     #[serde(default)]
     pub targets: Option<Vec<MessageTarget>>,
+    /// Marks this as a design-conversation message. Absent/false = ordinary chat.
+    #[serde(default)]
+    pub is_design: bool,
 }
 
 /// The single attachment projection, shared by every path that returns one.
@@ -336,7 +339,7 @@ pub async fn send_message(
 
     // Normalise both transports to the same logical input: the message fields
     // plus any uploaded file parts (JSON posts carry none).
-    let (channel_id, body_markdown, priority, client_nonce, target_agent, targets, files): (
+    let (channel_id, body_markdown, priority, client_nonce, target_agent, targets, files, is_design): (
         i64,
         String,
         Option<TaskflowMessagePriority>,
@@ -344,6 +347,7 @@ pub async fn send_message(
         Option<i64>,
         Option<Vec<MessageTarget>>,
         Vec<FilePart>,
+        bool,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
             .await
@@ -355,6 +359,7 @@ pub async fn send_message(
         let mut nonce_field: Option<String> = None;
         let mut target_field: Option<String> = None;
         let mut targets_field: Option<String> = None;
+        let mut is_design_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
@@ -363,6 +368,7 @@ pub async fn send_message(
                 "client_nonce" => nonce_field = Some(value),
                 "target_agent" => target_field = Some(value),
                 "targets" => targets_field = Some(value),
+                "is_design" => is_design_field = Some(value),
                 _ => {}
             }
         }
@@ -389,6 +395,12 @@ pub async fn send_message(
             .as_deref()
             .and_then(|s| serde_json::from_str::<Vec<MessageTarget>>(s).ok());
 
+        // A design-composer message flags itself; anything but "true" is false.
+        let is_design = is_design_field
+            .as_deref()
+            .map(|s| s.trim().eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
         // A "file part" is one that carried a filename; bodyless text parts are
         // fields, not attachments.
         let files: Vec<FilePart> = form
@@ -405,6 +417,7 @@ pub async fn send_message(
             target_agent,
             targets,
             files,
+            is_design,
         )
     } else {
         // JSON path: preserve the original behaviour exactly. A malformed body
@@ -419,6 +432,7 @@ pub async fn send_message(
             input.target_agent,
             input.targets,
             Vec::new(),
+            input.is_design,
         )
     };
 
@@ -569,7 +583,7 @@ pub async fn send_message(
             sender_label,
             body_markdown: body.to_string(),
             priority: priority.unwrap_or(TaskflowMessagePriority::Normal),
-            is_design: false,
+            is_design,
             client_nonce: client_nonce.clone(),
             edited_at: None,
             created_at: None,

@@ -304,3 +304,20 @@ async fn message_defaults_is_design_false() {
     // The column exists and defaults to false for an ordinary message.
     assert_eq!(row["is_design"], json!(false));
 }
+
+#[tokio::test]
+async fn human_send_sets_is_design_when_requested() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({ "channel": channel, "body_markdown": "design ask", "is_design": true }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.json().await["is_design"], json!(true));
+}
