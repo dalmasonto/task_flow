@@ -269,6 +269,7 @@ export interface TaskflowAgentMessage {
   sender_label: string;
   body_markdown: string;
   priority: TaskflowAgentMessagePriority;
+  is_design: boolean;
   client_nonce: string | null;
   edited_at: string | null;
   created_at: string | null;
@@ -1361,6 +1362,7 @@ export interface TaskflowAgentMessageFilters {
   "priority__icontains"?: string;
   "priority__startswith"?: string;
   "priority__in"?: TaskflowAgentMessagePriority[];
+  "is_design"?: boolean;
   "client_nonce"?: string;
   "client_nonce__ne"?: string;
   "client_nonce__contains"?: string;
@@ -1385,7 +1387,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "is_design" | "-is_design" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1399,6 +1401,7 @@ export interface TaskflowAgentMessageCreate {
   sender_label: string;
   body_markdown: string;
   priority?: TaskflowAgentMessagePriority;
+  is_design?: boolean;
   client_nonce?: string | null;
   edited_at?: string | null;
 }
@@ -1415,6 +1418,7 @@ export interface TaskflowAgentMessageUpdate {
   sender_label?: string;
   body_markdown?: string;
   priority?: TaskflowAgentMessagePriority;
+  is_design?: boolean;
   client_nonce?: string | null;
 }
 

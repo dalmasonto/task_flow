@@ -539,11 +539,12 @@ export async function fetchBoardColumn(
 /// before this thread ran out.
 export async function fetchChannelMessages(
   channelId: number,
-  page = 1
+  page = 1,
+  opts?: { isDesign?: boolean }
 ): Promise<ServerPage<TaskflowAgentMessage>> {
   const res = await taskflowApi
     .from(taskflowTables.agentMessages)
-    .filter({ channel: channelId })
+    .filter(opts?.isDesign ? { channel: channelId, is_design: true } : { channel: channelId })
     .orderBy("-created_at", "-id")
     .param("page", page)
     .list()
