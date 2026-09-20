@@ -231,6 +231,7 @@ export function DesignCanvas({
             picking={picking}
             contentEpoch={contentEpoch}
             sandboxToken={sandboxToken}
+            panMode={spaceDown || canvasTool === "pan"}
           />
         ))}
         {/* Selection rect: chrome-owned, drawn over the frame at the captured
@@ -269,12 +270,16 @@ function ArtboardCard({
   picking,
   contentEpoch,
   sandboxToken,
+  panMode,
 }: {
   board: Artboard
   theme: string
   picking: boolean
   contentEpoch: number
   sandboxToken: string | null
+  /** Pan tool active or Space held: the iframe must not swallow the drag that
+   * starts over it, so the surface below gets pointer events instead. */
+  panMode: boolean
 }) {
   const device = deviceById(board.deviceId)
   const src = sandboxToken ? sandboxUrl(sandboxToken, board.route) : null
@@ -286,7 +291,7 @@ function ArtboardCard({
       data-artboard-key={board.key}
     >
       <ArtboardHeader route={board.route} device={device} />
-      <div className="overflow-visible">
+      <div className="overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
         <DeviceChrome device={device}>
           {src ? (
             <LazyFrame
@@ -377,7 +382,10 @@ function DeviceChrome({
         <div className="absolute top-1.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-zinc-800 ring-1 ring-zinc-600/60" />
       ) : null}
       {chrome.topBar ? (
-        <div className="absolute top-0 left-0 right-0 flex h-[22px] items-center gap-1.5 rounded-t-[10px] bg-zinc-900 px-3">
+        <div
+          className="absolute top-0 left-0 right-0 flex h-[22px] items-center gap-1.5 bg-zinc-900 px-3"
+          style={{ borderTopLeftRadius: chrome.outerRadius, borderTopRightRadius: chrome.outerRadius }}
+        >
           <span className="size-2 rounded-full bg-zinc-700" />
           <span className="size-2 rounded-full bg-zinc-700" />
           <span className="size-2 rounded-full bg-zinc-700" />

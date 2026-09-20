@@ -134,9 +134,10 @@ export function chromeStyleForGroup(group: DeviceGroup): ChromeStyle {
   }
 }
 
-/// An artboard: one route rendered at one device size. Position persists per
-/// project so the canvas layout survives reloads (localStorage keyed by
-/// project; canvas geometry is chrome state, not design data).
+/// An artboard: one route rendered at one device size. Position is derived,
+/// not persisted — `layoutRows` recomputes x/y from the open routes and
+/// selected devices on every render, so the canvas geometry is chrome state,
+/// not design data.
 export type Artboard = {
   /** Stable key: `${route}@${deviceId}` */
   key: string

@@ -197,9 +197,9 @@ export function DesignSurfacePage({
         const tool = toolForKey(e.key)
         if (tool) setCanvasTool(tool)
         if (e.key === "+" || e.key === "=")
-          setTransform((t) => ({ ...t, scale: Math.min(2, t.scale * ZOOM_STEP) }))
+          setTransform((t) => ({ ...t, scale: Math.min(MAX_SCALE, t.scale * ZOOM_STEP) }))
         if (e.key === "-")
-          setTransform((t) => ({ ...t, scale: Math.max(0.25, t.scale / ZOOM_STEP) }))
+          setTransform((t) => ({ ...t, scale: Math.max(MIN_SCALE, t.scale / ZOOM_STEP) }))
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault()

@@ -274,8 +274,8 @@ document.addEventListener('DOMContentLoaded', () => {{
        inside the fixed device width. */
     ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
     ::-webkit-scrollbar-track {{ background: transparent; }}
-    ::-webkit-scrollbar-thumb {{ background: rgba(0,0,0,.25); border-radius: 3px; }}
-    html {{ scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.25) transparent; }}
+    ::-webkit-scrollbar-thumb {{ background: rgba(128,128,128,.4); border-radius: 3px; }}
+    html {{ scrollbar-width: thin; scrollbar-color: rgba(128,128,128,.4) transparent; }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
