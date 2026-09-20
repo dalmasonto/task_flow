@@ -293,6 +293,59 @@ async fn unknown_custom_element_names_the_registration_path() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn ui_primitive_tags_validate_without_registration() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+
+    for (path, content) in [
+        (
+            "pages/accordion.html",
+            "<ui-accordion title=\"x\">y</ui-accordion>",
+        ),
+        (
+            "pages/dialog.html",
+            "<ui-dialog trigger=\"Open\"><ui-dialog-title>Hi</ui-dialog-title>\
+             <ui-dialog-body>Body</ui-dialog-body></ui-dialog>",
+        ),
+        (
+            "pages/tabs.html",
+            "<ui-tabs><ui-tab label=\"One\">first</ui-tab></ui-tabs>",
+        ),
+    ] {
+        let res = app
+            .put_json_as(
+                user_id,
+                &format!("/api/design/{project_id}/file"),
+                &json!({ "path": path, "content": content }),
+            )
+            .await;
+        assert_eq!(res.status(), 201, "{path} rejected: {}", res.text());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unknown_ui_tag_names_the_stray_primitive() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+    let res = app
+        .put_json_as(
+            user_id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "pages/dash.html",
+                "content": "<ui-bogus>hi</ui-bogus>"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 422);
+    let v = res.json();
+    assert_eq!(v["errors"][0]["rule"], "unknown-ui-primitive");
+    let msg = v["errors"][0]["message"].as_str().unwrap().to_string();
+    assert!(msg.contains("ui-bogus"), "{msg}");
+    assert!(msg.contains("ui-accordion"), "{msg}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn arbitrary_tailwind_values_are_rejected_with_token_hint() {
     let app = TestApp::new().await;
     let (user_id, project_id) = seed_minimal_project(&app).await;

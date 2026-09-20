@@ -205,6 +205,23 @@ fn check_extension(path: &str, kind: crate::models::DesignFileKind) -> Result<()
 /// in a page is drift by definition.
 const BANNED_LAYOUT_TAGS: &[&str] = &["header", "nav", "footer", "aside"];
 
+/// Built-in `<ui-*>` primitive tags the composer expands server-side into
+/// real HTML (see `primitives::expand_primitives`). These are not part of a
+/// project's component registry, but pages are allowed to use them directly —
+/// shared here so the validator's allowlist and the agent-facing catalog
+/// (Task 6) stay in sync with one source of truth.
+pub const UI_PRIMITIVE_TAGS: &[&str] = &[
+    "ui-dialog",
+    "ui-dialog-title",
+    "ui-dialog-body",
+    "ui-accordion",
+    "ui-tabs",
+    "ui-tab",
+    "ui-sheet",
+    "ui-sheet-title",
+    "ui-sheet-body",
+];
+
 /// Full-document markers. Agents write BODY FRAGMENTS; the server owns the
 /// document shell so headers/tokens/picker cannot drift between pages. The
 /// list itself moved into `validate_page_fragment`, which matches on element
@@ -365,8 +382,11 @@ pub fn validate_page_fragment(
         }
     }
 
-    // Unknown custom elements.
-    let mut unknown: Option<(String, usize)> = None;
+    // Unknown custom elements. Built-in `<ui-*>` primitives are pre-approved —
+    // they never live in the project's registry — and a `<ui-*>` tag that is
+    // NOT a recognized primitive gets its own teaching error instead of the
+    // generic "register it" message, since there is nothing to register.
+    let mut unknown: Option<(String, usize, bool)> = None;
     for_each_tag(content, |name, _attrs, offset| {
         if unknown.is_some() {
             return;
@@ -374,12 +394,29 @@ pub fn validate_page_fragment(
         if !is_custom_element(name) {
             return;
         }
+        if UI_PRIMITIVE_TAGS.contains(&name) {
+            return;
+        }
         let registered = registered_components.iter().any(|c| c == name);
         if !registered {
-            unknown = Some((name.to_string(), offset));
+            unknown = Some((name.to_string(), offset, name.starts_with("ui-")));
         }
     });
-    if let Some((name, offset)) = unknown {
+    if let Some((name, offset, is_stray_primitive)) = unknown {
+        if is_stray_primitive {
+            return v.fail(ValidationError {
+                line: line_of(content, offset),
+                rule: "unknown-ui-primitive",
+                message: format!(
+                    "{name} is not a recognized ui-* primitive. Built-in primitives are: {}. \
+                     Check the spelling, or register a real custom element with \
+                     design_write_component if you meant something else.",
+                    UI_PRIMITIVE_TAGS.join(", ")
+                ),
+                found: Some(format!("<{name}>")),
+                suggest: None,
+            });
+        }
         return v.fail(ValidationError {
             line: line_of(content, offset),
             rule: "unknown-component",
