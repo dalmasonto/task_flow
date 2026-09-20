@@ -123,6 +123,45 @@ async fn an_empty_member_list_yields_a_channel_with_just_the_creator() {
     assert_eq!(response.json().await["members"].as_array().unwrap().len(), 1);
 }
 
+// One project room per project. A second `kind=project` create returns the
+// EXISTING room (get-or-create, 200), never a duplicate — this is what stops the
+// design rail and the dock from minting duplicate "Project room" channels when a
+// surface sends before it has loaded the channel list.
+#[tokio::test]
+async fn project_room_creation_is_idempotent() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let creator = app.create_user().await;
+    make_active_project_member(project, creator).await;
+
+    let first = app
+        .post_as(
+            creator,
+            CREATE,
+            json!({ "project": project, "kind": "project", "title": "Project room", "members": [] }),
+        )
+        .await;
+    assert_eq!(first.status(), 201, "first create: {:?}", first.json().await);
+    let first_id = first.json().await["id"].as_i64().expect("channel id");
+
+    // A second create — even by a DIFFERENT member — reuses the one room (200),
+    // and rosters that caller onto it so they can see it.
+    let other = app.create_user().await;
+    make_active_project_member(project, other).await;
+    let second = app
+        .post_as(
+            other,
+            CREATE,
+            json!({ "project": project, "kind": "project", "title": "Project room", "members": [] }),
+        )
+        .await;
+    assert_eq!(second.status(), 200, "second create must reuse, not duplicate: {:?}", second.json().await);
+    let body = second.json().await;
+    assert_eq!(body["id"].as_i64(), Some(first_id), "same room id, no duplicate");
+    let user_ids: Vec<i64> = body["members"].as_array().unwrap().iter().filter_map(|m| m["user"].as_i64()).collect();
+    assert!(user_ids.contains(&other), "second caller rostered on the reused room");
+}
+
 // 3. Agents can be rostered — the gap that made the one-line fix impossible.
 #[tokio::test]
 async fn an_agent_can_be_added_at_creation() {
@@ -243,9 +282,13 @@ async fn duplicate_members_are_deduped_not_rejected() {
         .post_as(
             creator,
             CREATE,
+            // A `direct` channel (fresh roster) so this exercises member-dedup on
+            // a real create — a second `project` channel is now get-or-create
+            // (one room per project), which would short-circuit before the roster
+            // is built and defeat the point of this test.
             json!({
                 "project": project,
-                "kind": "project",
+                "kind": "direct",
                 "title": "Room",
                 "members": [
                     { "kind": "user", "user": other },

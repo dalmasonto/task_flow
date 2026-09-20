@@ -1073,8 +1073,15 @@ function App() {
   // table and this string never drift, and a miss leaves the page permanently
   // empty with no clue why.
   const [chatSurfaceMounted, setChatSurfaceMounted] = useState(false)
+  // The design page's left rail reuses the chat components (Phase 1) and must
+  // load the chat slice too — otherwise `agentChannels` is empty there, the
+  // project-room chat falls to the no-channel placeholder, and a design send
+  // creates a DUPLICATE "Project room" instead of reusing the existing one.
   const chatNeeded =
-    dockOpen || chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
+    dockOpen ||
+    chatSurfaceMounted ||
+    location.pathname.startsWith("/dashboard/agents") ||
+    location.pathname.startsWith("/dashboard/design")
   // #56 review: the project-wide activity FEED loads here (its own paginated
   // slice). The open task's activity is NOT this — it loads task-scoped via the
   // taskDetail slice — so this gate is the feed route only, not openTaskId.

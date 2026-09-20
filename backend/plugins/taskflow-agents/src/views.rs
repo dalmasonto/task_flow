@@ -928,6 +928,59 @@ pub async fn create_channel(
         }
     }
 
+    // One project room per project. A Project channel is the SHARED room, not a
+    // per-roster DM, so if a non-archived one already exists we return it instead
+    // of minting a duplicate. This is what the design rail and the dock both need:
+    // each calls this on first send, and a surface that has not yet loaded the
+    // channel list would otherwise create a second "Project room". Get-or-create,
+    // race-safe on the server rather than trusting the client to look first. The
+    // earliest id is the canonical room (the seeded one). The caller is ensured
+    // onto the roster so they can actually see the room they asked for.
+    if input.kind == TaskflowChannelKind::Project {
+        // `find_project_room` is the one canonical "the project room" lookup
+        // (earliest Project channel), shared with `ensure_project_room` so the
+        // agent-mint path and this create path can never disagree on which room
+        // is THE room.
+        if let Some(room) = find_project_room(input.project).await? {
+            let caller_rostered = TaskflowAgentChannelMember::objects()
+                .filter(
+                    taskflow_agent_channel_member::CHANNEL.eq(room.id)
+                        & taskflow_agent_channel_member::USER.eq(caller_id),
+                )
+                .first()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .is_some();
+            if !caller_rostered {
+                TaskflowAgentChannelMember::objects()
+                    .create(TaskflowAgentChannelMember {
+                        id: 0,
+                        project: ForeignKey::new(input.project),
+                        channel: ForeignKey::new(room.id),
+                        member_kind: TaskflowChannelMemberKind::User,
+                        user: Some(ForeignKey::new(caller_id)),
+                        agent: None,
+                        display_name: caller_membership.display_name.clone(),
+                        role: CHANNEL_ROLE_MEMBER.to_string(),
+                        joined_at: None,
+                    })
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
+            let members = TaskflowAgentChannelMember::objects()
+                .filter(taskflow_agent_channel_member::CHANNEL.eq(room.id))
+                .fetch()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let mut value =
+                serde_json::to_value(&room).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if let serde_json::Value::Object(map) = &mut value {
+                map.insert("members".to_string(), json!(members));
+            }
+            return Ok((StatusCode::OK, Json(value)).into_response());
+        }
+    }
+
     // Resolve the task link against THIS project before the transaction opens,
     // same rule `scoped_task_link` enforces for activity ingest: a foreign
     // project's task id is dropped rather than trusted verbatim.
