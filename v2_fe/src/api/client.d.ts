@@ -1363,6 +1363,8 @@ export interface TaskflowAgentMessageFilters {
   "priority__startswith"?: string;
   "priority__in"?: TaskflowAgentMessagePriority[];
   "is_design"?: boolean;
+  "is_design__ne"?: boolean;
+  "is_design__in"?: boolean[];
   "client_nonce"?: string;
   "client_nonce__ne"?: string;
   "client_nonce__contains"?: string;
