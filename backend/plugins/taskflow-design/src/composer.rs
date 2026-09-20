@@ -306,6 +306,101 @@ document.addEventListener('DOMContentLoaded', () => {{
     )
 }
 
+/// Case-insensitive replace of `needle` with `replacement` throughout
+/// `haystack`. `needle` must be ASCII — that guarantees byte offsets found in
+/// an ASCII-lowercased copy of `haystack` line up with `haystack` itself
+/// (`to_ascii_lowercase` only ever rewrites ASCII bytes in place, so it never
+/// changes length or shifts any byte, ASCII or not), so slicing the original
+/// string at those offsets always lands on valid UTF-8 boundaries.
+fn replace_ascii_ci(haystack: &str, needle: &str, replacement: &str) -> String {
+    debug_assert!(needle.is_ascii());
+    let lower_hay = haystack.to_ascii_lowercase();
+    let lower_needle = needle.to_ascii_lowercase();
+    let mut out = String::with_capacity(haystack.len());
+    let mut rest = haystack;
+    let mut lower_rest = lower_hay.as_str();
+    while let Some(pos) = lower_rest.find(&lower_needle) {
+        out.push_str(&rest[..pos]);
+        out.push_str(replacement);
+        rest = &rest[pos + needle.len()..];
+        lower_rest = &lower_rest[pos + needle.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Neutralize `</script` (any case) inside text about to be inlined into a
+/// `<script>...</script>` block, so component JS containing that literal
+/// (e.g. a template string with a `</script>` example) cannot terminate the
+/// tag early. `<\/script` is valid, semantically identical JS — an escaped
+/// `/` is a no-op outside a regex literal and how a `/` is written inside
+/// one — but the HTML tokenizer no longer reads it as a close tag.
+fn escape_for_inline_script(s: &str) -> String {
+    replace_ascii_ci(s, "</script", "<\\/script")
+}
+
+/// Same idea for text inlined into a `<style>...</style>` block: neutralize
+/// `</style` (any case) so generated tokens CSS can never early-close the tag.
+fn escape_for_inline_style(s: &str) -> String {
+    replace_ascii_ci(s, "</style", "<\\/style")
+}
+
+/// The export-document body pipeline: expand `<ui-*>` primitives ONLY. Unlike
+/// [`compose_body_fragment`] (the sandbox/picker pipeline), this does NOT
+/// rewrite hrefs to sandbox-relative `/s/<token>/...` URLs and does NOT stamp
+/// `data-src` — a portable export must carry no sandbox-only cruft.
+pub fn compose_export_body(fragment: &str) -> String {
+    crate::primitives::expand_primitives(fragment)
+}
+
+/// Compose a SELF-CONTAINED document for one route: tokens CSS and component
+/// JS are inlined (not linked/`src=`'d to a sandbox origin), and the picker
+/// runtime is omitted entirely. This is what `page.html` downloads — it must
+/// render correctly opened straight off disk, with no server behind it.
+///
+/// * `page_path`    — kept for signature symmetry with [`compose_document`]
+///   and any future export-time diagnostics; the export body pipeline itself
+///   needs no file/line context (no `data-src` is stamped).
+/// * `tokens_css`   — the GENERATED tokens stylesheet content (same generator
+///   the `/api/design/{project}/tokens.css` export uses), inlined verbatim
+///   (escaped) rather than linked.
+/// * `components`   — `(name, js_source)` pairs; each is inlined as its own
+///   `<script>` (escaped) rather than `src=`'d.
+pub fn compose_export_document(
+    page_path: &str,
+    fragment: &str,
+    theme: &str,
+    tokens_css: &str,
+    components: &[(String, String)],
+) -> String {
+    let _ = page_path;
+    let body = compose_export_body(fragment);
+
+    let mut component_scripts = String::new();
+    for (_name, js) in components {
+        component_scripts.push_str("<script>");
+        component_scripts.push_str(&escape_for_inline_script(js));
+        component_scripts.push_str("</script>\n");
+    }
+
+    let safe_tokens_css = escape_for_inline_style(tokens_css);
+
+    format!(
+        r#"<!doctype html>
+<html lang="en" data-theme="{theme}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>{safe_tokens_css}</style>
+  {component_scripts}</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
+{body}
+</body>
+</html>"#,
+    )
+}
+
 /// CSP for the sandbox origin. Tight `connect-src` (self + Tailwind CDN only):
 /// without it, agent-authored JS could `fetch()` the operator's localhost and
 /// internal network from inside their browser. Inline scripts are allowed
@@ -323,4 +418,54 @@ pub fn sandbox_csp(token: &str) -> String {
          base-uri 'none'; \
          frame-ancestors *"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_for_inline_script_neutralizes_every_case_variant() {
+        let js = "const s = '</script>'; const t = '</SCRIPT>'; const u = '</ScRiPt data-x>';";
+        let escaped = escape_for_inline_script(js);
+        assert!(
+            !escaped.to_ascii_lowercase().contains("</script"),
+            "a literal </script (any case) must not survive escaping: {escaped}"
+        );
+        assert!(
+            escaped.contains("<\\/script"),
+            "escaping should neutralize via a backslash before the slash: {escaped}"
+        );
+    }
+
+    #[test]
+    fn escape_for_inline_script_leaves_unrelated_text_untouched() {
+        let js = "customElements.define('x', class extends HTMLElement {});";
+        assert_eq!(escape_for_inline_script(js), js);
+    }
+
+    #[test]
+    fn escape_for_inline_style_neutralizes_close_tag() {
+        let css = ":root { --note: '</style> injected'; }";
+        let escaped = escape_for_inline_style(css);
+        assert!(!escaped.to_ascii_lowercase().contains("</style"));
+        assert!(escaped.contains("<\\/style"));
+    }
+
+    #[test]
+    fn compose_export_document_inlines_tokens_and_components_with_no_picker() {
+        let doc = compose_export_document(
+            "pages/index.html",
+            r#"<app-header title="Hi"></app-header>"#,
+            "light",
+            ":root { --accent: #6366f1; }",
+            &[("app-header".to_string(), "customElements.define('app-header', class {});".to_string())],
+        );
+        assert!(doc.contains("<style>:root { --accent: #6366f1; }</style>"));
+        assert!(!doc.contains("href=\"/s/"));
+        assert!(doc.contains("customElements.define('app-header'"));
+        assert!(!doc.contains("<script src=\"/s/"));
+        assert!(!doc.contains("design:select"), "picker runtime must not be present in an export");
+        assert!(!doc.contains("data-src="));
+    }
 }

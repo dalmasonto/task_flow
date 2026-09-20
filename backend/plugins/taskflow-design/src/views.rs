@@ -827,16 +827,20 @@ pub struct ExportPageHtmlQuery {
 }
 
 /// `GET /api/design/{project}/page.html?route=<route>&fragment=<0|1>` —
-/// chrome-facing copy/download of one route's composed HTML. Reuses the exact
-/// manifest + page lookup [`serve_sandbox_page`] uses, and the exact body
-/// pipeline [`composer::compose_document`] runs, so `<ui-*>` primitives are
-/// already expanded to real markup and the two surfaces cannot drift apart.
+/// chrome-facing, SELF-CONTAINED copy/download of one route's composed HTML.
+/// Unlike the sandbox document ([`composer::compose_document`], which only
+/// works behind the `/s/{token}/f/...` file server), this export inlines the
+/// generated tokens CSS and every component's JS
+/// ([`composer::compose_export_document`]) and drops the picker runtime and
+/// `data-src` annotations entirely, so the download renders correctly opened
+/// straight off disk with no server behind it. `<ui-*>` primitives are still
+/// expanded to real markup ([`composer::compose_export_body`]).
 /// Same membership gate as the other `/api/design/{project}/...` reads.
 ///
-/// `fragment=1` returns ONLY the expanded body markup (`text/html`, inline) —
-/// meant for pasting elsewhere, never wrapped in the document shell. The
-/// default returns the full standalone document as a download
-/// (`Content-Disposition: attachment`).
+/// `fragment=1` returns ONLY the expanded body markup (`text/html`, inline,
+/// no `data-src`) — meant for pasting elsewhere, never wrapped in the
+/// document shell. The default returns the full standalone document as a
+/// download (`Content-Disposition: attachment`).
 pub async fn export_page_html(
     RequireAuth(user_id): RequireAuth<i64>,
     Path(project_id): Path<i64>,
@@ -860,27 +864,45 @@ pub async fn export_page_html(
         return Err(StatusCode::NOT_FOUND);
     };
 
-    let token = sandbox::mint(project_id);
     let is_fragment = matches!(params.fragment.as_deref(), Some("1") | Some("true"));
 
     if is_fragment {
-        let body = composer::compose_body_fragment(&token, &page_path, &page_file.content);
+        let body = composer::compose_export_body(&page_file.content);
         let mut response = body.into_response();
         let headers = response.headers_mut();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
         return Ok(response);
     }
 
-    let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
-    let m = manifest::build(project_id, &files, revision);
-    let html = composer::compose_document(
-        &token,
-        &m,
-        &normalized,
+    // Same generator the `/api/design/{project}/tokens.css` export uses
+    // (`styles/tokens.json` row when present, else the legacy hand-authored
+    // `styles/tokens.css` row) — never a raw file read, and never a hard
+    // 404 here: a page with no tokens configured yet still exports.
+    let tokens_css = match generated_tokens_css(project_id).await {
+        Some(css) => css,
+        None => store::load_file(project_id, "styles/tokens.css")
+            .await
+            .map(|row| row.content)
+            .unwrap_or_default(),
+    };
+
+    let components: Vec<(String, String)> = files
+        .iter()
+        .filter(|f| f.kind == DesignFileKind::Component)
+        .filter_map(|f| {
+            f.path
+                .strip_prefix("components/")
+                .and_then(|p| p.strip_suffix(".js"))
+                .map(|name| (name.to_string(), f.content.clone()))
+        })
+        .collect();
+
+    let html = composer::compose_export_document(
         &page_path,
         &page_file.content,
         "light",
-        None,
+        &tokens_css,
+        &components,
     );
 
     let filename = safe_filename_for_route(&normalized);

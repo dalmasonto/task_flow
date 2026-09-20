@@ -11,7 +11,7 @@
 mod support;
 
 use serde_json::json;
-use support::TestApp;
+use support::{TestApp, sample_header_component};
 
 const TOKENS_JSON: &str = r##"{"version":1,"categories":{
     "colors":{"accent":{"light":"#6366f1","dark":"#818cf8"}}
@@ -174,6 +174,110 @@ async fn page_html_export_rejects_non_member() {
         .get_as(other_user.id, &format!("/api/design/{project_id}/page.html?route=/"))
         .await;
     assert_eq!(res.status(), 403, "non-member must be refused: {}", res.text());
+}
+
+/// Seed a project with a `styles/tokens.json` row, an `app-header` component,
+/// and a page that uses both the component and a `<ui-accordion>` primitive —
+/// everything a self-contained export needs to prove it inlined.
+async fn seed_project_with_component_and_page(app: &TestApp) -> (i64, i64) {
+    let (user, project_id) = app.create_member_with_project().await;
+
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({ "path": "styles/tokens.json", "content": TOKENS_JSON }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed tokens.json failed: {}", res.text());
+
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({ "path": "components/app-header.js", "content": sample_header_component() }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed app-header component failed: {}", res.text());
+
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "pages/index.html",
+                "content": r#"<main class="p-4"><app-header title="Dashboard"></app-header><ui-accordion title="Q">A</ui-accordion></main>"#
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed page with app-header + ui-accordion failed: {}", res.text());
+
+    (user.id, project_id)
+}
+
+/// The default `page.html` export must be SELF-CONTAINED: tokens CSS and
+/// component JS inlined into the document, no sandbox-relative URLs, no
+/// picker runtime, no `data-src` cruft — it has to render correctly opened
+/// straight off disk with no server behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn page_html_export_is_self_contained() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_project_with_component_and_page(&app).await;
+
+    let res = app
+        .get_as(user_id, &format!("/api/design/{project_id}/page.html?route=/"))
+        .await;
+    assert_eq!(res.status(), 200, "export failed: {}", res.text());
+
+    let cd = res.header("content-disposition").unwrap_or_default();
+    assert!(cd.contains("attachment"), "content-disposition: {cd}");
+
+    let body = res.text();
+
+    // Tokens CSS is inlined, not linked to a sandbox path.
+    assert!(body.contains("<style>"), "no inline <style> block: {body}");
+    assert!(body.contains("--accent: #6366f1"), "generated token value missing: {body}");
+    assert!(!body.contains("href=\"/s/"), "sandbox-relative stylesheet link leaked: {body}");
+
+    // Component JS is inlined, not src='d to a sandbox path.
+    assert!(
+        body.contains("customElements.define"),
+        "app-header component JS was not inlined: {body}"
+    );
+    assert!(!body.contains("<script src=\"/s/"), "sandbox-relative component script leaked: {body}");
+
+    // No sandbox-only cruft.
+    assert!(!body.contains("data-src="), "data-src annotation leaked into export: {body}");
+    assert!(!body.contains("design:select"), "picker runtime leaked into export: {body}");
+
+    // Primitives still expand.
+    assert!(body.contains("<details"), "primitive was not expanded: {body}");
+    assert!(!body.contains("<ui-"), "raw primitive tag leaked: {body}");
+}
+
+/// `fragment=1` on the self-contained export: clean expanded body only, no
+/// `data-src`, no document shell.
+#[tokio::test(flavor = "multi_thread")]
+async fn page_html_export_fragment_has_no_data_src() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_project_with_component_and_page(&app).await;
+
+    let res = app
+        .get_as(
+            user_id,
+            &format!("/api/design/{project_id}/page.html?route=/&fragment=1"),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "fragment export failed: {}", res.text());
+
+    let body = res.text();
+    assert!(body.contains("<details"), "primitive was not expanded: {body}");
+    assert!(!body.contains("<ui-"), "raw primitive tag leaked: {body}");
+    assert!(!body.contains("data-src="), "data-src annotation leaked into fragment export: {body}");
+    assert!(
+        !body.to_lowercase().contains("<!doctype"),
+        "fragment must not include the document shell: {body}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
