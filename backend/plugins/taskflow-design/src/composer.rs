@@ -269,20 +269,28 @@ document.addEventListener('DOMContentLoaded', () => {{
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    /* Sandbox-only thin/overlay scrollbar so small-device previews scroll
-       like a real device instead of showing the ~16px OS desktop scrollbar
-       inside the fixed device width. */
+    /* Sandbox-only thin scrollbar so laptop/tablet previews scroll with a slim
+       track instead of the ~16px OS desktop scrollbar inside the fixed device
+       width. The iframe is ALWAYS its true CSS width, so this media query sees
+       the emulated device width directly. */
     ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
     ::-webkit-scrollbar-track {{ background: transparent; }}
     ::-webkit-scrollbar-thumb {{ background: rgba(128,128,128,.4); border-radius: 3px; }}
     html {{ scrollbar-width: thin; scrollbar-color: rgba(128,128,128,.4) transparent; }}
+    /* Phone-width previews (widest phone preset is 440px; the next size up is a
+       640px breakpoint): no visible track at all — real phones use overlay
+       scrollbars that reserve no layout width. */
+    @media (max-width: 500px) {{
+      ::-webkit-scrollbar {{ width: 0; height: 0; }}
+      html {{ scrollbar-width: none; }}
+    }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
   {component_tags}<script>{PICKER_RUNTIME}</script>
   {state_script}
 </head>
-<body class="bg-[var(--bg)] text-[var(--fg)] antialiased">
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
 {annotated}
 </body>
 </html>"#,

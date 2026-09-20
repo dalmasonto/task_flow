@@ -113,6 +113,32 @@ async fn composed_head_includes_thin_scrollbar_css() {
         html.contains("scrollbar-width"),
         "composed head missing standard thin-scrollbar property"
     );
+    // Phone-width previews must hide the track entirely (overlay-style), like a
+    // real phone — a visible track inside a 390px frame reads as chaos.
+    assert!(
+        html.contains("@media (max-width: 500px)"),
+        "composed head missing phone-width scrollbar media query"
+    );
+    assert!(
+        html.contains("scrollbar-width: none"),
+        "composed head missing phone-width scrollbar-hide rule"
+    );
+    // The sandbox <body> must paint the shadcn background/foreground tokens, not
+    // the removed legacy --bg/--fg (which no longer resolve → transparent body,
+    // breaking dark mode around the page content). Scoped to the <body> tag so a
+    // sample page/component that references other vars can't skew the check.
+    let body_tag = html
+        .split_once("<body")
+        .and_then(|(_, rest)| rest.split_once('>').map(|(attrs, _)| attrs))
+        .expect("composed document has a <body> tag");
+    assert!(
+        body_tag.contains("bg-[var(--background)]") && body_tag.contains("text-[var(--foreground)]"),
+        "composed body must use shadcn --background/--foreground tokens, got: {body_tag}"
+    );
+    assert!(
+        !body_tag.contains("var(--bg)") && !body_tag.contains("var(--fg)"),
+        "composed <body> still references removed legacy --bg/--fg tokens: {body_tag}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
