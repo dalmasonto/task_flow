@@ -285,3 +285,22 @@ async fn non_member_replaying_a_nonce_gets_403_not_the_stored_row() {
 
     assert_eq!(replay.status(), 403, "leaked: {:?}", replay.json().await);
 }
+
+#[tokio::test]
+async fn message_defaults_is_design_false() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({ "channel": channel, "body_markdown": "plain chat" }),
+        )
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let row = response.json().await;
+    // The column exists and defaults to false for an ordinary message.
+    assert_eq!(row["is_design"], json!(false));
+}
