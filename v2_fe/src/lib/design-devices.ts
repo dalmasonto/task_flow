@@ -78,13 +78,30 @@ export function makeArtboard(route: string, deviceId: string, x: number, y: numb
   return { key: artboardKey(route, deviceId), route, deviceId, x, y }
 }
 
-/// Lay out artboards in a row with a gutter that scales with the tallest
-/// neighbour, so cards never overlap at any zoom.
-export function rowLayout(devices: DevicePreset[], startX = 0, startY = 0): Artboard[] {
-  let cursorX = startX
-  return devices.map((device) => {
-    const board = makeArtboard("/", device.id, cursorX, startY)
-    cursorX += device.width + 80
-    return board
-  })
+/// Lay out every open page as its own ROW, with one COLUMN per selected
+/// device — the canvas' actual grid. PURE: same inputs always produce the
+/// same boards, in the same order, so callers can memoize on
+/// `[openRoutes, deviceIds]` without any other state.
+///
+/// - One row per `openRoutes` entry, in that order; `y` stacks by the
+///   cumulative height of prior rows (the tallest device in each row) plus
+///   `gutter`.
+/// - One column per `deviceIds` entry, in that order, shared by every row;
+///   `x` is the cumulative width of prior columns in the same row plus
+///   `gutter`.
+export function layoutRows(openRoutes: string[], deviceIds: string[], gutter = 80): Artboard[] {
+  const devices = deviceIds.map((id) => deviceById(id))
+  const rowHeight = devices.length ? Math.max(...devices.map((d) => d.height)) : 0
+
+  const boards: Artboard[] = []
+  let y = 0
+  for (const route of openRoutes) {
+    let x = 0
+    for (const device of devices) {
+      boards.push(makeArtboard(route, device.id, x, y))
+      x += device.width + gutter
+    }
+    y += rowHeight + gutter
+  }
+  return boards
 }

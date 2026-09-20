@@ -13,16 +13,18 @@ import {
   MousePointer2Icon,
   ScanIcon,
   SunIcon,
+  XIcon,
   ZoomInIcon,
   ZoomOutIcon,
 } from "lucide-react"
+
+import { cn } from "@/lib/utils"
 
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -52,9 +54,10 @@ import {
   DEFAULT_DEVICE_ID,
   DEVICE_PRESETS,
   DEVICE_GROUP_LABELS,
+  RESPONSIVE_REVIEW_DEVICES,
   artboardKey,
   deviceById,
-  makeArtboard,
+  layoutRows,
   type Artboard,
   type DeviceGroup,
 } from "@/lib/design-devices"
@@ -103,10 +106,16 @@ export function DesignSurfacePage({
   const [contentEpoch, setContentEpoch] = useState(0)
   const [comments, setComments] = useState<DesignComment[]>([])
   const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
-  // Persisted per project so canvas layout survives reloads.
   const canvasContainerRef = useRef<HTMLDivElement>(null)
-  const boardsByProject = useRef<Map<number, Artboard[]>>(new Map())
-  const [artboards, setArtboards] = useState<Artboard[]>([])
+  // Which pages are open on the canvas — one ROW per open route. Seeded to
+  // every route once per project (see the manifest-load effect below); after
+  // that, purely user-driven (PagePicker / PagesPanel / row close button).
+  const [openRoutes, setOpenRoutes] = useState<string[]>([])
+  const seededProjectRef = useRef<number | null>(null)
+  // Artboards are DERIVED, never stored: `layoutRows` is pure, so the same
+  // (openRoutes, deviceIds) always produces the same boards in the same
+  // `route@device`-keyed shape DesignCanvas/selection/pins already expect.
+  const artboards = useMemo(() => layoutRows(openRoutes, deviceIds), [openRoutes, deviceIds])
 
   const refreshComments = useCallback(() => {
     if (!projectId) return
@@ -147,28 +156,19 @@ export function DesignSurfacePage({
         setManifest(m)
         setSandboxToken(token)
         setError(null)
-        // Seed one board per route at the default device when arriving empty.
-        setArtboards((current) => {
-          if (current.length) return current
-          const saved = boardsByProject.current.get(projectId)
-          if (saved?.length) return saved
-          let cursorX = 0
-          return m.routes.map((route) => {
-            const board = makeArtboard(route.path, DEFAULT_DEVICE_ID, cursorX, 0)
-            cursorX += deviceById(DEFAULT_DEVICE_ID).width + 80
-            return board
-          })
-        })
+        // Open every route once per project. After that, openRoutes is
+        // purely user-driven, so re-fetching the same project's manifest
+        // (e.g. on a file-change refresh) never fights the human's picks.
+        if (seededProjectRef.current !== projectId) {
+          seededProjectRef.current = projectId
+          setOpenRoutes(m.routes.map((route) => route.path))
+        }
       })
       .catch((err: Error) => !cancelled && setError(err.message))
     return () => {
       cancelled = true
     }
   }, [projectId])
-
-  useEffect(() => {
-    if (projectId != null && artboards.length) boardsByProject.current.set(projectId, artboards)
-  }, [projectId, artboards])
 
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -210,50 +210,47 @@ export function DesignSurfacePage({
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  const addArtboard = useCallback(
-    (route: string, deviceId: string) => {
-      setArtboards((current) => {
-        const key = artboardKey(route, deviceId)
-        if (current.some((b) => b.key === key)) return current
-        const maxX = Math.max(0, ...current.map((b) => b.x + deviceById(b.deviceId).width))
-        return [...current, makeArtboard(route, deviceId, maxX + 80, 0)]
+  // Open a route (idempotent) preserving the manifest's route order, so a
+  // freshly-opened row's position is deterministic regardless of click order.
+  const openRoute = useCallback(
+    (route: string) => {
+      setOpenRoutes((current) => {
+        if (current.includes(route)) return current
+        const set = new Set([...current, route])
+        return (manifest?.routes ?? [])
+          .map((r) => r.path)
+          .filter((path) => set.has(path))
       })
     },
-    []
+    [manifest],
   )
 
-  const responsiveReview = useCallback(() => {
-    if (!manifest?.routes.length) return
-    const route = manifest.routes[0].path
-    const ids = ["iphone-16-pro", "ipad-mini", "laptop"]
-    for (const id of ids) addArtboard(route, id)
-    setDeviceIds((prev) => [...new Set([...prev, ...ids])])
-    setTransform({ x: 60, y: 80, scale: 0.5 })
-  }, [manifest, addArtboard])
+  // Toggle a route open/closed from the Pages panel, focusing the row when it
+  // just opened (closing needs no focus — there's nothing left to look at).
+  const toggleRouteFromPanel = useCallback(
+    (route: string) => {
+      const willOpen = !openRoutes.includes(route)
+      if (willOpen) openRoute(route)
+      else setOpenRoutes((current) => current.filter((r) => r !== route))
+      if (willOpen) focusBoard(artboardKey(route, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
+    },
+    [openRoutes, openRoute, deviceIds, transform],
+  )
 
-  // Keep the canvas in sync with the toolbar device multi-select: one artboard
-  // per selected device for every route already on the canvas. Previously the
-  // picker only called setDeviceIds, so selecting a device flipped the "+N"
-  // label but never created (or removed) a screen.
-  const handleDevicesChange = useCallback((nextIds: string[]) => {
-    setArtboards((current) => {
-      const routes = [...new Set(current.map((b) => b.route))]
-      // Drop boards whose device was deselected.
-      let next = current.filter((b) => nextIds.includes(b.deviceId))
-      // Add a board per route for each newly selected device.
-      for (const id of nextIds) {
-        for (const route of routes) {
-          if (next.some((b) => b.key === artboardKey(route, id))) continue
-          const maxX = next.length
-            ? Math.max(...next.map((b) => b.x + deviceById(b.deviceId).width))
-            : 0
-          next = [...next, makeArtboard(route, id, maxX + 80, 0)]
-        }
-      }
-      return next
-    })
-    setDeviceIds(nextIds)
+  const closeRoute = useCallback((route: string) => {
+    setOpenRoutes((current) => current.filter((r) => r !== route))
   }, [])
+
+  // Swap in the three review devices for whatever pages are already open, and
+  // fit the new (wider) grid into view.
+  const responsiveReview = useCallback(() => {
+    if (!openRoutes.length) return
+    const nextDeviceIds = [...RESPONSIVE_REVIEW_DEVICES]
+    setDeviceIds(nextDeviceIds)
+    const el = canvasContainerRef.current
+    const viewport = el ? { w: el.clientWidth, h: el.clientHeight } : { w: 1200, h: 800 }
+    setTransform(fitTransform(layoutRows(openRoutes, nextDeviceIds), viewport))
+  }, [openRoutes])
 
   const handleSelect = useCallback(
     (raw: Record<string, unknown>, board: Artboard) => {
@@ -309,6 +306,43 @@ export function DesignSurfacePage({
     [comments, artboards, transform],
   )
 
+  // A small header per ROW (not per artboard — `ArtboardHeader` inside
+  // DesignCanvas already labels each device column): the page's name plus a
+  // close button, sitting at the row's origin. Row `y` comes straight out of
+  // `artboards` (every board in a row shares it) rather than recomputing the
+  // gutter math here, so it can never drift from what actually rendered.
+  const rowHeaders = useMemo(() => {
+    const rowY = new Map<string, number>()
+    for (const b of artboards) if (!rowY.has(b.route)) rowY.set(b.route, b.y)
+    return (
+      <>
+        {openRoutes.map((route) => {
+          const y = rowY.get(route)
+          if (y == null) return null
+          const title = manifest?.routes.find((r) => r.path === route)?.title ?? route
+          return (
+            <div
+              key={`row-header:${route}`}
+              className="absolute flex items-center gap-2 text-xs text-zinc-300"
+              style={{ left: 0, top: y - 28 }}
+            >
+              <span className="font-semibold text-zinc-100">{title}</span>
+              <span className="font-mono text-[11px] text-zinc-500">{route}</span>
+              <button
+                type="button"
+                className="rounded p-0.5 hover:bg-zinc-800"
+                title={`Close ${route}`}
+                onClick={() => closeRoute(route)}
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            </div>
+          )
+        })}
+      </>
+    )
+  }, [artboards, openRoutes, manifest, closeRoute])
+
   const paletteItems: PaletteItem[] = useMemo(() => {
     if (!manifest) return []
     const routeItems: PaletteItem[] = manifest.routes.map((r) => ({
@@ -317,7 +351,8 @@ export function DesignSurfacePage({
       hint: r.path,
       group: "Routes",
       run: () => {
-        addArtboard(r.path, deviceIds[0] ?? DEFAULT_DEVICE_ID)
+        openRoute(r.path)
+        focusBoard(artboardKey(r.path, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
       },
     }))
     const componentItems: PaletteItem[] = manifest.components.map((c) => ({
@@ -340,7 +375,7 @@ export function DesignSurfacePage({
       },
     }))
     return [...routeItems, ...componentItems, ...commentItems]
-  }, [manifest, comments, artboards, transform, deviceIds, addArtboard])
+  }, [manifest, comments, artboards, transform, deviceIds, openRoute])
 
   if (!projectId) {
     return (
@@ -360,13 +395,11 @@ export function DesignSurfacePage({
 
         <PagePicker
           routes={manifest?.routes ?? []}
-          onOpen={(route) => {
-            addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)
-            focusBoard(artboardKey(route, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
-          }}
+          openRoutes={openRoutes}
+          onChange={setOpenRoutes}
         />
 
-        <DevicePicker deviceIds={deviceIds} onChange={handleDevicesChange} />
+        <DevicePicker deviceIds={deviceIds} onChange={setDeviceIds} />
 
         <ZoomControl
           transform={transform}
@@ -458,7 +491,12 @@ export function DesignSurfacePage({
               sandboxToken={sandboxToken}
               contentEpoch={contentEpoch}
               selection={selectionOverlay}
-              pins={pins}
+              pins={
+                <>
+                  {rowHeaders}
+                  {pins}
+                </>
+              }
               onSelect={handleSelect}
             />
           )}
@@ -508,7 +546,8 @@ export function DesignSurfacePage({
             <TabsContent value="pages">
               <PagesPanel
                 manifest={manifest}
-                onOpenRoute={(route) => addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)}
+                openRoutes={openRoutes}
+                onToggleRoute={toggleRouteFromPanel}
               />
             </TabsContent>
           </Tabs>
@@ -612,29 +651,57 @@ function DesignChatRail({
 // Toolbar pieces
 // ---------------------------------------------------------------------------
 
+/// Multi-select: every checked route gets its own ROW on the canvas (mirrors
+/// `DevicePicker`'s checkbox-list idiom below). Unlike devices, zero open
+/// pages is a valid (if empty) canvas, so nothing here forces one to stay
+/// checked.
 function PagePicker({
   routes,
-  onOpen,
+  openRoutes,
+  onChange,
 }: {
   routes: { path: string; title: string }[]
-  onOpen: (route: string) => void
+  openRoutes: string[]
+  onChange: (routes: string[]) => void
 }) {
+  const toggle = (path: string, next: boolean) => {
+    const set = new Set(openRoutes)
+    if (next) set.add(path)
+    else set.delete(path)
+    // Preserve the manifest's route order for stable row order.
+    onChange(routes.filter((r) => set.has(r.path)).map((r) => r.path))
+  }
+
+  const triggerLabel =
+    openRoutes.length === 0
+      ? "Open"
+      : openRoutes.length === 1
+        ? (routes.find((r) => r.path === openRoutes[0])?.title ?? openRoutes[0])
+        : `${routes.find((r) => r.path === openRoutes[0])?.title ?? openRoutes[0]} +${openRoutes.length - 1}`
+
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="gap-1" />}>
-        Open
+      <DropdownMenuTrigger
+        render={<Button variant="outline" size="sm" className="max-w-44 gap-1 font-normal" />}
+      >
+        <span className="truncate">{triggerLabel}</span>
         <ChevronDownIcon className="size-3.5 opacity-70" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start" className="max-h-96 w-56 overflow-y-auto">
         {/* GroupLabel requires Menu.Group context — keep the label INSIDE the
             group or Base UI throws "MenuGroupContext is missing" on open. */}
         <DropdownMenuGroup>
           <DropdownMenuLabel>Pages</DropdownMenuLabel>
           {routes.map((r) => (
-            <DropdownMenuItem key={r.path} onClick={() => onOpen(r.path)}>
-              <span>{r.title}</span>
-              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{r.path}</span>
-            </DropdownMenuItem>
+            <DropdownMenuCheckboxItem
+              key={r.path}
+              checked={openRoutes.includes(r.path)}
+              onCheckedChange={(checked) => toggle(r.path, checked === true)}
+              closeOnClick={false}
+            >
+              <span className="flex-1">{r.title}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">{r.path}</span>
+            </DropdownMenuCheckboxItem>
           ))}
         </DropdownMenuGroup>
         {!routes.length ? (
@@ -785,23 +852,31 @@ function ZoomControl({
 
 function PagesPanel({
   manifest,
-  onOpenRoute,
+  openRoutes,
+  onToggleRoute,
 }: {
   manifest: DesignManifest | null
-  onOpenRoute: (route: string) => void
+  openRoutes: string[]
+  onToggleRoute: (route: string) => void
 }) {
   return (
     <div className="flex flex-col py-1">
-      {(manifest?.routes ?? []).map((route) => (
-        <button
-          key={route.path}
-          className="flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm hover:bg-muted"
-          onClick={() => onOpenRoute(route.path)}
-        >
-          <span>{route.title}</span>
-          <span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>
-        </button>
-      ))}
+      {(manifest?.routes ?? []).map((route) => {
+        const open = openRoutes.includes(route.path)
+        return (
+          <button
+            key={route.path}
+            className={cn(
+              "flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
+              open && "bg-muted/60 font-medium",
+            )}
+            onClick={() => onToggleRoute(route.path)}
+          >
+            <span>{route.title}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>
+          </button>
+        )
+      })}
       {!manifest?.routes.length && <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>}
     </div>
   )
