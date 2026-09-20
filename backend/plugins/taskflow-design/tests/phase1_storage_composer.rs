@@ -388,6 +388,51 @@ async fn tokens_must_carry_a_theme_block_and_no_remote_import() {
     assert_eq!(remote.json()["errors"][0]["rule"], "remote-import");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn tokens_json_is_validated_as_json_not_css() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+
+    // A well-formed tokens.json document is accepted.
+    let valid = app
+        .put_json_as(
+            user_id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "styles/tokens.json",
+                "content": r##"{"version":1,"categories":{"colors":{"accent":{"light":"#6366f1","dark":"#818cf8"}}}}"##
+            }),
+        )
+        .await;
+    assert_eq!(valid.status(), 201, "valid tokens.json should be accepted: {}", valid.text());
+
+    // Malformed JSON is rejected with a clear rule, not silently coerced.
+    let malformed = app
+        .put_json_as(
+            user_id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({ "path": "styles/tokens.json", "content": "{not json" }),
+        )
+        .await;
+    assert_eq!(malformed.status(), 422);
+    assert_eq!(malformed.json()["errors"][0]["rule"], "invalid-json");
+
+    // A token value smuggling a remote URL is rejected, mirroring the CSS
+    // @import ban.
+    let remote = app
+        .put_json_as(
+            user_id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "styles/tokens.json",
+                "content": r#"{"version":1,"categories":{"custom":{"--x":{"light":"url(https://evil.example/x.css)"}}}}"#
+            }),
+        )
+        .await;
+    assert_eq!(remote.status(), 422);
+    assert_eq!(remote.json()["errors"][0]["rule"], "remote-url");
+}
+
 // ---------------------------------------------------------------------------
 // Versioning + concurrency
 // ---------------------------------------------------------------------------

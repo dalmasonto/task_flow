@@ -173,7 +173,7 @@ fn check_extension(path: &str, kind: crate::models::DesignFileKind) -> Result<()
     let ok = match kind {
         K::Page => path.ends_with(".html"),
         K::Component => path.ends_with(".js"),
-        K::Token => path == "styles/tokens.css",
+        K::Token => path == "styles/tokens.css" || path == "styles/tokens.json",
         K::Asset => [".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"]
             .iter()
             .any(|ext| path.ends_with(ext)),
@@ -184,7 +184,7 @@ fn check_extension(path: &str, kind: crate::models::DesignFileKind) -> Result<()
     let expected = match kind {
         K::Page => "pages/<name>.html",
         K::Component => "components/<element-name>.js",
-        K::Token => "exactly styles/tokens.css (there is one tokens file per project)",
+        K::Token => "exactly styles/tokens.json (or legacy styles/tokens.css; there is one tokens file per project)",
         K::Asset => "an image extension (.svg, .png, .jpg, .webp, .gif, .ico)",
     };
     Err(ValidationError {
@@ -686,6 +686,57 @@ pub fn validate_tokens(content: &str) -> Validation {
     v
 }
 
+/// Validate TOKENS json (`styles/tokens.json`, the authored source of truth —
+/// see `tokens.rs`). Must parse as a [`crate::tokens::TokensDoc`], and no
+/// token value may carry a remote URL: like the CSS `@import` ban, the tokens
+/// file is served from the sandbox origin and a value such as
+/// `url(https://evil.example/x.css)` would give agent-authored tokens a
+/// network voice.
+pub fn validate_tokens_json(content: &str) -> Validation {
+    let v = Validation::pass();
+
+    let doc: crate::tokens::TokensDoc = match serde_json::from_str(content) {
+        Ok(doc) => doc,
+        Err(err) => {
+            return v.fail(ValidationError {
+                line: err.line(),
+                rule: "invalid-json",
+                message: format!(
+                    "styles/tokens.json is not valid: {err}. It must match the tokens \
+                     document shape: {{\"version\": 1, \"categories\": {{ \"colors\": \
+                     {{ \"accent\": {{ \"light\": \"#6366f1\" }} }} }} }}."
+                ),
+                found: None,
+                suggest: Some(
+                    r##"{"version":1,"categories":{"colors":{"accent":{"light":"#6366f1"}}}}"##
+                        .into(),
+                ),
+            });
+        }
+    };
+
+    for (category, tokens) in doc.categories.iter() {
+        for (key, value) in tokens.iter() {
+            for value in [Some(&value.light), value.dark.as_ref()].into_iter().flatten() {
+                if value.contains("http://") || value.contains("https://") {
+                    return v.fail(ValidationError {
+                        line: 0,
+                        rule: "remote-url",
+                        message: format!(
+                            "Token `{category}.{key}` names a remote URL ({value}). Fonts and \
+                             other assets ship as local files under assets/."
+                        ),
+                        found: Some(value.clone()),
+                        suggest: None,
+                    });
+                }
+            }
+        }
+    }
+
+    v
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -730,6 +781,7 @@ pub fn validate_write(
     let base = match kind {
         DesignFileKind::Page => validate_page_fragment(path, content, registered_components),
         DesignFileKind::Component => validate_component(path, content),
+        DesignFileKind::Token if path == "styles/tokens.json" => validate_tokens_json(content),
         DesignFileKind::Token => validate_tokens(content),
         DesignFileKind::Asset => Validation::pass(),
     };
