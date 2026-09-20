@@ -26,20 +26,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   fetchDesignComments,
-  fetchDesignFile,
   fetchDesignManifest,
   fetchSandboxToken,
-  putDesignFile,
   type ComponentEntry,
   type DesignComment,
   type DesignManifest,
-  type ValidationError,
   sandboxUrl,
 } from "@/lib/design-api"
+import { TokenEditor } from "@/pages/design/token-editor"
 import { openTaskflowRealtimeStream, taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
@@ -762,124 +759,10 @@ function LeftPanel({
         {/* Inline token editor (§6b): an edit is a design_write_tokens
             equivalent — same validator, every artboard reloads via SSE. */}
         {projectId ? (
-          <TokenEditor projectId={projectId} tokens={manifest?.tokens ?? []} onSaved={onFilesChanged} />
+          <TokenEditor projectId={projectId} onSaved={onFilesChanged} />
         ) : null}
       </PanelSection>
     </aside>
-  )
-}
-
-/// Editable token palette. Click a value → inline input → Save rewrites
-/// styles/tokens.css through the SAME validated write agents use; a rejected
-/// edit shows the rule inline rather than disappearing.
-function TokenEditor({
-  projectId,
-  tokens,
-  onSaved,
-}: {
-  projectId: number
-  tokens: DesignManifest["tokens"]
-  onSaved: () => void
-}) {
-  const [editing, setEditing] = useState<string | null>(null) // variable name
-  const [draft, setDraft] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [errors, setErrors] = useState<ValidationError[] | null>(null)
-
-  if (!tokens.length && !editing) {
-    return <p className="px-3 py-2 text-xs text-muted-foreground">No tokens.css yet.</p>
-  }
-
-  const saveVariable = async (variable: string, value: string) => {
-    setSaving(true)
-    setErrors(null)
-    try {
-      const file = await fetchDesignFile(projectId, "styles/tokens.css")
-      if (!file) {
-        setErrors([{ line: 0, rule: "missing", message: "styles/tokens.css does not exist yet." }])
-        return
-      }
-      // Replace only THIS declaration; leave everything else untouched.
-      const pattern = new RegExp(`(${variable.replace(/[-]/g, "\\-")}\\s*:\\s*)[^;]+;`)
-      const next = file.content.replace(pattern, `$1${value};`)
-      if (next === file.content) {
-        setErrors([{ line: 0, rule: "not-found", message: `Could not find ${variable} in styles/tokens.css.` }])
-        return
-      }
-      const result = await putDesignFile(projectId, "styles/tokens.css", next, file.version)
-      if (!result.ok) {
-        if ("errors" in result) setErrors(result.errors)
-        else setErrors([{ line: 0, rule: "conflict", message: "Someone edited tokens.css concurrently — reopen and retry." }])
-        return
-      }
-      setEditing(null)
-      onSaved()
-    } catch (err) {
-      setErrors([{ line: 0, rule: "network", message: err instanceof Error ? err.message : "Save failed." }])
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <>
-      {tokens.map((group) => (
-        <div key={group.name} className="px-3 py-1.5">
-          <p className="mb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{group.name}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {group.variables.map(([name, value]) =>
-              editing === name ? (
-                <form
-                  key={name}
-                  className="flex items-center gap-1"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    if (!saving) void saveVariable(name, draft.trim())
-                  }}
-                >
-                  <input
-                    autoFocus
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={() => !saving && setEditing(null)}
-                    className="h-6 w-24 rounded border bg-transparent px-1 font-mono text-[10px]"
-                  />
-                  <button type="submit" className="rounded bg-accent px-1.5 py-0.5 text-[10px] text-white">
-                    ✓
-                  </button>
-                </form>
-              ) : (
-                <button
-                  key={name}
-                  title={`${name}: ${value} — click to edit`}
-                  onClick={() => {
-                    setEditing(name)
-                    setDraft(value)
-                    setErrors(null)
-                  }}
-                  className={cn(
-                    "inline-flex h-6 min-w-6 items-center justify-center rounded border border-black/10 font-mono text-[10px]",
-                    group.name === "color" ? "w-8" : "bg-muted px-1",
-                  )}
-                  style={group.name === "color" ? { background: value } : undefined}
-                >
-                  {group.name === "color" ? "" : value}
-                </button>
-              ),
-            )}
-          </div>
-        </div>
-      ))}
-      {errors?.length ? (
-        <div className="mx-3 mb-2 rounded border border-destructive/40 bg-destructive/10 p-2">
-          {errors.map((e, i) => (
-            <p key={i} className="text-[11px] text-destructive">
-              {e.rule}: {e.message}
-            </p>
-          ))}
-        </div>
-      ) : null}
-    </>
   )
 }
 
