@@ -33,6 +33,7 @@ pub mod models;
 pub mod sandbox;
 pub mod screenshots;
 pub mod store;
+pub mod tokens;
 pub mod urls;
 pub mod validation;
 pub mod views;
