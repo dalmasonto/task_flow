@@ -32,8 +32,8 @@ import { sandboxUrl } from "@/lib/design-api"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
 
-const MIN_SCALE = 0.25
-const MAX_SCALE = 2
+export const MIN_SCALE = 0.25
+export const MAX_SCALE = 2
 
 export const ZOOM_STEP = 1.1
 

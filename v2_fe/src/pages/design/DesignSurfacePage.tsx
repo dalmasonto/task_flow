@@ -9,7 +9,10 @@ import {
   CrosshairIcon,
   MonitorSmartphoneIcon,
   MoonIcon,
+  ScanIcon,
   SunIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
 } from "lucide-react"
 
 import {
@@ -55,9 +58,12 @@ import {
 } from "@/lib/design-devices"
 import {
   DesignCanvas,
+  MAX_SCALE,
+  MIN_SCALE,
   ZOOM_STEP,
   type CanvasTransform,
 } from "./design-canvas"
+import { fitTransform } from "./canvas-view"
 import { CommentPins, DesignInspector } from "./design-inspector"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
@@ -94,6 +100,7 @@ export function DesignSurfacePage({
   const [comments, setComments] = useState<DesignComment[]>([])
   const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
   // Persisted per project so canvas layout survives reloads.
+  const canvasContainerRef = useRef<HTMLDivElement>(null)
   const boardsByProject = useRef<Map<number, Artboard[]>>(new Map())
   const [artboards, setArtboards] = useState<Artboard[]>([])
 
@@ -355,7 +362,12 @@ export function DesignSurfacePage({
 
         <DevicePicker deviceIds={deviceIds} onChange={handleDevicesChange} />
 
-        <ZoomControl transform={transform} onChange={setTransform} />
+        <ZoomControl
+          transform={transform}
+          onChange={setTransform}
+          boards={artboards}
+          viewportRef={canvasContainerRef}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={responsiveReview}>
@@ -400,7 +412,7 @@ export function DesignSurfacePage({
         </aside>
 
         {/* MIDDLE: the canvas (unchanged). */}
-        <main className="relative min-w-0 flex-1">
+        <main ref={canvasContainerRef} className="relative min-w-0 flex-1">
           {error ? (
             <EmptyCanvas message={error} />
           ) : manifest && manifest.routes.length === 0 ? (
@@ -677,29 +689,65 @@ function DevicePicker({
 function ZoomControl({
   transform,
   onChange,
+  boards,
+  viewportRef,
 }: {
   transform: CanvasTransform
   onChange: (t: CanvasTransform) => void
+  boards: Artboard[]
+  /** The canvas container to measure for the Fit button's viewport. */
+  viewportRef: React.RefObject<HTMLElement | null>
 }) {
+  const handleFit = () => {
+    const el = viewportRef.current
+    const viewport = el
+      ? { w: el.clientWidth, h: el.clientHeight }
+      : { w: 1200, h: 800 }
+    onChange(fitTransform(boards, viewport))
+  }
+
   return (
-    <div className="flex items-center gap-1 rounded border px-1">
-      <button
-        className="px-2 py-0.5 text-sm hover:bg-muted"
+    <div className="flex items-center gap-0.5 rounded-lg border p-0.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
         title="Zoom out (-)"
-        onClick={() => onChange({ ...transform, scale: Math.max(0.25, transform.scale / ZOOM_STEP) })}
+        onClick={() =>
+          onChange({ ...transform, scale: Math.max(MIN_SCALE, transform.scale / ZOOM_STEP) })
+        }
       >
-        −
-      </button>
-      <span className="w-12 text-center font-mono text-xs">
+        <ZoomOutIcon className="size-3.5" />
+      </Button>
+      <span className="w-11 text-center font-mono text-xs text-muted-foreground">
         {Math.round(transform.scale * 100)}%
       </span>
-      <button
-        className="px-2 py-0.5 text-sm hover:bg-muted"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         title="Zoom in (+)"
-        onClick={() => onChange({ ...transform, scale: Math.min(2, transform.scale * ZOOM_STEP) })}
+        onClick={() =>
+          onChange({ ...transform, scale: Math.min(MAX_SCALE, transform.scale * ZOOM_STEP) })
+        }
       >
-        +
-      </button>
+        <ZoomInIcon className="size-3.5" />
+      </Button>
+      <div className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        title="Fit to view"
+        onClick={handleFit}
+      >
+        <ScanIcon className="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="xs"
+        title="Reset to 100%"
+        onClick={() => onChange({ ...transform, scale: 1 })}
+      >
+        100%
+      </Button>
     </div>
   )
 }
