@@ -36,6 +36,17 @@ export type ComponentEntry = {
 
 export type TokenGroup = { name: string; variables: [string, string][] }
 
+/// Mirrors the backend's `TokensDoc` (styles/tokens.json) exactly: a flat
+/// version counter plus category → token-name → {light, dark?} values. `dark`
+/// is omitted when a token has no dark override.
+export type DesignTokensDoc = {
+  version: number
+  categories: Record<string, Record<string, { light: string; dark?: string }>>
+}
+
+const DEFAULT_TOKENS_DOC: DesignTokensDoc = { version: 1, categories: {} }
+const TOKENS_JSON_PATH = "styles/tokens.json"
+
 export type DesignManifest = {
   project: number
   routes: RouteEntry[]
@@ -181,6 +192,64 @@ export async function putDesignFile(
     jsonInit("PUT", { path, content, ...(baseVersion != null ? { base_version: baseVersion } : {}) })
   )
   return res.json()
+}
+
+/// Reads the structured tokens file. A missing row (new project, nothing
+/// written yet) is not an error — it's the empty document, versioned 0 so the
+/// first `putDesignTokens` call is an unconditional create rather than racing
+/// a `base_version` that never existed. Malformed JSON (shouldn't happen past
+/// the backend's `validate_tokens_json`, but editors and manual edits exist)
+/// fails soft to the same default rather than throwing into the UI.
+export async function fetchDesignTokens(
+  projectId: number
+): Promise<{ doc: DesignTokensDoc; version: number }> {
+  const row = await fetchDesignFile(projectId, TOKENS_JSON_PATH)
+  if (!row || !row.content) {
+    return { doc: DEFAULT_TOKENS_DOC, version: 0 }
+  }
+  try {
+    const doc = JSON.parse(row.content) as DesignTokensDoc
+    return { doc, version: row.version }
+  } catch {
+    return { doc: DEFAULT_TOKENS_DOC, version: 0 }
+  }
+}
+
+/// Writes the structured tokens file. Goes through the same `putDesignFile`
+/// path (and thus the same `validate_tokens_json` + 409/version-conflict
+/// handling) every other design file write uses — tokens are just a file with
+/// JSON content as far as this plumbing is concerned.
+export async function putDesignTokens(
+  projectId: number,
+  doc: DesignTokensDoc,
+  baseVersion: number
+): Promise<WriteFileResult> {
+  return putDesignFile(
+    projectId,
+    TOKENS_JSON_PATH,
+    JSON.stringify(doc),
+    baseVersion
+  )
+}
+
+/// Triggers a browser download of the generated tokens.css. The endpoint is
+/// same-origin (like every other `/api/design/...` call here) and auth is the
+/// session cookie `designFetch` already sends — no bearer header to smuggle
+/// in — but we still fetch-then-save-as-blob rather than a raw navigation:
+/// that keeps the SPA router from ever seeing the URL and guarantees the
+/// browser treats it as a download instead of an in-app route change.
+export async function exportTokensCss(projectId: number): Promise<void> {
+  const res = await designFetch(`/api/design/${projectId}/tokens.css`)
+  if (!res.ok) throw new Error(`Could not export tokens.css (${res.status}).`)
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = objectUrl
+  link.download = "tokens.css"
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 export async function fetchDesignComments(
