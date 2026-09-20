@@ -29,6 +29,7 @@ import {
   deviceById,
 } from "@/lib/design-devices"
 import { sandboxUrl } from "@/lib/design-api"
+import { type CanvasTool } from "./canvas-tools"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
 
@@ -52,6 +53,10 @@ export type DesignCanvasProps = {
   onTransformChange: (t: CanvasTransform) => void
   picking: boolean
   theme: string
+  /** Pointer mode: "select" (today's click/pick behavior) or "pan" (plain
+   * left-drag pans). Space-drag and middle-drag pan regardless of mode.
+   * Defaults to "select" when omitted. */
+  canvasTool?: CanvasTool
   /** Short-lived sandbox read token; frames 404 (with retry UI) without it. */
   sandboxToken: string | null
   onSelect?: (selection: Record<string, unknown>, board: Artboard) => void
@@ -72,6 +77,7 @@ export function DesignCanvas({
   onTransformChange,
   picking,
   theme,
+  canvasTool = "select",
   sandboxToken,
   onSelect,
   contentEpoch,
@@ -81,6 +87,7 @@ export function DesignCanvas({
   const surfaceRef = useRef<HTMLDivElement>(null)
   const panningRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
   const [spaceDown, setSpaceDown] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
   const selectionBoard = selection
     ? artboards.find((b) => b.key === selection.boardKey)
     : undefined
@@ -104,11 +111,14 @@ export function DesignCanvas({
   }, [])
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Space+drag or middle-button pans. Everything else falls through.
-    if (!(spaceDown || e.button === 1)) return
+    // Space+drag or middle-button pans in any mode; a plain primary-button
+    // drag also pans while the Pan tool is active. Everything else (Select
+    // mode, plain drag) falls through so clicks/picks reach the artboards.
+    if (!(spaceDown || e.button === 1 || (canvasTool === "pan" && e.button === 0))) return
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
     panningRef.current = { x: e.clientX, y: e.clientY, ox: transform.x, oy: transform.y }
+    setIsPanning(true)
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const p = panningRef.current
@@ -121,6 +131,7 @@ export function DesignCanvas({
   }
   const onPointerUp = () => {
     panningRef.current = null
+    setIsPanning(false)
   }
 
   // Cmd/Ctrl+scroll zooms toward the cursor; plain two-finger scroll pans
@@ -182,7 +193,14 @@ export function DesignCanvas({
     <div
       ref={surfaceRef}
       className="relative h-full w-full overflow-hidden bg-[#0b0b0f] select-none"
-      style={{ cursor: spaceDown ? "grab" : "default" }}
+      style={{
+        cursor:
+          spaceDown || canvasTool === "pan"
+            ? isPanning
+              ? "grabbing"
+              : "grab"
+            : "default",
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

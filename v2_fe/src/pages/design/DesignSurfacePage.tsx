@@ -7,8 +7,10 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   CrosshairIcon,
+  HandIcon,
   MonitorSmartphoneIcon,
   MoonIcon,
+  MousePointer2Icon,
   ScanIcon,
   SunIcon,
   ZoomInIcon,
@@ -64,6 +66,7 @@ import {
   type CanvasTransform,
 } from "./design-canvas"
 import { fitTransform } from "./canvas-view"
+import { toolForKey, type CanvasTool } from "./canvas-tools"
 import { CommentPins, DesignInspector } from "./design-inspector"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
@@ -94,6 +97,7 @@ export function DesignSurfacePage({
   const [transform, setTransform] = useState<CanvasTransform>({ x: 40, y: 40, scale: 0.6 })
   const [deviceIds, setDeviceIds] = useState<string[]>([DEFAULT_DEVICE_ID])
   const [picking, setPicking] = useState(false)
+  const [canvasTool, setCanvasTool] = useState<CanvasTool>("select")
   const [theme, setTheme] = useState("light")
   /** Bumped on server-side file changes so iframes remount with fresh content. */
   const [contentEpoch, setContentEpoch] = useState(0)
@@ -190,6 +194,8 @@ export function DesignSurfacePage({
       if (!typing) {
         if (e.key.toLowerCase() === "c") setPicking((p) => !p)
         if (e.key === "Escape") setPicking(false)
+        const tool = toolForKey(e.key)
+        if (tool) setCanvasTool(tool)
         if (e.key === "+" || e.key === "=")
           setTransform((t) => ({ ...t, scale: Math.min(2, t.scale * ZOOM_STEP) }))
         if (e.key === "-")
@@ -369,6 +375,25 @@ export function DesignSurfacePage({
           viewportRef={canvasContainerRef}
         />
 
+        <div className="flex items-center gap-1 rounded-md border p-0.5">
+          <Button
+            variant={canvasTool === "select" ? "default" : "ghost"}
+            size="icon"
+            title="Select (V)"
+            onClick={() => setCanvasTool("select")}
+          >
+            <MousePointer2Icon className="size-4" />
+          </Button>
+          <Button
+            variant={canvasTool === "pan" ? "default" : "ghost"}
+            size="icon"
+            title="Pan (H)"
+            onClick={() => setCanvasTool("pan")}
+          >
+            <HandIcon className="size-4" />
+          </Button>
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={responsiveReview}>
             Responsive review
@@ -428,6 +453,7 @@ export function DesignSurfacePage({
               transform={transform}
               onTransformChange={setTransform}
               picking={picking}
+              canvasTool={canvasTool}
               theme={theme}
               sandboxToken={sandboxToken}
               contentEpoch={contentEpoch}
