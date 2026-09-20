@@ -23,19 +23,19 @@ export function PageShell({
   actions?: React.ReactNode
 }) {
   return (
-    <section className="grid gap-5 p-4 sm:p-5">
-      <div className="rounded-lg border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{eyebrow}</p>
-            <h1 className="mt-1 text-2xl font-semibold">{title}</h1>
+    <section className="mx-auto grid w-full max-w-[1500px] gap-5 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="border-b border-border/70 pb-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">{eyebrow}</p>
+            <h1 className="mt-1 text-2xl font-semibold leading-tight">{title}</h1>
             <MarkdownRenderer
               content={description}
               compact
-              className="mt-2 max-w-3xl [&_p]:text-sm [&_p]:leading-6"
+              className="mt-1.5 max-w-3xl [&_p]:text-sm [&_p]:leading-6"
             />
           </div>
-          {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+          {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
         </div>
       </div>
       {children}
@@ -181,8 +181,8 @@ export function NoProjectEmptyState({
 }) {
   return (
     <section className="grid place-items-center p-4 sm:p-8">
-      <div className="w-full max-w-xl rounded-xl border bg-card p-8 text-center shadow-sm">
-        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
+      <div className="w-full max-w-xl rounded-lg border bg-card p-8 text-center shadow-sm">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
           <FolderKanbanIcon className="size-6" />
         </div>
         <h1 className="mt-4 text-xl font-semibold">No projects yet</h1>

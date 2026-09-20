@@ -46,7 +46,7 @@ export function ProjectSwitcher({
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" onClick={onNewProject}>
-            <div className="flex aspect-square size-8 items-center justify-center rounded-lg border bg-transparent">
+            <div className="flex aspect-square size-8 items-center justify-center rounded-lg border bg-background/60">
               <PlusIcon className="size-4" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
@@ -66,7 +66,7 @@ export function ProjectSwitcher({
             render={
               <SidebarMenuButton
                 size="lg"
-                className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+                className="h-11 rounded-lg px-2 data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
               />
             }
           >
@@ -76,14 +76,14 @@ export function ProjectSwitcher({
             >
               <FolderKanbanIcon className="size-4" />
             </div>
-            <div className="grid flex-1 text-left text-sm leading-tight">
+            <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">{activeProject.name}</span>
-              <span className="truncate text-xs">{activeProject.health}</span>
+              <span className="truncate text-xs text-sidebar-foreground/60">{activeProject.health}</span>
             </div>
             <ChevronsUpDownIcon className="ml-auto" />
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-fit"
+            className="w-72"
             align="start"
             side={isMobile ? "bottom" : "right"}
             sideOffset={4}

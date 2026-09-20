@@ -16,7 +16,7 @@ import { ALL_PRIORITIES } from "@/lib/board-filter"
 import { messageToTask } from "@/lib/message-to-task"
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react"
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
-import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, InfoIcon, KanbanSquareIcon, MessageSquareIcon, MoreHorizontalIcon, PlayIcon, PlusIcon, SearchIcon, UserRoundPlusIcon } from "lucide-react"
+import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, MessageSquareIcon, MoreHorizontalIcon, PlayIcon, PlusIcon, SearchIcon, UserRoundPlusIcon } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
@@ -41,7 +41,7 @@ import { DesignSurfacePage } from "@/pages/design/DesignSurfacePage"
 import { AgentsConversationEmpty, AgentsConversationRoute, AgentsPage } from "@/pages/agents"
 import { ApiBasePage } from "@/pages/api-base"
 import { AuthGateScreen, AuthPage } from "@/pages/auth"
-import { BoardLoadMoreSentinel, DropIndicator, EndDropIndicator, Metric, TaskCard, TaskRefNotice } from "@/components/board"
+import { BoardLoadMoreSentinel, DropIndicator, EndDropIndicator, TaskCard, TaskRefNotice } from "@/components/board"
 import { ChatDock } from "@/components/chat/chat-dock"
 import { GithubHeaderButton, NoProjectEmptyState } from "@/components/layout"
 import { TaskDetailSheet } from "@/components/task-sheet"
@@ -1941,14 +1941,14 @@ function App() {
         onLogout={handleLogout}
       />
       <SidebarInset className="h-svh min-w-0 overflow-hidden">
-        <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 shadow-sm backdrop-blur sm:px-5">
+        <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-8">
           <SidebarTrigger />
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
+            <div className="hidden min-w-0 items-center gap-2 text-sm text-muted-foreground sm:flex">
               <KanbanSquareIcon className="size-4" />
-              <span>Projects</span>
+              <span>TaskFlow</span>
               <span>/</span>
-              <span className="font-medium text-foreground">{activeProject?.name ?? "No project"}</span>
+              <span className="truncate font-medium text-foreground">{activeProject?.name ?? "No project"}</span>
             </div>
             <div className="relative ml-auto hidden w-full max-w-80 md:block">
               <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -2003,7 +2003,7 @@ function App() {
           ) : null}
         </header>
 
-        <main className="h-[calc(100svh-3.5rem)] min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,var(--background),var(--muted))]">
+        <main className="h-[calc(100svh-3.5rem)] min-h-0 flex-1 overflow-y-auto bg-background">
           <Routes>
             <Route path="/dashboard" element={<Navigate to="/dashboard/board" replace />} />
             <Route
@@ -2032,137 +2032,90 @@ function App() {
             <Route path="/dashboard/board" element={!activeProject ? (
           <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
         ) : (
-          <section className="flex h-full min-h-0 flex-col p-4 sm:p-5">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-5">
-              <div className="shrink-0 rounded-lg border bg-card p-4 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="max-w-3xl">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className="inline-flex size-8 items-center justify-center rounded-lg text-sm font-semibold text-[oklch(0.985_0.006_230)]"
-                        style={{ background: activeProject.tint }}
-                      >
-                        {activeProject.code}
-                      </span>
-                      <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-                        {activeProject.name}
-                      </h1>
-                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/20">
-                        {activeProject.health}
-                      </span>
+          <section className="flex h-full min-h-0 flex-col px-3 py-3 sm:px-4 lg:px-5">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+              <div className="shrink-0 rounded-lg border bg-card p-2.5">
+                <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center">
+                    <div className="relative md:w-80">
+                      <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={boardSearch}
+                        onChange={(event) => setBoardSearch(event.target.value)}
+                        placeholder="Search #id, title, owner, tag"
+                        className="pl-8"
+                      />
                     </div>
-                    {/* Height-gated header: the description is clamped to its
-                        first line and the full markdown lives behind the Project
-                        Info dialog, so the top of the board keeps a fixed height. */}
-                    <button
-                      type="button"
-                      onClick={() => setDialogMode("project-info")}
-                      title="View full project description"
-                      className="mt-3 flex max-w-2xl items-center gap-1.5 text-left text-sm text-muted-foreground transition hover:text-foreground"
-                    >
-                      <span className="truncate">{firstLine(activeProject.objective) || "No description yet."}</span>
-                      <InfoIcon className="size-3.5 shrink-0 opacity-70" />
-                    </button>
-                    {liveSyncError ? (
-                      <p className="mt-2 max-w-2xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                        {liveSyncError}
-                      </p>
-                    ) : null}
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      {[ALL_PRIORITIES, ...BOARD_PRIORITIES].map((option) => {
+                        const active = boardPriority === option
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => setBoardPriority(option)}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-xs font-medium capitalize ring-1 transition",
+                              active
+                                ? "bg-primary/10 text-primary ring-primary/30"
+                                : "bg-background text-muted-foreground ring-border hover:bg-muted"
+                            )}
+                          >
+                            {option === ALL_PRIORITIES ? "All" : option}
+                          </button>
+                        )
+                      })}
+                      {boardFilterActive ? (
+                        <>
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            {boardFilteredTasks.length} of {projectTasks.length}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBoardSearch("")
+                              setBoardPriority(ALL_PRIORITIES)
+                            }}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            Clear
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/activity")}>
+                      <ActivityIcon />
+                      Activity
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => setDialogMode("invite")}>
                       <UserRoundPlusIcon />
                       Invite
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => setDialogMode("edit-project")}>
                       <FileTextIcon />
-                      Edit Project
+                      Edit
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => setDialogMode("api-contract")}>
                       <GitBranchIcon />
-                      API Contract
+                      API
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => { setComposeSeed(null); setDialogMode("new-task") }}>
                       <PlusIcon />
-                      Create Task
+                      Task
                     </Button>
                     <Button size="sm" onClick={() => navigate("/dashboard/agents")}>
                       <PlayIcon />
-                      Start Work
+                      Chat
                     </Button>
                   </div>
                 </div>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <Metric label="Open tasks" value={String(projectTasks.length - doneCount)} detail={`${activeCount} active`} />
-                  <Metric label="Completion" value={`${completion}%`} detail={`${doneCount} shipped`} />
-                  <Metric label="Agents online" value={String(activeProject.agentsOnline)} detail={activeProject.cadence} />
-                  <Metric label="Blocked" value={String(blockedCount)} detail={blockedCount ? "needs attention" : "clear"} />
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold">Project Board</h2>
-                  <p className="text-sm text-muted-foreground">{activeProject.apiBase}</p>
-                </div>
-                <div className="hidden items-center gap-2 md:flex">
-                  <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/activity")}>
-                    <ActivityIcon />
-                    Activity
-                  </Button>
-                </div>
-              </div>
-
-              {/* Board search + priority filter. Narrows the columns only; the
-                  metrics above stay whole-project totals. */}
-              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="relative sm:max-w-xs sm:flex-1">
-                  <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={boardSearch}
-                    onChange={(event) => setBoardSearch(event.target.value)}
-                    placeholder="Search #id, title, owner, tag…"
-                    className="pl-8"
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {[ALL_PRIORITIES, ...BOARD_PRIORITIES].map((option) => {
-                    const active = boardPriority === option
-                    return (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => setBoardPriority(option)}
-                        className={cn(
-                          "rounded-full px-2.5 py-1 text-xs font-medium capitalize ring-1 transition",
-                          active
-                            ? "bg-primary/10 text-primary ring-primary/30"
-                            : "bg-muted/60 text-muted-foreground ring-border hover:bg-muted"
-                        )}
-                      >
-                        {option === ALL_PRIORITIES ? "All" : option}
-                      </button>
-                    )
-                  })}
-                  {boardFilterActive ? (
-                    <>
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        {boardFilteredTasks.length} of {projectTasks.length}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBoardSearch("")
-                          setBoardPriority(ALL_PRIORITIES)
-                        }}
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        Clear
-                      </button>
-                    </>
-                  ) : null}
-                </div>
+                {liveSyncError ? (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {liveSyncError}
+                  </p>
+                ) : null}
               </div>
 
               {/* Board columns scroll horizontally. On small screens each column
@@ -2198,7 +2151,7 @@ function App() {
                       <div
                         key={column.id}
                         className={cn(
-                          "flex h-full max-h-full w-[97vw] shrink-0 snap-center flex-col rounded-lg border bg-card/75 transition sm:w-[20rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
+                          "flex h-full max-h-full w-[calc(100vw-2rem)] shrink-0 snap-center flex-col overflow-hidden rounded-lg border bg-card transition sm:w-[21rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
                           draggedTaskId && dropTarget?.columnId === column.id && "border-primary/60 bg-primary/5 ring-2 ring-primary/25"
                         )}
                         onDragEnter={() => setDropTarget({ columnId: column.id, taskId: null, position: "after" })}
@@ -2213,7 +2166,7 @@ function App() {
                         onDragLeave={(event) => handleDragLeave(event, column.id)}
                         onDrop={(event) => handleDrop(event, column.id)}
                       >
-                        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-3">
+                        <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card px-3 py-3">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className={cn("inline-flex size-7 items-center justify-center rounded-md ring-1", column.tone)}>
                               <ColumnIcon className="size-3.5" />
@@ -2225,11 +2178,11 @@ function App() {
                               <p className="text-xs text-muted-foreground">{columnTotal} tasks</p>
                             </div>
                           </div>
-                          <Button variant="ghost" size="icon-sm">
+                          <Button variant="ghost" size="icon-sm" aria-label={`${column.title} actions`}>
                             <MoreHorizontalIcon />
                           </Button>
                         </div>
-                        <div data-board-scroll className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+                        <div data-board-scroll className="scrollbar-y relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-muted/25 p-2.5">
                           {draggedTaskId && dropTarget?.columnId === column.id && dropTarget.taskId === null ? (
                             <EndDropIndicator label={`Drop at end of ${column.title}`} />
                           ) : null}
@@ -2277,7 +2230,7 @@ function App() {
                             />
                           ) : null}
                           {columnTasks.length === 0 ? (
-                            <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-muted/40 px-3 text-center text-sm text-muted-foreground">
+                            <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-background px-3 text-center text-sm text-muted-foreground">
                               No tasks in {column.title.toLowerCase()}
                             </div>
                           ) : null}

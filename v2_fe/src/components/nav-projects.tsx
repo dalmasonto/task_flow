@@ -42,18 +42,19 @@ export function NavProjects({
 }) {
   const { isMobile } = useSidebar()
   return (
-    <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+    <SidebarGroup className="pt-1 group-data-[collapsible=icon]:hidden">
       <SidebarGroupLabel>Projects</SidebarGroupLabel>
       <SidebarMenu>
         {projects.map((item) => (
           <SidebarMenuItem key={item.name}>
             <SidebarMenuButton
-              className="h-auto py-2 pr-8"
+              className="h-auto min-h-10 py-2 pr-8"
               isActive={item.id === activeProjectId}
               onClick={() => onProjectChange(item.id)}
+              title={item.name}
             >
               <span
-                className="flex size-5 shrink-0 items-center justify-center rounded-[5px] text-[0.55rem] font-semibold text-[oklch(0.985_0.006_230)]"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-[0.58rem] font-semibold text-[oklch(0.985_0.006_230)]"
                 style={{ background: item.tint }}
               >
                 {item.code}
@@ -103,12 +104,6 @@ export function NavProjects({
             </DropdownMenu>
           </SidebarMenuItem>
         ))}
-        <SidebarMenuItem>
-          <SidebarMenuButton className="text-sidebar-foreground/70">
-            <MoreHorizontalIcon className="text-sidebar-foreground/70" />
-            <span>{projects.length} projects</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
       </SidebarMenu>
     </SidebarGroup>
   )

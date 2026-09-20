@@ -17,13 +17,11 @@ import {
 } from "@/components/ui/sidebar"
 import {
   ActivityIcon,
-  BotIcon,
-  CheckCircle2Icon,
-  Clock3Icon,
   FileJsonIcon,
   ImageIcon,
   KanbanSquareIcon,
   LayoutDashboardIcon,
+  MessageSquareIcon,
   PenToolIcon,
   ShieldCheckIcon,
   UserRoundPlusIcon,
@@ -96,17 +94,17 @@ export function AppSidebar({
       onSelect: closeMobileSidebar,
     },
     {
-      title: "Agents",
+      title: "Chat",
       url: "/dashboard/agents",
-      icon: <BotIcon />,
-      badge: String(onlineAgents),
+      icon: <MessageSquareIcon />,
+      badge: onlineAgents ? String(onlineAgents) : undefined,
       onSelect: closeMobileSidebar,
     },
     {
       title: "Reviews",
       url: "/dashboard/reviews",
       icon: <ShieldCheckIcon />,
-      badge: String(pendingReviews),
+      badge: pendingReviews ? String(pendingReviews) : undefined,
       onSelect: closeMobileSidebar,
     },
     {
@@ -146,42 +144,17 @@ export function AppSidebar({
       <SidebarContent>
         <NavMain items={navMain} />
         {activeProject ? (
-          <div className="mx-2 rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold uppercase tracking-normal text-sidebar-foreground/60">Project pulse</p>
-                <p className="mt-1 truncate text-sm font-medium">{activeProject.health}</p>
-              </div>
-              <span
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-[oklch(0.985_0.006_230)]"
-                style={{ background: activeProject.tint }}
-              >
-                {activeProject.code}
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded-md bg-sidebar/70 p-2">
-                <div className="flex items-center gap-1.5 text-sidebar-foreground/60">
-                  <BotIcon className="size-3.5" />
-                  Agents
-                </div>
-                <p className="mt-1 font-semibold">{onlineAgents}</p>
-              </div>
-              <div className="rounded-md bg-sidebar/70 p-2">
-                <div className="flex items-center gap-1.5 text-sidebar-foreground/60">
-                  <CheckCircle2Icon className="size-3.5" />
-                  Reviews
-                </div>
-                <p className="mt-1 font-semibold">{pendingReviews}</p>
-              </div>
-              <div className="rounded-md bg-sidebar/70 p-2">
-                <div className="flex items-center gap-1.5 text-sidebar-foreground/60">
-                  <Clock3Icon className="size-3.5" />
-                  Invites
-                </div>
-                <p className="mt-1 font-semibold">{pendingInvites}</p>
-              </div>
-            </div>
+          <div className="mx-3 flex items-center gap-2 border-y border-sidebar-border/70 py-2 text-xs text-sidebar-foreground/65 group-data-[collapsible=icon]:hidden">
+            <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+            <span className="truncate">{activeProject.health}</span>
+            <span className="h-3 w-px shrink-0 bg-sidebar-border" />
+            <span className="shrink-0 tabular-nums">{onlineAgents} online</span>
+            {pendingReviews ? (
+              <>
+                <span className="h-3 w-px shrink-0 bg-sidebar-border" />
+                <span className="shrink-0 tabular-nums">{pendingReviews} reviews</span>
+              </>
+            ) : null}
           </div>
         ) : null}
         <NavProjects

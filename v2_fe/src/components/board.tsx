@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react"
 
 export function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-lg border bg-background px-3 py-3">
+    <div className="rounded-lg border bg-card px-3 py-3">
       <div className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{label}</div>
       <div className="mt-2 flex items-baseline justify-between gap-3">
         <span className="text-2xl font-semibold">{value}</span>
@@ -53,7 +53,7 @@ export function TaskCard({
       onDragEnd={onDragEnd}
       onClick={onSelect}
       className={cn(
-        "group rounded-lg border bg-background p-3 shadow-sm transition-colors hover:border-primary/35 hover:shadow-md",
+        "group cursor-pointer rounded-lg border bg-card p-3 transition-[border-color,box-shadow,background-color] hover:border-primary/35 hover:bg-background",
         selected && "border-primary/60 ring-2 ring-primary/15",
         dragging && "opacity-55"
       )}
@@ -69,7 +69,7 @@ export function TaskCard({
             <span className="shrink-0 font-mono text-[0.68rem] font-medium text-muted-foreground">#{task.id}</span>
             <span className="truncate text-xs text-muted-foreground">{task.updated}</span>
           </div>
-          <h4 className="mt-2 text-sm font-semibold leading-5">{task.title}</h4>
+          <h4 className="mt-2 text-sm font-semibold leading-5 text-foreground">{task.title}</h4>
         </div>
       </div>
 

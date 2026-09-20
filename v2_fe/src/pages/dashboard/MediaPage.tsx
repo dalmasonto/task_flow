@@ -136,8 +136,8 @@ export function MediaPage({
   if (projectId == null) {
     return (
       <section className="grid place-items-center p-4 sm:p-8">
-        <div className="w-full max-w-xl rounded-xl border bg-card p-8 text-center shadow-sm">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
+        <div className="w-full max-w-xl rounded-lg border bg-card p-8 text-center shadow-sm">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
             <ImagesIcon className="size-6" />
           </div>
           <h1 className="mt-4 text-xl font-semibold">No project selected</h1>
@@ -150,14 +150,14 @@ export function MediaPage({
   }
 
   return (
-    <section className="grid gap-5 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4 shadow-sm">
+    <section className="mx-auto grid w-full max-w-[1500px] gap-5 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/70 pb-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Gallery</p>
-          <h1 className="mt-1 text-2xl font-semibold">Media</h1>
+          <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">Gallery</p>
+          <h1 className="mt-1 text-2xl font-semibold leading-tight">Media</h1>
         </div>
         <div
-          className="flex flex-wrap items-center gap-1 rounded-full border bg-background p-1"
+          className="flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1"
           role="group"
           aria-label="Filter media"
         >
@@ -173,7 +173,7 @@ export function MediaPage({
                 aria-pressed={active}
                 onClick={() => setFilter(option.value)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition",
+                  "rounded-md px-3 py-1 text-xs font-medium transition",
                   active
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -260,7 +260,7 @@ function MediaTile({
   const showImage = kind === "image" && !imageFailed
 
   return (
-    <div className="group relative overflow-hidden rounded-lg border bg-background shadow-sm">
+    <div className="group relative overflow-hidden rounded-lg border bg-card">
       <button
         type="button"
         onClick={onOpen}

@@ -129,6 +129,7 @@ pub async fn media_access_allowed(headers: &HeaderMap, key: &str) -> bool {
     if let Caller::User { superuser: true, .. } = caller {
         return true;
     }
+    
 
     // Message attachment? Channel-scoped.
     if let Ok(Some(attachment)) = TaskflowMessageAttachment::objects()
@@ -155,5 +156,6 @@ pub async fn media_access_allowed(headers: &HeaderMap, key: &str) -> bool {
 
     // Unmapped key: nothing links it to a project or channel, so nobody but a
     // superuser has a claim to it. Deny.
+    eprintln!("Unmapped key");
     false
 }

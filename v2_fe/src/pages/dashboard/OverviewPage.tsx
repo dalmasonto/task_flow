@@ -89,8 +89,8 @@ export function OverviewPage({
   if (projectId == null) {
     return (
       <section className="grid place-items-center p-4 sm:p-8">
-        <div className="w-full max-w-xl rounded-xl border bg-card p-8 text-center shadow-sm">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
+        <div className="w-full max-w-xl rounded-lg border bg-card p-8 text-center shadow-sm">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
             <LayoutDashboardIcon className="size-6" />
           </div>
           <h1 className="mt-4 text-xl font-semibold">No project selected</h1>
@@ -116,13 +116,13 @@ export function OverviewPage({
   const anchor = Number.isNaN(parsedGeneratedAt) ? mountedAt : parsedGeneratedAt
 
   return (
-    <section className="grid gap-5 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4 shadow-sm">
+    <section className="mx-auto grid w-full max-w-[1500px] gap-5 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/70 pb-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Insights</p>
-          <h1 className="mt-1 text-2xl font-semibold">Dashboard</h1>
+          <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">Insights</p>
+          <h1 className="mt-1 text-2xl font-semibold leading-tight">Dashboard</h1>
         </div>
-        <div className="flex items-center gap-1 rounded-full border bg-background p-1" role="group" aria-label="Time range">
+        <div className="flex items-center gap-1 rounded-lg border bg-card p-1" role="group" aria-label="Time range">
           {RANGE_OPTIONS.map((option) => {
             const active = range === option.value
             return (
@@ -132,7 +132,7 @@ export function OverviewPage({
                 aria-pressed={active}
                 onClick={() => setRange(option.value)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition",
+                  "rounded-md px-3 py-1 text-xs font-medium transition",
                   active
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -241,7 +241,7 @@ function rangeSubtitle(range: StatsRange): string {
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border bg-background px-3 py-3">
+    <div className="rounded-lg border bg-card px-3 py-3">
       <div className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{label}</div>
       <div className="mt-2 text-2xl font-semibold">{value}</div>
     </div>
@@ -260,7 +260,7 @@ function Panel({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
+    <section className="rounded-lg border bg-card p-4">
       <div>
         <h2 className="text-sm font-semibold">{title}</h2>
         {subtitle ? <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p> : null}
@@ -398,7 +398,7 @@ function OverviewSkeleton() {
     <div className="grid gap-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border bg-background px-3 py-3">
+          <div key={i} className="rounded-lg border bg-card px-3 py-3">
             <Skeleton className="h-3 w-20" />
             <Skeleton className="mt-3 h-7 w-16" />
           </div>
@@ -406,7 +406,7 @@ function OverviewSkeleton() {
       </div>
       <div className="grid gap-3 xl:grid-cols-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border bg-card p-4 shadow-sm">
+          <div key={i} className="rounded-lg border bg-card p-4">
             <Skeleton className="h-4 w-40" />
             <div className="mt-4 flex items-center justify-center gap-1.5 text-muted-foreground">
               <LoaderIcon className="size-4 animate-spin" />
