@@ -30,7 +30,6 @@ import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInv
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
-import { firstLine } from "@/lib/markdown"
 import { isoToDatetimeLocalInput, datetimeLocalInputToIso } from "@/lib/datetime"
 import { ALL_TOOLS } from "@/lib/activity-filter"
 
@@ -289,10 +288,6 @@ function App() {
       : tasks.filter((task) => task.status === "review").length
   const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : []
   const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
-  const blockedCount = projectTasks.filter((task) => task.status === "blocked").length
-  const activeCount = projectTasks.filter((task) => task.status === "in_progress").length
-  const doneCount = projectTasks.filter((task) => task.status === "done").length
-  const completion = projectTasks.length ? Math.round((doneCount / projectTasks.length) * 100) : 0
   const sidebarProjects = workspaceProjects.map((project) => ({
     ...project,
     // The summary's count is the TRUE total (envelope count), so use it for every
