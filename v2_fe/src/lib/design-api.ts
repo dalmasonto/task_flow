@@ -252,6 +252,53 @@ export async function exportTokensCss(projectId: number): Promise<void> {
   URL.revokeObjectURL(objectUrl)
 }
 
+/// Filename fallback when the response's `Content-Disposition` header is
+/// absent or unparseable — derived from the route so `/settings` downloads as
+/// `settings.html` and the root route downloads as `page.html`.
+function fallbackHtmlFilename(route: string): string {
+  const slug = route === "/" ? "" : route.replace(/^\/+|\/+$/g, "").replace(/\//g, "-")
+  return `${slug || "page"}.html`
+}
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  const match = /filename="?([^";]+)"?/i.exec(header)
+  return match ? match[1] : null
+}
+
+/// Triggers a browser download of the fully composed standalone page (real
+/// divs, no `<ui-*>` primitives, `<!doctype html>` and all) for `route`. Same
+/// fetch-then-save-as-blob approach as `exportTokensCss` above — keeps the SPA
+/// router out of it and guarantees a download rather than a navigation.
+export async function downloadPageHtml(projectId: number, route: string): Promise<void> {
+  const res = await designFetch(
+    `/api/design/${projectId}/page.html?route=${encodeURIComponent(route)}`
+  )
+  if (!res.ok) throw new Error(`Could not export page.html (${res.status}).`)
+  const blob = await res.blob()
+  const filename =
+    filenameFromContentDisposition(res.headers.get("content-disposition")) ??
+    fallbackHtmlFilename(route)
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/// Fetches just the expanded body markup for `route` (no doctype/head) so the
+/// caller can copy it to the clipboard.
+export async function fetchPageHtmlFragment(projectId: number, route: string): Promise<string> {
+  const res = await designFetch(
+    `/api/design/${projectId}/page.html?route=${encodeURIComponent(route)}&fragment=1`
+  )
+  if (!res.ok) throw new Error(`Could not load page HTML (${res.status}).`)
+  return res.text()
+}
+
 export async function fetchDesignComments(
   projectId: number,
   status?: string

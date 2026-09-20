@@ -20,6 +20,8 @@ import {
   RefreshCwIcon,
   XIcon,
   EllipsisIcon,
+  ClipboardCopyIcon,
+  DownloadIcon,
 } from "lucide-react"
 
 import {
@@ -28,7 +30,7 @@ import {
   chromeStyleForGroup,
   deviceById,
 } from "@/lib/design-devices"
-import { sandboxUrl } from "@/lib/design-api"
+import { sandboxUrl, downloadPageHtml, fetchPageHtmlFragment } from "@/lib/design-api"
 import { type CanvasTool } from "./canvas-tools"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
@@ -53,6 +55,10 @@ export type DesignCanvasProps = {
   onTransformChange: (t: CanvasTransform) => void
   picking: boolean
   theme: string
+  /** Owning project, for the per-artboard Copy HTML / Download actions
+   * (`GET /api/design/{project}/page.html`). Null while the surface is still
+   * resolving its project — those actions are hidden until it lands. */
+  projectId: number | null
   /** Pointer mode: "select" (today's click/pick behavior) or "pan" (plain
    * left-drag pans). Space-drag and middle-drag pan regardless of mode.
    * Defaults to "select" when omitted. */
@@ -77,6 +83,7 @@ export function DesignCanvas({
   onTransformChange,
   picking,
   theme,
+  projectId,
   canvasTool = "select",
   sandboxToken,
   onSelect,
@@ -231,6 +238,7 @@ export function DesignCanvas({
             picking={picking}
             contentEpoch={contentEpoch}
             sandboxToken={sandboxToken}
+            projectId={projectId}
             panMode={spaceDown || canvasTool === "pan"}
           />
         ))}
@@ -270,6 +278,7 @@ function ArtboardCard({
   picking,
   contentEpoch,
   sandboxToken,
+  projectId,
   panMode,
 }: {
   board: Artboard
@@ -277,6 +286,7 @@ function ArtboardCard({
   picking: boolean
   contentEpoch: number
   sandboxToken: string | null
+  projectId: number | null
   /** Pan tool active or Space held: the iframe must not swallow the drag that
    * starts over it, so the surface below gets pointer events instead. */
   panMode: boolean
@@ -290,7 +300,7 @@ function ArtboardCard({
       style={{ left: board.x, top: board.y }}
       data-artboard-key={board.key}
     >
-      <ArtboardHeader route={board.route} device={device} />
+      <ArtboardHeader route={board.route} device={device} projectId={projectId} />
       <div className="overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
         <DeviceChrome device={device}>
           {src ? (
@@ -312,7 +322,33 @@ function ArtboardCard({
   )
 }
 
-function ArtboardHeader({ route, device }: { route: string; device: DevicePreset }) {
+function ArtboardHeader({
+  route,
+  device,
+  projectId,
+}: {
+  route: string
+  device: DevicePreset
+  projectId: number | null
+}) {
+  const copyHtml = async () => {
+    if (projectId == null) return
+    try {
+      const fragment = await fetchPageHtmlFragment(projectId, route)
+      await navigator.clipboard.writeText(fragment)
+    } catch (err) {
+      console.error("Could not copy page HTML", err)
+    }
+  }
+  const downloadHtml = async () => {
+    if (projectId == null) return
+    try {
+      await downloadPageHtml(projectId, route)
+    } catch (err) {
+      console.error("Could not download page HTML", err)
+    }
+  }
+
   return (
     <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400">
       <span className="font-medium text-zinc-200">{route === "/" ? "Dashboard" : route.slice(1)}</span>
@@ -326,6 +362,22 @@ function ArtboardHeader({ route, device }: { route: string; device: DevicePreset
       </button>
       <button className="rounded p-1 hover:bg-zinc-800" title="Duplicate at another device">
         <CopyIcon className="size-3.5" />
+      </button>
+      <button
+        className="rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        title="Copy HTML"
+        disabled={projectId == null}
+        onClick={copyHtml}
+      >
+        <ClipboardCopyIcon className="size-3.5" />
+      </button>
+      <button
+        className="rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        title="Download"
+        disabled={projectId == null}
+        onClick={downloadHtml}
+      >
+        <DownloadIcon className="size-3.5" />
       </button>
       <button className="rounded p-1 hover:bg-zinc-800" title="Open in new tab">
         <ExternalLinkIcon className="size-3.5" />

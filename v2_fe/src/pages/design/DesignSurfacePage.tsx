@@ -485,6 +485,7 @@ export function DesignSurfacePage({
               picking={picking}
               canvasTool={canvasTool}
               theme={theme}
+              projectId={projectId}
               sandboxToken={sandboxToken}
               contentEpoch={contentEpoch}
               selection={selectionOverlay}
