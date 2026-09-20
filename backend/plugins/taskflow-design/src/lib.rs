@@ -30,6 +30,7 @@ pub mod composer;
 pub mod dispatch;
 pub mod manifest;
 pub mod models;
+pub mod primitives;
 pub mod sandbox;
 pub mod screenshots;
 pub mod store;
