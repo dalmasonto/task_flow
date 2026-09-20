@@ -97,14 +97,17 @@ current canvas.
   pass it into the `create`.
 
 **Agent send:**
-- Add `is_design` param to `send_message_as_agent` (`views.rs:1349`) and to the
-  MCP `send_message` tool definition (`mcp/src/server.ts`, ~1012-1217 region).
-- **Server auto-set (definitive Phase 1 rule):** if the agent passes `is_design`
-  explicitly, honor it. If it is omitted, the server sets `is_design = true` only
-  when the agent's message is directed (has `targets` / `target_agent`) at a
-  human who sent that agent a design message in the same channel; in all other
-  cases the omitted default is `false`. This is intentionally conservative — it
-  never silently flags a broadcast, and an agent can always be explicit.
+- Add `is_design` param to `AgentSendMessageInput` (`views.rs:1324-1331`) +
+  `send_message_as_agent` (`views.rs:1349`) multipart parse, and to the MCP
+  `send_message` tool definition (`mcp/src/server.ts`, ~1012-1217 region).
+- **Definitive Phase 1 rule — honor the explicit param, no inference.** The
+  agent send path carries no `targets` and messages have no reply/thread linkage,
+  so there is nothing reliable for the server to infer design-ness from. The
+  server therefore sets `is_design` to exactly what the agent passes, defaulting
+  to `false` when omitted. Agents are instructed (MCP tool description + the
+  design-request message body) to pass `is_design: true` when answering a design
+  request. This keeps the flag reliable and honest rather than fuzzily guessed;
+  a future phase can add reply-threading to enable inheritance.
 
 **Selection reference (body-encoded):**
 - The design rail's composer, when a selection chip is present, appends a fenced
@@ -204,9 +207,9 @@ top-nav aside):
   the optimistic payload so the bubble renders correctly before reconcile.
 - **Malformed `design-ref` block:** the parser fails soft — render the raw body,
   no chip; never throw in the bubble.
-- **Agent omits `is_design`:** server auto-set covers directed replies to design
-  requests; otherwise the reply lands in general chat only (acceptable, visible,
-  recoverable).
+- **Agent omits `is_design`:** the reply defaults to `false` and lands in general
+  chat only — visible and recoverable, not lost. The MCP tool description and the
+  design-request body prompt the agent to pass the flag.
 
 ## Testing
 
