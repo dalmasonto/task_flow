@@ -25,6 +25,9 @@ export type PendingMessage = {
   /// shown on the failed bubble. Cleared on retry.
   error?: string
   attachments?: PendingAttachment[]
+  /// Mirrors the server row's `is_design` so the optimistic bubble renders in
+  /// the design rail immediately, before the send is acknowledged.
+  is_design?: boolean
 }
 
 export type ChatMessage = TaskflowAgentMessage | PendingMessage

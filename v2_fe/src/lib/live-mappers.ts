@@ -1,6 +1,7 @@
 import { columns, type ActivityEvent, type AgentAttachment, type AgentChatContext, type AgentMessage, type AgentTerminalSessionView, type ColumnId, type ConversationMember, type DropTarget, type InviteRecord, type MessagePriority, type Priority, type Project, type Task, type TaskActivityItem, type TaskLink, type TaskRelation, type TaskSession, type TerminalLine } from "@/lib/workspace-view"
 import { formatEstimateMinutes } from "@/lib/tasks"
 import { isPending, type PendingAttachment } from "@/lib/message-store"
+import { parseDesignRef, stripDesignRef } from "@/lib/design-ref"
 import { API_BASE_URL, type AuthUser } from "@/lib/auth-api"
 import { type TaskflowAgent, type TaskflowAgentMessage, type TaskflowAgentMessagePriority, type TaskflowAgentSession, type TaskflowMessageAttachment, type TaskflowProjectInviteRole, type TaskflowProjectInviteStatus, type TaskflowProjectMember, type TaskflowTaskPriority, type TaskflowTaskRelationKind, type TaskflowTaskReviewDecision, type TaskflowTaskStatus } from "@/api/client"
 import { type TaskflowProjectSummary, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
@@ -1000,7 +1001,9 @@ export function mapLiveChannelMessages(
           to: channelTitle,
           time: message.status === "failed" ? "Failed to send" : "Sending…",
           createdAt: null,
-          body: message.body_markdown,
+          body: stripDesignRef(message.body_markdown),
+          isDesign: message.is_design ?? false,
+          designRef: parseDesignRef(message.body_markdown),
           status: message.status === "failed" ? "failed" : "sending",
           error: message.error,
           priority: mapLiveMessagePriority(message.priority),
@@ -1015,7 +1018,9 @@ export function mapLiveChannelMessages(
         to: channelTitle,
         time: formatMessageTime(message.created_at, "Live"),
         createdAt: message.created_at,
-        body: message.body_markdown,
+        body: stripDesignRef(message.body_markdown),
+        isDesign: message.is_design ?? false,
+        designRef: parseDesignRef(message.body_markdown),
         status: "posted",
         priority: mapLiveMessagePriority(message.priority),
         seen: seenOwnMessageId != null && message.id === seenOwnMessageId,
