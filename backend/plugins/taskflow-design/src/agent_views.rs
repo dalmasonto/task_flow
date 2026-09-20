@@ -88,6 +88,7 @@ pub async fn context(
         "components": manifest::to_json(&m)["components"],
         "routes": manifest::to_json(&m)["routes"],
         "revision": revision,
+        "primitives": crate::primitives::catalog(),
         "note": "Always call design_get_tokens before your first design write: colour and \
                  spacing MUST come from this scale."
     })))

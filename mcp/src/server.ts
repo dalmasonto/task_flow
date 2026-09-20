@@ -1017,7 +1017,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_get_tokens",
-    "Read the design token scale as BOTH the json map (`tokens_json`, the source of truth) and generated CSS (`tokens_css`). ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]).",
+    "Read the design token scale as BOTH the json map (`tokens_json`, the source of truth) and generated CSS (`tokens_css`). ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]). The response also includes a `primitives` array documenting the built-in <ui-*> components (ui-accordion/ui-dialog/ui-sheet/ui-tabs) with their attrs and usage examples.",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1033,7 +1033,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_list_components",
-    "List the project's component registry: every custom element, its attributes, where it is used (usedOn routes + usage counts), and the page routes. Compose pages from THESE — do not invent new tags.",
+    "List the project's component registry: every custom element, its attributes, where it is used (usedOn routes + usage counts), and the page routes. Compose pages from THESE — do not invent new tags. Also see the response's `primitives` array for built-in <ui-*> tags (accordion/dialog/sheet/tabs) with names, attrs, and usage examples.",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1089,7 +1089,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_page",
-    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Styling via Tailwind classes on the TOKEN scale only: bg-[#3b82f6] is rejected; bg-[var(--accent)] is not. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently.",
+    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Styling via Tailwind classes on the TOKEN scale only: bg-[#3b82f6] is rejected; bg-[var(--accent)] is not. Built-in <ui-accordion>/<ui-dialog>/<ui-sheet>/<ui-tabs> primitives are also available server-expanded — see design_get_tokens's `primitives` field for their names, attrs, and usage examples. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently.",
     {
       route: z.string().min(1).describe("Route path to write, e.g. '/settings'."),
       html: z.string().min(1).describe("The full replacement fragment."),

@@ -325,6 +325,40 @@ pub fn expand_primitives(fragment: &str) -> String {
     out
 }
 
+/// A static, agent-facing catalog of the authorable `<ui-*>` primitives:
+/// one entry per primitive an agent may WRITE (the slot sub-tags, like
+/// `ui-dialog-title`, are documented inside their parent's `slots` array
+/// rather than getting their own top-level entry, since they are never
+/// authored standalone).
+pub fn catalog() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "name": "ui-accordion",
+            "attrs": ["title"],
+            "slots": [],
+            "usage": "<ui-accordion title=\"Shipping\">Free over $50.</ui-accordion>"
+        },
+        {
+            "name": "ui-dialog",
+            "attrs": ["trigger", "name"],
+            "slots": ["ui-dialog-title", "ui-dialog-body"],
+            "usage": "<ui-dialog trigger=\"Delete\" name=\"confirm\"><ui-dialog-title>Sure?</ui-dialog-title><ui-dialog-body>No undo.</ui-dialog-body></ui-dialog>"
+        },
+        {
+            "name": "ui-sheet",
+            "attrs": ["trigger", "name", "side"],
+            "slots": ["ui-sheet-title", "ui-sheet-body"],
+            "usage": "<ui-sheet trigger=\"Menu\" name=\"nav\" side=\"right|left\"><ui-sheet-title>Menu</ui-sheet-title><ui-sheet-body>Links here.</ui-sheet-body></ui-sheet>"
+        },
+        {
+            "name": "ui-tabs",
+            "attrs": [],
+            "slots": ["ui-tab (label attr)"],
+            "usage": "<ui-tabs><ui-tab label=\"One\">First panel.</ui-tab><ui-tab label=\"Two\">Second panel.</ui-tab></ui-tabs>"
+        }
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,5 +512,33 @@ mod tests {
         );
         assert!(out.contains("<details"), "{out}");
         assert!(!out.contains("<ui-"), "{out}");
+    }
+
+    #[test]
+    fn catalog_contains_ui_dialog_with_usage() {
+        let cat = catalog();
+        let entries = cat.as_array().expect("catalog is a json array");
+        let dialog = entries
+            .iter()
+            .find(|e| e["name"] == "ui-dialog")
+            .expect("catalog has a ui-dialog entry");
+        assert!(
+            dialog["usage"].as_str().is_some_and(|s| !s.is_empty()),
+            "{dialog}"
+        );
+    }
+
+    #[test]
+    fn catalog_contains_ui_tabs_with_usage() {
+        let cat = catalog();
+        let entries = cat.as_array().expect("catalog is a json array");
+        let tabs = entries
+            .iter()
+            .find(|e| e["name"] == "ui-tabs")
+            .expect("catalog has a ui-tabs entry");
+        assert!(
+            tabs["usage"].as_str().is_some_and(|s| !s.is_empty()),
+            "{tabs}"
+        );
     }
 }

@@ -123,6 +123,17 @@ async fn agent_reads_context_and_registry() {
         .map(|c| c["name"].as_str().unwrap())
         .collect();
     assert_eq!(names, vec!["app-card"]);
+
+    let primitive_names: Vec<&str> = v["primitives"]
+        .as_array()
+        .expect("context response has a primitives array")
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        primitive_names.contains(&"ui-tabs"),
+        "primitives catalog should include ui-tabs: {primitive_names:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
