@@ -31,6 +31,10 @@ pub fn router() -> Router {
         .route("/api/design/{project}/files", get(views::list_files))
         .route("/api/design/{project}/file", get(views::get_file).put(views::put_file))
         .route(
+            "/api/design/{project}/tokens.css",
+            get(views::export_tokens_css),
+        )
+        .route(
             "/api/design/{project}/comments",
             get(views::list_comments).post(views::create_comment),
         )

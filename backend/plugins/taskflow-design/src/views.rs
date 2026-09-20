@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use http::HeaderValue;
 use serde::Deserialize;
 use serde_json::json;
@@ -28,6 +28,7 @@ use crate::manifest;
 use crate::models::{CommentScope, CommentStatus, DesignComment, DesignFileKind, design_comment};
 use crate::sandbox;
 use crate::store::{self, ProjectLocks, WriteOutcome};
+use crate::tokens::{TokensDoc, tokens_json_to_css};
 
 /// Shared per-project write locks. One instance per process; cheap to clone.
 pub fn project_locks() -> ProjectLocks {
@@ -741,6 +742,19 @@ pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<R
         return Err(StatusCode::NOT_FOUND);
     }
 
+    // `styles/tokens.css` is GENERATED from the `styles/tokens.json` source
+    // when that row exists; only a project that has never migrated off
+    // hand-authored CSS falls through to serving the legacy row verbatim.
+    if path == "styles/tokens.css" {
+        if let Some(css) = generated_tokens_css(project_id).await {
+            let mut response = css.into_response();
+            let headers = response.headers_mut();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
+            headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            return Ok(response);
+        }
+    }
+
     let row = store::load_file(project_id, &path)
         .await
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -761,6 +775,47 @@ pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<R
         headers.insert(CONTENT_TYPE, ct);
     }
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
+
+/// Build the generated `tokens.css` from the `styles/tokens.json` source row,
+/// if one exists. Returns `None` (never a hard error) when there is no json
+/// row, so callers fall back to serving the legacy hand-authored
+/// `styles/tokens.css` row unchanged. A json row that fails to parse is
+/// treated the same as absent — Task 2's write-time validation is what keeps
+/// stored rows well-formed; a serve-time failure here should degrade to the
+/// legacy fallback rather than 500.
+async fn generated_tokens_css(project_id: i64) -> Option<String> {
+    let row = store::load_file(project_id, "styles/tokens.json").await?;
+    let doc: TokensDoc = serde_json::from_str(&row.content).ok()?;
+    Some(tokens_json_to_css(&doc))
+}
+
+/// `GET /api/design/{project}/tokens.css` — chrome-facing download of the
+/// generated tokens stylesheet (same source as the sandbox serve path: the
+/// `styles/tokens.json` row when present, else the legacy `styles/tokens.css`
+/// row). Same membership gate as the other `/api/design/{project}/...` reads.
+pub async fn export_tokens_css(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+
+    let css = match generated_tokens_css(project_id).await {
+        Some(css) => css,
+        None => store::load_file(project_id, "styles/tokens.css")
+            .await
+            .map(|row| row.content)
+            .ok_or(StatusCode::NOT_FOUND)?,
+    };
+
+    let mut response = css.into_response();
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"tokens.css\""),
+    );
     Ok(response)
 }
 
