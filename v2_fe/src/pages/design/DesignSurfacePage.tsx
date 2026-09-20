@@ -62,6 +62,7 @@ import { CommentPins, DesignInspector } from "./design-inspector"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
 import { nextDesignTab, type DesignTab } from "./design-tabs"
+import { ComponentDialog } from "./component-dialog"
 
 export function DesignSurfacePage({
   projectId,
@@ -734,7 +735,11 @@ function PagesPanel({
 
 /// The component registry list with a per-component live sandbox preview —
 /// the real component rendered against the project's real tokens, not a mock.
-/// Task 9 (the component detail dialog) opens off of this list.
+/// Clicking a row opens `ComponentDialog`, the same sandbox render at a usable
+/// size (§Task 9). Dialog/selected-component state lives HERE rather than on
+/// the page: `TabsContent` is not `keepMounted`, so this state only needs to
+/// survive while the Components tab itself is mounted, which it does either
+/// way.
 function ComponentsPanel({
   manifest,
   sandboxToken,
@@ -742,47 +747,73 @@ function ComponentsPanel({
   manifest: DesignManifest | null
   sandboxToken: string | null
 }) {
+  const [selected, setSelected] = useState<ComponentEntry | null>(null)
+
   return (
-    <div className="flex flex-col py-1">
-      {(manifest?.components ?? []).map((c: ComponentEntry) => (
-        <div key={c.name} className="border-b px-3 py-2 last:border-b-0">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-xs">{c.name}</span>
-            <span
-              className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-              title={`Used on ${c.usedOn.length} route(s)`}
-            >
-              ×{c.usageCount}
-            </span>
+    <>
+      <div className="flex flex-col py-1">
+        {(manifest?.components ?? []).map((c: ComponentEntry) => (
+          <div
+            key={c.name}
+            role="button"
+            tabIndex={0}
+            className="cursor-pointer border-b px-3 py-2 outline-none last:border-b-0 hover:bg-muted/60 focus-visible:bg-muted/60"
+            onClick={() => setSelected(c)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setSelected(c)
+              }
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs">{c.name}</span>
+              <span
+                className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                title={`Used on ${c.usedOn.length} route(s)`}
+              >
+                ×{c.usageCount}
+              </span>
+            </div>
+            {/* Live preview: the real component in the real sandbox against
+                the project's tokens — not a mock rendering. Pointer events are
+                dropped so a click anywhere on the row — thumbnail included —
+                opens the dialog instead of reaching into the iframe. */}
+            {sandboxToken ? (
+              <div className="mt-1 overflow-hidden rounded border bg-zinc-50">
+                <iframe
+                  src={`${sandboxUrl(sandboxToken, `/preview/${c.name}`)}?preview=1`}
+                  title={`Preview of ${c.name}`}
+                  sandbox="allow-scripts allow-same-origin"
+                  tabIndex={-1}
+                  className="pointer-events-none h-14 w-[452px] origin-top-left scale-50 border-0"
+                  loading="lazy"
+                />
+              </div>
+            ) : null}
+            {c.attrs.length ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {c.attrs.map((a) => (
+                  <span key={a} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+                    {a}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
-          {/* Live preview: the real component in the real sandbox against
-              the project's tokens — not a mock rendering. */}
-          {sandboxToken ? (
-            <div className="mt-1 overflow-hidden rounded border bg-zinc-50">
-              <iframe
-                src={`${sandboxUrl(sandboxToken, `/preview/${c.name}`)}?preview=1`}
-                title={`Preview of ${c.name}`}
-                sandbox="allow-scripts allow-same-origin"
-                className="h-14 w-[452px] origin-top-left scale-50 border-0"
-                loading="lazy"
-              />
-            </div>
-          ) : null}
-          {c.attrs.length ? (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {c.attrs.map((a) => (
-                <span key={a} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
-                  {a}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ))}
-      {!manifest?.components.length && (
-        <p className="px-3 py-2 text-xs text-muted-foreground">Registry is empty.</p>
-      )}
-    </div>
+        ))}
+        {!manifest?.components.length && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">Registry is empty.</p>
+        )}
+      </div>
+
+      <ComponentDialog
+        component={selected}
+        sandboxToken={sandboxToken}
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+      />
+    </>
   )
 }
 
