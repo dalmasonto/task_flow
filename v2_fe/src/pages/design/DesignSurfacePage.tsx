@@ -10,9 +10,6 @@ import {
   MonitorSmartphoneIcon,
   MoonIcon,
   SunIcon,
-  LayersIcon,
-  PaletteIcon,
-  FileCodeIcon,
 } from "lucide-react"
 
 import {
@@ -25,6 +22,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -62,6 +61,7 @@ import {
 import { CommentPins, DesignInspector } from "./design-inspector"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
+import { nextDesignTab, type DesignTab } from "./design-tabs"
 
 export function DesignSurfacePage({
   projectId,
@@ -159,7 +159,19 @@ export function DesignSurfacePage({
   }, [projectId, artboards])
 
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [leftSection, setLeftSection] = useState<"pages" | "components" | "tokens">("pages")
+
+  // Right panel tab: defaults to Pages, and auto-switches to Inspect the
+  // moment an element is picked on the canvas (a newly-appeared selection) —
+  // see `nextDesignTab`. `hadSelectionRef` tracks the previous render's
+  // selection presence so the effect can tell "just appeared" apart from
+  // "already there" without re-running on every unrelated selection field.
+  const [rightTab, setRightTab] = useState<DesignTab>(() => nextDesignTab(false, "", false) as DesignTab)
+  const hadSelectionRef = useRef(false)
+  useEffect(() => {
+    const hasSelection = selection != null
+    setRightTab((current) => nextDesignTab(hadSelectionRef.current, current, hasSelection) as DesignTab)
+    hadSelectionRef.current = hasSelection
+  }, [selection])
 
   // --- keyboard shortcuts (§9.7) --------------------------------------------
   useEffect(() => {
@@ -300,7 +312,7 @@ export function DesignSurfacePage({
       hint: `${c.usageCount} use(s)`,
       group: "Components",
       run: () => {
-        setLeftSection("components")
+        setRightTab("components")
       },
     }))
     const commentItems: PaletteItem[] = comments.map((c) => ({
@@ -413,25 +425,54 @@ export function DesignSurfacePage({
           )}
         </main>
 
-        {/* RIGHT: interim — inspector + the pages/components/tokens panel that
-            used to sit on the left. Phase 2 turns this into proper tabs. */}
-        <aside className="hidden w-[340px] shrink-0 flex-col overflow-y-auto border-l lg:flex">
-          <DesignInspector
-            selection={selection}
-            manifest={manifest}
-            projectId={projectId}
-            onDeselect={() => setSelection(null)}
-            onCommentCreated={() => refreshComments()}
-          />
-          <LeftPanel
-            manifest={manifest}
-            sandboxToken={sandboxToken}
-            section={leftSection}
-            onSection={setLeftSection}
-            projectId={projectId}
-            onFilesChanged={() => setContentEpoch((e) => e + 1)}
-            onOpenRoute={(route) => addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)}
-          />
+        {/* RIGHT: Inspect / Components / Tokens / Pages — one panel, four
+            tabs. Auto-switches to Inspect when an element is picked on the
+            canvas (see the `rightTab` effect above); otherwise the human's
+            chosen tab is never fought over. */}
+        <aside className="hidden min-h-0 w-[380px] shrink-0 flex-col border-l lg:flex">
+          <Tabs
+            value={rightTab}
+            onValueChange={(value) => setRightTab(value as DesignTab)}
+            className="h-full min-h-0"
+          >
+            <TabsList>
+              <TabsTrigger value="inspect">Inspect</TabsTrigger>
+              <TabsTrigger value="components">
+                Components{manifest ? ` (${manifest.components.length})` : ""}
+              </TabsTrigger>
+              <TabsTrigger value="tokens">Tokens</TabsTrigger>
+              <TabsTrigger value="pages">Pages</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="inspect">
+              <DesignInspector
+                selection={selection}
+                manifest={manifest}
+                projectId={projectId}
+                onDeselect={() => setSelection(null)}
+                onCommentCreated={() => refreshComments()}
+              />
+            </TabsContent>
+
+            <TabsContent value="components">
+              <ComponentsPanel manifest={manifest} sandboxToken={sandboxToken} />
+            </TabsContent>
+
+            <TabsContent value="tokens">
+              {/* Give the token editor room — it was cramped in the old
+                  260px left-panel slot. */}
+              {projectId ? (
+                <TokenEditor projectId={projectId} onSaved={() => setContentEpoch((e) => e + 1)} />
+              ) : null}
+            </TabsContent>
+
+            <TabsContent value="pages">
+              <PagesPanel
+                manifest={manifest}
+                onOpenRoute={(route) => addArtboard(route, deviceIds[0] ?? DEFAULT_DEVICE_ID)}
+              />
+            </TabsContent>
+          </Tabs>
         </aside>
       </div>
 
@@ -663,132 +704,84 @@ function ZoomControl({
 }
 
 // ---------------------------------------------------------------------------
-// Panels
+// Right-panel tabs: Pages + Components (Inspect lives in design-inspector.tsx,
+// Tokens is the standalone TokenEditor mounted directly above).
 // ---------------------------------------------------------------------------
 
-function LeftPanel({
+function PagesPanel({
   manifest,
-  sandboxToken,
-  section,
-  onSection,
-  projectId,
-  onFilesChanged,
   onOpenRoute,
 }: {
   manifest: DesignManifest | null
-  sandboxToken: string | null
-  section: "pages" | "components" | "tokens"
-  onSection: (s: "pages" | "components" | "tokens") => void
-  projectId: number
-  onFilesChanged: () => void
   onOpenRoute: (route: string) => void
 }) {
   return (
-    <aside className="hidden w-[260px] shrink-0 flex-col overflow-y-auto border-r md:flex">
-      <PanelSection
-        icon={<FileCodeIcon className="size-3.5" />}
-        title="Pages"
-        open={section === "pages"}
-        onToggle={() => onSection("pages")}
-      >
-        {(manifest?.routes ?? []).map((route) => (
-          <button
-            key={route.path}
-            className="flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm hover:bg-muted"
-            onClick={() => onOpenRoute(route.path)}
-          >
-            <span>{route.title}</span>
-            <span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>
-          </button>
-        ))}
-        {!manifest?.routes.length && <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>}
-      </PanelSection>
-
-      <PanelSection
-        icon={<LayersIcon className="size-3.5" />}
-        title={`Components${manifest ? ` (${manifest.components.length})` : ""}`}
-        open={section === "components"}
-        onToggle={() => onSection("components")}
-      >
-        {(manifest?.components ?? []).map((c: ComponentEntry) => (
-          <div key={c.name} className="px-3 py-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs">{c.name}</span>
-              <span
-                className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                title={`Used on ${c.usedOn.length} route(s)`}
-              >
-                ×{c.usageCount}
-              </span>
-            </div>
-            {/* Live preview: the real component in the real sandbox against
-                the project's tokens — not a mock rendering. */}
-            {sandboxToken ? (
-              <div className="mt-1 overflow-hidden rounded border bg-zinc-50">
-                <iframe
-                  src={`${sandboxUrl(sandboxToken, `/preview/${c.name}`)}?preview=1`}
-                  title={`Preview of ${c.name}`}
-                  sandbox="allow-scripts allow-same-origin"
-                  className="h-14 w-[452px] origin-top-left scale-50 border-0"
-                  loading="lazy"
-                />
-              </div>
-            ) : null}
-            {c.attrs.length ? (
-              <div className="mt-1 flex flex-wrap gap-1">
-                {c.attrs.map((a) => (
-                  <span key={a} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
-                    {a}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ))}
-        {!manifest?.components.length && (
-          <p className="px-3 py-2 text-xs text-muted-foreground">Registry is empty.</p>
-        )}
-      </PanelSection>
-
-      <PanelSection
-        icon={<PaletteIcon className="size-3.5" />}
-        title={`Tokens${manifest ? ` (${manifest.tokens.reduce((n, g) => n + g.variables.length, 0)})` : ""}`}
-        open={section === "tokens"}
-        onToggle={() => onSection("tokens")}
-      >
-        {/* Inline token editor (§6b): an edit is a design_write_tokens
-            equivalent — same validator, every artboard reloads via SSE. */}
-        {projectId ? (
-          <TokenEditor projectId={projectId} onSaved={onFilesChanged} />
-        ) : null}
-      </PanelSection>
-    </aside>
+    <div className="flex flex-col py-1">
+      {(manifest?.routes ?? []).map((route) => (
+        <button
+          key={route.path}
+          className="flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm hover:bg-muted"
+          onClick={() => onOpenRoute(route.path)}
+        >
+          <span>{route.title}</span>
+          <span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>
+        </button>
+      ))}
+      {!manifest?.routes.length && <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>}
+    </div>
   )
 }
 
-function PanelSection({
-  icon,
-  title,
-  open,
-  onToggle,
-  children,
+/// The component registry list with a per-component live sandbox preview —
+/// the real component rendered against the project's real tokens, not a mock.
+/// Task 9 (the component detail dialog) opens off of this list.
+function ComponentsPanel({
+  manifest,
+  sandboxToken,
 }: {
-  icon: React.ReactNode
-  title: string
-  open: boolean
-  onToggle: () => void
-  children: React.ReactNode
+  manifest: DesignManifest | null
+  sandboxToken: string | null
 }) {
   return (
-    <div className="border-b">
-      <button
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
-        onClick={onToggle}
-      >
-        {icon}
-        {title}
-      </button>
-      {open ? <div className="pb-2">{children}</div> : null}
+    <div className="flex flex-col py-1">
+      {(manifest?.components ?? []).map((c: ComponentEntry) => (
+        <div key={c.name} className="border-b px-3 py-2 last:border-b-0">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-xs">{c.name}</span>
+            <span
+              className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+              title={`Used on ${c.usedOn.length} route(s)`}
+            >
+              ×{c.usageCount}
+            </span>
+          </div>
+          {/* Live preview: the real component in the real sandbox against
+              the project's tokens — not a mock rendering. */}
+          {sandboxToken ? (
+            <div className="mt-1 overflow-hidden rounded border bg-zinc-50">
+              <iframe
+                src={`${sandboxUrl(sandboxToken, `/preview/${c.name}`)}?preview=1`}
+                title={`Preview of ${c.name}`}
+                sandbox="allow-scripts allow-same-origin"
+                className="h-14 w-[452px] origin-top-left scale-50 border-0"
+                loading="lazy"
+              />
+            </div>
+          ) : null}
+          {c.attrs.length ? (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {c.attrs.map((a) => (
+                <span key={a} className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+                  {a}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+      {!manifest?.components.length && (
+        <p className="px-3 py-2 text-xs text-muted-foreground">Registry is empty.</p>
+      )}
     </div>
   )
 }
