@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::models::{DesignFile, DesignFileKind};
+use crate::tokens::{TokensDoc, category_to_var_name};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RouteEntry {
@@ -40,8 +41,19 @@ pub struct ComponentEntry {
 #[derive(Debug, Clone, Serialize)]
 pub struct TokenGroup {
     pub name: String,
-    /// `--name: value` entries parsed from tokens.css, in file order.
+    /// `--name: value` entries (the light/default value), in source order.
+    /// Back-compat: existing consumers that only read `variables` keep
+    /// working unchanged after the tokens.json rework (this is still the
+    /// light value, exactly as when it was parsed straight from CSS).
     pub variables: Vec<(String, String)>,
+    /// Dark-mode override for the tokens in this group that HAVE one, as
+    /// `(name, dark_value)` pairs — a subset of `variables` by name (not
+    /// index-aligned; look up by name). Additive field: empty (and omitted
+    /// from JSON) when nothing in the group has a dark override, which is
+    /// always true for the legacy-tokens.css fallback path, so a manifest
+    /// built from legacy CSS serializes identically to before this change.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variables_dark: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -199,14 +211,26 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
         })
         .collect();
 
-    // Tokens: group top-level custom properties in @theme by their prefix
-    // (--color-*, --spacing-*, --radius-*, --font-*), plus an "other" group.
-    let tokens_css = files
+    // Tokens: prefer the tokens.json source of truth (Task 1's TokensDoc),
+    // grouped by its own categories using the SAME name convention the
+    // json<->css codec uses (`category_to_var_name`), so a bare color like
+    // `--accent` lands in "colors" instead of being misclassified. Fall back
+    // to a regex-ish scan of legacy `styles/tokens.css` only when there's no
+    // json row (or it fails to parse, which validation should prevent, but
+    // don't panic the manifest builder over it).
+    let tokens = files
         .iter()
-        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
-        .map(|f| f.content.clone())
-        .unwrap_or_default();
-    let tokens = parse_token_groups(&tokens_css);
+        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.json")
+        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
+        .map(|doc| token_groups_from_doc(&doc))
+        .unwrap_or_else(|| {
+            let tokens_css = files
+                .iter()
+                .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
+                .map(|f| f.content.clone())
+                .unwrap_or_default();
+            parse_token_groups(&tokens_css)
+        });
 
     DesignManifest {
         project: project_id,
@@ -258,11 +282,156 @@ fn parse_token_groups(css: &str) -> Vec<TokenGroup> {
 
     groups
         .into_iter()
-        .map(|(name, variables)| TokenGroup { name, variables })
+        .map(|(name, variables)| TokenGroup {
+            name,
+            variables,
+            variables_dark: Vec::new(),
+        })
+        .collect()
+}
+
+/// Build [`TokenGroup`]s straight from a [`TokensDoc`] (the tokens.json
+/// path). Each JSON category becomes one group (its categories ARE the
+/// groups — no re-derivation of a naming convention), and each entry's
+/// `--var` name is derived via the shared [`category_to_var_name`], the same
+/// function the served CSS is generated with, so group membership and var
+/// names never drift from what `styles/tokens.css` actually contains.
+fn token_groups_from_doc(doc: &TokensDoc) -> Vec<TokenGroup> {
+    doc.categories
+        .iter()
+        .map(|(category, entries)| {
+            let mut variables = Vec::new();
+            let mut variables_dark = Vec::new();
+            for (key, value) in entries.iter() {
+                let var_name = category_to_var_name(category, key);
+                variables.push((var_name.clone(), value.light.clone()));
+                if let Some(dark) = &value.dark {
+                    variables_dark.push((var_name, dark.clone()));
+                }
+            }
+            TokenGroup {
+                name: category.clone(),
+                variables,
+                variables_dark,
+            }
+        })
         .collect()
 }
 
 /// Convenience: manifest as the JSON value handlers return.
 pub fn to_json(manifest: &DesignManifest) -> Value {
     serde_json::to_value(manifest).unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use umbral::orm::ForeignKey;
+
+    fn token_file(path: &str, content: &str) -> DesignFile {
+        DesignFile {
+            id: 0,
+            project: ForeignKey::new(1),
+            kind: DesignFileKind::Token,
+            path: path.to_string(),
+            content: content.to_string(),
+            version: 1,
+            updated_by: "test".to_string(),
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn tokens_json_row_yields_grouped_light_and_dark_values() {
+        let json = serde_json::json!({
+            "version": 1,
+            "categories": {
+                "colors": { "accent": { "light": "#6366f1", "dark": "#818cf8" } },
+                "radius": { "md": { "light": "8px" } }
+            }
+        })
+        .to_string();
+
+        let files = vec![token_file("styles/tokens.json", &json)];
+        let manifest = build(1, &files, 1);
+
+        let colors = manifest
+            .tokens
+            .iter()
+            .find(|g| g.name == "colors")
+            .expect("colors group present (bare --accent must be grouped as a color, not 'other')");
+        assert!(
+            colors
+                .variables
+                .contains(&("--accent".to_string(), "#6366f1".to_string())),
+            "expected --accent light value in colors group, got {:?}",
+            colors.variables
+        );
+        assert!(
+            colors
+                .variables_dark
+                .contains(&("--accent".to_string(), "#818cf8".to_string())),
+            "expected --accent dark override in colors group, got {:?}",
+            colors.variables_dark
+        );
+
+        let radius = manifest
+            .tokens
+            .iter()
+            .find(|g| g.name == "radius")
+            .expect("radius group present");
+        assert!(
+            radius
+                .variables
+                .contains(&("--radius-md".to_string(), "8px".to_string()))
+        );
+        assert!(
+            radius.variables_dark.is_empty(),
+            "radius/md has no dark override, so variables_dark must stay empty"
+        );
+    }
+
+    #[test]
+    fn legacy_css_fallback_used_when_no_json_row() {
+        let css = "@theme {\n  --accent: #6366f1;\n  --radius-md: 8px;\n}\n:root {\n  --accent: #6366f1;\n  --radius-md: 8px;\n}\n";
+        let files = vec![token_file("styles/tokens.css", css)];
+        let manifest = build(1, &files, 1);
+
+        assert!(
+            !manifest.tokens.is_empty(),
+            "legacy CSS fallback should still produce token groups when no tokens.json row exists"
+        );
+        let has_radius_md = manifest
+            .tokens
+            .iter()
+            .any(|g| g.variables.iter().any(|(n, v)| n == "--radius-md" && v == "8px"));
+        assert!(has_radius_md, "legacy fallback should still find --radius-md");
+    }
+
+    #[test]
+    fn json_row_takes_priority_over_a_legacy_css_row() {
+        let json = serde_json::json!({
+            "version": 1,
+            "categories": {
+                "colors": { "accent": { "light": "#000000" } }
+            }
+        })
+        .to_string();
+        let css = "@theme {\n  --accent: #ffffff;\n}\n:root {\n  --accent: #ffffff;\n}\n";
+
+        let files = vec![
+            token_file("styles/tokens.css", css),
+            token_file("styles/tokens.json", &json),
+        ];
+        let manifest = build(1, &files, 1);
+
+        let colors = manifest.tokens.iter().find(|g| g.name == "colors").expect("colors group");
+        assert!(
+            colors
+                .variables
+                .contains(&("--accent".to_string(), "#000000".to_string())),
+            "tokens.json must win over legacy tokens.css when both rows exist"
+        );
+    }
 }
