@@ -8,7 +8,7 @@
 /// falls back to the API base, which keeps every deployment cross-origin
 /// except a fully same-origin dev setup.
 
-import { API_BASE_URL } from "@/lib/auth-api"
+import { API_BASE_URL, readJson } from "@/lib/auth-api"
 
 export const SANDBOX_ORIGIN: string =
   (import.meta.env.VITE_SANDBOX_ORIGIN as string | undefined) ?? API_BASE_URL
@@ -110,7 +110,13 @@ type DesignFileRow = {
 }
 
 async function designFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, { credentials: "include", ...init })
+  // Prefix the API origin, exactly like auth-api / taskflow-api do. Without this
+  // a relative `/api/design/...` path resolves against the SPA host (e.g.
+  // taskflow.supercodehive.com) instead of the API host
+  // (api.taskflow.supercodehive.com), so the app server answers with index.html
+  // and every design call fails. Dev only masks it because the Vite proxy
+  // forwards these paths to the backend.
+  return fetch(`${API_BASE_URL}${path}`, { credentials: "include", ...init })
 }
 
 function jsonInit(method: string, body: unknown): RequestInit {
@@ -124,7 +130,7 @@ function jsonInit(method: string, body: unknown): RequestInit {
 export async function fetchDesignManifest(projectId: number): Promise<DesignManifest> {
   const res = await designFetch(`/api/design/${projectId}/manifest`)
   if (!res.ok) throw new Error(`Could not load the design manifest (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 /// Free-text prompt from §9.6's bottom bar. Delivered through the same DM
@@ -148,7 +154,7 @@ export async function sendDesignPrompt(
     jsonInit("POST", input)
   )
   if (!res.ok) throw new Error(`Could not deliver the prompt (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 /// Short-lived HMAC read token for composing sandbox artboard URLs. The chrome
@@ -157,14 +163,14 @@ export async function sendDesignPrompt(
 export async function fetchSandboxToken(projectId: number): Promise<string> {
   const res = await designFetch(`/api/design/${projectId}/sandbox-token`)
   if (!res.ok) throw new Error(`Could not mint a sandbox token (${res.status}).`)
-  const body = (await res.json()) as { token: string }
+  const body = await readJson<{ token: string }>(res)
   return body.token
 }
 
 export async function fetchDesignFiles(projectId: number): Promise<DesignFileSummary[]> {
   const res = await designFetch(`/api/design/${projectId}/files`)
   if (!res.ok) throw new Error(`Could not list design files (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 export async function fetchDesignFile(
@@ -176,7 +182,7 @@ export async function fetchDesignFile(
   )
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`Could not read ${path} (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 /// Operator edit. Runs the SAME validator agent writes do — a rejection here is
@@ -191,7 +197,7 @@ export async function putDesignFile(
     `/api/design/${projectId}/file`,
     jsonInit("PUT", { path, content, ...(baseVersion != null ? { base_version: baseVersion } : {}) })
   )
-  return res.json()
+  return readJson(res)
 }
 
 /// Reads the structured tokens file. A missing row (new project, nothing
@@ -306,7 +312,7 @@ export async function fetchDesignComments(
   const query = status ? `?status=${encodeURIComponent(status)}` : ""
   const res = await designFetch(`/api/design/${projectId}/comments${query}`)
   if (!res.ok) throw new Error(`Could not load comments (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 export async function createDesignComment(
@@ -328,7 +334,7 @@ export async function createDesignComment(
     jsonInit("POST", input)
   )
   if (!res.ok) throw new Error(`Could not save the comment (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 export async function updateDesignComment(
@@ -347,7 +353,7 @@ export async function updateDesignComment(
     jsonInit("PATCH", input)
   )
   if (!res.ok) throw new Error(`Could not update the comment (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
 
 export type DesignAgent = { id: number; display_name: string }
@@ -355,7 +361,7 @@ export type DesignAgent = { id: number; display_name: string }
 export async function fetchDesignAgents(projectId: number): Promise<DesignAgent[]> {
   const res = await designFetch(`/api/design/${projectId}/agents`)
   if (!res.ok) throw new Error(`Could not list agents (${res.status}).`)
-  const body = (await res.json()) as { agents: DesignAgent[] }
+  const body = await readJson<{ agents: DesignAgent[] }>(res)
   return body.agents
 }
 
@@ -373,5 +379,5 @@ export async function dispatchDesignComments(
     jsonInit("POST", { comment_ids: commentIds, agent_id: agentId })
   )
   if (!res.ok) throw new Error(`Dispatch failed (${res.status}).`)
-  return res.json()
+  return readJson(res)
 }
