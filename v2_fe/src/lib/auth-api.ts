@@ -130,6 +130,42 @@ async function readError(response: Response) {
   }
 }
 
+function describeNonJson(response: Response, contentType: string, body: string): string {
+  const snippet = body.trim().slice(0, 120).replace(/\s+/g, " ")
+  const where = response.url ? ` from ${response.url}` : ""
+  return (
+    `Expected JSON${where} but the server returned ${contentType || "an unknown content type"} ` +
+    `(status ${response.status}). The API may be unreachable or the API base URL misconfigured.` +
+    (snippet ? ` Response began: "${snippet}"` : "")
+  )
+}
+
+/**
+ * Parse a *successful* response body as JSON, failing loudly and clearly when the
+ * server hands back something that isn't JSON — most often an HTML page (a login
+ * screen, a 404/gateway page, or the SPA's own index.html when the API base URL is
+ * misconfigured or a path isn't proxied). Without this guard, `response.json()`
+ * throws the opaque `Unexpected token '<', "<!doctype "... is not valid JSON`, which
+ * hides the real problem. Callers must still check `response.ok` first; error bodies
+ * are read separately (see readError / readErrorDetail).
+ */
+export async function readJson<T>(response: Response): Promise<T> {
+  if (response.status === 204 || response.status === 205) {
+    return undefined as T
+  }
+  const contentType = response.headers.get("content-type") ?? ""
+  const body = await response.text()
+  if (body.trim() === "") return undefined as T
+  if (!contentType.includes("application/json")) {
+    throw new Error(describeNonJson(response, contentType, body))
+  }
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    throw new Error(describeNonJson(response, contentType, body))
+  }
+}
+
 async function authRequest<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
   const token = getStoredToken()
@@ -152,8 +188,7 @@ async function authRequest<T>(path: string, init: RequestInit = {}) {
     throw new Error(await readError(response))
   }
 
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
+  return readJson<T>(response)
 }
 
 export async function registerUser(input: { username: string; email: string; password: string }): Promise<AuthResult> {

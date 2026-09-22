@@ -28,7 +28,7 @@ import type {
   TaskflowUserSettings,
   TaskflowUserSettingsTheme,
 } from "@/api/client"
-import { API_BASE_URL, getStoredToken } from "@/lib/auth-api"
+import { API_BASE_URL, getStoredToken, readJson } from "@/lib/auth-api"
 import { BOARD_COLUMN_IDS, columnStatuses, type BoardColumnId } from "@/lib/board-columns"
 import type { ChatMessage } from "@/lib/message-store"
 
@@ -570,7 +570,7 @@ export async function fetchActivityActions(projectId: number): Promise<string[]>
     headers: { ...(getStoredToken() ? { Authorization: `Bearer ${getStoredToken()}` } : {}) },
   })
   if (!res.ok) throw new Error(`Could not load activity tools (${res.status})`)
-  const body = (await res.json()) as { actions?: string[] }
+  const body = await readJson<{ actions?: string[] }>(res)
   return Array.isArray(body.actions) ? body.actions : []
 }
 
@@ -956,7 +956,7 @@ export async function uploadTaskAttachment(
         : await readErrorDetail(response, `Could not upload the attachment (${response.status}).`)
     )
   }
-  const data = (await response.json()) as { attachments?: TaskflowTaskAttachment[] }
+  const data = await readJson<{ attachments?: TaskflowTaskAttachment[] }>(response)
   return data.attachments ?? []
 }
 
@@ -1062,7 +1062,7 @@ export async function sendTaskflowAgentMessage(
         : `Could not send the message (${response.status}).`
     )
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// Edit YOUR OWN message's body (#107). Authorship is checked server-side; the
@@ -1083,7 +1083,7 @@ export async function editTaskflowAgentMessage(
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Could not edit the message (${response.status}).`))
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// What a human caller sends to link a coding agent to a project. `project` MUST
@@ -1133,7 +1133,7 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
         : await readErrorDetail(response, `Could not link the agent (${response.status}).`)
     )
   }
-  return response.json()
+  return readJson(response)
 }
 
 
@@ -1207,9 +1207,9 @@ export async function createTaskflowChannel(input: {
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Could not create the channel (${response.status}).`))
   }
-  return (await response.json()) as TaskflowAgentChannel & {
+  return readJson<TaskflowAgentChannel & {
     members: TaskflowAgentChannelMember[]
-  }
+  }>(response)
 }
 
 /// Pull the first human-readable message out of a DRF-style field-error body
@@ -1260,7 +1260,7 @@ export async function addChannelMember(
           : `Could not add the member (${response.status}).`
     )
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// What a client may say when creating an invite. `project` comes from the URL,
@@ -1294,7 +1294,7 @@ export async function createTaskflowProjectInvite(
         : `Could not create the invite (${response.status}).`
     )
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// The caller's invite inbox row: the invite plus the resolved project name the
@@ -1333,7 +1333,7 @@ export async function fetchMyInvites(): Promise<InviteInboxEntry[]> {
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Could not load your invitations (${response.status}).`))
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// A named error so the UI can react to the terminal invite states distinctly.
@@ -1377,7 +1377,7 @@ export async function acceptInvite(token: string): Promise<TaskflowProjectMember
   if (!response.ok) {
     throw new InviteActionError(inviteActionMessage("accept", response.status), response.status)
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// Decline an invite by token. Returns the updated invite row.
@@ -1389,7 +1389,7 @@ export async function declineInvite(token: string): Promise<TaskflowProjectInvit
   if (!response.ok) {
     throw new InviteActionError(inviteActionMessage("decline", response.status), response.status)
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// The caller's own settings row, created with defaults on first read. Keyed on
@@ -1403,7 +1403,7 @@ export async function fetchUserSettings(): Promise<TaskflowUserSettings> {
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Could not load your settings (${response.status}).`))
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// What the client may change on its own settings. `default_project: null`
@@ -1424,7 +1424,7 @@ export async function updateUserSettings(input: UpdateUserSettingsInput): Promis
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Could not save your settings (${response.status}).`))
   }
-  return response.json()
+  return readJson(response)
 }
 
 /// A named error carrying parsed DRF-style field errors so the create-project
@@ -1525,7 +1525,7 @@ export async function createTaskflowProject(input: CreateProjectInput): Promise<
     const { message, fieldErrors } = await parseProjectFormError(response)
     throw new ProjectFormError(message, response.status, fieldErrors)
   }
-  return response.json()
+  return readJson(response)
 }
 
 export function updateTaskflowProject(projectId: number, input: TaskflowProjectUpdate) {
@@ -1604,9 +1604,10 @@ export async function fetchOAuthProviders(): Promise<OAuthProvider[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/oauth/providers`)
     if (!res.ok) return []
-    const data = (await res.json()) as
+    const data = await readJson<
       | { providers?: Array<{ key?: unknown; label?: unknown }> }
       | null
+    >(res)
     return (data?.providers ?? [])
       .filter(
         (p): p is { key: string; label: string } =>
@@ -1653,7 +1654,7 @@ export async function fetchGithubMe(): Promise<{ connected: boolean }> {
     headers: bearerHeaders(),
   })
   if (!response.ok) throw new Error(await readErrorDetail(response, "Could not check GitHub status."))
-  return response.json()
+  return readJson(response)
 }
 
 export async function fetchGithubProjectStatus(projectId: number): Promise<GithubProjectStatus> {
@@ -1662,7 +1663,7 @@ export async function fetchGithubProjectStatus(projectId: number): Promise<Githu
     { credentials: "include", headers: bearerHeaders() },
   )
   if (!response.ok) throw new Error(await readErrorDetail(response, "Could not load GitHub status."))
-  return response.json()
+  return readJson(response)
 }
 
 export async function linkGithubProject(
@@ -1670,7 +1671,7 @@ export async function linkGithubProject(
   repo: string,
 ): Promise<{ github_repo: string }> {
   const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/link`, { repo })
-  return response.json()
+  return readJson(response)
 }
 
 export async function publishTaskAsIssue(
@@ -1680,7 +1681,7 @@ export async function publishTaskAsIssue(
   const response = await githubMutate(
     `/api/taskflow/github/projects/${projectId}/tasks/${taskId}/publish`,
   )
-  return response.json()
+  return readJson(response)
 }
 
 export async function commentOnIssueAsMe(
@@ -1698,7 +1699,7 @@ export async function setGithubPostAsMe(
   const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/pref`, {
     post_as_me: postAsMe,
   })
-  return response.json()
+  return readJson(response)
 }
 
 /** Owner/admin: toggle per-project auto-mirror of comments to the linked issue. */
@@ -1709,7 +1710,7 @@ export async function setGithubAutoMirror(
   const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/auto-mirror`, {
     enabled,
   })
-  return response.json()
+  return readJson(response)
 }
 
 // --- Dashboard stats ---------------------------------------------------------
@@ -1734,5 +1735,5 @@ export async function fetchProjectStats(projectId: number, range: StatsRange): P
     { headers: bearerHeaders(), credentials: "include" },
   )
   if (!res.ok) throw new Error(`Could not load dashboard stats (${res.status})`)
-  return (await res.json()) as ProjectStats
+  return readJson<ProjectStats>(res)
 }
