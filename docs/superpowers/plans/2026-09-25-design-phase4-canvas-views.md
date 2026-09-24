@@ -46,7 +46,7 @@ Classes of input the spec implies but whose tests are easy to forget. Each line 
 - `src/urls.rs` — MODIFY. Two routes.
 - `tests/layout_doc.rs` — NEW. Pure unit tests.
 - `tests/phase7_layout_endpoint.rs` — NEW. Handler tests over the real router.
-- `backend/migrations/taskflow_design/0002_auto.json` — GENERATED.
+- `backend/migrations/taskflow_design/0002_create_design_layout.json` — GENERATED (the tool names the file after the change, not `_auto`).
 
 **Frontend** (`v2_fe/`)
 - `src/lib/design-layout.ts` — NEW. Document types + pure edit helpers (`createGroup`, `assignRoute`, …) + tolerant `normalizeLayout`. No device imports, so `design-devices.ts` can depend on it one-way.
@@ -409,7 +409,7 @@ git commit -m "feat(design): layout document type, strict validate + forgiving r
 **Files:**
 - Modify: `backend/plugins/taskflow-design/src/models.rs`
 - Modify: `backend/plugins/taskflow-design/src/lib.rs`
-- Generate: `backend/migrations/taskflow_design/0002_auto.json`
+- Generate: `backend/migrations/taskflow_design/0002_<name>.json` (the makemigrations tool names it after the change — as shipped this was `0002_create_design_layout.json`)
 
 **Interfaces:**
 - Consumes: `DesignView` (Task 1, Step 1).
@@ -458,7 +458,7 @@ pub struct DesignLayout {
 - [ ] **Step 3: Generate the migration**
 
 Run: `cd backend && cargo run -- makemigrations`
-Expected: a new file `migrations/taskflow_design/0002_auto.json`.
+Expected: a new file `migrations/taskflow_design/0002_*.json`. **The tool names it after the change, not `_auto`** — and `MigrationFile.id` must match the filename stem, so never rename it.
 
 - [ ] **Step 4: Verify the generated migration touched ONLY the new table**
 
@@ -466,7 +466,8 @@ Run:
 ```bash
 cd backend && python3 -c "
 import json
-d = json.load(open('migrations/taskflow_design/0002_auto.json'))
+import glob; f = sorted(glob.glob('migrations/taskflow_design/0002_*.json'))[0]
+d = json.load(open(f))
 print('id:', d['id'], '| ops:', [ (o['kind'], o.get('table')) for o in d['operations'] ])
 "
 ```
@@ -477,7 +478,7 @@ Expected: exactly one operation, `('CreateTable', 'design_layout')`.
 - [ ] **Step 5: Verify the migration applies and is idempotent**
 
 Run: `cd backend && cargo run -- migrate && cargo run -- showmigrations 2>&1 | tail -20`
-Expected: `0002_auto` listed as applied; re-running `cargo run -- migrate` reports nothing to do.
+Expected: the `0002_*` migration listed as applied; re-running `cargo run -- migrate` reports nothing to do.
 
 - [ ] **Step 6: Commit**
 
@@ -485,7 +486,7 @@ Expected: `0002_auto` listed as applied; re-running `cargo run -- migrate` repor
 cd /home/dalmas/E/projects/local_task_tracker
 git add backend/plugins/taskflow-design/src/models.rs \
         backend/plugins/taskflow-design/src/lib.rs \
-        backend/migrations/taskflow_design/0002_auto.json
+        backend/migrations/taskflow_design/0002_create_design_layout.json
 git commit -m "feat(design): design_layout row (one per project) + migration"
 ```
 
@@ -2350,7 +2351,7 @@ Confirm the migration applied to the copy:
 cargo run -- showmigrations 2>&1 | grep -A2 taskflow_design
 ```
 
-Expected: `0001_auto` and `0002_auto` both applied.
+Expected: `0001_auto` and `0002_create_design_layout` both applied.
 
 - [ ] **Step 2: Start both halves and open the design page**
 
