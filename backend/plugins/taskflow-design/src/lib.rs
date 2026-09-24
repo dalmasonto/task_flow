@@ -10,7 +10,7 @@
 //!
 //!   src/
 //!     lib.rs        — the `Plugin` impl: glues models + routes (this file)
-//!     models.rs     — `design_file` + `design_comment` rows
+//!     models.rs     — `design_file` + `design_comment` + `design_layout` rows
 //!     validation.rs — §6.3 write validator (paths, fragments, components, tokens)
 //!     store.rs      — caps, per-project write locks, optimistic versioning
 //!     manifest.rs   — derived manifest + usedOn blast-radius computation
@@ -61,6 +61,7 @@ impl Plugin for TaskflowDesignPlugin {
         vec![
             umbral::migrate::ModelMeta::for_::<models::DesignFile>(),
             umbral::migrate::ModelMeta::for_::<models::DesignComment>(),
+            umbral::migrate::ModelMeta::for_::<models::DesignLayout>(),
         ]
     }
 

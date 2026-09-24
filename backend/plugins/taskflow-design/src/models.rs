@@ -1,6 +1,6 @@
 //! Models for the `taskflow-design` plugin — the Design Surface storage layer.
 //!
-//! Two tables, per §5 of the design-surface spec:
+//! Three tables, per §5 of the design-surface spec:
 //!
 //! * `design_file`   — every agent- or operator-authored artifact (tokens,
 //!   components, page fragments, assets) as a versioned row keyed by
@@ -10,6 +10,9 @@
 //! * `design_comment` — an operator comment anchored to an element on one
 //!   rendered route, carrying everything an agent needs to find and edit the
 //!   right source (file + line ref, component name, element path, blast radius).
+//! * `design_layout`  — the project's canvas arrangement (view + page order +
+//!   groups) as one JSON document. One row per project, so the arrangement is
+//!   shared rather than per-viewer.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -172,4 +175,28 @@ pub enum DesignView {
     Rows,
     Bands,
     Groups,
+}
+
+/// The project's canvas arrangement — one row per project (unique together on
+/// `project`), so "how this project's pages are laid out" is shared rather than
+/// per-viewer. The document itself lives in `layout_json`; see `layout_doc`.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["project"]])]
+pub struct DesignLayout {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(choices, default = "rows")]
+    pub view: DesignView,
+    /// The serialised `layout_doc::LayoutDoc`. Capped well above any real
+    /// document (24 groups × 40-char names); the column allows more so an
+    /// oversized reject is still inspectable in the admin.
+    #[umbral(string, max_length = 65_536, widget = "textarea")]
+    pub layout_json: String,
+    #[umbral(string, max_length = 120)]
+    pub updated_by: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[umbral(noedit)]
+    pub updated_at: Option<DateTime<Utc>>,
 }

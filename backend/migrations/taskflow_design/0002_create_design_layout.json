@@ -1,0 +1,538 @@
+{
+  "id": "0002_create_design_layout",
+  "plugin": "taskflow_design",
+  "depends_on": [],
+  "operations": [
+    {
+      "kind": "CreateTable",
+      "table": "design_layout",
+      "columns": [
+        {
+          "name": "id",
+          "ty": "BigInt",
+          "primary_key": true,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0
+        },
+        {
+          "name": "project",
+          "ty": "ForeignKey",
+          "primary_key": false,
+          "nullable": false,
+          "fk_target": "taskflow_project",
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "on_delete": "Cascade"
+        },
+        {
+          "name": "view",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": false,
+          "max_length": 0,
+          "choices": [
+            "rows",
+            "bands",
+            "groups"
+          ],
+          "choice_labels": [
+            "Rows",
+            "Bands",
+            "Groups"
+          ],
+          "default": "rows"
+        },
+        {
+          "name": "layout_json",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 65536,
+          "widget": "textarea"
+        },
+        {
+          "name": "updated_by",
+          "ty": "Text",
+          "primary_key": false,
+          "nullable": false,
+          "noform": false,
+          "noedit": false,
+          "is_string_repr": true,
+          "max_length": 120
+        },
+        {
+          "name": "created_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0,
+          "auto_now_add": true
+        },
+        {
+          "name": "updated_at",
+          "ty": "Timestamptz",
+          "primary_key": false,
+          "nullable": true,
+          "noform": false,
+          "noedit": true,
+          "is_string_repr": false,
+          "max_length": 0
+        }
+      ],
+      "unique_together": [
+        [
+          "project"
+        ]
+      ]
+    }
+  ],
+  "snapshot_after": {
+    "models": [
+      {
+        "name": "DesignComment",
+        "table": "design_comment",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "page_path",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 200
+          },
+          {
+            "name": "component_name",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "element_path",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 500
+          },
+          {
+            "name": "src_ref",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 200
+          },
+          {
+            "name": "viewport",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 60
+          },
+          {
+            "name": "rect",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 200,
+            "widget": "textarea"
+          },
+          {
+            "name": "snippet",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 700,
+            "widget": "textarea"
+          },
+          {
+            "name": "body",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 4000,
+            "widget": "textarea"
+          },
+          {
+            "name": "scope",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "component",
+              "instance"
+            ],
+            "choice_labels": [
+              "Component",
+              "Instance"
+            ],
+            "default": "instance"
+          },
+          {
+            "name": "status",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "open",
+              "sent",
+              "addressed",
+              "dismissed"
+            ],
+            "choice_labels": [
+              "Open",
+              "Sent",
+              "Addressed",
+              "Dismissed"
+            ],
+            "default": "open"
+          },
+          {
+            "name": "thread_id",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 64
+          },
+          {
+            "name": "author",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "resolution_note",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 2000,
+            "widget": "textarea"
+          },
+          {
+            "name": "orphaned",
+            "ty": "Boolean",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "false"
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          }
+        ],
+        "display": "DesignComment",
+        "icon": "database",
+        "app_label": "app"
+      },
+      {
+        "name": "DesignFile",
+        "table": "design_file",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "kind",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "token",
+              "component",
+              "page",
+              "asset"
+            ],
+            "choice_labels": [
+              "Token",
+              "Component",
+              "Page",
+              "Asset"
+            ],
+            "default": "page"
+          },
+          {
+            "name": "path",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 80
+          },
+          {
+            "name": "content",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 262144,
+            "widget": "textarea"
+          },
+          {
+            "name": "version",
+            "ty": "BigInt",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "default": "1"
+          },
+          {
+            "name": "updated_by",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          },
+          {
+            "name": "updated_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0
+          }
+        ],
+        "display": "DesignFile",
+        "icon": "database",
+        "unique_together": [
+          [
+            "project",
+            "path"
+          ]
+        ],
+        "app_label": "app"
+      },
+      {
+        "name": "DesignLayout",
+        "table": "design_layout",
+        "fields": [
+          {
+            "name": "id",
+            "ty": "BigInt",
+            "primary_key": true,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0
+          },
+          {
+            "name": "project",
+            "ty": "ForeignKey",
+            "primary_key": false,
+            "nullable": false,
+            "fk_target": "taskflow_project",
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "on_delete": "Cascade"
+          },
+          {
+            "name": "view",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": false,
+            "max_length": 0,
+            "choices": [
+              "rows",
+              "bands",
+              "groups"
+            ],
+            "choice_labels": [
+              "Rows",
+              "Bands",
+              "Groups"
+            ],
+            "default": "rows"
+          },
+          {
+            "name": "layout_json",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 65536,
+            "widget": "textarea"
+          },
+          {
+            "name": "updated_by",
+            "ty": "Text",
+            "primary_key": false,
+            "nullable": false,
+            "noform": false,
+            "noedit": false,
+            "is_string_repr": true,
+            "max_length": 120
+          },
+          {
+            "name": "created_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0,
+            "auto_now_add": true
+          },
+          {
+            "name": "updated_at",
+            "ty": "Timestamptz",
+            "primary_key": false,
+            "nullable": true,
+            "noform": false,
+            "noedit": true,
+            "is_string_repr": false,
+            "max_length": 0
+          }
+        ],
+        "display": "DesignLayout",
+        "icon": "database",
+        "unique_together": [
+          [
+            "project"
+          ]
+        ],
+        "app_label": "app"
+      }
+    ]
+  }
+}
