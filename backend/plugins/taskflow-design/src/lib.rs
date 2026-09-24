@@ -28,6 +28,7 @@
 pub mod agent_views;
 pub mod composer;
 pub mod dispatch;
+pub mod layout_doc;
 pub mod manifest;
 pub mod models;
 pub mod primitives;

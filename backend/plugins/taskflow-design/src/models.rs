@@ -161,3 +161,15 @@ pub struct DesignComment {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// Which arrangement the canvas uses. Stored as a column, so the choice is
+/// shared per project rather than per viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Choices, Serialize, Deserialize)]
+#[choices(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum DesignView {
+    #[default]
+    Rows,
+    Bands,
+    Groups,
+}
