@@ -1180,7 +1180,9 @@ git commit -m "feat(design): boardsForView selects the arrangement engine"
 - Create: `v2_fe/src/lib/design-layout.test.ts`
 
 **Interfaces:**
-- Produces: `CANVAS_VIEWS`, `MAX_GROUPS`, `MAX_GROUP_NAME`, `normalizeLayout(raw: unknown): LayoutDoc`, `createGroup(doc, name): { doc: LayoutDoc; id: string }`, `assignRoute(doc, route, groupId: string | null): LayoutDoc`, `renameGroup(doc, id, name): LayoutDoc`, `removeGroup(doc, id): LayoutDoc`, `groupOf(doc, route): LayoutGroup | undefined`.
+- Produces: `CANVAS_VIEWS`, `MAX_GROUPS`, `MAX_GROUP_NAME`, `normalizeLayout(raw: unknown): LayoutDoc`, `createGroup(doc, name): { doc: LayoutDoc; id: string }`, `assignRoute(doc, route, groupId: string | null): LayoutDoc`, `removeGroup(doc, id): LayoutDoc`, `groupOf(doc, route): LayoutGroup | undefined`.
+
+**No `renameGroup`.** Renaming is a real want but nothing in this plan consumes it, and an exported helper with one caller — its own test — is dead weight a reviewer is right to flag. It is listed under Deferred with the rest of the ordering work.
 
 - [ ] **Step 1: Write the failing tests** — `src/lib/design-layout.test.ts`
 
@@ -1192,7 +1194,6 @@ import {
   normalizeLayout,
   createGroup,
   assignRoute,
-  renameGroup,
   removeGroup,
   groupOf,
 } from "./design-layout"
@@ -1276,13 +1277,6 @@ describe("layout edits", () => {
     expect(groupOf(assignRoute(inGroup, "/login", null), "/login")).toBeUndefined()
   })
 
-  it("renameGroup trims and ignores an empty result", () => {
-    const doc = createGroup(DEFAULT_LAYOUT, "Auth").doc
-    const id = doc.groups[0].id
-    expect(renameGroup(doc, id, "  Auth pages  ").groups[0].name).toBe("Auth pages")
-    expect(renameGroup(doc, id, "   ")).toBe(doc)
-  })
-
   it("removeGroup drops the group and leaves its pages ungrouped", () => {
     const doc = createGroup(DEFAULT_LAYOUT, "Auth").doc
     const id = doc.groups[0].id
@@ -1296,7 +1290,6 @@ describe("layout edits", () => {
     const doc = createGroup(DEFAULT_LAYOUT, "Auth").doc
     const before = JSON.stringify(doc)
     assignRoute(doc, "/login", doc.groups[0].id)
-    renameGroup(doc, doc.groups[0].id, "Other")
     removeGroup(doc, doc.groups[0].id)
     expect(JSON.stringify(doc)).toBe(before)
   })
@@ -1386,12 +1379,6 @@ export function assignRoute(doc: LayoutDoc, route: string, groupId: string | nul
         : { ...g, routes: withRoute }
     }),
   }
-}
-
-export function renameGroup(doc: LayoutDoc, id: string, name: string): LayoutDoc {
-  const trimmed = name.trim()
-  if (!trimmed || trimmed.length > MAX_GROUP_NAME) return doc
-  return { ...doc, groups: doc.groups.map((g) => (g.id === id ? { ...g, name: trimmed } : g)) }
 }
 
 /// Remove a group. Its pages are not deleted — they fall back to the ungrouped
@@ -1886,6 +1873,21 @@ Add the layout save handler and pass it to the picker:
   )
 ```
 
+`responsiveReview` (line 243) still calls `layoutRows` directly, which would make "Responsive review" fit a rows-arrangement bounding box while the canvas is showing bands or groups. Point it at the active arrangement instead:
+
+```ts
+  const responsiveReview = useCallback(() => {
+    if (!openRoutes.length) return
+    const nextDeviceIds = [...RESPONSIVE_REVIEW_DEVICES]
+    setDeviceIds(nextDeviceIds)
+    const el = canvasContainerRef.current
+    const viewport = el ? { w: el.clientWidth, h: el.clientHeight } : { w: 1200, h: 800 }
+    setTransform(fitTransform(boardsForView(layout, openRoutes, nextDeviceIds), viewport))
+  }, [openRoutes, layout])
+```
+
+That is the last `layoutRows` call site in the file, so remove `layoutRows` from the `@/lib/design-devices` import.
+
 Render the picker in the toolbar, immediately after `<DevicePicker … />`:
 
 ```tsx
@@ -1922,7 +1924,7 @@ function ViewPicker({ view, onChange }: { view: CanvasView; onChange: (v: Canvas
 }
 ```
 
-New imports for that file: `ColumnsIcon`, `LayoutGridIcon`, `RowsIcon` (lucide-react); `fetchLayout`, `saveLayout` from `@/lib/design-api`; `boardsForView` from `@/lib/design-devices`; `CANVAS_VIEWS`, `DEFAULT_LAYOUT`, `type CanvasView`, `type LayoutDoc` from `@/lib/design-layout`; `readUIState`, `writeUIState` from `./design-ui-state`; `shouldSeedRoutes` from `./design-view`. Drop `layoutRows` from the `@/lib/design-devices` import if it is no longer referenced.
+New imports for that file: `ColumnsIcon`, `LayoutGridIcon`, `RowsIcon` (lucide-react); `fetchLayout`, `saveLayout` from `@/lib/design-api`; `boardsForView` from `@/lib/design-devices`; `CANVAS_VIEWS`, `DEFAULT_LAYOUT`, `type CanvasView`, `type LayoutDoc` from `@/lib/design-layout`; `readUIState`, `writeUIState` from `./design-ui-state`; `shouldSeedRoutes` from `./design-view`.
 
 - [ ] **Step 6: Typecheck and run the suite**
 
@@ -1965,7 +1967,7 @@ A native `<select>` is used deliberately instead of the app's Base UI `Select`: 
 
 import type { DesignManifest } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
-import { createGroup, groupOf, type LayoutDoc } from "@/lib/design-layout"
+import { assignRoute, createGroup, groupOf, type LayoutDoc } from "@/lib/design-layout"
 
 const UNGROUPED = "__ungrouped__"
 
@@ -2404,4 +2406,5 @@ If the run surfaced a fix, commit it alone with a message naming the defect. If 
 
 - **The reported zoom pixelation.** The spec carries three hypotheses built as minimal cross-origin repros and **all rejected** (will-change, rounded-clip/mask, frame size — each rendered crisp at 2×). No root cause exists yet, so no task here touches it. It needs a screenshot from the user plus: which device preset, the zoom readout, and whether it settles crisp (→ `LazyFrame` remounting at `design-canvas.tsx:484`) or stays pixelated (→ rasterization). **Do not re-derive the rejected hypotheses.**
 - **Balanced packing of the ungrouped tail** in the `groups` view — deliberately a single non-wrapping row for now (spec §C). This is the intended next collaboration point: the policy choice should be made against real page counts.
+- **Renaming a group.** `createGroup` exists and is wired; a rename helper was cut before execution rather than shipped as an export whose only caller is its own test. Add it with the reorder work below, when the Pages panel grows a group-management surface to put it in.
 - **Drag-to-reorder groups and pages.** Ordering currently follows `routeOrder` / group creation.
