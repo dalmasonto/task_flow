@@ -24,8 +24,12 @@ use umbral_realtime::Realtime;
 use taskflow_projects::scope::can_access_project;
 
 use crate::composer;
+use crate::layout_doc;
 use crate::manifest;
-use crate::models::{CommentScope, CommentStatus, DesignComment, DesignFileKind, design_comment};
+use crate::models::{
+    CommentScope, CommentStatus, DesignComment, DesignFileKind, DesignLayout, design_comment,
+    design_layout,
+};
 use crate::sandbox;
 use crate::store::{self, ProjectLocks, WriteOutcome};
 use crate::tokens::{TokensDoc, tokens_json_to_css};
@@ -150,6 +154,103 @@ pub async fn get_manifest(
     Ok(Json(manifest::to_json(&manifest::build(
         project_id, &files, revision,
     ))))
+}
+
+/// The manifest's route paths — the set a layout document is allowed to name.
+/// Built from the same files `get_manifest` reads, so the two can never
+/// disagree about which pages exist.
+async fn known_routes(project_id: i64) -> Vec<String> {
+    let files = store::list_files(project_id).await;
+    let manifest = manifest::build(project_id, &files, 0);
+    manifest.routes.iter().map(|r| r.path.clone()).collect()
+}
+
+/// `GET /api/design/{project}/layout` — the shared arrangement.
+///
+/// Always 200: a project that has never been arranged reads the default
+/// document, so the client has one code path. A stored document that will not
+/// parse (hand-edited, or written by a build with a different shape) degrades
+/// to the default rather than failing the read — the alternative is a canvas
+/// that cannot load and no way for the operator to repair it from the UI.
+pub async fn get_layout(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let known = known_routes(project_id).await;
+
+    let stored = DesignLayout::objects()
+        .filter(design_layout::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let doc = stored
+        .and_then(|row| layout_doc::parse(&row.layout_json).ok())
+        .unwrap_or_else(layout_doc::default_doc);
+
+    Ok(Json(layout_doc::to_value(&layout_doc::filter_to_known(doc, &known))))
+}
+
+/// `PUT /api/design/{project}/layout` — replace the arrangement.
+///
+/// Last-write-wins: this is a settings document, not versioned content, so
+/// there is no `base_version` 409 here (contrast `DesignFile`, where a stale
+/// write would destroy an agent's work).
+pub async fn put_layout(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<layout_doc::LayoutDoc>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let caller = load_caller(user_id).await?;
+    let known = known_routes(project_id).await;
+
+    let doc = layout_doc::validate(input, &known).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let json = layout_doc::to_json_string(&doc);
+    let by = operator_attribution(&caller);
+
+    let existing = DesignLayout::objects()
+        .filter(design_layout::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    match existing {
+        Some(row) => {
+            DesignLayout::objects()
+                .filter(design_layout::ID.eq(row.id))
+                .update_values(
+                    json!({
+                        "view": doc.view,
+                        "layout_json": json,
+                        "updated_by": by,
+                        "updated_at": chrono::Utc::now(),
+                    })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+                )
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+        None => {
+            DesignLayout::objects()
+                .create(DesignLayout {
+                    id: 0,
+                    project: umbral::orm::ForeignKey::new(project_id),
+                    view: doc.view,
+                    layout_json: json,
+                    updated_by: by,
+                    created_at: None,
+                    updated_at: None,
+                })
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+    }
+
+    Ok(Json(layout_doc::to_value(&doc)))
 }
 
 #[derive(Debug, serde::Serialize)]

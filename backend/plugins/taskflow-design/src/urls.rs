@@ -46,6 +46,10 @@ pub fn router() -> Router {
             "/api/design/{project}/comments/{id}",
             patch(views::update_comment),
         )
+        .route(
+            "/api/design/{project}/layout",
+            get(views::get_layout).put(views::put_layout),
+        )
         .route("/api/design/{project}/events", get(views::design_events))
         .route(
             "/api/design/{project}/dispatch",
