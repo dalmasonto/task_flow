@@ -405,14 +405,25 @@ pub fn compose_export_document(
 /// without it, agent-authored JS could `fetch()` the operator's localhost and
 /// internal network from inside their browser. Inline scripts are allowed
 /// because the composer's own picker/state scripts are inline by design.
+///
+/// `style-src` and `font-src` also allow jsdelivr so a page can load a web font.
+/// This adds no new host to the trust boundary: jsdelivr is already permitted for
+/// `script-src`, the strongest capability here, so allowing a stylesheet and a
+/// font from that same origin grants nothing an agent could not already do.
+///
+/// Before this, `style-src 'self'` silently refused every external webfont — the
+/// `<link>` stayed in the DOM, the browser dropped the request, and the page fell
+/// back to the system stack with nothing visible in the page to say so. Fonts now
+/// come from Fontsource, e.g.
+/// `https://cdn.jsdelivr.net/npm/@fontsource/inter@5/latin-400.css`.
 pub fn sandbox_csp(token: &str) -> String {
     let _ = token;
     format!(
         "default-src 'self'; \
          script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
-         style-src 'self' 'unsafe-inline'; \
+         style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
          img-src 'self' data: blob:; \
-         font-src 'self' data:; \
+         font-src 'self' data: https://cdn.jsdelivr.net; \
          connect-src 'self' https://cdn.jsdelivr.net; \
          form-action 'none'; \
          base-uri 'none'; \
