@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   DEVICE_PRESETS,
+  GUTTER,
+  HEADER_H,
   artboardKey,
+  boardHeight,
+  boardWidth,
   chromeStyleForGroup,
   deviceById,
+  layoutBands,
   layoutRows,
   makeArtboard,
 } from "./design-devices"
@@ -52,33 +57,78 @@ describe("design devices", () => {
     expect(boards).toHaveLength(4)
 
     const iphone = deviceById("iphone-16-pro")
-    const gutter = 80
+    const laptop = deviceById("laptop")
 
     const row0 = boards.filter((b) => b.route === "/")
     const row1 = boards.filter((b) => b.route === "/about")
     expect(row0).toHaveLength(2)
     expect(row1).toHaveLength(2)
 
-    // Row 0 (first route): every board's y is 0.
     for (const b of row0) expect(b.y).toBe(0)
 
-    // Columns: the laptop column sits to the right of the iphone column by
-    // the iphone's width plus the gutter.
+    // Columns step by the board's REAL width — device px plus its bezel — not
+    // by the bare iframe width. A phone is 26px wider than `width` claims.
     const row0Iphone = row0.find((b) => b.deviceId === "iphone-16-pro")!
     const row0Laptop = row0.find((b) => b.deviceId === "laptop")!
     expect(row0Iphone.x).toBe(0)
-    expect(row0Laptop.x).toBe(iphone.width + gutter)
+    expect(row0Laptop.x).toBe(boardWidth(iphone) + GUTTER)
+    expect(boardWidth(iphone)).toBe(393 + 12 + 12 + 2)
 
-    // Row 1 (second route): y is row-0's height (max device height in the
-    // row) plus the gutter.
-    const rowHeight = Math.max(iphone.height, deviceById("laptop").height)
-    for (const b of row1) expect(b.y).toBe(rowHeight + gutter)
+    // The next row clears the tallest board AND its header, which renders
+    // above the board and so is not covered by the board's own height.
+    const rowHeight = Math.max(boardHeight(iphone), boardHeight(laptop))
+    for (const b of row1) expect(b.y).toBe(HEADER_H + rowHeight + GUTTER)
 
-    // Keys are route@device.
     expect(row0Iphone.key).toBe("/@iphone-16-pro")
     expect(row0Laptop.key).toBe("/@laptop")
     expect(row1.find((b) => b.deviceId === "iphone-16-pro")!.key).toBe("/about@iphone-16-pro")
     expect(row1.find((b) => b.deviceId === "laptop")!.key).toBe("/about@laptop")
+  })
+
+  it("boardWidth/boardHeight count the bezel and the 1px border", () => {
+    // Phone bezel is 12 left + 12 right; tablet is 14 all round.
+    expect(boardWidth(deviceById("iphone-16-pro"))).toBe(393 + 24 + 2)
+    expect(boardHeight(deviceById("iphone-16-pro"))).toBe(852 + 44 + 2)
+    expect(boardWidth(deviceById("ipad-mini"))).toBe(744 + 28 + 2)
+    // Laptops and breakpoints are flush on the sides.
+    expect(boardWidth(deviceById("laptop"))).toBe(1280 + 0 + 2)
+    expect(boardWidth(deviceById("bp-sm"))).toBe(640 + 0 + 2)
+  })
+
+  it("layoutBands: one band per device, its pages across, next device below", () => {
+    const open = ["/", "/about"]
+    const boards = layoutBands(open, ["laptop", "bp-sm"])
+    expect(boards).toHaveLength(4)
+
+    const laptop = deviceById("laptop")
+    const bp = deviceById("bp-sm")
+    const colStep = boardWidth(laptop) + GUTTER
+
+    const band0 = boards.filter((b) => b.deviceId === "laptop")
+    const band1 = boards.filter((b) => b.deviceId === "bp-sm")
+
+    // Within a band, this device's pages run left→right along the band's top.
+    expect(band0.every((b) => b.y === 0)).toBe(true)
+    expect(band0.find((b) => b.route === "/")!.x).toBe(0)
+    expect(band0.find((b) => b.route === "/about")!.x).toBe(colStep)
+
+    // The next device starts its own band below, back at x = 0.
+    const bandStep = HEADER_H + boardHeight(laptop) + GUTTER
+    expect(band1.every((b) => b.y === bandStep)).toBe(true)
+    expect(band1.find((b) => b.route === "/")!.x).toBe(0)
+
+    // A band advances by ITS OWN device's height, not some other device's.
+    expect(HEADER_H + boardHeight(bp) + GUTTER).not.toBe(bandStep)
+  })
+
+  it("layoutBands is the transpose of layoutRows", () => {
+    const open = ["/", "/about"]
+    const devices = ["laptop", "bp-sm"]
+    const rows = layoutRows(open, devices)
+    const bands = layoutBands(open, devices)
+    // Same boards, same keys — only the arrangement differs.
+    expect(new Set(bands.map((b) => b.key))).toEqual(new Set(rows.map((b) => b.key)))
+    expect(bands).not.toEqual(rows)
   })
 
   it("layoutRows is deterministic and order-stable", () => {

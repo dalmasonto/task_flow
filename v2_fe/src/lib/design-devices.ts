@@ -135,9 +135,9 @@ export function chromeStyleForGroup(group: DeviceGroup): ChromeStyle {
 }
 
 /// An artboard: one route rendered at one device size. Position is derived,
-/// not persisted — `layoutRows` recomputes x/y from the open routes and
-/// selected devices on every render, so the canvas geometry is chrome state,
-/// not design data.
+/// not persisted — the `layout*` functions recompute x/y from the open routes
+/// and selected devices on every render, so the canvas geometry is chrome
+/// state, not design data.
 export type Artboard = {
   /** Stable key: `${route}@${deviceId}` */
   key: string
@@ -155,20 +155,40 @@ export function makeArtboard(route: string, deviceId: string, x: number, y: numb
   return { key: artboardKey(route, deviceId), route, deviceId, x, y }
 }
 
-/// Lay out every open page as its own ROW, with one COLUMN per selected
-/// device — the canvas' actual grid. PURE: same inputs always produce the
-/// same boards, in the same order, so callers can memoize on
-/// `[openRoutes, deviceIds]` without any other state.
-///
-/// - One row per `openRoutes` entry, in that order; `y` stacks by the
-///   cumulative height of prior rows (the tallest device in each row) plus
-///   `gutter`.
-/// - One column per `deviceIds` entry, in that order, shared by every row;
-///   `x` is the cumulative width of prior columns in the same row plus
-///   `gutter`.
-export function layoutRows(openRoutes: string[], deviceIds: string[], gutter = 80): Artboard[] {
+/** Screen-space gap between two boards. Wide enough that a board's header —
+ *  the route name plus its action buttons — cannot reach the next board. */
+export const GUTTER = 140
+
+/** Height of the per-board header row (`ArtboardHeader`). It renders ABOVE the
+ *  board, so every stacking calculation has to add it: the board's own height
+ *  does not include it, and a row that only cleared the board would put the
+ *  next row's header *inside* this one's frame. */
+export const HEADER_H = 28
+
+/** The 1px border `DeviceChrome` draws around the bezel. */
+const CHROME_BORDER = 1
+
+/** How wide a board actually renders: the iframe's true device px plus the
+ *  decorative bezel and border around it. Phone bezels are 12px a side, so a
+ *  phone board is 26px wider than `device.width` — the old layout maths used
+ *  the bare width and quietly overlapped neighbours. */
+export function boardWidth(device: DevicePreset): number {
+  const padding = chromeStyleForGroup(device.group).padding
+  return device.width + padding.left + padding.right + CHROME_BORDER * 2
+}
+
+/** How tall a board actually renders (see `boardWidth`). */
+export function boardHeight(device: DevicePreset): number {
+  const padding = chromeStyleForGroup(device.group).padding
+  return device.height + padding.top + padding.bottom + CHROME_BORDER * 2
+}
+
+/// Today's arrangement: one ROW per page, one COLUMN per selected device.
+/// PURE: same inputs always produce the same boards, in the same order, so
+/// callers can memoize on `[openRoutes, deviceIds]`.
+export function layoutRows(openRoutes: string[], deviceIds: string[], gutter = GUTTER): Artboard[] {
   const devices = deviceIds.map((id) => deviceById(id))
-  const rowHeight = devices.length ? Math.max(...devices.map((d) => d.height)) : 0
+  const rowHeight = devices.length ? Math.max(...devices.map(boardHeight)) : 0
 
   const boards: Artboard[] = []
   let y = 0
@@ -176,9 +196,27 @@ export function layoutRows(openRoutes: string[], deviceIds: string[], gutter = 8
     let x = 0
     for (const device of devices) {
       boards.push(makeArtboard(route, device.id, x, y))
-      x += device.width + gutter
+      x += boardWidth(device) + gutter
     }
-    y += rowHeight + gutter
+    y += HEADER_H + rowHeight + gutter
+  }
+  return boards
+}
+
+/// The transpose of `layoutRows`: one BAND per device, that device's pages
+/// running left→right across the band, the next device's band below it. Lets
+/// you read one device's whole flow in a single line.
+export function layoutBands(openRoutes: string[], deviceIds: string[], gutter = GUTTER): Artboard[] {
+  const boards: Artboard[] = []
+  let y = 0
+  for (const deviceId of deviceIds) {
+    const device = deviceById(deviceId)
+    let x = 0
+    for (const route of openRoutes) {
+      boards.push(makeArtboard(route, deviceId, x, y))
+      x += boardWidth(device) + gutter
+    }
+    y += HEADER_H + boardHeight(device) + gutter
   }
   return boards
 }
