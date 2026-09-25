@@ -874,9 +874,9 @@ git commit -m "feat(design): external resource document + https-only validator"
 ### Task 7: Backend — compose the links and widen the CSP
 
 **Files:**
-- Modify: `backend/plugins/taskflow-design/src/manifest.rs`
+- Modify: `backend/plugins/taskflow-design/src/manifest.rs` (the field, the wiring, and its own test module)
 - Modify: `backend/plugins/taskflow-design/src/composer.rs`
-- Modify: `backend/plugins/taskflow-design/tests/` (a composer test)
+- Modify: `backend/plugins/taskflow-design/tests/resources.rs` (the emitter's own tests — this is the resource document's existing test file, so the emission tests belong beside the validator's)
 
 **Interfaces:**
 - Consumes: `resources::{parse, enabled_links, RESOURCES_PATH}` from Task 6.
@@ -913,7 +913,7 @@ fn enabled_resource_links_are_emitted_in_document_order() {
     let js = tags.find("cdn.example").expect("script emitted");
     assert!(pre < sheet && sheet < js, "order must be preserved: {tags}");
     assert!(tags.contains("async"), "async is carried through: {tags}");
-    assert!(tags.contains("crossorigin") == false, "not set on these links");
+    assert!(!tags.contains("crossorigin"), "not set on these links: {tags}");
 }
 
 #[test]
@@ -941,16 +941,16 @@ fn an_attribute_breaking_url_is_escaped_not_executed() {
     assert!(tags.contains("&quot;") || tags.contains("&#34;"), "quote encoded: {tags}");
 }
 
-#[test]
-fn the_emit_path_cannot_produce_a_dangerous_scheme() {
-    // validate() is what refuses these, but the EMIT path is a second door —
-    // it must not be able to render javascript:/data: even from a row written
-    // out of band.
-    let tags = composer::resources_tags(&[(false, lk("stylesheet", "https://ok.example/x"))]);
-    assert!(!tags.contains("javascript:"), "{tags}");
-    assert!(!tags.contains("data:text/html"), "{tags}");
-    assert!(tags.contains("rel=\"stylesheet\""), "{tags}");
-}
+// The scheme refusal is deliberately NOT tested here. It lives in
+// `resources::validate`, and Step 3 runs `validate` before `enabled_links`, so
+// the emitter never receives a refused link. The emitter ESCAPES; it does not
+// FILTER — a test that handed it a hand-built `javascript:` row would assert a
+// property this design does not promise, and would pass whatever the emitter
+// did, because a `javascript:` URL interpolated into `href` is perfectly
+// well-escaped HTML. The property that actually protects the page is
+// end-to-end — a document carrying a dangerous scheme emits nothing — and it is
+// pinned in `src/manifest.rs`'s test module, where a two-file fixture costs
+// three lines (the tests are in Step 3 below).
 
 #[test]
 fn the_sandbox_csp_allows_https_but_never_widens_dangerously() {
@@ -984,6 +984,79 @@ In `manifest.rs`, `build(...)` already receives `&[DesignFile]`. Find the resour
 ```
 
 Add `pub resources: Vec<(bool, ResourceLink)>` to `DesignManifest`.
+
+**Now test it — Step 3 is real wiring and nothing above covers it.** The tests in Step 1 call `resources_tags` directly, so the manifest half (finding the row, parsing it, validating it, filtering to enabled sets) would otherwise ship untested: it is exactly the seam where a mistake looks like every neighbouring unit passing. Add these to the **existing `#[cfg(test)] mod tests` in `src/manifest.rs`**, beside `token_file`, which is the fixture pattern already there:
+
+```rust
+    fn resource_file(content: &str) -> DesignFile {
+        DesignFile {
+            id: 0,
+            project: ForeignKey::new(1),
+            kind: DesignFileKind::Token,
+            path: resources::RESOURCES_PATH.to_string(),
+            content: content.to_string(),
+            version: 1,
+            updated_by: "test".to_string(),
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn page_file(path: &str) -> DesignFile {
+        DesignFile {
+            kind: DesignFileKind::Page,
+            path: path.to_string(),
+            content: "<main>x</main>".to_string(),
+            ..resource_file("")
+        }
+    }
+
+    #[test]
+    fn enabled_sets_reach_the_manifest_and_disabled_ones_do_not() {
+        let doc = r#"{"version":1,"sets":[
+            {"id":"on","name":"On","enabled":true,
+             "links":[{"rel":"preconnect","href":"https://fonts.googleapis.com"},
+                      {"rel":"stylesheet","href":"https://fonts.googleapis.com/css2?family=Inter&display=swap"}]},
+            {"id":"off","name":"Off","enabled":false,
+             "links":[{"rel":"stylesheet","href":"https://example.com/off.css"}]}
+        ]}"#;
+        let files = vec![page_file("pages/index.html"), resource_file(doc)];
+        let m = manifest::build(1, &files, 0);
+        let hrefs: Vec<_> = m.resources.iter().map(|(_, l)| l.href.as_deref()).collect();
+        assert_eq!(m.resources.len(), 2, "only the enabled set contributes: {hrefs:?}");
+        assert!(m.resources.iter().all(|(is_script, _)| !*is_script));
+        assert!(hrefs.contains(&Some("https://fonts.googleapis.com")), "{hrefs:?}");
+        assert!(
+            !hrefs.contains(&Some("https://example.com/off.css")),
+            "a disabled set must not contribute: {hrefs:?}"
+        );
+    }
+
+    #[test]
+    fn a_document_with_a_dangerous_scheme_contributes_nothing() {
+        // The end-to-end half of the scheme rule: `validate` refuses the whole
+        // document, the forgiving read collapses it to no links, and the emitter
+        // therefore has nothing dangerous to escape.
+        let doc = r#"{"version":1,"sets":[{"id":"a","name":"A","enabled":true,
+            "links":[{"rel":"stylesheet","href":"javascript:alert(1)"}]}]}"#;
+        let m = manifest::build(1, &[page_file("pages/index.html"), resource_file(doc)], 0);
+        assert!(m.resources.is_empty(), "a refused document yields no links");
+    }
+
+    #[test]
+    fn an_absent_or_unparseable_resource_row_contributes_nothing() {
+        for doc in [None, Some("{ not json")] {
+            let mut files = vec![page_file("pages/index.html")];
+            if let Some(c) = doc {
+                files.push(resource_file(c));
+            }
+            let m = manifest::build(1, &files, 0);
+            assert!(m.resources.is_empty(), "forgiving read: {doc:?}");
+        }
+    }
+```
+
+Run: `cd backend && cargo test -p taskflow-design --lib manifest`
 
 - [ ] **Step 4: Emit and widen the CSP**
 
@@ -1022,6 +1095,8 @@ pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
 Insert `{resources_tags(&manifest.resources)}` into the `<head>` of **both** `compose_document` and `compose_export_document` (the export is the downloaded page — a font that does not travel with it would be a silent surprise), immediately before the tokens stylesheet link.
 
 Then widen `sandbox_csp`: add `https:` to `script-src`, `style-src` and `font-src`, keeping the existing jsDelivr entries. Update the doc comment above it to record why the widening is bounded — separate origin, no cookies, short-lived read-only token, links supplied by the project's own members — and why the scheme refusal in `resources::validate` is what makes it acceptable.
+
+**Leave `connect-src`, `form-action`, `base-uri` and `frame-ancestors` exactly as they are.** `connect-src` is the one directive whose existing comment says why it is tight: without it, agent-authored JS could `fetch()` the operator's localhost and internal network from inside their browser. Widening it to `https:` would grant arbitrary exfiltration for no gain — a webfont is fetched by the *renderer*, not by `fetch()`, so `style-src`/`font-src` already cover the whole requirement. Widening it is the plausible-looking mistake available in this step, so the test asserts on the CSP text: `!csp.contains("http://")` and the four directives' presence.
 
 - [ ] **Step 5: Run the tests and commit**
 
