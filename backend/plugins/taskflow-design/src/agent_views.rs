@@ -370,6 +370,222 @@ pub async fn write_component(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AgentDeleteComponentInput {
+    pub project: i64,
+    pub name: String,
+    pub reason: String,
+}
+
+/// What one attempted component retirement resolved to, decided ENTIRELY
+/// inside the project lock. Returned rather than responded to from inside the
+/// closure so the response is built after the lock is released.
+enum DeleteOutcome {
+    /// The row was there and is gone.
+    Deleted,
+    /// No such component in this project.
+    NotFound,
+    /// Referenced by at least one page fragment; carries the routes and the
+    /// total tag count so the refusal can say exactly where.
+    InUse(Vec<String>, usize),
+}
+
+/// `DELETE /api/taskflow/agents/design/component` — retire one custom element
+/// from the registry.
+///
+/// REFUSED while any page fragment still references it, and the refusal NAMES
+/// those routes. That check is the whole safety property of this tool, and it
+/// is not visible from the outside: `composer::compose_document` emits the
+/// `<script src>` for a component only while it is in the manifest, so a page
+/// left holding the tag renders without its definition — and then EVERY future
+/// write to that page is refused, because `store::write_file` re-validates the
+/// fragment against the registry on every write and
+/// `validate_page_fragment` rejects an unregistered tag with rule
+/// `unknown-component`. A page stranded in a permanently unwritable state is
+/// worse than the registry drift retirement fixes, so the reference check comes
+/// first and the route list is what makes the refusal actionable.
+///
+/// `used_on`/`usage_count` are already computed per read (`manifest::build`
+/// scans each fragment once per registered component), so this is a lookup, not
+/// new machinery.
+///
+/// Requires a `reason`, like `write_component`: retiring a shared part is a
+/// registry-level decision. There is no `base_version` — a delete is not an
+/// overwrite, so there is nothing to lose a race against.
+pub async fn delete_component(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentDeleteComponentInput>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, input.project)?;
+    let name = input.name.trim();
+    let reason = input.reason.trim();
+    if name.is_empty() || reason.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if reason.len() < 8 {
+        return Ok(tokens_validation_error(
+            "missing-reason",
+            "design_delete_component requires a real `reason`: why should this component no \
+             longer exist?"
+                .to_string(),
+        ));
+    }
+    // Reject a name that would escape `components/` before it is ever used to
+    // build a path — same guard `read_component` makes.
+    let path = format!("components/{name}.js");
+    validation::validate_path(&path).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let outcome = project_locks()
+        .with_lock(agent.project_id, || async {
+            let files = store::list_files(agent.project_id).await;
+            if !files.iter().any(|f| f.path == path) {
+                return DeleteOutcome::NotFound;
+            }
+            // The registry as the SERVE path sees it. `registered_components`
+            // for the validator is read fresh on every WRITE, so the blast
+            // radius has to be read the same way here — from the rows, not from
+            // a cached manifest.
+            let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
+            let m = manifest::build(agent.project_id, &files, revision);
+            let entry = m.components.iter().find(|c| c.name == name);
+            let used_on = entry.map(|c| c.used_on.clone()).unwrap_or_default();
+            if !used_on.is_empty() {
+                return DeleteOutcome::InUse(
+                    used_on,
+                    entry.map(|c| c.usage_count).unwrap_or(0),
+                );
+            }
+            if !store::delete_file(agent.project_id, &path).await {
+                return DeleteOutcome::NotFound;
+            }
+            DeleteOutcome::Deleted
+        })
+        .await;
+
+    match outcome {
+        DeleteOutcome::Deleted => Ok((
+            StatusCode::OK,
+            Json(json!({
+                "ok": true,
+                "deleted": path,
+                "name": name,
+                "note": format!(
+                    "{name} deleted; no route used it, so nothing rendered changed."
+                ),
+            })),
+        )
+            .into_response()),
+        DeleteOutcome::NotFound => Err(StatusCode::NOT_FOUND),
+        DeleteOutcome::InUse(used_on, usage_count) => Ok((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "ok": false,
+                // `error` is the machine-readable half (the MCP client prefers
+                // `detail` when both are present, so the sentence below is what
+                // an agent reads and this is what a caller can branch on).
+                "error": "component_in_use",
+                "detail": format!(
+                    "Refused: <{name}> is still used {usage_count} time(s) on {} route(s): {}. \
+                     A page that references a component the registry no longer has renders \
+                     without its definition AND can never be written again — every write \
+                     re-validates the fragment against the registry (rule `unknown-component`). \
+                     Edit those pages to stop using <{name}>, then delete it: design_read_page \
+                     shows a fragment and design_write_page replaces it.",
+                    used_on.len(),
+                    used_on.join(", ")
+                ),
+                "used_on": used_on,
+                "usage_count": usage_count,
+            })),
+        )
+            .into_response()),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentWriteAssetInput {
+    pub project: i64,
+    /// `assets/<name>`, or a bare `<name>` meaning `assets/<name>`. The one
+    /// path outside `assets/` this accepts is `styles/resources.json`.
+    pub path: String,
+    pub content: String,
+    #[serde(default)]
+    pub base_version: Option<i64>,
+}
+
+/// The refusal for a path this tool will not write, in the same envelope the
+/// validator uses so an agent reads it the same way as any other rejection.
+fn asset_path_refusal(message: String) -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({
+            "ok": false,
+            "errors": [{
+                "line": 0,
+                "rule": "unsupported-path",
+                "message": message,
+            }]
+        })),
+    )
+        .into_response()
+}
+
+/// `PUT /api/taskflow/agents/design/asset` — write one image under `assets/`,
+/// or the external-resources document at `styles/resources.json`.
+///
+/// Both were previously unwritable by an agent at all: `design_write_page`,
+/// `design_write_component` and `design_write_tokens` each hard-code the path
+/// they write, and the only other writer is the operator's
+/// `PUT /api/design/{project}/file`, which needs a staff session.
+///
+/// NO validation is relaxed for this route. The same `store::write_file` runs,
+/// so the path regex, `MAX_FILE_BYTES` (rule `size-cap`), the image-extension
+/// set, and the 200-file / 4 MiB caps on new rows all apply unchanged. Content
+/// is TEXT like every other design write — there is no multipart in this
+/// plugin — so raster bytes go in as `data:<mime>;base64,<payload>`, which is
+/// the shape `views::serve_file` already decodes on the way out.
+///
+/// The one thing added here is a path ALLOWLIST, and it closes a hole rather
+/// than opening one: the shared validator accepts `styles/tokens.json`, so
+/// without this check the asset route would be a way to rewrite the token scale
+/// while skipping `design_write_tokens`' required `reason`. A bare name is
+/// prefixed with `assets/`; anything else that is neither under `assets/` nor
+/// the resources document is refused rather than silently rewritten into
+/// something the caller did not ask for.
+pub async fn write_asset(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentWriteAssetInput>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, input.project)?;
+    let raw = input.path.trim();
+    if raw.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let path = if raw.contains('/') {
+        raw.to_string()
+    } else {
+        format!("assets/{raw}")
+    };
+    if path != crate::resources::RESOURCES_PATH && !path.starts_with("assets/") {
+        return Ok(asset_path_refusal(format!(
+            "design_write_asset writes `assets/<name>` (an image: .svg, .png, .jpg, .jpeg, \
+             .webp, .gif, .ico) or `{}`. `{raw}` is neither. A page goes through \
+             design_write_page, a component through design_write_component, and the token scale \
+             through design_write_tokens — each of those owns its path.",
+            crate::resources::RESOURCES_PATH
+        )));
+    }
+
+    agent_write(
+        agent.project_id,
+        &format!("{} ({})", agent.display_name, agent.agent_id),
+        &path,
+        &input.content,
+        input.base_version,
+    )
+    .await
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AgentWriteTokensInput {
     pub project: i64,
     /// Preferred shape: a `TokensDoc`-shaped JSON object.

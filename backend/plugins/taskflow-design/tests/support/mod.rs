@@ -263,6 +263,31 @@ impl TestApp {
         }
     }
 
+    /// DELETE with a JSON body — the shape the agent component route takes
+    /// (a name plus the required `reason`, neither of which belongs in a URL
+    /// path). `TestClient` offers `delete` (no body) and `send` (no
+    /// content-type), so this composes them: the content type rides on the
+    /// default header, which `TestClient::request` replays on every request.
+    /// A stray `content-type` on a bodyless GET is inert, so leaving it set
+    /// costs nothing.
+    pub async fn delete_json_as_agent(&self, key: &str, path: &str, body: &Value) -> TestResponse {
+        self.set_agent_auth(key);
+        self.client.set_default_header(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        TestResponse {
+            inner: self
+                .client
+                .send(
+                    http::Method::DELETE,
+                    path,
+                    axum::body::Body::from(serde_json::to_vec(body).expect("serialize body")),
+                )
+                .await,
+        }
+    }
+
     /// Sandbox requests carry NO auth — the token in the path is the grant.
     /// Deliberately does NOT call set_auth; also clears the default header so
     /// a test cannot accidentally authenticate the sandbox origin.

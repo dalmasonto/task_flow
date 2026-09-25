@@ -68,9 +68,21 @@ pub fn router() -> Router {
             get(agent_views::context),
         )
         .route("/api/taskflow/agents/design/page", get(agent_views::read_page).put(agent_views::write_page))
+        // The registry resource keeps all three verbs on one path: read it,
+        // replace it, retire it. DELETE refuses while a page still references
+        // the component and names the routes — see `agent_views::delete_component`.
         .route(
             "/api/taskflow/agents/design/component",
-            get(agent_views::read_component).put(agent_views::write_component),
+            get(agent_views::read_component)
+                .put(agent_views::write_component)
+                .delete(agent_views::delete_component),
+        )
+        // The one write whose path is an ARGUMENT rather than a constant:
+        // `assets/<name>` or `styles/resources.json`. The handler allowlists
+        // the path; the shared validator's rules then apply unchanged.
+        .route(
+            "/api/taskflow/agents/design/asset",
+            put(agent_views::write_asset),
         )
         .route(
             "/api/taskflow/agents/design/tokens",

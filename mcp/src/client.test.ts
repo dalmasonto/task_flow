@@ -281,3 +281,55 @@ describe("writeDesignTokens", () => {
     expect(body.tokens).toBeUndefined();
   });
 });
+
+describe("deleteDesignComponent", () => {
+  it("sends DELETE with the name and reason in a JSON body", async () => {
+    // The plugin's first DELETE, and the verb is load-bearing: this is the
+    // retirement path, not an update. The reason rides in the BODY rather than
+    // a query string because it is a sentence, and because every other agent
+    // design write carries its arguments the same way.
+    const { calls, impl } = stubFetch();
+    await client(impl).deleteDesignComponent(3, "app-header", "nothing uses it any more");
+
+    expect(calls[0].init.method).toBe("DELETE");
+    expect(calls[0].url).toBe("http://localhost:8000/api/taskflow/agents/design/component");
+    expect(calls[0].init.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      project: 3,
+      name: "app-header",
+      reason: "nothing uses it any more",
+    });
+  });
+});
+
+describe("writeDesignAsset", () => {
+  it("puts the path and the content on the asset route", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).writeDesignAsset(3, "logo.svg", "<svg/>");
+
+    expect(calls[0].init.method).toBe("PUT");
+    expect(calls[0].url).toBe("http://localhost:8000/api/taskflow/agents/design/asset");
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      project: 3,
+      path: "logo.svg",
+      content: "<svg/>",
+    });
+  });
+
+  it("forwards base_version when the caller is replacing a file it just read", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).writeDesignAsset(3, "logo.svg", "<svg/>", 4);
+
+    expect(JSON.parse(calls[0].init.body).base_version).toBe(4);
+  });
+
+  it("omits base_version when the caller has none, rather than sending null", async () => {
+    // The backend reads `Option<i64>`; an explicit null is not a number and
+    // would make the whole body unparseable, so absence is the only correct
+    // spelling for "force it".
+    const { calls, impl } = stubFetch();
+    await client(impl).writeDesignAsset(3, "logo.svg", "<svg/>");
+
+    expect("base_version" in JSON.parse(calls[0].init.body)).toBe(false);
+  });
+});

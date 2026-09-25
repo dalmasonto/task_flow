@@ -234,6 +234,29 @@ pub async fn write_file(
     }
 }
 
+/// Delete one file by exact path, returning whether a row was removed.
+///
+/// `(project, path)` is unique, so this removes at most one row. There is no
+/// glob and no recursion, deliberately: the caller names the ONE file it means,
+/// and a path that matches nothing deletes nothing rather than everything.
+///
+/// Like [`write_file`], this runs inside the caller's project lock (see
+/// [`ProjectLocks::with_lock`]). A delete is the second half of a
+/// read-check-delete sequence — "is anything still using this?" — and that
+/// check is only worth making if a writer cannot slip a new usage in between.
+///
+/// The row is deleted, not blanked: `validation::validate_component` requires
+/// exactly one `customElements.define` matching the filename, so an empty
+/// component file is a REJECTED write, not a retired one.
+pub async fn delete_file(project_id: i64, path: &str) -> bool {
+    DesignFile::objects()
+        .filter(design_file::PROJECT.eq(project_id) & design_file::PATH.eq(path))
+        .delete()
+        .await
+        .map(|removed| removed > 0)
+        .unwrap_or(false)
+}
+
 /// Load every file for a project.
 pub async fn list_files(project_id: i64) -> Vec<DesignFile> {
     DesignFile::objects()

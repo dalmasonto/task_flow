@@ -1017,7 +1017,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_get_tokens",
-    "Read the design token scale as BOTH the json map (`tokens_json`, the source of truth) and generated CSS (`tokens_css`). ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]). The response also includes a `primitives` array documenting the built-in <ui-*> components (ui-accordion/ui-dialog/ui-sheet/ui-tabs) with their attrs and usage examples.",
+    "Read the design token scale as BOTH the json map (`tokens_json`, the source of truth) and generated CSS (`tokens_css`). ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]). The response also includes a `primitives` array documenting the built-in <ui-*> components (ui-accordion/ui-dialog/ui-sheet/ui-tabs) with their attrs and usage examples, and a `guide` string with the sandbox rules that are in no manifest: how a page links to another page, how a back control is written, and what a page may load from outside the sandbox. Read `guide` before your first fragment — it answers questions the registry cannot.",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1109,9 +1109,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_page",
-    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Styling via Tailwind classes on the TOKEN scale only: bg-[#3b82f6] is rejected; bg-[var(--accent)] is not. Built-in <ui-accordion>/<ui-dialog>/<ui-sheet>/<ui-tabs> primitives are also available server-expanded — see design_get_tokens's `primitives` field for their names, attrs, and usage examples. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently.",
+    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Styling via Tailwind classes on the TOKEN scale only: bg-[#3b82f6] is rejected; bg-[var(--accent)] is not. Built-in <ui-accordion>/<ui-dialog>/<ui-sheet>/<ui-tabs> primitives are also available server-expanded — see design_get_tokens's `primitives` field for their names, attrs, and usage examples. CREATE SCREEN: this is the tool that adds one. If `route` does not exist yet, this call creates it — routes are derived from the page files, so writing '/billing' is all it takes and the new screen renders at the sandbox URL and appears in the manifest immediately. There is no separate create-page call to look for. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently; omit it when the route is new.",
     {
-      route: z.string().min(1).describe("Route path to write, e.g. '/settings'."),
+      route: z.string().min(1).describe("Route path to write or CREATE, e.g. '/settings'. A route that does not exist yet is created by this call."),
       html: z.string().min(1).describe("The full replacement fragment."),
       base_version: z.number().int().optional().describe("Version from design_read_page; omit to force."),
       ...designProjectArg,
@@ -1150,6 +1150,54 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         const { client } = picked;
         return ok(
           await client.writeDesignComponent(await resolveDesignProject(client, project), name, js, reason, base_version),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_delete_component",
+    "Retire one component from the registry — the other half of design_write_component, for a part nothing needs any more. REFUSED while any page still uses it, and the refusal names those routes: edit them off the component first (design_read_page, then design_write_page), because a page that references a component the registry no longer has renders without its definition AND can never be written again. Requires `reason`. Check the blast radius with design_read_component (its `usedOn`) before calling this.",
+    {
+      name: z.string().min(1).regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/)
+        .describe("Custom element name WITHOUT the .js — e.g. 'app-header'."),
+      reason: z.string().min(8).describe("Why this component should no longer exist."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ name, reason, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.deleteDesignComponent(await resolveDesignProject(client, project), name, reason),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_write_asset",
+    "Write one file that is NOT a page, a component or the token scale. Two shapes: `assets/<name>` — an image file (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.ico`; a bare name like 'logo.svg' means assets/logo.svg) — or `styles/resources.json`, the external-resources document naming the project's web fonts and external script links, which design_write_tokens does NOT write. Content is TEXT, exactly like every other design write: an SVG goes in as its own markup, and raster bytes as `data:<image/png>;base64,<payload>`, which the server decodes when the file is served. An asset is served from the sandbox origin at `/s/{token}/f/assets/<name>` with its own content type — but nothing rewrites an `src=` into a sandbox URL the way links are rewritten, so a page cannot point at it by a relative path: for an image a page shows today use an https URL or a data: URI inside the fragment. Caps unchanged: 128 KB per file (rule `size-cap`), and a NEW file must also fit the project's 200-file / 4 MB budget. Pass base_version only when replacing an existing file.",
+    {
+      path: z.string().min(1).describe("'logo.svg' (bare name → assets/logo.svg), 'assets/logo.svg', or 'styles/resources.json'."),
+      content: z.string().describe("File text. Raster images as a data:<mime>;base64,<payload> string."),
+      base_version: z.number().int().optional().describe("Version from a prior read; omit to force a replacement."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ path, content, base_version, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeDesignAsset(await resolveDesignProject(client, project), path, content, base_version),
         );
       } catch (err) {
         return fail(err);

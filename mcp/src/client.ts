@@ -554,6 +554,39 @@ export class TaskflowClient {
     });
   }
 
+  /** `DELETE /agents/design/component` — retire one component; REQUIRES reason.
+   *  The backend refuses while any page still references it, and the refusal
+   *  names the routes, so this throws a `component_in_use` detail rather than
+   *  deleting and stranding a page. */
+  deleteDesignComponent(
+    project: number,
+    name: string,
+    reason: string,
+  ): Promise<unknown> {
+    return this.request("DELETE", `${API_PREFIX}/agents/design/component`, {
+      body: { project, name, reason },
+    });
+  }
+
+  /** `PUT /agents/design/asset` — one image under `assets/`, or the external
+   *  resources document `styles/resources.json`. Content is text; raster bytes
+   *  are `data:<mime>;base64,<payload>`. */
+  writeDesignAsset(
+    project: number,
+    path: string,
+    content: string,
+    baseVersion?: number,
+  ): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/design/asset`, {
+      body: {
+        project,
+        path,
+        content,
+        ...(baseVersion !== undefined ? { base_version: baseVersion } : {}),
+      },
+    });
+  }
+
   /** `PUT /agents/design/tokens` — touches every route; REQUIRES reason.
    *  Exactly one of `tokens` (JSON, preferred) or `css` (legacy) must be set. */
   writeDesignTokens(

@@ -101,6 +101,24 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.calls.push(`readDesignLayout:${project}`);
       return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
     }
+    async deleteDesignComponent(project: number, name: string, reason: string) {
+      // Every argument is recorded: a delete that dropped the reason would be
+      // accepted by the backend and never seen here, and a delete aimed at the
+      // wrong project would name someone else's component.
+      harness.calls.push(`deleteDesignComponent:${project}:${name}:${reason}`);
+      return { ok: true, deleted: `components/${name}.js` };
+    }
+    async writeDesignAsset(
+      project: number,
+      path: string,
+      content: string,
+      baseVersion?: number,
+    ) {
+      harness.calls.push(
+        `writeDesignAsset:${project}:${path}:${content.length}:${baseVersion ?? "none"}`,
+      );
+      return { ok: true };
+    }
   }
   return { ...actual, TaskflowClient: FakeClient };
 });
@@ -522,6 +540,106 @@ describe("design_read_layout", () => {
     // have resolved to before it asked for anything.
     expect(harness.calls).toContain("readDesignLayout:2");
     expect(JSON.stringify(result.content)).toMatch(/Auth/);
+  });
+});
+
+describe("design_write_page", () => {
+  // The defect this pins is a description that lied by OMISSION: the tool has
+  // always CREATED routes (writing pages/billing.html IS creating /billing),
+  // and nothing said so, so an agent reported it could not create a screen.
+  // Capability the caller cannot discover is indistinguishable from capability
+  // that is absent, which is exactly what the gap analysis recorded.
+  it("says plainly that it creates a route that does not exist yet", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_write_page");
+
+    expect(tool, "design_write_page must be registered").toBeDefined();
+    const description = tool?.description ?? "";
+    // The claim, not a synonym for it: an agent has to read that THIS call is
+    // what brings a new screen into being, and that there is no other tool to
+    // go looking for.
+    expect(description).toMatch(/creates? (it|the route|a route|a new route)/i);
+    expect(description).toMatch(/does not exist/i);
+    // And the route argument says the same thing where an agent reads it last.
+    const routeArg = tool?.inputSchema.properties?.route as { description?: string };
+    expect(routeArg?.description ?? "").toMatch(/creat/i);
+  });
+});
+
+describe("design_get_tokens", () => {
+  it("says the response carries the authoring guide, not only the scale", async () => {
+    // The guide is served in this response and nowhere else, and it answers
+    // questions no manifest can (how pages link, how a back control is
+    // written, what a page may load). An agent that believes the call returns
+    // only variables skims straight past it.
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_get_tokens");
+
+    expect(tool, "design_get_tokens must be registered").toBeDefined();
+    expect(tool?.description ?? "").toMatch(/guide/);
+  });
+});
+
+describe("design_delete_component", () => {
+  it("is registered, and warns that a still-referenced component is refused", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_delete_component");
+
+    expect(tool, "design_delete_component must be registered").toBeDefined();
+    const description = tool?.description ?? "";
+    // The refusal is the whole safety property, and it is not guessable: a
+    // tool that only said "deletes a component" would be called on a component
+    // pages still use, and the agent would have no idea why it came back 409.
+    expect(description).toMatch(/refus/i);
+    expect(description).toMatch(/route/i);
+    expect(description).toMatch(/reason/);
+  });
+
+  it("passes the name and the reason through, aimed at the credential's project", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_delete_component",
+      // The harness defines two profiles, so an omitted one returns the
+      // ambiguity refusal before the tool body is reached.
+      arguments: { name: "app-header", reason: "nothing uses it", profile: "main" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    // `whoami` reports project 2 — the project this credential pins.
+    expect(harness.calls).toContain("deleteDesignComponent:2:app-header:nothing uses it");
+  });
+});
+
+describe("design_write_asset", () => {
+  it("is registered, and names both writable shapes", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_write_asset");
+
+    expect(tool, "design_write_asset must be registered").toBeDefined();
+    const description = tool?.description ?? "";
+    // Both halves of the gap this closes. `styles/resources.json` especially:
+    // it is the one the token tool does NOT write, and a caller who assumed
+    // otherwise would keep looking for a tool that does not exist.
+    expect(description).toMatch(/assets\//);
+    expect(description).toMatch(/resources\.json/);
+    // The wire shape, which is not guessable: content is TEXT, so an agent
+    // that sent raw PNG bytes would store a mangled file.
+    expect(description).toMatch(/base64/);
+  });
+
+  it("sends the path and content for the credential's project", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_write_asset",
+      arguments: { path: "logo.svg", content: "<svg/>", profile: "main" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(harness.calls).toContain("writeDesignAsset:2:logo.svg:6:none");
   });
 });
 

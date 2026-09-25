@@ -525,3 +525,540 @@ async fn foreign_project_is_refused_not_routed() {
 
     let _ = project;
 }
+
+// ---------------------------------------------------------------------------
+// Component retirement and the asset route (the gap-batch additions)
+//
+// Both exist because the design plugin had no DELETE anywhere and no way for an
+// agent to write `assets/` at all. The interesting half is what the delete must
+// REFUSE: see `delete_component`'s docs for why a stranded page is worse than
+// the registry drift retirement fixes.
+// ---------------------------------------------------------------------------
+
+const AGENT_COMPONENT: &str = "/api/taskflow/agents/design/component";
+const AGENT_PAGE: &str = "/api/taskflow/agents/design/page";
+const AGENT_ASSET: &str = "/api/taskflow/agents/design/asset";
+const AGENT_CONTEXT: &str = "/api/taskflow/agents/design/context";
+
+/// The component names the manifest currently lists.
+fn manifest_component_names(ctx: &serde_json::Value) -> Vec<String> {
+    ctx["components"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|c| c["name"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A token scale plus a component. The page that uses it is written by the
+/// callers that need one, so "referenced" and "unreferenced" are one call
+/// apart rather than two fixtures apart.
+async fn seed_registry(app: &TestApp, project: i64, key: &str) {
+    let res = app
+        .put_as_agent(
+            key,
+            "/api/taskflow/agents/design/tokens",
+            json!({
+                "project": project,
+                "css": "@theme { --bg: #fff; --fg: #000; --accent: #4f46e5; }",
+                "reason": "bootstrap the scale"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "token seed: {}", res.text());
+
+    let res = app
+        .put_as_agent(
+            key,
+            AGENT_COMPONENT,
+            json!({
+                "project": project,
+                "name": "app-header",
+                "js": support::sample_header_component(),
+                "reason": "the settings page needs a header"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "component seed: {}", res.text());
+}
+
+async fn write_settings_page_using_the_header(app: &TestApp, project: i64, key: &str, body: &str) {
+    let res = app
+        .put_as_agent(
+            key,
+            AGENT_PAGE,
+            json!({
+                "project": project,
+                "route": "/settings",
+                "html": format!("<app-header title=\"Settings\"></app-header>\n{body}")
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "page seed: {}", res.text());
+}
+
+/// THE assertion this feature lives or dies on.
+///
+/// `compose_document` emits a component's `<script src>` only while the
+/// component is in the manifest, and `store::write_file` re-validates every
+/// page against the registry on every write. So a page left holding a deleted
+/// component's tag renders without its definition AND can never be written
+/// again — rule `unknown-component`, forever. The refusal is what keeps that
+/// state unreachable; the named routes are what make it actionable.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_component_a_page_still_uses_is_refused_and_the_refusal_names_the_route() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+    seed_registry(&app, project, key.as_str()).await;
+    write_settings_page_using_the_header(&app, project, key.as_str(), "<main>hi</main>").await;
+
+    let res = app
+        .delete_json_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            &json!({
+                "project": project,
+                "name": "app-header",
+                "reason": "replaced by app-nav"
+            }),
+        )
+        .await;
+    assert_eq!(
+        res.status(),
+        409,
+        "a component a page still uses must NOT be deletable: {}",
+        res.text()
+    );
+
+    let body = res.text();
+    assert!(
+        body.contains("/settings"),
+        "the refusal must NAME the route that uses it, so the agent knows what to edit: {body}"
+    );
+    assert!(
+        body.contains("unknown-component"),
+        "and say what a stranded page costs — the rule name is the agent's handle on it: {body}"
+    );
+
+    // Both halves of "nothing was stranded": the component is still in the
+    // registry, and the page is still writable.
+    let read = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("{AGENT_COMPONENT}?project={project}&name=app-header"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "the component must survive the refusal");
+
+    let rewrite = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_PAGE,
+            json!({
+                "project": project,
+                "route": "/settings",
+                "html": "<app-header title=\"Settings\"></app-header>\n<main>still writable</main>"
+            }),
+        )
+        .await;
+    assert_eq!(
+        rewrite.status(),
+        201,
+        "and the page must still accept a write: {}",
+        rewrite.text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_component_requires_a_real_reason() {
+    // Retirement is a registry-level decision, so it carries the same gate the
+    // component and token writes do — enforced in the handler, not only in the
+    // tool description.
+    let (app, project, _user, _agent, key) = setup_app().await;
+    seed_registry(&app, project, key.as_str()).await;
+
+    let res = app
+        .delete_json_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            &json!({ "project": project, "name": "app-header", "reason": "nope" }),
+        )
+        .await;
+    assert_eq!(res.status(), 422, "{}", res.text());
+    assert_eq!(
+        res.json()["errors"][0]["rule"],
+        "missing-reason",
+        "{}",
+        res.text()
+    );
+
+    // Refused BEFORE anything was deleted.
+    let read = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("{AGENT_COMPONENT}?project={project}&name=app-header"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "a refused delete must not delete: {}", read.text());
+
+    let ok = app
+        .delete_json_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            &json!({
+                "project": project,
+                "name": "app-header",
+                "reason": "the settings page stopped using it"
+            }),
+        )
+        .await;
+    assert_eq!(ok.status(), 200, "{}", ok.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreferenced_component_deletes_and_leaves_the_manifest() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+    seed_registry(&app, project, key.as_str()).await;
+
+    // No page references it, so the route has nothing to protect.
+    let before = app
+        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
+        .await;
+    assert_eq!(manifest_component_names(&before.json()), vec!["app-header"]);
+
+    let res = app
+        .delete_json_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            &json!({
+                "project": project,
+                "name": "app-header",
+                "reason": "nothing in the registry needs it any more"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    assert_eq!(res.json()["deleted"], "components/app-header.js");
+
+    let after = app
+        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
+        .await;
+    assert!(
+        manifest_component_names(&after.json()).is_empty(),
+        "the manifest is DERIVED from the rows, so the name must be gone: {}",
+        after.text()
+    );
+
+    // And the source is gone too, not merely unlisted.
+    let read = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("{AGENT_COMPONENT}?project={project}&name=app-header"),
+        )
+        .await;
+    assert_eq!(read.status(), 404, "a deleted component reads 404: {}", read.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deleted_component_can_be_registered_again() {
+    // The retirement is reversible: the name is not reserved by a tombstone, so
+    // the registry can take it back. Not a nicety — "delete it and re-register"
+    // is the recovery path an agent will reach for after a mistake.
+    let (app, project, _user, _agent, key) = setup_app().await;
+    seed_registry(&app, project, key.as_str()).await;
+    let res = app
+        .delete_json_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            &json!({ "project": project, "name": "app-header", "reason": "start over" }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+
+    let again = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            json!({
+                "project": project,
+                "name": "app-header",
+                "js": support::sample_header_component(),
+                "reason": "the retirement was a mistake"
+            }),
+        )
+        .await;
+    assert_eq!(again.status(), 201, "{}", again.text());
+    assert_eq!(again.json()["file"]["version"], 1, "a fresh row starts at version 1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_cannot_delete_another_projects_component() {
+    let (app, _project, _user, _agent, key) = setup_app().await;
+    let (_other_user, other_project) = app.create_member_with_project().await;
+    let (_other_agent, other_key) = support::seed_agent(other_project, "Other").await;
+
+    let seeded = app
+        .put_as_agent(
+            &other_key,
+            AGENT_COMPONENT,
+            json!({
+                "project": other_project,
+                "name": "app-header",
+                "js": support::sample_header_component(),
+                "reason": "the other project needs a header"
+            }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 201, "{}", seeded.text());
+
+    // The credential pins ONE project, and naming another one is a refusal —
+    // not a routing hint, and not a silent no-op.
+    let res = app
+        .delete_json_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            &json!({
+                "project": other_project,
+                "name": "app-header",
+                "reason": "not mine to delete"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 403, "{}", res.text());
+
+    // The row is still there: a 403 that had already deleted would read the same.
+    let read = app
+        .get_as_agent(
+            &other_key,
+            &format!("{AGENT_COMPONENT}?project={other_project}&name=app-header"),
+        )
+        .await;
+    assert_eq!(
+        read.status(),
+        200,
+        "the other project's component must be untouched: {}",
+        read.text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_asset_write_lands_and_is_served_from_the_sandbox() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    // A bare name is the common case and means `assets/<name>`.
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>"#;
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({ "project": project, "path": "logo.svg", "content": svg }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(res.json()["file"]["path"], "assets/logo.svg");
+    assert_eq!(res.json()["file"]["kind"], "asset");
+
+    // A raster asset travels as text: `data:<mime>;base64,…`, decoded on serve.
+    // The payload here decodes to "hello" so the served body is comparable
+    // byte for byte through a lossy-UTF-8 test reader.
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({
+                "project": project,
+                "path": "assets/pixel.png",
+                "content": "data:image/png;base64,aGVsbG8="
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+
+    let token = taskflow_design::sandbox::mint(project);
+
+    let served = app.get_sandbox(&format!("/s/{token}/f/assets/logo.svg")).await;
+    assert_eq!(served.status(), 200, "{}", served.text());
+    assert_eq!(
+        served.header("content-type").as_deref(),
+        Some("image/svg+xml"),
+        "an asset is served with its own content type"
+    );
+    assert_eq!(served.text(), svg, "what was written is what is served");
+
+    let raster = app.get_sandbox(&format!("/s/{token}/f/assets/pixel.png")).await;
+    assert_eq!(raster.status(), 200, "{}", raster.text());
+    assert_eq!(raster.header("content-type").as_deref(), Some("image/png"));
+    assert_eq!(
+        raster.text(),
+        "hello",
+        "the data: wrapper is DECODED on serve — the wrapper itself must not reach the browser"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_asset_route_writes_the_resources_document() {
+    // `styles/` is written by design_write_tokens for the SCALE and by nothing
+    // for the external resource document — the second half of this route's job.
+    let (app, project, _user, _agent, key) = setup_app().await;
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_PAGE,
+            json!({ "project": project, "route": "/", "html": "<main>home</main>" }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+
+    let doc = json!({
+        "version": 1,
+        "sets": [{
+            "id": "fonts",
+            "name": "Fonts",
+            "enabled": true,
+            "links": [{ "rel": "stylesheet", "href": "https://fonts.example/inter.css" }]
+        }]
+    })
+    .to_string();
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({ "project": project, "path": "styles/resources.json", "content": doc }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(res.json()["file"]["path"], "styles/resources.json");
+
+    // Live, not just stored: the link is in the composed document's head.
+    let token = taskflow_design::sandbox::mint(project);
+    let page = app.get_sandbox(&format!("/s/{token}/")).await;
+    assert_eq!(page.status(), 200);
+    assert!(
+        page.text().contains("https://fonts.example/inter.css"),
+        "an enabled set reaches the composed head: {}",
+        page.text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_asset_write_outside_the_extension_set_or_over_the_cap_is_refused_by_the_shared_validator() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    // The extension set is the EXISTING one — `assets/` admits images only —
+    // and the rule name is the existing one, so an agent reads this exactly as
+    // it reads a rejection from any other design write.
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({ "project": project, "path": "notes.txt", "content": "hi" }),
+        )
+        .await;
+    assert_eq!(res.status(), 422, "{}", res.text());
+    assert_eq!(res.json()["errors"][0]["rule"], "extension", "{}", res.text());
+    assert_eq!(res.json()["ok"], false);
+
+    // The size cap is the per-file one, by the same rule name the page and
+    // component writes use.
+    let too_big = "a".repeat(taskflow_design::validation::MAX_FILE_BYTES + 1);
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({ "project": project, "path": "big.svg", "content": too_big }),
+        )
+        .await;
+    assert_eq!(res.status(), 422, "{}", res.text());
+    assert_eq!(res.json()["errors"][0]["rule"], "size-cap", "{}", res.text());
+
+    // Neither write landed.
+    let ctx = app
+        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
+        .await;
+    assert_eq!(ctx.status(), 200);
+    let token = taskflow_design::sandbox::mint(project);
+    for path in ["assets/notes.txt", "assets/big.svg"] {
+        let served = app.get_sandbox(&format!("/s/{token}/f/{path}")).await;
+        assert_eq!(served.status(), 404, "{path} must not exist: {}", served.text());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_asset_route_cannot_be_used_to_write_the_token_scale() {
+    // The shared validator ACCEPTS `styles/tokens.json`, so without this
+    // route's own allowlist an agent could rewrite the token scale here and
+    // skip design_write_tokens' required `reason` — the gate that exists
+    // because tokens touch every route at once.
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    for path in ["styles/tokens.json", "styles/tokens.css", "pages/index.html", "components/x.js"] {
+        let res = app
+            .put_as_agent(
+                key.as_str(),
+                AGENT_ASSET,
+                json!({ "project": project, "path": path, "content": "{}" }),
+            )
+            .await;
+        assert_eq!(res.status(), 422, "{path} must not be writable here: {}", res.text());
+        assert_eq!(
+            res.json()["errors"][0]["rule"],
+            "unsupported-path",
+            "{path}: {}",
+            res.text()
+        );
+    }
+
+    // Nothing was written, so the scale is still absent rather than replaced.
+    let ctx = app
+        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
+        .await;
+    let categories = &ctx.json()["tokens_json"]["categories"];
+    assert!(
+        categories.as_object().map(|m| m.is_empty()).unwrap_or(false),
+        "the token scale must still be empty: {}",
+        ctx.text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_cannot_write_an_asset_into_another_projects_design() {
+    let (app, _project, _user, _agent, key) = setup_app().await;
+    let (_other_user, other_project) = app.create_member_with_project().await;
+    let (_other_agent, other_key) = support::seed_agent(other_project, "Other").await;
+
+    let original = "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>theirs</title></svg>";
+    let seeded = app
+        .put_as_agent(
+            &other_key,
+            AGENT_ASSET,
+            json!({ "project": other_project, "path": "assets/keep.svg", "content": original }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 201, "{}", seeded.text());
+
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({
+                "project": other_project,
+                "path": "assets/keep.svg",
+                "content": "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>mine now</title></svg>"
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 403, "{}", res.text());
+
+    // Untouched, read through the sandbox: the same credential that was
+    // refused cannot see it, but the file is still the other project's.
+    let token = taskflow_design::sandbox::mint(other_project);
+    let served = app.get_sandbox(&format!("/s/{token}/f/assets/keep.svg")).await;
+    assert_eq!(served.status(), 200);
+    assert_eq!(
+        served.text(),
+        original,
+        "a foreign write must not have replaced it: {}",
+        served.text()
+    );
+}
