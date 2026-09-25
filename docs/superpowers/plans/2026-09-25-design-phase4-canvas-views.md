@@ -659,12 +659,19 @@ pub async fn put_layout(
         Some(row) => {
             DesignLayout::objects()
                 .filter(design_layout::ID.eq(row.id))
-                .update_values(serde_json::json!({
-                    "view": doc.view,
-                    "layout_json": json,
-                    "updated_by": by,
-                    "updated_at": chrono::Utc::now(),
-                }))
+                // `update_values` takes a Map, not a Value — this wrapper is the
+                // house idiom, identical to `store.rs:173-183`.
+                .update_values(
+                    serde_json::json!({
+                        "view": doc.view,
+                        "layout_json": json,
+                        "updated_by": by,
+                        "updated_at": chrono::Utc::now(),
+                    })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+                )
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
