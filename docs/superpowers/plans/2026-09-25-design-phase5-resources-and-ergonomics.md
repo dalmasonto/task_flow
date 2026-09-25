@@ -2496,6 +2496,42 @@ export function resolveActiveProject(
 
 ---
 
+### Task 32: The Pages panel nests pages under their groups, and the groups are orderable
+
+**Requested by the user, verbatim, in two parts.**
+
+*(1)* *"On the right side panel, the groups looks okay but just noticed they are little bit unusable. So, I can create a group, and below the group immediately, lets have the checkboxes and the page list as it has been done just below the groups section currently, we simply need to have actual pages and actions below each of the groups and use the indexes per group so if group 1 has 2 screens, we simply have 1 and 2. Why the change, since we are going to order screen display per group in some instances, its best we can be able to see them under the group for easy arrangement."*
+
+*(2)* *"On the same side, we need to have order on the groups! - Reason: My onboarding group is at position 4 which is not okay, so we can also have the arrows to order groups, this might be a backend change too. Then we render based on group order and item order if we are in groups view."*
+
+**Files:** `v2_fe/src/pages/design/pages-panel.tsx`, `v2_fe/src/pages/design/pages-order.ts` (+ tests)
+
+**Two findings that shape this task, both verified at the source before it was written:**
+
+- **Part 2 needs NO backend change, and the user's "this might be a backend change too" can be answered plainly.** `LayoutDoc.groups` is a `Vec<LayoutGroup>` and the server **preserves its order**: `normalize_doc` pushes each group in iteration order (`layout_doc.rs:116`) and `filter_to_known` maps over them preserving position (`:164-168`). **Nothing in the crate sorts groups** — grep it and see. So group order is already stored, already round-trips, and already renders: `layoutGroups` draws its columns in `doc.groups` order. **Part 2 is a client-side affordance over state that already exists**, exactly like Task 26's `routeOrder` was.
+- **Part 2's "render based on group order and item order" is already true, so do not rebuild it.** In groups view the columns follow `doc.groups` order and the pages *within* each column follow the flow (that was Task 26's ruling, and its re-review confirmed the columns stay in document order). So the only missing piece is the **arrows**.
+
+**What part 1 actually changes, and the one rule it retires.** Today the panel is three sections (its own header comment says so): a **read-only Groups overview** whose pages are *names as bullets*, a bulk select-all, then **one flat numbered list of every page** with all the controls. Part 1 moves the real rows — checkbox, move arrows, name, group picker — **under their own group**, numbered **within the group**. Consequences to state rather than discover:
+
+- **The flat list is replaced, not duplicated.** Every page lives under exactly one group, and **ungrouped pages live in their own section** — `groupedPages` already computes that complement and its doc was corrected in Task 30 to say the panel does not draw it. Now it does. **A page must never appear twice**, which is the invariant to test.
+- **There are now two numberings, and only one of them is global.** The panel's number becomes **the page's position within its group** (and within the ungrouped section). The global flow still exists, still orders the canvas, and still decides the order *within* a group — so **moving a page up/down still edits `routeOrder`**, and only its visible effect becomes local. **Do not add a second ordering field.** Say this in the code, because it is the exact place someone will later "simplify" it into per-group storage.
+- **Empty groups must still render.** A group with no pages is the state a user is in immediately after creating one, and they need to be able to order it and drop pages into it. Its row is where the arrows live.
+- **Group arrows reorder `layout.groups`.** Up/down, disabled at the ends, writing through the same `updateLayout` path — and **the canvas follows for free** because it already renders in that order. **Verify that rather than assuming it**: if the columns do not move, the assumption is wrong and the task is bigger than it looks.
+
+**Interfaces:**
+- Consumes Task 26's `resolveRouteOrder` / `routeOrder` (the flow) and Task 30's corrected `groupedPages` doc.
+- Produces nothing new for the backend. **If you conclude a backend change IS needed, stop and say so** — that contradicts a finding verified at the source, so it means the finding was wrong and the task needs re-scoping rather than a new endpoint.
+
+- [ ] **1. Resolve the numbering rule in one pure function, tested first.** A page's displayed number depends only on its group and the flow. Put it in `pages-order.ts` beside the existing helpers, with tests for: a two-page group numbering `1, 2`; two groups each starting at `1`; an ungrouped page numbering in its own section; a page whose group was removed falling to ungrouped **and renumbering** (Task 16 parked exactly this untested case — a two-group fixture separates it from the live-group case, so write it here); and never rendering a page twice.
+- [ ] **2. Nest the rows.** Move the existing row component under its group's header rather than writing a second one — a second row component is how the two drift. Keep every control it has: the checkbox, the move up/down, the click-to-edit label, the group picker. **The click-to-edit label must still not toggle the checkbox beside it** — that was a deliberate fix in Task 23 and it is easy to lose in a restructure.
+- [ ] **3. The groups gain move up/down.** Disabled at the ends, `type="button"`, `aria-label` naming the group — match the page-row controls' shape so the two read as one family. **A group's position number is its index in `layout.groups`**, and it is what the user meant by "my onboarding group is at position 4".
+- [ ] **4. Re-render the canvas in the new group order without adding anything.** Confirm the columns follow; if they do not, report that instead of building a second ordering path.
+- [ ] **5. Out of scope, and say so:** reordering pages *between* groups by drag. The group picker already moves a page between groups; a drag affordance is a different feature and this repo cannot unit-test drag.
+
+- [ ] **6. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning** measured repo-wide (`npm run lint`), or **26** if you lint `src` only; the difference is `vite.config.ts`. **Measure per file.** **Do not run `npm run build`** and do not push. Commit with `git commit -F <msg> -- <paths>`, and `git add` exact paths first if you create a file.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
