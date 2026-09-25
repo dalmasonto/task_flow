@@ -185,6 +185,8 @@ pub async fn get_layout(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // `layout_json` is the source of truth for `view` too; the same-named
+    // column is a denormalised copy for admin filtering, never read back here.
     let doc = stored
         .and_then(|row| layout_doc::parse(&row.layout_json).ok())
         .unwrap_or_else(layout_doc::default_doc);
@@ -210,45 +212,64 @@ pub async fn put_layout(
     let json = layout_doc::to_json_string(&doc);
     let by = operator_attribution(&caller);
 
-    let existing = DesignLayout::objects()
-        .filter(design_layout::PROJECT.eq(project_id))
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Read-or-create under the project's write lock, the same one `put_file`
+    // takes: two racing first writes would otherwise both see no row, both
+    // insert, and the loser's unique-violation 500 would discard the
+    // operator's very first save.
+    project_locks()
+        .with_lock(project_id, || async {
+            let existing = DesignLayout::objects()
+                .filter(design_layout::PROJECT.eq(project_id))
+                .first()
+                .await
+                .map_err(|err| {
+                    eprintln!("design layout read: {err}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
-    match existing {
-        Some(row) => {
-            DesignLayout::objects()
-                .filter(design_layout::ID.eq(row.id))
-                .update_values(
-                    json!({
-                        "view": doc.view,
-                        "layout_json": json,
-                        "updated_by": by,
-                        "updated_at": chrono::Utc::now(),
-                    })
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-                )
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-        None => {
-            DesignLayout::objects()
-                .create(DesignLayout {
-                    id: 0,
-                    project: umbral::orm::ForeignKey::new(project_id),
-                    view: doc.view,
-                    layout_json: json,
-                    updated_by: by,
-                    created_at: None,
-                    updated_at: None,
-                })
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-    }
+            match existing {
+                Some(row) => {
+                    DesignLayout::objects()
+                        .filter(design_layout::ID.eq(row.id))
+                        .update_values(
+                            json!({
+                                "view": doc.view,
+                                "layout_json": json,
+                                "updated_by": by,
+                                "updated_at": chrono::Utc::now(),
+                            })
+                            .as_object()
+                            .cloned()
+                            .unwrap_or_default(),
+                        )
+                        .await
+                        .map_err(|err| {
+                            eprintln!("design layout update: {err}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+                }
+                None => {
+                    DesignLayout::objects()
+                        .create(DesignLayout {
+                            id: 0,
+                            project: umbral::orm::ForeignKey::new(project_id),
+                            view: doc.view,
+                            layout_json: json,
+                            updated_by: by,
+                            created_at: None,
+                            updated_at: None,
+                        })
+                        .await
+                        .map_err(|err| {
+                            eprintln!("design layout create: {err}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+                }
+            }
+
+            Ok::<(), StatusCode>(())
+        })
+        .await?;
 
     Ok(Json(layout_doc::to_value(&doc)))
 }
