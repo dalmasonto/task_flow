@@ -90,10 +90,12 @@ Read **once on hydration**, not via `useLiveQuery`: the surface already holds th
 
 - **`rows`** (today) — one row per route, one column per device.
 - **`bands`** — transpose: one band per device in `deviceIds` order; that device's pages run left→right across the band; the next device's band starts below. Band height = the tallest board in it.
-- **`groups`** — still banded per device. Within a device's band, each **group is a vertical column** (its pages stacked top to bottom in `routeOrder`); pages in no group **flow to the right** of the group columns. Groups render in document order.
+- **`groups`** — still banded per device. Within a device's band, each **group is a vertical column** (its pages stacked top to bottom in the order `group.routes` lists them); pages in no group **flow to the right** of the group columns. Groups render in document order.
   - **Ungrouped flow, made explicit:** ungrouped pages occupy a **single row to the right of the group columns, top-aligned, with no wrapping** — the band grows wider rather than deeper. (Balanced multi-row packing of the ungrouped tail is a deliberate follow-up, not this phase: it is the one place where a packing policy is a real design choice, and picking one blind — before seeing real page counts — is how you get a layout that has to be redone.)
 
-`routeOrder` is the canonical page sequence all three views read from, so a page's position is stable when switching views.
+**What actually fixes page order (corrected during implementation).** All three engines read the **order of the `openRoutes` array** they are handed, not `routeOrder`. That ordering is already canonical: `DesignSurfacePage.openRoute` re-sorts on every open and the manifest seed builds from `manifest.routes.map(r => r.path)`, so `openRoutes` is always in manifest order and a page's position is stable when switching views.
+
+`routeOrder` is therefore **carried but not yet consumed** — nothing in the frontend reads it, and it stays in the document as the reserved slot for the deferred reorder work (see the plan's Deferred section). It remains part of the wire shape and so must stay in the mirrored `LayoutDoc` type; it is not a claim that any engine uses it. A future reorder feature is what would give it meaning, and that work must then decide whether it supersedes the manifest-order rule above.
 
 ### §D — Header containment + spacing
 
