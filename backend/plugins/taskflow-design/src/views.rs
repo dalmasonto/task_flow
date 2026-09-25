@@ -27,8 +27,8 @@ use crate::composer;
 use crate::layout_doc;
 use crate::manifest;
 use crate::models::{
-    CommentScope, CommentStatus, DesignComment, DesignFileKind, DesignLayout, design_comment,
-    design_layout,
+    CommentScope, CommentStatus, DesignComment, DesignFile, DesignFileKind, DesignLayout,
+    design_comment, design_layout,
 };
 use crate::sandbox;
 use crate::signals;
@@ -801,6 +801,7 @@ pub async fn serve_component_preview(
         "/",
         "preview",
         &format!("<div class=\"p-2\"><{name} title=\"Preview\"></{name}></div>"),
+        &file_versions(&files),
         "light",
         None,
     );
@@ -884,6 +885,7 @@ async fn serve_sandbox_page(
         &normalized,
         &page_path,
         &fragment.content,
+        &file_versions(&files),
         "light",
         state.as_deref(),
     );
@@ -893,6 +895,54 @@ async fn serve_sandbox_page(
     Ok(response)
 }
 
+/// `?v=` out of a raw query string — the revision a sandbox subresource URL
+/// names. `None` when absent or not a number, which is the case that keeps a
+/// response uncacheable: a URL with no revision pins no content, so there is
+/// nothing a cache entry could be trusted to mean later.
+fn version_param(query: Option<&str>) -> Option<i64> {
+    query?
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("v="))
+        .and_then(|raw| raw.parse().ok())
+}
+
+/// The project's `(path, version)` pairs, the projection
+/// [`composer::compose_document`] stamps subresource URLs from. Built once per
+/// compose from the same `files` snapshot the manifest came from, so a URL can
+/// never name a revision the document was not composed against.
+fn file_versions(files: &[DesignFile]) -> Vec<(String, i64)> {
+    files.iter().map(|f| (f.path.clone(), f.version)).collect()
+}
+
+/// Token-hygiene headers for a served subresource, plus a bounded cache
+/// lifetime when the URL is revision-pinned.
+///
+/// `?v=` is what makes a sandbox subresource cacheable at all. The composer
+/// stamps every component and `tokens.css` URL with the revision it serves, so
+/// the URL→bytes mapping is immutable for as long as it is asked for and a
+/// changed file arrives under a changed URL. That buys the reuse the design
+/// canvas needs: one frame holds an iframe per artboard, every artboard pulls
+/// the same component files, and without this each of them re-downloaded all
+/// of them from scratch.
+///
+/// `no-store` stays the rule for everything else — the composed documents and
+/// the component preview, and any subresource request that arrives WITHOUT
+/// `?v=`. Bounding `max-age` by [`sandbox::remaining_secs`] keeps the original
+/// promise exactly as it was: no cache entry outlives the grant that fetched
+/// it. `private` keeps a token-bearing URL out of any shared cache; the token
+/// is the credential, and only the browser that was granted it may hold it.
+fn apply_subresource_headers(response: &mut Response, token: &str, versioned: bool) {
+    apply_token_response_headers(response);
+    if !versioned {
+        return;
+    }
+    if let Some(secs) = sandbox::remaining_secs(token) {
+        if let Ok(value) = HeaderValue::from_str(&format!("private, max-age={secs}")) {
+            response.headers_mut().insert(CACHE_CONTROL, value);
+        }
+    }
+}
+
 /// `GET /s/{token}/f/{path}` — serve tokens.css / components/*.js / assets.
 /// Read-only, token-granted; pages are never served raw (they compose).
 ///
@@ -900,10 +950,19 @@ async fn serve_sandbox_page(
 /// `apply_token_response_headers` — applied in BOTH branches below, because a
 /// stylesheet's own subresources (`url(https://…)`) are fetched under this
 /// response's policy, not the page's, and this response names the token too.
-pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<Response, StatusCode> {
+///
+/// A request carrying `?v={revision}` — which is every URL the composer emits
+/// for these paths — additionally gets a bounded cache lifetime; see
+/// [`apply_subresource_headers`]. A request without it is served `no-store`,
+/// exactly as before.
+pub async fn serve_file(
+    Path((token, path)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, StatusCode> {
     let Some(project_id) = sandbox::verify(&token) else {
         return Err(StatusCode::NOT_FOUND);
     };
+    let versioned = version_param(req.uri().query()).is_some();
 
     if !path.starts_with("styles/")
         && !path.starts_with("components/")
@@ -918,7 +977,7 @@ pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<R
     if path == "styles/tokens.css" {
         if let Some(css) = generated_tokens_css(project_id).await {
             let mut response = css.into_response();
-            apply_token_response_headers(&mut response);
+            apply_subresource_headers(&mut response, &token, versioned);
             response
                 .headers_mut()
                 .insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
@@ -941,7 +1000,7 @@ pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<R
         row.content.into_response()
     };
 
-    apply_token_response_headers(&mut response);
+    apply_subresource_headers(&mut response, &token, versioned);
     if let Ok(ct) = content_type_for(&path).parse() {
         response.headers_mut().insert(CONTENT_TYPE, ct);
     }

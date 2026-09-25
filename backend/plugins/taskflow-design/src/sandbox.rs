@@ -38,11 +38,16 @@ pub fn mint(project_id: i64) -> String {
     format!("{project_id}.{expiry:x}.{}", sign(project_id, expiry))
 }
 
-/// Verify a token; returns the project id it reads on success.
+/// Parse and verify a token into `(project_id, expiry_unix)`.
 ///
 /// Fail closed on every malformed shape, expired stamp, or signature miss.
 /// Constant-time-ish compare via recomputed-digest equality on fixed-length hex.
-pub fn verify(token: &str) -> Option<i64> {
+///
+/// The single verification path: [`verify`] and [`remaining_secs`] both read
+/// the token through here, so neither can drift from the other's idea of what
+/// a valid token is — a second copy of this logic that accepted one shape more
+/// than the other would be a hole only one of the two callers could see.
+fn parse(token: &str) -> Option<(i64, i64)> {
     let mut parts = token.split('.');
     let project_raw = parts.next()?;
     let expiry_raw = parts.next()?;
@@ -68,10 +73,29 @@ pub fn verify(token: &str) -> Option<i64> {
         .zip(sig.bytes())
         .fold(0u8, |acc, (a, b)| acc | (a ^ b));
     if diff == 0 {
-        Some(project_id)
+        Some((project_id, expiry))
     } else {
         None
     }
+}
+
+/// Verify a token; returns the project id it reads on success.
+pub fn verify(token: &str) -> Option<i64> {
+    parse(token).map(|(project_id, _)| project_id)
+}
+
+/// Seconds of life left in `token`, or `None` if it is not valid.
+///
+/// This is the ONLY cache lifetime a sandbox response may claim. A response
+/// that outlives its token would leave a cache entry covering a grant the
+/// server no longer honours, which is exactly what `no-store` on every sandbox
+/// response was there to prevent — so a cacheable subresource (see
+/// `views::serve_file`) is allowed to be stored for precisely this long and not
+/// a second more. The value is always positive: `parse` refuses an expired
+/// stamp, so a token that reaches here has time left.
+pub fn remaining_secs(token: &str) -> Option<i64> {
+    let (_, expiry) = parse(token)?;
+    Some((expiry - chrono::Utc::now().timestamp()).max(0))
 }
 
 #[cfg(test)]
@@ -89,5 +113,33 @@ mod tests {
         // verify as another.
         let forged = tok.replacen("42.", "43.", 1);
         assert_ne!(verify(&forged), Some(43));
+    }
+
+    /// The cache lifetime of a versioned subresource is this value, so it has
+    /// to be positive and can never exceed the token's own TTL — a response
+    /// stored for longer than the grant would outlive the access it was
+    /// fetched under.
+    #[test]
+    fn remaining_secs_is_positive_and_bounded_by_the_ttl() {
+        let left = remaining_secs(&mint(42)).expect("a fresh token has life left");
+        assert!(left > 0, "a stored response needs a positive lifetime: {left}");
+        assert!(left <= TOKEN_TTL_SECS, "lifetime must not exceed the ttl: {left}");
+    }
+
+    /// `remaining_secs` reads the token through the same verification `verify`
+    /// does, so it can never report a lifetime for something that would not
+    /// serve at all.
+    #[test]
+    fn remaining_secs_refuses_everything_verify_refuses() {
+        let tok = mint(42);
+        for bad in [
+            "garbage",
+            "43.not-a-sig.sig",
+            &tok.replacen("42.", "43.", 1),
+            "42.deadbeef.00000000000000000000000000000000",
+        ] {
+            assert_eq!(verify(bad), None, "precondition: {bad} is not a valid token");
+            assert_eq!(remaining_secs(bad), None, "{bad}");
+        }
     }
 }

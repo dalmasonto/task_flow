@@ -622,6 +622,23 @@ pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
     out
 }
 
+/// The version of the design file at `path`, or `None` when the project has no
+/// such row.
+///
+/// Every sandbox subresource URL carries one of these as `?v=`, so a URL names
+/// the exact revision it serves. That is what lets `serve_file` mark the
+/// response cacheable without ever handing a stale edit back: a changed file
+/// changes its own version, which changes its URL, which is a miss. A coarse
+/// key (the manifest's global revision) would be correct but would throw away
+/// every component's cache entry on any page edit — the common case in a
+/// design session — which is why the per-file version is what travels.
+fn rev_of(versions: &[(String, i64)], path: &str) -> Option<i64> {
+    versions
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, v)| *v)
+}
+
 /// Compose the full document for one route.
 ///
 /// * `token`     — the sandbox read token for this project
@@ -629,6 +646,9 @@ pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
 /// * `route`     — `/`, `/settings`, …
 /// * `page_path` — `pages/settings.html` (must map back to `route`)
 /// * `fragment`  — the raw body fragment
+/// * `versions`  — `(design-file path, version)` for the project's rows. Used
+///   only to stamp each subresource URL with the revision it serves; an empty
+///   slice is valid and falls back to the manifest revision.
 /// * `state`     — optional overlay state (`dialog:confirm-delete`) the
 ///   composer wires to open on load so screenshot review can reach UI that
 ///   only exists after a click.
@@ -638,6 +658,7 @@ pub fn compose_document(
     route: &str,
     page_path: &str,
     fragment: &str,
+    versions: &[(String, i64)],
     theme: &str,
     state: Option<&str>,
 ) -> String {
@@ -654,10 +675,21 @@ pub fn compose_document(
     // webfont. Empty — and so invisible — for a project that has none.
     let resources = resources_tags(&manifest.resources);
 
+    // `tokens.css` is GENERATED from `styles/tokens.json` when that row exists
+    // and served from the legacy `styles/tokens.css` row otherwise, so its
+    // revision is whichever of the two backs it — the same precedence
+    // `views::generated_tokens_css` resolves on the serve side.
+    let tokens_rev = rev_of(versions, "styles/tokens.json")
+        .or_else(|| rev_of(versions, "styles/tokens.css"))
+        .unwrap_or(manifest.revision);
+
     let mut component_tags = String::new();
     for c in &manifest.components {
-        component_tags
-            .push_str(&format!("<script src=\"/s/{token}/f/components/{}.js\"></script>\n", esc(&c.name)));
+        let v = rev_of(versions, &format!("components/{}.js", c.name)).unwrap_or(manifest.revision);
+        component_tags.push_str(&format!(
+            "<script src=\"/s/{token}/f/components/{}.js?v={v}\"></script>\n",
+            esc(&c.name)
+        ));
     }
 
     // Overlay state hook: a tiny system-owned script mapping `?state=` names to
@@ -713,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {{
     }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
+  {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css?v={tokens_rev}">
   {component_tags}<script>{PICKER_RUNTIME}</script>
   {state_script}
 </head>
@@ -864,8 +896,9 @@ pub fn compose_export_document(
 /// Lottie is deliverable anyway WITHOUT touching this directive —
 /// the player wiring belongs in a COMPONENT, which the sandbox loads as a
 /// SAME-ORIGIN script: `compose_document` emits
-/// `<script src="/s/{token}/f/components/{name}.js">` per registered component,
-/// and `script-src 'self'` permits it. The player `<script src="https://…">`
+/// `<script src="/s/{token}/f/components/{name}.js?v={revision}">` per
+/// registered component, and `script-src 'self'` permits it — a query string
+/// does not change an origin. The player `<script src="https://…">`
 /// that component appends is permitted by `script-src https:`. What the
 /// component cannot do is fetch the animation from a file of its own, because
 /// the sandbox has no file kind for one: `assets/` admits image extensions
