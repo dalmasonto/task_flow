@@ -1,0 +1,138 @@
+{
+  "why": [
+    "The arrangement is resolved TWICE, in two languages, on purpose: the server",
+    "resolves it for design_read_layout (ruling 3 — the answer is the arrangement",
+    "as the panel shows it, not the document), and the client keeps resolving it",
+    "locally because the Pages panel renders optimistically, before any round trip",
+    "(`resolveRouteOrder` in v2_fe/src/lib/design-layout.ts, `groupedPages` in",
+    "v2_fe/src/pages/design/pages-order.ts, mirrored by `resolve_route_order` and",
+    "`panel_sections` in backend/plugins/taskflow-design/src/layout_doc.rs).",
+    "",
+    "That duplication is structural, but UNPINNED duplication is not: both rule",
+    "sets have already changed once (pages-order.ts records a wrong earlier move",
+    "rule and a changed section-drawing rule), and prose naming the other",
+    "implementation cannot fail when the two drift apart.",
+    "",
+    "So there is ONE table of cases and TWO readers of it, and a one-sided change",
+    "to either rule set turns this file red on that side:",
+    "  * backend/plugins/taskflow-design/tests/layout_doc.rs (via include_str!)",
+    "  * v2_fe/src/pages/design/layout-panel-cases.test.ts (via readFileSync)",
+    "",
+    "`doc` is a layout document exactly as the server stores and sends it",
+    "(`layout_doc::LayoutDoc`), `manifest` is the project's route list in manifest",
+    "order, and `expect` is the panel's answer: the FLOW, the groups with their",
+    "pages, and the pages no group claims. Both sides assert all three."
+  ],
+  "cases": [
+    {
+      "name": "a fresh project lists every page ungrouped, in manifest order",
+      "manifest": ["/", "/login", "/signup", "/settings"],
+      "doc": {
+        "view": "rows",
+        "routeOrder": [],
+        "groups": [],
+        "pageLabels": {}
+      },
+      "expect": {
+        "flow": ["/", "/login", "/signup", "/settings"],
+        "groups": [],
+        "ungrouped": ["/", "/login", "/signup", "/settings"]
+      }
+    },
+    {
+      "name": "the stored flow orders the pages it names, and every page it does not name is appended in manifest order",
+      "manifest": ["/", "/login", "/signup", "/settings"],
+      "doc": {
+        "view": "rows",
+        "routeOrder": ["/signup", "/"],
+        "groups": [],
+        "pageLabels": { "/signup": "Sign up" }
+      },
+      "expect": {
+        "flow": ["/signup", "/", "/login", "/settings"],
+        "groups": [],
+        "ungrouped": ["/signup", "/", "/login", "/settings"]
+      }
+    },
+    {
+      "name": "a group's pages are listed in flow order, not in the order its own routes array holds",
+      "manifest": ["/", "/login", "/signup", "/settings"],
+      "doc": {
+        "view": "groups",
+        "routeOrder": ["/signup", "/login", "/", "/settings"],
+        "groups": [{ "id": "g1", "name": "Auth", "routes": ["/login", "/signup"] }],
+        "pageLabels": {}
+      },
+      "expect": {
+        "flow": ["/signup", "/login", "/", "/settings"],
+        "groups": [{ "id": "g1", "name": "Auth", "routes": ["/signup", "/login"] }],
+        "ungrouped": ["/", "/settings"]
+      }
+    },
+    {
+      "name": "groups keep the document's order, and the ungrouped pages are the complement",
+      "manifest": ["/", "/login", "/signup", "/settings"],
+      "doc": {
+        "view": "groups",
+        "routeOrder": ["/settings", "/signup", "/login", "/"],
+        "groups": [
+          { "id": "g1", "name": "Ops", "routes": ["/"] },
+          { "id": "g2", "name": "Auth", "routes": ["/login", "/signup"] }
+        ],
+        "pageLabels": { "/settings": "Preferences" }
+      },
+      "expect": {
+        "flow": ["/settings", "/signup", "/login", "/"],
+        "groups": [
+          { "id": "g1", "name": "Ops", "routes": ["/"] },
+          { "id": "g2", "name": "Auth", "routes": ["/signup", "/login"] }
+        ],
+        "ungrouped": ["/settings"]
+      }
+    },
+    {
+      "name": "a route two groups claim lists under the first of them, and an empty group keeps its section",
+      "manifest": ["/", "/login", "/signup", "/settings"],
+      "doc": {
+        "view": "groups",
+        "routeOrder": [],
+        "groups": [
+          { "id": "g1", "name": "Auth", "routes": ["/login"] },
+          { "id": "g2", "name": "More", "routes": ["/login", "/signup"] },
+          { "id": "g3", "name": "Empty", "routes": [] }
+        ],
+        "pageLabels": {}
+      },
+      "expect": {
+        "flow": ["/", "/login", "/signup", "/settings"],
+        "groups": [
+          { "id": "g1", "name": "Auth", "routes": ["/login"] },
+          { "id": "g2", "name": "More", "routes": ["/signup"] },
+          { "id": "g3", "name": "Empty", "routes": [] }
+        ],
+        "ungrouped": ["/", "/settings"]
+      }
+    },
+    {
+      "name": "a hand-edited document naming a page that is gone, and naming one twice, keeps its grouping and drops what it cannot place",
+      "manifest": ["/", "/login"],
+      "doc": {
+        "view": "groups",
+        "routeOrder": ["/settings", "/", "/login", "/"],
+        "groups": [
+          { "id": "g1", "name": "Auth", "routes": ["/settings"] },
+          { "id": "g2", "name": "Home", "routes": ["/"] }
+        ],
+        "pageLabels": { "/settings": "Preferences" }
+      },
+      "expect": {
+        "flow": ["/", "/login"],
+        "groups": [
+          { "id": "g1", "name": "Auth", "routes": [] },
+          { "id": "g2", "name": "Home", "routes": ["/"] }
+        ],
+        "ungrouped": ["/login"]
+      }
+    }
+  ]
+}

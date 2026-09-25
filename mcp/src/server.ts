@@ -1049,11 +1049,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_read_layout",
-    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Read-only: arranging the board is the operator's, and there is no tool that writes it.",
-    // No arguments beyond `project`: the arrangement is one document per
-    // project, so there is nothing to select. Said in the description because
-    // an agent that has just read design_list_components' one argument will
-    // look for a route or a group id here.
+    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. Read-only: arranging the board is the operator's, and there is no tool that writes it.",
+    // The arrangement is one document per project, so there is nothing to
+    // select: a route or a group id would be an argument this read has no use
+    // for. The description says so as well, because a schema shows only what is
+    // absent and an agent cannot tell "nothing more to pass" from "I was going
+    // to pass the wrong thing".
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {

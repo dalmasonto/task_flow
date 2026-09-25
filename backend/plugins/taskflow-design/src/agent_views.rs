@@ -238,6 +238,24 @@ pub struct AgentLayoutQuery {
 /// read uses, so the forgiving rules are one implementation rather than two, and
 /// a document naming a page that has since been deleted is served with that
 /// route filtered out rather than refused.
+///
+/// # This response is NOT the document, and must never be PUT back as one
+///
+/// Whoever writes the layout WRITE tool (the next piece of work on this
+/// surface): this response is the panel's view of the arrangement, not the
+/// stored document, and the difference is lossy in both directions.
+///   * a group's `routes` here are in FLOW order; the stored array is
+///     ASSIGNMENT order, which `validate` stores by (`assignRoute` appends) and
+///     this read never reveals. `layout_doc.rs::panel_sections` says why.
+///   * `flow` is RESOLVED — every page in the project has a position, including
+///     pages the stored `route_order` has never named. `layout_doc.rs::
+///     resolve_route_order` says why.
+///   * `pages[].name` is a label-or-title composite; `page_labels` is the
+///     stored half of it.
+/// So a write tool that PUTs this shape back would silently reorder every group
+/// by the flow and claim a flow the operator never set. Either read the stored
+/// document (the operator route's `GET`, or the row itself) or pass the four
+/// stored fields explicitly — but do not round-trip this.
 pub async fn read_layout(
     RequireAgent(agent): RequireAgent,
     Query(q): Query<AgentLayoutQuery>,
@@ -252,16 +270,34 @@ pub async fn read_layout(
     // label if it has one, else the manifest's own title. The route is the key
     // everything else here uses, so it is carried on the entry rather than left
     // to the reader to match up by position.
+    //
+    // `flow` is a permutation of THIS manifest's routes — `resolve_route_order`
+    // only ever emits paths it was handed — so the lookup below cannot miss and
+    // carries no fallback: an entry is either found or the invariant is broken.
+    // It is looked up by route (one map, not a scan per page) and the two
+    // functions' outputs are asserted against the same routes by a test that
+    // counts them, so a miss would be a failing suite rather than a page
+    // silently dropped or a name invented out of the route.
+    let by_route: std::collections::HashMap<&str, &manifest::RouteEntry> =
+        m.routes.iter().map(|r| (r.path.as_str(), r)).collect();
     let pages: Vec<serde_json::Value> = flow
         .iter()
-        .map(|route| {
-            let entry = m.routes.iter().find(|r| &r.path == route);
-            let title = entry.map(|r| r.title.clone()).unwrap_or_else(|| route.clone());
+        .filter_map(|route| by_route.get(route.as_str()).copied())
+        .map(|entry| {
+            let name = doc
+                .page_labels
+                .get(&entry.path)
+                .cloned()
+                .unwrap_or_else(|| entry.title.clone());
             json!({
-                "route": route,
-                "name": doc.page_labels.get(route).cloned().unwrap_or_else(|| title.clone()),
-                "title": title,
-                "path": entry.map(|r| r.file.clone()).unwrap_or_default(),
+                "route": entry.path,
+                "name": name,
+                "title": entry.title,
+                // `file`, not `path`: in `design_list_components` a route's
+                // `path` IS the route, and this key holding a file name would
+                // be the same word meaning the opposite thing. Both tools now
+                // spell the fragment `file` and the route `route`.
+                "file": entry.file,
             })
         })
         .collect();
@@ -285,7 +321,9 @@ pub async fn read_layout(
                  too. `ungrouped` is every page no group claims: every page \
                  appears exactly once, in a group or there. `pages` names each \
                  page the way the panel does (its label if it has one, else the \
-                 manifest title). `view` is the canvas arrangement \
+                 manifest title) and gives its `file` — the fragment behind the \
+                 route, spelled as design_list_components spells it; a route is \
+                 always `route`, never `path`. `view` is the canvas arrangement \
                  (rows/bands/groups) and the grouping reads the same in all \
                  three. Read-only: arranging pages is the operator's."
     })))

@@ -316,6 +316,56 @@ fn the_two_halves_partition_the_pages_even_when_both_states_are_broken() {
     assert_eq!(sorted, known(), "every page listed exactly once: {listed:?}");
 }
 
+/// The shared case table, read by `include_str!` so a moved or deleted file is a
+/// COMPILE error rather than a test that quietly stops running.
+///
+/// The same file is read by `v2_fe/src/pages/design/layout-panel-cases.test.ts`,
+/// which runs the two client functions these mirror (`resolveRouteOrder`,
+/// `groupedPages`) over the same cases. The rules are implemented twice on
+/// purpose — the panel resolves locally because it renders optimistically, the
+/// server resolves because the agent read must hand back the arrangement, not
+/// the document — but they must not DRIFT, and both have changed once already.
+/// A comment naming the other implementation cannot fail; this can.
+const PANEL_CASES: &str = include_str!("fixtures/layout_panel_cases.json");
+
+#[test]
+fn the_panels_resolution_matches_the_shared_case_table() {
+    let table: serde_json::Value =
+        serde_json::from_str(PANEL_CASES).expect("the shared case table parses");
+    let cases = table["cases"].as_array().expect("cases is an array");
+    assert!(cases.len() >= 5, "the table must actually carry cases");
+
+    for case in cases {
+        let name = case["name"].as_str().expect("a case names itself");
+        let manifest: Vec<String> = case["manifest"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{name}: manifest is an array"))
+            .iter()
+            .map(|r| r.as_str().expect("a manifest entry is a route").to_string())
+            .collect();
+        let doc: LayoutDoc = serde_json::from_value(case["doc"].clone())
+            .unwrap_or_else(|err| panic!("{name}: doc does not parse as a LayoutDoc: {err}"));
+        let expect = &case["expect"];
+
+        assert_eq!(
+            serde_json::to_value(resolve_route_order(&doc, &manifest)).unwrap(),
+            expect["flow"],
+            "flow: {name}"
+        );
+        let (groups, ungrouped) = panel_sections(&doc, &manifest);
+        assert_eq!(
+            serde_json::to_value(&groups).unwrap(),
+            expect["groups"],
+            "groups: {name}"
+        );
+        assert_eq!(
+            serde_json::to_value(&ungrouped).unwrap(),
+            expect["ungrouped"],
+            "ungrouped: {name}"
+        );
+    }
+}
+
 #[test]
 fn a_named_flow_only_reorders_pages_the_project_still_has() {
     // The read path end to end, over the two functions together: the document

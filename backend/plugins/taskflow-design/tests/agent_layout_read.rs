@@ -102,10 +102,14 @@ async fn the_agent_reads_the_arrangement_as_the_panel_shows_it() {
     // The labels, and the name each page is listed under (a label where it has
     // one, the manifest's own title otherwise).
     assert_eq!(v["page_labels"]["/settings"], "Preferences");
+    let entries = v["pages"].as_array().expect("pages array");
+    assert_eq!(
+        entries.len(),
+        3,
+        "every page of the manifest is listed exactly once: {v}"
+    );
     let page = |route: &str| {
-        v["pages"]
-            .as_array()
-            .expect("pages array")
+        entries
             .iter()
             .find(|p| p["route"] == route)
             .cloned()
@@ -114,7 +118,11 @@ async fn the_agent_reads_the_arrangement_as_the_panel_shows_it() {
     let settings = page("/settings");
     assert_eq!(settings["name"], "Preferences");
     assert_eq!(settings["title"], "Settings", "the manifest's title is still carried");
-    assert_eq!(settings["path"], "pages/settings.html");
+    // `file`, NOT `path`: in `design_list_components` a route's `path` IS the
+    // route, so an agent reaching for `pages.find(p => p.path === route)` — the
+    // habit that tool teaches — must find nothing here rather than a file name.
+    assert_eq!(settings["file"], "pages/settings.html");
+    assert_eq!(settings["path"], serde_json::Value::Null, "`path` means the route elsewhere");
     assert_eq!(page("/signup")["name"], "Signup", "unlabelled pages read by their title");
     assert_eq!(page("/")["name"], "Index");
 
@@ -308,12 +316,18 @@ async fn the_layout_read_is_not_a_write_surface() {
     let (app, project, user, key) = app_with_agent().await;
     seed_page(&app, project, user, "pages/index.html", "Dashboard").await;
 
+    // A body that would be OBSERVABLE if it were stored: a named group with a
+    // real page in it. An empty document would read back as an empty document
+    // whether or not the write happened, which is a status assertion wearing a
+    // second assertion's clothes.
+    let hijack = json!({
+        "view": "groups",
+        "routeOrder": ["/"],
+        "groups": [{ "id": "g1", "name": "Hijacked", "routes": ["/"] }]
+    });
+
     let put = app
-        .put_as_agent(
-            &key,
-            &agent_layout_path(project),
-            json!({ "view": "groups", "routeOrder": [], "groups": [] }),
-        )
+        .put_as_agent(&key, &agent_layout_path(project), hijack.clone())
         .await;
     assert!(
         put.status() >= 400,
@@ -321,8 +335,25 @@ async fn the_layout_read_is_not_a_write_surface() {
         put.text()
     );
 
-    // And nothing changed.
+    // And nothing changed — the read is what proves it, since a 4xx that had
+    // stored the body on its way out would look identical from the status.
     let res = app.get_as_agent(&key, &agent_layout_path(project)).await;
     assert_eq!(res.status(), 200);
-    assert_eq!(res.json()["groups"], json!([]));
+    let v = res.json();
+    assert_eq!(v["groups"], json!([]), "the refused write left no group: {v}");
+    assert!(
+        !v["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|g| g["name"] == "Hijacked"),
+        "the refused document is not readable back: {v}"
+    );
+
+    // That those two assertions have teeth is shown by the same body through a
+    // route that DOES write: the operator's. This is the positive control for
+    // the negative above — the payload is not merely unobservable by accident.
+    put_layout(&app, user, project, hijack).await;
+    let after = app.get_as_agent(&key, &agent_layout_path(project)).await;
+    assert_eq!(after.json()["groups"][0]["name"], "Hijacked");
 }
