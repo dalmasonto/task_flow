@@ -241,7 +241,7 @@ Expected: FAIL — the helpers do not exist.
 export const MAX_LABEL = 40
 
 /** The name to show for a page: its label if it has one, else the manifest's
- *  own title, else the raw route. One resolver so the three places that render
+ *  own title, else the raw route. One resolver for EVERY place that renders
  *  a page name can never disagree. */
 export function pageLabel(doc: LayoutDoc, route: string, fallback: string): string {
   const label = doc.pageLabels[route]
@@ -275,7 +275,9 @@ Add `pageLabels: Record<string, string>` to `LayoutDoc` (with a doc comment noti
 
 Include `pageLabels` in the returned document.
 
-- [ ] **Step 4: Render the label in the three places**
+- [ ] **Step 4: Render the label at every site that shows a page name**
+
+**Do not work from the count in this heading, and do not trust a count at all.** An earlier draft of this plan said "three places" and was wrong twice: the toolbar's `PagePicker` (which derives its trigger label from `routes.find(...)?.title` and renders `{r.title}` per row) and the ⌘K command palette (whose `label` is *rendered*, not merely fuzzy-matched) were both missed. The binding rule is the framing: **any site that displays a page's name must resolve it through `pageLabel`.** `rg -n "r\.title|\.title\b"` over `src/pages/design/` is the way to find them — five existed at the time of writing, in `pages-panel.tsx`, `design-canvas.tsx`, and `DesignSurfacePage.tsx` (row-header overlay, `PagePicker` trigger and rows, palette).
 
 - `pages-panel.tsx`: replace `{route.title}` with `{pageLabel(layout, route.path, route.title)}`, and add the rename control. Keep the native-input rule: a plain `<input>` that commits on blur/Enter and reverts on Escape, calling `onLayoutChange(setPageLabel(layout, route.path, value))`.
 - `design-canvas.tsx` `ArtboardHeader`: it currently receives `route` and derives a title as `route === "/" ? "Dashboard" : route.slice(1)`. Give it an explicit `label: string` prop instead — computed by the caller — so the header never guesses a name.
