@@ -58,7 +58,7 @@ fn page_labels_round_trip_as_camel_case() {
 }
 
 #[test]
-fn a_document_without_pageLabels_still_parses() {
+fn a_document_without_page_labels_still_parses() {
     // Every document written before this field existed must keep working.
     let d = parse(r#"{"view":"rows","routeOrder":[],"groups":[]}"#).unwrap();
     assert!(d.page_labels.is_empty());
