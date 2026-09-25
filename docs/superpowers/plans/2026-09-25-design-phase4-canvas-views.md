@@ -2326,6 +2326,8 @@ Add `DESIGN_LAYOUT,` to `ALL_SUFFIXES` (the list ending at line 405). Without it
 
 Add `designLayout: "design_layout"` to the `taskflowTables` object in the same file, narrowing `TaskflowRealtimeTable` accordingly.
 
+**And add `taskflowTables.designLayout` to `projectScopedRealtimeTables` in that same file** (the array declared at `:183`, consumed by the subscription loop at `:447`). This is the app's actual SSE subscription list — the suffix map above only tells the client how to *name* a group. A missing entry here means the app never subscribes to the group, the server-side broadcast reaches nobody, and the entire feature is a silent no-op that compiles and passes every test. This omission was a defect in an earlier draft of this plan; the implementer caught it.
+
 ```ts
 // App.tsx line 881
         if (
