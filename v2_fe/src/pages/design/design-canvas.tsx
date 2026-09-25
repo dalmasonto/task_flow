@@ -224,9 +224,12 @@ export function DesignCanvas({
       if (!m || typeof m !== "object" || typeof m.type !== "string") return
       if (m.type === "design:select" && onSelect) {
         // Hostile-input rule: validate shape, clamp lengths before use.
-        const board = artboards.find(
-          (b) => b.key === (event.source as Window | null)?.name
-        )
+        //
+        // The sender is identified by WindowProxy IDENTITY (`boardKeyForSource`,
+        // which must never read a property off `event.source` — see its doc
+        // comment for the SecurityError that cost inspect the whole handler).
+        const key = boardKeyForSource(frameSources(), event.source as Window | null)
+        const board = artboards.find((b) => b.key === key)
         if (board) onSelect(m as unknown as Record<string, unknown>, board)
       }
     }
@@ -323,6 +326,46 @@ export function DesignCanvas({
 
 function mountedFrames(): HTMLIFrameElement[] {
   return Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-design-frame]"))
+}
+
+/// Every mounted frame as a `{key, win}` pair for `boardKeyForSource`: the key
+/// comes from the iframe's own `name` ATTRIBUTE (`name={board.key}` in
+/// `LazyFrame`), read off OUR element. `getAttribute` on our own DOM is safe;
+/// the Window's `name` property is not (see `boardKeyForSource`).
+function frameSources(): { key: string; win: Window | null }[] {
+  const out: { key: string; win: Window | null }[] = []
+  for (const frame of mountedFrames()) {
+    const key = frame.getAttribute("name")
+    if (key) out.push({ key, win: frame.contentWindow })
+  }
+  return out
+}
+
+/// The board key whose frame sent this message, matched by WindowProxy
+/// IDENTITY.
+///
+/// NEVER read `name` off `event.source` — and never "solve" this by matching
+/// `event.source.name` against a board key again, however right the `name=
+/// {board.key}` on the iframe makes it look. `event.source` is the sandbox
+/// iframe's WindowProxy and the sandbox is a DIFFERENT ORIGIN from the app in
+/// every deployment, so that read throws:
+///
+///   Uncaught SecurityError: Failed to read a named property 'name' from
+///   'Window': Blocked a frame with origin "https://taskflow.supercodehive.com"
+///   from accessing a cross-origin frame. at Array.find (<anonymous>)
+///
+/// The throw escaped the whole `onMessage` handler, so `design:select` was
+/// never processed and inspect did nothing at all — it had never worked
+/// cross-origin. Comparing WindowProxy references is allowed across origins;
+/// reading their properties is not. `frames` therefore carries `win` for
+/// identity and `key` for the answer, and getting `key` is `frameSources()`'s
+/// job, not this function's.
+export function boardKeyForSource<T>(
+  frames: { key: string; win: T | null }[],
+  source: T | null
+): string | null {
+  if (!source) return null
+  return frames.find((f) => f.win === source)?.key ?? null
 }
 
 function ArtboardCard({

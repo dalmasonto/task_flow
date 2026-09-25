@@ -35,10 +35,30 @@ const PICKER_RUNTIME: &str = r#"(() => {
     return parts.join(' > ');
   };
 
+  // Nothing else ever takes the cue down, so leaving the frame has to: a
+  // pointer that moves to the next artboard (or out to the chrome) otherwise
+  // leaves the last box drawn in THIS document, and the previous screen keeps
+  // showing a highlight for an element nobody is over.
+  const clear = () => { box.remove(); label.remove(); };
+
   addEventListener('mousemove', (e) => {
     if (!on) return;
     const el = e.target;
     const r = el.getBoundingClientRect();
+    // Hide rather than draw when the target describes nothing but the frame
+    // itself: the body/documentElement, a rect with no area, or a container
+    // that fills the viewport — a page shell like `min-h-screen main`, whose
+    // box would cover the whole artboard and read as a bug rather than a cue.
+    // clientWidth/clientHeight, not innerWidth/innerHeight: the latter include
+    // the scrollbar, which a full-bleed container's width does not.
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    if (el === document.body || el === document.documentElement
+        || !r.width || !r.height
+        || (r.width >= vw - 1 && r.height >= vh - 1)) {
+      clear();
+      return;
+    }
     Object.assign(box.style, { top: r.top + 'px', left: r.left + 'px',
       width: r.width + 'px', height: r.height + 'px' });
     Object.assign(label.style, { top: Math.max(0, r.top - 18) + 'px', left: r.left + 'px' });
@@ -46,6 +66,12 @@ const PICKER_RUNTIME: &str = r#"(() => {
     label.textContent = host ? host.dataset.component : el.tagName.toLowerCase();
     document.body.append(box, label);
   }, true);
+
+  // The pointer left this document. Cross-origin frames report the element it
+  // entered as null — it is in another document — which is exactly the signal
+  // `relatedTarget` gives us. Capture phase, like the listeners above, so a
+  // page's own handler cannot swallow it.
+  addEventListener('mouseout', (e) => { if (!e.relatedTarget) clear(); }, true);
 
   addEventListener('click', (e) => {
     if (!on) return;
@@ -80,7 +106,7 @@ const PICKER_RUNTIME: &str = r#"(() => {
     if (!m || typeof m !== 'object') return;
     if (m.type === 'design:mode') { on = !!m.picking;
       document.documentElement.style.cursor = on ? 'crosshair' : '';
-      if (!on) { box.remove(); label.remove(); } }
+      if (!on) clear(); }
     if (m.type === 'design:theme') document.documentElement.dataset.theme = m.theme;
     if (m.type === 'design:flash') {
       try {
