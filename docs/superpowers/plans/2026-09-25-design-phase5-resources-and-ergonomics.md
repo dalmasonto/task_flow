@@ -1125,10 +1125,23 @@ describe("parsePastedLinks", () => {
     expect(links[1].crossorigin).toBe(true)
     expect(links[2].rel).toBe("stylesheet")
   })
-  it("picks up a script tag", () => {
+  it("picks up a script tag, and carries NO href", () => {
     const [l] = parsePastedLinks('<script src="https://cdn.example/x.js" async></script>')
     expect(l.isScript).toBe(true)
     expect(l.script).toBe("https://cdn.example/x.js")
+    // The wire contract, and the reason it is asserted rather than trusted:
+    // the server refuses a link carrying BOTH url fields, and an EMPTY STRING
+    // counts as carried (`""` is present, not absent). Emitting `href: ""`
+    // beside a script would be refused with a message naming a cause the
+    // caller never intended. Assert absence, not emptiness.
+    expect(l.href).toBeUndefined()
+    expect(l.rel).toBeUndefined()
+  })
+
+  it("a link shape carries NO script field, for the same reason", () => {
+    const [l] = parsePastedLinks('<link rel="stylesheet" href="https://ok.example/x.css">')
+    expect(l.isScript).toBe(false)
+    expect(l.script).toBeUndefined()
   })
   it("ignores anything that is not a link or script", () => {
     expect(parsePastedLinks("<div>hello</div><p>rel=\"stylesheet\"</p>")).toEqual([])
