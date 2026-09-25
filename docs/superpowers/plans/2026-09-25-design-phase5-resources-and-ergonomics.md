@@ -2533,6 +2533,36 @@ export function resolveActiveProject(
 
 ---
 
+## The durable record — facts that existed only in git-ignored scratch
+
+**Why this section exists.** This phase's evidence — 28 `task-*-report.md` files, the review packages, and the coordinator's 360 KB ledger — lives under `.superpowers/`, which `.superpowers/sdd/.gitignore` excludes with `*`. **`git ls-files .superpowers` returns exactly one file**, and it is `progress.md` from a *different* phase dated July. So every correction made below, and the evidence for it, was one `git clean -fdx` from gone. Task 31's review verified that and recommended this section as the smallest fix that preserves what the rest of the record leans on. **The rest of the record was already durable because it lives in the code comments and the commit messages** — that is why the batch wrote corrections into the code rather than only into reports.
+
+**Each fact below is re-measured against a named commit.** If you are reading this later and a number disagrees, the number is what rotted, not the finding.
+
+1. **The drift table's frame, and its four re-measured rows.** `task-30-report.md`'s §2 table announces *"Measured against `7e3a55f`"*, and its rows were measured at **three different commits** — the three a fix round re-pointed, and the rest pre-batch. Read every row against its own commit: `21c0839` for the pre-batch measurements, `7e3a55f` for the batch's results, `e33e571` for the current values. Four corrections, re-measured:
+   - `App.tsx`'s write/read/check is `:497` / `:482` / `:488` at `7e3a55f` — **not** the `:483` / `:482` / `:489` the table claims are "unchanged", a claim that was false because **that task's own item 8 is what moved them**.
+   - `DesignSurfacePage.tsx`'s close paths are `:460` / `:467` at `21c0839` — so the pre-batch measurement was right and only its frame was wrong.
+   - `readUIState` moved `:314` → `:319`; `content-epoch.test.ts`'s renamed test moved to `:144`.
+   - `hint: r.path` is at `:717`, not `:701`; `design-canvas.tsx:97-102` is the `labelFor` prop and `FrameMessage` is `:75-85`.
+   **If any of these is re-measured and differs, trust the code and say which commit you measured.**
+
+2. **Four brief items were already dead when the final wave read them** — legitimate to close by pointing at later work *only* because each was verified rather than assumed:
+   - Item 4's *"nobody has looked at it"* — two of its three parts were already fixed (`5c52dab`); item 5 was done by `7e3a55f`, found with `git log -S`.
+   - Item 6's instruction **no longer exists**: `pages-order.ts` held `byPath` at `e55d2d5` and Task 26 rewrote the module away from it.
+   - Item 3's exposure reason (*"the editor that does not exist yet"*) died when the resources editor landed. **The conclusion survives on a stronger reason** — the write validator refuses a `preload` document (`store.rs:113` → `validation.rs:861`) — which is what makes closing it correct rather than a convenience.
+
+3. **`views.rs`'s summary range is `:278-286`, at both `5eaa737` and the commits after it** — derive at `:278`, struct at `:279-286`. The `:277-285` a controller instruction once asked for **never existed at or after the commit under review**; it is the pre-`b855a4d` state. **A coordinate can be wrong in the direction of a correction as easily as in the original**, and this phase produced drift both ways.
+
+4. **A duplicated backend emission is invisible to the whole suite, and now is not.** The ordering assertion caught a *move* but not a *duplicate*, and every other assertion was either `contains` or head-equality *between* the two documents — which a consistent duplication preserves. **Two** blind spots, not one, because `compose_document` and `compose_export_document` are different functions with independent call sites: `tests/resources.rs:412` (sandbox response) and `:452` (the `page.html` export), each a `count() == 1`. Mutating `composer.rs:716` kills only the first; mutating `:819` kills only the second.
+
+5. **The serialised-key test, and the shape it must not omit.** One test now pins the key set of every shape the frontend mirrors by hand, and mutating `TokenGroup`'s `rename_all` kills it — **before it existed, the `variables_dark` misspelling was invisible to the entire workspace.** ⚠️ **Its coverage claim is the place to be suspicious**: an earlier version claimed *"every shape"* while omitting four, **including `DesignComment` — the 17-key shape whose `pagePath` / `page_path` mismatch is the instance that started this whole class**. If you extend or trust that test, check `design-api.ts`'s own shape list against its assertions rather than against its doc comment.
+
+6. **Item 8's decline was reversed, and the reversal is the lesson.** A test was declined on the grounds that it was non-discriminating — measured, not argued, and its *killers* really were a strict subset of the existing test's. **But the implementer never varied the fixture:** removing the **first** of two groups leaves one mutation (`removeGroup` drops the first group) permanently invisible, while removing the **second** gives the new test a **unique** killer. **A non-discrimination measurement is only as good as the fixtures it varied** — and the tell was in the implementer's own mutation table, where that mutation survived. Recorded because "I measured it" is the strongest thing anyone can say in this phase, and it was still one fixture short.
+
+7. **What is untracked and therefore not durable.** The 28 task reports, every review package, and this plan's workspace ledger. The commit messages name their commits and the code comments carry the reasons, so the *decisions* survive; the *evidence* — mutation tables, reverted probes, worktree measurements — does not. **If a future phase wants it, the smallest correct change is two lines in `.superpowers/sdd/.gitignore`: `!*/` then `!*/task-*-report.md`** — the bare re-include does not work, because git will not re-include a file whose parent directory is excluded.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
