@@ -16,10 +16,12 @@
 /// this panel's `window.prompt` was the last native dialog in the app. The
 /// dialog asks BEFORE it creates: `createGroup` refuses a blank, over-long or
 /// duplicate name by returning the document unchanged and an empty id, which
-/// behind a prompt or a closing dialog is a no-op nobody can see. So the name
-/// rules are asked first (`group-name.ts`) and the answer is printed under the
-/// field, Create disabled while it stands — the resource editor's live reason,
-/// one panel over.
+/// behind a prompt or a closing dialog is a no-op nobody can see. So the rule is
+/// asked first (`groupNameProblem`, beside `createGroup` in
+/// `lib/design-layout.ts` — the same function `createGroup` refuses through, so
+/// the sentence and the refusal cannot drift apart) and the answer is printed
+/// under the field, Create disabled while it stands — the resource editor's live
+/// reason, one panel over.
 ///
 /// The group picker is a native `<select>` on purpose, not the app's Base UI
 /// `Select`: that component renders the raw value unless the root is given an
@@ -46,6 +48,7 @@ import { cn } from "@/lib/utils"
 import {
   assignRoute,
   createGroup,
+  groupNameProblem,
   groupOf,
   MAX_GROUPS,
   MAX_LABEL,
@@ -54,7 +57,6 @@ import {
   type LayoutDoc,
 } from "@/lib/design-layout"
 
-import { groupNameProblem } from "./group-name"
 import { groupedPages, type NumberedPage } from "./pages-order"
 
 const UNGROUPED = "__ungrouped__"
@@ -93,11 +95,12 @@ export function PagesPanel({
   /// Create the group the dialog named. `createGroup` stays the ONLY creation
   /// path — the dialog only decides whether to offer the button.
   ///
-  /// An empty id here is unreachable while the rule the dialog asks
-  /// (`group-name.ts`) and the rule `createGroup` enforces agree, and
-  /// `group-name.test.ts` pins that they do. If they ever part company, the
-  /// dialog stays open over the name rather than closing on a group that was
-  /// never made — the silent no-op this dialog exists to remove.
+  /// An empty id here is unreachable: the dialog's Create button is enabled
+  /// only while `groupNameProblem` returns null, and that is the same function
+  /// `createGroup` refuses through. It is kept anyway — a refusal must leave the
+  /// dialog open over the name rather than close on a group that was never made,
+  /// which is the silent no-op this dialog exists to remove, and that stays true
+  /// however the rule grows.
   const addGroup = (name: string) => {
     const { doc, id } = createGroup(layout, name)
     if (!id) return

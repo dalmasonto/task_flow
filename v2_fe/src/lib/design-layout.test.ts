@@ -6,11 +6,13 @@ import {
   MAX_LABEL,
   normalizeLayout,
   createGroup,
+  groupNameProblem,
   assignRoute,
   removeGroup,
   groupOf,
   pageLabel,
   setPageLabel,
+  type LayoutDoc,
 } from "./design-layout"
 
 describe("normalizeLayout", () => {
@@ -111,6 +113,35 @@ describe("layout edits", () => {
     expect(createGroup(DEFAULT_LAYOUT, "A".repeat(MAX_GROUP_NAME + 1)).doc).toBe(DEFAULT_LAYOUT)
   })
 
+  it("counts a name the way the SERVER counts it: code points, not UTF-16 units", () => {
+    // `layout_doc.rs:95` measures `name.chars().count()` — code points. JS's
+    // `.length` measures UTF-16 units, so one astral character (an emoji, most
+    // of the CJK extension planes) is 2 there and 1 here. Counting units makes
+    // the client STRICTER than the server: a 40-emoji name the server accepts
+    // is refused here, with a sentence ("limited to 40 characters") that is
+    // literally false about the name the user typed. `setNameProblem` already
+    // counts code points (`[...trimmed].length`) for exactly this reason, and
+    // the resources baseline proves it.
+    //
+    // Which way this proves: every expectation below PASSES under
+    // `[...name].length` and FAILS under `.length` — 40 emoji is 40 code
+    // points (accepted) but 80 UTF-16 units (refused), so `.length` turns the
+    // first two lines red. The ASCII test above is green under either measure,
+    // which is why it never caught this.
+    const emoji = "\u{1F3A8}" // one code point, two UTF-16 units
+    const atCap = emoji.repeat(MAX_GROUP_NAME)
+    expect(atCap.length).toBe(MAX_GROUP_NAME * 2) // the measure being pinned against
+    expect([...atCap].length).toBe(MAX_GROUP_NAME)
+
+    const { doc, id } = createGroup(DEFAULT_LAYOUT, atCap)
+    expect(id).not.toBe("")
+    expect(doc.groups[0].name).toBe(atCap)
+
+    // One code point past the cap is still refused: this is a change of
+    // MEASURE, not a relaxation, and the boundary is the server's.
+    expect(createGroup(DEFAULT_LAYOUT, emoji.repeat(MAX_GROUP_NAME + 1)).doc).toBe(DEFAULT_LAYOUT)
+  })
+
   it("assignRoute moves a page into exactly one group", () => {
     const a = createGroup(DEFAULT_LAYOUT, "Auth").doc
     const b = createGroup(a, "Ops").doc
@@ -146,6 +177,164 @@ describe("layout edits", () => {
     assignRoute(doc, "/login", doc.groups[0].id)
     removeGroup(doc, doc.groups[0].id)
     expect(JSON.stringify(doc)).toBe(before)
+  })
+})
+
+// The rule a new group's name must satisfy, as the Pages panel's dialog needs
+// it. It lives beside `createGroup` — the function that enforces it — and these
+// are that module's tests, which is the whole point of the arrangement: the
+// sentences the user reads and the refusal that builds the document are ONE
+// check, so there is no pair of copies for a test to hold together.
+//
+// The sentences are pinned without rendering anything, the repo's convention
+// (see the `setNameProblem` block in `resources.test.ts`, this rule's sibling).
+
+/// A layout holding the named groups, built through `createGroup` so the ids
+/// are the real thing rather than a fixture's guess at what an id looks like.
+const withGroups = (...names: string[]): LayoutDoc =>
+  names.reduce((doc, name) => createGroup(doc, name).doc, DEFAULT_LAYOUT)
+
+/// A layout at `MAX_GROUPS`, for the rule's least reachable branch: `+ New
+/// group` is hidden at the cap, so the button cannot be clicked into it — the
+/// dialog asks anyway, because it can be OPEN when the cap is reached (the
+/// layout arrives from another viewer), and a rule with an "except" in it is a
+/// rule two places have to agree about.
+const fullLayout = (): LayoutDoc =>
+  withGroups(...Array.from({ length: MAX_GROUPS }, (_, i) => `G${i}`))
+
+describe("groupNameProblem", () => {
+  it("refuses a blank or whitespace-only name", () => {
+    // `createGroup` trims first, so "   " is the same refusal as "" — and the
+    // one a user is likeliest to hit, by typing a space and pressing Enter.
+    for (const name of ["", " ", "   ", "\t", "\n  "]) {
+      expect(groupNameProblem(DEFAULT_LAYOUT, name), JSON.stringify(name)).not.toBeNull()
+    }
+  })
+
+  it("takes a name exactly at the cap and refuses one character past it", () => {
+    // The boundary itself, both sides of it: an off-by-one here is a name the
+    // server would accept being refused in front of the user, with a message
+    // claiming a cap it has not reached.
+    expect(groupNameProblem(DEFAULT_LAYOUT, "A".repeat(MAX_GROUP_NAME))).toBeNull()
+    expect(groupNameProblem(DEFAULT_LAYOUT, "A".repeat(MAX_GROUP_NAME + 1))).not.toBeNull()
+    // The cap counts the TRIMMED name — `createGroup` stores `trimmed`, so
+    // padding a 40-character name out to 44 must not refuse it.
+    expect(
+      groupNameProblem(DEFAULT_LAYOUT, `  ${"A".repeat(MAX_GROUP_NAME)}  `),
+    ).toBeNull()
+    // The MEASURE, from the panel's side: 40 emoji is 40 code points, the
+    // server's count, so Create lights up. Under `.length` this row is 80 and
+    // the dialog refuses a name the server takes, with a sentence that is false
+    // about what was typed. The engine's half of this boundary is in
+    // `layout edits` below; the two are the same function, so they cannot part.
+    const emoji = "\u{1F3A8}"
+    expect(groupNameProblem(DEFAULT_LAYOUT, emoji.repeat(MAX_GROUP_NAME))).toBeNull()
+    expect(groupNameProblem(DEFAULT_LAYOUT, emoji.repeat(MAX_GROUP_NAME + 1))).toContain(
+      String(MAX_GROUP_NAME),
+    )
+  })
+
+  it("refuses a duplicate in a different case", () => {
+    const doc = withGroups("Auth")
+
+    // `createGroup` lower-cases both sides, so a group named "Auth" makes
+    // "auth", "AUTH" and "  Auth  " all taken — and a user who types "auth"
+    // after creating "Auth" is the likeliest way to meet this rule.
+    for (const name of ["auth", "AUTH", "  Auth  ", "aUtH"]) {
+      expect(groupNameProblem(doc, name), name).not.toBeNull()
+    }
+    // A prefix is not a duplicate: the rule is equality, not containment.
+    expect(groupNameProblem(doc, "Authentication")).toBeNull()
+  })
+
+  // The one worth pinning: nothing is cached. The rule reads the document it is
+  // HANDED, at the moment it is called, so the panel can call it on every
+  // keystroke against the live layout — and a group removed in another tab
+  // (or by the group editor) frees its name without the dialog knowing.
+  it("reads the layout it is given, not a snapshot of it", () => {
+    const doc = withGroups("Auth", "Ops")
+    const [auth, ops] = doc.groups
+
+    // Removing an UNRELATED group does not free "Auth": the name is still in
+    // the document, so it is still refused. A rule that answered from a stale
+    // copy — or from the wrong group — would accept it here.
+    expect(groupNameProblem(removeGroup(doc, ops.id), "auth")).not.toBeNull()
+    expect(groupNameProblem(removeGroup(doc, ops.id), "ops")).toBeNull()
+
+    // And removing THAT group does free it — the same call, one document
+    // later. Both directions are needed: the first says the rule is not
+    // forgotten, the second says it is not latched.
+    expect(groupNameProblem(removeGroup(doc, auth.id), "auth")).toBeNull()
+  })
+
+  it("refuses at the group cap and names the cap", () => {
+    const full = fullLayout()
+    expect(full.groups).toHaveLength(MAX_GROUPS)
+
+    const problem = groupNameProblem(full, "One more")
+    expect(problem).not.toBeNull()
+    expect(problem).toContain(String(MAX_GROUPS))
+  })
+
+  it("names the rule that was broken", () => {
+    // Four refusals, four sentences: the field under the dialog is the whole
+    // feedback loop, so a blank name and a duplicate must not read the same.
+    const doc = withGroups("Auth")
+    expect(groupNameProblem(doc, "   ")).toMatch(/name/i)
+    expect(groupNameProblem(doc, "AUTH")).toMatch(/already/i)
+    expect(groupNameProblem(doc, "A".repeat(MAX_GROUP_NAME + 1))).toContain(
+      String(MAX_GROUP_NAME),
+    )
+    expect(groupNameProblem(fullLayout(), "One more")).toContain(String(MAX_GROUPS))
+    expect(groupNameProblem(doc, "Ops")).toBeNull()
+  })
+
+  // What the OLD agreement table guarded — two copies of the rule drifting — is
+  // now impossible: `createGroup` refuses by calling this very function, so the
+  // sentence the panel shows and the document the engine builds are one check.
+  //
+  // This test is kept, re-aimed, because a different failure mode took the old
+  // one's place: a refusal the rule knows nothing about, ADDED to the engine
+  // beside it — a reserved name, a stricter trim, an id the name has to satisfy.
+  // The panel enables Create on the RULE's answer, so such a refusal is a button
+  // that does nothing, the silent no-op this dialog exists to remove. The direct
+  // assertions above cannot see it: each pins only the checks it names.
+  //
+  // Proven by mutation, not assumed. Refusing an untrimmed name inside
+  // `createGroup` (`if (name.trim() !== name) return { doc, id: "" }`) fails
+  // this test and NOTHING else in the file — 1 failed | 26 passed — which is
+  // what the `[base, "  Ops  "]` row below is for: a usable padded name, the
+  // one case here no direct test carries.
+  it("refuses exactly when the rule has a reason, so Create is never enabled over a refusal", () => {
+    const base = withGroups("Auth")
+    const cases: [LayoutDoc, string][] = [
+      [DEFAULT_LAYOUT, "Auth"],
+      [base, "Ops"],
+      [base, ""],
+      [base, "   "],
+      [base, "auth"],
+      [base, "  AUTH  "],
+      [base, "Authentication"],
+      // A usable name with padding on it: the rule allows it, and the engine
+      // must too — storing it trimmed. This row is the one the direct tests do
+      // not have (they carry a padded name only through the RULE, and a padded
+      // duplicate through the engine, which refuses either way), and it is what
+      // catches an engine that refuses what the rule allows — mutation M-3.
+      [base, "  Ops  "],
+      [base, "A".repeat(MAX_GROUP_NAME)],
+      [base, "A".repeat(MAX_GROUP_NAME + 1)],
+      [base, "\u{1F3A8}".repeat(MAX_GROUP_NAME)],
+      [base, "\u{1F3A8}".repeat(MAX_GROUP_NAME + 1)],
+      [fullLayout(), "One more"],
+      [fullLayout(), "G0"],
+      [fullLayout(), ""],
+    ]
+    for (const [doc, name] of cases) {
+      expect([name, groupNameProblem(doc, name) !== null]).toEqual([
+        name,
+        createGroup(doc, name).id === "",
+      ])
+    }
   })
 })
 

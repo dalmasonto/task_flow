@@ -91,17 +91,68 @@ function nextGroupId(): string {
   return `g${Date.now().toString(36)}${groupSeq.toString(36)}`
 }
 
-/** A new empty group, or the document unchanged when the cap is hit or the name
- *  is already taken (matching the server's rule, so the UI cannot build a
- *  document the server will reject). */
-export function createGroup(doc: LayoutDoc, name: string): { doc: LayoutDoc; id: string } {
+/// The rule a new group's name must satisfy, as a sentence the UI can show —
+/// `null` when the name is usable, otherwise the reason to refuse it.
+///
+/// # Why the reason is a string and not a boolean
+///
+/// `createGroup` refuses a blank name, an over-long one, a duplicate and a call
+/// at the cap — all four the same way: the document back unchanged and an empty
+/// id. Behind `window.prompt` that was invisible (the dialog closed, nothing
+/// appeared), and behind the Pages panel's dialog it would still be invisible
+/// without something to ASK. So the panel asks this before it ever calls
+/// `createGroup`, disables Create on a reason, and prints the sentence under
+/// the field.
+///
+/// The precedent is `setNameProblem` (`lib/resources.ts`), the resource
+/// editor's live reason under its Add button: same shape, same purpose, same
+/// wording style, and — since both live beside the function that enforces them
+/// — the same arrangement, one rule in one place.
+///
+/// # The measure is the SERVER's
+///
+/// Length is counted in CODE POINTS (`[...trimmed].length`), which is what
+/// `layout_doc.rs:95` does (`name.chars().count()`). JS's `.length` counts
+/// UTF-16 units, so an astral character would be 2 here and 1 there, and a
+/// 40-emoji name the server accepts would be refused in front of the user with
+/// a sentence claiming a cap it has not reached. A client stricter than the
+/// server is a defect either way; for resource sets `setNameProblem` counts
+/// code points for this exact reason.
+///
+/// null when `name` is usable for a new group, otherwise the reason to show.
+///
+/// The checks run blank → over-long → duplicate → cap, and the order is the
+/// SENTENCE's: a name that is both blank and at the cap reads as blank — the
+/// thing the user can act on — rather than as the cap, which no amount of
+/// typing in this dialog can clear.
+export function groupNameProblem(doc: LayoutDoc, name: string): string | null {
   const trimmed = name.trim()
-  const taken = doc.groups.some((g) => g.name.trim().toLowerCase() === trimmed.toLowerCase())
-  if (!trimmed || trimmed.length > MAX_GROUP_NAME || taken || doc.groups.length >= MAX_GROUPS) {
-    return { doc, id: "" }
+  if (!trimmed) return "A group needs a name."
+  if ([...trimmed].length > MAX_GROUP_NAME) {
+    return `A group name is limited to ${MAX_GROUP_NAME} characters.`
   }
+  // Case-insensitive, like the engine's and the server's, and compared TRIMMED
+  // on both sides: "  auth  " is as taken as "Auth" is.
+  if (doc.groups.some((g) => g.name.trim().toLowerCase() === trimmed.toLowerCase())) {
+    return `"${trimmed}" is already a group name.`
+  }
+  if (doc.groups.length >= MAX_GROUPS) return `At most ${MAX_GROUPS} groups.`
+  return null
+}
+
+/** A new empty group, or the document unchanged when `groupNameProblem` has a
+ *  reason — blank, over-long, already taken, or at the cap — matching the
+ *  server's rule, so the UI cannot build a document the server will reject.
+ *
+ *  The refusal is not restated here: this is the rule's ONE enforcement, and
+ *  the panel's Create button reads the same function to decide whether it is
+ *  offered at all. What keeps the two from disagreeing is that there is nothing
+ *  to disagree with — the sentence the user sees and the refusal that builds
+ *  the document are the same check. */
+export function createGroup(doc: LayoutDoc, name: string): { doc: LayoutDoc; id: string } {
+  if (groupNameProblem(doc, name) !== null) return { doc, id: "" }
   const id = nextGroupId()
-  return { doc: { ...doc, groups: [...doc.groups, { id, name: trimmed, routes: [] }] }, id }
+  return { doc: { ...doc, groups: [...doc.groups, { id, name: name.trim(), routes: [] }] }, id }
 }
 
 /** Move a route into `groupId`, or out of every group when it is null. A route
