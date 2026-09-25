@@ -1001,7 +1001,7 @@ pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
                 out.push_str(&format!(
                     "<script src=\"{}\"{}></script>\n",
                     esc(src),
-                    if link.async_ { " async" } else { "" }
+                    if link.is_async { " async" } else { "" }
                 ));
             }
         } else if let (Some(rel), Some(href)) = (&link.rel, &link.href) {
