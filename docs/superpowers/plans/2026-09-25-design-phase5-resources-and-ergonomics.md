@@ -18,9 +18,9 @@
 - **But "no new plumbing" was WRONG** (found in Task 6, verified): `validation.rs:176`'s `check_extension` admits **only** `styles/tokens.json` and `styles/tokens.css` for the Token kind, so **every write to `styles/resources.json` is refused** with rule `extension` before `resources::validate` is ever reached. The document could be parsed and validated in a unit test and still be unsaveable. Task 6 extends `validation.rs`: allow the path in `check_extension` (with its `expected` message updated) and dispatch that path to `resources::validate` in `validate_write`. Cost of the miss: without it, the feature is unreachable from the UI while every test passes — the same silent-no-op shape as the Phase 4 `projectScopedRealtimeTables` omission.
 - **Never regenerate `backend/migrations/taskflow_design/0001_auto.json` or `0002_create_design_layout.json`.** No migration is expected in this plan; if one appears, a new file with a new name is the only acceptable outcome.
 - Resource link schemes: **`https:` only**; `javascript:` and `data:` refused for both link and script shapes. Allowed `rel`: `preconnect`, `dns-prefetch`, `stylesheet`, `preload`.
-- Backend tests: `cargo test --workspace` (**a bare `cargo test` in `backend/` silently skips every plugin crate**). Frontend: `npm test`, then `npm run build`.
+- Backend tests: `cargo test --workspace` (**a bare `cargo test` in `backend/` silently skips every plugin crate**). Frontend tasks: `npx tsc -b && npm test` — **and NOT `npm run build`**, because the build is what publishes the app (Phase 4's own note: *"Run the build LAST — it is what publishes the app"*). It runs exactly once, in Task 9's held publish, on the user's go-ahead.
 - This repo has **no RTL/jsdom** — pure unit tests only, plus visual verification.
-- **Publish order: the backend must deploy before the frontend.** Measured, not assumed: the deployed backend answers `403` to a realtime group it does not know and the realtime layer refuses the *entire* handshake. Phase 4's held build is still held.
+- **Publish order: the backend must deploy before the frontend.** Measured, not assumed: the deployed backend answers `403` to a realtime group it does not know and the realtime layer refuses the *entire* handshake. Phase 4's held build is still held. So **no task in this plan runs `npm run build`**: a frontend build produced before the user's backend deploy is precisely the hazard this line describes, and Task 9 owns the plan's single one, on the user's go-ahead.
 - **Stage explicit paths when committing. Never `git add -A`** — the tree carries an unrelated modified `backend/README.md`, and `v2_fe/yarn.lock` is tracked but CI-unused and gets dirtied by npm.
 - **Do not edit `docs/superpowers/plans/…` or a task brief** — those are the controller's. Report defects instead.
 
@@ -337,7 +337,7 @@ Add one line to `LazyFrame`'s doc comment recording the deliberate trade: frames
 
 - [ ] **Step 3: Verify and commit**
 
-Run: `cd v2_fe && npx tsc -b && npm test && npm run build`
+Run: `cd v2_fe && npx tsc -b && npm test` — type-check and tests only. **Do not run `npm run build`**: it publishes the app, and Task 9 owns the plan's single held publish, backend first.
 Expected: clean. The change is one predicate; correctness is visual.
 
 ```bash
@@ -407,7 +407,7 @@ In `ArtboardHeader`, give each item its handler and remove the dead placeholders
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `cd v2_fe && npx tsc -b && npm test && npm run build`
+Run: `cd v2_fe && npx tsc -b && npm test` — type-check and tests only. **Do not run `npm run build`**: it publishes the app, and Task 9 owns the plan's single held publish, backend first.
 
 ```bash
 cd /home/dalmas/E/projects/local_task_tracker
@@ -543,7 +543,7 @@ In `ArtboardHeader`, replace the Rotate placeholder with one that adds the board
 
 - [ ] **Step 5: Verify and commit**
 
-Run: `cd v2_fe && npx tsc -b && npm test && npm run build`
+Run: `cd v2_fe && npx tsc -b && npm test` — type-check and tests only. **Do not run `npm run build`**: it publishes the app, and Task 9 owns the plan's single held publish, backend first.
 
 ```bash
 cd /home/dalmas/E/projects/local_task_tracker
@@ -1121,9 +1121,25 @@ git commit -m "feat(design): inject enabled resource links; allow https in the s
 
 **Interfaces:**
 - Consumes: the `DesignFile` endpoints already used by `TokenEditor` (`styles/resources.json`), and `ResourceLink`/`ResourceSet`/`ResourcesDoc` mirrored from Task 6.
-- Produces: `normalizeResources(raw: unknown): ResourcesDoc`, `toggleSet(doc, id): ResourcesDoc`, `addSet(doc, name): { doc: ResourcesDoc; id: string }`, `removeSet(doc, id): ResourcesDoc`, `parsePastedLinks(text: string): ResourceLink[]`.
+- Produces: `normalizeResources(raw: unknown): ResourcesDoc`, `toggleSet(doc, id): ResourcesDoc`, `addSet(doc, name): { doc: ResourcesDoc; id: string }`, `removeSet(doc, id): ResourcesDoc`, `appendLinks(doc, setId, links): { doc: ResourcesDoc; added: number; skipped: number }`, `parsePastedLinks(text: string): ResourceLink[]`.
 - **Wire shape, mirrored from Task 6's Rust exactly** (it is `#[serde(rename_all = "camelCase")]` there): `ResourceLink = { rel?: string; href?: string; crossorigin: boolean; script?: string; isScript: boolean; isAsync: boolean }`; `ResourceSet = { id: string; name: string; enabled: boolean; links: ResourceLink[] }`; `ResourcesDoc = { version: number; sets: ResourceSet[] }`. Every field is always present on the wire — the Rust side does not skip serialising — so `normalizeResources` must tolerate `null` for the optional ones.
 - **`removeSet` on an unknown id, and `toggleSet` on an unknown id, both return the SAME document object** (identity), matching `createGroup`'s refusal convention so a caller can tell "nothing happened".
+- **Mirror the server's caps**, so the editor cannot build a document the server will reject — the rule `createGroup` already states in its own doc comment (*"matching the server's rule, so the UI cannot build a document the server will reject"*). Task 6's validator enforces all three of these (`resources.rs:20-23`), so without the mirror "Add set" appears to work and the *save* then fails with a message about a document the user cannot see:
+
+  ```ts
+  export const MAX_SETS = 24          // resources.rs MAX_SETS
+  export const MAX_SET_NAME = 60      // resources.rs MAX_SET_NAME
+  export const MAX_LINKS_PER_SET = 16 // resources.rs MAX_LINKS_PER_SET
+
+  let setSeq = 0
+  function nextSetId(): string {
+    setSeq += 1
+    return `s${Date.now().toString(36)}${setSeq.toString(36)}`
+  }
+  ```
+
+  `nextSetId` mirrors `design-layout.ts`'s `nextGroupId` exactly — same shape, same module-local counter, same reason (ids must be unique and stable; the server refuses duplicates by design). `addSet` refuses (identity doc plus `id: ""`) when the trimmed name is blank, over `MAX_SET_NAME`, already taken case-insensitively, or `doc.sets.length >= MAX_SETS`. `appendLinks` appends only as many links as fit under `MAX_LINKS_PER_SET`, reports `added`/`skipped`, and returns the same document object when nothing fit.
+- **Do NOT mirror `MAX_HREF` (2048).** The line is: cap what the *UI* creates as an entity, because there is no server message that makes sense for "you clicked Add set"; let the server adjudicate per-link content, because "a url is limited to 2048 characters" is a message the user can act on, and Step 3 already surfaces it.
 
 - [ ] **Step 1: Write the failing tests** — `src/lib/resources.test.ts`
 
@@ -1187,6 +1203,36 @@ describe("set edits", () => {
     expect(out.sets.map((s) => s.id)).toEqual(["s2"])
     expect(removeSet(base, "nope")).toBe(base)
   })
+
+  // The server's caps, mirrored (see this task's Interfaces). Without these the
+  // UI happily builds a document `resources::validate` refuses, and the user
+  // meets the refusal at Save with no way to see which row caused it.
+  it("addSet refuses at the set cap", () => {
+    const full = normalizeResources({ version: 1, sets:
+      Array.from({ length: MAX_SETS }, (_, i) => ({ id: `s${i}`, name: `S${i}`, enabled: true, links: [] })) })
+    expect(addSet(full, "One more").doc).toBe(full)
+    expect(addSet(full, "One more").id).toBe("")
+  })
+
+  it("addSet refuses a name past the server's limit", () => {
+    expect(addSet(base, "x".repeat(MAX_SET_NAME + 1)).doc).toBe(base)
+    expect(addSet(base, "x".repeat(MAX_SET_NAME)).doc).not.toBe(base)
+  })
+
+  it("appendLinks stops at the per-set cap and reports what it skipped", () => {
+    const link = (href: string) => ({ rel: "stylesheet", href, crossorigin: false, isScript: false, isAsync: false })
+    const full = normalizeResources({ version: 1, sets: [{ id: "s1", name: "X", enabled: true,
+      links: Array.from({ length: MAX_LINKS_PER_SET }, () => link("https://a.example")) }] })
+    const out = appendLinks(full, "s1", [link("https://b.example")])
+    expect(out.added).toBe(0)
+    expect(out.skipped).toBe(1)
+    expect(out.doc).toBe(full)
+    // With room it takes what fits and says so.
+    const partial = appendLinks(base, "s1", [link("https://c.example"), link("https://d.example")])
+    expect(partial.added).toBe(2)
+    expect(partial.skipped).toBe(0)
+    expect(partial.doc.sets.find((s) => s.id === "s1")!.links).toHaveLength(2)
+  })
 })
 
 describe("parsePastedLinks", () => {
@@ -1229,15 +1275,15 @@ describe("parsePastedLinks", () => {
 })
 ```
 
-- [ ] **Step 2: Implement `src/lib/resources.ts`** to satisfy them, mirroring `design-layout.ts`'s tolerant-parse style. `parsePastedLinks` is a small regex pass over `<link …>` and `<script …>` tags, reading `rel`, `href`, `src`, `crossorigin`, `async`. It parses and does not judge.
+- [ ] **Step 2: Implement `src/lib/resources.ts`** to satisfy them, mirroring `design-layout.ts`'s tolerant-parse style. `parsePastedLinks` is a small regex pass over `<link …>` and `<script …>` tags, reading `rel`, `href`, `src`, `crossorigin`, `async`. It parses and does not judge — the cap lives in `appendLinks`, which is the only thing that puts pasted links into a document, so the two concerns stay separable and each is testable on its own.
 
-- [ ] **Step 3: Write `resource-editor.tsx`**, modelled on `token-editor.tsx`: it loads `styles/resources.json` through the same client the TokenEditor uses, renders each set as a row with a toggle and its links, lets a set be added (with a name) or removed, and offers a paste box that runs `parsePastedLinks` and appends the result to a chosen set. Saving writes the document back via the same operator file endpoint. **On a rejected save, show the server's message** — validation refusals are the user's feedback that a URL was not https, and swallowing them would leave a dead button.
+- [ ] **Step 3: Write `resource-editor.tsx`**, modelled on `token-editor.tsx`: it loads `styles/resources.json` through the same client the TokenEditor uses, renders each set as a row with a toggle and its links, lets a set be added (with a name) or removed, and offers a paste box that calls `appendLinks(doc, setId, parsePastedLinks(text))` — appending through the capped helper rather than splicing the parse result in directly, and reporting `skipped` when the set was full. Saving writes the document back via the same operator file endpoint. **On a rejected save, show the server's message** — validation refusals are the user's feedback that a URL was not https, and swallowing them would leave a dead button.
 
 - [ ] **Step 4: Mount it** in the Tokens tab, below the token editor, since both are "how this project looks".
 
 - [ ] **Step 5: Verify and commit**
 
-Run: `cd v2_fe && npx tsc -b && npm test && npm run build`
+Run: `cd v2_fe && npx tsc -b && npm test` — type-check and tests only. **Do not run `npm run build`**: it publishes the app, and Task 9 owns the plan's single held publish, backend first.
 
 ```bash
 cd /home/dalmas/E/projects/local_task_tracker
@@ -1428,7 +1474,7 @@ The path is the sandbox path (`/s/{token}/app`), so strip the `/s/{token}` prefi
 
 - [ ] **Step 3: Render it.** `ArtboardHeader` shows the board's own route normally. When the reported route differs, it shows the current one distinctly (e.g. `→ /app`) plus a **reset** control that returns the frame to the board's route by remounting it — the same per-board epoch mechanism Task 4 built, so a reset reloads one frame and nothing else.
 
-- [ ] **Step 4: Verify and commit.** `npm test`, `npm run build`. Visual verification is Task 9's job.
+- [ ] **Step 4: Verify and commit.** `npm test` — **not the build** (Task 9 owns the plan's single held publish, backend first). Visual verification is Task 9's job.
 
 ---
 
