@@ -12,7 +12,7 @@
 //!     names, and refusing to serve it would wedge the client against a
 //!     document it has no way to repair.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,7 @@ use crate::models::DesignView;
 
 pub const MAX_GROUPS: usize = 24;
 pub const MAX_GROUP_NAME: usize = 40;
+pub const MAX_LABEL: usize = 40;
 const MAX_GROUP_ID: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,12 +40,22 @@ pub struct LayoutDoc {
     pub route_order: Vec<String>,
     #[serde(default)]
     pub groups: Vec<LayoutGroup>,
+    /// Display labels, route → human name. A *label* only: the page's own title
+    /// and the real app are untouched. Absent for a route that has never been
+    /// renamed, which is why every reader must fall back to the manifest title.
+    #[serde(default)]
+    pub page_labels: HashMap<String, String>,
 }
 
 /// What a project has before anyone has arranged anything: today's view, every
 /// page in manifest order, nothing grouped.
 pub fn default_doc() -> LayoutDoc {
-    LayoutDoc { view: DesignView::Rows, route_order: Vec::new(), groups: Vec::new() }
+    LayoutDoc {
+        view: DesignView::Rows,
+        route_order: Vec::new(),
+        groups: Vec::new(),
+        page_labels: HashMap::new(),
+    }
 }
 
 /// Tolerant on shape, strict on syntax. A caller that cannot parse falls back to
@@ -118,7 +129,24 @@ pub fn validate(doc: LayoutDoc, known_routes: &[String]) -> Result<LayoutDoc, St
         }
     }
 
-    Ok(LayoutDoc { view: doc.view, route_order, groups })
+    // Same rule as group routes: a label names a page, so a stale client
+    // sending one for a route that does not exist is refused rather than stored.
+    let mut page_labels = HashMap::with_capacity(doc.page_labels.len());
+    for (route, label) in doc.page_labels {
+        if !known.contains(route.as_str()) {
+            return Err(format!("\"{route}\" is not a page in this project"));
+        }
+        let label = label.trim().to_string();
+        if label.is_empty() {
+            return Err(format!("the label for \"{route}\" cannot be empty"));
+        }
+        if label.chars().count() > MAX_LABEL {
+            return Err(format!("a page label is limited to {MAX_LABEL} characters"));
+        }
+        page_labels.insert(route, label);
+    }
+
+    Ok(LayoutDoc { view: doc.view, route_order, groups, page_labels })
 }
 
 /// Forgiving read path: drop routes the manifest no longer has, keep the group
@@ -140,6 +168,11 @@ pub fn filter_to_known(doc: LayoutDoc, known_routes: &[String]) -> LayoutDoc {
                 routes: g.routes.into_iter().filter(|r| known.contains(r.as_str())).collect(),
                 ..g
             })
+            .collect(),
+        page_labels: doc
+            .page_labels
+            .into_iter()
+            .filter(|(route, _)| known.contains(route.as_str()))
             .collect(),
     }
 }

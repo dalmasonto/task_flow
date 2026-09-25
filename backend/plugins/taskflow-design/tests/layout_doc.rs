@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use taskflow_design::layout_doc::{
     default_doc, filter_to_known, parse, to_json_string, to_value, validate, LayoutDoc, LayoutGroup,
     MAX_GROUPS,
@@ -17,7 +19,7 @@ fn known() -> Vec<String> {
 }
 
 fn doc(view: DesignView, groups: Vec<LayoutGroup>) -> LayoutDoc {
-    LayoutDoc { view, route_order: vec!["/".into()], groups }
+    LayoutDoc { view, route_order: vec!["/".into()], groups, page_labels: HashMap::new() }
 }
 
 #[test]
@@ -134,4 +136,55 @@ fn to_value_emits_the_wire_shape() {
     assert_eq!(v["view"], "bands");
     assert!(v["routeOrder"].is_array());
     assert!(v["groups"].is_array());
+}
+
+#[test]
+fn page_labels_round_trip_as_camel_case() {
+    let mut d = doc(DesignView::Rows, vec![]);
+    d.page_labels.insert("/login".into(), "Sign in".into());
+    let json = to_json_string(&d);
+    assert!(json.contains("\"pageLabels\""), "{json}");
+    assert_eq!(parse(&json).unwrap(), d);
+}
+
+#[test]
+// The camelCase is the wire field this test is about, so the name keeps it.
+#[allow(non_snake_case)]
+fn a_document_without_pageLabels_still_parses() {
+    // Every document written before this field existed must keep working.
+    let d = parse(r#"{"view":"rows","routeOrder":[],"groups":[]}"#).unwrap();
+    assert!(d.page_labels.is_empty());
+}
+
+#[test]
+fn validate_trims_labels_and_refuses_bad_ones() {
+    let mut ok = doc(DesignView::Rows, vec![]);
+    ok.page_labels.insert("/login".into(), "  Sign in  ".into());
+    let out = validate(ok, &known()).unwrap();
+    assert_eq!(out.page_labels["/login"], "Sign in");
+
+    // empty after trimming
+    let mut blank = doc(DesignView::Rows, vec![]);
+    blank.page_labels.insert("/login".into(), "   ".into());
+    assert!(validate(blank, &known()).is_err());
+
+    // over the cap
+    let mut long = doc(DesignView::Rows, vec![]);
+    long.page_labels.insert("/login".into(), "x".repeat(41));
+    assert!(validate(long, &known()).is_err());
+
+    // a route that is not a page — same rule as group routes
+    let mut ghost = doc(DesignView::Rows, vec![]);
+    ghost.page_labels.insert("/nope".into(), "Gone".into());
+    assert!(validate(ghost, &known()).is_err());
+}
+
+#[test]
+fn filter_drops_labels_for_vanished_routes() {
+    let mut d = doc(DesignView::Rows, vec![]);
+    d.page_labels.insert("/login".into(), "Sign in".into());
+    d.page_labels.insert("/gone".into(), "Removed".into());
+    let out = filter_to_known(d, &known());
+    assert_eq!(out.page_labels.len(), 1);
+    assert_eq!(out.page_labels["/login"], "Sign in");
 }
