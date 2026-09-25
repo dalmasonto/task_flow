@@ -1,0 +1,144 @@
+# Design page Phase 5 — external resource sets + canvas ergonomics
+
+**Date:** 2026-09-25
+**Status:** Awaiting review
+**Depends on:** Phases 1–4. Phase 4 is complete to 13 of 14 tasks (its final publish step is deliberately held — see "Publish order" below).
+
+## Problem
+
+Six items the user raised while Phase 4 was executing. One of them (item 4) is already fixed and shipped in Phase 4; the rest are new.
+
+| # | Item | Class |
+|---|---|---|
+| 1 | Rename pages from the UI | New, small |
+| 2 | The per-device actions are dead placeholders — make them work | New, medium |
+| 3 | A page unloads when scrolled out of view and reloads on return | New, small |
+| 4 | Page-content edits don't reach the canvas live | **FIXED in Phase 4** (commit `b855a4d`) |
+| 5 | After the Pan tool, returning to Select leaves the page frozen until clicked | **Bug — root cause NOT found** |
+| 6 | User-managed external resource sets (fonts + companion links) per project | New, architectural |
+
+## Goals
+
+1. **Rename pages** — a display label per page, project-shared.
+2. **Per-device actions work** — `rotate`, `duplicate at another device`, `open in new tab`, `reload`, `remove` are real.
+3. **Frames stay loaded once seen** — no reload when a page scrolls back into view.
+4. *(done)*
+5. **Find and fix the scroll-freeze**, by reproduction first.
+6. **Resource sets** — named, toggleable groups of external links (fonts and their companion preconnects/JS), per project, applied to every composed page and to the exported `page.html`.
+
+## Non-goals
+
+No change to the arrangement document's shape, the token pipeline, the chat rail, or the component registry. No font *hosting* — only linking. No per-link scheduling/ordering UI beyond set order.
+
+## Key decisions (from the user)
+
+1. **Rename = a display label**, not the page's real title. It rides in the shared arrangement document; the page and the real app are untouched.
+2. **`remove` removes the page everywhere** from the arrangement — same effect as the existing close control, one meaning, no per-device visibility concept.
+3. **Frames stay live once seen.** The user's reason is the deciding one: they compare pages against each other, so a page vanishing mid-comparison defeats the purpose. Memory grows with pages actually scrolled past, and that is accepted.
+4. **Resource links are named, toggleable sets**, several of which can be active at once — so a font can be kept around without affecting every page.
+5. **Link security: any https origin; dangerous schemes refused.** `https:` works everywhere; non-https is refused; `javascript:`/`data:` are never loaded as scripts.
+
+## The one genuine finding this spec is built on — the CSP
+
+`composer.rs:409-426` carries the sandbox's Content-Security-Policy, and it is **origin-allowlisted to jsDelivr**:
+
+```
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+style-src  'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+font-src   'self' data: https://cdn.jsdelivr.net;
+```
+
+The comment beside it records the scar: *"Before this, `style-src 'self'` silently refused every external webfont — the `<link>` stayed in the DOM, the browser dropped the request, and the page fell back."*
+
+**So Google Fonts does not work today, and no UI can fix that.** Item 6 is fundamentally a CSP change, with a storage format and a UI around it. That is why this item is architectural while it looks like a widget.
+
+## Architecture
+
+### §A — Page labels (item 1)
+
+`LayoutDoc` gains `pageLabels: Record<string, string>` — route → display label. It is part of the shared arrangement, so it travels with the layout document and needs **no new storage or endpoints**.
+
+- **Write path:** the existing `PUT /api/design/{project}/layout`. `validate` must reject a label that is empty after trimming or over a length cap (mirroring the group-name rule: 1–40), and must drop labels for routes not in the manifest — same strict-write/forgiving-read asymmetry already established in `layout_doc.rs`.
+- **Read path:** `filter_to_known` also drops labels whose route has vanished.
+- **Render:** three places show a page name — `PagesPanel` rows, `ArtboardHeader`, and the `rowHeaders` overlay. All three resolve `pageLabels[route] ?? manifest.title ?? route`.
+- **Edit:** inline rename in `PagesPanel` (the panel already owns per-row controls; the group picker sits there).
+
+Explicitly **not** done: renaming the page's actual `<title>`. That is a page-content write, shared with the real app, and the user chose the label.
+
+### §B — The per-device actions (item 2)
+
+Five actions become real, in the ⋯ menu `ArtboardHeader` already has (`design-canvas.tsx`). Each needs its canvas-level effect defined, and only one needs new state:
+
+| Action | Behaviour |
+|---|---|
+| **Reload** | Remount just this board's iframe. Needs a per-board epoch: `contentEpoch` today is global, so reloading one board must not reload all of them — a `Map<boardKey, number>` of local bumps layered on the global epoch. |
+| **Open in new tab** | `window.open(sandboxUrl(sandboxToken, route))`. No state. |
+| **Duplicate at another device** | Add this route at a chosen device. Needs a device submenu; the effect is `deviceIds` gaining that device, so the route then renders in the new column/band. |
+| **Rotate** | Render this board at its device's swapped dimensions. **Ruling, because the hard constraint collides with it:** the iframe must stay at true CSS px, so rotating *is* changing the width — which moves the page's breakpoint. Rather than pretend otherwise, a rotated board is a **distinct derived board**, keyed `${route}@${deviceId}:landscape`, with its own header showing that it is rotated, so the breakpoint change is visible rather than silent. Offered for **phone and tablet groups only**; rotating a laptop or a breakpoint is meaningless (a 1280×800 laptop is not a portrait device, and a Tailwind breakpoint is a width, not a device). Override this if you want rotate everywhere. |
+| **Remove** | Close the route from the arrangement (`closeRoute`), as decided. |
+
+### §C — Frames stay loaded (item 3)
+
+`LazyFrame`'s `IntersectionObserver` currently sets `near` both ways (`setNear(entry.isIntersecting)`), so leaving ~1.5 viewports unmounts the iframe and shows `PlaceholderSkeleton`. The fix is to **latch**: mount on first intersection, never unmount.
+
+- `setNear(true)` is the only transition; the false branch is removed.
+- The placeholder then appears only for frames never yet seen — still lazy on first paint, which is what keeps a large canvas from mounting a dozen documents at once.
+- This makes the earlier "zoom pixelation" report more likely to reproduce (more live frames), so item 5's reproduction should be run **after** this change, not before.
+
+### §D — The scroll freeze (item 5)
+
+**No root cause yet, and this spec does not propose a fix.** What is known:
+
+- The user can highlight text inside a page, so the frame **is** receiving pointer events — the `panMode` → `pointer-events: none` latch theory was raised and **falsified** by that answer.
+- The canvas still pans when the wheel is over the background, so the surface's wheel handler is behaving as designed.
+- What remains: the frame receives clicks but its own document does not scroll on the wheel until it has been clicked into.
+
+**This item is a SPIKE, not a planned task.** Its output is an answer, not code: reproduce it, then come back with the cause and a proposed fix for a separate decision. It gets no task in the plan and no fix is written under this spec. The reason is that its only two considered theories have already been tested against the evidence and one was falsified — speculating further would be guessing, and a guessed fix here would be indistinguishable from a real one until you used it.
+
+**Method:** reproduce on the local stack (Phase 4's Task 14 sets one up), with a page whose content overflows its frame, and observe whether the wheel event reaches the frame's document at all. Candidate directions to test in order: wheel delivery to a never-focused out-of-process iframe; the composed shell's own overflow/scrollbar CSS (§E's resources change touches this area, so re-check it after); and interaction with the latched frames from §C. **Do not propose a fix before the reproduction identifies which.**
+
+### §E — Resource sets (item 6)
+
+**Storage: `styles/resources.json`, a `DesignFile` row.** This reuses the entire existing pipeline rather than inventing one — versioning, the write validator, the operator `PUT /file` endpoint, the agent write path, and the manifest. It is the same shape as `styles/tokens.json`, which the `TokenEditor` already reads and writes. `for_path` maps `styles/` to `DesignFileKind::Token`, so no enum change and no migration.
+
+```json
+{ "version": 1,
+  "sets": [
+    { "id": "set_gfonts_inter", "name": "Inter (Google Fonts)", "enabled": true,
+      "links": [
+        { "rel": "preconnect", "href": "https://fonts.googleapis.com" },
+        { "rel": "preconnect", "href": "https://fonts.gstatic.com", "crossorigin": true },
+        { "rel": "stylesheet", "href": "https://fonts.googleapis.com/css2?family=Inter:...&display=swap" }
+      ] },
+    { "id": "set_gtm", "name": "Analytics snippet", "enabled": false,
+      "links": [ { "type": "script", "src": "https://example.com/lib.js", "async": true } ] }
+  ] }
+```
+
+- A link is either a `link` (rel + href, optional `crossorigin`) or a `script` (src + optional async/defer). The two shapes cover the user's Google Fonts triple and a companion JS file.
+- **Validation, strict on write:** `https:` only; `javascript:`/`data:` refused for both shapes; `rel` restricted to a named allowlist — `preconnect`, `dns-prefetch`, `stylesheet`, `preload` — since those are what font loading needs and each is inert (none of them executes or mutates the document); set names unique and length-capped; a cap on sets and on links per set. Refusals name the offending URL.
+- **Composition:** `composer.rs` emits the enabled sets' tags into the shell `<head>`, in set order, **before** the page's own stylesheet so a page can override. The same emission feeds the `page.html` export, so a downloaded page carries its fonts.
+- **CSP:** widen the sandbox policy to `script-src`/`style-src`/`font-src` gaining `https:` (scheme source) alongside the existing jsDelivr entries. Rationale to record in the code: the sandbox is a **separate origin with no cookies**, its token is short-lived and read-only for one project's design pages, and the links are supplied by the project's own members — so the marginal capability is bounded, while `javascript:`/`data:` stay refused.
+- **UI:** a section in the existing **Tokens** tab (the project-look surface), not a new tab: list sets, toggle each, edit a set's links, add from a pasted block. A "paste Google Fonts `<link>` tags" affordance is worth having — the user's own example is three tags, and parsing them is the difference between a five-second action and a fiddly one.
+
+## Publish order (unchanged, and now wider)
+
+Measured, not theoretical: the deployed backend answers **403** to a realtime group it does not know, and the realtime layer refuses the **entire** handshake when any one group fails policy. So a frontend built from this code, served before the backend, kills realtime app-wide. **The backend must be deployed before the frontend** — and Phase 5's CSP change is likewise backend-first, since a frontend expecting fonts to load would show them missing against an old backend.
+
+The user's decision stands: deploy the backend, then build the frontend.
+
+## Testing
+
+- **Backend** (`cargo test --workspace`): `layout_doc` label validation and read-filtering; the resource document's parse/validate/refuse cases (each scheme-refusal rule, each cap); composer tests asserting enabled sets' tags appear in the shell head in order and that **disabled sets do not**; a CSP test asserting the widened directives are present and that `javascript:` never appears in an emitted tag. Extend `tests/realtime_bulk_bridge.rs` only if a new writer path is added — none is planned.
+- **Frontend** (`npm test`, `npm run build`): pure helpers only — label resolution (`pageLabels[route] ?? title ?? route`), the resource document's tolerant parse mirroring `normalizeLayout`, and the set-toggle reducer. The canvas interactions remain visually verified, as the repo has no RTL/jsdom.
+- **Item 5 is verified by reproduction**, not by a test, and its fix gets a test only if the root cause turns out to be pure logic.
+
+## Rulings carried in from Phase 4 (for continuity)
+
+- The realtime **suffix drift guard was declined by the user** previously; this spec does not re-add it, but records that the failure is worse than assumed (whole-handshake 403, not one silent group).
+- Phase 4's final `npm run build` is **held** pending the backend deploy.
+
+## Affected files (reference)
+
+**Backend:** `plugins/taskflow-design/src/layout_doc.rs` (+`page_labels`), `src/composer.rs` (head emission + CSP), `src/validation.rs` (resource document rules), `tests/` (+label and resource tests). No new migrations — reusing `design_file`.
+**Frontend:** `src/lib/design-layout.ts` (+label helpers), `src/pages/design/pages-panel.tsx` (rename + resolution), `src/pages/design/design-canvas.tsx` (ArtboardHeader actions, rowHeaders label, `LazyFrame` latch, per-board epoch), `src/pages/design/DesignSurfacePage.tsx` (action wiring, `rotatedBoards`/device state), `src/pages/design/token-editor.tsx` or a sibling (resource-set editor).
