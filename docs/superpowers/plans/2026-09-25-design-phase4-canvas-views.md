@@ -1491,6 +1491,7 @@ git commit -m "feat(design): fetch/save the shared canvas layout"
 
 ```ts
 import { describe, it, expect } from "vitest"
+import { DEFAULT_DEVICE_ID } from "@/lib/design-devices"
 import { parseUIState } from "./design-ui-state"
 
 const valid = {
@@ -1516,10 +1517,19 @@ describe("parseUIState", () => {
     })
   })
 
-  it("returns null for anything unusable so the caller seeds fresh", () => {
+  it("returns null only for a non-object, and defaults an empty record", () => {
     expect(parseUIState(null, 4, 2)).toBeNull()
+    expect(parseUIState(undefined, 4, 2)).toBeNull()
     expect(parseUIState("nope", 4, 2)).toBeNull()
-    expect(parseUIState({}, 4, 2)).toBeNull()
+    // `{}` is a *valid object*, so it does not take the null return — every
+    // field defaults instead. That is the right contract ("anything in, a
+    // usable state out"), and it still converges for the caller: an empty
+    // openRoutes makes `shouldSeedRoutes` return true, so the manifest seed
+    // runs either way.
+    const empty = parseUIState({}, 4, 2)!
+    expect(empty.openRoutes).toEqual([])
+    expect(empty.deviceIds).toEqual([DEFAULT_DEVICE_ID])
+    expect(empty.canvasTool).toBe("select")
   })
 
   it("clamps a scale outside the legal range or non-finite", () => {
