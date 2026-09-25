@@ -2036,6 +2036,30 @@ export function removeSelection(list: SelectionState[], index: number): { list: 
 
 ---
 
+### Task 22: The parked minors batch
+
+**Why this exists as one task rather than five fix rounds:** every item below is 1-6 lines, each was raised by a review whose task had **already passed** (0 Critical, 0 Important), and each is a preventive or a correction rather than a defect in shipped behaviour. Batching them keeps one review seat instead of five, and keeps them from accumulating into a large risky change at the very end. They are listed with their origin so a reviewer can check each against the task it came from.
+
+**Files:** `v2_fe/src/pages/design/design-selection.ts`, `design-inspector.tsx`, `token-filter.ts`, `resource-editor.tsx`, `backend/plugins/taskflow-design/src/composer.rs`, `backend/plugins/taskflow-design/tests/resources.rs`
+
+- [ ] **1. A malformed token can crash the panel while searching** (Task 17's re-review). `token-filter.ts:45` does `value.light.toLowerCase()`, and the document arrives as `JSON.parse(row.content) as DesignTokensDoc` with no runtime validation — so a hand-edited `tokens.json` with a `dark`-only token now throws where it previously rendered. Guard it (`value.light?.toLowerCase() ?? ""`) and test that a document with a missing `light` is filtered rather than fatal. Unreachable for anything the backend wrote, which is why it is here and not a fix round.
+
+- [ ] **2. Make the two inspector callbacks required props** (Task 18's review, Minor 5). `design-inspector.tsx:45-48` declares `onWiden`/`onFocusComment` optional although there is exactly **one** call site and it passes both. Required props turn "a caller forgot" into a compile error — which is the whole defect class Task 18 fixed at runtime (two controls that looked live and had no handler).
+
+- [ ] **3. A widened selection ships the click's captures beside the crumb's path** (Task 18's review, Minor 3). `design-selection.ts:110`'s spread keeps `snippet`/`srcRef`, and the dispatch sends both next to the crumb's `elementPath`/`component`/`file` — so widening to a crumb *outside* the component tells the agent `file: pages/settings.html` while `src` names a component file and the snippet shows the inner element. Drop the unmarked captures when the widened index is not the click.
+
+- [ ] **4. Two hostile-input guards on the chain** (Task 18's review, Minors 6 and 7). The three arrays are `slice(-6)`d **independently**, so a frame sending mismatched lengths still lands misaligned windows and `widenSelection` cannot tell — add a length-equality guard so the invariant is explicit rather than assumed. And `canWiden` (`design-inspector.tsx:79`) should additionally require a **non-empty label**, or a blank ancestor renders a clickable crumb whose tooltip reads "Widen selection to ".
+
+- [ ] **5. Point the Rust literal at its frontend fixture** (Task 18's review, Minor 4). `design-selection.test.ts`'s payload is a hand-copy of `composer.rs`'s message; the probe that ties them together was one-off, so a future runtime edit can drift and leave the tests green on stale premises. A comment in `composer.rs` naming the fixture is the cheap guard. (A full drift guard was declined by the user earlier for the realtime suffixes; do not reintroduce that idea here without asking.)
+
+- [ ] **6. The mono line, corrected** (Task 17's re-review). `resource-editor.tsx:403` — the add-*set* name input — moves **off mono**, because the token side's add-*name* input already is and the same tab must not render two "add a name" fields in two fonts. The discriminator is what a field *holds*: URL, hex, size or markup stay mono; a name does not. The paste textarea (`:160`) and the value sites stay as they are.
+
+- [ ] **7. Three comment/report corrections, each from a review that found the text claiming more than the code.** (a) Task 13: the old test name is split across a line wrap in `tests/resources.rs`, so a grep for it fails — put each old spelling on its own line, which was the fix's stated purpose. (b) Task 13: `composer.rs` says a page "cannot put that url in the markup it hands the validator"; the marker is a literal `<script src` substring search, so `<script type="module" src="https://…">` **passes** — narrow the claim. (c) Task 15: `composer.rs`'s CDP note reads as a claim about Chrome generally; scope it to Chrome under CDP. (d) Task 18: the report's §5 row 8 claims a discrimination its test does not have — either drop the claim or add a fixture with `ancestorComponents: [null, …]` so the `isClicked` fallback is actually exercised.
+
+- [ ] **8. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>`, and `cd backend && cargo test --workspace`. Baseline: **27 errors / 1 warning** on lint. **Do not run `npm run build`**, and do not push — publishing is on hold pending the user's local testing.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
