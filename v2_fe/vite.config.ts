@@ -16,6 +16,14 @@ import fs from 'node:fs'
 /// normal HMR — their retained versions are noise.
 const FULL_RELOAD_OVER_BYTES = 200_000
 
+/// The module closest to this line by a wide margin is src/App.tsx — see the note
+/// at the top of that file. A silent full-reload at a size threshold is invisible
+/// until someone crosses it, and in a dev tab it is indistinguishable from a bug:
+/// the app appears to reset itself and re-pick its active project, which is what
+/// "random page reloads as different projects try to take that spot" looked like.
+/// Nothing warns, so if a save makes the tab blink, check this threshold and the
+/// file's size before hunting for a state bug.
+
 function fullReloadForHugeModules(): Plugin {
   return {
     name: 'full-reload-for-huge-modules',

@@ -17,6 +17,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { ChevronsUpDownIcon, FolderKanbanIcon, PlusIcon } from "lucide-react"
+import { findActiveProject } from "@/lib/active-project"
 
 export type SwitcherProject = {
   id: string
@@ -38,7 +39,10 @@ export function ProjectSwitcher({
   onNewProject: () => void
 }) {
   const { isMobile } = useSidebar()
-  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0]
+  // The shared resolver (lib/active-project), not a local fallback: this was a
+  // fourth, independently-written `projects.find(...) ?? projects[0]`. App hands
+  // us an already-resolved id, so `null` for the persisted argument is honest.
+  const activeProject = findActiveProject(activeProjectId, null, projects)
   if (!activeProject) {
     // No projects yet — keep a visible way to create the first one so a
     // first-time user is never stranded with an empty sidebar.

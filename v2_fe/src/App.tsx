@@ -1,3 +1,14 @@
+/// WARNING — size limit. This is the largest module in the repo (roughly
+/// two-thirds of the way to the limit at the time of writing), and
+/// `vite.config.ts`'s `fullReloadForHugeModules` plugin HARD-RELOADS the dev tab
+/// — no HMR, no warning — for any edited module over `FULL_RELOAD_OVER_BYTES`
+/// (200 KB) in source bytes. Every task in the project/workspace area grows this
+/// file. Crossing that line makes the user's tab reload on EVERY SAVE, which
+/// looks exactly like the bug this file was fixed for: "random page reloads as
+/// different projects try to take that spot" — a reload re-picks the active
+/// project, so it reads as the app moving on its own. If this file needs more
+/// room, split it; do not raise the threshold without reading the plugin's own
+/// comment about dev-tab memory.
 import { fetchTaskRef } from "@/lib/task-ref-fetch"
 import { Button } from "@/components/ui/button"
 import { SecurityPage } from "@/pages/account/SecurityPage"
@@ -22,6 +33,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
 import { loadDockOpen, loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
 import { resolveActiveProject } from "@/lib/active-project"
+import { createLoadSequence } from "@/lib/load-sequence"
 import { readDefaultProjectId, writeDefaultProjectId } from "@/lib/site-config"
 import { type BoardColumnId } from "@/lib/board-columns"
 import { Input } from "@/components/ui/input"
@@ -441,25 +453,49 @@ function App() {
   // id and sets it. Without this, first paint ran the whole summary+workspace
   // fetch TWICE (every request duplicated — confirmed in a prod HAR).
   const justResolvedProjectRef = useRef<string | null>(null)
+
+  // Ordering for overlapping loads (lib/load-sequence). The loader can be in
+  // flight twice at once — a refresh click plus the SSE stream's onReconnect, or
+  // a project switch during a reconnect's catch-up — and with no check the
+  // response landing LAST wins, so an older load could overwrite the user's
+  // newer choice even when that choice was valid. Kept in a ref: the callback
+  // below is rebuilt whenever activeProjectId changes, and a counter created
+  // with it would start from scratch and supersede nothing.
+  const loadSeqRef = useRef(createLoadSequence())
   const loadLiveWorkspace = useCallback(
     async (preferredProjectId: string | null = activeProjectId) => {
       setIsLiveSyncing(true)
+      // Claim this load's token before the first await: anything starting later
+      // takes a higher token and supersedes it.
+      const seq = loadSeqRef.current.begin()
 
       // The user's own choice, read HERE rather than taken from render state:
       // this must not race the state update that publishes it, or the first
       // resolve of a session would fall back to list order — the very bug. The
       // in-session ref wins once it holds anything, so this is one IndexedDB get
       // per session, not per refresh. Safe to await ahead of the try: the reader
-      // is total and answers null on ANY failure, so it cannot skip the finally
-      // that releases isLiveSyncing.
+      // is total and answers null on ANY failure, so it never throws past the
+      // guard below and can never leave isLiveSyncing stuck on.
       const userId = currentUserIdRef.current
       const persisted =
         persistedProjectIdRef.current ??
         (userId != null ? await readDefaultProjectId(userId) : null)
       rememberPersistedProjectId(persisted)
 
+      // Superseded while reading the persisted choice: fetch nothing, and do NOT
+      // touch isLiveSyncing — the load that replaced this one owns that flag, and
+      // clearing it here would stop the spinner under a load still running. This
+      // return sits BEFORE the try, so it deliberately skips the finally.
+      if (!loadSeqRef.current.isCurrent(seq)) return
+
       try {
         const summary = await fetchTaskflowProjectSummary()
+
+        // A load that started later has superseded this one: its answer is the
+        // user's newer choice, so applying this response would move the active
+        // project back to the older one and re-fire everything downstream. This
+        // is the guard's load-bearing check — everything below writes state.
+        if (!loadSeqRef.current.isCurrent(seq)) return
 
         // The API responded successfully. Zero projects is a valid, honest state
         // (a first-time user, or someone with no accepted invites yet) — NOT an
@@ -510,6 +546,11 @@ function App() {
         try {
           const workspace = await fetchTaskflowWorkspace(nextProjectId)
 
+          // Same rule after the second await: a superseded response must not
+          // replace the workspace with the older project's detail (nor bump the
+          // epoch, which refetches every slice).
+          if (!loadSeqRef.current.isCurrent(seq)) return
+
           setLiveWorkspace(workspace)
           // #56: a fresh CORE workspace carries empty board/chat/activity arrays,
           // so it silently discards any slice already merged in. Bumping the epoch
@@ -521,6 +562,9 @@ function App() {
           setWorkspaceEpoch((current) => current + 1)
           setLiveSyncError(null)
         } catch (error) {
+          // A superseded load's failure is not the user's news: the load that
+          // replaced it reports its own outcome.
+          if (!loadSeqRef.current.isCurrent(seq)) return
           setLiveWorkspace(null)
           setLiveSyncError(
             error instanceof Error
@@ -529,10 +573,13 @@ function App() {
           )
         }
       } catch (error) {
+        if (!loadSeqRef.current.isCurrent(seq)) return
         setLiveWorkspace(null)
         setLiveSyncError(error instanceof Error ? error.message : "Could not load the live TaskFlow API.")
       } finally {
-        setIsLiveSyncing(false)
+        // Only the newest load releases the spinner: a superseded one finishing
+        // late must not hide the fact that the load replacing it is still running.
+        if (loadSeqRef.current.isCurrent(seq)) setIsLiveSyncing(false)
       }
     },
     [activeProjectId, rememberPersistedProjectId]

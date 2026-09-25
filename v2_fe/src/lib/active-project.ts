@@ -40,3 +40,27 @@ export function resolveActiveProject(
   if (persisted && projects.some((project) => project.id === persisted)) return persisted
   return projects[0].id
 }
+
+/// The same answer as `resolveActiveProject`, as the PROJECT rather than its id,
+/// for the display components that hold only an id (`app-sidebar.tsx` and
+/// `team-switcher.tsx`, both of which had their own
+/// `projects.find(...) ?? projects[0]`).
+///
+/// Deliberately DERIVED from `resolveActiveProject` rather than reimplementing
+/// the precedence: a second copy of the rules is how the third and fourth
+/// shapes appeared in the first place. A display layer has no persisted
+/// preference of its own, so callers pass `null` for it — the persisted choice
+/// is applied by the loader, once, and handed down as the id.
+///
+/// `?? null` is unreachable by construction (the resolver returns an id it found
+/// in `projects`) and is NOT a positional fallback: if it ever were reached, the
+/// honest answer is "no project", never row zero.
+export function findActiveProject<T extends { id: string }>(
+  preferred: string | null,
+  persisted: string | null,
+  projects: T[]
+): T | null {
+  const id = resolveActiveProject(preferred, persisted, projects)
+  if (id === null) return null
+  return projects.find((project) => project.id === id) ?? null
+}

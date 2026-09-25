@@ -7,6 +7,7 @@ import { NavProjects, type SidebarProject } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
 import { ProjectSwitcher, type SwitcherProject } from "@/components/team-switcher"
 import type { AuthUser } from "@/lib/auth-api"
+import { findActiveProject } from "@/lib/active-project"
 import {
   Sidebar,
   SidebarContent,
@@ -61,7 +62,12 @@ export function AppSidebar({
   onLogout,
   ...props
 }: AppSidebarProps) {
-  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0]
+  // The shared resolver (lib/active-project), not a local fallback: this was a
+  // third, independently-written `projects.find(...) ?? projects[0]`, which knew
+  // nothing about the user's persisted choice. App hands us an already-resolved
+  // id, so `null` for the persisted argument is honest — a display layer has no
+  // preference of its own.
+  const activeProject = findActiveProject(activeProjectId, null, projects)
   // On mobile the sidebar is a Sheet overlay; navigating away should dismiss it
   // so the destination isn't left behind the overlay. On desktop it stays put.
   const { isMobile, setOpenMobile } = useSidebar()
