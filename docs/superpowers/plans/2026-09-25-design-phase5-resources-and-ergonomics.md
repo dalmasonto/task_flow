@@ -1022,6 +1022,8 @@ git commit -m "feat(design): inject enabled resource links; allow https in the s
 **Interfaces:**
 - Consumes: the `DesignFile` endpoints already used by `TokenEditor` (`styles/resources.json`), and `ResourceLink`/`ResourceSet`/`ResourcesDoc` mirrored from Task 6.
 - Produces: `normalizeResources(raw: unknown): ResourcesDoc`, `toggleSet(doc, id): ResourcesDoc`, `addSet(doc, name): { doc: ResourcesDoc; id: string }`, `removeSet(doc, id): ResourcesDoc`, `parsePastedLinks(text: string): ResourceLink[]`.
+- **Wire shape, mirrored from Task 6's Rust exactly** (it is `#[serde(rename_all = "camelCase")]` there): `ResourceLink = { rel?: string; href?: string; crossorigin: boolean; script?: string; isScript: boolean; isAsync: boolean }`; `ResourceSet = { id: string; name: string; enabled: boolean; links: ResourceLink[] }`; `ResourcesDoc = { version: number; sets: ResourceSet[] }`. Every field is always present on the wire — the Rust side does not skip serialising — so `normalizeResources` must tolerate `null` for the optional ones.
+- **`removeSet` on an unknown id, and `toggleSet` on an unknown id, both return the SAME document object** (identity), matching `createGroup`'s refusal convention so a caller can tell "nothing happened".
 
 - [ ] **Step 1: Write the failing tests** — `src/lib/resources.test.ts`
 
