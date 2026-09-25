@@ -11,7 +11,7 @@
 /// * Selection rects arriving from the sandbox are divided by scale when
 ///   converted to canvas coordinates.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   MaximizeIcon,
   RotateCwIcon,
@@ -126,7 +126,19 @@ export type DesignCanvasProps = {
   pins?: React.ReactNode
 }
 
-export function DesignCanvas({
+/// Memoised, because the surface re-renders for reasons that have nothing to do
+/// with the canvas — a toolbar toggle, a right-panel tab, an arrival in the
+/// chat rail — and without this every one of them rebuilt this subtree down to
+/// each board's header and frame. The props here ARE the gate: every callback
+/// the surface hands down is a `useCallback` and every array/object a `useMemo`
+/// (see the surface's `pinLayer`, which exists only so the pins element is not
+/// rebuilt per render). A fresh object or arrow at the call site silently
+/// defeats this and is invisible when it happens — pressing a button would just
+/// feel a little worse.
+///
+/// This does NOT stop a content-epoch bump from remounting the frames: the
+/// epoch is a genuine prop change, and remounting is exactly what it means.
+export const DesignCanvas = memo(function DesignCanvas({
   artboards,
   transform,
   onTransformChange,
@@ -410,7 +422,7 @@ export function DesignCanvas({
       </div>
     </div>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Artboards
@@ -434,7 +446,17 @@ function frameSources(): { key: string; win: Window | null }[] {
   return out
 }
 
-function ArtboardCard({
+/// Memoised, because this is the component the canvas MULTIPLIES: once per open
+/// route per selected device, so three times over under Responsive review, each
+/// board a header plus a live iframe. Nothing in its render depends on anything
+/// outside its props, so when `DesignCanvas` re-renders for a reason no board
+/// cares about — a pan/zoom commit writing `transform`, a selection rect, the
+/// comment pins — the whole per-board subtree is skipped instead of rebuilt.
+/// All of its props are stable (`board` only changes identity when the
+/// arrangement is genuinely re-derived, which is a real change and must
+/// re-render). Re-rendering it is cheap and safe in one specific way that
+/// matters: the iframe is only ever remounted by an EPOCH, never by a render.
+const ArtboardCard = memo(function ArtboardCard({
   board,
   label,
   theme,
@@ -510,7 +532,7 @@ function ArtboardCard({
       </div>
     </div>
   )
-}
+})
 
 function ArtboardHeader({
   boardKey,
@@ -740,7 +762,13 @@ function DeviceChrome({
 /// released, so a long session on a large canvas costs one live document per
 /// board seen: that is the accepted price of keeping pages comparable side by
 /// side, not an oversight.
-function LazyFrame({
+/// Memoised for the same reason as `ArtboardCard` above, one level down: a
+/// board that re-renders for its own reasons (the header's menus, `panMode`)
+/// must not drag a live iframe's element tree with it. Every prop is a
+/// primitive or a string here, so a shallow compare is exact — and the one prop
+/// that MUST re-render it, `epoch`, is the whole inventory of "this frame's
+/// document has changed".
+const LazyFrame = memo(function LazyFrame({
   src,
   width,
   height,
@@ -850,7 +878,7 @@ function LazyFrame({
       )}
     </div>
   )
-}
+})
 
 /// §9.8 failure states: never a blank white rectangle.
 function FrameError({ width, height, reason }: { width: number; height: number; reason: string }) {

@@ -1,7 +1,7 @@
 /// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   ChevronDownIcon,
@@ -98,6 +98,7 @@ import { readUIState, writeUIState } from "./design-ui-state"
 import { shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 import { PagesPanel } from "./pages-panel"
+import { createContentEpoch } from "./content-epoch"
 
 /** A selection plus the board it was captured on — the key the canvas overlay
  *  draws its rect against and the frame `design:flash` posts into. */
@@ -129,8 +130,29 @@ export function DesignSurfacePage({
   const [picking, setPicking] = useState(false)
   const [canvasTool, setCanvasTool] = useState<CanvasTool>("select")
   const [theme, setTheme] = useState("light")
-  /** Bumped on server-side file changes so iframes remount with fresh content. */
+  /** Bumped on server-side file changes so iframes remount with fresh content.
+   *  It is part of EVERY frame's key, so one bump remounts every board at every
+   *  device — which is why nothing here writes it directly: a burst of writes
+   *  must reach it ONCE. All three writers below go through `contentEpochGate`,
+   *  whose trailing-edge settle is `settle-gate` (the canvas's pan/zoom gate,
+   *  imported rather than reimplemented — see `content-epoch.ts` for the full
+   *  mechanism, including why the invalidation cannot be scoped per route). */
   const [contentEpoch, setContentEpoch] = useState(0)
+  const [contentEpochGate] = useState(() => createContentEpoch())
+  // Set ONCE, not per render — unlike the canvas's transform gate, whose commit
+  // is a PROP and can change identity. `setContentEpoch` is a `useState`
+  // setter, which React guarantees is stable for the life of the component, so
+  // a later render cannot leave a stale callback behind. A LAYOUT effect, so
+  // the commit is in place before the subscription below (a passive effect,
+  // therefore later) can deliver an event: a settle that fires with no commit
+  // set throws rather than dropping the bump.
+  useLayoutEffect(() => {
+    contentEpochGate.setCommit(setContentEpoch)
+  }, [contentEpochGate])
+  // A pending bump must not outlive its subscriber: committing after this page
+  // has gone (or after a project switch) would remount a canvas nobody is
+  // looking at. Mirrors the canvas's own gate cleanup.
+  useEffect(() => () => contentEpochGate.cancel(), [contentEpochGate])
   /** One counter per board, layered ON TOP of the global `contentEpoch` above.
    *  A server-side file change remounts everything (that epoch), while a single
    *  board's Reload must remount only that board — without this overlay, one
@@ -200,7 +222,13 @@ export function DesignSurfacePage({
     if (!projectId) return
     return onDesignRealtimeEvent((event) => {
       if (event.table === taskflowTables.designFiles) {
-        setContentEpoch((e) => e + 1)
+        // The event is id-only — it says "a design file changed", never which
+        // one — so this remounts the whole canvas whatever changed (the
+        // `affected_routes` list the write's own response carries does not
+        // reach this browser; see `content-epoch.ts`). Coalescing is therefore
+        // the whole lever here: an editing session's burst of writes is ONE
+        // remount, not one per write.
+        contentEpochGate.fileChanged()
       } else if (event.table === taskflowTables.designComments) {
         refreshComments()
       } else if (event.table === taskflowTables.designLayout) {
@@ -213,7 +241,7 @@ export function DesignSurfacePage({
         void fetchLayout(projectId).then(setLayout).catch(() => null)
       }
     })
-  }, [projectId, refreshComments])
+  }, [projectId, refreshComments, contentEpochGate])
 
   // --- load manifest + token + shared layout --------------------------------
   useEffect(() => {
@@ -594,6 +622,23 @@ export function DesignSurfacePage({
     )
   }, [artboards, openRoutes, labelFor, closeRoute, layout.view])
 
+  // The canvas's overlay layer: the two memoised halves above, wrapped once.
+  // The wrapper is the point. Written inline at the call site — `pins={<>
+  // {rowHeaders}{pins}</>}` — it is a FRESH element on every render of this
+  // page, which silently defeats `DesignCanvas`'s `memo`: the child re-renders
+  // (and re-renders every board under it) for a toolbar toggle, a panel switch,
+  // a selection change, anything. Memoising the wrapper makes the canvas
+  // re-render exactly when the overlays themselves change.
+  const pinLayer = useMemo(
+    () => (
+      <>
+        {rowHeaders}
+        {pins}
+      </>
+    ),
+    [rowHeaders, pins],
+  )
+
   const paletteItems: PaletteItem[] = useMemo(() => {
     if (!manifest) return []
     const routeItems: PaletteItem[] = manifest.routes.map((r) => ({
@@ -760,12 +805,7 @@ export function DesignSurfacePage({
               onDuplicateBoard={handleDuplicateBoard}
               onRemoveBoard={handleRemoveBoard}
               selection={selectionOverlay}
-              pins={
-                <>
-                  {rowHeaders}
-                  {pins}
-                </>
-              }
+              pins={pinLayer}
               onSelect={handleSelect}
             />
           )}
@@ -824,8 +864,13 @@ export function DesignSurfacePage({
                   renders in. */}
               {projectId ? (
                 <>
-                  <TokenEditor projectId={projectId} onSaved={() => setContentEpoch((e) => e + 1)} />
-                  <ResourceEditor projectId={projectId} onSaved={() => setContentEpoch((e) => e + 1)} />
+                  {/* The editors' own saves go through the same gate as the
+                      server's echo of them: the write AND its realtime event
+                      are one change, and bumping on each would remount every
+                      board twice for one click. The settle is invisible next to
+                      the frame reload that follows it. */}
+                  <TokenEditor projectId={projectId} onSaved={contentEpochGate.fileChanged} />
+                  <ResourceEditor projectId={projectId} onSaved={contentEpochGate.fileChanged} />
                 </>
               ) : null}
             </TabsContent>
