@@ -1625,9 +1625,13 @@ Images, video and motion
 
   A Lottie animation works, but NOT by putting <script src> in a page: page
   fragments may not contain one, and the server refuses that markup. Write a
-  COMPONENT that loads the player (component JS is inlined into the document,
-  and any https script origin is allowed), and keep the animation JSON under
-  assets/ so it is fetched same-origin.
+  COMPONENT instead — in the sandbox a component is a same-origin script, and
+  the player it appends from a CDN is allowed by script-src.
+
+  Pass the animation data INLINE in that component (lottie's animationData),
+  because there is nowhere to store it as a file: assets/ accepts image
+  extensions only, and styles/ accepts only tokens.css, tokens.json and
+  resources.json.
 ```
 
 - [ ] **Step 1b: Do not let this become a dead sentence.** Whichever surface you add it to, the check in Step 2 is the same and it now covers the media text too — a guidance string that is written but never served is worse than none, because it looks like the capability was delivered.
