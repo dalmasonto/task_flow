@@ -1,3 +1,5 @@
+import type { LayoutGroup } from "./design-layout"
+
 /// Device presets for the design canvas (§9.3).
 ///
 /// The iframe is ALWAYS its true CSS width — zoom is a transform on the frame
@@ -220,5 +222,55 @@ export function layoutBands(openRoutes: string[], deviceIds: string[], gutter = 
     }
     y += HEADER_H + boardHeight(device) + gutter
   }
+  return boards
+}
+
+/// The free-form arrangement: still one band per device, but within a band each
+/// named group is a vertical COLUMN of its pages, and pages in no group flow
+/// right of every group column.
+///
+/// Ungrouped pages deliberately stay on ONE row (no wrapping): the band grows
+/// wider rather than deeper. Balanced packing of a long ungrouped tail is a
+/// real design choice and is deferred — see the spec's §C.
+export function layoutGroups(
+  openRoutes: string[],
+  deviceIds: string[],
+  groups: LayoutGroup[],
+  gutter = GUTTER,
+): Artboard[] {
+  const grouped = new Set(groups.flatMap((g) => g.routes))
+  const ungrouped = openRoutes.filter((r) => !grouped.has(r))
+
+  const boards: Artboard[] = []
+  let y = 0
+
+  for (const deviceId of deviceIds) {
+    const device = deviceById(deviceId)
+    const columnStep = boardWidth(device) + gutter
+    const rowStep = HEADER_H + boardHeight(device) + gutter
+
+    // One column per group (document order), then the ungrouped tail — each
+    // ungrouped page its own one-board column, so the tail stays on the band's
+    // top row instead of stacking. A column with nothing open takes no space,
+    // so no phantom gap appears.
+    const columns: string[][] = groups.map((g) => g.routes.filter((r) => openRoutes.includes(r)))
+    for (const route of ungrouped) columns.push([route])
+
+    let x = 0
+    let bandHeight = 0
+    for (const routes of columns) {
+      if (!routes.length) continue
+      for (let i = 0; i < routes.length; i++) {
+        boards.push(makeArtboard(routes[i], deviceId, x, y + i * rowStep))
+      }
+      // A column's height is its boards PLUS their headers, and excludes the
+      // trailing gutter — so this is `n * (HEADER_H + h)`, not `n * h`, and not
+      // the running `columnY` that overshot by one step.
+      bandHeight = Math.max(bandHeight, routes.length * (HEADER_H + boardHeight(device)))
+      x += columnStep
+    }
+    y += bandHeight + gutter
+  }
+
   return boards
 }

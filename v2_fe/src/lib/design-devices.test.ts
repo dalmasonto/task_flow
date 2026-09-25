@@ -9,6 +9,7 @@ import {
   chromeStyleForGroup,
   deviceById,
   layoutBands,
+  layoutGroups,
   layoutRows,
   makeArtboard,
 } from "./design-devices"
@@ -238,5 +239,67 @@ describe("design devices", () => {
         safeArea: null,
       })
     })
+  })
+
+  it("layoutGroups: groups are vertical columns, ungrouped flows right in one row", () => {
+    const groups = [
+      { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+      { id: "g2", name: "Ops", routes: ["/ops"] },
+    ]
+    const open = ["/", "/login", "/signup", "/ops", "/about"]
+    const boards = layoutGroups(open, ["laptop"], groups)
+    expect(boards).toHaveLength(5)
+
+    const at = (route: string) => boards.find((b) => b.route === route)!
+    const laptop = deviceById("laptop")
+    const colStep = boardWidth(laptop) + GUTTER
+    const rowStep = HEADER_H + boardHeight(laptop) + GUTTER
+
+    // Group 1 is the first column: its pages stack downward.
+    expect(at("/login").x).toBe(0)
+    expect(at("/login").y).toBe(0)
+    expect(at("/signup").x).toBe(0)
+    expect(at("/signup").y).toBe(rowStep)
+
+    // Group 2 is the next column, starting back at the band top.
+    expect(at("/ops").x).toBe(colStep)
+    expect(at("/ops").y).toBe(0)
+
+    // Ungrouped pages flow right of every group column, all on the band's top row.
+    expect(at("/").x).toBe(colStep * 2)
+    expect(at("/").y).toBe(0)
+    expect(at("/about").x).toBe(colStep * 3)
+    expect(at("/about").y).toBe(0)
+  })
+
+  it("layoutGroups: only OPEN pages appear, and an empty group takes no space", () => {
+    const groups = [
+      { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+      { id: "g2", name: "Empty", routes: ["/gone"] },
+    ]
+    const boards = layoutGroups(["/", "/signup"], ["laptop"], groups)
+    expect(boards.map((b) => b.route).sort()).toEqual(["/", "/signup"])
+
+    const colStep = boardWidth(deviceById("laptop")) + GUTTER
+    // The emptied group takes no space, so the ungrouped row sits one column
+    // in — not two — even though it is the third group in document order.
+    expect(boards.find((b) => b.route === "/")!.x).toBe(colStep)
+    expect(boards.find((b) => b.route === "/signup")!.x).toBe(0)
+  })
+
+  it("layoutGroups: bands per device, each device starting its own band", () => {
+    const groups = [{ id: "g1", name: "Auth", routes: ["/login"] }]
+    const boards = layoutGroups(["/", "/login"], ["laptop", "bp-sm"], groups)
+    const laptop = deviceById("laptop")
+    const bandStep = HEADER_H + boardHeight(laptop) + GUTTER
+    const bpRow = boards.filter((b) => b.deviceId === "bp-sm")
+    for (const b of bpRow) expect(b.y).toBe(bandStep)
+  })
+
+  it("layoutGroups is deterministic", () => {
+    const groups = [{ id: "g1", name: "Auth", routes: ["/login"] }]
+    expect(layoutGroups(["/", "/login"], ["laptop"], groups)).toEqual(
+      layoutGroups(["/", "/login"], ["laptop"], groups),
+    )
   })
 })
