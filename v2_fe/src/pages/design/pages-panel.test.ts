@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest"
 import type { DesignManifest, RouteEntry } from "@/lib/design-api"
 import { normalizeLayout, type LayoutDoc } from "@/lib/design-layout"
 import { PagesPanel } from "./pages-panel"
+// The panel's own SOURCE, for the one test at the bottom of this file that could
+// not be written any other way. `?raw` rather than `node:fs`, as in
+// `design-room-selection.test.ts`: the test tsconfig exposes `vite/client` and
+// not `node`, and reading through Vite's own resolver means a moved or renamed
+// file breaks loudly here instead of quietly reading the wrong path.
+import panelSource from "./pages-panel.tsx?raw"
 
 // The panel's own rules, at the level `pages-order.test.ts` cannot reach: what
 // the JSX actually DRAWS. `groupedPages`, `numberedPages` and `selectAllState`
@@ -34,6 +40,13 @@ import { PagesPanel } from "./pages-panel"
 // live in client-only portals (`@base-ui/react`'s FloatingPortal renders
 // nothing on the server), so only the row's own markup exists until a browser
 // mounts them.
+//
+// ONE thing about those interactions IS pinned, and not in markup: which setter
+// each of the panel's three open/close boxes calls. That is the block at the
+// BOTTOM of this file, it reads the component's source, and it is there because
+// the markup tests cannot reach it at all — `renderToStaticMarkup` never runs a
+// handler, so emptying one (`onChange={() => {}}`) passes every test above, on
+// any of the three boxes. Its own header states what it does and does not cover.
 
 /// A layout document as `/api/design/{id}/layout` sends it, through the same
 /// read path `fetchLayout` uses — the fixtures are the wire, as in
@@ -777,5 +790,89 @@ describe("PagesPanel", () => {
       },
     ])
     expect(ungroupedRows(html)).toEqual([])
+  })
+})
+
+/// The file's CODE, with its comments removed.
+///
+/// Copied from `design-room-selection.test.ts`, where the reasoning lives. THERE
+/// it is load-bearing — those assertions are negative (`not.toContain`), so a
+/// comment naming the expression would fail the test on the explanation rather
+/// than on the bug. Here it is PREVENTIVE, and saying otherwise would be an
+/// overclaim: measured, each of the three anchors below appears exactly ONCE in
+/// the raw source and once in the stripped one, because none of the comments in
+/// `pages-panel.tsx` quotes a whole `onChange={() => …}` spelling. But those
+/// comments do discuss `onOpenRoutesChange` and `onToggleRoute` by name at
+/// length, this file's own header names them, and the next person to write an
+/// anchor into a comment — or to loosen an assertion to a bare setter name —
+/// would have a pin that passes on prose. The stripper is what keeps that from
+/// being possible, and the test below is what keeps the stripper working.
+///
+/// The `(^|\s)` before `//` stops a `https://` inside a string from eating the
+/// rest of its line.
+function code(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "")
+}
+
+// The panel's three open/close controls, pinned at the SOURCE: each box's
+// `onChange` hands its list to the setter that owns the state.
+//
+// WHY THIS IS HERE, and it is a hole this repo measured rather than feared.
+// `renderToStaticMarkup` does not run handlers, so nothing above notices what a
+// handler SAYS. Emptying any one of the three — `onChange={() => {}}`, a box that
+// does nothing when clicked — leaves the whole suite green, and so does
+// rewiring one to the wrong list (the group's box inlined as
+// `onOpenRoutesChange(section.pages.map(p => p.route))`, the isolation bug, is
+// green too). Neither is a behaviour defect the markup tests were ever able to
+// see: the state the box is DRAWN in is a different claim from what the click
+// writes, and the second one had no test at all until this block.
+//
+// It is all three boxes, not only the group's: the row's checkbox and the global
+// bulk control have had the same hole since before this feature, and the claim
+// the panel's header rests on — *"a second ENTRY POINT, never a second state"* —
+// is exactly the claim that each handler goes through the setter. Closing it for
+// one of the three would leave the sentence half-pinned.
+//
+// WHAT THIS COVERS: that each anchor is SPELLED as below, so a handler that is
+// deleted, emptied, or pointed at another expression fails here, and a setter
+// legitimately renamed fails LOUDLY rather than silently — the intended cost of
+// every source-level pin in this repo, as `design_room.rs` says of its own
+// (`backend/plugins/taskflow-agents/tests/design_room.rs:933`). Update the
+// spelling deliberately; do not delete the assertion.
+//
+// WHAT IT DOES NOT COVER, stated so this is not mistaken for more: it is not a
+// click, and it is not behaviour. It says nothing about whether `next` is the
+// right list (that is `pages-order.test.ts`, mutation-verified), nothing about
+// the state each box is drawn in (the markup tests above, mutation-verified), and
+// nothing about the panel passing the RIGHT argument to the setter beyond the
+// spelling pinned here. What it closes is the one link in that chain that no
+// runtime test in this environment can execute.
+describe("every open/close box writes through the setter that owns the state", () => {
+  const source = code(panelSource)
+
+  it("reads the code and not the prose", () => {
+    // The guard on the guard: a stripper that quietly stopped working would turn
+    // every anchor below into one that could match a comment, and this is the
+    // shape that would then pass — the call in a comment and NOT in the code.
+    // Emptying `code` to `return source` fails exactly this test (measured); the
+    // three anchors below still pass under it TODAY, which is why the stripper's
+    // job is stated above as preventive rather than load-bearing.
+    const sample = '{/* onChange={() => onOpenRoutesChange(select.next)} */}\nconst a = 1 // onToggleRoute(page.route)\nconst url = "https://example.test/x"\n'
+    expect(code(sample)).not.toContain("onOpenRoutesChange")
+    expect(code(sample)).not.toContain("onToggleRoute")
+    expect(code(sample)).toContain("const a = 1")
+    expect(code(sample)).toContain('"https://example.test/x"')
+  })
+
+  it("the row's box toggles its own route", () => {
+    expect(source).toContain("onChange={() => onToggleRoute(page.route)}")
+  })
+
+  it("a group's box writes the list the group's own helper returns", () => {
+    expect(source).toContain("onChange={() => onOpenRoutesChange(select.next)}")
+  })
+
+  it("the global box writes the list the global helper returns", () => {
+    expect(source).toContain("onChange={() => onOpenRoutesChange(bulk.next)}")
   })
 })
