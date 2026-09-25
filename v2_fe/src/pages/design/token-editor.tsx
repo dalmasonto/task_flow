@@ -5,8 +5,12 @@
 /// JSON directly through `fetchDesignTokens`/`putDesignTokens` instead of
 /// pattern-matching CSS text. The generated CSS is export-only (Export CSS
 /// button below), never a write target.
+///
+/// The search box at the top narrows what is DRAWN and nothing else — the
+/// filter is `./token-filter.ts`, and the reasons it must never touch `doc` or
+/// the save path are written out there and at the call site below.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,6 +20,7 @@ import {
   type DesignTokensDoc,
   type ValidationError,
 } from "@/lib/design-api"
+import { CATEGORY_ORDER, categoryLabel, filterTokenCategories } from "./token-filter"
 
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-tested in token-editor.test.ts)
@@ -46,19 +51,10 @@ const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 // Categories
 // ---------------------------------------------------------------------------
 
-/// Mirrors the backend's `KNOWN_CATEGORIES` (taskflow-design/src/tokens.rs).
-/// Rendered in this fixed order (even when empty) so the editor's shape is
-/// stable regardless of which categories a project has actually populated.
-const CATEGORY_ORDER = ["colors", "spacing", "radius", "typography", "shadows", "custom"]
-
-const CATEGORY_LABELS: Record<string, string> = {
-  colors: "Colors",
-  spacing: "Spacing",
-  radius: "Radius",
-  typography: "Typography",
-  shadows: "Shadows",
-  custom: "Custom",
-}
+// `CATEGORY_ORDER` and the labels moved to `./token-filter.ts` with the search
+// box: a category's name is a search surface, so the list and the filter read
+// it from one place, and a non-component export from a `.tsx` costs a
+// `react-refresh/only-export-components` error apiece.
 
 /// Categories whose values are CSS lengths edited as number+unit; everything
 /// else (colors handled separately, shadows/custom always) falls back to a
@@ -70,6 +66,17 @@ type TokenMap = Record<string, { light: string; dark?: string }>
 // ---------------------------------------------------------------------------
 // Value field — renders the right typed control for a category
 // ---------------------------------------------------------------------------
+
+/// One token's editable VALUE controls.
+///
+/// Every input in here stays `font-mono`, and that is deliberate rather than
+/// leftover: a value is a literal read character by character (`#6366f1`,
+/// `1.5rem`, `0 1px 2px rgba(0,0,0,0.1)`), and the request that took the names
+/// off mono exempted values in as many words — "normal font not font mono
+/// unless values". This includes the two fields that hold name-shaped strings
+/// (the unit, and the plain fallback field) and the text box beside a color
+/// swatch: each holds a value, and normalising them to the body font for
+/// consistency with the rows above would be a regression, not a cleanup.
 
 function ValueField({
   category,
@@ -158,7 +165,7 @@ function AddTokenForm({ onAdd }: { onAdd: (key: string) => void }) {
         value={key}
         onChange={(e) => setKey(e.target.value)}
         placeholder="new-token-name"
-        className="h-6 w-32 rounded border bg-transparent px-1 font-mono text-[10px]"
+        className="h-6 w-32 rounded border bg-transparent px-1 text-[11px]"
       />
       <button type="submit" className="rounded bg-muted px-1.5 py-0.5 text-[10px] hover:bg-muted/70">
         + Add
@@ -183,16 +190,37 @@ function CategorySection({
   const entries = Object.entries(tokens)
   return (
     <div className="border-b px-3 py-2 last:border-b-0">
-      <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
-        {CATEGORY_LABELS[category] ?? category}
+      {/* The group label, one step below `PanelTitle`'s `text-xs font-semibold`
+          and one step quieter than the token names beneath it: uppercase,
+          letterspaced, muted, and 10px against their 11px, so it reads as a
+          heading over them instead of competing with them. It was mono at
+          11px in the token names' own weight, which is how the two levels came
+          to look like the same thing. */}
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {categoryLabel(category)}
       </p>
       <div className="flex flex-col gap-2">
         {entries.map(([key, value]) => (
-          <div key={key} className="flex items-start gap-1.5">
-            <span className="mt-1 w-20 shrink-0 truncate font-mono text-[10px]" title={key}>
-              {key}
-            </span>
-            <div className="flex flex-col gap-1">
+          // Name over values, not name beside them: the token's name is the
+          // row's heading, and its two labelled value rows sit under it in one
+          // aligned column (the sibling `resource-editor.tsx` stacks a set and
+          // its links the same way). Beside the fields, the light/dark labels
+          // read as labels for whatever they happened to line up with.
+          <div key={key} className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-[11px] font-medium" title={key}>
+                {key}
+              </span>
+              <button
+                type="button"
+                title={`Remove ${key}`}
+                onClick={() => onRemove(key)}
+                className="shrink-0 rounded px-1 text-[10px] leading-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex flex-col gap-0.5 pl-2">
               <div className="flex items-center gap-1">
                 <span className="w-9 shrink-0 text-[9px] text-muted-foreground">light</span>
                 <ValueField
@@ -211,14 +239,6 @@ function CategorySection({
                 />
               </div>
             </div>
-            <button
-              type="button"
-              title={`Remove ${key}`}
-              onClick={() => onRemove(key)}
-              className="ml-auto rounded px-1 text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            >
-              ×
-            </button>
           </div>
         ))}
         {!entries.length ? (
@@ -249,6 +269,7 @@ export function TokenEditor({
   const [exporting, setExporting] = useState(false)
   const [errors, setErrors] = useState<ValidationError[] | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -360,9 +381,28 @@ export function TokenEditor({
     ? [...CATEGORY_ORDER, ...Object.keys(doc.categories).filter((c) => !CATEGORY_ORDER.includes(c))]
     : []
 
+  /// What the search box narrows the panel to, computed at render and never
+  /// written back: `doc` stays whole, so Save (which sends `doc`) cannot delete
+  /// a token the query happened to hide. Editing still goes through `doc` too —
+  /// the callbacks below are keyed by category and key, not by row.
+  const searching = query.trim() !== ""
+  const view = useMemo(() => (doc ? filterTokenCategories(doc, query) : null), [doc, query])
+
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-2">
+      {/* Sits above the actions rather than beside them: at this panel's width
+          the two buttons already take most of a row, and a filter box squeezed
+          between them reads as a third button. */}
+      <div className="px-3 pt-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search tokens…"
+          aria-label="Search tokens"
+          className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] placeholder:text-muted-foreground"
+        />
+      </div>
+      <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-1">
         <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>
           {saving ? "Saving…" : "Save tokens"}
         </Button>
@@ -375,18 +415,29 @@ export function TokenEditor({
       {loadError ? <p className="px-3 py-2 text-xs text-destructive">{loadError}</p> : null}
       {exportError ? <p className="px-3 py-2 text-xs text-destructive">{exportError}</p> : null}
 
-      {doc && !loading
-        ? categoryNames.map((category) => (
-            <CategorySection
-              key={category}
-              category={category}
-              tokens={doc.categories[category] ?? {}}
-              onSetValue={(key, field, value) => setTokenValue(category, key, field, value)}
-              onAdd={(key) => addToken(category, key)}
-              onRemove={(key) => removeToken(category, key)}
-            />
-          ))
+      {view && !loading
+        ? categoryNames
+            // While searching, an empty group is not a result: drawing all six
+            // would answer a query that matched nothing with a screenful of
+            // "No colors tokens yet." — false, and it reads as a broken search.
+            .filter((category) => !searching || category in view.categories)
+            .map((category) => (
+              <CategorySection
+                key={category}
+                category={category}
+                tokens={view.categories[category] ?? {}}
+                onSetValue={(key, field, value) => setTokenValue(category, key, field, value)}
+                onAdd={(key) => addToken(category, key)}
+                onRemove={(key) => removeToken(category, key)}
+              />
+            ))
         : null}
+
+      {view && !loading && searching && !Object.keys(view.categories).length ? (
+        <p className="px-3 py-2 text-[11px] text-muted-foreground">
+          No tokens match “{query.trim()}”.
+        </p>
+      ) : null}
 
       {errors?.length ? (
         <div className="mx-3 mb-2 rounded border border-destructive/40 bg-destructive/10 p-2">
