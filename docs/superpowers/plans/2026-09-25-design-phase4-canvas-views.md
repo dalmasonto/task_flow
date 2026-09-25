@@ -1239,7 +1239,13 @@ describe("normalizeLayout", () => {
         null,
       ],
     })
-    expect(doc.groups.map((g) => g.id)).toEqual(["g1"])
+    // g2 SURVIVES: a missing `routes` is not malformed. The server's field is
+    // `#[serde(default)]`, so `{id, name}` IS the shape of an empty group — and
+    // dropping it here would delete, on the next save, a group the server
+    // stores and serves happily. Only a group missing an id or a name is
+    // dropped, along with non-objects.
+    expect(doc.groups.map((g) => g.id)).toEqual(["g1", "g2"])
+    expect(doc.groups[1].routes).toEqual([])
   })
 
   it("returns the default document for non-objects", () => {
@@ -1272,7 +1278,13 @@ describe("layout edits", () => {
     let doc = DEFAULT_LAYOUT
     for (let i = 0; i < MAX_GROUPS; i++) doc = createGroup(doc, `G${i}`).doc
     expect(createGroup(doc, "One more").doc).toBe(doc)
-    expect(createGroup(DEFAULT_LAYOUT, "Auth").doc).toBe(DEFAULT_LAYOUT)
+    // The duplicate check needs a document that ALREADY has the name:
+    // `createGroup(DEFAULT_LAYOUT, "Auth")` *creates* the group, so nothing is
+    // refused and no unchanged document can come back. Refusal is by identity —
+    // the input document itself is returned, which is how the caller reads
+    // "nothing happened".
+    const withAuth = createGroup(DEFAULT_LAYOUT, "Auth").doc
+    expect(createGroup(withAuth, "Auth").doc).toBe(withAuth)
     expect(createGroup(createGroup(DEFAULT_LAYOUT, "Auth").doc, "  auth  ").doc.groups).toHaveLength(1)
   })
 
