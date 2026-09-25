@@ -1910,14 +1910,18 @@ Test these, and say what would have to change to make each fail:
 - [ ] **Step 1: The filter as a pure function, tested first.**
 
 ```ts
-/// Case-insensitive substring match over the token key and its category label,
-/// so `inter` finds a `typography` token named `font_sans` only when the
-/// category label matches, and `space` finds every spacing token. Empty query
-/// returns the document unchanged.
+/// Case-insensitive substring match over the token key, its category label, and
+/// the token VALUE — the value half is what makes a typography token whose value
+/// is `Inter` findable by typing `inter`. Empty query returns the document
+/// unchanged.
 export function filterTokenCategories(doc: TokensDoc, query: string): TokensDoc
 ```
 
-Tests: an empty or whitespace-only query returns everything; a query matching a **key** keeps that token and drops the others in the category; a query matching a **category label** keeps the whole category; a query matching nothing returns empty categories rather than throwing, and the panel then shows its existing "nothing here" state rather than a blank box.
+Tests: an empty or whitespace-only query returns everything; a query matching a **key** keeps that token and drops the others in the category; a query matching a **category label** keeps the whole category; a query matching a **value** finds that token (the `inter` case — pin it explicitly, since it is the example that was wrong); a query matching nothing returns empty categories rather than throwing, and the panel draws **its own** "No tokens match" line rather than the per-category "No {category} tokens yet.", which under a search would tell a project it has no colors tokens when it merely has no *matching* ones.
+
+> **Correction (2026-09-25, from Task 17's implementer — and the wrong part was mine).** This step originally said *"so `inter` finds a `typography` token named `font_sans` … and `space` finds every spacing token"*, with the rule stated as key + label only. **Both examples were wrong, in two different ways.** `"space"` is not a substring of `"spacing"` — they diverge at the fifth character (`spac-e` vs `spac-ing`) — and no non-fuzzy rule makes it one. And `inter` was in the token's **value**, which the rule did not search at all. The implementer implemented the *rule* exactly as specified and pinned the near-miss in a test that names the contradiction, which is the right response to a brief whose rule and whose examples disagree.
+>
+> The rule now covers **values**, which makes the `inter` case real and is the useful half here — a project that has added a Google Fonts set should be able to find the token using it. The `space`→`spacing` case is deliberately **not** fixed: reaching it needs stemming or fuzzy matching, which is over-engineering for a token filter. Typing `spac` finds every spacing token. That is the honest boundary, and it is recorded so the next person does not rediscover it as a bug.
 
 - [ ] **Step 2: The typography.** Names and category headers move off `font-mono` to the normal font; **values keep mono**, because they are literals and the user exempted them. While you are in the file, make the hierarchy read: the category header should not compete with the token names, and the `light`/`dark` labels should sit clearly under their token rather than beside the fields. Keep the sizes within the panel's existing scale rather than inventing new ones — the surrounding surface is dense and deliberate.
 
@@ -1957,6 +1961,39 @@ Tests: an empty or whitespace-only query returns everything; a query matching a 
 **Requested by the user**, who chose this option explicitly: panel typography first, **project-font preview last**. Nothing here starts until Tasks 16-18 are in and the fonts feature is verified end to end, because it makes the **app chrome** consume the project's own font tokens — a project with a broken font URL would then affect the editor's own rendering, which is a new failure mode that deserves the earlier tasks' stability underneath it.
 
 Not specified further here on purpose: write this task once the fonts feature has been verified on a real stack, so it can be scoped against how webfont loading actually behaves rather than how it is expected to.
+
+---
+
+### Task 20: Group creation through a real dialog
+
+**Requested by the user:** *"Group creation should be done via an actual dialog not a javascript window input"*.
+
+**Confirmed at the source, and it is exactly one site.** `pages-panel.tsx:69` is `const name = window.prompt("Group name")` — the **last native dialog in the app**. Two things make this more interesting than a swap:
+
+- **There is no `components/ui/dialog.tsx`.** `sheet.tsx` exists (a slide-over panel) but no modal. So this task **creates the primitive**, not just a usage site.
+- **A prior developer wanted one and went without.** `task-sheet.tsx:63-64` reads: *"Two-step delete: the first click arms it, the second confirms — no AlertDialog component exists and `window.confirm` is off-brand."* Someone chose a workaround because the component was missing. **Build it properly and the workaround becomes replaceable** — but replacing it is *not* this task; note it in your report as a consequence.
+
+**Files:**
+- Create: `v2_fe/src/components/ui/dialog.tsx`
+- Modify: `v2_fe/src/pages/design/pages-panel.tsx`
+- A colocated pure module + test for the name rules
+
+- [ ] **Step 1: The dialog primitive follows `sheet.tsx` exactly.** Same source (`{ Dialog as DialogPrimitive } from "@base-ui/react/dialog"`), same `data-slot` attribute convention on every part, `cn` from `@/lib/utils`, the same export shape (`Dialog`, `DialogTrigger`, `DialogClose`, `DialogPortal`, `DialogBackdrop`, `DialogPopup`, `DialogTitle`, `DialogDescription` — mirroring whatever `sheet.tsx` exports and how). **Do not invent a second convention**; the value of this component is that it is the same shape as the one beside it. Put `Sheet`'s styling vocabulary to work: the backdrop and popup classes in `sheet.tsx` already encode the app's overlay look.
+
+- [ ] **Step 2: Extract the name rules as a pure function, tested first.** `createGroup` currently refuses a blank name, a name over `MAX_GROUP_NAME`, a duplicate (case-insensitive), and a call at `MAX_GROUPS` — and it refuses all of them the same way: by returning the document unchanged and an empty id. From a dialog that is a **silent no-op**, which is the exact failure this phase has spent its length removing (the resource editor gained `setNameProblem` for precisely this reason).
+
+```ts
+/// null when `name` is usable for a new group, otherwise the reason to show.
+export function groupNameProblem(layout: LayoutDoc, name: string): string | null
+```
+
+  Tests: blank and whitespace-only; one character too long (`MAX_GROUP_NAME + 1`) refused and exactly at the limit accepted; a duplicate in a **different case** refused; and — the one worth pinning — a name that is currently taken is still refused when a *different* group is removed, so the rule reads from live state rather than a snapshot.
+
+- [ ] **Step 3: Replace the prompt with the dialog.** Title, a labelled text input, Create and Cancel. Enter submits, Escape cancels, focus lands in the input on open — Base UI's popup handles the focus trap, so **do not hand-roll one**. Create is disabled while `groupNameProblem` returns a reason, and the reason is shown under the field so the user is never left guessing; `createGroup` stays the only creation path and its refusal contract is unchanged.
+
+- [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — the baseline is **27 errors / 1 warning**. **Do not run `npm run build`**; the user is testing locally first and publishing is explicitly on hold.
+
+  A dialog is interactive, so no unit test reaches the modal itself — say so in your report rather than implying coverage, and state exactly what a human should click to verify it.
 
 ---
 
