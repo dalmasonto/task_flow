@@ -1394,6 +1394,10 @@ Then, in a second shell, **`cd v2_fe && npm run dev`** — the dev server, *not*
   - a `target="_blank"` link opens a new tab rather than being hijacked into the frame;
   - and the **agent-facing guidance** from Task 12 is actually served to an agent — read it back out of the context response, not out of the source, because a guidance string that is written but never served looks exactly like a capability that was delivered.
 
+- [ ] **Step 3c: Verify Task 15's two browser-only fixes, since no unit test can.** Both came from the deployed app and both need a real frame and a real pointer:
+  - **inspect delivers a selection** — turn inspect on, click an element inside a frame, confirm the panel receives it. Open the console first: the original failure was an uncaught `SecurityError` at `Array.find`, and its symptom (nothing happens) is identical to a dozen other causes.
+  - **the highlight clears and does not fill the frame** — hover inside one board, then move to the next; the first board must not keep a box behind. Then hover the page background: nothing should be drawn, and in particular no full-frame rectangle.
+
 - [ ] **Step 4: Run both suites.**
 
 Run: `cd backend && cargo test --workspace` then `cd ../v2_fe && npx tsc -b && npm test`
