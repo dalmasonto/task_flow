@@ -9,6 +9,8 @@ import {
   boardsForView,
   chromeStyleForGroup,
   deviceById,
+  landscapeId,
+  landscapeVariant,
   layoutBands,
   layoutGroups,
   layoutRows,
@@ -457,5 +459,48 @@ describe("design devices", () => {
     const open = ["/"]
     const weird = { view: "diagonal" as never, routeOrder: open, groups: [], pageLabels: {} }
     expect(boardsForView(weird, open, ["laptop"])).toEqual(layoutRows(open, ["laptop"]))
+  })
+})
+
+describe("landscape variants", () => {
+  it("swaps the dimensions and keeps the group", () => {
+    const v = landscapeVariant(deviceById("iphone-16-pro"))!
+    expect(v.width).toBe(852)
+    expect(v.height).toBe(393)
+    expect(v.group).toBe("phone")
+    expect(v.id).toBe("iphone-16-pro:landscape")
+  })
+
+  it("exists only for phones and tablets", () => {
+    expect(landscapeVariant(deviceById("iphone-se"))).not.toBeNull()
+    expect(landscapeVariant(deviceById("ipad-mini"))).not.toBeNull()
+    // A laptop is not a portrait device and a breakpoint is a width, not a
+    // device — rotating either produces a size that means nothing.
+    expect(landscapeVariant(deviceById("laptop"))).toBeNull()
+    expect(landscapeVariant(deviceById("bp-sm"))).toBeNull()
+  })
+
+  it("every variant is a real preset, so the device filter accepts it", () => {
+    // `design-ui-state`'s parse filters stored ids against DEVICE_PRESETS; a
+    // landscape id that is not in the table would be silently dropped on reload.
+    for (const d of DEVICE_PRESETS) {
+      if (d.id.endsWith(":landscape")) {
+        expect(d.width).toBe(deviceById(d.id.replace(":landscape", "")).height)
+      }
+    }
+    expect(DEVICE_PRESETS.some((d) => d.id === "iphone-16-pro:landscape")).toBe(true)
+  })
+
+  it("deviceById resolves a variant, and board metrics follow it", () => {
+    const v = deviceById("iphone-16-pro:landscape")
+    expect(v.width).toBe(852)
+    // Portrait: 393 + 12 + 12 + 2. Landscape swaps the WIDTH, so the sides are
+    // the same padding but the number is now the preset's height.
+    expect(boardWidth(v)).toBe(852 + 12 + 12 + 2)
+  })
+
+  it("landscapeId is stable and reversible", () => {
+    expect(landscapeId("ipad-mini")).toBe("ipad-mini:landscape")
+    expect(deviceById(landscapeId("ipad-mini")).id).toBe("ipad-mini:landscape")
   })
 })

@@ -53,6 +53,44 @@ export function deviceById(id: string): DevicePreset {
   )
 }
 
+/** Id of a device's landscape variant. */
+export function landscapeId(deviceId: string): string {
+  return `${deviceId}:landscape`
+}
+
+/// A rotated rendering of a device: the SAME device, rendered at swapped
+/// dimensions. Phones and tablets only — a laptop is not a portrait device, and
+/// a Tailwind breakpoint is a width rather than a device, so rotating either
+/// produces a size that means nothing.
+///
+/// This is a real preset rather than a per-board flag precisely because the
+/// iframe must render at true pixel dimensions: rotating therefore IS a
+/// breakpoint change, and giving it its own preset makes that visible instead
+/// of hiding it. Returns null when the device has no meaningful landscape form.
+export function landscapeVariant(device: DevicePreset): DevicePreset | null {
+  if (device.group !== "phone" && device.group !== "tablet") return null
+  return {
+    ...device,
+    id: landscapeId(device.id),
+    label: `${device.label} ↻`,
+    width: device.height,
+    height: device.width,
+  }
+}
+
+// Landscape variants live in the preset table so `deviceById`, the layout
+// engines, the device picker and `design-ui-state`'s stored-id filter all
+// resolve them with no special case. Built from the portrait entries, so the
+// two can never disagree about a device's dimensions.
+//
+// Iterating a COPY is load-bearing: pushing into the array being iterated would
+// have the loop consume the variants it is producing (`a:landscape` is a phone,
+// so it would spawn `a:landscape:landscape`, forever).
+for (const preset of [...DEVICE_PRESETS]) {
+  const variant = landscapeVariant(preset)
+  if (variant) DEVICE_PRESETS.push(variant)
+}
+
 export const DEVICE_GROUP_LABELS: Record<DeviceGroup, string> = {
   phone: "Phone",
   tablet: "Tablet",

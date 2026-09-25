@@ -31,6 +31,7 @@ import {
   boardWidth,
   chromeStyleForGroup,
   deviceById,
+  landscapeVariant,
 } from "@/lib/design-devices"
 import { sandboxUrl, downloadPageHtml, fetchPageHtmlFragment } from "@/lib/design-api"
 import {
@@ -460,6 +461,20 @@ function ArtboardHeader({
   // is already on the canvas would change nothing.
   const otherDevices = DEVICE_PRESETS.filter((d) => !deviceIds.includes(d.id))
 
+  // Rotate shows this board at its landscape preset — the SAME device at
+  // swapped dimensions, which is a real breakpoint change because the iframe
+  // always renders at its true pixel width. It is a duplicate at the variant's
+  // id, so it reuses that plumbing rather than a second mechanism.
+  //
+  // The table lookup is what makes this null when the device has no landscape
+  // FORM, not merely no rotated shape: `landscapeVariant` also swaps an
+  // already-landscape preset, into an id (`x:landscape:landscape`) that no
+  // preset declares — `deviceById` would resolve that to the laptop fallback
+  // and `design-ui-state` would drop it on reload. Rotating a rotated board is
+  // not a thing, so the item is disabled instead.
+  const variant = landscapeVariant(device)
+  const rotateTo = variant && DEVICE_PRESETS.some((d) => d.id === variant.id) ? variant : null
+
   return (
     <div
       className="mb-2 flex items-center gap-1.5 overflow-hidden text-xs text-zinc-400"
@@ -493,9 +508,15 @@ function ArtboardHeader({
           <EllipsisIcon className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
-          {/* Rotate is Task 5 (a landscape device variant, not a board action)
-              and stays a placeholder until then. */}
-          <DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!rotateTo}
+            title={
+              rotateTo
+                ? `Add ${rotateTo.label} — ${rotateTo.width}×${rotateTo.height}`
+                : "No landscape form: a laptop is not a portrait device, and a breakpoint is a width rather than a device"
+            }
+            onClick={() => rotateTo && onDuplicateBoard(boardKey, rotateTo.id)}
+          >
             <RotateCwIcon className="size-3.5" />
             Rotate
           </DropdownMenuItem>
