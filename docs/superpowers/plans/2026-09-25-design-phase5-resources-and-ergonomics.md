@@ -2280,6 +2280,28 @@ export function resolveActiveProject(
 
 ---
 
+### Task 30: The second hardening batch — reasons that outlived their subjects
+
+**Why a second batch and not more items in Task 22:** Task 22's brief was cut before these arrived, and it is already mid-round. Adding to a brief that is being worked is how items get silently dropped; a named second batch keeps the record unambiguous. Same shape as Task 22: small, non-blocking, each from a review whose task **passed** (Task 23: approved, 0 Critical, 0 Important).
+
+**Files:** `v2_fe/src/pages/design/pages-order.ts`, `pages-panel.tsx`, and their tests; plus whatever the sweep below finds.
+
+- [ ] **1. `GroupedPages.ungrouped` has no production consumer, and its doc says the panel draws it** (Task 23's review, Minor 1). The panel renders `sections.groups` only (`pages-panel.tsx:300`); `ungrouped` is read by tests alone. Both its type doc ("…then the tail") and the `claimed`-not-stored rationale ("a page whose group is gone must be listed, not hidden") describe a rendered tail that **no longer exists** — the flat list is what guarantees nothing vanishes now. **Keep the field** (the partition invariant is worth having) and restate the doc as what it is: the sections' complement, computed for the partition the tests pin, no longer drawn.
+
+- [ ] **2. `selectAllState`'s justification is not true as written** (Minor 2). It says "a route that is not a page in the manifest cannot be drawn on the canvas" — but `layoutGroups` builds its ungrouped tail from `openRoutes.filter((r) => !grouped.has(r))` with **no manifest filter** (`lib/design-devices.ts:315`), and the Dexie read that seeds `openRoutes` also has no manifest filter (`DesignSurfacePage.tsx:280`). **Only the reason is wrong**; the behaviour is deliberate, tested, and arguably a feature (a stale route has no row and no other panel affordance). Say "a route this panel cannot list" and drop the certainty about the canvas.
+
+- [ ] **3. One clause overstates the `items`-map guard** (Minor 3). "A guard a native `<select>` could not have offered" is too strong — a native select's option labels are in the markup and a render test could assert them. The honest distinction, which the test actually proves: the Base UI trap is a **silent value→label substitution** with no native equivalent. Swap the clause.
+
+- [ ] **4. A mislabelled page has no in-panel way to show its route** (Task 23's review, on the dropped route path). The reviewer recommends **keeping the path dropped** — the brief enumerates four slots and the sketch draws four — but notes the loss is larger than "the canvas shows it anyway", because **the canvas header resolves to the label too** (`design-canvas.tsx:85-89`), leaving the ⌘K palette's hint (`DesignSurfacePage.tsx:606`) as the only sighted surface with a raw path. Since a label accepts anything up to `MAX_LABEL`, a user can rename a page into ambiguity with nothing to check against. **Cheapest honest fix, no row-shape change and no test change: `title={page.route}` on the name button.** The accessible name already carries it (`aria-label="Label for /settings"`), so this closes the *sighted* gap only.
+
+- [ ] **5. Report-only corrections, to be applied if those reports are ever relied on** (Minor 5). Task 23's report claims a pre-existing React key warning was fixed incidentally — **not reproducible**: React marks a static JSX child `validated = 1`, so it could not have warned (the reviewer probed it). And its §6 says mutation B fails "tests 1 and 3" where it fails 1 and 2 in file order. Note these the way earlier report errors were noted, with the implementer's words left intact.
+
+- [ ] **6. A sweep, since this class keeps recurring.** Four separate reviews have now found a **comment whose stated reason has outlived its subject** — the phase's most-repeated documentation defect. Grep the design page's modules for comments justifying a mechanism (`why`, `because`, `so that`, `for this reason`) and check the ones whose subject has since changed. Report what you find rather than fixing blindly; some will be fine and saying so is useful.
+
+- [ ] **7. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning**, measured **per file** (a repo-wide read can be inflated mid-round by a neighbour's untracked file — that has now produced three wrong counts in this phase, so measure the committed tree or per file). **Do not run `npm run build`**; no push. Commit with `git commit -F <msg> -- <paths>`.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
