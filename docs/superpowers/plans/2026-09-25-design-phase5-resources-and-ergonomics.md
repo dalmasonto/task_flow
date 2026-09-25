@@ -1220,9 +1220,19 @@ describe("set edits", () => {
   ]})
 
   it("toggleSet flips only the named set", () => {
-    const out = toggleSet(base, "s2")
+    // Needs a second FALSE set, or this cannot fail. Written first against
+    // `base` — where `s1` is already `true` — the assertions were "s2 became
+    // true, s1 stayed true", which an implementation that forces EVERY set
+    // enabled satisfies. The false pin is the half with teeth. (This is the
+    // fourth instance of that shape in this phase; the signature is always the
+    // same — the assertion is phrased against a state that is already true.)
+    const both = normalizeResources({ version: 1, sets: [
+      { id: "s1", name: "Inter", enabled: false, links: [] },
+      { id: "s2", name: "Analytics", enabled: false, links: [] },
+    ]})
+    const out = toggleSet(both, "s2")
     expect(out.sets.find((s) => s.id === "s2")!.enabled).toBe(true)
-    expect(out.sets.find((s) => s.id === "s1")!.enabled).toBe(true)
+    expect(out.sets.find((s) => s.id === "s1")!.enabled).toBe(false)
   })
 
   it("toggleSet returns the same document for an unknown id, and never mutates", () => {
