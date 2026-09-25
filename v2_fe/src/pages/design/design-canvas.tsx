@@ -623,7 +623,8 @@ function LazyFrame({
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
-  const [failed, setFailed] = useState<string | null>(null)
+  /** A load failure, STAMPED with the epoch of the frame that produced it. */
+  const [failed, setFailed] = useState<{ epoch: number; reason: string } | null>(null)
 
   useLayoutEffect(() => {
     const el = hostRef.current
@@ -665,21 +666,25 @@ function LazyFrame({
     return () => window.removeEventListener("message", onMessage)
   }, [])
 
-  // A new epoch is an explicit reload — this board's Reload counter or the
-  // global content epoch. A frame that failed BEFORE it ever rendered has no
-  // iframe for the new key to remount (the `failed` early return below), which
-  // would make Reload a silent no-op in exactly the state a user reaches for
-  // it; clearing the error re-runs the mount instead. Epoch-scoped on purpose:
-  // it touches `failed` only, never `near`, so the latch above is undisturbed —
-  // a seen frame stays mounted and its reload swaps the inner document. Do NOT
-  // give this component a `key` instead: remounting LazyFrame would reset
-  // `near` to false and undo the latch.
-  useEffect(() => setFailed(null), [epoch])
-
   const frameSrc = `${src}${src.includes("?") ? "&" : "?"}board=${encodeURIComponent(name)}`
 
-  if (failed) {
-    return <FrameError width={width} height={height} reason={failed} />
+  // A failure counts only while it belongs to the frame CURRENTLY on screen. A
+  // new epoch (this board's Reload counter or the global content epoch) retires
+  // it in the same render that changes the epoch, so a Reload of a frame that
+  // failed before it ever rendered mounts straight away instead of being a
+  // silent no-op — there is no iframe for the new key to remount, which is
+  // exactly the state a user reaches for Reload in. Deriving it from the stamp
+  // rather than clearing it in an effect keeps one source of truth for "which
+  // epoch failed" and avoids an error-state flash on every reload (an effect
+  // runs after render, so `failed` would paint once more first). Nothing in the
+  // failure path moves the epoch, so a retry that fails again simply re-arms
+  // this and cannot loop. `near` is untouched, so the latch above still holds —
+  // and that is why this is a stamp and NOT a `key` on LazyFrame: remounting
+  // the component would reset `near` to false and undo the latch.
+  const failure = failed && failed.epoch === epoch ? failed.reason : null
+
+  if (failure) {
+    return <FrameError width={width} height={height} reason={failure} />
   }
 
   return (
@@ -699,7 +704,10 @@ function LazyFrame({
              origin (SANDBOX_ORIGIN) than the app, so the frame still cannot
              reach the parent. */
           sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
-          onError={() => setFailed("The sandbox refused this frame.")}
+          /* Stamp the CURRENT epoch — this closure renders with the frame it
+             belongs to, so the comparison above reads as fresh. An unstamped
+             failure would go stale immediately and never show. */
+          onError={() => setFailed({ epoch, reason: "The sandbox refused this frame." })}
         />
       ) : (
         <PlaceholderSkeleton width={width} height={height} label={name} />
