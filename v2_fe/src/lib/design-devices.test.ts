@@ -537,18 +537,29 @@ describe("design devices", () => {
   // before anything has been moved, in the one view whose arrangement the user
   // chose, so it is pinned here rather than left to the sort above.
   it("draws a group column in the pages' own order when no flow has been set", () => {
-    const open = ["/", "/login", "/settings"]
-    const groups = [{ id: "g1", name: "Auth", routes: ["/settings", "/login"] }]
+    // The OPEN list is deliberately not in alphabetical order, and neither is
+    // the group's own `routes` array the same order as the open list: three
+    // pages, and the column's order below is a THIRD permutation. That is what
+    // makes this fixture able to see a fallback that sorts — an `open` in
+    // alphabetical order (this one used to be `["/", "/login", "/settings"]`)
+    // reads identically whether the order is kept or re-sorted, so it could not
+    // tell the pages' own order from a sort of it.
+    const open = ["/login", "/settings", "/about", "/"]
+    const groups = [{ id: "g1", name: "Auth", routes: ["/settings", "/about", "/login"] }]
     const doc: LayoutDoc = { ...DEFAULT_LAYOUT, view: "groups", groups }
     const boards = boardsForView(doc, open, ["laptop"])
-    /// The group's own two boards, in the order the canvas draws them.
+    /// The group's own three boards, in the order the canvas draws them.
     const column = boards.filter((b) => b.route !== "/")
 
     expect(doc.routeOrder).toEqual([]) // the premise: no flow has been set
-    expect(column.map((b) => b.route)).toEqual(["/login", "/settings"])
+    // `g.routes` is assignment order (`assignRoute` appends) and sorts as
+    // `/about` first; the column is neither.
+    expect(column.map((b) => b.route)).toEqual(["/login", "/settings", "/about"])
     // One column, not two: the arrangement is untouched by what orders it.
     expect(column[0].x).toBe(column[1].x)
+    expect(column[2].x).toBe(column[0].x)
     expect(column[1].y).toBeGreaterThan(column[0].y)
+    expect(column[2].y).toBeGreaterThan(column[1].y)
   })
 
   // §F, next to the two edits that look alike and are not: a grouping edit is a

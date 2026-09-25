@@ -480,13 +480,21 @@ function App() {
       const persisted =
         persistedProjectIdRef.current ??
         (userId != null ? await readDefaultProjectId(userId) : null)
-      rememberPersistedProjectId(persisted)
 
       // Superseded while reading the persisted choice: fetch nothing, and do NOT
       // touch isLiveSyncing — the load that replaced this one owns that flag, and
       // clearing it here would stop the spinner under a load still running. This
       // return sits BEFORE the try, so it deliberately skips the finally.
       if (!loadSeqRef.current.isCurrent(seq)) return
+
+      // The write that has to sit on THIS side of the guard and not before it:
+      // `rememberPersistedProjectId` sets state, and a superseded load would be
+      // publishing the value IT read a moment ago — the pre-choice one, if the
+      // user picked during that read — over the newer load's own answer, for the
+      // rest of the session (the ref then short-circuits the next Dexie read).
+      // It is the same rule as every check below: after the await, before the
+      // setState.
+      rememberPersistedProjectId(persisted)
 
       try {
         const summary = await fetchTaskflowProjectSummary()

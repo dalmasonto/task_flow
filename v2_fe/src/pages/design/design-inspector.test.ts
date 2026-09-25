@@ -278,6 +278,11 @@ describe("DesignInspector — the breadcrumb", () => {
       activeIndex: 0,
     })
     expect(html).not.toContain("Widen selection to")
-    expect(html).toContain("main")
+    // The current crumb's own marker — NOT `toContain("main")`, which this used
+    // to assert: `main` is also the selection's `tag`, rendered elsewhere in the
+    // same markup, so that assertion held even if the breadcrumb drew nothing at
+    // all. This one is drawn by the crumb branch alone, which is what makes
+    // "the chain is on screen either way" testable.
+    expect(html).toContain('title="Selected element"')
   })
 })

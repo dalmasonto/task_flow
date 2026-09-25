@@ -16,11 +16,16 @@ function armableTimers() {
   let armed: (() => void) | null = null
   let ids = 0
   let arms = 0
+  /// The delay each window was armed with, in order. The clock fires the window
+  /// whenever it is told to, so the duration is not what it measures — this is
+  /// what makes the LENGTH the module hands to the gate observable at all.
+  const delays: number[] = []
   const timers: SettleTimers = {
-    set(fn) {
+    set(fn, ms) {
       if (armed) throw new Error("armed a second timer without clearing the first")
       armed = fn
       arms++
+      delays.push(ms)
       return ++ids
     },
     clear() {
@@ -39,6 +44,8 @@ function armableTimers() {
     /// How many times a window was opened — the count a per-event bump would
     /// push towards the number of events.
     arms: () => arms,
+    /// The delays those windows were armed with.
+    delays: () => delays,
   }
 }
 
@@ -134,14 +141,19 @@ describe("createContentEpoch", () => {
     expect(commits[1]).toBeLessThan(commits[2])
   })
 
-  it("coalesces a burst at the module's OWN default window", () => {
-    // The window is re-armed per event, so any settle at all coalesces a burst
-    // tighter than it. This pins that the default is not degenerate (a 0ms
-    // window would restore one bump per event) without pinning its exact value.
+  it("arms the gate with the module's OWN default window", () => {
+    // Two halves, and the second is the one that used to be missing. The window
+    // is re-armed per event, so ANY settle at all coalesces a burst tighter than
+    // it — which means the constant alone (asserted first, against it going
+    // degenerate at 0ms) says nothing about what the gate was armed with: a
+    // `createContentEpoch` that passed `settleMs: 0` to the gate while exporting
+    // 200 would pass every other test in this file. The delay recorded by the
+    // fake clock is the threading itself, so this fails on exactly that change.
     expect(CONTENT_EPOCH_SETTLE_MS).toBeGreaterThanOrEqual(120)
     const { clock, commits, epoch } = harness()
     epoch.fileChanged()
     expect(clock.arms()).toBe(1)
+    expect(clock.delays()).toEqual([CONTENT_EPOCH_SETTLE_MS])
     clock.fire()
     expect(commits).toHaveLength(1)
   })

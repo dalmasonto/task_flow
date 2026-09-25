@@ -182,6 +182,45 @@ fn a_relative_href_is_rewritten_on_the_root_page_only() {
         stamped(r#"<a href="/s/tok/app?tab=2">tabs</a>"#, INDEX_SRC)
     );
 
+    // `./app` is the SAME link as `app` at the root — a browser resolves it
+    // against the bare `/s/tok` base to `/s/app`, the same 404 outside the
+    // namespace — so it takes the same hand. Only ONE leading `./` is stripped,
+    // and only when a plain path follows.
+    assert_eq!(
+        root_body(r#"<a href="./app">app</a>"#),
+        stamped(r#"<a href="/s/tok/app">app</a>"#, INDEX_SRC)
+    );
+    assert_eq!(
+        root_body(r#"<a href="./app?tab=2">tabs</a>"#),
+        stamped(r#"<a href="/s/tok/app?tab=2">tabs</a>"#, INDEX_SRC)
+    );
+    // ... and on any other page the same href already resolves inside the
+    // namespace (`/s/tok/settings` + `./app` = `/s/tok/app`), so it is left
+    // byte-identical like every other relative there.
+    assert_eq!(
+        body(r#"<a href="./app">app</a>"#),
+        stamped(r#"<a href="./app">app</a>"#, SETTINGS_SRC)
+    );
+
+    // The neighbours the strip must NOT take, each for its own measured reason:
+    // `../app` resolves to `/app` from the root (it leaves the namespace
+    // entirely, and `../` is a different job — see `rewrite_hrefs`), `.//app`
+    // resolves to `/s//app` rather than `/s/app`, `./../app` to `/app`, and `./`
+    // and `./not-a-page` name no route either way.
+    for html in [
+        r#"<a href="../app">up</a>"#,
+        r#"<a href=".//app">odd</a>"#,
+        r#"<a href="./../app">odd, up</a>"#,
+        r#"<a href="./">dir</a>"#,
+        r#"<a href="./not-a-page">nope</a>"#,
+    ] {
+        assert_eq!(
+            root_body(html),
+            stamped(html, INDEX_SRC),
+            "must be left exactly as written: {html}"
+        );
+    }
+
     // ... while these name the CURRENT page, not another route: a bare query or
     // fragment resolves against the document's own URL and must never be
     // prefixed, on the root page or anywhere else. `mailto:` is here because a
@@ -219,12 +258,19 @@ fn a_new_tab_link_is_left_alone_however_it_is_spelled() {
     }
 
     // ... and the near misses are near misses: a DIFFERENT attribute whose name
-    // merely ends in `target`, and a target that is not `_blank`, both leave the
-    // link to be rewritten like any other.
+    // merely ends in `target`, a target that is not `_blank`, and — the case the
+    // value-skipping below cannot catch — `target=_blank` written INSIDE another
+    // attribute's unquoted value. A quoted value is skipped whole, so
+    // `data-x="target=_blank"` was never a problem; an unquoted one is read a
+    // token at a time, and its text used to be mistaken for the attribute. The
+    // href is rewritten like any other, because the element asked for no new
+    // tab, and left alone it would 404 on the sandbox origin.
     for (html, expected_markup) in [
         (r#"<a href="/app" data-target="_blank">x</a>"#, r#"<a href="/s/tok/app" data-target="_blank">x</a>"#),
         (r#"<a href="/app" target="_self">x</a>"#, r#"<a href="/s/tok/app" target="_self">x</a>"#),
         (r#"<a href="/app" target="_blankish">x</a>"#, r#"<a href="/s/tok/app" target="_blankish">x</a>"#),
+        (r#"<a href="/app" data-x=target=_blank>x</a>"#, r#"<a href="/s/tok/app" data-x=target=_blank>x</a>"#),
+        (r#"<a href="/app" data-x="target=_blank">x</a>"#, r#"<a href="/s/tok/app" data-x="target=_blank">x</a>"#),
     ] {
         assert_eq!(body(html), stamped(expected_markup, SETTINGS_SRC), "{html}");
     }

@@ -58,10 +58,10 @@ describe("resolveLive", () => {
   // The canvas holds a gesture's transform in a ref and paints it directly; the
   // `transform` prop carries only the COMMITTED value. This rule decides which
   // of the two the next render paints, and it is a function with a test rather
-  // than an `if` inside the canvas's layout effect because it is the part that
-  // was got wrong once: the snap-back below was found by walking render
-  // sequences by hand, which is exactly the evidence a rule needs to be pinned
-  // by a test instead.
+  // than an `if` inside the canvas's layout effect because it was walked by hand
+  // and never pinned: the snap-back below was reasoned out from render sequences
+  // — which is the evidence a rule needs — and had nothing that could fail
+  // for it.
 
   it("adopts the prop when nothing is pending", () => {
     // Fit, a zoom button, a viewport restored from Dexie: each arrives as a new

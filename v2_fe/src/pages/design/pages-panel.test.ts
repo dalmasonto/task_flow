@@ -245,8 +245,15 @@ describe("PagesPanel", () => {
     // one, the bulk control above, whose own click is supposed to hit its box.
     expect(html.match(/<label/g)).toHaveLength(1)
     // The rename resolver wins over the manifest title: the page's own title
-    // must not be drawn as well.
-    expect(html).not.toContain(">Settings<")
+    // must not be drawn as well. The absence is asserted of the STRING, not of
+    // the text node (`>Settings<`): the text-node form stops covering the title
+    // the moment it can reach an attribute instead — a `title=`, a
+    // `placeholder=` (which is what `LabelInput` puts the resolved name in) —
+    // and it would then pass while the title was on screen. This markup carries
+    // neither today (no `LabelInput` is mounted server-side, so there are no
+    // `placeholder=` attributes at all), which is why the two forms are
+    // equivalent HERE and this one is the one that keeps being true.
+    expect(html).not.toContain("Settings")
     // The group picker shows the group's NAME. This is the failure the app's
     // Base UI `Select` has by default — an `items` value→label map that goes
     // missing makes every row read `g1` — and the only place it can be caught is

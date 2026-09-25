@@ -46,10 +46,13 @@
 /// an `items` value→label map — so a row that loses the map reads `g1` where
 /// `Auth` belongs. The row was a native `<select>` for exactly that reason.
 /// That is now covered rather than avoided: `pages-panel.test.ts` renders this
-/// panel and asserts the NAME in the markup, which is a guard a native select
-/// could not have offered — it has no map to lose, and no value to mis-render.
-/// The map is `groupItems` below, built once from `layout.groups`, and it is the
-/// only thing keeping the ids out of the trigger.
+/// panel and asserts the NAME in the markup. What that guard catches has no
+/// native equivalent — a native `<select>` puts its option labels in the markup
+/// too, so a render test could assert those — because this component's failure
+/// is a SILENT value→label substitution: the raw id drawn where a name belongs,
+/// with nothing on screen to contradict it. The map is `groupItems` below, built
+/// once from `layout.groups`, and it is the only thing keeping the ids out of
+/// the trigger.
 ///
 /// The rename box stays a plain `<input>`: a field that edits its own text needs
 /// no value→label map, and it commits on blur/Enter rather than on a change
@@ -539,11 +542,22 @@ function PageName({
   const [editing, setEditing] = useState(false)
 
   if (!editing) {
+    // `title` is the route, and this button is the only sighted place in the
+    // PANEL that can show one: the row draws four slots with no path among them,
+    // and the picker beside it shows a group. For a page that is NOT open on the
+    // canvas the only other sighted path is the ⌘K palette's per-route hint —
+    // the canvas's own surfaces (its row-header overlay in `rows` view, the
+    // amber badge a strayed frame wears) exist only for boards that are open,
+    // and the headers themselves resolve through `pageLabel`. A label accepts
+    // anything up to `MAX_LABEL`, so a page renamed into ambiguity has nothing
+    // beside its name to check against. The accessible name already carries the
+    // route (`aria-label` below), so this closes the sighted gap only.
     return (
       <button
         type="button"
         className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm hover:bg-muted"
         aria-label={`Label for ${route}`}
+        title={route}
         onClick={() => setEditing(true)}
       >
         {name}

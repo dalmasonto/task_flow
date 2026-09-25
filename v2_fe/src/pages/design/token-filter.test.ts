@@ -62,6 +62,27 @@ const RAW_DOC_NO_LIGHT = `{
   }
 }`
 
+/// The same file again, hand-edited into the shapes the type does not allow: a
+/// token whose VALUE is `null`, a half that is a number, and a CATEGORY whose
+/// value is `null`. From the same cast — `tokens.rs` writes none of these, and
+/// nothing validates them away — and each one used to throw from inside the
+/// filter rather than narrow it: `value.light` on the `null` token value,
+/// `.toLowerCase()` on the number, `Object.entries(null)` on the `null`
+/// category. A half that is `null` INSIDE an object (`{"light": null}`) is
+/// deliberately not here: `value.light ?? ""` already carried it, so it never
+/// threw.
+const RAW_DOC_NULL_SHAPES = `{
+  "version": 9,
+  "categories": {
+    "colors": {
+      "accent": null,
+      "weight": { "light": 700 },
+      "border": { "light": "#e5e7eb" }
+    },
+    "spacing": null
+  }
+}`
+
 describe("filterTokenCategories", () => {
   // "No filter" has to mean the UNFILTERED panel, empty groups included: the
   // panel draws every category in its fixed order whether or not it has
@@ -224,6 +245,43 @@ describe("filterTokenCategories", () => {
     const filtered = filterTokenCategories(JSON.parse(RAW_DOC_NO_LIGHT) as DesignTokensDoc, "zzz")
     expect(filtered.categories).toEqual({})
     expect(filtered.version).toBe(8)
+  })
+
+  // The other three shapes the cast lets through, and each was a throw from
+  // inside the box's own filter: a `null` token value, a non-string half, and a
+  // `null` category. What must survive is the part that IS readable — the hex
+  // below is the file's only value, and it sits behind two tokens that cannot be
+  // read at all.
+  it("filters a document with null and non-string values instead of throwing on it", () => {
+    const filtered = filterTokenCategories(
+      JSON.parse(RAW_DOC_NULL_SHAPES) as DesignTokensDoc,
+      "e5e7eb",
+    )
+    expect(Object.keys(filtered.categories)).toEqual(["colors"])
+    expect(Object.keys(filtered.categories.colors)).toEqual(["border"])
+  })
+
+  // The key rule never reads the value, so a `null` token is still found by its
+  // key: dropping it would make a damaged file's tokens unfindable, which is the
+  // opposite of what the box is for. Fails if the guard answers "no match" for
+  // the whole entry rather than for the value.
+  it("keeps a token whose key matches even when its value is unreadable", () => {
+    const filtered = filterTokenCategories(
+      JSON.parse(RAW_DOC_NULL_SHAPES) as DesignTokensDoc,
+      "accent",
+    )
+    expect(Object.keys(filtered.categories.colors)).toEqual(["accent"])
+  })
+
+  // `Object.entries(null)` is the throw, and a group with nothing readable in it
+  // is not a search result — the same rule as the empty category below. A label
+  // match must not resurrect it either.
+  it("drops a null category instead of throwing on it", () => {
+    const filtered = filterTokenCategories(
+      JSON.parse(RAW_DOC_NULL_SHAPES) as DesignTokensDoc,
+      "spacing",
+    )
+    expect(filtered.categories).toEqual({})
   })
 
   it("matches a category label case-insensitively", () => {

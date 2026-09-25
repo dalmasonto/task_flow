@@ -38,22 +38,33 @@ export function categoryLabel(category: string): string {
 /// says nothing about Inter). A token with no dark override has only the one
 /// string, so `dark` is checked only when it is there.
 ///
-/// The empty string a missing half falls back to cannot match: the caller has
-/// already returned for a needle that trims to nothing. `light` gets the same
-/// fallback as `dark` even though `DesignTokensDoc` types it as required,
-/// because the type is a CAST and not a check: the document arrives as
-/// `JSON.parse(row.content) as DesignTokensDoc` (`design-api.ts`), so a
-/// hand-edited `styles/tokens.json` reaches this function in whatever shape it
-/// was typed — and an unguarded `value.light.toLowerCase()` on a `dark`-only
-/// token is a TypeError thrown from the search box's own filter, which takes
-/// the panel down instead of narrowing it. The required-`light` claim is the
-/// only thing that made the read look safe, so the type here says what is
-/// actually known: either half may be missing.
-function valueMatches(value: { light?: string; dark?: string }, needle: string): boolean {
-  return (
-    (value.light ?? "").toLowerCase().includes(needle) ||
-    (value.dark ?? "").toLowerCase().includes(needle)
-  )
+/// The parameter is `unknown` rather than the two optional strings it used to
+/// be, because that type described what `DesignTokensDoc` PROMISES and nothing
+/// checks the promise: the document arrives as
+/// `JSON.parse(row.content) as DesignTokensDoc` (`design-api.ts`), so this is
+/// handed whatever a hand-edited `styles/tokens.json` held. A half that is not a
+/// string contributes nothing to the match, and a value that is not an object
+/// matches nothing at all — the same rule as a missing half's empty string,
+/// which cannot match either (the caller has already returned for a needle that
+/// trims to nothing). Both shapes are TypeErrors otherwise — `value.light` on
+/// `null`, and `.toLowerCase()` on a number — thrown from the search box's own
+/// filter, which takes the panel down instead of narrowing it.
+///
+/// This file's promise is narrow and is the whole of it: the SEARCH does not
+/// throw. The editor reads these same halves and still will — `token-editor.tsx`
+/// reads `value.light` on the token — so a `{"accent": null}` document is not
+/// usable either way; the difference is that searching it no longer crashes the
+/// panel showing it.
+function valueMatches(value: unknown, needle: string): boolean {
+  if (typeof value !== "object" || value === null) return false
+  const { light, dark } = value as { light?: unknown; dark?: unknown }
+  return halfMatches(light, needle) || halfMatches(dark, needle)
+}
+
+/// One half of a token's value, as a search surface: its lowercased text, or
+/// `""` for a half that is absent, `null`, or not a string at all.
+function halfMatches(half: unknown, needle: string): boolean {
+  return (typeof half === "string" ? half.toLowerCase() : "").includes(needle)
 }
 
 /// The document narrowed to the tokens a query asks for: a case-insensitive
@@ -97,12 +108,19 @@ export function filterTokenCategories(doc: DesignTokensDoc, query: string): Desi
 
   const categories: DesignTokensDoc["categories"] = {}
   for (const [category, tokens] of Object.entries(doc.categories)) {
+    // The category's own value is the same cast one level up, and the guard is
+    // the same rule: `{"colors": null}` is a document the reader cannot render,
+    // and `Object.entries(null)` would throw here rather than let the search
+    // narrow — a category with nothing readable in it is simply not a search
+    // result, exactly like the empty group below.
+    const raw: unknown = tokens
+    const entries = typeof raw === "object" && raw !== null ? Object.entries(raw) : []
     // A label match keeps the whole group — a user searching "spacing" wants
     // the spacing tokens, whose keys say nothing about spacing. A key match
     // keeps only the keys that matched, and a value match only the token whose
     // value matched (see `valueMatches`).
     const labelMatches = categoryLabel(category).toLowerCase().includes(needle)
-    const kept = Object.entries(tokens).filter(
+    const kept = entries.filter(
       ([key, value]) =>
         labelMatches || key.toLowerCase().includes(needle) || valueMatches(value, needle)
     )

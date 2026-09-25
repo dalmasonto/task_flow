@@ -11,9 +11,11 @@
 /// gesture settled. One expression, two callers.
 ///
 /// `resolveLive` is here for the same reason from the other side: it is the
-/// decision of WHICH transform is painted, it had a bug of its own (see its
-/// comment), and it is three inputs wide — the shape that reads as obvious
-/// inline and is not.
+/// decision of WHICH transform is painted — three inputs wide, the shape that
+/// reads as obvious inline and is not — and it was walked by hand and never
+/// pinned. Both halves of it are tests now (`canvas-paint.test.ts`), which is
+/// the whole of the claim: a rule that lived in render sequences somebody had to
+/// hold in their head is a rule nothing could fail for.
 
 import type { CanvasTransform } from "./design-canvas"
 

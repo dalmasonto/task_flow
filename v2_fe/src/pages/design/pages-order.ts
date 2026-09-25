@@ -40,9 +40,10 @@
 ///   — and this phase reads it the same way for every edit that is not an
 ///   explicit reorder, which is the only edit here that is allowed to move a
 ///   board.
-/// * **Nothing can vanish, whatever the flow says.** `ungrouped` is the
-///   COMPLEMENT of the routes the listed groups claim, never a separate "pages
-///   with no group id" scan, so every manifest route lands in exactly one place.
+/// * **Nothing can vanish from the sections, whatever the flow says.**
+///   `ungrouped` is the COMPLEMENT of the routes the listed groups claim, never
+///   a separate "pages with no group id" scan, so every manifest route lands in
+///   exactly one place.
 ///   These are the states that make it matter, all of them reachable: a group
 ///   the user deleted (`removeGroup` leaves its pages in no group at all), a
 ///   page two groups both claim (the client reads whatever it is sent;
@@ -53,7 +54,9 @@
 ///   it read at that moment — and a STORED FLOW that names pages this project no
 ///   longer has. The manifest stays the filter for all of them, which is why the
 ///   sections walk the resolved order rather than whatever a group's own `routes`
-///   array happens to hold.
+///   array happens to hold. The panel draws `groups` alone — the flat list above
+///   is what keeps every page on the screen — so this partition is the invariant
+///   the `ungrouped` field is kept for, not a rendered tail.
 
 import type { RouteEntry } from "@/lib/design-api"
 import type { LayoutDoc } from "@/lib/design-layout"
@@ -62,9 +65,14 @@ import { resolveRouteOrder } from "@/lib/design-layout"
 /// A page as the flat list draws it: its route, and the number it carries.
 export type NumberedPage = { route: string; n: number }
 
-/// The Groups section, as the panel draws it: each group with the pages it
-/// holds, then the tail. ROUTES and not numbered pages — see `numberedPages`
-/// for why the numbers are not here.
+/// The Groups section, as `groupedPages` computes it: each group with the pages
+/// it holds, and the routes no listed group claims. ROUTES and not numbered
+/// pages — see `numberedPages` for why the numbers are not here.
+///
+/// `ungrouped` is the sections' COMPLEMENT, kept because the partition is worth
+/// having and the tests pin it — NOT because anything renders it: the panel
+/// lists `sections.groups` alone, and the flat list (`numberedPages`) is what
+/// keeps every page on the screen.
 export type GroupedPages = {
   groups: { id: string; name: string; pages: string[] }[]
   ungrouped: string[]
@@ -79,11 +87,12 @@ const flowOf = (layout: LayoutDoc, routes: RouteEntry[]) =>
   )
 
 /// The Groups section: each group in `layout.groups` order with its pages in
-/// flow order, then everything ungrouped, each as a route.
+/// flow order, and the rest of the manifest as the `ungrouped` complement.
 ///
-/// These are the NAMES the overview lists; no number is attached, because the
-/// panel's one numbering is the flat list's (`numberedPages`) and a second
-/// series would print two different pages as "1".
+/// The groups are the NAMES the overview lists; no number is attached, because
+/// the panel's one numbering is the flat list's (`numberedPages`) and a second
+/// series would print two different pages as "1". `ungrouped` is computed for
+/// the partition rather than drawn — see the type's own note.
 ///
 /// A group with no pages keeps its section: `createGroup` makes an empty one and
 /// `+ Add group` is the only way to make any, so dropping empty sections would
@@ -115,9 +124,13 @@ export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPa
     return { id: group.id, name: group.name, pages }
   })
 
-  /// Everything no listed group claims — including a page whose group was
-  /// removed, which is why this is computed from `claimed` and not from the
-  /// stored grouping: a page whose group is gone must be listed, not hidden.
+  /// Everything no listed group claims — the sections' complement. Computed
+  /// from `claimed` and not from the stored grouping, because that is what makes
+  /// the two halves partition `order`: a group the user deleted, a page two
+  /// groups both claim and a group entry that names nothing all leave the routes
+  /// they touch in exactly one place, which is the invariant the tests below
+  /// pin. It is not a rendered tail any more — the panel draws `groups` alone,
+  /// and rule 1's flat list is what keeps a page from vanishing off the screen.
   const ungrouped = order.filter((route) => !claimed.has(route))
 
   return { groups, ungrouped }
@@ -148,10 +161,13 @@ export type SelectAllState = {
 /// summarises.
 ///
 /// `next` is the MANIFEST's pages rather than "whatever is open plus the rest":
-/// a route that is not a page in the manifest cannot be drawn on the canvas, so
-/// preserving one would keep a board the user can never see. The one open-routes
-/// state is a subset of the manifest everywhere else too (`openRoute` filters
-/// through it), so this cannot lose anything real.
+/// a route this panel cannot list has no row here, so preserving one would keep
+/// an open page that nothing in this panel shows or closes. The CANVAS is not
+/// why — `layoutGroups` builds its ungrouped tail from the open list itself,
+/// with no manifest filter, so a stale route does draw a board; it is the
+/// panel's rows that come from the manifest. The one open-routes state is a
+/// subset of the manifest everywhere else too (`openRoute` filters through it),
+/// so this cannot lose anything real.
 export function selectAllState(routes: RouteEntry[], openRoutes: string[]): SelectAllState {
   // `routes.length` and not a bare `every`: with no pages at all, "every page is
   // open" is vacuously true, and the control would read "Deselect" beside "No

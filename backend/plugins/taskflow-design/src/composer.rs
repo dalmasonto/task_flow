@@ -72,9 +72,12 @@ const PICKER_RUNTIME: &str = r#"(() => {
   // `relatedTarget` gives us. Capture phase, like the listeners above, so a
   // page's own handler cannot swallow it.
   //
-  // NOT verifiable under CDP: Chrome delivers no cross-frame pointer-leave, so
-  // this never fires there and the stale box survives in both the broken and
-  // fixed runtime — verify with a real pointer move (Firefox, or by hand).
+  // NOT verifiable under CDP — a limit of the DRIVER, not a claim about Chrome:
+  // driven through CDP, `page.mouse.move` delivered no cross-frame pointer-leave
+  // in this harness, so this never fires there and the stale box survives in
+  // both the broken and the fixed runtime. Verify with a real pointer move
+  // (a real Firefox, or by hand); a real pointer move is expected to clear it,
+  // and that expectation is the part that was never measured.
   addEventListener('mouseout', (e) => { if (!e.relatedTarget) clear(); }, true);
 
   addEventListener('click', (e) => {
@@ -96,6 +99,11 @@ const PICKER_RUNTIME: &str = r#"(() => {
     const kept = chain.slice(-6);
     const hostOf = (n) => { const h = n.closest('[data-component]');
       return h && h.dataset.component || null; };
+    // The fields below are hand-copied in
+    // `v2_fe/src/pages/design/design-selection.test.ts` (its `CLICKED` fixture),
+    // and NOTHING checks the two against each other: a field added, renamed or
+    // reordered here leaves that test passing on a premise this message no
+    // longer holds. Edit both — the fixture's comment points back here.
     parent.postMessage({ type: 'design:select',
       component: host && host.dataset.component || null,
       elementPath: pathTo(el),
@@ -220,6 +228,11 @@ fn has_scheme(href: &str) -> bool {
 /// `target="_blank"` substring missed the last three and silently hijacked
 /// those links into the frame — the exact thing this check exists to prevent.
 ///
+/// It SCANS the tag rather than parsing it, which is all one attribute question
+/// needs: the rules for what counts as a name — a token boundary before it, a
+/// quoted value skipped whole, an unquoted one running to whitespace — are
+/// written out below, each because some real markup made it necessary.
+///
 /// `tag` is the element's text from its `<` to just before its `>`.
 fn opens_new_tab(tag: &str) -> bool {
     // `to_ascii_lowercase` rewrites only ASCII bytes in place, so it never
@@ -243,11 +256,19 @@ fn opens_new_tab(tag: &str) -> bool {
             i += 1;
             continue;
         }
-        // The NAME has to be a whole token — `data-target=` is a different
-        // attribute and must not count.
+        // The NAME has to be a whole token, so the byte before it rules it out
+        // when it could have been part of a longer name (`data-target=`,
+        // `x-target=`) — and `=` rules it out for a different reason: an UNQUOTED
+        // value runs to the next whitespace, `>` or quote, so the text of one can
+        // contain `target=_blank` (`data-x=target=_blank`). Reading that as the
+        // attribute left the href alone, and the link then 404s on the sandbox
+        // origin. Whitespace and a quote stay legal predecessors, because they
+        // are what separates a real `target` from the attribute before it
+        // (`href="x"target="_blank"`).
         if !b[i..].starts_with(b"target")
             || (i > 0
-                && (b[i - 1].is_ascii_alphanumeric() || matches!(b[i - 1], b'-' | b'_' | b':')))
+                && (b[i - 1].is_ascii_alphanumeric()
+                    || matches!(b[i - 1], b'-' | b'_' | b':' | b'=')))
         {
             i += 1;
             continue;
@@ -326,9 +347,24 @@ fn opens_new_tab(tag: &str) -> bool {
 ///     404 — and is rewritten to `/s/{token}/app`. On every other route the
 ///     same href already resolves inside the namespace
 ///     (`/s/{token}/settings` + `app` = `/s/{token}/app`), so it is left
-///     byte-identical. A dot-segment relative (`./app`, `../app`) names no
-///     route and is left as written: resolving dot segments is a different
-///     job, and a guess there is a rewrite that is wrong;
+///     byte-identical. ONE leading `./` is stripped, and only on the root page:
+///     `./app` resolves to `/s/app` against the same bare base — the same dead
+///     link `app` gives — so it is handed to the route match like any other
+///     relative and rewritten when it names one. `../` is the different job
+///     this deliberately does not do: it always resolves OUTSIDE the namespace
+///     (`../app` is `/app` from the root and `/s/app` from a child page), so
+///     handling it means resolving dot segments against the base's depth, where
+///     one `..` is not one strip — and a guess there is a rewrite that is wrong.
+///     `.//app` is left alone too: it resolves to `/s//app`, not `/s/app`;
+///   * the walk is TEXTUAL — it looks for `href="` in the fragment — so
+///     href-shaped text is rewritten wherever it appears, inside a `<script>`
+///     body or an HTML comment included. A site-absolute `/app` written there
+///     has been rewritten since this pass existed; what the root arm above
+///     newly reaches is a RELATIVE one (`<script>const s = 'href="app"'</script>`
+///     composes to `href="/s/{token}/app"` inside the JS string). It is noted
+///     rather than fixed: a page that does not spell an href in a script or a
+///     comment cannot tell the difference, and telling the two apart means
+///     parsing the fragment instead of scanning it;
 ///   * an empty href, `#fragment`, `?query`, `//protocol-relative`, anything
 ///     with a `scheme:` prefix (`http:`, `mailto:`, `tel:`, and by
 ///     construction `javascript:`/`data:`), and an already-tokenized `/s/…`
@@ -409,7 +445,19 @@ fn rewrite_hrefs(html: &str, base: &str, routes: &[String], is_root: bool) -> St
             // Relative, on the root page: see the doc comment. Resolved the way
             // a browser would — against the sandbox root — and rewritten only
             // if what it resolves to is a route.
-            let resolved = format!("/{route_path}");
+            //
+            // One leading `./` goes first, and it is a strip rather than a
+            // resolution: `./app` and `app` are the SAME resolution against this
+            // base (`/s/app`, a 404), so the two are given the same treatment.
+            // Only when what follows is a plain path — not empty, and not
+            // starting with `/` or another `.` — because `.//app` resolves to
+            // `/s//app` and `./../app` to `/app`, and neither is what a strip
+            // would produce.
+            let bare = match route_path.strip_prefix("./") {
+                Some(rest) if !rest.is_empty() && !rest.starts_with(['/', '.']) => rest,
+                _ => route_path,
+            };
+            let resolved = format!("/{bare}");
             routes.iter().find(|r| r.as_str() == resolved)
         } else {
             // Relative on any other page: resolves correctly inside the
@@ -793,11 +841,20 @@ pub fn compose_export_document(
 /// whole of its boundary, which is exactly why it names the scheme and not `*`.
 ///
 /// `connect-src` is deliberately NOT widened, and Lottie is not a reason to
-/// widen it. A Lottie animation has two independent blockers, and neither is
-/// `img-src`: a page fragment cannot name a remote script statically in its
-/// markup (the validator refuses the literal `<script src` marker), and a
-/// Lottie player `fetch()`es its animation JSON, which lands under
-/// `connect-src`. It is deliverable anyway WITHOUT touching this directive —
+/// widen it: a Lottie player `fetch()`es its animation JSON, and that fetch is
+/// what lands under `connect-src`.
+///
+/// The validator's `<script src` marker is NOT a second blocker, though a pair
+/// of them used to be written here as two. It is a SHELL-OWNERSHIP rule — a page
+/// fragment may not claim the document's own `<script>`, `<head>` or `<body>`
+/// slots, which the server composes — and its literal-substring form is a PROXY
+/// for that rule, not a bound on what a page can load: one extra attribute
+/// defeats the proxy, because `<script type="module" src="https://…">` passes
+/// validation (pinned in `phase1_storage_composer.rs`) and then loads under the
+/// `https:` scheme source below. What refuses that load, if anything does, is
+/// this policy rather than the validator.
+///
+/// Lottie is deliverable anyway WITHOUT touching this directive —
 /// the player wiring belongs in a COMPONENT, which the sandbox loads as a
 /// SAME-ORIGIN script: `compose_document` emits
 /// `<script src="/s/{token}/f/components/{name}.js">` per registered component,
@@ -816,24 +873,27 @@ pub fn compose_export_document(
 ///
 /// `form-action`, `base-uri` and `frame-ancestors` stay as they were.
 ///
-/// The widening is bounded by three things together, and each is load-bearing.
+/// The widening is bounded by two things together, and each is load-bearing.
 /// The sandbox is a separate origin with no cookies behind a short-lived
 /// read-only token, so a page that misbehaves with what it loads reaches
-/// nothing of the operator's beyond the project it is already rendering. Every
-/// value in play is written by the project's own members through the normal
-/// write path — the manifest's links, and the urls a page writes into its own
-/// markup for an image or a video, alike — and a page cannot name a remote
-/// script STATICALLY in its own markup: the validator refuses the literal
-/// `<script src` marker. (A markup rule, not a runtime one: an inline
-/// `<script>` passes validation, and inline JS can append a
-/// `<script src="https://…">` at runtime, which `'unsafe-inline'` plus the
-/// `https:` scheme source permit. What a page cannot do is put that url in the
-/// markup it hands the validator.) And the scheme
-/// is what bounds those values: `resources::validate` refuses any manifest url
-/// that is not `https:`, so `javascript:` and a `data:` document can never
-/// reach an emitted attribute in the first place, while a url written straight
-/// into page markup is not scheme-checked by anything — for those, the scheme
-/// source named here is the only thing refusing plain `http:`.
+/// nothing of the operator's beyond the project it is already rendering. And
+/// every value in play is written by the project's own members through the
+/// normal write path — the manifest's links, and the urls a page writes into its
+/// own markup for an image or a video, alike — with the scheme as the bound on
+/// them: `resources::validate` refuses any manifest url that is not `https:`, so
+/// `javascript:` and a `data:` document can never reach an emitted attribute in
+/// the first place, while a url written straight into page markup is not
+/// scheme-checked by anything — for those, the scheme source named here is the
+/// only thing refusing plain `http:`.
+///
+/// The validator is NOT a third bound, which is the mistake this paragraph used
+/// to make. Its one rule about script markup is the shell-ownership proxy above,
+/// and a proxy is not a bound: the marker is the literal substring
+/// `<script src`, so `<script type="module" src="https://…">` passes it — and so
+/// does an inline `<script>` that appends one at runtime, which `'unsafe-inline'`
+/// plus the `https:` scheme source permit. What bounds the loading is this
+/// policy, applied by the browser to whatever the document ends up with, static
+/// or appended.
 ///
 /// `style-src` and `font-src` also still allow jsdelivr explicitly. That adds no
 /// new host to the trust boundary: jsdelivr is already permitted for

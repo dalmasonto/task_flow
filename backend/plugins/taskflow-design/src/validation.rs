@@ -719,8 +719,10 @@ pub fn validate_tokens(content: &str) -> Validation {
                 return v.fail(ValidationError {
                     line: line_of(content, abs),
                     rule: "remote-import",
-                    message: "@import of a remote URL is not allowed in tokens.css. Fonts and \
-                              other assets ship as local files under assets/."
+                    message: "@import of a remote URL is not allowed in tokens.css. A web font \
+                              belongs in styles/resources.json, as an https link with its \
+                              preconnect; assets/ holds images only (.svg, .png, .jpg, .jpeg, \
+                              .webp, .gif, .ico)."
                         .into(),
                     found: Some(content[abs..(abs + 40).min(content.len())].to_string()),
                     suggest: None,
@@ -770,8 +772,10 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                         line: 0,
                         rule: "remote-url",
                         message: format!(
-                            "Token `{category}.{key}` names a remote URL ({value}). Fonts and \
-                             other assets ship as local files under assets/."
+                            "Token `{category}.{key}` names a remote URL ({value}). A token \
+                             value is text the page uses, never a link: a web font goes in \
+                             styles/resources.json as an https link with its preconnect, and \
+                             assets/ holds images only."
                         ),
                         found: Some(value.clone()),
                         suggest: None,

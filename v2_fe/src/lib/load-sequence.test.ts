@@ -14,9 +14,14 @@ import { createLoadSequence } from "./load-sequence"
 /// not order responses.
 ///
 /// The check is "is this response from the newest load that has STARTED" — a
-/// decision on two numbers, so it is testable here where the effect is not
-/// (vitest is node-only in this repo: App.tsx cannot be rendered, and no test
-/// anywhere mounts a component).
+/// decision on two numbers, so it is testable here where the effect is not.
+/// (Not because nothing here renders a component — `pages-panel.test.ts` and
+/// `design-inspector.test.ts` render real ones through `renderToStaticMarkup`.
+/// It is THIS path that cannot be exercised: App itself cannot be rendered in
+/// the node environment, because it calls `hasStoredAuthSession` —
+/// `window.localStorage` — while rendering, and, more fundamentally, effects do
+/// not run under static rendering at all, so a wiring test could not reach a
+/// `useEffect` whichever component it mounted.)
 ///
 /// Every test names what would have to change for it to fail. What these do NOT
 /// prove is stated at the foot of the file.
@@ -115,9 +120,10 @@ describe("createLoadSequence", () => {
 })
 
 /// What this file does NOT prove: that App.tsx actually consults the guard after
-/// each await, before each setState. That is wiring inside a component, and this
-/// repo has no jsdom and no renderer, so it is verified by inspection at
-/// App.tsx's `loadLiveWorkspace` (see the task-24 report for the exact lines and
-/// what each check has to sit between). What is proved here is the semantic the
+/// each await, before each setState. That is wiring inside a component's effect,
+/// and this repo renders only through `renderToStaticMarkup` — where effects do
+/// not run, and which App could not be handed anyway — so it is verified by
+/// inspection at App.tsx's `loadLiveWorkspace` (see the task-24 report for what
+/// each check has to sit between). What is proved here is the semantic the
 /// wiring relies on: a superseded response is distinguishable from the newest
 /// one, for every token, in both directions.

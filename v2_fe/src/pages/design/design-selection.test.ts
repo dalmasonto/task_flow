@@ -29,9 +29,11 @@ import { sanitizeSelection, widenSelection, type SelectionState } from "./design
 //
 // A HAND-COPY, and nothing more: no check ties this fixture to the runtime, so a
 // field the frame renames or moves leaves every test below passing on a premise
-// `composer.rs` no longer holds. The guard for that is a pointer on the RUNTIME
-// side naming this file, which `composer.rs` does not carry — the reciprocal
-// note here can only help someone already reading the tests.
+// `composer.rs` no longer holds. The pointer that guards it is on the RUNTIME
+// side, at the `postMessage` this fixture copies — `composer.rs`'s picker
+// runtime names this file and this fixture there — and it is a note and not a
+// check either way: both sides have to be edited together, and only a reader can
+// notice.
 const CLICKED = {
   type: "design:select",
   component: "app-header",

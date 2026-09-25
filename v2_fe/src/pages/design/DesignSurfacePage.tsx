@@ -152,8 +152,13 @@ export function DesignSurfacePage({
   }, [contentEpochGate])
   // A pending bump must not outlive its subscriber: committing after this page
   // has gone (or after a project switch) would remount a canvas nobody is
-  // looking at. Mirrors the canvas's own gate cleanup.
-  useEffect(() => () => contentEpochGate.cancel(), [contentEpochGate])
+  // looking at. Mirrors the canvas's own gate cleanup, with one difference —
+  // `projectId` is in the dep list because THIS component survives a switch
+  // (the design route is a static path with no `key`, so only the prop changes):
+  // without it the cleanup runs on unmount alone, and a file event landing
+  // inside the settle window of a switch would remount every board on the
+  // project the user just arrived at, right after those frames mounted.
+  useEffect(() => () => contentEpochGate.cancel(), [contentEpochGate, projectId])
   /** One counter per board, layered ON TOP of the global `contentEpoch` above.
    *  A server-side file change remounts everything (that epoch), while a single
    *  board's Reload must remount only that board — without this overlay, one
@@ -316,10 +321,14 @@ export function DesignSurfacePage({
 
       if (stored) {
         // `openRoutes` is restored AS STORED, and it must be in MANIFEST order —
-        // the invariant every other writer here maintains deliberately: the
-        // seed below and `openRoute` both rebuild from `manifest.routes`,
-        // `PagePicker` filters the manifest, and `selectAllState.next` is the
-        // manifest's paths. This line is the one writer that does not check, and
+        // the invariant every writer here that ESTABLISHES the order maintains
+        // deliberately: the seed below and `openRoute` both rebuild from
+        // `manifest.routes`, `PagePicker` filters the manifest, and
+        // `selectAllState.next` is the manifest's paths. The rest of the
+        // inventory is not a counterexample: the two close paths
+        // (`toggleRouteFromPanel`'s `else` and `closeRoute`) only `filter`, so
+        // they carry whatever order they are handed through and cannot introduce
+        // a divergent one. This line is the one writer that does not check, and
         // what it would break is not the boards' order but the TAIL of it:
         // `resolveRouteOrder` appends the pages the flow does not name in the
         // order the open list arrives in, while the panel resolves the same tail
@@ -594,6 +603,13 @@ export function DesignSurfacePage({
     }
   }, [selection])
 
+  // `transform` is a dependency because `focusBoard` reads it, so this element
+  // is rebuilt on every pan/zoom COMMIT. Harmless today — `transform` is already
+  // a `DesignCanvas` prop, so that commit re-renders the canvas regardless, and
+  // each board is saved by `ArtboardCard`'s own memo one level down — but it is
+  // why `memo(DesignCanvas)` can never help on a transform change: `pinLayer`
+  // changes identity with it. If `transform` ever goes back to per-event updates,
+  // this dep list is where the pins subtree would rebuild per event.
   const pins = useMemo(
     () => (
       <CommentPins
@@ -1049,6 +1065,17 @@ function DesignChatRail({
 /// `DevicePicker`'s checkbox-list idiom below). Unlike devices, zero open
 /// pages is a valid (if empty) canvas, so nothing here forces one to stay
 /// checked.
+///
+/// Both of its lists are MANIFEST-ordered, and that is a decision rather than an
+/// omission: the menu walks `routes` as the manifest sent them, and the trigger
+/// names `openRoutes[0]` — the first OPEN route in that same order, not the
+/// flow's first. This is a control ("which pages are open"), not a listing
+/// claiming to be the sequence the canvas draws and the Pages panel numbers; the
+/// FLOW is a property of the arrangement, and reordering these rows by it would
+/// also split the array this component is handed in two, because `toggle` writes
+/// `openRoutes` back in manifest order for the panel's sake (see the comment
+/// there). So: deliberately manifest-ordered, in both places, and not the
+/// presentation order.
 function PagePicker({
   routes,
   openRoutes,

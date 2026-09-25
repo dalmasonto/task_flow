@@ -17,9 +17,12 @@
 /// about ordering. This is the ordering.
 ///
 /// Pure and tiny on purpose: "is this response from the newest load that has
-/// STARTED" is a decision on two numbers, so it can be held still in a test —
-/// which this repo needs, because vitest is node-only here and App.tsx (an
-/// effect, a component) cannot be rendered at all.
+/// STARTED" is a decision on two numbers, so it can be held still in a test.
+/// The wiring around it is what no test here can reach: App.tsx cannot be
+/// rendered in this repo's node environment (it reads `window.localStorage`
+/// through `hasStoredAuthSession` while rendering), and the checks live in an
+/// EFFECT — which `renderToStaticMarkup`, the only renderer this repo has, does
+/// not run for any component.
 export type LoadSequence = {
   /// Claim the next token. Call once per load, BEFORE the first await.
   begin: () => number

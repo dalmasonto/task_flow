@@ -255,6 +255,53 @@ async fn full_document_is_rejected() {
     assert_eq!(v["errors"][0]["rule"], "full-document");
 }
 
+/// The `<script src` marker is a LITERAL SUBSTRING, not a tag rule — so it is a
+/// shell-ownership proxy rather than a bound on what a page may load, which is
+/// what the CSP note in `composer.rs` now says about it.
+///
+/// Pinned so that note cannot quietly become false: a validator that grows a real
+/// check for a remote script (an attribute read, a tag-boundary rule) makes this
+/// test fail, and that failure is the prompt to rewrite the note.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_script_src_marker_is_a_literal_substring_not_a_tag_rule() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+
+    // The spelling the marker catches.
+    let refused = app
+        .put_json_as(
+            user_id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "pages/remote.html",
+                "content": "<script src=\"https://cdn.example/x.js\"></script>"
+            }),
+        )
+        .await;
+    assert_eq!(refused.status(), 422);
+    assert_eq!(refused.json()["errors"][0]["rule"], "full-document");
+
+    // The same intent, one attribute later: accepted, and (under the sandbox
+    // CSP's `script-src … https:`) it loads. This is the assertion the note
+    // above is about.
+    let accepted = app
+        .put_json_as(
+            user_id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({
+                "path": "pages/remote.html",
+                "content": "<script type=\"module\" src=\"https://cdn.example/x.js\"></script>"
+            }),
+        )
+        .await;
+    assert_eq!(
+        accepted.status(),
+        201,
+        "the marker is a substring rule; this shape is outside it: {}",
+        accepted.text()
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn raw_layout_tag_is_rejected_with_suggestion() {
     let app = TestApp::new().await;
