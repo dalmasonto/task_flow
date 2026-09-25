@@ -326,7 +326,15 @@ fn the_two_halves_partition_the_pages_even_when_both_states_are_broken() {
 /// server resolves because the agent read must hand back the arrangement, not
 /// the document — but they must not DRIFT, and both have changed once already.
 /// A comment naming the other implementation cannot fail; this can.
-const PANEL_CASES: &str = include_str!("fixtures/layout_panel_cases.json");
+///
+/// It lives under `v2_fe/` rather than beside this file because the client
+/// reader cannot use `node:fs`: `v2_fe/tsconfig.app.json` declares
+/// `types: ["vite/client"]`, so a `node:fs` import in `src/` fails that build
+/// (TS2591) — the file moved here, and the client reads it with `?raw`, rather
+/// than the tsconfig widening the application's type surface to Node. ONE file
+/// in one place is the property the table rests on; a copy per reader is the
+/// drift this test exists to catch.
+const PANEL_CASES: &str = include_str!("../../../../v2_fe/fixtures/layout-panel-cases.json");
 
 /// The cases this table is pinned to carry, by NAME.
 ///

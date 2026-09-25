@@ -186,6 +186,54 @@ async fn the_page_read_spells_the_fragment_file_and_never_path() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_component_read_spells_the_fragment_file_and_never_path() {
+    // The last design read that spelled a FILE `path` while the same word is a
+    // ROUTE in `design_list_components` (`routes[].path`, `manifest::RouteEntry`
+    // served verbatim) — and while the registry's own component entries spell
+    // the fragment `file` (`components[].file`), so the two spellings of one
+    // value were in the same response's neighbourhood. Renamed for the same
+    // reason and on the same evidence as `design_read_page`: the MCP client
+    // returns this body opaquely and no test read the key.
+    let (app, project, _user, _agent, key) = setup_app().await;
+    let written = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_COMPONENT,
+            json!({
+                "project": project,
+                "name": "app-header",
+                "js": "customElements.define('app-header', class extends HTMLElement {});",
+                "reason": "the registry needs a header to compose pages from"
+            }),
+        )
+        .await;
+    assert_eq!(written.status(), 201, "{}", written.text());
+
+    let read = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("{AGENT_COMPONENT}?project={project}&name=app-header"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "{}", read.text());
+    let v = read.json();
+    assert_eq!(v["name"], "app-header");
+    assert_eq!(
+        v["file"], "components/app-header.js",
+        "the fragment is `file`, as it is in the registry's `components[].file`: {v}"
+    );
+    assert_eq!(
+        v["path"],
+        serde_json::Value::Null,
+        "`path` means the ROUTE in design_list_components — it must not appear here: {v}"
+    );
+    assert!(
+        v["content"].as_str().unwrap_or("").contains("app-header"),
+        "the source itself is still the body of this read: {v}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn context_serves_the_link_back_and_media_guidance() {
     let (app, project, _user, _agent, key) = setup_app().await;
 

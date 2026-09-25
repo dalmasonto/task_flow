@@ -11,12 +11,25 @@
 /// version of the move rule and a changed section-drawing rule). Prose naming
 /// the other implementation cannot fail when the two disagree; this can.
 ///
-/// It reads the file rather than importing it so the fixture stays one artifact
-/// in one place — a copy under `src/` would be a second table, which is the
-/// state this exists to prevent.
+/// It reads the file rather than importing it as JSON so the fixture stays one
+/// artifact in one place — a copy under `src/` would be a second table, which is
+/// the state this exists to prevent.
+///
+/// `?raw` rather than `node:fs`, as in `design-room-selection.test.ts` and
+/// `pages-panel.test.ts`: `tsconfig.app.json` declares `types: ["vite/client"]`
+/// and NOT `node`, so `readFileSync` here was a build failure (TS2591) rather
+/// than a test. `?raw` is declared by `vite/client`, resolves through Vite's own
+/// resolver — so a moved or renamed fixture breaks loudly instead of reading the
+/// wrong path — and the file itself sits in `v2_fe/fixtures/`, outside `src/`,
+/// because that is the one place both this reader and the Rust `include_str!`
+/// agree on.
 
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
+
+/// The shared case table, as text: the same file
+/// `backend/plugins/taskflow-design/tests/layout_doc.rs` reads with
+/// `include_str!`, at `v2_fe/fixtures/layout-panel-cases.json`.
+import casesJson from "../../../fixtures/layout-panel-cases.json?raw"
 
 import type { RouteEntry } from "@/lib/design-api"
 import {
@@ -60,13 +73,7 @@ const PANEL_CASE_NAMES: string[] = [
   "a page reads as its label where it has one, and as the manifest title where it does not",
 ]
 
-/// Four levels up from `src/pages/design/` is the repository root.
-const CASES_URL = new URL(
-  "../../../../backend/plugins/taskflow-design/tests/fixtures/layout_panel_cases.json",
-  import.meta.url,
-)
-
-const table = JSON.parse(readFileSync(CASES_URL, "utf8")) as { cases: PanelCase[] }
+const table = JSON.parse(casesJson) as { cases: PanelCase[] }
 
 /// The manifest as the panel receives it. `groupedPages` reads `path` and
 /// nothing else, so the file and title are here only to make the entries the

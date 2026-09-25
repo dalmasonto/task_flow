@@ -197,6 +197,12 @@ pub struct ReadComponentQuery {
 }
 
 /// `GET /api/taskflow/agents/design/component` — source + blast radius.
+///
+/// The fragment is spelled `file`, like every other design read: `path` is a
+/// ROUTE in `design_list_components` (`routes[].path`, `manifest::RouteEntry`
+/// served verbatim), so a response handing back a file under that word is the
+/// same collision `design_read_page` and `design_read_layout` were renamed for,
+/// one endpoint over.
 pub async fn read_component(
     RequireAgent(agent): RequireAgent,
     Query(q): Query<ReadComponentQuery>,
@@ -212,7 +218,14 @@ pub async fn read_component(
     match store::load_file(agent.project_id, &path).await {
         Some(row) => Ok(Json(json!({
             "name": q.name.trim(),
-            "path": row.path,
+            // `file`, not `path`: the registry spells a ROUTE `path`
+            // (`routes[].path` IS the route), and in the registry's own component
+            // entries the fragment is `file` too (`components[].file`), so this
+            // response was the last one where an agent comparing the two would
+            // be holding a file name under a word that means a route next door.
+            // The rename is safe for the same reason `design_read_page`'s was:
+            // nothing reads this body's fields, the MCP client returns it whole.
+            "file": row.path,
             "content": row.content,
             "version": row.version,
             "used_on": entry.map(|e| e.used_on.clone()).unwrap_or_default(),
