@@ -1,8 +1,11 @@
 # Design phase 5 — resume here
 
-**Written 2026-09-25 immediately before a session restart.** Read this file first; it is
-self-contained. Everything below was verified against the repo at the moment of writing,
-not recalled.
+**Written 2026-09-25 immediately before a session restart, and corrected in the final fix
+wave of the phase.** The last two sections are what outlived the phase — the deploy sequence and the
+lessons that cost the most to learn. §1–§3 exist because this file is cited by name, and their
+old content is the reason they are not simply deleted: two of the three claims below were
+made by an earlier version of this file and were false. Do not act on a handoff — this one
+included — without checking it against the repo.
 
 ---
 
@@ -10,94 +13,57 @@ not recalled.
 
 | | |
 |---|---|
-| `HEAD` | `c2c65f6` |
-| Unpushed commits | **8** (`origin/main` is at `5aab099`) |
-| Deployed | `5aab099` — both workflows ran green; `taskflow.supercodehive.com` returns 200 |
 | Phase plan (the authority) | `docs/superpowers/plans/2026-09-25-design-phase5-resources-and-ergonomics.md` |
-| Chronological ledger | `.superpowers/sdd/2026-09-25-design-phase5-resources-and-ergonomics/progress.md` (git-ignored, ~400 KB) |
+| **The durable record** | the same plan, section **"The durable record"** — the facts that existed only in git-ignored scratch, including **facts 9–13** on crashed sessions, agent ids, strays and lost verdicts |
+| Chronological ledger | `.superpowers/sdd/2026-09-25-design-phase5-resources-and-ergonomics/progress.md` (git-ignored, large) |
 | Phase workspace | `.superpowers/sdd/2026-09-25-design-phase5-resources-and-ergonomics/` (briefs, reports, review packages — **all git-ignored**) |
 
-**Tasks 1–31 are complete and reviewed.** Task 32 and 29 are the only unfinished work.
-The phase's durable record — including the measurement traps that cost the most time
-today — is written into the plan doc under **"The durable record"**, because the reports
-themselves are not tracked.
+**Status.** Every task in the plan is complete and reviewed except:
+
+- **Task 9** (the phase's verification and held publish) and **Task 19** (typography tokens in
+  their own family) — **deliberately deferred**, not unfinished work nobody got to. The plan
+  says why under each task; 19 waits on the user's own browser testing;
+- the final whole-branch review's own findings, fixed in one wave immediately before the push
+  (its verdict: *0 Critical, 5 Important, 6 Minor — ready to merge, with fixes*) and covered by
+  a scoped re-review of that wave.
+
+Two things an earlier version of this file claimed, both corrected here because a crash is
+what produced them:
+
+- **"Tasks 1–31 are complete and reviewed"** was false in two ways. Tasks 9 and 19 were
+  already deferred, not complete — and **Task 28's scoped re-review verdict had been lost
+  entirely** (durable record, fact 10), so one committed task was carrying no verdict at all
+  until a replacement re-review re-ran its three mutations.
+- The **HEAD / unpushed counts** it quoted (`c2c65f6`, 8 commits) were a snapshot of a moving
+  branch. The phase's count is `git log --oneline origin/main..HEAD` — read it, never a
+  number written here.
+
+## 2. If a session dies again — what survives
+
+**Agent ids are not a recovery mechanism.** `SendMessage(to: "<agentId>")` returns *"No
+transcript found for agent ID"*: subagent transcripts do not survive the session. The earlier
+version of this file offered exactly that as **"the fastest path"** to resume, which makes it
+the single most misleading thing in the file, and it is the third restart this phase paid for
+(durable record, fact 9).
+
+What survives is **the work in the tree** and **the ledger**, and nothing else:
+
+- enumerate the dirty files **and the review loops**. An implementer that dies leaves modified
+  files; a reviewer that dies leaves nothing, and `git status` cannot show you a missing
+  verdict (fact 10).
+- a stray untracked file is not neutral — it moves every count measured beside it, so nothing
+  should be measured while one is present (fact 13).
+- re-read the files before continuing, and say which parts were finished before the
+  interruption; do not trust a memory of where the work stopped.
+
+## 3. What remains
+
+Nothing in the plan's scope beyond the two deliberately deferred tasks above. The phase's last
+act is the push and the deploy — go to §4.
 
 ---
 
-## 2. What is IN FLIGHT right now (uncommitted)
-
-Two agents left work in the working tree when their session was killed by an API billing
-error (HTTP 402). **Nothing was lost** — the transcripts are saved and both agents are
-resumable by id.
-
-### Task 32's fix round — `aace18237f338bac2`
-
-Its work is in the tree, **uncommitted and unowned by anyone else**. These six files are
-its own; nobody else may touch them:
-
-```
-v2_fe/src/lib/design-layout.ts          v2_fe/src/lib/design-layout.test.ts
-v2_fe/src/pages/design/pages-order.ts   v2_fe/src/pages/design/pages-order.test.ts
-v2_fe/src/pages/design/pages-panel.tsx  v2_fe/src/pages/design/pages-panel.test.ts
-```
-
-What it was doing: the **arrow semantics** change, the record correction, the Rust
-round-trip test, and four Minors. Its last visible action was the panel test — escaping an
-interpolated label and correcting a comment that repeats a retracted reason.
-
-### Task 29 — `aa17cd0d07d9f03d6`
-
-One untracked file: **`v2_fe/src/lib/zz-task29-bench.test.ts`**. It self-assessed this
-correctly as **a benchmark harness, not a test** — it asserts nothing and only
-`console.log`s timings — and was about to run it against a detached checkout. It must be
-committed under an honest name or deleted, **never left as a stray**: an untracked file has
-produced three wrong lint/test counts in this phase.
-
-### Task 31's re-review — `a80a55a15442041d3`
-
-Read-only; it wrote nothing. Restart it from scratch if you want a verdict — the re-review
-target is commit `b69f898` (base `7de8ec8`), package
-`review-7de8ec8..b69f898.diff`.
-
-Also present: `v2_fe/yarn.lock` is modified and is **nobody's to commit** — no workflow
-reads yarn, all three cache `package-lock.json`.
-
----
-
-## 3. How to resume
-
-The fastest path is to **resume the agents**, not to redo their work:
-
-```
-SendMessage(to: "aace18237f338bac2", ...)   # Task 32 fix round — its files are in the tree
-SendMessage(to: "aa17cd0d07d9f03d6", ...)   # Task 29 — its bench file is in the tree
-```
-
-Tell each: *the session restarted on an API billing error, your uncommitted work is still
-in the tree, re-read your files before continuing rather than trusting your memory of where
-you stopped, and say which parts you completed before the interruption.*
-
-If an agent does not resume, its work is still recoverable: Task 32's is the six modified
-files above, Task 29's is the one untracked file.
-
----
-
-## 4. What remains, in order
-
-1. **Task 32's fix round**, then a scoped re-review of it. The review's one Important
-   finding was the **arrow semantics**: on an interleaved flow (every project's default)
-   arranging two screens inside a group costs k−1 clicks, k−2 of which change nothing in
-   the panel while silently reordering *another* group. The agreed replacement: **if a page
-   has a section-mate in the direction asked, move it past that mate** (one click, one
-   visible move); **if it has none, keep today's ±1 flow move and keep the arrow enabled.**
-2. **Task 29**, then its review. The other half of the user's "frozen UI" report.
-3. **The final whole-branch review** (`superpowers:requesting-code-review`, most capable
-   model), then its single fix wave.
-4. **Deploy the accumulated commits** — see §5. 8 commits are ready now; more will land.
-
----
-
-## 5. Deploying — the sequence is NOT optional
+## 4. Deploying — the sequence is NOT optional
 
 **`deploy-backend.yml` builds and ships the frontend too**, atomically. **`deploy_frontend.yml`
 auto-triggers on a push touching `v2_fe/**`, while the backend one is manual-only.** So a
@@ -123,7 +89,7 @@ this sequence can cause a silent future problem.
 
 ---
 
-## 6. Things that cost the most time today — do not re-learn them
+## 5. Things that cost the most time today — do not re-learn them
 
 - **Cite symbols, not line numbers.** Briefs written at one commit and executed three later
   had *every* citation stale; three tasks reported the drift. A coordinate can be wrong in
