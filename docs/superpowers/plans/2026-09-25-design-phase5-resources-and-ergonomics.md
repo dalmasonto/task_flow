@@ -1394,9 +1394,12 @@ Then, in a second shell, **`cd v2_fe && npm run dev`** — the dev server, *not*
   - a `target="_blank"` link opens a new tab rather than being hijacked into the frame;
   - and the **agent-facing guidance** from Task 12 is actually served to an agent — read it back out of the context response, not out of the source, because a guidance string that is written but never served looks exactly like a capability that was delivered.
 
-- [ ] **Step 3c: Verify Task 15's two browser-only fixes, since no unit test can.** Both came from the deployed app and both need a real frame and a real pointer:
+- [ ] **Step 3c: Verify Task 15's two browser-only fixes, since no unit test can.** Both came from the deployed app and both need a real frame and a real pointer.
+
   - **inspect delivers a selection** — turn inspect on, click an element inside a frame, confirm the panel receives it. Open the console first: the original failure was an uncaught `SecurityError` at `Array.find`, and its symptom (nothing happens) is identical to a dozen other causes.
   - **the highlight clears and does not fill the frame** — hover inside one board, then move to the next; the first board must not keep a box behind. Then hover the page background: nothing should be drawn, and in particular no full-frame rectangle.
+
+  ⚠️ **Do not verify the leave-clear half through Chrome under CDP — it will report a false failure.** Task 15's implementer measured this: Chrome driven by CDP delivers **no cross-frame pointer-leave at all**, so the frame's `:hover` state stays stale and the box looks identical before and after the fix, in both the old and the new runtime. A Playwright-driven check would therefore "fail" a fix that works. It verified this half in **Firefox**, which does perform real pointer transitions (`mouseout` with `relatedTarget=null` arrives; the box stays pre-fix and clears post-fix). So: verify the leave-clear in Firefox, or by hand with a real mouse. The inspect half is fine under CDP — that one was reproduced there.
 
 - [ ] **Step 4: Run both suites.**
 
@@ -1850,6 +1853,110 @@ git commit -m "fix(design): match frame messages by identity, and clear the pick
 ```
 
 (Stage the new test file as well.)
+
+---
+
+### Task 16: Pages panel — groups first, then groupless, numbered 1..N
+
+**Requested by the user:** *"Pages: should start by listing groups if any followed by groupless pages, Pages should be numbered ie 1..N."*
+
+**Files:**
+- Modify: `v2_fe/src/pages/design/pages-panel.tsx`
+- Create a colocated pure module + test for the ordering/numbering
+
+**Confirmed at the source:** `pages-panel.tsx:78` renders a flat `routes.map(...)` with no grouping and no numbering. Each row already carries a native group `<select>` (`:104-116`) and a `LabelInput`; both stay exactly as they are — the file header explains why they are native.
+
+- [ ] **Step 1: Extract the list as a pure function, and test it first.**
+
+```ts
+export type NumberedPage = { route: string; n: number }
+export type GroupedPages = {
+  groups: { id: string; name: string; pages: NumberedPage[] }[]
+  ungrouped: NumberedPage[]
+}
+
+/// Pages in DISPLAY order: each group in `layout.groups` order with its pages
+/// in manifest order, then everything ungrouped. Numbering runs across the
+/// whole displayed sequence, so the number a user reads matches the position
+/// they see — a group's pages and the ungrouped tail share one 1..N series.
+export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPages
+```
+
+Test these, and say what would have to change to make each fail:
+
+- a project with **no groups** returns everything under `ungrouped`, numbered 1..N;
+- a project with two groups returns the groups in `layout.groups` order, each with its own pages, then the ungrouped rest;
+- **numbering is continuous across the sections** — the first ungrouped page after a group continues the series rather than restarting at 1;
+- **a route whose stored grouping references a group that no longer exists** falls into `ungrouped` rather than disappearing. This is the edge worth pinning: `groupOf` walks `layout.groups`, so a stale id is reachable from a group that was removed, and a page vanishing from the panel would be silent.
+
+- [ ] **Step 2: Render the grouped shape.** Group name as a real heading above its rows; the ungrouped section gets a heading only when at least one group exists (with no groups at all, a lone "Ungrouped" header is noise). Show each page's number — small, muted, before the name — and keep the existing row controls, the open/closed highlighting, the `pageLabel` resolver, and the `+ New group` button untouched.
+
+- [ ] **Step 3: Do NOT reorder the canvas, and leave a comment saying why.** `openRoutes` is kept in manifest order by `openRoute`, and the boards render in it. The panel is a listing; sorting the boards to match the panel would reflow the canvas on a grouping edit, which §F forbids (*"the canvas layout never reflows"*). Without that note, "the list is grouped now" is an invitation to make the boards match.
+
+- [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — **not the build** (Task 9 owns the plan's single held publish). Keep the repo-wide lint count at its baseline.
+
+---
+
+### Task 17: Tokens panel — names off mono, values stay mono, and searchable
+
+**Requested by the user:** *"Tokens are being listed using font mono for names, should use normal font. They should be searchable atleast too. Improve typography well… All properties should use normal font not font mono unless values."*
+
+**Files:**
+- Modify: `v2_fe/src/pages/design/token-editor.tsx`
+- Create a colocated pure module + test for the filter
+
+**Confirmed at the source:** the two name sites are `token-editor.tsx:186` (category header, `font-mono text-[11px] uppercase tracking-wide`) and `:192` (token key, `font-mono text-[10px]`). The three `font-mono` sites inside `ValueField` (`:100`, `:117`, `:123`) are **value inputs** — those are the user's stated exemption and they stay mono.
+
+- [ ] **Step 1: The filter as a pure function, tested first.**
+
+```ts
+/// Case-insensitive substring match over the token key and its category label,
+/// so `inter` finds a `typography` token named `font_sans` only when the
+/// category label matches, and `space` finds every spacing token. Empty query
+/// returns the document unchanged.
+export function filterTokenCategories(doc: TokensDoc, query: string): TokensDoc
+```
+
+Tests: an empty or whitespace-only query returns everything; a query matching a **key** keeps that token and drops the others in the category; a query matching a **category label** keeps the whole category; a query matching nothing returns empty categories rather than throwing, and the panel then shows its existing "nothing here" state rather than a blank box.
+
+- [ ] **Step 2: The typography.** Names and category headers move off `font-mono` to the normal font; **values keep mono**, because they are literals and the user exempted them. While you are in the file, make the hierarchy read: the category header should not compete with the token names, and the `light`/`dark` labels should sit clearly under their token rather than beside the fields. Keep the sizes within the panel's existing scale rather than inventing new ones — the surrounding surface is dense and deliberate.
+
+- [ ] **Step 3: The search box.** One input at the top of the panel, above the Save/Export row or directly under it, filtering as you type. It must not fight the save path: filtering is view state and never mutates `doc`, so a filtered view can still be saved whole. Say that in a comment — the panel's job is editing a document, and a filter that wrote back would be a data-loss bug.
+
+- [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>`. **Not the build.**
+
+  ⚠️ Note in your report whether you touched the pre-existing `react-refresh/only-export-components` violation at `token-editor.tsx:31` — you may not have to, but a second one appearing would raise the repo baseline, and this phase holds that baseline fixed.
+
+---
+
+### Task 18: Inspect — finish the flow and make the dead controls live
+
+**Requested by the user:** *"Inspect - I think I gave some suggestions for upgrades but update it further if possible."* Their earlier request was to select the right component, add text in the panel, and have the dispatch carry the sidebar selections with the full comment — and that flow **already exists** (`CommentForm` at `design-inspector.tsx:109-160`, `sendToAgent` at `:310`, and `dispatch_comments` sending `"instruction": c.body` plus a full target block). It was invisible because four defects broke it; Task 14 fixed three and Task 15 the fourth.
+
+**So this task is not "build the flow" — it is "finish it and remove what still looks broken".** Read the code before changing anything, and report what you find rather than assuming the list below is complete.
+
+**Files:**
+- Modify: `v2_fe/src/pages/design/design-inspector.tsx`
+- Possibly `v2_fe/src/pages/design/DesignSurfacePage.tsx` (the wiring of `onFocus`)
+
+**Candidate items, to be confirmed by reading rather than taken on faith:**
+
+- **The comment's route label renders but its click is inert.** `CommentsListSection` takes an `onFocus` prop (`:261`, `:269`) and renders the label as a button (`:355-360`), but nothing passes `onFocus` — `design-inspector.tsx:51` and `:102` render the section with `projectId` only, and `DesignSurfacePage.tsx:711-717` renders `DesignInspector` without it. That is a **dead control**: it looks clickable and does nothing. Task 14 made it newly visible, and this phase has closed several of this class.
+- **"Select the right component."** Clicking in a frame selects the innermost element, and component granularity is chosen afterwards via the scope toggle. Before changing that, **decide it with the user** — the honest options are (a) leave element-level selection and make the ancestor breadcrumb clickable so you can walk up to the component, or (b) snap the click to the nearest `[data-component]` host. Option (a) is a smaller change and keeps element-level precision available; do not guess between them — ask, and say in your report what you asked.
+- **The pins are new.** Task 14 made `CommentPins` render for the first time; verify a pin click reaches its board and that the numbering reads sensibly alongside the palette entries.
+
+- [ ] **Step 1: Read, then list.** Before editing, write down what you found — which controls are dead, which already work, and anything the list above got wrong.
+- [ ] **Step 2: Fix the dead controls you can confirm**, one at a time, each with a test where the repo's pure-function convention allows one.
+- [ ] **Step 3: Ask about the selection-granularity question** rather than choosing silently, and record the answer.
+- [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test`, **not the build**, lint delta zero.
+
+---
+
+### Task 19: Tokens panel — render typography tokens in the family they name (deferred last)
+
+**Requested by the user**, who chose this option explicitly: panel typography first, **project-font preview last**. Nothing here starts until Tasks 16-18 are in and the fonts feature is verified end to end, because it makes the **app chrome** consume the project's own font tokens — a project with a broken font URL would then affect the editor's own rendering, which is a new failure mode that deserves the earlier tasks' stability underneath it.
+
+Not specified further here on purpose: write this task once the fonts feature has been verified on a real stack, so it can be scoped against how webfont loading actually behaves rather than how it is expected to.
 
 ---
 
