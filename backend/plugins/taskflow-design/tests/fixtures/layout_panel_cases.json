@@ -21,7 +21,24 @@
     "`doc` is a layout document exactly as the server stores and sends it",
     "(`layout_doc::LayoutDoc`), `manifest` is the project's route list in manifest",
     "order, and `expect` is the panel's answer: the FLOW, the groups with their",
-    "pages, and the pages no group claims. Both sides assert all three."
+    "pages, the pages no group claims, and the NAME each page is listed under.",
+    "Both sides assert all four.",
+    "",
+    "`names` is the fourth rule, and it is the label-or-title COMPOSITE: a page",
+    "reads as its `pageLabels` entry where it has one, else as its manifest",
+    "title (`layout_doc::page_name` on the server, `pageLabel` in",
+    "v2_fe/src/lib/design-layout.ts on the client). It covers EVERY page of the",
+    "manifest, not only the labelled ones — a table that named just the labelled",
+    "pages would go green the moment a reader stopped applying labels at all,",
+    "which is exactly the mutation it exists to catch.",
+    "",
+    "Both readers pass the ROUTE as the page's title, because the harness has no",
+    "manifest reader (titles come from the server's `manifest::title_for`, which",
+    "has its own tests). So an unlabelled page's expected name is its own route,",
+    "and what this table pins is the CHOICE between label and title — not how a",
+    "title is derived. A blank label would be a false drift rather than a real",
+    "one (the client's `normalizeLayout` DROPS a blank label and the server's",
+    "`validate` refuses to store one), so no case carries one."
   ],
   "cases": [
     {
@@ -36,7 +53,13 @@
       "expect": {
         "flow": ["/", "/login", "/signup", "/settings"],
         "groups": [],
-        "ungrouped": ["/", "/login", "/signup", "/settings"]
+        "ungrouped": ["/", "/login", "/signup", "/settings"],
+        "names": {
+          "/": "/",
+          "/login": "/login",
+          "/signup": "/signup",
+          "/settings": "/settings"
+        }
       }
     },
     {
@@ -51,7 +74,13 @@
       "expect": {
         "flow": ["/signup", "/", "/login", "/settings"],
         "groups": [],
-        "ungrouped": ["/signup", "/", "/login", "/settings"]
+        "ungrouped": ["/signup", "/", "/login", "/settings"],
+        "names": {
+          "/signup": "Sign up",
+          "/": "/",
+          "/login": "/login",
+          "/settings": "/settings"
+        }
       }
     },
     {
@@ -66,7 +95,13 @@
       "expect": {
         "flow": ["/signup", "/login", "/", "/settings"],
         "groups": [{ "id": "g1", "name": "Auth", "routes": ["/signup", "/login"] }],
-        "ungrouped": ["/", "/settings"]
+        "ungrouped": ["/", "/settings"],
+        "names": {
+          "/signup": "/signup",
+          "/login": "/login",
+          "/": "/",
+          "/settings": "/settings"
+        }
       }
     },
     {
@@ -87,7 +122,13 @@
           { "id": "g1", "name": "Ops", "routes": ["/"] },
           { "id": "g2", "name": "Auth", "routes": ["/signup", "/login"] }
         ],
-        "ungrouped": ["/settings"]
+        "ungrouped": ["/settings"],
+        "names": {
+          "/settings": "Preferences",
+          "/signup": "/signup",
+          "/login": "/login",
+          "/": "/"
+        }
       }
     },
     {
@@ -110,7 +151,13 @@
           { "id": "g2", "name": "More", "routes": ["/signup"] },
           { "id": "g3", "name": "Empty", "routes": [] }
         ],
-        "ungrouped": ["/", "/settings"]
+        "ungrouped": ["/", "/settings"],
+        "names": {
+          "/": "/",
+          "/login": "/login",
+          "/signup": "/signup",
+          "/settings": "/settings"
+        }
       }
     },
     {
@@ -131,7 +178,29 @@
           { "id": "g1", "name": "Auth", "routes": [] },
           { "id": "g2", "name": "Home", "routes": ["/"] }
         ],
-        "ungrouped": ["/login"]
+        "ungrouped": ["/login"],
+        "names": { "/": "/", "/login": "/login" }
+      }
+    },
+    {
+      "name": "a page reads as its label where it has one, and as the manifest title where it does not",
+      "manifest": ["/", "/login", "/signup", "/settings"],
+      "doc": {
+        "view": "rows",
+        "routeOrder": [],
+        "groups": [],
+        "pageLabels": { "/login": "Log in", "/signup": "Sign up", "/settings": "Preferences" }
+      },
+      "expect": {
+        "flow": ["/", "/login", "/signup", "/settings"],
+        "groups": [],
+        "ungrouped": ["/", "/login", "/signup", "/settings"],
+        "names": {
+          "/": "/",
+          "/login": "Log in",
+          "/signup": "Sign up",
+          "/settings": "Preferences"
+        }
       }
     }
   ]

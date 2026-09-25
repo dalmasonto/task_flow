@@ -172,7 +172,16 @@ pub async fn read_page(
     match store::load_file(agent.project_id, &path).await {
         Some(row) => Ok(Json(json!({
             "route": q.route,
-            "path": row.path,
+            // `file`, not `path`. This response was the one place left where a
+            // file was spelled `path` while `design_list_components` spells a
+            // ROUTE `path` (`manifest::RouteEntry`, served verbatim), so
+            // `routes.find(r => r.path === page.path)` — the habit that tool
+            // teaches — compared a route against `pages/index.html` and found
+            // nothing. `design_read_layout` was renamed for exactly this reason
+            // and this is the same key on the same surface; it is a rename
+            // rather than a second key, so a caller reaching for `path` here
+            // gets nothing rather than a value that means the opposite thing.
+            "file": row.path,
             "content": row.content,
             "version": row.version,
             "updated_by": row.updated_by,
@@ -250,8 +259,9 @@ pub struct AgentLayoutQuery {
 ///   * `flow` is RESOLVED — every page in the project has a position, including
 ///     pages the stored `route_order` has never named. `layout_doc.rs::
 ///     resolve_route_order` says why.
-///   * `pages[].name` is a label-or-title composite; `page_labels` is the
-///     stored half of it.
+///   * `pages[].name` is a label-or-title composite (`layout_doc::page_name`,
+///     which the shared case table pins against the client's `pageLabel`);
+///     `page_labels` is the stored half of it.
 /// So a write tool that PUTs this shape back would silently reorder every group
 /// by the flow and claim a flow the operator never set. Either read the stored
 /// document (the operator route's `GET`, or the row itself) or pass the four
@@ -284,19 +294,18 @@ pub async fn read_layout(
         .iter()
         .filter_map(|route| by_route.get(route.as_str()).copied())
         .map(|entry| {
-            let name = doc
-                .page_labels
-                .get(&entry.path)
-                .cloned()
-                .unwrap_or_else(|| entry.title.clone());
+            let name = layout_doc::page_name(&doc, &entry.path, &entry.title);
             json!({
                 "route": entry.path,
                 "name": name,
                 "title": entry.title,
                 // `file`, not `path`: in `design_list_components` a route's
-                // `path` IS the route, and this key holding a file name would
-                // be the same word meaning the opposite thing. Both tools now
-                // spell the fragment `file` and the route `route`.
+                // `path` IS the route (`manifest::RouteEntry` is served
+                // verbatim, so `routes[].path` is `/settings`), and this key
+                // holding a file name would be the same word meaning the
+                // opposite thing. So this response spells the fragment `file`
+                // and the route `route` — the registry spells the same route
+                // `path`, which is why the route is never `path` HERE.
                 "file": entry.file,
             })
         })
@@ -322,8 +331,12 @@ pub async fn read_layout(
                  appears exactly once, in a group or there. `pages` names each \
                  page the way the panel does (its label if it has one, else the \
                  manifest title) and gives its `file` — the fragment behind the \
-                 route, spelled as design_list_components spells it; a route is \
-                 always `route`, never `path`. `view` is the canvas arrangement \
+                 route, spelled as design_list_components spells it. In THIS \
+                 response a route is always `route`, never `path` — note that \
+                 design_list_components spells a route `path` (`routes[].path`), \
+                 so the two tools do NOT agree on that word: match on `route` \
+                 here, and on `path` against its `routes`. `view` is the canvas \
+                 arrangement \
                  (rows/bands/groups) and the grouping reads the same in all \
                  three. Read-only: arranging pages is the operator's."
     })))

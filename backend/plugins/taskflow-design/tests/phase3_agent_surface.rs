@@ -132,6 +132,60 @@ async fn agent_reads_context_and_registry() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_page_read_spells_the_fragment_file_and_never_path() {
+    // The other half of the misroute the arrangement read was renamed for.
+    // `design_list_components` spells a ROUTE `path` (`manifest::RouteEntry`,
+    // served verbatim, so `routes[].path` is `/settings`), so the habit that
+    // tool teaches — `routes.find(r => r.path === page.path)` — compared a
+    // route against `pages/settings.html` and found nothing. This response was
+    // the last design read left spelling a FILE `path`; it spells it `file`
+    // now, like `design_read_layout` and `design_read_component` do.
+    //
+    // It is a RENAME and not a second key: the MCP client returns this body
+    // opaquely (`readDesignPage` is typed `Promise<unknown>` and the tool
+    // serialises it whole), so nothing read the old key and a caller still
+    // reaching for `path` gets nothing rather than a file name under a word the
+    // registry uses for routes.
+    let (app, project, _user, _agent, key) = setup_app().await;
+    let written = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_PAGE,
+            json!({
+                "project": project,
+                "route": "/settings",
+                "html": "<main class=\"p-4\">Settings</main>"
+            }),
+        )
+        .await;
+    assert_eq!(written.status(), 201, "{}", written.text());
+
+    let read = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("{AGENT_PAGE}?project={project}&route=/settings"),
+        )
+        .await;
+    assert_eq!(read.status(), 200, "{}", read.text());
+    let v = read.json();
+    assert_eq!(v["route"], "/settings", "the route is `route`: {v}");
+    assert_eq!(v["file"], "pages/settings.html", "the fragment is `file`: {v}");
+    assert_eq!(
+        v["path"],
+        serde_json::Value::Null,
+        "`path` means the ROUTE next door — it must not appear here at all: {v}"
+    );
+    assert!(
+        v["content"].as_str().unwrap_or("").contains("Settings"),
+        "the fragment itself is still the body of this read: {v}"
+    );
+    assert!(
+        v["version"].as_i64().unwrap_or(0) >= 1,
+        "and so is the version an optimistic write needs: {v}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn context_serves_the_link_back_and_media_guidance() {
     let (app, project, _user, _agent, key) = setup_app().await;
 

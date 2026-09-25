@@ -19,7 +19,12 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import type { RouteEntry } from "@/lib/design-api"
-import { normalizeLayout, resolveRouteOrder, type LayoutDoc } from "@/lib/design-layout"
+import {
+  normalizeLayout,
+  pageLabel,
+  resolveRouteOrder,
+  type LayoutDoc,
+} from "@/lib/design-layout"
 import { groupedPages } from "./pages-order"
 
 type PanelCase = {
@@ -30,8 +35,30 @@ type PanelCase = {
     flow: string[]
     groups: { id: string; name: string; routes: string[] }[]
     ungrouped: string[]
+    names: Record<string, string>
   }
 }
+
+/// The cases this table is pinned to carry, by NAME.
+///
+/// A floor (`length >= 5` against a table of six) held nothing: delete a case
+/// and both readers stayed green, so the guard could be retired by removing the
+/// thing it guards — which is what a reviewer did, with the client drift it was
+/// there to catch still live. Names also fail a case that was REPLACED rather
+/// than deleted, because the old name is then absent.
+///
+/// `layout_doc.rs` carries the same list: neither reader can derive it from the
+/// other, and a name is what makes the two tables provably the same table.
+/// Adding a case is a deliberate edit HERE as well — that is the point.
+const PANEL_CASE_NAMES: string[] = [
+  "a fresh project lists every page ungrouped, in manifest order",
+  "the stored flow orders the pages it names, and every page it does not name is appended in manifest order",
+  "a group's pages are listed in flow order, not in the order its own routes array holds",
+  "groups keep the document's order, and the ungrouped pages are the complement",
+  "a route two groups claim lists under the first of them, and an empty group keeps its section",
+  "a hand-edited document naming a page that is gone, and naming one twice, keeps its grouping and drops what it cannot place",
+  "a page reads as its label where it has one, and as the manifest title where it does not",
+]
 
 /// Four levels up from `src/pages/design/` is the repository root.
 const CASES_URL = new URL(
@@ -49,7 +76,7 @@ const entries = (paths: string[]): RouteEntry[] =>
 
 /// The panel's answer for one case, in the table's shape: the document through
 /// the real read path (`fetchLayout` normalises every response this way), then
-/// the two resolvers the panel itself calls.
+/// the resolvers the panel itself calls.
 const resolve = (raw: unknown, manifest: string[]) => {
   const doc: LayoutDoc = normalizeLayout(raw)
   const routes = entries(manifest)
@@ -62,12 +89,32 @@ const resolve = (raw: unknown, manifest: string[]) => {
       routes: group.pages.map((page) => page.route),
     })),
     ungrouped: ungrouped.map((page) => page.route),
+    // The label-or-title composite, through the same resolver the panel names
+    // its rows with — and past `normalizeLayout`, so the table catches a client
+    // that loses or ignores `pageLabels` on the way in. Every page of the
+    // manifest, not only the labelled ones: naming only those would make a
+    // resolver that ignores labels entirely look correct.
+    //
+    // `entries` gives each page the ROUTE as its title (the fixture says why),
+    // so this pins the CHOICE between label and title, not a title's derivation.
+    names: Object.fromEntries(
+      manifest.map((route) => [route, pageLabel(doc, route, route)]),
+    ),
   }
 }
 
 describe("the panel's resolution against the shared case table", () => {
-  it("carries cases", () => {
-    expect(table.cases.length).toBeGreaterThanOrEqual(5)
+  it("carries exactly the cases it is pinned to", () => {
+    const names = table.cases.map((panelCase) => panelCase.name)
+    const missing = PANEL_CASE_NAMES.filter((name) => !names.includes(name))
+    const extra = names.filter((name) => !PANEL_CASE_NAMES.includes(name))
+    expect(
+      { missing, extra },
+      `the shared case table no longer matches the names this reader is pinned to; it ` +
+        `carries: ${names.join(" | ")}. A case is not deleted to make a suite pass — fix ` +
+        `the rule it caught, and a deliberate addition updates PANEL_CASE_NAMES in BOTH ` +
+        `readers.`,
+    ).toEqual({ missing: [], extra: [] })
   })
 
   for (const panelCase of table.cases) {

@@ -222,6 +222,24 @@ pub fn panel_sections(doc: &LayoutDoc, known_routes: &[String]) -> (Vec<LayoutGr
     (groups, ungrouped)
 }
 
+/// The name a page is listed under: its label if the document has one, else the
+/// manifest's own title.
+///
+/// The server's half of `pageLabel` (`v2_fe/src/lib/design-layout.ts`), and the
+/// composite `agent_views::read_layout` writes into `pages[].name`. It lives
+/// here, beside the panel's other two rules, so the shared case table can pin
+/// it: the label-or-title CHOICE is implemented twice — here and in the client —
+/// and a table asserting only the flow and the sections left it free to drift
+/// (emptying `pageLabels` inside `normalizeLayout` kept both readers green).
+///
+/// A label is ABSENT rather than blank for a page that has never been renamed
+/// (`validate` refuses a blank one), so absence is the fallback case and this
+/// trims nothing. `pageLabel` re-checks its label for truthiness as
+/// belt-and-braces over a document that has not been through `normalizeLayout`.
+pub fn page_name(doc: &LayoutDoc, route: &str, title: &str) -> String {
+    doc.page_labels.get(route).cloned().unwrap_or_else(|| title.to_string())
+}
+
 /// Forgiving read path: drop routes the manifest no longer has, keep the group
 /// (a grouping is a decision about the project, and one deleted page is not
 /// grounds to throw it away).

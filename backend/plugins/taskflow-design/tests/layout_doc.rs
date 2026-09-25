@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
-    default_doc, filter_to_known, panel_sections, parse, resolve_route_order, to_json_string,
-    to_value, validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
+    default_doc, filter_to_known, page_name, panel_sections, parse, resolve_route_order,
+    to_json_string, to_value, validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
 };
 use taskflow_design::models::DesignView;
 
@@ -328,12 +328,53 @@ fn the_two_halves_partition_the_pages_even_when_both_states_are_broken() {
 /// A comment naming the other implementation cannot fail; this can.
 const PANEL_CASES: &str = include_str!("fixtures/layout_panel_cases.json");
 
+/// The cases this table is pinned to carry, by NAME.
+///
+/// A floor (`cases.len() >= 5`, against a table of six) held nothing: delete a
+/// case and both readers stayed green, so the guard could be retired by removing
+/// the thing it guards — which is what a reviewer did, with the client drift it
+/// was there to catch still live. Names also fail a case that was REPLACED
+/// rather than deleted, because the old name is then absent.
+///
+/// `v2_fe/src/pages/design/layout-panel-cases.test.ts` carries the same list,
+/// because neither reader can derive it from the other and a name is what makes
+/// the two tables provably the same table. Adding a case is a deliberate edit
+/// HERE as well — that is the point, not a cost.
+const PANEL_CASE_NAMES: [&str; 7] = [
+    "a fresh project lists every page ungrouped, in manifest order",
+    "the stored flow orders the pages it names, and every page it does not name is appended in manifest order",
+    "a group's pages are listed in flow order, not in the order its own routes array holds",
+    "groups keep the document's order, and the ungrouped pages are the complement",
+    "a route two groups claim lists under the first of them, and an empty group keeps its section",
+    "a hand-edited document naming a page that is gone, and naming one twice, keeps its grouping and drops what it cannot place",
+    "a page reads as its label where it has one, and as the manifest title where it does not",
+];
+
 #[test]
 fn the_panels_resolution_matches_the_shared_case_table() {
     let table: serde_json::Value =
         serde_json::from_str(PANEL_CASES).expect("the shared case table parses");
     let cases = table["cases"].as_array().expect("cases is an array");
-    assert!(cases.len() >= 5, "the table must actually carry cases");
+
+    let case_names: Vec<&str> = cases
+        .iter()
+        .map(|case| case["name"].as_str().expect("a case names itself"))
+        .collect();
+    for expected in PANEL_CASE_NAMES {
+        assert!(
+            case_names.contains(&expected),
+            "the shared case table no longer carries the case {expected:?} — it carries \
+             {case_names:?}. A case is not deleted to make a suite pass: fix the rule it \
+             caught, or if the case is genuinely gone, say so where both readers read it."
+        );
+    }
+    assert_eq!(
+        case_names.len(),
+        PANEL_CASE_NAMES.len(),
+        "the shared case table carries cases this pin does not name — a deliberate addition \
+         updates PANEL_CASE_NAMES in BOTH readers, so that neither side can be reading a \
+         table the other is not: {case_names:?}"
+    );
 
     for case in cases {
         let name = case["name"].as_str().expect("a case names itself");
@@ -362,6 +403,30 @@ fn the_panels_resolution_matches_the_shared_case_table() {
             serde_json::to_value(&ungrouped).unwrap(),
             expect["ungrouped"],
             "ungrouped: {name}"
+        );
+
+        // The label-or-title composite, which the table did not pin at all: the
+        // same choice is written twice (`layout_doc::page_name` here,
+        // `pageLabel` in the client), and emptying `pageLabels` in the client's
+        // `normalizeLayout` left this table green. Every page of the manifest is
+        // asserted, not just the labelled ones — naming only the labelled pages
+        // would make a reader that ignores labels entirely look correct.
+        //
+        // `title` is the ROUTE in both harnesses (the fixture says why), so this
+        // pins the choice between label and title, not a title's derivation.
+        let names: serde_json::Map<String, serde_json::Value> = manifest
+            .iter()
+            .map(|route| {
+                (
+                    route.clone(),
+                    serde_json::Value::String(page_name(&doc, route, route)),
+                )
+            })
+            .collect();
+        assert_eq!(
+            serde_json::Value::Object(names),
+            expect["names"],
+            "names: {name}"
         );
     }
 }
