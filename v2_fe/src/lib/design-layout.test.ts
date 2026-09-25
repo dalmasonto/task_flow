@@ -157,8 +157,12 @@ describe("page labels", () => {
   it("prefers a label, and treats a blank one as unset", () => {
     const doc = setPageLabel(DEFAULT_LAYOUT, "/", "  Home  ")
     expect(pageLabel(doc, "/", "Dashboard")).toBe("Home")
-    // A blank label must behave like no label, not like an empty name.
-    expect(pageLabel(doc, "/login", "Login")).toBe("Login")
+    // A blank label must behave like no label, not like an empty name. Neither
+    // `setPageLabel` nor the server will store one, so this document is built
+    // by hand: a blank arriving from anywhere else still has to render a name.
+    const blank = { ...DEFAULT_LAYOUT, pageLabels: { "/": "   ", "/login": "" } }
+    expect(pageLabel(blank, "/", "Dashboard")).toBe("Dashboard")
+    expect(pageLabel(blank, "/login", "Login")).toBe("Login")
   })
 
   it("clearing a label removes the key", () => {
@@ -177,6 +181,9 @@ describe("page labels", () => {
     expect(normalizeLayout({ view: "rows" }).pageLabels).toEqual({})
     expect(normalizeLayout({ view: "rows", pageLabels: "nope" }).pageLabels).toEqual({})
     expect(normalizeLayout({ view: "rows", pageLabels: { "/": 7 } }).pageLabels).toEqual({})
+    // A blank is dropped rather than kept: the server refuses to store one, so
+    // keeping it here would render an empty page name.
+    expect(normalizeLayout({ view: "rows", pageLabels: { "/": "  " } }).pageLabels).toEqual({})
     expect(normalizeLayout({ view: "rows", pageLabels: { "/": "Home" } }).pageLabels).toEqual({ "/": "Home" })
   })
 

@@ -127,7 +127,8 @@ export function DesignSurfacePage({
   // purely user-driven (PagePicker / PagesPanel / row close button).
   const [openRoutes, setOpenRoutes] = useState<string[]>([])
   const seededProjectRef = useRef<number | null>(null)
-  /** The SHARED arrangement (view + groups). Server-owned; see `design-layout`. */
+  /** The SHARED arrangement (view + groups + page labels). Server-owned; see
+   *  `design-layout`. */
   const [layout, setLayout] = useState<LayoutDoc>(DEFAULT_LAYOUT)
   /** False until the per-user viewport has been read from Dexie. Writes are
    *  suppressed until then so a blank first render cannot overwrite it. */
@@ -480,7 +481,11 @@ export function DesignSurfacePage({
     if (!manifest) return []
     const routeItems: PaletteItem[] = manifest.routes.map((r) => ({
       key: `route:${r.path}`,
-      label: r.title,
+      // The palette renders this as the item's text, so it shows the page's
+      // display name — and searches it too: matching on a name that appears
+      // nowhere else on screen would hide a renamed page from its own name.
+      // The route itself stays visible in the hint.
+      label: labelFor(r.path),
       hint: r.path,
       group: "Routes",
       run: () => {
@@ -508,7 +513,7 @@ export function DesignSurfacePage({
       },
     }))
     return [...routeItems, ...componentItems, ...commentItems]
-  }, [manifest, comments, artboards, transform, deviceIds, openRoute])
+  }, [manifest, comments, artboards, transform, deviceIds, openRoute, labelFor])
 
   if (!projectId) {
     return (
@@ -529,6 +534,7 @@ export function DesignSurfacePage({
         <PagePicker
           routes={manifest?.routes ?? []}
           openRoutes={openRoutes}
+          nameFor={labelFor}
           onChange={setOpenRoutes}
         />
 
@@ -801,10 +807,17 @@ function DesignChatRail({
 function PagePicker({
   routes,
   openRoutes,
+  nameFor,
   onChange,
 }: {
   routes: { path: string; title: string }[]
   openRoutes: string[]
+  /** The display name for a route, resolved by the caller through `pageLabel`
+   *  — the same string the canvas headers and the Pages panel show. This picker
+   *  renders a page's name in three places (the trigger, its multi-route
+   *  variant, and every row of the menu), so it takes the resolver rather than
+   *  reaching for `title` itself. */
+  nameFor: (route: string) => string
   onChange: (routes: string[]) => void
 }) {
   const toggle = (path: string, next: boolean) => {
@@ -819,8 +832,8 @@ function PagePicker({
     openRoutes.length === 0
       ? "Open"
       : openRoutes.length === 1
-        ? (routes.find((r) => r.path === openRoutes[0])?.title ?? openRoutes[0])
-        : `${routes.find((r) => r.path === openRoutes[0])?.title ?? openRoutes[0]} +${openRoutes.length - 1}`
+        ? nameFor(openRoutes[0])
+        : `${nameFor(openRoutes[0])} +${openRoutes.length - 1}`
 
   return (
     <DropdownMenu>
@@ -842,7 +855,7 @@ function PagePicker({
               onCheckedChange={(checked) => toggle(r.path, checked === true)}
               closeOnClick={false}
             >
-              <span className="flex-1">{r.title}</span>
+              <span className="flex-1">{nameFor(r.path)}</span>
               <span className="font-mono text-[11px] text-muted-foreground">{r.path}</span>
             </DropdownMenuCheckboxItem>
           ))}
