@@ -1358,6 +1358,8 @@ git commit -m "feat(design): resource-set editor with paste-a-snippet import"
 
 ### Task 9: Verification — local stack, and the held publish
 
+**Run this LAST — after Tasks 10, 11, 12 and 13 — even though it is numbered 9.** It is the phase's verification and its publish, so it belongs at the end; the number predates the navigation work being appended around it, and Tasks 11 and 13 both say "visual verification is Task 9's job", which is only true if Task 9 runs after them. Running it in numeric order would leave the entire navigation tranche — in-device links, history, the route header, the media policy — verified by nobody.
+
 **Files:** none expected; any fix found gets its own commit.
 
 - [ ] **Step 1: Bring up the local stack** — a backend pointed at a COPY of the dev database (never the live one), and a frontend the browser can actually load.
@@ -1381,6 +1383,16 @@ Then, in a second shell, **`cd v2_fe && npm run dev`** — the dev server, *not*
 - [ ] **Step 3: Verify the rest —** labels (rename, reload, persists, and the label appears in every arrangement); the four actions (reload affects only its board; open-in-new-tab; duplicate; remove); a seen page stays loaded after scrolling far away and back; a disabled set emits nothing; a `javascript:` URL is refused with a message.
 
   **Plus Task 13's claim, which is visual and cannot be checked any other way:** an external `https:` image actually renders inside a frame, and a plain `http:` one does not. The negative half is what proves the widening was a *scheme source* and not `*` — a policy that allowed everything would pass the positive half just as well.
+
+- [ ] **Step 3b: Verify the navigation tranche (Tasks 10-12), which nothing else checks.** Each of these is a behaviour whose absence looks like a design choice rather than a bug, so check them explicitly and in a real browser:
+
+  - a link to a **known** route navigates the frame (`<a href="/app">` from another page);
+  - a link to a path that is **not a page** does nothing — it must not become a sandbox URL that 404s;
+  - **`mailto:` and `tel:` links still work**, since the rewriter used to break them;
+  - **back and forward work inside the frame**, and an agent-written `history.back()` returns — including a Back that the browser serves from the back/forward cache, which is why the frame reports on `pageshow` rather than `load`;
+  - a board whose frame has navigated **shows the route it is actually displaying**, with a reset that returns it to the board's own route and reloads only that frame;
+  - a `target="_blank"` link opens a new tab rather than being hijacked into the frame;
+  - and the **agent-facing guidance** from Task 12 is actually served to an agent — read it back out of the context response, not out of the source, because a guidance string that is written but never served looks exactly like a capability that was delivered.
 
 - [ ] **Step 4: Run both suites.**
 
