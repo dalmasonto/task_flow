@@ -41,6 +41,12 @@ fn refuses_dangerous_schemes_in_every_spelling() {
         "http://fonts.googleapis.com/css",            // not https
         "//fonts.googleapis.com/css",                 // scheme-relative
         "/local/thing.css",                           // not absolute
+        // Unicode whitespace: `str::trim` strips these, a URL parser does not,
+        // so trimming them here would hand the browser a value with no scheme
+        // that it resolves as a RELATIVE url — the bare-path case by another
+        // name. The strip must be C0-or-space only, as the parser's is.
+        "\u{a0}https://ok.example/x",
+        "\u{3000}https://ok.example/x",
     ] {
         let d = doc(vec![set("Bad", vec![link("stylesheet", bad)])]);
         assert!(validate(d).is_err(), "should refuse: {bad}");
@@ -54,6 +60,27 @@ fn refuses_a_script_with_a_dangerous_scheme() {
     l.rel = None;
     l.script = Some("javascript:alert(1)".into());
     assert!(validate(doc(vec![set("X", vec![l])])).is_err());
+}
+
+#[test]
+fn refuses_a_link_that_carries_both_url_fields() {
+    // `is_script` decides which field IS the url, so a link holding both
+    // strands the unchecked one beside a checked one — same url, two readers,
+    // one of them not looking. One shape, one url field.
+    let mut both = link("stylesheet", "https://ok.example/x");
+    both.is_script = true;
+    both.script = Some("https://ok.example/x.js".into());
+    assert!(validate(doc(vec![set("X", vec![both.clone()])])).is_err());
+
+    // Dangerous beside safe is refused by the shape, before any scheme runs.
+    let mut sneaky = link("stylesheet", "javascript:alert(1)");
+    sneaky.script = Some("https://ok.example/x.js".into());
+    assert!(validate(doc(vec![set("X", vec![sneaky])])).is_err());
+
+    // And the honest script shape — script only — still passes, so the rule
+    // above is about the ambiguity and not about scripts.
+    both.href = None;
+    assert!(validate(doc(vec![set("X", vec![both])])).is_ok());
 }
 
 #[test]
@@ -81,6 +108,16 @@ fn refuses_over_long_hrefs_caps_and_duplicate_names() {
 
     let dupes = vec![set("Same", vec![]), set("same", vec![])];
     assert!(validate(doc(dupes)).is_err());
+}
+
+#[test]
+fn refuses_duplicate_set_ids() {
+    // Distinct names, one id. The name check alone passes this, but the id is
+    // what the editor keys a toggle by, so a duplicate makes one switch flip
+    // two rows — the document has no stable address for either set.
+    let a = ResourceSet { id: "set_same".into(), name: "One".into(), enabled: true, links: vec![] };
+    let b = ResourceSet { id: "set_same".into(), name: "Two".into(), enabled: true, links: vec![] };
+    assert!(validate(doc(vec![a, b])).is_err());
 }
 
 #[test]

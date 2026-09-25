@@ -88,13 +88,20 @@ fn url_of(link: &ResourceLink) -> Option<&str> {
     if link.is_script { link.script.as_deref() } else { link.href.as_deref() }
 }
 
-/// `https:` and nothing else. Checked on the LOWERCASED, TRIMMED url so case
-/// and leading whitespace cannot smuggle a scheme past it, and deliberately
-/// strict — a scheme-relative `//host/x` and a bare path are both refused,
-/// because "it will resolve to https anyway" is an assumption about the page's
-/// origin, not a property of the link.
+/// `https:` and nothing else. Checked on the LOWERCASED url with leading C0
+/// controls and spaces stripped, so case and leading whitespace cannot smuggle
+/// a scheme past it, and deliberately strict — a scheme-relative `//host/x` and
+/// a bare path are both refused, because "it will resolve to https anyway" is
+/// an assumption about the page's origin, not a property of the link.
 fn is_safe_url(url: &str) -> bool {
-    let u = url.trim().to_ascii_lowercase();
+    // NOT `str::trim`, which strips UNICODE whitespace (NBSP, U+3000, and
+    // friends) while a URL parser strips only C0 controls and space. Trimming
+    // more than the parser does is not extra strictness — it is a hole: a
+    // leading NBSP survives into the emitted value, the browser finds no
+    // scheme there, and resolves the whole thing as a RELATIVE url, which is
+    // the bare-path case above under a different spelling. The predicate below
+    // is the parser's own strip, so what we check is what the browser sees.
+    let u = url.trim_matches(|c: char| c <= ' ').to_ascii_lowercase();
     u.starts_with("https://") && !u.starts_with("https://javascript:")
 }
 
@@ -103,6 +110,7 @@ pub fn validate(doc: ResourcesDoc) -> Result<ResourcesDoc, String> {
         return Err(format!("at most {MAX_SETS} resource sets are allowed"));
     }
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut sets = Vec::with_capacity(doc.sets.len());
 
     for set in doc.sets {
@@ -120,12 +128,28 @@ pub fn validate(doc: ResourcesDoc) -> Result<ResourcesDoc, String> {
         if id.is_empty() {
             return Err("a resource set needs a non-empty id".into());
         }
+        // Names are the human label and are checked above; the id is the key
+        // every consumer addresses a set by, so a duplicate leaves the document
+        // with no stable address for either set.
+        if !seen_ids.insert(id.clone()) {
+            return Err(format!("the set id \"{id}\" is already used"));
+        }
         if set.links.len() > MAX_LINKS_PER_SET {
             return Err(format!("at most {MAX_LINKS_PER_SET} links per set"));
         }
 
         let mut links = Vec::with_capacity(set.links.len());
         for link in set.links {
+            // One shape, one url field. `url_of` reads exactly one of them, so
+            // a link carrying both would strand the other somewhere no reader
+            // looks — the ambiguous shape is refused rather than resolved, and
+            // refused before any scheme check, so the verdict does not depend
+            // on which of the two fields happens to be the dangerous one.
+            if link.href.is_some() && link.script.is_some() {
+                return Err(format!(
+                    "a link in \"{name}\" has both an href and a src; a link is one shape or the other"
+                ));
+            }
             let url = url_of(&link).ok_or_else(|| {
                 format!("a link in \"{name}\" has no {}",
                     if link.is_script { "src" } else { "href" })
