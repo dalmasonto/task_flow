@@ -1545,9 +1545,12 @@ describe("parseUIState", () => {
     const nan = parseUIState({ ...valid, transform: { x: 0, y: 0, scale: Number.NaN } }, 4, 2)!
     expect(Number.isFinite(nan.transform.scale)).toBe(true)
 
+    // Junk x/y degrade to the canvas's own fresh-viewport origin, not to 0:
+    // `DesignSurfacePage` opens at { x: 40, y: 40, scale: 0.6 }, so a damaged
+    // record has to land on the same view a fresh one gets.
     const junk = parseUIState({ ...valid, transform: { x: "a", y: null, scale: 1 } }, 4, 2)!
-    expect(junk.transform.x).toBe(0)
-    expect(junk.transform.y).toBe(0)
+    expect(junk.transform.x).toBe(40)
+    expect(junk.transform.y).toBe(40)
   })
 
   it("drops device ids the preset table no longer knows", () => {
