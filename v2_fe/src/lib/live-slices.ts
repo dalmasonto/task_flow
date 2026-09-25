@@ -3,7 +3,7 @@
 ///
 /// Every slice in the workspace loads through ONE effect in `App.tsx`
 /// (`fetchWorkspaceChat`, `fetchWorkspaceBoard`, …), and which of them that
-/// effect fetches was decided by nine inline consts in the component. Nothing
+/// effect fetches was decided by eight inline consts in the component. Nothing
 /// could assert which route loads what, and the mechanism had no executable
 /// spec at all — it was documented in comments only, which is how the two leaks
 /// this function was extracted to close went unnoticed.
@@ -42,14 +42,19 @@ export type LiveSliceGates = {
   chat: boolean
   /// Channels + their rosters ONLY — what the design page's left rail needs to
   /// resolve the project room. Split out of `chat` on purpose: the rail is the
-  /// same `useAgentChat` instance the dock uses, and it needs the channel list
-  /// not to be EMPTY, because an empty one makes `mapLiveChannelChats`
-  /// synthesise a placeholder project room whose send path then creates a
-  /// duplicate of the room that already exists.
+  /// same `useAgentChat` instance the dock uses, and it needs the project's REAL
+  /// channel list before it picks a conversation. With an empty one
+  /// `mapLiveChannelChats` synthesises a project room, so the rail renders a
+  /// conversation that does not exist — with a composer attached — while the room
+  /// the user is actually in is missing from the list. (Sends are not at risk:
+  /// the server's `create_channel` is get-or-create for a project room. The
+  /// damage is a wrong screen, which is reason enough for the surface to load
+  /// what it displays.)
   chatChannels: boolean
-  /// Raw terminal capture. Only the agents surface renders it — deliberately
-  /// not the chat dock, which would otherwise pull the 96 KB frame page onto
-  /// every route the dock is open on.
+  /// Raw terminal capture — the frame page's own comment puts it at ~100 rows /
+  /// 96 KB (quoted, not measured here). Only the agents surface renders it —
+  /// deliberately not the chat dock, which would otherwise pull it onto every
+  /// route the dock is open on.
   terminal: boolean
   /// API endpoints + agent credentials (the API-Base page).
   settings: boolean
@@ -80,6 +85,54 @@ export type SliceGateInput = {
 /// slash separately, and normalising here would change which paths match.
 function onRoute(pathname: string, route: string): boolean {
   return pathname.startsWith(route)
+}
+
+/// The flags that say which slices the CURRENT project's workspace already
+/// holds. A ref in `App.tsx` rather than state: they gate a fetch, they do not
+/// belong in a render.
+export type LoadedSlices = {
+  /// The project these flags describe.
+  project: number | null
+  /// The core workspace's generation. A fresh core hands back empty chat and
+  /// activity arrays, so a merged slice from the previous generation is no
+  /// longer present even though its flag says "loaded".
+  epoch: number
+  board: boolean
+  presence: boolean
+  chat: boolean
+  channels: boolean
+  activity: boolean
+  terminal: boolean
+  settings: boolean
+  reviews: boolean
+  /// Keyed by the LOADED task id, not a boolean: opening a different task must
+  /// reload that task's detail instead of reusing the first one's.
+  taskDetail: number | null
+}
+
+/// Invalidate the loaded flags if the workspace they describe is gone — a
+/// project switch, or a new core workspace under the same project.
+///
+/// Returns whether anything was cleared. Extracted from `App.tsx`'s slice effect
+/// so the reset has a test: the effect's own behaviour is that a route change
+/// does NOT clear anything (slices stay loaded, which is the point of holding
+/// them), while a project or generation change clears everything — and getting
+/// that backwards is invisible until a surface silently shows the previous
+/// project's rows.
+export function invalidateSlices(slices: LoadedSlices, projectId: number | null, epoch: number): boolean {
+  if (slices.project === projectId && slices.epoch === epoch) return false
+  slices.project = projectId
+  slices.epoch = epoch
+  slices.board = false
+  slices.presence = false
+  slices.chat = false
+  slices.channels = false
+  slices.activity = false
+  slices.terminal = false
+  slices.settings = false
+  slices.reviews = false
+  slices.taskDetail = null
+  return true
 }
 
 export function sliceGatesFor(input: SliceGateInput): LiveSliceGates {

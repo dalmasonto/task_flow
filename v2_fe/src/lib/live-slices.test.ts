@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { sliceGatesFor, type SliceGateInput } from "./live-slices"
+import { invalidateSlices, sliceGatesFor, type LoadedSlices, type SliceGateInput } from "./live-slices"
 
 /// A first-time visitor: nothing persisted, no task open, no chat surface
 /// mounted. Every case below starts here and names only what it changes, so a
@@ -147,13 +147,88 @@ describe("sliceGatesFor", () => {
     })
   })
 
-  // The gates are recomputed from the route on every render; nothing carries
-  // over. A navigating user must not keep the previous route's slices.
-  it("recomputes from the route alone, with nothing carried over", () => {
+  // A gate is recomputed from the route on every render; nothing carries over
+  // from the previous route. What a route change does NOT do is unload what is
+  // already loaded — that is `invalidateSlices` below, and the two are separate
+  // on purpose: revisiting the board must not re-fetch a slice we hold.
+  it("computes each route's gates from that route alone", () => {
     const onBoard = gates({ pathname: "/dashboard/board" })
     const onOverview = gates({ pathname: "/dashboard/overview" })
     expect(onBoard.board).toBe(true)
-    expect(onOverview.board).toBe(false)
-    expect(onOverview).toEqual(gates({ pathname: "/dashboard/overview" }))
+    expect(onOverview).toMatchObject({ board: false, activity: false, chat: false })
+  })
+})
+
+describe("invalidateSlices", () => {
+  /// A workspace fully loaded: every flag set, and a task detail keyed by id.
+  function loaded(project: number, epoch: number) {
+    return {
+      project,
+      epoch,
+      board: true,
+      presence: true,
+      chat: true,
+      channels: true,
+      activity: true,
+      terminal: true,
+      settings: true,
+      reviews: true,
+      taskDetail: 42,
+    }
+  }
+
+  // The route case: the same project and the same core generation, so the
+  // slices the user already paid for are still valid. This is the half that
+  // makes a revisit cheap, and the half a "reset on navigation" would break.
+  it("keeps every loaded flag on the same project and generation", () => {
+    const slices = loaded(3, 7)
+    expect(invalidateSlices(slices, 3, 7)).toBe(false)
+    expect(slices).toEqual(loaded(3, 7))
+  })
+
+  it("clears every loaded flag when the project changes", () => {
+    const slices = loaded(3, 7)
+    expect(invalidateSlices(slices, 9, 7)).toBe(true)
+    expect(slices).toEqual({
+      project: 9,
+      epoch: 7,
+      board: false,
+      presence: false,
+      chat: false,
+      channels: false,
+      activity: false,
+      terminal: false,
+      settings: false,
+      reviews: false,
+      taskDetail: null,
+    })
+  })
+
+  // A new core workspace under the SAME project id arrives with empty chat and
+  // activity arrays, so a flag left true would make the effect skip the refetch
+  // and the surface would sit empty against rows the server does have.
+  it("clears every loaded flag when the core workspace generation changes", () => {
+    const slices = loaded(3, 7)
+    expect(invalidateSlices(slices, 3, 8)).toBe(true)
+    expect(slices).toMatchObject({ project: 3, epoch: 8, chat: false, activity: false, taskDetail: null })
+  })
+
+  // A first run: no project recorded yet, and the sentinel epoch is -1.
+  it("clears on the first run, when nothing is recorded yet", () => {
+    const slices: LoadedSlices = {
+      project: null,
+      epoch: -1,
+      board: false,
+      presence: false,
+      chat: false,
+      channels: false,
+      activity: false,
+      terminal: false,
+      settings: false,
+      reviews: false,
+      taskDetail: null,
+    }
+    expect(invalidateSlices(slices, 3, 0)).toBe(true)
+    expect(slices.project).toBe(3)
   })
 })

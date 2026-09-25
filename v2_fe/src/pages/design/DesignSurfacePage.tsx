@@ -1012,8 +1012,15 @@ function DesignChatRail({
   // Point the shared hook at the Project-room chat so its is_design-scoped
   // loaders fire for the right channel. Derived from the same mapper + title the
   // Agents page uses; falls back to the first channel, then null (placeholder).
+  //
+  // Null until the channel list is a REAL answer (`agentChannelsLoaded`): with an
+  // unloaded list the mapper synthesises a project room, and pointing the rail at
+  // a room that does not exist shows a conversation the project does not have —
+  // with a composer attached, i.e. a send that should have gone to the room
+  // already in the list. Waiting renders this rail's "Loading design
+  // conversation…" instead, which is the true state.
   const projectRoomChatId = useMemo(() => {
-    if (!liveWorkspace) return null
+    if (!liveWorkspace?.agentChannelsLoaded) return null
     const chats = mapLiveChannelChats(liveWorkspace, currentUser)
     return (chats.find((chat) => chat.title === PROJECT_ROOM_TITLE) ?? chats[0])?.id ?? null
   }, [liveWorkspace, currentUser])

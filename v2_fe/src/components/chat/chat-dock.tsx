@@ -1,6 +1,6 @@
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
-import { ChevronDownIcon, ChevronUpIcon, MinusIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MinusIcon, XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type AuthUser } from "@/lib/auth-api"
 import { type Project } from "@/lib/workspace-view"
@@ -40,6 +40,9 @@ export function ChatDock({
   const [minimised, setMinimised] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const isBelowLg = useIsBelowLg()
+  // Whether `liveWorkspace`'s channel list is the server's answer. False while
+  // the slice is in flight, which is when `mapLiveChannelChats` is synthesising.
+  const channelsLoaded = liveWorkspace?.agentChannelsLoaded ?? false
 
   const { directChats, channelChats, allChats, selectedChat, messageError, outletContext } =
     useAgentChat({
@@ -54,13 +57,48 @@ export function ChatDock({
 
   // Nothing selected yet (first open, or the stored id no longer resolves):
   // fall back to the project room, then any DM, so the dock never opens empty.
+  //
+  // It waits for the channel list first, and that matters more than it looks.
+  // With a cold slice `mapLiveChannelChats` returns ONE synthesised chat
+  // (`live:project-room`), so this effect used to select a room that does not
+  // exist — and because the selection is persisted, it OVERWROTE the stored
+  // conversation with the placeholder id, deterministically, on every open: the
+  // dock could not return you to the conversation it had remembered. Once the
+  // real list lands, the stored id can be resolved, which is what this effect is
+  // for. `allChats` is non-empty in both cases, so this cannot be expressed as
+  // an emptiness check.
   useEffect(() => {
     if (selectedChat || !allChats.length) return
+    if (!channelsLoaded) return
     const first = channelChats[0] ?? directChats[0]
     if (first) onChangeChat(first.id)
-  }, [selectedChat, allChats, channelChats, directChats, onChangeChat])
+  }, [selectedChat, allChats, channelChats, directChats, channelsLoaded, onChangeChat])
 
   if (!allChats.length) return null
+
+  // The list is not a real answer yet: say so rather than drawing the
+  // synthesised room as though it were one of the project's conversations.
+  if (!channelsLoaded) {
+    return (
+      <section
+        role="dialog"
+        aria-label="Chat"
+        className="fixed bottom-4 right-4 flex w-[min(18rem,calc(100vw-2rem))] items-center gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-2xl"
+      >
+        <LoaderCircleIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+        <span className="truncate text-sm text-muted-foreground">Loading conversations…</span>
+        <button
+          type="button"
+          className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={onClose}
+          title="Close chat"
+          aria-label="Close chat"
+        >
+          <XIcon className="size-4" />
+        </button>
+      </section>
+    )
+  }
 
   // On a narrow screen a 380px corner panel is most of the viewport anyway, so
   // it takes the whole screen rather than fighting the page for room.

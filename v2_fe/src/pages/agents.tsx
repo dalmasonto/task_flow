@@ -124,13 +124,19 @@ export function AgentsPage({
   // straight into a thread would hide the list behind a back button).
   useEffect(() => {
     if (conversationId || isBelowLg) return
+    // Only from a LOADED channel list: with the slice still in flight the mapper
+    // synthesises a project room, and navigating to it put the URL on a
+    // conversation id that resolves to nothing — after which this effect stops
+    // firing (a conversationId is set), so the page stayed on the phantom instead
+    // of opening the room once it arrived.
+    if (!liveWorkspace?.agentChannelsLoaded) return
     // Prefer the PROJECT ROOM explicitly. channelChats is ordered by title, so
     // "first channel" was really "alphabetically first" — a group called
     // "Announcements" would win over the room everyone actually talks in.
     const projectRoom = channelChats.find((chat) => chat.title === PROJECT_ROOM_TITLE)
     const first = projectRoom ?? channelChats[0] ?? directChats[0]
     if (first) navigate(chatIdToSlug(first.id), { replace: true })
-  }, [conversationId, isBelowLg, channelChats, directChats, navigate])
+  }, [conversationId, isBelowLg, channelChats, directChats, liveWorkspace?.agentChannelsLoaded, navigate])
   // #42: create a DM or group explicitly, then open it. The server dedups DMs
   // (find-or-create by roster), so starting a DM you already have just reopens
   // it. Throws on failure so the picker shows the reason.

@@ -124,6 +124,17 @@ export type TaskflowWorkspace = {
   agentSessions: TaskflowAgentSession[]
   agentChannels: TaskflowAgentChannel[]
   agentChannelMembers: TaskflowAgentChannelMember[]
+  /// Whether `agentChannels` is the SERVER'S answer for this project, rather than
+  /// the empty array the core workspace starts it at.
+  ///
+  /// The two states are not the same fact, and this repo has been bitten by
+  /// treating them as one before: `mapLiveChannelChats` synthesises a project
+  /// room when the list is EMPTY, so a surface that acts on that list before the
+  /// slice lands is acting on a room that does not exist. It is a rendering
+  /// question — "which conversation am I in" must not be answered from a
+  /// placeholder — which is why the flag travels with the workspace rather than
+  /// being inferred from `length`.
+  agentChannelsLoaded: boolean
   agentMessages: ChatMessage[]
   messageAttachments: TaskflowMessageAttachment[]
   terminalFrames: TaskflowAgentTerminalFrame[]
@@ -468,15 +479,21 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
   // Instead of pulling task rows (152 KB, capped) just to count them, ask each
   // project for two COUNTS — page_size=1 returns the envelope total in ~one row.
   // Cheap and honest (real totals on every page, not 0-until-clicked).
+  //
+  // `fields=id` because a count does not need even that one row's content: the
+  // number comes from the ENVELOPE, and a task row carries the two fat markdown
+  // columns this whole change exists to stop fetching. Same count, no body text,
+  // 2N times per load — which is why it is worth the parameter on both queries.
   const countEntries = await Promise.all(
     projects.results.map(async (project) => {
       const [total, review] = await Promise.all([
-        taskflowApi.from(taskflowTables.tasks).filter({ project: project.id }).param("page_size", 1).list(),
+        taskflowApi.from(taskflowTables.tasks).filter({ project: project.id }).fields("id").param("page_size", 1).list(),
         taskflowApi
           .from(taskflowTables.tasks)
           .filter({ project: project.id })
           // `partial_done` is the stored status the board calls the "review" column.
           .param("status__in", "partial_done")
+          .fields("id")
           .param("page_size", 1)
           .list(),
       ])
@@ -662,6 +679,7 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskAttachments: [],
     taskActivity: [],
     agentChannels: [],
+    agentChannelsLoaded: false,
     agentChannelMembers: [],
     agentMessages: [],
     messageAttachments: [],
@@ -732,6 +750,7 @@ export type WorkspaceChatSlice = Pick<
   TaskflowWorkspace,
   | "agentChannels"
   | "agentChannelMembers"
+  | "agentChannelsLoaded"
   | "agentMessages"
   | "messageAttachments"
   | "channelReadCursors"
@@ -744,13 +763,21 @@ export type WorkspaceChatSlice = Pick<
 /// pointed at one conversation (the project room) and renders that thread — its
 /// messages arrive from the per-channel page-1 fetch, its prompts are never
 /// rendered (a prompt card needs an agent DM and the rail is always a channel).
-/// All it needs from the slice is a NON-EMPTY channel list with rosters.
+/// All it needs from the slice is the real channel list with rosters.
 ///
-/// The non-emptiness is load-bearing, which is why this is a slice rather than a
-/// narrower gate: `mapLiveChannelChats` synthesises a placeholder project room
-/// when it has no channels, and a send from that placeholder creates a channel —
-/// a duplicate of the room that already exists.
-export type WorkspaceChannelsSlice = Pick<TaskflowWorkspace, "agentChannels" | "agentChannelMembers">
+/// The realness is load-bearing, which is why this is a slice rather than a
+/// narrower gate: `mapLiveChannelChats` synthesises a project room when it has
+/// no channels, so a rail given an empty list renders a room that does not
+/// exist, with a composer attached to it. Nothing is corrupted by that — the
+/// server's `create_channel` is get-or-create for a project room
+/// (`find_project_room`, taskflow-agents/views.rs), so a send from a synthesised
+/// room lands in the canonical one — but the rail is then showing a conversation
+/// the project does not have, and the room the user is actually in is not in the
+/// list. That is the whole reason the surface loads its channels.
+export type WorkspaceChannelsSlice = Pick<
+  TaskflowWorkspace,
+  "agentChannels" | "agentChannelMembers" | "agentChannelsLoaded"
+>
 
 export async function fetchWorkspaceChannels(projectId: number): Promise<WorkspaceChannelsSlice> {
   const [agentChannels, agentChannelMembers] = await Promise.all([
@@ -766,6 +793,8 @@ export async function fetchWorkspaceChannels(projectId: number): Promise<Workspa
   return {
     agentChannels,
     agentChannelMembers: agentChannelMembers.filter((member) => channelIds.has(member.channel)),
+    // The list below is the server's answer, empty or not.
+    agentChannelsLoaded: true,
   }
 }
 
@@ -811,6 +840,8 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     messageAttachments: messageAttachments.results,
     channelReadCursors,
     agentPrompts: agentPrompts.results,
+    // The channel list is the server's answer now, whether or not it is empty.
+    agentChannelsLoaded: true,
   }
 }
 

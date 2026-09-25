@@ -1087,6 +1087,18 @@ export function channelUnreadCount(
 }
 
 
+/// The id of the room `mapLiveChannelChats` INVENTS when the workspace has no
+/// channels — not a real channel id, and the only conversation id here that can
+/// never be resolved against a server row.
+///
+/// Exported because two callers have to recognise it: nothing may PERSIST it as
+/// "the conversation you were in" (it would replace a real one and resolve to
+/// itself only while the list stays empty), and no surface may auto-select it
+/// before the channel list has loaded — that selection is what used to clobber
+/// the stored conversation on every dock open. See `agentChannelsLoaded`.
+export const PROJECT_ROOM_PLACEHOLDER_ID = "live:project-room"
+
+
 export function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null): AgentChatContext[] {
   const projectChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind !== "direct")
   const chats = projectChannels.map((channel) => {
@@ -1110,7 +1122,7 @@ export function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: A
   const members = workspaceDefaultMembers(workspace, currentUser)
   return [
     {
-      id: "live:project-room",
+      id: PROJECT_ROOM_PLACEHOLDER_ID,
       mode: "channel",
       title: "Project room",
       detail: "Shared group chat for humans and agents in this project. The live channel is created on first send.",

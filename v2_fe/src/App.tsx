@@ -31,7 +31,7 @@ import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, 
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
-import { sliceGatesFor } from "@/lib/live-slices"
+import { invalidateSlices, sliceGatesFor, type LoadedSlices } from "@/lib/live-slices"
 import { loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
 import { resolveActiveProject } from "@/lib/active-project"
 import { createLoadSequence } from "@/lib/load-sequence"
@@ -63,7 +63,7 @@ import { TaskDetailSheet } from "@/components/task-sheet"
 import { overlayTaskDetail, pruneTaskDetail } from "@/lib/task-detail-overlay"
 import { InvitesPage } from "@/pages/invites"
 import { LandingPage } from "@/pages/landing"
-import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, countOnlineAgents, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
+import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, PROJECT_ROOM_PLACEHOLDER_ID, countOnlineAgents, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
 import { ReviewsPage } from "@/pages/reviews"
 import { TaskSessionDock } from "@/components/session-dock"
 import { WorkspaceDialog } from "@/components/workspace-dialog"
@@ -416,11 +416,21 @@ function App() {
   /// Fetch the titles this page of events names, skipping ids already titled.
   /// Shared by the slice's first load and every paged load after it — both paths
   /// put rows in front of the feed, and the feed renders titles.
+  ///
+  /// Never rejects: a title we could not fetch is a title the feed already knows
+  /// how to show as unknown (`Task #<id>`), and both call sites fire this without
+  /// awaiting, so a 400 here would surface as an unhandled rejection instead of
+  /// the honest fallback it is.
   const rememberActivityRowTitles = useCallback(
     async (rows: TaskflowWorkspace["taskActivity"]) => {
       const ids = rows.map((row) => row.task).filter((task): task is number => task != null)
       const missing = [...new Set(ids)].filter((id) => activityTaskTitlesRef.current[id] == null)
-      if (missing.length) rememberActivityTaskTitles(await fetchTaskTitles(missing))
+      if (!missing.length) return
+      try {
+        rememberActivityTaskTitles(await fetchTaskTitles(missing))
+      } catch {
+        // Left untitled on purpose — see above.
+      }
     },
     [rememberActivityTaskTitles]
   )
@@ -1098,7 +1108,15 @@ function App() {
   // Chat launcher below is what states it.
   const [dockOpen, setDockOpen] = useState(false)
   const [dockChatId, setDockChatId] = useState<string | null>(() => loadDockChatId())
-  useEffect(() => saveDockState(dockChatId), [dockChatId])
+  useEffect(() => {
+    // The synthesised project room is not a conversation anyone was in: it stands
+    // for "this project's channel list is empty or not loaded yet". Persisting it
+    // would replace a real stored conversation with an id that can only resolve
+    // while the list stays empty — so it is skipped, and the dock's own effect
+    // (which now waits for the channel list) is what picks a real room.
+    if (dockChatId === PROJECT_ROOM_PLACEHOLDER_ID) return
+    saveDockState(dockChatId)
+  }, [dockChatId])
   const openDockChat = useCallback((chatId: string) => {
     setDockChatId(chatId)
     setDockOpen(true)
@@ -1233,16 +1251,16 @@ function App() {
   // effect, which is the cascading-render pattern the lint rule objects to.
   // #56: taskDetail is keyed by the LOADED task id (not a boolean), so opening a
   // different task reloads that task's detail instead of reusing the first one's.
-  const loadedSlices = useRef<{ project: number | null; epoch: number; board: boolean; presence: boolean; chat: boolean; channels: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: number | null }>({
+  const loadedSlices = useRef<LoadedSlices>({
     project: null,
     epoch: -1,
     board: false,
     presence: false,
     chat: false,
     // The channels-only slice the design rail reads. Separate from `chat`
-    // because it is a different fetch, not a narrower gate: the rail needs a
-    // non-empty channel list to resolve the project room, and nothing else from
-    // the chat slice.
+    // because it is a different fetch, not a narrower gate: the rail needs the
+    // real channel list to resolve the project room, and nothing else from the
+    // chat slice.
     channels: false,
     activity: false,
     terminal: false,
@@ -1302,19 +1320,8 @@ function App() {
     const slices = loadedSlices.current
     // Switching projects invalidates the slices — and so does a core reload,
     // which hands back empty chat/activity arrays and drops whatever was merged.
-    if (slices.project !== projectId || slices.epoch !== workspaceEpoch) {
-      slices.project = projectId
-      slices.epoch = workspaceEpoch
-      slices.board = false
-      slices.presence = false
-      slices.chat = false
-      slices.channels = false
-      slices.activity = false
-      slices.terminal = false
-      slices.settings = false
-      slices.reviews = false
-      slices.taskDetail = null
-    }
+    // The rule itself is in lib/live-slices, where it has a test.
+    invalidateSlices(loadedSlices.current, projectId, workspaceEpoch)
     // Marked BEFORE the request: applying a slice changes activeLiveWorkspace,
     // which re-runs this effect, so a flag set on success would let it re-fire
     // against its own result. Cleared on failure so the next visit retries.
@@ -1355,10 +1362,12 @@ function App() {
     }
     // The design rail's slice: the channel list and its rosters, without the
     // messages, attachments, read cursors and prompts the full chat slice drags
-    // in. It must still load, rather than the gate being dropped — an empty
-    // `agentChannels` is what makes `mapLiveChannelChats` synthesise a project
-    // room, and a send into that placeholder creates a duplicate of a room that
-    // already exists.
+    // in. It must still load, rather than the gate being dropped — the rail picks
+    // a conversation from that list, and with an empty one the mapper synthesises
+    // a project room, so the rail would show a room the project does not have
+    // while the real one is absent. (A send from it is safe either way: the
+    // server is get-or-create for a project room.) `agentChannelsLoaded` travels
+    // with the slice so the rail can tell "no channels" from "not asked yet".
     //
     // Skipped when the chat slice already holds those rows (`slices.chat` is the
     // dock being open on this route), so the rail is not 2 queries of a 6-query
@@ -1532,6 +1541,10 @@ function App() {
       agentCredentials: [],
       agentSessions: [],
       agentChannels: [],
+      // A project that was just created has no channels, and this object is a
+      // local stand-in rather than the server's answer — so the channel list is
+      // UNKNOWN here, not empty. See the field's note in taskflow-api.
+      agentChannelsLoaded: false,
       agentChannelMembers: [],
       agentMessages: [],
       messageAttachments: [],
