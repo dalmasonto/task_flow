@@ -22,10 +22,13 @@ pub const MAX_LINKS_PER_SET: usize = 16;
 pub const MAX_HREF: usize = 2_048;
 pub const MAX_SET_NAME: usize = 60;
 
-/// `rel` values we accept on a `<link>`. All four are inert: none executes or
+/// `rel` values we accept on a `<link>`. All three are inert: none executes or
 /// mutates the document, which is what makes them safe to allow alongside a
-/// stylesheet.
-pub const ALLOWED_REL: &[&str] = &["preconnect", "dns-prefetch", "stylesheet", "preload"];
+/// stylesheet. Every entry must also be USEFUL ON ITS OWN: `preload` is not,
+/// because without an `as` attribute it fetches nothing and `ResourceLink` has
+/// no `as` field, so it produced a `<link>` that sat in the DOM doing nothing.
+/// Re-adding it means adding `as` to the model, not just the name back here.
+pub const ALLOWED_REL: &[&str] = &["preconnect", "dns-prefetch", "stylesheet"];
 
 /// camelCase on the wire throughout, so the frontend mirror is mechanical.
 /// Everything is always serialised — no `skip_serializing_if` — because a
@@ -195,7 +198,14 @@ pub fn validate(doc: ResourcesDoc) -> Result<ResourcesDoc, String> {
             if !link.is_script {
                 let rel = link.rel.as_deref().unwrap_or("").trim().to_ascii_lowercase();
                 if !ALLOWED_REL.contains(&rel.as_str()) {
-                    return Err(format!("\"{rel}\" is not an allowed link relation"));
+                    // The alternatives are enumerated FROM the constant, not
+                    // spelled out, so this message cannot drift from the list
+                    // it describes — a refusal a user cannot act on is the
+                    // thing `preload`'s removal was about.
+                    return Err(format!(
+                        "\"{rel}\" is not an allowed link relation; use one of: {}",
+                        ALLOWED_REL.join(", ")
+                    ));
                 }
             }
             links.push(link);

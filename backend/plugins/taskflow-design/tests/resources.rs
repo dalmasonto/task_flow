@@ -117,6 +117,26 @@ fn refuses_rel_outside_the_allowlist() {
 }
 
 #[test]
+fn refuses_preload_because_without_an_as_attribute_it_fetches_nothing() {
+    // `preload` used to be in the allowlist. It is not any more: `ResourceLink`
+    // has no `as` field, and per HTML a preload without one does not fetch, so
+    // the entry bought a `<link>` that sat in the DOM doing nothing — the same
+    // silent no-op this phase exists to remove from the CSP. Every entry that
+    // stays must be useful on its own.
+    let d = doc(vec![set("X", vec![link("preload", "https://ok.example/font.woff2")])]);
+    let err = validate(d).expect_err("a preload link fetches nothing and must be refused");
+
+    // The refusal has to be actionable: a user who configured this cannot fix
+    // it unless the message names the rel refused AND what is accepted. The
+    // accepted list is enumerated from `ALLOWED_REL`, so it cannot drift from
+    // the constant it describes.
+    assert!(err.contains("preload"), "the refusal must name the rel it refused: {err}");
+    for rel in ALLOWED_REL {
+        assert!(err.contains(rel), "the refusal must offer {rel} as an alternative: {err}");
+    }
+}
+
+#[test]
 fn refuses_over_long_hrefs_caps_and_duplicate_names() {
     let long = format!("https://ok.example/{}", "x".repeat(MAX_HREF));
     assert!(validate(doc(vec![set("X", vec![link("stylesheet", &long)])])).is_err());
@@ -351,4 +371,23 @@ async fn enabled_links_reach_both_the_composed_page_and_the_download() {
         "the download must carry the font too, or the type silently changes: {downloaded}"
     );
     assert!(!downloaded.contains("disabled.css"), "{downloaded}");
+
+    // Same placement rule in the second document. The sandbox half pins it
+    // against the `f/styles/tokens.css` LINK; the export INLINES the tokens
+    // CSS instead, so the marker here is the `<style>` element that carries it.
+    // Without this, moving `{resource_tags}` after the tokens block in
+    // `compose_export_document` would leave every test passing.
+    let resource_at = downloaded
+        .find(preconnect)
+        .expect("the download must carry the preconnect too");
+    let tokens_at = downloaded
+        .find("<style>")
+        .expect("the export inlines the generated tokens stylesheet");
+    assert!(
+        resource_at < tokens_at,
+        "in page.html the resource tags must come BEFORE the inlined tokens stylesheet \
+         (resources at {resource_at}, tokens stylesheet at {tokens_at}), as they do in the \
+         sandbox head — placing them after it silently stops a page overriding a webfont: \
+         {downloaded}"
+    );
 }
