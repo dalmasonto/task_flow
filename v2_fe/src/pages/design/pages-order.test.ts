@@ -6,8 +6,9 @@ import { groupedPages, numberedPages, selectAllState, type GroupedPages } from "
 
 // The panel these helpers exist for is the Pages tab, and what it can silently
 // get wrong is a row the user cannot find or a number that moves under them: a
-// page missing from the list, listed twice, or numbered by something other than
-// where it sits in the project's own route list. None of those throws.
+// page missing from the panel, listed TWICE — once under its group and once in
+// the ungrouped section — or numbered by something other than its place in the
+// section it is listed under. None of those throws.
 //
 // The fixtures are the WIRE, following `design-comments.test.ts`: a document
 // goes in through the real `normalizeLayout` read path (`fetchLayout` calls it
@@ -30,22 +31,38 @@ const layout = (groups: { id: string; name: string; routes: string[] }[]) =>
 const flowed = (routeOrder: string[]) =>
   normalizeLayout({ view: "groups", routeOrder, groups: [], pageLabels: {} })
 
-/// Every route the Groups section lists, in display order: each group's pages,
-/// then the ungrouped tail. Assertions go through this rather than through
+/// Every route the panel lists, in display order: each group's pages, then the
+/// ungrouped section. Assertions go through this rather than through
 /// `sections.ungrouped` so a test cannot pass while the page it names is listed
 /// somewhere unexpected.
 const listed = (sections: GroupedPages) => [
   ...sections.groups.flatMap((section) => section.pages),
   ...sections.ungrouped,
+].map((page) => page.route)
+
+/// The sections as LISTS of numbered pages, the way the panel draws them: each
+/// group's, then the ungrouped section's. The numbering tests read this rather
+/// than the sections individually, because "every section starts at 1 and runs
+/// without a gap" is one property of the whole result.
+const numbered = (sections: GroupedPages) => [
+  ...sections.groups.map((section) => section.pages),
+  sections.ungrouped,
 ]
 
 describe("groupedPages", () => {
   // The first-run state: every project before anyone opens the group picker.
-  it("puts every page in the ungrouped tail when there are no groups", () => {
+  // There is no group, so the whole manifest is the ungrouped section, and its
+  // numbering starts there.
+  it("puts every page in the ungrouped section when there are no groups", () => {
     const result = groupedPages(layout([]), MANIFEST)
 
     expect(result.groups).toEqual([])
-    expect(result.ungrouped).toEqual(["/", "/login", "/signup", "/settings"])
+    expect(result.ungrouped).toEqual([
+      { route: "/", n: 1 },
+      { route: "/login", n: 2 },
+      { route: "/signup", n: 3 },
+      { route: "/settings", n: 4 },
+    ])
   })
 
   it("lists the groups in document order, each with its pages, then the ungrouped rest", () => {
@@ -63,22 +80,90 @@ describe("groupedPages", () => {
       ["g1", "Auth"],
       ["g2", "Admin"],
     ])
-    expect(result.groups[0].pages).toEqual(["/login", "/signup"])
-    expect(result.ungrouped).toEqual(["/"])
+    expect(result.groups[0].pages).toEqual([
+      { route: "/login", n: 1 },
+      { route: "/signup", n: 2 },
+    ])
+    expect(result.ungrouped).toEqual([{ route: "/", n: 1 }])
+  })
+
+  // The panel's numbering, and the rule it replaced a flat 1..N with: the
+  // number beside a row is the page's place in the SECTION it is listed under.
+  // Two screens in Auth read "1, 2" — the user's own example — and the next
+  // group starts again at "1" rather than continuing the count.
+  it("numbers a group's pages 1..n within the group", () => {
+    const result = groupedPages(
+      layout([{ id: "g1", name: "Auth", routes: ["/login", "/signup"] }]),
+      MANIFEST,
+    )
+
+    expect(result.groups[0].pages).toEqual([
+      { route: "/login", n: 1 },
+      { route: "/signup", n: 2 },
+    ])
+  })
+
+  it("starts every group at 1, and the ungrouped section at 1 of its own", () => {
+    const result = groupedPages(
+      layout([
+        { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+        { id: "g2", name: "Ops", routes: ["/settings"] },
+      ]),
+      MANIFEST,
+    )
+
+    expect(numbered(result)).toEqual([
+      [
+        { route: "/login", n: 1 },
+        { route: "/signup", n: 2 },
+      ],
+      [{ route: "/settings", n: 1 }],
+      [{ route: "/", n: 1 }],
+    ])
+  })
+
+  // The number depends on the page's place IN ITS SECTION and nothing else —
+  // not on where the flow puts it overall. The fixture interleaves the two
+  // groups and the ungrouped page in the flow, so a numbering that leaked the
+  // flow's position would read /signup 3, /login 4, /settings 1, / 2 — four
+  // different numbers — instead of two 1s, a 2 and a 1.
+  it("numbers by the place in the section, not by the place in the flow", () => {
+    const result = groupedPages(
+      normalizeLayout({
+        view: "groups",
+        routeOrder: ["/settings", "/", "/signup", "/login"],
+        groups: [
+          { id: "g1", name: "Auth", routes: ["/signup", "/login"] },
+          { id: "g2", name: "Ops", routes: ["/settings"] },
+        ],
+        pageLabels: {},
+      }),
+      MANIFEST,
+    )
+
+    expect(numbered(result)).toEqual([
+      [
+        { route: "/signup", n: 1 },
+        { route: "/login", n: 2 },
+      ],
+      [{ route: "/settings", n: 1 }],
+      [{ route: "/", n: 1 }],
+    ])
   })
 
   // `assignRoute` APPENDS, so a group's own `routes` array is assignment order.
   // The panel lists the pages in the FLOW order instead — the pages' own order
   // when the user has set no flow, and the order they set otherwise — so
   // assigning a page to a group never reshuffles the rows under them, and the
-  // section agrees with the flat list. See the module header.
+  // section reads in the same order as the canvas column it mirrors. See the
+  // module header.
   it("orders a group's pages by the pages' own order, not by the order they were assigned", () => {
     const result = groupedPages(
       layout([{ id: "g1", name: "Auth", routes: ["/signup", "/login"] }]),
       MANIFEST,
     )
 
-    expect(result.groups[0].pages).toEqual(["/login", "/signup"])
+    expect(result.groups[0].pages.map((page) => page.route)).toEqual(["/login", "/signup"])
   })
 
   // The same column, with a flow set: it is the flow that orders the section
@@ -96,14 +181,14 @@ describe("groupedPages", () => {
       MANIFEST,
     )
 
-    expect(result.groups[0].pages).toEqual(["/signup", "/login"])
+    expect(result.groups[0].pages.map((page) => page.route)).toEqual(["/signup", "/login"])
   })
 
-  // The tail is the same list, so it is ordered the same way: the flow first,
-  // then the pages it does not name, in their own order. A flow that named only
-  // grouped pages would otherwise leave the tail in a different order from the
-  // rows beside it.
-  it("orders the ungrouped tail by the flow too", () => {
+  // The ungrouped section is the same list, so it is ordered the same way: the
+  // flow first, then the pages it does not name, in their own order. A flow that
+  // named only grouped pages would otherwise leave the section in a different
+  // order from the rows beside it.
+  it("orders the ungrouped section by the flow too", () => {
     const result = groupedPages(
       normalizeLayout({
         view: "groups",
@@ -114,35 +199,62 @@ describe("groupedPages", () => {
       MANIFEST,
     )
 
-    expect(result.groups[0].pages).toEqual(["/settings"])
-    expect(result.ungrouped).toEqual(["/signup", "/", "/login"])
+    expect(result.groups[0].pages.map((page) => page.route)).toEqual(["/settings"])
+    expect(result.ungrouped.map((page) => page.route)).toEqual(["/signup", "/", "/login"])
   })
 
-  // The sections carry ROUTES, not numbered pages: the numbering belongs to the
-  // flat list, and a page has exactly one number — the one the user reads beside
-  // its row. A section that also produced numbers would be a second series, and
-  // it is structurally impossible here rather than merely undrawn: this is what
-  // the panel iterates.
-  it("lists its pages as routes, with no number attached", () => {
-    const result = groupedPages(
-      layout([{ id: "g1", name: "Auth", routes: ["/signup"] }]),
-      MANIFEST,
-    )
-
-    expect(result.groups[0].pages).toEqual(["/signup"])
-    expect(result.ungrouped).toEqual(["/", "/login", "/settings"])
-  })
+  // The numbering is the panel's ONLY numbering now — the flat list that used
+  // to carry a global 1..N is gone, and its number was what these rows show
+  // from their own section. So the test that used to stand here ("lists its
+  // pages as routes, with no number attached", on the grounds that a numbered
+  // section would be a second series) is retired rather than adjusted: the
+  // section's number IS the panel's number, and there is no second series to
+  // collide with. What must hold instead is the numbering's own invariant, and
+  // it is asserted with the partition below — every section runs 1, 2, 3 … from
+  // 1 with no gap and no repeat — plus the section cases above.
 
   // The transition the user actually performs: delete a group, and the pages it
-  // held come back to the tail. A page that silently vanishes from the panel is
-  // the worst outcome here — nothing on screen says it is still open on the
-  // canvas, and there is no affordance to bring it back.
-  it("falls back to ungrouped when the group a page was in has been removed", () => {
-    const grouped = layout([{ id: "g1", name: "Auth", routes: ["/login", "/signup"] }])
-    const result = groupedPages(removeGroup(grouped, "g1"), MANIFEST)
+  // held come back to the ungrouped section. A page that silently vanishes from
+  // the panel is the worst outcome here — nothing on screen says it is still
+  // open on the canvas, and there is no affordance to bring it back.
+  //
+  // This is also the case Task 16 parked as untested: a page that falls back
+  // must be RENUMBERED by the place it takes there, and the group that survives
+  // must keep its own numbering. The second group is the whole reason this
+  // fixture has two: with one group, "each section numbers from 1" and "one
+  // counter that happened to start at 1" produce the same result, and only the
+  // survivor tells them apart.
+  it("renumbers a page that falls back to ungrouped when its group is removed", () => {
+    const grouped = layout([
+      { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+      { id: "g2", name: "Ops", routes: ["/settings"] },
+    ])
+    // The state before the removal: /login is "1" inside Auth, and /settings is
+    // "1" inside Ops — two sections that both start at 1.
+    expect(numbered(groupedPages(grouped, MANIFEST))).toEqual([
+      [
+        { route: "/login", n: 1 },
+        { route: "/signup", n: 2 },
+      ],
+      [{ route: "/settings", n: 1 }],
+      [{ route: "/", n: 1 }],
+    ])
 
-    expect(result.groups).toEqual([])
-    expect(listed(result)).toEqual(["/", "/login", "/signup", "/settings"])
+    const after = groupedPages(removeGroup(grouped, "g1"), MANIFEST)
+
+    // Auth is gone, so its pages are in the ungrouped section, numbered by
+    // where the flow puts them there: /login is "2" rather than the "1" it wore
+    // inside Auth. The surviving group is untouched — /settings is still "1" —
+    // which is what makes this a renumbering of the removed group's pages
+    // rather than a count that ran on.
+    expect(after.groups).toEqual([
+      { id: "g2", name: "Ops", pages: [{ route: "/settings", n: 1 }] },
+    ])
+    expect(after.ungrouped).toEqual([
+      { route: "/", n: 1 },
+      { route: "/login", n: 2 },
+      { route: "/signup", n: 3 },
+    ])
   })
 
   // A group entry that is not a page at all — the manifest and the layout are
@@ -173,8 +285,8 @@ describe("groupedPages", () => {
       MANIFEST,
     )
 
-    expect(result.groups[0].pages).toEqual(["/login"])
-    expect(result.groups[1].pages).toEqual(["/settings"])
+    expect(result.groups[0].pages.map((page) => page.route)).toEqual(["/login"])
+    expect(result.groups[1].pages.map((page) => page.route)).toEqual(["/settings"])
   })
 
   // `createGroup` makes an empty group and `+ Add group` is the only way to do
@@ -186,10 +298,16 @@ describe("groupedPages", () => {
     expect(listed(result)).toEqual(["/", "/login", "/signup", "/settings"])
   })
 
-  // The invariant every test above is a special case of: the sections partition
-  // the manifest. Nothing is dropped and nothing is repeated, whatever the
-  // document happens to say.
-  it("never drops or repeats a page — the sections partition the manifest", () => {
+  // The invariant every test above is a special case of, and the panel's
+  // headline requirement: the sections partition the manifest, so nothing is
+  // dropped and NOTHING IS LISTED TWICE, whatever the document happens to say.
+  // A page in two places is what replacing the flat list with per-group lists
+  // makes reachable — it would draw two rows writing the same open state.
+  //
+  // The numbering's own invariant rides along here because it is the same
+  // property one level down: every section numbers 1, 2, 3 … from 1, with no
+  // gap, no repeat and no number borrowed from another section.
+  it("never drops or repeats a page, and numbers each section 1..n", () => {
     const result = groupedPages(
       layout([
         { id: "g1", name: "Auth", routes: ["/login"] },
@@ -201,6 +319,10 @@ describe("groupedPages", () => {
     const shown = listed(result)
     expect([...shown].sort()).toEqual(MANIFEST.map((route) => route.path).sort())
     expect(shown).toHaveLength(MANIFEST.length)
+
+    for (const section of numbered(result)) {
+      expect(section.map((page) => page.n)).toEqual(section.map((_, i) => i + 1))
+    }
   })
 
   // The same invariant, with the other reachable way to break it: the flow is a
@@ -229,9 +351,11 @@ describe("groupedPages", () => {
 })
 
 describe("numberedPages", () => {
-  // The first-run state: no flow has been set, so the list is the manifest and
-  // the numbers are the manifest's positions. This is the fallback every other
-  // case is a departure from.
+  // The flow's own numbering, which the panel no longer DRAWS — a row's number
+  // is its place in its section now (`groupedPages`) — but which bounds the
+  // row's move controls, because those write a flow move and therefore stop at
+  // the flow's ends. Its first-run state: no flow set, so the sequence is the
+  // manifest and the numbers are the manifest's positions.
   it("numbers every page 1..N in the flow, which is the pages' own order until one is set", () => {
     expect(numberedPages(layout([]), MANIFEST)).toEqual([
       { route: "/", n: 1 },
@@ -241,11 +365,11 @@ describe("numberedPages", () => {
     ])
   })
 
-  // The whole point of the numbers: once the user has ordered the screens into
-  // a flow, the number beside a row is its position IN THAT FLOW — the list and
-  // the canvas agree, and "the page at 3" means the third screen of the
-  // sequence. The pages the flow does not name keep their own order after the
-  // ones it does, so a reorder can never lose a page.
+  // Once the user has ordered the screens into a flow, a page's position in it
+  // is what the move controls are bounded by and what the canvas draws in:
+  // "the page at 3" is the third screen of the sequence. The pages the flow does
+  // not name keep their own order after the ones it does, so a reorder can never
+  // lose a page.
   it("numbers by the flow the user built, then the pages it does not name", () => {
     expect(numberedPages(flowed(["/settings", "/signup"]), MANIFEST)).toEqual([
       { route: "/settings", n: 1 },
@@ -255,18 +379,22 @@ describe("numberedPages", () => {
     ])
   })
 
-  // The property the old numbering was built for, and which survives the change
-  // of what the number MEANS: assigning a page to a group is a listing edit,
+  // The property the numbering was built for, and which survives the change of
+  // what the DRAWN number means: assigning a page to a group is a listing edit,
   // not a reorder — `assignRoute` does not touch `routeOrder` — so it cannot
-  // move a page or renumber it. What can is an explicit move, and nothing else.
+  // move a page in the flow or renumber it there. What can is an explicit move,
+  // and nothing else.
   it("does not renumber a page when it is grouped, only when it is moved", () => {
     const grouped = layout([{ id: "g1", name: "Auth", routes: ["/settings", "/signup"] }])
     const sections = groupedPages(grouped, MANIFEST)
 
-    // The group lists the manifest's LAST two pages first, and they are still
-    // numbered 3 and 4 — by where the flow puts them, which grouping did not
-    // change.
-    expect(sections.groups[0].pages).toEqual(["/signup", "/settings"])
+    // The group lists the manifest's LAST two pages first, and the flow still
+    // puts them at 3 and 4 — which is where the arrows say they are — while the
+    // numbers the ROWS show are the group's own 1 and 2.
+    expect(sections.groups[0].pages).toEqual([
+      { route: "/signup", n: 1 },
+      { route: "/settings", n: 2 },
+    ])
     expect(numberedPages(grouped, MANIFEST)).toEqual(numberedPages(layout([]), MANIFEST))
     // ...and a move — and only a move — renumbers: the same pages, one flow
     // later, in a different order.
@@ -279,14 +407,14 @@ describe("numberedPages", () => {
   })
 
   // The state a stored flow is always eventually in: written when the project
-  // had different pages. A page it does not name must still be listed and
-  // numbered — a page missing from the list has no row to open it from — and a
-  // page it names that is gone must not be.
+  // had different pages. A page it does not name must still have a position — a
+  // page missing from the sequence has no row and no bounds — and a page it
+  // names that is gone must not be numbered at all.
   it("numbers every page it is given, and only those, when the stored flow is stale", () => {
-    const numbered = numberedPages(flowed(["/ghost", "/signup"]), MANIFEST)
+    const pages = numberedPages(flowed(["/ghost", "/signup"]), MANIFEST)
 
-    expect(numbered.map((page) => page.route)).toEqual(["/signup", "/", "/login", "/settings"])
-    expect(numbered.map((page) => page.n)).toEqual([1, 2, 3, 4])
+    expect(pages.map((page) => page.route)).toEqual(["/signup", "/", "/login", "/settings"])
+    expect(pages.map((page) => page.n)).toEqual([1, 2, 3, 4])
   })
 
   it("numbers nothing when the project has no pages", () => {

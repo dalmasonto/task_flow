@@ -276,6 +276,38 @@ describe("design devices", () => {
     expect(at("/about").y).toBe(0)
   })
 
+  // The property the Pages panel's new group arrows rely on: the columns come
+  // out in the DOCUMENT's group order — `doc.groups`, verbatim — so reordering
+  // that array redraws the canvas with nothing else changed. The fixture is
+  // deliberately anti-alphabetical ("Ops" > "Auth"), because the test above
+  // would pass unchanged under a name sort: its document order happens to be
+  // "Auth" then "Ops" already.
+  //
+  // This is `boardsForView`, not `layoutGroups`, on purpose — the claim is about
+  // what the CANVAS draws from a document, and the panel's arrows only ever
+  // write `doc.groups`.
+  it("layoutGroups: the columns follow the document's group order, not the names'", () => {
+    const groups = [
+      { id: "g2", name: "Ops", routes: ["/ops"] },
+      { id: "g1", name: "Auth", routes: ["/login"] },
+    ]
+    const doc = { view: "groups" as const, routeOrder: [], groups, pageLabels: {} }
+    const boards = boardsForView(doc, ["/login", "/ops"], ["laptop"])
+
+    const colStep = boardWidth(deviceById("laptop")) + GUTTER
+    const at = (route: string) => boards.find((b) => b.route === route)!
+
+    expect(at("/ops").x).toBe(0)
+    expect(at("/login").x).toBe(colStep)
+
+    // Move "Ops" to the end of the document and the columns swap: this is the
+    // write the panel's arrows make, and nothing else about the document has to
+    // change for the canvas to follow.
+    const reversed = boardsForView({ ...doc, groups: [groups[1], groups[0]] }, ["/login", "/ops"], ["laptop"])
+    expect(reversed.find((b) => b.route === "/login")!.x).toBe(0)
+    expect(reversed.find((b) => b.route === "/ops")!.x).toBe(colStep)
+  })
+
   it("layoutGroups: only OPEN pages appear, and an empty group takes no space", () => {
     const groups = [
       { id: "g1", name: "Auth", routes: ["/login", "/signup"] },

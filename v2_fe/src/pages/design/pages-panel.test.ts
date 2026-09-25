@@ -9,10 +9,10 @@ import { PagesPanel } from "./pages-panel"
 // The panel's own rules, at the level `pages-order.test.ts` cannot reach: what
 // the JSX actually DRAWS. `groupedPages`, `numberedPages` and `selectAllState`
 // decide the sections, the numbers and the bulk control's state, and their tests
-// pin those — but nothing there would notice a number drawn to the RIGHT of the
-// name, a bullet that grew a number of its own, a group picker showing `g1`
-// where the group is called Auth, or the bulk control missing from a panel with
-// pages. This file covers exactly those.
+// pin those — but nothing there would notice a row drawn under the WRONG group,
+// a number that skipped, a group with no move controls, a group picker showing
+// `g1` where the group is called Auth, or the bulk control missing from a panel
+// with pages. This file covers exactly those.
 //
 // It renders the REAL component — `createElement(PagesPanel, props)` and
 // `renderToStaticMarkup` — never `PagesPanel(props)` called as a function. A
@@ -27,9 +27,11 @@ import { PagesPanel } from "./pages-panel"
 //
 // Scope: this is the SSR MARKUP only. Nothing here clicks or types, so the
 // panel's interactions — the select's commit, clicking a name into its label
-// editor, the bulk control's write — stay untested, as they were. Two things are
-// out of reach here for a second reason: the dialog's popup and the Select's
-// items live in client-only portals (`@base-ui/react`'s FloatingPortal renders
+// editor, an arrow's write, the bulk control's write — stay untested, as they
+// were. What the arrows can be pinned to in markup is the state they are drawn
+// in, and that is what the reorder tests below assert. Two things are out of
+// reach here for a second reason: the dialog's popup and the Select's items
+// live in client-only portals (`@base-ui/react`'s FloatingPortal renders
 // nothing on the server), so only the row's own markup exists until a browser
 // mounts them.
 
@@ -81,28 +83,47 @@ const render = (
   )
 }
 
-/// The section heading, in the order drawn. Matched on the `<h3>` and its TEXT,
-/// deliberately not on the class — a heading that is restyled is still this
-/// heading, and a test that pinned the class string would fail on every styling
-/// tweak while saying nothing about the list.
+/// The panel's section headings, in the order drawn. Matched on the `<h3>` and
+/// its TEXT, deliberately not on the class — a heading that is restyled is still
+/// this heading, and a test that pinned the class string would fail on every
+/// styling tweak while saying nothing about the list.
 const headings = (html: string) =>
   [...html.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1])
 
-/// The Groups section as drawn: each group's numbered name, then the bullets
-/// under it. Split on the group headings, so a group's bullets are the `<li>`s
-/// between its heading and the next one — and the flat list, whose rows are
-/// divs, cannot leak into them. The bullets are asserted as plain names, so a
-/// number that grew one would fail here rather than pass unnoticed.
-const groupList = (html: string) =>
-  html
-    .split(/<h4/)
-    .slice(1)
-    .map((block) => ({
-      name: block.slice(block.indexOf(">") + 1, block.indexOf("</h4>")),
-      bullets: [...block.matchAll(/<li[^>]*>([^<]*)<\/li>/g)].map((m) => m[1]),
-    }))
+/// The panel split into the blocks a heading starts: each `<h3>` section and
+/// each `<h4>` group, with everything drawn under it up to the next heading.
+///
+/// This is what makes "the row is under ITS group" assertable rather than
+/// inferred from the whole panel's row order, which cannot tell nesting from
+/// sequence: a row that drifted into the wrong group — or out of every group
+/// into the tail — fails here and passes a flat scan.
+const blocks = (html: string) => {
+  const marks = [...html.matchAll(/<h([34])[^>]*>([^<]*)<\/h\1>/g)].map((match) => ({
+    level: Number(match[1]),
+    text: match[2],
+    at: match.index ?? 0,
+  }))
+  return marks.map((mark, i) => ({
+    level: mark.level,
+    text: mark.text,
+    /// Everything from this heading to the next one — so a group's block holds
+    /// its own move controls and its own rows, and nothing of the next group.
+    body: html.slice(mark.at, marks[i + 1]?.at ?? html.length),
+  }))
+}
 
-/// Every row of the flat list, in document order. Rows are found by their canvas
+/// One button's drawn state, found by the aria-label the panel gives it, and
+/// read from the ATTRIBUTE — a bare `disabled=""`, which is what React renders —
+/// rather than from the word, because the control's class list carries
+/// Tailwind's `disabled:` variants and a test that matched those would pass over
+/// a control that is never disabled. `null` for a control the block does not
+/// draw, which is a state worth seeing rather than skipping.
+const control = (body: string, label: string) => {
+  const attrs = new RegExp(`<button[^>]*aria-label="${label}"([^>]*)>`).exec(body)
+  return attrs === null ? null : { disabled: / disabled(?:=""|\s|$)/.test(attrs[1]) }
+}
+
+/// Every row of the panel, in document order. Rows are found by their canvas
 /// checkbox — the control the sketch draws first — and each is then read as the
 /// shape the sketch lays out: the number, the name, and the group its select
 /// shows. Splitting on the checkbox is what keeps the parse one row long: the
@@ -138,6 +159,34 @@ const rows = (html: string) =>
       ]
     })
 
+/// The panel's GROUPS as drawn, in document order: each group's numbered name,
+/// the move controls beside it, and the rows under it. Built on `blocks`, so a
+/// group's rows are the ones between its heading and the next heading — the
+/// nesting, asserted rather than assumed.
+const groupBlocks = (html: string) =>
+  blocks(html)
+    .filter((block) => block.level === 4)
+    .map((block) => {
+      /// The heading carries the group's POSITION as well as its name ("1.
+      /// Auth"); the controls' aria-labels carry the name alone, which is what
+      /// the panel names them by.
+      const name = block.text.replace(/^\d+\. /, "")
+      return {
+        heading: block.text,
+        up: control(block.body, `Move group ${name} up`),
+        down: control(block.body, `Move group ${name} down`),
+        rows: rows(block.body),
+      }
+    })
+
+/// The rows of the Ungrouped section — the `<h3>` block that carries them.
+/// `undefined` when the panel draws no such section, which is a state worth
+/// asserting rather than skipping.
+const ungroupedRows = (html: string) => {
+  const block = blocks(html).find((entry) => entry.text === "Ungrouped")
+  return block === undefined ? undefined : rows(block.body)
+}
+
 /// The bulk control: its own box, and the word beside it. `null` when the panel
 /// draws no such control, which is a state worth asserting rather than skipping.
 ///
@@ -153,13 +202,8 @@ const bulk = (html: string) => {
 /// panel gives them rather than from a class. Parsed the way `rows` is — split
 /// on the canvas checkbox — because the controls live inside the row and must
 /// be read with the route they move; a control that drifted onto the wrong row
-/// fails here rather than passing quietly.
-///
-/// `null` for a control the row does not draw, which is a state worth seeing
-/// rather than skipping. `disabled` is read from the ATTRIBUTE — a bare
-/// `disabled=""`, which is what React renders — rather than from the word,
-/// because the control's class list carries Tailwind's `disabled:` variants and
-/// a test that matched those would pass over a control that is never disabled.
+/// fails here rather than passing quietly. The GROUPS' own arrows carry a
+/// different label (`Move group …`) and so cannot be picked up by this one.
 const moves = (html: string) =>
   html
     .split(/<input/)
@@ -167,77 +211,104 @@ const moves = (html: string) =>
     .flatMap((chunk) => {
       const route = /aria-label="Show ([^"]*) on the canvas"/.exec(chunk)?.[1]
       if (!route) return []
-      const control = (dir: "up" | "down") => {
-        const attrs = new RegExp(`<button[^>]*aria-label="Move ${route} ${dir}"([^>]*)>`).exec(chunk)
-        return attrs === null ? null : { disabled: / disabled(?:=""|\s|$)/.test(attrs[1]) }
-      }
-      return [{ route, up: control("up"), down: control("down") }]
+      return [
+        {
+          route,
+          up: control(chunk, `Move ${route} up`),
+          down: control(chunk, `Move ${route} down`),
+        },
+      ]
     })
 
 describe("PagesPanel", () => {
-  it("draws the group overview, the bulk control, then every page numbered by its place in the flow", () => {
+  it("nests every page under its group, numbered within it, with Ungrouped last", () => {
     const html = render(
       layout({
         groups: [
           // Assignment order reversed against the manifest, so "Sign up before
-          // Preferences" is the manifest's order and not this array's.
+          // Preferences" is the flow's order and not this array's.
           { id: "g1", name: "Auth", routes: ["/settings", "/signup"] },
-          // "Admin" names no page at all — it keeps its heading and draws
-          // nothing. `/ghost` is an entry that is not in the manifest.
-          { id: "g2", name: "Admin", routes: ["/ghost"] },
+          // A page and an entry that is not one: `/ghost` spends no row, and
+          // `/login` is numbered 1 here while it is the project's SECOND page.
+          { id: "g2", name: "Ops", routes: ["/ghost", "/login"] },
+          // Named so that a name sort would put it FIRST: "Admin" < "Auth". The
+          // document order is the only order the user set, so it is the order.
+          // Empty, because that is the state right after `+ Add group`.
+          { id: "g3", name: "Admin", routes: [] },
         ],
         pageLabels: { "/settings": "Preferences" },
       }),
       { open: ["/"] },
     )
 
-    // Three sections, in the order the sketch draws them.
+    // Three sections, in the order the user confirmed: the groups, the bulk
+    // control, then Ungrouped LAST. The last line reads the ungrouped ROWS,
+    // which are drawn below that control and nowhere else.
+    expect(headings(html), `rendered markup:\n${html}`).toEqual(["Groups", "Ungrouped"])
     expect(html.indexOf("Groups")).toBeLessThan(html.indexOf("Select all"))
-    expect(html.indexOf("Select all")).toBeLessThan(html.indexOf("Show / on the canvas"))
-    expect(headings(html)).toEqual(["Groups"])
+    expect(html.indexOf("Select all")).toBeLessThan(html.indexOf(">Ungrouped<"))
+    expect(html.indexOf(">Ungrouped<")).toBeLessThan(html.indexOf("Show / on the canvas"))
 
-    // The Groups section: document order, NOT alphabetical ("Admin" sorts
-    // before "Auth"), each group numbered by its own position, its pages as
-    // bullets beneath it in the flow's order — the pages' own, in a document
-    // that has set none — and the bullets are NAMES, with no number of their
-    // own, so a page has exactly one number and it is the one beside its row
-    // below.
-    expect(groupList(html)).toEqual([
-      { name: "1. Auth", bullets: ["Sign up", "Preferences"] },
-      { name: "2. Admin", bullets: [] },
+    // Each group with ITS pages beneath it, numbered 1..n inside the group —
+    // the user's own example: a two-screen group reads "1, 2" — in the flow's
+    // order (the pages' own order here, since this document has set no flow),
+    // with the group's position number in the heading and its move controls
+    // beside it, disabled at the ends of the GROUP list.
+    expect(groupBlocks(html), `rendered markup:\n${html}`).toEqual([
+      {
+        heading: "1. Auth",
+        up: { disabled: true },
+        down: { disabled: false },
+        rows: [
+          {
+            route: "/signup",
+            open: false,
+            n: "1.",
+            name: "Sign up",
+            group: { route: "/signup", label: "Auth" },
+          },
+          {
+            route: "/settings",
+            open: false,
+            n: "2.",
+            name: "Preferences",
+            group: { route: "/settings", label: "Auth" },
+          },
+        ],
+      },
+      {
+        heading: "2. Ops",
+        up: { disabled: false },
+        down: { disabled: false },
+        rows: [
+          {
+            route: "/login",
+            open: false,
+            n: "1.",
+            name: "Sign in",
+            group: { route: "/login", label: "Ops" },
+          },
+        ],
+      },
+      // An empty group keeps its heading, its position and its arrows: it is
+      // what `+ Add group` makes, and its row is where its arrows live.
+      { heading: "3. Admin", up: { disabled: false }, down: { disabled: true }, rows: [] },
     ])
 
-    // The flat list: every page, 1..4 in the order the flow puts them in —
-    // which is the pages' own order here, since this document has set no flow —
-    // even though the group above lists Sign up and Preferences FIRST.
-    // Numbering by that position would give Sign up=1, Preferences=2, Home=3,
-    // Sign in=4. The markup rides in the message because the likeliest break is
-    // a change to the row's shape, which is exactly the case where this list
-    // comes back empty and says nothing about why.
-    expect(rows(html), `rendered markup:\n${html}`).toEqual([
+    // The ungrouped section numbers ITSELF from 1 rather than continuing, and
+    // holds only the pages no group claims.
+    expect(ungroupedRows(html)).toEqual([
       { route: "/", open: true, n: "1.", name: "Home", group: { route: "/", label: "—" } },
-      {
-        route: "/login",
-        open: false,
-        n: "2.",
-        name: "Sign in",
-        group: { route: "/login", label: "—" },
-      },
-      {
-        route: "/signup",
-        open: false,
-        n: "3.",
-        name: "Sign up",
-        group: { route: "/signup", label: "Auth" },
-      },
-      {
-        route: "/settings",
-        open: false,
-        n: "4.",
-        name: "Preferences",
-        group: { route: "/settings", label: "Auth" },
-      },
     ])
+
+    // The partition: every page of the manifest is listed EXACTLY ONCE, here or
+    // under a group. A page listed twice is what this restructure could have
+    // introduced — the flat list is replaced, not kept beside the groups — and
+    // it would be silent: two rows writing one `openRoutes` entry.
+    for (const route of MANIFEST) {
+      const shown = html.split(`Show ${route.path} on the canvas`).length - 1
+      expect(shown, `${route.path} in:\n${html}`).toBe(1)
+    }
 
     // A click on a page's NAME must not toggle the canvas checkbox beside it,
     // and the one construct that would make it is a `<label>` spanning the two:
@@ -250,11 +321,10 @@ describe("PagesPanel", () => {
     // the moment it can reach an attribute instead — a `title=`, a
     // `placeholder=` (which is what `LabelInput` puts the resolved name in) —
     // and it would then pass while the title was on screen. In THIS markup no
-    // attribute carries the manifest title (the four `title=` attributes the
-    // rows draw hold the raw ROUTE), and there are no `placeholder=` attributes
-    // at all, since no `LabelInput` mounts server-side — so the two forms are
-    // equivalent here, and this is the one that keeps being true when that
-    // changes.
+    // attribute carries the manifest title (the rows' `title=` attributes hold
+    // the raw ROUTE), and there are no `placeholder=` attributes at all, since
+    // no `LabelInput` mounts server-side — so the two forms are equivalent here,
+    // and this is the one that keeps being true when that changes.
     expect(html).not.toContain("Settings")
     // The group picker shows the group's NAME. This is the failure the app's
     // Base UI `Select` has by default — an `items` value→label map that goes
@@ -262,22 +332,48 @@ describe("PagesPanel", () => {
     // here, in the markup.
     expect(html).not.toContain(">g1<")
     expect(html).not.toContain(">g2<")
-    // A group entry that is not a page spends no row and no bullet. This is
-    // reachable without a server bug: the manifest and the layout are two
-    // separate fetches, and `normalizeLayout` keeps whatever a group names.
+    // A group entry that is not a page spends no row. This is reachable without
+    // a server bug: the manifest and the layout are two separate fetches, and
+    // `normalizeLayout` keeps whatever a group names.
     expect(html).not.toContain("/ghost")
   })
 
-  it("draws the Groups header, and the only way to make a group, with nothing grouped yet", () => {
+  // An empty group in the MIDDLE, which is the case a heading-based parse of
+  // this markup can get wrong in a way no other fixture shows: if the empty
+  // group's block ran on to the next heading, it would take the following
+  // group's rows with it — and the groups after it would still be numbered
+  // correctly, so nothing else here would notice.
+  it("draws an empty group in its place, holding no rows and taking none from the next", () => {
+    const html = render(
+      layout({
+        groups: [
+          { id: "g1", name: "Auth", routes: ["/login"] },
+          { id: "g2", name: "Empty", routes: [] },
+          { id: "g3", name: "Ops", routes: ["/settings"] },
+        ],
+      }),
+      { open: ["/"] },
+    )
+
+    expect(groupBlocks(html).map((group) => [group.heading, group.rows.map((row) => row.route)])).toEqual([
+      ["1. Auth", ["/login"]],
+      ["2. Empty", []],
+      ["3. Ops", ["/settings"]],
+    ])
+  })
+
+  it("draws the Groups header, the only way to make a group, and an Ungrouped section with nothing grouped yet", () => {
     const html = render(layout({}))
 
     // The header is drawn even with no groups at all, because `+ Add group`
     // lives in it now: a section that vanished until something was grouped would
-    // take the only way to group anything with it.
-    expect(headings(html)).toEqual(["Groups"])
-    expect(groupList(html)).toEqual([])
+    // take the only way to group anything with it. Ungrouped is drawn too — it
+    // is where every page starts, and it is the list the bulk control sits
+    // above.
+    expect(headings(html)).toEqual(["Groups", "Ungrouped"])
+    expect(groupBlocks(html)).toEqual([])
     expect(html).toContain("+ Add group")
-    expect(rows(html).map((row) => [row.n, row.name, row.group.label])).toEqual([
+    expect(ungroupedRows(html)!.map((row) => [row.n, row.name, row.group.label])).toEqual([
       ["1.", "Home", "—"],
       ["2.", "Sign in", "—"],
       ["3.", "Sign up", "—"],
@@ -286,30 +382,22 @@ describe("PagesPanel", () => {
   })
 
   // The reorder affordance: one pair per row, in the row, beside the number it
-  // changes. Disabled at the ends of the list — the same rule `moveRoute`
-  // enforces one layer down, so a click that got through anyway cannot wrap a
-  // page round the list. The disabled state is read from the markup because
-  // nothing here can click: the panel's interactions are out of reach in this
-  // environment (see the header), and what CAN be pinned is that the control is
-  // drawn, on the right row, in the state the flow puts it in.
-  it("draws a move up/down control on every row, disabled at the ends of the flow", () => {
-    const html = render(layout({}), { open: ["/"] })
-
-    expect(moves(html)).toEqual([
-      { route: "/", up: { disabled: true }, down: { disabled: false } },
-      { route: "/login", up: { disabled: false }, down: { disabled: false } },
-      { route: "/signup", up: { disabled: false }, down: { disabled: false } },
-      { route: "/settings", up: { disabled: false }, down: { disabled: true } },
-    ])
-  })
-
-  // The ends move with the flow, not with the manifest: `/settings` leads this
-  // flow, so ITS up control is the disabled one. A panel that disabled the
-  // manifest's first and last rows would offer a dead control on the page the
-  // user is most likely to want to move.
-  it("disables the ends of the FLOW when one has been set", () => {
+  // changes. Disabled where `moveRoute` refuses — the ends of the FLOW, not of
+  // the manifest and not of a group's list (see the test below) — so a click
+  // that got through anyway cannot wrap a page round the sequence. The disabled
+  // state is read from the markup because nothing here can click: the panel's
+  // interactions are out of reach in this environment (see the header), and what
+  // CAN be pinned is that the control is drawn, on the right row, in the state
+  // the flow puts it in.
+  it("lists the ungrouped section in the flow, numbered by its place there, disabled at the flow's ends", () => {
     const html = render(layout({ routeOrder: ["/settings", "/signup"] }), { open: ["/"] })
 
+    expect(rows(html).map((row) => [row.n, row.route])).toEqual([
+      ["1.", "/settings"],
+      ["2.", "/signup"],
+      ["3.", "/"],
+      ["4.", "/login"],
+    ])
     expect(moves(html)).toEqual([
       { route: "/settings", up: { disabled: true }, down: { disabled: false } },
       { route: "/signup", up: { disabled: false }, down: { disabled: false } },
@@ -318,18 +406,42 @@ describe("PagesPanel", () => {
     ])
   })
 
-  it("lists the pages in the flow, numbered by their place in it", () => {
-    const html = render(layout({ routeOrder: ["/settings", "/signup"] }), { open: ["/"] })
+  /// The design decision this restructure had to make, pinned where a later
+  /// "simplification" would break it. The arrows write a FLOW move
+  /// (`moveRoute`, ±1), so they are disabled at the FLOW's ends and not at a
+  /// group's: `/signup` leads Auth and is 3rd of 4 in the flow, so its "up" is
+  /// ENABLED, and pressing it moves the page past `/login` — which is in no
+  /// group — so this panel's list does not change at all (the number stays 1;
+  /// in `groups` view no column moves either) while `rows` view shows the board
+  /// move up one.
+  ///
+  /// Moving within the SECTION instead was rejected, and the reason is exact
+  /// rather than aesthetic: a page alone in its section has no section
+  /// neighbour, so both its arrows would be disabled for ever — its position in
+  /// the flow unreachable from this panel — and a single such click can push
+  /// several pages of other groups along the flow at once (moving B up past a
+  /// whole group in [A, X, B] lands [B, A, X], and X was not touched). The cost
+  /// kept instead is the one above: a control that is always enabled where it
+  /// can act, and whose effect this panel cannot always show.
+  it("disables the ends of the FLOW, not the ends of a group's list", () => {
+    const html = render(
+      layout({
+        groups: [
+          { id: "g1", name: "Auth", routes: ["/signup"] },
+          { id: "g2", name: "Ops", routes: ["/settings"] },
+        ],
+      }),
+      { open: ["/"] },
+    )
 
-    // The list IS the sequence the user built — the number is the page's place
-    // in it, the arrows sit beside that number, and the pages the flow does not
-    // name follow in their own order. The canvas draws its boards in this same
-    // order (`boardsForView`), which is the whole point of the two agreeing.
-    expect(rows(html).map((row) => [row.n, row.route])).toEqual([
-      ["1.", "/settings"],
-      ["2.", "/signup"],
-      ["3.", "/"],
-      ["4.", "/login"],
+    expect(moves(html), `rendered markup:\n${html}`).toEqual([
+      // Auth's only page: first in its group, and still enabled.
+      { route: "/signup", up: { disabled: false }, down: { disabled: false } },
+      // Ops' only page: the flow's LAST page, so its "down" is the dead one.
+      { route: "/settings", up: { disabled: false }, down: { disabled: true } },
+      // The ungrouped section's own first and last.
+      { route: "/", up: { disabled: true }, down: { disabled: false } },
+      { route: "/login", up: { disabled: false }, down: { disabled: false } },
     ])
   })
 
@@ -360,9 +472,12 @@ describe("PagesPanel", () => {
     expect(bulk(html)).toBeNull()
     expect(html).toContain("No pages yet.")
     // The groups are the layout document's, which may already be in: they are
-    // listed, with no bullets, because their pages come from the manifest that
-    // has not arrived. A group drawn as a result rather than as a heading would
-    // be the loading state pretending to be an answer.
-    expect(groupList(html)).toEqual([{ name: "1. Auth", bullets: [] }])
+    // listed with their arrows and no rows, because their pages come from the
+    // manifest that has not arrived. A group drawn as a result rather than as a
+    // heading would be the loading state pretending to be an answer.
+    expect(groupBlocks(html)).toEqual([
+      { heading: "1. Auth", up: { disabled: true }, down: { disabled: true }, rows: [] },
+    ])
+    expect(ungroupedRows(html)).toEqual([])
   })
 })

@@ -1,30 +1,53 @@
-/// The Pages tab, in three sections and in this order: the Groups as a
-/// read-only overview, one bulk open/close control, then every page as a flat
-/// numbered row. It is the user's own sketch, and each section answers a
-/// different question:
+/// The Pages tab, in three sections and in this order: the GROUPS — each with
+/// its own pages as full rows — one bulk open/close control, then the UNGROUPED
+/// pages as their own section, LAST. The user's own sketch, and each section
+/// answers a different question:
 ///
-/// * **Groups** — `1. Auth`, `2. Admin`, each with its pages as bullets
-///   beneath it. NAMES ONLY: a page has exactly one number and it is the one
-///   beside its row below, so the overview must not carry a numbering of its
-///   own. `+ Add group` lives in this section's header, because a group is what
-///   it makes.
+/// * **Groups** — one block per group, in `layout.groups` order: a header
+///   carrying the group's POSITION (`1. Auth`, the index in `layout.groups`,
+///   which is what the user means by a group's position) and its move up/down
+///   arrows, then the group's pages as ordinary rows beneath it. `+ Add group`
+///   lives in this section's heading, because a group is what it makes. An
+///   EMPTY group is drawn like any other — heading, arrows, no rows — which is
+///   the state the user is in the moment they create one, and where the arrows
+///   they need are.
 /// * **Select all / Deselect** — the same `openRoutes` state every row's
 ///   checkbox writes, in bulk. A second ENTRY POINT, never a second state: the
 ///   box means "every page is on the canvas", which is what a row's box has
-///   always meant.
-/// * **The flat list** — every manifest route, one row each: the canvas
-///   checkbox, the number, the move up/down controls, the name, the group
-///   picker. It is listed in the FLOW (`routeOrder`) and numbered 1..N in it,
-///   so "3" is the third screen of the sequence the user is presenting — see
-///   `pages-order.ts`, which decides both.
+///   always meant. It stays between the two lists because it is a control
+///   rather than a heading, and because that is where it reads as "every page"
+///   — the groups above it, the rows below it.
+/// * **Ungrouped** — every page no group claims, as its own list, last. It is
+///   the state a project is in before anyone opens the group picker, so this is
+///   the first-run listing, and it never disappears: a page has exactly one
+///   place here or under a group (`groupedPages` partitions the manifest), and
+///   a page drawn in both would be two rows writing one open state.
 ///
-/// The rows and the canvas agree about that sequence: the boards are drawn in
-/// the same flow (`boardsForView`). What a row does NOT do is reorder the
-/// boards: grouping is a listing edit, and the only edit here that reorders the
-/// canvas is a move through the arrows below. (In the `groups` view a regrouped
-/// page does move into its new column — that view IS the grouping — but the
-/// columns keep their own order, and in `rows` and `bands` a grouping edit moves
-/// nothing at all.)
+/// **Each row is numbered by its place in the section it is under** — a group
+/// of two screens reads "1, 2", the next group starts at 1 again, and the
+/// ungrouped section numbers itself. There is still ONE order in the project
+/// and it is still global: `routeOrder`, the flow, which the canvas draws in
+/// (`boardsForView`) and which decides the order of the pages WITHIN a group.
+/// So the row's move arrows write a FLOW move (`moveRoute`, ±1), not a
+/// per-group one — and their ends are the flow's ends, not the section's. A
+/// page that leads its group from the middle of the flow therefore has an
+/// enabled "up" that changes no number here; it moves the page one place in the
+/// sequence, which is what `rows` and `bands` draw. Making the click local
+/// instead was rejected: a page alone in its section would have BOTH arrows
+/// disabled for ever — its place in the flow unreachable from this panel — and
+/// one such click would push pages of other groups along the flow. There is
+/// deliberately NO per-group order stored anywhere, and adding one would break
+/// the link between this list and the canvas: the two numberings here are
+/// `groupedPages`' sections (drawn) and `numberedPages`' flow positions (the
+/// arrows' bounds), both pure functions over the same document.
+///
+/// The canvas agrees with both: in the `groups` view its columns are
+/// `layout.groups` in order — which is why the GROUP arrows, which move that
+/// array and nothing else, move the columns — and its pages read down each
+/// column in the flow, the same order this panel lists them in. What a row
+/// still does NOT do is reorder the boards by grouping: assigning a page to a
+/// group is a listing edit (`assignRoute` never touches `routeOrder`), so in
+/// `rows` and `bands` it moves nothing at all.
 ///
 /// Extracted from `DesignSurfacePage.tsx` (already ~1000 lines) when the group
 /// picker landed; it is the one panel with per-row local interaction.
@@ -89,13 +112,20 @@ import {
   groupOf,
   MAX_GROUPS,
   MAX_LABEL,
+  moveGroup,
   moveRoute,
   pageLabel,
   setPageLabel,
   type LayoutDoc,
 } from "@/lib/design-layout"
 
-import { groupedPages, numberedPages, selectAllState, type NumberedPage } from "./pages-order"
+import {
+  groupedPages,
+  numberedPages,
+  selectAllState,
+  type GroupedPages,
+  type NumberedPage,
+} from "./pages-order"
 
 /// The value the group picker carries for "no group". A page is in at most one
 /// group, and none is a real state — `assignRoute` takes `null` for it — so the
@@ -104,10 +134,11 @@ import { groupedPages, numberedPages, selectAllState, type NumberedPage } from "
 const UNGROUPED = "__ungrouped__"
 
 /// The panel's section-heading style: `<h3>`, the level the rest of the app uses
-/// for a section inside a page, so the panel's sections are headings a screen
-/// reader can jump between rather than merely styled text. A group inside the
-/// Groups section is an `<h4>` UNDER that heading and wears its own, smaller
-/// style — it is an item of the section, not another section.
+/// for a section inside a page, so the panel's sections — `Groups` and
+/// `Ungrouped` — are headings a screen reader can jump between rather than
+/// merely styled text. A group inside the Groups section is an `<h4>` UNDER that
+/// heading and wears its own, smaller style — it is an item of the section, not
+/// another section.
 const SECTION_HEADING =
   "px-3 pt-2.5 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
 
@@ -203,20 +234,31 @@ export function PagesPanel({
   // claim, a route the manifest does not have, a stored flow written against
   // different pages — instead of two.
   //
-  // The order in both sections is the FLOW, and the canvas draws its boards in
-  // that same flow (`boardsForView`), so the list and the sequence on screen are
-  // one order rather than two. The edit that changes it is a move — the arrows
-  // below — and that is the ONLY edit here that reaches the canvas's arrangement.
+  // The sections are BOTH the groups and the ungrouped complement, and a page is
+  // in exactly one of them: the panel replaces the flat list rather than drawing
+  // one beside the groups, which is why "no page twice" is an invariant of
+  // `groupedPages` and not a consequence of the markup.
+  //
+  // The order within a section is the FLOW, and the canvas reads down each of
+  // its group columns in that same flow (`layoutGroups`), so the list and the
+  // sequence on screen are one order rather than two. The edit that changes it
+  // is a move — the arrows below — and that is the ONLY edit here that reaches
+  // the canvas's arrangement.
   //
   // Grouping a page is a LISTING edit and stays one: `assignRoute` never touches
   // `routeOrder`, so picking a group for a page changes which section lists it
   // and nothing about the order the boards are drawn in (in `groups`, the view
-  // that IS grouping, the page joins its column — the columns themselves still
-  // keep the document's order). The two edits look alike from the outside, since
-  // a page's position on screen changes in both, which is exactly why they are
-  // separated here rather than left to look the same.
+  // that IS grouping, the page joins its column — the columns themselves keep
+  // the document's order, which is what the group arrows move). The two edits
+  // look alike from the outside, since a page's position on screen changes in
+  // both, which is exactly why they are separated here rather than left to look
+  // the same.
   const sections = groupedPages(layout, routes)
-  const flat = numberedPages(layout, routes)
+  /// The page's place in the FLOW, which the rows do not DRAW (their number is
+  /// the section's) and which is the only thing bounding their move controls —
+  /// see the row below and `numberedPages`.
+  const flow = numberedPages(layout, routes)
+  const flowPlace = new Map(flow.map((page) => [page.route, page.n]))
   const bulk = selectAllState(routes, openRoutes)
 
   /// The group picker's items — and its value→label map, which is the same
@@ -230,27 +272,35 @@ export function PagesPanel({
   ]
 
   /// One page's row: the canvas checkbox, the number, the move up/down
-  /// controls, the name, the group picker. A plain function the list maps CALL,
-  /// not a component it mounts: a component defined in here would be a new type
-  /// on every render of the panel, so React would remount every row —
+  /// controls, the name, the group picker. Drawn under the group the page
+  /// belongs to — the same function for every section, so a group's rows and the
+  /// ungrouped rows cannot drift apart. A plain function the lists map CALL, not
+  /// a component they mount: a component defined in here would be a new type on
+  /// every render of the panel, so React would remount every row —
   /// `PageName`'s editor and `LabelInput`'s draft included — each time anything
-  /// above it changed. Called, a row is an ordinary keyed child of the list.
+  /// above it changed. Called, a row is an ordinary keyed child of its list.
   ///
-  /// The rows are in FLOW order and DO move when the user moves a page. That is
-  /// a reorder of keyed children within one parent, so React moves the existing
-  /// nodes rather than remounting them and an uncommitted label draft rides
-  /// along with its row; what would remount a row is the manifest changing.
-  /// Grouping, which never touches the flow, does not even move the row.
+  /// `page.n` is the page's place in the section it is under, which is what the
+  /// number prints. The move controls are bounded by the FLOW instead — see the
+  /// block below — and they never use `page.n`.
   ///
-  /// The move controls are plain buttons at the ENDS of the flow: the first
-  /// page's up and the last page's down are disabled, which is the same rule
-  /// `moveRoute` refuses by one layer down. `page.n` is 1-based, so the ends are
-  /// `1` and `flat.length`, and nothing needs the row's index.
+  /// The rows of one section are in FLOW order and DO move when the user moves a
+  /// page. That is a reorder of keyed children within one parent, so React moves
+  /// the existing nodes rather than remounting them and an uncommitted label
+  /// draft rides along with its row; what would remount a row is the manifest
+  /// changing. Grouping, which never touches the flow, does not even move the
+  /// row — it moves it to ANOTHER section's list, which is a different parent
+  /// and therefore a fresh mount.
   const pageRow = (page: NumberedPage) => {
     const open = openRoutes.includes(page.route)
     const current = groupOf(layout, page.route)
     const label = layout.pageLabels[page.route] ?? ""
     const name = nameFor(page.route)
+    /// Where the page sits in the flow — NOT the number printed beside it.
+    /// `numberedPages` is a permutation of the manifest's pages, so its length
+    /// is the flow's last place; the `?? 1` is for the type, since a row is only
+    /// ever built out of the manifest's own routes.
+    const place = flowPlace.get(page.route) ?? 1
     return (
       <div key={page.route} className="flex items-center gap-1.5 px-2 py-1">
         {/* The checkbox is the sketch's, and it is the panel's open/close
@@ -268,24 +318,26 @@ export function PagesPanel({
           checked={open}
           onChange={() => onToggleRoute(page.route)}
         />
-        {/* The page's place in the FLOW — the sequence the canvas draws its
-            boards in, and what the arrows beside it change. `pages-order.ts`
-            decides it. */}
+        {/* The page's number: its place in the SECTION it is under, which is the
+            group above it or the ungrouped heading. `pages-order.ts` decides
+            it. */}
         <span className="w-5 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
           {page.n}.
         </span>
         {/* The reorder control. `moveRoute` resolves the flow, moves the page one
             place and normalises what it stores, so every click writes an order
-            the server accepts. The ends are disabled because `moveRoute` refuses
-            there — the first page cannot move up — and a disabled control is how
-            that is shown: the refusal returns the document UNCHANGED, and handing
-            that to `onLayoutChange` would PUT a document identical to the one the
+            the server accepts. The ends are the ends of the FLOW — `place`, not
+            `page.n`, because a move is a flow move however local its visible
+            effect is — and they are disabled because `moveRoute` refuses there:
+            the first page cannot move up. A disabled control is how that is
+            shown; the refusal returns the document UNCHANGED, and handing that
+            to `onLayoutChange` would PUT a document identical to the one the
             server already has. */}
         <button
           type="button"
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
           aria-label={`Move ${page.route} up`}
-          disabled={page.n === 1}
+          disabled={place === 1}
           onClick={() => onLayoutChange(moveRoute(layout, page.route, -1, paths))}
         >
           <ChevronUpIcon className="size-3" />
@@ -294,7 +346,7 @@ export function PagesPanel({
           type="button"
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
           aria-label={`Move ${page.route} down`}
-          disabled={page.n === flat.length}
+          disabled={place === flow.length}
           onClick={() => onLayoutChange(moveRoute(layout, page.route, 1, paths))}
         >
           <ChevronDownIcon className="size-3" />
@@ -329,14 +381,64 @@ export function PagesPanel({
     )
   }
 
+  /// One group's block: its heading — the position number in `layout.groups`,
+  /// then its name — its move controls, and its pages beneath it.
+  ///
+  /// The arrows move the group in `layout.groups` by one place, through
+  /// `moveGroup`, which normalises nothing because there is nothing to normalise
+  /// (a permutation of the groups is a document the server accepts) and refuses
+  /// at the ends by returning the document itself — hence the disabled controls.
+  /// They are the same family as the row's controls: `type="button"`, an
+  /// `aria-label` naming what they move, and a position number in the heading
+  /// that is what they change. That this also reorders the canvas's columns is
+  /// `layoutGroups`' doing — it draws its columns in `doc.groups` order — so
+  /// nothing here knows about the canvas at all.
+  ///
+  /// The section type is `GroupedPages`' own rather than a second spelling of
+  /// it, so a section that grew a field could not be described correctly here
+  /// and wrongly there.
+  const groupBlock = (section: GroupedPages["groups"][number], index: number) => {
+    const first = index === 0
+    const last = index === sections.groups.length - 1
+    return (
+      <div key={section.id} className="flex flex-col">
+        <div className="flex items-center gap-1 px-2 py-0.5">
+          <h4 className="min-w-0 flex-1 truncate px-1 text-xs font-medium">
+            {index + 1}. {section.name}
+          </h4>
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            aria-label={`Move group ${section.name} up`}
+            disabled={first}
+            onClick={() => onLayoutChange(moveGroup(layout, section.id, -1))}
+          >
+            <ChevronUpIcon className="size-3" />
+          </button>
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            aria-label={`Move group ${section.name} down`}
+            disabled={last}
+            onClick={() => onLayoutChange(moveGroup(layout, section.id, 1))}
+          >
+            <ChevronDownIcon className="size-3" />
+          </button>
+        </div>
+        {section.pages.map(pageRow)}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col py-1">
-      {/* The Groups overview. Its header is drawn even with no groups at all,
-          because `+ Add group` is in it: this button is the only caller of
-          `createGroup`, so a header that appeared only once something was
-          grouped would take the first group out of reach. Gated on the CAP, not
-          on emptiness — `createGroup` enforces the same cap itself, so this is
-          display, and hiding the button at the cap is the whole of it. */}
+      {/* The Groups section: one block per group, each with its own rows. Its
+          heading is drawn even with no groups at all, because `+ Add group` is
+          in it: this button is the only caller of `createGroup`, so a heading
+          that appeared only once something was grouped would take the first
+          group out of reach. Gated on the CAP, not on emptiness — `createGroup`
+          enforces the same cap itself, so this is display, and hiding the button
+          at the cap is the whole of it. */}
       <div className="flex flex-col">
         <div className="flex items-center gap-1 pr-2">
           <h3 className={cn(SECTION_HEADING, "flex-1")}>Groups</h3>
@@ -349,31 +451,11 @@ export function PagesPanel({
             </button>
           ) : null}
         </div>
-        {/* Read-only, and numbered by the GROUP's own position. The pages under
-            each group are names and nothing else: the numbers belong to the flat
-            list below, where a page has exactly one. */}
-        <ul className="flex flex-col gap-0.5 px-3 py-1">
-          {sections.groups.map((section, index) => (
-            <li key={section.id} className="flex flex-col">
-              <h4 className="truncate text-xs font-medium">
-                {index + 1}. {section.name}
-              </h4>
-              {section.pages.length ? (
-                <ul className="flex flex-col pl-3 text-xs text-muted-foreground">
-                  {section.pages.map((route) => (
-                    <li key={route} className="truncate">
-                      {nameFor(route)}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        {sections.groups.map(groupBlock)}
       </div>
-      {/* Bulk open/close, between the overview and the list. Nothing to select
-          means no control: a checkbox over an empty project would do nothing,
-          and a checked "Deselect" beside "No pages yet." is worse than nothing. */}
+      {/* Bulk open/close, between the two lists. Nothing to select means no
+          control: a checkbox over an empty project would do nothing, and a
+          checked "Deselect" beside "No pages yet." is worse than nothing. */}
       {routes.length ? (
         <label className="mt-1 flex items-center gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
           <input
@@ -385,12 +467,18 @@ export function PagesPanel({
           {bulk.label}
         </label>
       ) : null}
-      {/* The flat list: every page, in the flow, numbered 1..N in it. */}
-      {routes.length ? (
-        <div className="flex flex-col">{flat.map(pageRow)}</div>
-      ) : (
-        <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
-      )}
+      {/* The ungrouped section, LAST — the order the user confirmed. It is drawn
+          like a group is: always, with its rows beneath it however many there
+          are. It is where a page with no group is listed, the list the bulk
+          control above sits over, and — with no pages at all — where "No pages
+          yet." goes, since it is the section that would have held them. */}
+      <div className="flex flex-col">
+        <h3 className={cn(SECTION_HEADING, "border-t")}>Ungrouped</h3>
+        {sections.ungrouped.map(pageRow)}
+        {routes.length ? null : (
+          <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
+        )}
+      </div>
       {/* Mounted, not mounted-and-open: the dialog renders nothing until it is
           open, and holding its `open` here is what lets `addGroup` close it. */}
       <NewGroupDialog

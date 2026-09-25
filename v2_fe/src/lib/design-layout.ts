@@ -176,6 +176,56 @@ export function removeGroup(doc: LayoutDoc, id: string): LayoutDoc {
   return { ...doc, groups: doc.groups.filter((g) => g.id !== id) }
 }
 
+/// Move a GROUP `delta` places along `doc.groups` (the panel's group arrows are
+/// ±1), from where it sits now — `moveRoute`'s sibling for the other list this
+/// document orders.
+///
+/// It is a MOVE, not a swap, exactly as `moveRoute` is: the groups between the
+/// two positions shift one place the other way. `delta` is a WHOLE number of
+/// places and anything else is refused by returning the document itself, for
+/// `moveRoute`'s reason — `Math.max(0, NaN)` is `NaN`, `to === from` is then
+/// false, and `splice(NaN, 0, …)` reads its start as 0, which would send a group
+/// nobody asked to move to the top and, in `groups` view, jump its whole column
+/// to the left edge. A whole `delta` past an end is clamped rather than refused,
+/// so a large delta spells a move to the top or the bottom; a call that would
+/// not change the order returns the document ITSELF, so a caller can skip a save
+/// by identity rather than comparing lists.
+///
+/// # Why this needs neither a `routes` argument nor a normalisation pass
+///
+/// `moveRoute` takes the pages because the list it moves in (`routeOrder`) is
+/// sparse: it can name pages this project no longer has, so the move is applied
+/// to the RESOLVED flow and stored through `setRouteOrder`. `groups` is not
+/// sparse — every group in the document is drawn, whole — and the server's
+/// `validate` judges each group ON ITS OWN (`layout_doc.rs:79-120`: the id, the
+/// name, the name's uniqueness against the others, the group's own routes), so
+/// a PERMUTATION of groups it already accepted is a document it accepts. There
+/// is nothing here to normalise away, and a `routes` parameter that only widened
+/// the signature would be the seam someone later mistakes for a link.
+///
+/// The order it rewrites is the one the canvas draws (`layoutGroups` lays its
+/// columns out in `doc.groups` order) and the one the panel numbers its group
+/// headings from, which is the order the user means by a group's "position".
+export function moveGroup(doc: LayoutDoc, id: string, delta: number): LayoutDoc {
+  if (!Number.isInteger(delta)) return doc
+  /// The FIRST group with this id, like `groupOf`/`assignRoute`, which both
+  /// resolve by `find`: ids are unique in every document this client can build
+  /// (`createGroup` mints one with a nonce) and the server does not check for
+  /// repeats, so a hand-built document with two of them moves the one the other
+  /// readers would resolve to.
+  const from = doc.groups.findIndex((group) => group.id === id)
+  if (from < 0) return doc
+  const to = Math.min(doc.groups.length - 1, Math.max(0, from + delta))
+  if (to === from) return doc
+  const groups = [...doc.groups]
+  // The removal shortens the list, so inserting at `to` in the shortened array
+  // is the position `to` the caller asked for — the groups it passed shift one
+  // place back and nothing else moves.
+  const [moved] = groups.splice(from, 1)
+  groups.splice(to, 0, moved)
+  return { ...doc, groups }
+}
+
 /// Set or clear a page's display label. An empty (or whitespace) label CLEARS
 /// the key rather than storing a blank — a blank label must render identically
 /// to no label, and storing one would mean two spellings of the same state.

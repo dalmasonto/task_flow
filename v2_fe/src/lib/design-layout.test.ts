@@ -13,6 +13,7 @@ import {
   pageLabel,
   setPageLabel,
   filterRouteOrder,
+  moveGroup,
   moveRoute,
   resolveRouteOrder,
   setRouteOrder,
@@ -342,6 +343,119 @@ describe("groupNameProblem", () => {
         createGroup(doc, name).id === "",
       ])
     }
+  })
+})
+
+// Moving a GROUP, which is what the Pages panel's group arrows call. It is
+// `moveRoute`'s sibling — a move of one place along a list the document already
+// holds, refused at the ends and by identity — and it is here, beside
+// `createGroup`/`assignRoute`/`removeGroup`, because it is a group edit.
+//
+// # Why this needs no `routes` argument and no normalisation
+//
+// `moveRoute` takes the pages because the list it moves in (`routeOrder`) is
+// sparse and can name pages the project no longer has, so the move is applied
+// to the RESOLVED flow and stored through `setRouteOrder`. `groups` is not
+// sparse: every group in the document is rendered, every one of them is the
+// whole entry, and `validate` reads each group ON ITS OWN — the id, the name,
+// the group's own routes — so a PERMUTATION of groups the server already
+// accepted is a document it accepts. There is nothing to normalise away, and a
+// `routes` parameter that only ever widened the signature would be the shape
+// someone later mistakes for a link that matters.
+describe("moveGroup", () => {
+  /// Three groups built through `createGroup` — so the ids are the real thing
+  /// rather than a fixture's guess — with a page in the first one, which is what
+  /// makes "the whole entry moves" assertable.
+  const grouped = (): LayoutDoc => {
+    const base = withGroups("Auth", "Ops", "Admin")
+    return assignRoute(base, "/login", base.groups[0].id)
+  }
+
+  it("moves a group one place up or down, taking its pages with it", () => {
+    const doc = grouped()
+    const [auth, , admin] = doc.groups.map((group) => group.id)
+
+    const down = moveGroup(doc, auth, 1)
+    expect(down.groups.map((group) => group.name)).toEqual(["Ops", "Auth", "Admin"])
+
+    const up = moveGroup(doc, admin, -1)
+    expect(up.groups.map((group) => group.name)).toEqual(["Auth", "Admin", "Ops"])
+
+    // The group's own pages ride along with it: a move is a move of the whole
+    // entry, never a re-assignment.
+    expect(down.groups.find((group) => group.name === "Auth")!.routes).toEqual(["/login"])
+  })
+
+  it("refuses to move the first group up or the last group down, by identity", () => {
+    const doc = grouped()
+    const [first, middle, last] = doc.groups.map((group) => group.id)
+
+    expect(moveGroup(doc, first, -1)).toBe(doc)
+    expect(moveGroup(doc, last, 1)).toBe(doc)
+    // A whole delta past an end is clamped rather than refused, like `moveRoute`:
+    // a large delta is the spelling of a move to the top or the bottom.
+    expect(moveGroup(doc, middle, -5).groups.map((g) => g.name)).toEqual(["Ops", "Auth", "Admin"])
+    expect(moveGroup(doc, middle, 5).groups.map((g) => g.name)).toEqual(["Auth", "Admin", "Ops"])
+  })
+
+  it("is a no-op for an id the document does not have", () => {
+    const doc = grouped()
+
+    expect(moveGroup(doc, "g-ghost", 1)).toBe(doc)
+  })
+
+  // The clamp has to be TOTAL for `moveRoute`'s reason, and it is the same
+  // reason word for word: `Math.max(0, NaN)` is `NaN`, `to === from` is then
+  // false, and `splice(NaN, 0, …)` reads its start as 0 — a group nobody asked
+  // to move would land at the top of the list, which in `groups` view is a
+  // whole column jumping to the left edge.
+  it("refuses a delta that is not a whole number, rather than sending the group to the top", () => {
+    const doc = grouped()
+    const middle = doc.groups[1].id
+
+    for (const delta of [NaN, Infinity, -Infinity, 1.5]) {
+      expect(moveGroup(doc, middle, delta), String(delta)).toBe(doc)
+    }
+    expect(moveGroup(doc, middle, 1)).not.toBe(doc)
+  })
+
+  // What the server reads, exactly: every group survives with its own id, name
+  // and routes intact, and only their ORDER changed. A move that rebuilt the
+  // groups — a fresh id, a trimmed name, a re-sorted route list — would save a
+  // different document than the one the user was looking at, and `validate`
+  // checks each of those fields group by group.
+  it("changes the order and nothing else about the groups", () => {
+    const doc = grouped()
+    const sorted = (groups: LayoutDoc["groups"]) =>
+      [...groups].map((group) => JSON.stringify(group)).sort()
+
+    const moved = moveGroup(doc, doc.groups[0].id, 2)
+
+    expect(moved.groups.map((group) => group.name)).toEqual(["Ops", "Admin", "Auth"])
+    expect(sorted(moved.groups)).toEqual(sorted(doc.groups))
+  })
+
+  // The move is a document edit like every other one here: the flow it does not
+  // touch is what orders the pages INSIDE a column, so a group move must leave
+  // `routeOrder` alone — and with it the boards' order in `rows` and `bands`,
+  // where it is the flow and not the column order that is drawn.
+  it("leaves the flow and the labels alone", () => {
+    const doc: LayoutDoc = {
+      ...grouped(),
+      routeOrder: ["/login", "/"],
+      pageLabels: { "/": "Home" },
+    }
+    const moved = moveGroup(doc, doc.groups[1].id, -1)
+
+    expect(moved.routeOrder).toEqual(["/login", "/"])
+    expect(moved.pageLabels).toEqual({ "/": "Home" })
+  })
+
+  it("does not mutate the document it is given", () => {
+    const doc = grouped()
+    const before = JSON.stringify(doc)
+    moveGroup(doc, doc.groups[0].id, 1)
+    expect(JSON.stringify(doc)).toBe(before)
   })
 })
 
