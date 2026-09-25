@@ -1999,7 +1999,7 @@ git commit -m "feat(design): view picker + viewport hydration and persistence"
 **Files:**
 - Create: `v2_fe/src/pages/design/pages-panel.tsx`
 - Modify: `v2_fe/src/pages/design/DesignSurfacePage.tsx`
-- Modify: `v2_fe/src/pages/design/design-layout.test.ts` (a helper used here is already covered; no new test file)
+- Modify: `v2_fe/src/lib/design-layout.test.ts` (a helper used here is already covered; no new test file)
 
 **Interfaces:**
 - Consumes: `createGroup`/`assignRoute`/`renameGroup`/`removeGroup`/`groupOf` (Task 7).
@@ -2018,7 +2018,7 @@ A native `<select>` is used deliberately instead of the app's Base UI `Select`: 
 
 import type { DesignManifest } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
-import { assignRoute, createGroup, groupOf, type LayoutDoc } from "@/lib/design-layout"
+import { assignRoute, createGroup, groupOf, MAX_GROUPS, type LayoutDoc } from "@/lib/design-layout"
 
 const UNGROUPED = "__ungrouped__"
 
@@ -2087,7 +2087,10 @@ export function PagesPanel({
           </div>
         )
       })}
-      {layout.groups.length ? (
+      {/* Gated on the CAP, not on emptiness: nothing else can create a group,
+          so requiring one to exist before offering the button makes the whole
+          groups feature unreachable on a fresh project. */}
+      {layout.groups.length < MAX_GROUPS ? (
         <button
           className="mt-1 px-3 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
           onClick={addGroup}
