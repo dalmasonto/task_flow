@@ -25,11 +25,26 @@ import designSurface from "./DesignSurfacePage.tsx?raw"
 // a call site — the fact is real, reachable, and invisible to every other kind of
 // test available.
 //
-// WHAT THIS DOES NOT DO, stated so nobody mistakes it for more: it does not check
-// behaviour. A surface could call the right selector and still open the wrong
-// conversation for a reason this file cannot see. It catches exactly one
-// regression — a room being selected again by a title, a kind, or an index —
-// which is the regression that has already come back once in this codebase.
+// WHAT THIS DOES NOT DO, stated so nobody mistakes it for more — and CORRECTED
+// once already, because a limits statement that overclaims is worse than no
+// limits statement at all. It does not check behaviour: a surface could call the
+// right selector and still open the wrong conversation for a reason this file
+// cannot see. And within its own terms it catches exactly this much:
+//
+//   * a REPLACED selector — the positive `toContain`, which every replacement
+//     spelling fails, whatever it looks like;
+//   * riding ALONGSIDE a correct selector, four named spellings: an `[0]` index
+//     on the chat list, the `PROJECT_ROOM_TITLE` literal, a `.title ===`
+//     comparison inside `.find(`, and a `.kind` comparison.
+//
+// Nothing else. A fallback spelled with a type annotation, a spaced index,
+// `.at(0)`, destructuring, a block-bodied arrow, a dotted left-hand side or a
+// `.includes` on a title all pass — measured, not feared: of sixteen spellings
+// tried, four were caught. The `.kind` check was added because that measurement
+// showed a kind-based fallback riding along with `findDesignRoomChat` passed
+// every assertion in this file (8/8), which is the shape this whole change
+// removed. Tightening further is a welcome follow-up; claiming it now would be
+// the same defect again.
 
 /// The file's CODE, with its comments removed.
 ///
@@ -89,14 +104,23 @@ describe("a room is selected by MARKER, never by title, kind or position", () =>
 
     it(`${surface.name} selects by nothing else`, () => {
       const source = sourceOf(surface.file)
-      // Three predicates, each of which resolves to a DIFFERENT room the moment a
+      // Four predicates, each of which resolves to a DIFFERENT room the moment a
       // project holds a second one — and a project may, because users create rooms
       // freely: the alphabetically first channel (`chats[0]`, which is really
       // "sorted by title", so "Design room" wins over "Project room"), the title a
-      // human may reuse ("Project room", "Design room"), and raw id order.
+      // human may reuse ("Project room", "Design room"), raw id order, and the
+      // KIND — which says how a room is SCOPED, not which room it is: both project
+      // rooms are `kind: "project"`, so a kind filter cannot separate them, and a
+      // user's Group room satisfies whatever a project room satisfies.
       expect(source).not.toMatch(/\b(agentChannels|chats|channelChats)\[0\]/)
       expect(source).not.toContain("PROJECT_ROOM_TITLE")
       expect(source).not.toMatch(/\.find\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\.title\s*===/)
+      // None of the three surfaces has any legitimate `.kind` comparison — checked,
+      // not assumed — so a comparison appearing here is the fallback this file
+      // exists to keep out. If a surface ever has a real reason to compare a kind,
+      // that is a decision to make deliberately and record here, not a test to
+      // weaken quietly.
+      expect(source).not.toMatch(/\.kind\s*[!=]==/)
     })
   }
 

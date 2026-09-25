@@ -51,9 +51,14 @@ export function AgentsConversationView({
   onClearContextChip?: () => void
   showDesignBadge?: boolean
   /// Messages used ONLY to compute the mark-read watermark. Defaults to
-  /// `selectedChat.messages`. The design rail RENDERS a filtered (is_design)
-  /// view but must advance the read cursor over the WHOLE channel — same as the
-  /// Agents page — so it passes the unfiltered channel here.
+  /// `selectedChat.messages`, which is what every caller now wants.
+  ///
+  /// It was added for the design rail, which RENDERED a filtered (is_design) view
+  /// while having to advance the read cursor over the whole channel. That rail
+  /// no longer renders a subset — the design room IS the filter now — so it
+  /// passes nothing here and reads as the Agents page does. Kept because the
+  /// distinction it names is real and a rail that renders a subset would need it
+  /// again; nothing passes it today.
   readCursorMessages?: AgentMessage[]
 }) {
   const compact = variant === "compact"
@@ -206,9 +211,10 @@ export function AgentsConversationView({
   // has no server id yet. Debounced so a burst of arrivals fires at most one POST
   // once activity settles, and best-effort (a failed cursor update is silent).
   const liveChannelId = selectedChat?.liveChannelId ?? null
-  // Watermark over the WHOLE channel (readCursorMessages) when given, else the
-  // rendered thread. The design rail renders only is_design messages but marks
-  // the full channel read, so it passes the unfiltered messages here.
+  // Watermark over the WHOLE channel when a caller passes one, else the rendered
+  // thread — which for every surface today is the same thing, because no caller
+  // renders a subset of a channel any more (see `readCursorMessages` above: the
+  // design rail used to, and no longer does).
   const cursorMessages = readCursorMessages ?? selectedChat?.messages ?? null
   const latestReadableMessageId = useMemo(() => {
     if (!cursorMessages) return null

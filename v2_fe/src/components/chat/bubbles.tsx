@@ -31,6 +31,17 @@ function messagePriorityBadgeClass(priority: MessagePriority) {
 /// Pure gate for the header "Design" badge: shown only when the caller opted
 /// in (false in the design rail, where every message already is design) AND
 /// the message itself is flagged is_design.
+///
+/// VESTIGIAL after the design room landed, and kept deliberately. The ordinary
+/// surfaces list rooms and EXCLUDE the design room, so a design message no longer
+/// reaches them and this badge has no ordinary case left to fire on: on the
+/// Agents page and the dock it can only appear for a row whose own `is_design`
+/// mirror is true while it sits in a room that is not the design room — a legacy
+/// row (the flag was client-declared until the destination started deciding it)
+/// in a DM or a #42 Group, which `adopt_design_history` deliberately does not
+/// move. So it is not a dead branch, it is a branch nothing new reaches; removing
+/// it would change how those rows render, which is a decision about legacy rows
+/// and not a cleanup.
 export function shouldShowDesignBadge(showDesignBadge: boolean | undefined, isDesign: boolean | undefined): boolean {
   return Boolean(showDesignBadge) && Boolean(isDesign)
 }
