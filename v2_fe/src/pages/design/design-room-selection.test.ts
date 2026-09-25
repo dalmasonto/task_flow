@@ -35,7 +35,7 @@ import designSurface from "./DesignSurfacePage.tsx?raw"
 //     spelling fails, whatever it looks like;
 //   * riding ALONGSIDE a correct selector, four named spellings: an `[0]` index
 //     on the chat list, the `PROJECT_ROOM_TITLE` literal, a `.title ===`
-//     comparison inside `.find(`, and a `.kind` comparison.
+//     comparison inside `.find(`, and a `.kind` comparison (loose or strict).
 //
 // Nothing else. A fallback spelled with a type annotation, a spaced index,
 // `.at(0)`, destructuring, a block-bodied arrow, a dotted left-hand side or a
@@ -120,7 +120,13 @@ describe("a room is selected by MARKER, never by title, kind or position", () =>
       // exists to keep out. If a surface ever has a real reason to compare a kind,
       // that is a decision to make deliberately and record here, not a test to
       // weaken quietly.
-      expect(source).not.toMatch(/\.kind\s*[!=]==/)
+      //
+      // `[=!]` and not the `[!=]==` this started as: that class matches only the
+      // STRICT operators, so a loose `c.kind == "project"` fallback passed all
+      // eight assertions here while the header above claimed this line catches "a
+      // `.kind` comparison". A pin that reads as covering a spelling it does not
+      // match is worse than no pin, because it stops the next reader looking.
+      expect(source).not.toMatch(/\.kind\s*[=!]/)
     })
   }
 
