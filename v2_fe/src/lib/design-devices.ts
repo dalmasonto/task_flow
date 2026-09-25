@@ -263,9 +263,9 @@ export function layoutGroups(
       for (let i = 0; i < routes.length; i++) {
         boards.push(makeArtboard(routes[i], deviceId, x, y + i * rowStep))
       }
-      // A column's height is its boards PLUS their headers, and excludes the
-      // trailing gutter — so this is `n * (HEADER_H + h)`, not `n * h`, and not
-      // the running `columnY` that overshot by one step.
+      // A column's height is its boards PLUS their headers — `HEADER_H` renders
+      // above the board and is not covered by `boardHeight` — and it excludes
+      // the trailing gutter, so this is `n * (HEADER_H + h)`, not `n * h`.
       bandHeight = Math.max(bandHeight, routes.length * (HEADER_H + boardHeight(device)))
       x += columnStep
     }

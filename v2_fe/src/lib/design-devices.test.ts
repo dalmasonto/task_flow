@@ -294,6 +294,38 @@ describe("design devices", () => {
     const bandStep = HEADER_H + boardHeight(laptop) + GUTTER
     const bpRow = boards.filter((b) => b.deviceId === "bp-sm")
     for (const b of bpRow) expect(b.y).toBe(bandStep)
+
+    // The SECOND device's band is also laid out horizontally with ITS OWN
+    // metrics, not the first device's. I picked `/` because it is the band's
+    // second column — `/login` leads at x = 0 by definition and so proves
+    // nothing about the step — and bp-sm is 642px against laptop's 1282, so
+    // deriving `columnStep` from `deviceIds[0]` fails on this exact assertion.
+    const bpSecond = bpRow.find((b) => b.route === "/")!
+    expect(bpRow.find((b) => b.route === "/login")!.x).toBe(0)
+    expect(bpSecond.x).toBe(boardWidth(deviceById("bp-sm")) + GUTTER)
+    expect(boardWidth(deviceById("laptop")) + GUTTER).not.toBe(
+      boardWidth(deviceById("bp-sm")) + GUTTER,
+    )
+  })
+
+  it("layoutGroups: a band steps by the PRECEDING device, not its own and not the first", () => {
+    const groups = [{ id: "g1", name: "Auth", routes: ["/login"] }]
+    // Same boards, devices reversed: bp-sm (900px tall) leads now, so the
+    // laptop band below starts at bp-sm's step. Laptop is the SHORTER device
+    // (800px), so a band advancing by its own height, or by the first band's
+    // step repeated, lands on a different number and fails.
+    const boards = layoutGroups(["/", "/login"], ["bp-sm", "laptop"], groups)
+    const bpRow = boards.filter((b) => b.deviceId === "bp-sm")
+    const laptopRow = boards.filter((b) => b.deviceId === "laptop")
+    expect(bpRow).toHaveLength(2)
+    expect(laptopRow).toHaveLength(2)
+
+    // The reorder really took effect: the leading band is still at the top.
+    for (const b of bpRow) expect(b.y).toBe(0)
+
+    const bpStep = HEADER_H + boardHeight(deviceById("bp-sm")) + GUTTER
+    for (const b of laptopRow) expect(b.y).toBe(bpStep)
+    expect(HEADER_H + boardHeight(deviceById("laptop")) + GUTTER).not.toBe(bpStep)
   })
 
   it("layoutGroups is deterministic", () => {
