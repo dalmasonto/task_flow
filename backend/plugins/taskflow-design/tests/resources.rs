@@ -273,10 +273,13 @@ fn the_widening_covers_the_five_resource_directives_and_stops_at_connect_src() {
     // directives that must carry a scheme source, and the ones that must not
     // move.
     //
-    // Renamed from `the_widening_reaches_the_three_fetch_directives_and_stops
-    // _there` (spelled without the "three" in the plan's Step 1 snippet), so an
-    // older reference to either spelling still lands here. The name matters
-    // because it is what the next person greps: `img-src` and `media-src` are
+    // Renamed from two spellings, each written out on one line because a name
+    // broken across a line wrap is a name a grep cannot find — and the name is
+    // exactly what the next person greps:
+    // `the_widening_reaches_the_three_fetch_directives_and_stops_there`, and
+    // `the_widening_reaches_the_fetch_directives_and_stops_there` (the plan's
+    // Step 1 snippet, spelled without the "three"). An older reference to either
+    // still lands here. The name matters because `img-src` and `media-src` are
     // not fetch directives — nothing in this list is `fetch()`ed, and
     // `connect-src` is exactly the directive they stop at.
     let csp = composer::sandbox_csp("token");

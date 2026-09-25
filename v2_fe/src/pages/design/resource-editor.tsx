@@ -349,7 +349,12 @@ export function ResourceEditor({
             off mono on this surface — it was `font-mono text-[11px] uppercase`,
             the class string the category header carried before that change —
             and the label is a heading over the sets rather than a value in
-            them. Mono starts below, at the urls and the inputs. */}
+            them. Mono starts below, on the values: the urls, the rel badges, the
+            pasted markup, the link counts. The add-set box at the foot of this
+            section holds a NAME, so it is off mono like this heading — and like
+            the Tokens panel's own add-a-name box (`token-editor.tsx`), which is
+            the whole point: two "add a name" fields in one tab do not get one
+            font each. */}
         <p className="mr-auto text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           External resources
         </p>
@@ -400,7 +405,14 @@ export function ResourceEditor({
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="e.g. Inter (Google Fonts)"
-              className="h-6 w-44 rounded border bg-transparent px-1 font-mono text-[10px]"
+              // Off mono, deliberately: this is the same gesture as the Tokens
+              // panel's `new-token-name` box (`token-editor.tsx`), and the two
+              // sit in the same tab — two "add a name" fields in two fonts is
+              // the inconsistency. What a field HOLDS is the discriminator: a
+              // url, a hex, a size or pasted markup stays mono (the links above,
+              // the paste box, and every value site in the token editor); a NAME
+              // does not, here or there.
+              className="h-6 w-44 rounded border bg-transparent px-1 text-[10px]"
             />
             <button
               type="submit"

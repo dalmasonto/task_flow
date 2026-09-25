@@ -38,11 +38,20 @@ export function categoryLabel(category: string): string {
 /// says nothing about Inter). A token with no dark override has only the one
 /// string, so `dark` is checked only when it is there.
 ///
-/// The empty string a missing `dark` falls back to cannot match: the caller
-/// has already returned for a needle that trims to nothing.
-function valueMatches(value: { light: string; dark?: string }, needle: string): boolean {
+/// The empty string a missing half falls back to cannot match: the caller has
+/// already returned for a needle that trims to nothing. `light` gets the same
+/// fallback as `dark` even though `DesignTokensDoc` types it as required,
+/// because the type is a CAST and not a check: the document arrives as
+/// `JSON.parse(row.content) as DesignTokensDoc` (`design-api.ts`), so a
+/// hand-edited `styles/tokens.json` reaches this function in whatever shape it
+/// was typed — and an unguarded `value.light.toLowerCase()` on a `dark`-only
+/// token is a TypeError thrown from the search box's own filter, which takes
+/// the panel down instead of narrowing it. The required-`light` claim is the
+/// only thing that made the read look safe, so the type here says what is
+/// actually known: either half may be missing.
+function valueMatches(value: { light?: string; dark?: string }, needle: string): boolean {
   return (
-    value.light.toLowerCase().includes(needle) ||
+    (value.light ?? "").toLowerCase().includes(needle) ||
     (value.dark ?? "").toLowerCase().includes(needle)
   )
 }

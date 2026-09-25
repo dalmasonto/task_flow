@@ -87,6 +87,7 @@ const render = (props: {
       onClear: () => {},
       onCommentsChanged: () => {},
       onWiden: () => {},
+      onFocusComment: () => {},
     }),
   )
 
@@ -220,5 +221,63 @@ describe("DesignInspector — the selection list", () => {
     expect(pagePairs(html)).toEqual([])
     expect(formTarget(html)).toBeNull()
     expect(html.match(/aria-current="true"/g) ?? []).toHaveLength(0)
+  })
+})
+
+describe("DesignInspector — the breadcrumb", () => {
+  /// A click carrying a chain, as the frame sends one: the labels, the paths and
+  /// the per-crumb component all describe the same window, so they are handed
+  /// over together.
+  const chain = (labels: string[], paths: string[]) =>
+    pick("/settings", paths[paths.length - 1], {
+      tag: "main",
+      ancestors: labels,
+      ancestorPaths: paths,
+      ancestorComponents: labels.map(() => null),
+    })
+  const LABELS = ["div", "main"]
+  const PATHS = ["div:nth-child(1)", "div:nth-child(1) > main:nth-child(2)"]
+
+  it("offers a crumb as a control only when it can be both named AND widened to", () => {
+    // The guard has two halves and both are load-bearing, which is why they are
+    // asserted side by side. A crumb is a BUTTON when the frame sent a path for
+    // it — a label alone cannot be turned back into an element — AND when there
+    // is a label to put on it: the label is `dataset.component || tagName` off
+    // the wire, and `""` is reachable for it (the sanitizer turns a non-string
+    // into `""`, and the frame's own chain can hand over an element with neither
+    // a component nor a tag). Without the second half, that crumb renders a live
+    // button wearing the tooltip `Widen selection to ` — a control that names
+    // nothing to widen to, which is the dead-control shape this breadcrumb was
+    // fixed for once already. Without the first, the named crumb below stops
+    // being clickable and the test passes on a panel that cannot widen at all:
+    // each half alone is satisfied by a broken panel.
+    const named = render({ selections: [chain(LABELS, PATHS)], activeIndex: 0 })
+    expect(named).toContain('title="Widen selection to div"')
+
+    const blank = render({ selections: [chain(["", "main"], PATHS)], activeIndex: 0 })
+    expect(blank).not.toContain("Widen selection to")
+    // The blank crumb is not a control — and the one below it is still drawn as
+    // the current element, so the chain is on screen either way.
+    expect(blank).toContain('title="Selected element"')
+  })
+
+  it("offers no crumb at all when the frame sent no paths", () => {
+    // The other way a crumb is not a control: nothing to widen TO. A frame from
+    // before the chain existed sends labels and no paths, and every crumb is
+    // then plain text — the panel degrades to a read-only breadcrumb rather
+    // than to buttons that cannot be honoured.
+    const html = render({
+      selections: [
+        pick("/settings", "div:nth-child(1) > main:nth-child(2)", {
+          tag: "main",
+          ancestors: LABELS,
+          ancestorPaths: undefined,
+          ancestorComponents: undefined,
+        }),
+      ],
+      activeIndex: 0,
+    })
+    expect(html).not.toContain("Widen selection to")
+    expect(html).toContain("main")
   })
 })

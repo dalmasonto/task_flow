@@ -71,10 +71,18 @@ export function DesignInspector({
    *  "not loaded yet", so the human comments twice. */
   onCommentsChanged: () => void
   /** Re-anchor the ACTIVE selection to the crumb at this index (see
-   *  `widenSelection`). */
-  onWiden?: (index: number) => void
-  /** Take the canvas to where a comment was captured. */
-  onFocusComment?: (comment: DesignComment) => void
+   *  `widenSelection`). REQUIRED, and so is `onFocusComment` below: both were
+   *  optional, and an optional handler is exactly how a caller ends up with a
+   *  control that looks live and does nothing — the defect this breadcrumb was
+   *  fixed for once already, when every crumb was a button whether or not
+   *  anything was listening. There is one call site and it passes both, so the
+   *  compiler can hold a line no runtime check can: the panel cannot tell a
+   *  forgotten handler from a deliberate no-op. */
+  onWiden: (index: number) => void
+  /** Take the canvas to where a comment was captured. Required for the reason
+   *  above; the section below still draws a plain label if a caller ever hands
+   *  it none, but this panel always has one. */
+  onFocusComment: (comment: DesignComment) => void
 }) {
   // `-1` is the empty list's active index, so this read is the one place that
   // convention is resolved: no index, no active row, no form.
@@ -123,13 +131,14 @@ export function DesignInspector({
       {/* Breadcrumb — every crumb widens the ACTIVE selection upward. The LAST
           crumb is the selection itself, so it is current state, not a control;
           the ones before it widen to that ancestor. A crumb is only offered as
-          a button when the frame sent its path (`ancestorPaths`) — a label
-          alone cannot be turned back into an element, so a button there would
-          be the dead control this breadcrumb used to be. */}
+          a button when the frame sent its path (`ancestorPaths`) AND a label to
+          put on it: the label is `dataset.component || tagName` off the wire, so
+          a blank one is reachable, and a button there would wear the tooltip
+          `Widen selection to ` — a control that names nothing to widen to. */}
       <nav className="flex flex-wrap items-center gap-x-1 px-3 py-2 text-[11px]">
         {crumbs.map((crumb, i) => {
           const current = i === crumbs.length - 1
-          const canWiden = !current && !!onWiden && !!active.ancestorPaths[i]
+          const canWiden = !current && !!crumb && !!active.ancestorPaths[i]
           const crumbClass = cn(
             "rounded px-1",
             current ? "bg-accent/10 font-semibold text-accent" : "text-muted-foreground",

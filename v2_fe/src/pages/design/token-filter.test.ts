@@ -45,6 +45,23 @@ const RAW_DOC = `{
 /// another — and so the mutation test below has something to compare against.
 const tokensDoc = () => JSON.parse(RAW_DOC) as DesignTokensDoc
 
+/// The same file, hand-edited: `accent` carries only a `dark` value. Nothing
+/// the backend writes looks like this (`tokens.rs` builds `{light, dark?}`), and
+/// nothing checks it either — `design-api.ts` reads the row as
+/// `JSON.parse(row.content) as DesignTokensDoc`, a cast rather than a
+/// validation, so a document a human edited by hand arrives here in whatever
+/// shape they typed. The search box is the first thing that reads it: the user
+/// opens the Tokens panel, sees something wrong, and types to find it.
+const RAW_DOC_NO_LIGHT = `{
+  "version": 8,
+  "categories": {
+    "colors": {
+      "accent": { "dark": "#818cf8" },
+      "border": { "light": "#e5e7eb" }
+    }
+  }
+}`
+
 describe("filterTokenCategories", () => {
   // "No filter" has to mean the UNFILTERED panel, empty groups included: the
   // panel draws every category in its fixed order whether or not it has
@@ -182,6 +199,31 @@ describe("filterTokenCategories", () => {
     const fragment = filterTokenCategories(tokensDoc(), "818cf8")
     expect(Object.keys(fragment.categories)).toEqual(["colors"])
     expect(Object.keys(fragment.categories.colors)).toEqual(["accent"])
+  })
+
+  // The malformed-document case: a token with no `light`. `valueMatches` reads
+  // both halves of the pair, and `light` is the half the type promises is
+  // there — so an unguarded read is a TypeError, and a TypeError in the filter
+  // is not a filtered panel: it takes the whole Tokens tab down while the user
+  // is typing in the box, and the token they were looking for is the last thing
+  // they see. The half that IS there must still be searchable, which is what
+  // makes this "filtered" rather than merely "not fatal".
+  it("filters a token whose `light` is missing instead of throwing on it", () => {
+    const filtered = filterTokenCategories(
+      JSON.parse(RAW_DOC_NO_LIGHT) as DesignTokensDoc,
+      "818cf8",
+    )
+    expect(Object.keys(filtered.categories)).toEqual(["colors"])
+    expect(Object.keys(filtered.categories.colors)).toEqual(["accent"])
+  })
+
+  it("answers a query that matches nothing in a malformed document", () => {
+    // The other half: no match is still an empty map and not a throw. A guard
+    // that only covered the matching path would leave `zzz` — any query at all
+    // that walks past the broken token — crashing the panel.
+    const filtered = filterTokenCategories(JSON.parse(RAW_DOC_NO_LIGHT) as DesignTokensDoc, "zzz")
+    expect(filtered.categories).toEqual({})
+    expect(filtered.version).toBe(8)
   })
 
   it("matches a category label case-insensitively", () => {
