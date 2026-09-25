@@ -15,6 +15,7 @@ import {
   layoutGroups,
   layoutRows,
   makeArtboard,
+  rotateDecisionFor,
 } from "./design-devices"
 import { DEFAULT_LAYOUT, assignRoute, createGroup, moveRoute, type LayoutDoc } from "./design-layout"
 
@@ -680,5 +681,58 @@ describe("landscape variants", () => {
     // ...and the portrait device those came from still rotates — the guard
     // rejects the variant, not the phone.
     expect(landscapeVariant(deviceById("iphone-16-pro"))).not.toBeNull()
+  })
+})
+
+// The canvas's Rotate action, whose menu item draws its disabled state, its
+// text and its click condition from this one decision — the item's own markup
+// is unreachable (a closed menu renders no items, and no test here clicks).
+describe("rotateDecisionFor", () => {
+  // The case the action could not act on: the landscape variant is ALREADY on
+  // the canvas. `handleDuplicateBoard` skips a device that is already selected,
+  // so an item that stays enabled reads "Add iPhone 15/16 ↻ — 852×393" and then
+  // does nothing at all when clicked — a promise with no action behind it. Its
+  // sibling submenu filters exactly this case (`otherDevices`), and the
+  // inconsistency between the two is the defect.
+  //
+  // What has to change to fail: dropping the `deviceIds` check, which leaves the
+  // item enabled and the click a no-op.
+  it("blocks the rotation, with the reason as its text, when the variant is already on the canvas", () => {
+    const device = deviceById("iphone-16-pro")
+    expect(rotateDecisionFor(device, ["iphone-16-pro", landscapeId("iphone-16-pro")])).toEqual({
+      kind: "blocked",
+      reason: "already on canvas",
+    })
+  })
+
+  it("offers the landscape variant when it is not on the canvas", () => {
+    // Swapped dimensions are the point: the iframe renders at true pixel width,
+    // so this is a real breakpoint change and not a cosmetic rotation.
+    expect(rotateDecisionFor(deviceById("iphone-16-pro"), ["iphone-16-pro"])).toEqual({
+      kind: "add",
+      device: deviceById(landscapeId("iphone-16-pro")),
+    })
+  })
+
+  // The half that already worked: a laptop is not a portrait device and a
+  // Tailwind breakpoint is a width rather than a device, so neither has a
+  // landscape form. The reason is the item's text, and the two reasons are
+  // different facts.
+  it("says which devices have no landscape form", () => {
+    expect(rotateDecisionFor(deviceById("laptop"), ["laptop"])).toEqual({
+      kind: "blocked",
+      reason: "no landscape form",
+    })
+    expect(rotateDecisionFor(deviceById("bp-lg"), ["bp-lg"])).toEqual({
+      kind: "blocked",
+      reason: "no landscape form",
+    })
+  })
+
+  // Already landscape, and on the canvas: rotating it again would build
+  // `${id}:landscape:landscape`, which no preset declares.
+  it("does not offer to rotate a device that is already landscape", () => {
+    const variant = deviceById(landscapeId("ipad-mini"))
+    expect(rotateDecisionFor(variant, [variant.id])).toEqual({ kind: "blocked", reason: "no landscape form" })
   })
 })

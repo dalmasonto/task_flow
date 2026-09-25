@@ -97,6 +97,32 @@ export function landscapeVariant(device: DevicePreset): DevicePreset | null {
   }
 }
 
+/// Why the header's Rotate item can add nothing, in the item's own words.
+export type RotateBlocked = "no landscape form" | "already on canvas"
+
+/// What the canvas's Rotate action would ADD, or why it can add nothing.
+///
+/// Rotate is a duplicate at the same device's landscape preset, so it obeys the
+/// rule the "Duplicate at another device" submenu already applies (`otherDevices`
+/// filters out the devices on the canvas): a device that is already there cannot
+/// be added again. Without the second check the item stays ENABLED, still reads
+/// "Add iPhone 15/16 ↻ — 852×393", and the click does nothing at all —
+/// `handleDuplicateBoard` skips a device that is already selected — so the row
+/// promises an action the canvas refuses, with no explanation.
+///
+/// Here rather than in `design-canvas.tsx` because it is the same kind of fact
+/// as `landscapeVariant`: a rule about the preset table, needing neither React
+/// nor the canvas to decide.
+export function rotateDecisionFor(
+  device: DevicePreset,
+  deviceIds: string[]
+): { kind: "add"; device: DevicePreset } | { kind: "blocked"; reason: RotateBlocked } {
+  const target = landscapeVariant(device)
+  if (!target) return { kind: "blocked", reason: "no landscape form" }
+  if (deviceIds.includes(target.id)) return { kind: "blocked", reason: "already on canvas" }
+  return { kind: "add", device: target }
+}
+
 // Landscape variants live in the preset table so `deviceById`, the layout
 // engines, the device picker and `design-ui-state`'s stored-id filter all
 // resolve them with no special case. Built from the portrait entries, so the

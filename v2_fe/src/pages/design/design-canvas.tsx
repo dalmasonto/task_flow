@@ -6,8 +6,12 @@
 ///   iframe, whose width is the device's true CSS px. Changing the iframe
 ///   width would change the page's breakpoint; scale changes nothing but
 ///   appearance.
-/// * Artboards mount lazily by intersection so twelve live frames don't melt a
-///   laptop, and unmount beyond 3 viewports.
+/// * Artboards mount lazily by intersection — a frame nobody has scrolled near
+///   costs nothing — and then LATCH: mounting is one-way, and a mounted frame
+///   is never unmounted. Lazy mounting is what keeps a twelve-frame canvas from
+///   melting a laptop; the latch is what makes two artboards comparable, since
+///   a page that tore down when scrolled past would reload and lose the live
+///   state being compared. The observer's margin is 150% of the viewport.
 /// * Selection rects arriving from the sandbox are divided by scale when
 ///   converted to canvas coordinates.
 
@@ -32,7 +36,7 @@ import {
   boardWidth,
   chromeStyleForGroup,
   deviceById,
-  landscapeVariant,
+  rotateDecisionFor,
 } from "@/lib/design-devices"
 import { sandboxUrl, downloadPageHtml, fetchPageHtmlFragment } from "@/lib/design-api"
 import {
@@ -663,6 +667,11 @@ const ArtboardCard = memo(function ArtboardCard({
 /// rendered by `ArtboardCard` and by nothing else, and it takes the stray route
 /// as a STRING rather than reading the report map, so the rule that decides
 /// whether a frame has wandered stays in `design-route.ts` with its tests.
+///
+/// Its ⋯ menu's Rotate item draws its disabled state and its reason text from
+/// `rotateDecisionFor`, which lives with the other preset rules in
+/// `design-devices.ts` — and is tested there, because a closed menu renders no
+/// items for a markup test to reach.
 export function ArtboardHeader({
   boardKey,
   route,
@@ -736,10 +745,12 @@ export function ArtboardHeader({
   // always renders at its true pixel width. It is a duplicate at the variant's
   // id, so it reuses that plumbing rather than a second mechanism.
   //
-  // Null is "this device has no landscape form": laptops and breakpoints, and
-  // equally a board that is ALREADY landscape (`landscapeVariant` is total, so
-  // it never hands back an id no preset declares). Null disables the item.
-  const rotateTo = landscapeVariant(device)
+  // Three outcomes, and the item says which: the variant to add, "no landscape
+  // form" for laptops and breakpoints and boards that are ALREADY landscape
+  // (`landscapeVariant` is total, so it never hands back an id no preset
+  // declares), and "already on canvas" when the variant is up — the case the
+  // sibling submenu below already filters with `otherDevices`.
+  const rotate = rotateDecisionFor(device, deviceIds)
 
   return (
     <div
@@ -804,21 +815,21 @@ export function ArtboardHeader({
               to be the row's own text, as "Every device is already shown"
               below does it. */}
           <DropdownMenuItem
-            disabled={!rotateTo}
+            disabled={rotate.kind === "blocked"}
             title={
-              rotateTo
-                ? `Add ${rotateTo.label} — ${rotateTo.width}×${rotateTo.height}`
+              rotate.kind === "add"
+                ? `Add ${rotate.device.label} — ${rotate.device.width}×${rotate.device.height}`
                 : undefined
             }
-            onClick={() => rotateTo && onDuplicateBoard(boardKey, rotateTo.id)}
+            onClick={() => rotate.kind === "add" && onDuplicateBoard(boardKey, rotate.device.id)}
           >
             <RotateCwIcon className="size-3.5" />
             <span className="flex-1">Rotate</span>
-            {rotateTo ? null : (
+            {rotate.kind === "blocked" ? (
               <span className="text-[10px] text-muted-foreground">
-                no landscape form
+                {rotate.reason}
               </span>
-            )}
+            ) : null}
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
