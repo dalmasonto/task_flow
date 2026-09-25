@@ -118,8 +118,14 @@ const blocks = (html: string) => {
 /// Tailwind's `disabled:` variants and a test that matched those would pass over
 /// a control that is never disabled. `null` for a control the block does not
 /// draw, which is a state worth seeing rather than skipping.
+///
+/// The label is ESCAPED before it becomes a pattern: the group arrows are
+/// labelled with the group's NAME, which is text the user typed (`Auth (v2)` is
+/// a legal name and a pattern that throws), so an unescaped interpolation would
+/// make this helper fail on the fixture rather than on the markup.
 const control = (body: string, label: string) => {
-  const attrs = new RegExp(`<button[^>]*aria-label="${label}"([^>]*)>`).exec(body)
+  const pattern = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const attrs = new RegExp(`<button[^>]*aria-label="${pattern}"([^>]*)>`).exec(body)
   return attrs === null ? null : { disabled: / disabled(?:=""|\s|$)/.test(attrs[1]) }
 }
 
@@ -196,6 +202,48 @@ const ungroupedRows = (html: string) => {
 const bulk = (html: string) => {
   const match = /<label[^>]*><input([^>]*)>([^<]*)<\/label>/.exec(html)
   return match ? { checked: match[1].includes("checked"), label: match[2] } : null
+}
+
+/// The left inset a class list asks for, in px — the one `pl-*` / `px-*` step
+/// the panel's markup carries on an element (Tailwind's `1` is 4px).
+///
+/// This is the only place in this file that reads a class, and it is not a style
+/// assertion. "A group's rows are nested under their group" is a claim about
+/// where things SIT, the rework's review MEASURED it in pixels, and there is no
+/// CSS engine in this environment to measure with. Reading the steps back out of
+/// the classes is that same measurement. What is asserted is the RELATION — each
+/// level further in than the one above it — so a restyle that keeps the ladder
+/// passes, and only flattening it fails.
+const inset = (classes: string) => {
+  const step = /(?:^|\s)(?:pl|px)-(\d+)(?=\s|$)/.exec(classes)
+  return step ? Number(step[1]) * 4 : 0
+}
+
+/// The nesting, as the four left insets that draw it: the sections' `<h3>`, a
+/// group's `<h4>` (the block, the heading row and the heading itself), that
+/// group's rows (the block, their `<ul>` and a row), and the ungrouped section's
+/// rows. Read out of the markup's own structure — `li > div > h4` and
+/// `li > ul > li` — so it is the nesting being measured, not four class strings
+/// that happen to be somewhere on the page. `null` when the fixture has no group
+/// or no ungrouped row, which is a state a fixture avoids rather than a shape to
+/// compare against.
+const nesting = (html: string) => {
+  const section = /<h3[^>]*class="([^"]*)"[^>]*>Groups<\/h3>/.exec(html)
+  const group =
+    /<li[^>]*class="([^"]*)"[^>]*><div[^>]*class="([^"]*)"[^>]*><h4[^>]*class="([^"]*)"[^>]*>[\s\S]*?<ul[^>]*class="([^"]*)"[^>]*><li[^>]*class="([^"]*)"/.exec(
+      html,
+    )
+  const ungrouped =
+    /<h3[^>]*class="([^"]*)"[^>]*>Ungrouped<\/h3>[\s\S]*?<ul[^>]*class="([^"]*)"[^>]*><li[^>]*class="([^"]*)"/.exec(
+      html,
+    )
+  if (!section || !group || !ungrouped) return null
+  return {
+    section: inset(section[1]),
+    groupHeading: inset(group[1]) + inset(group[2]) + inset(group[3]),
+    groupRow: inset(group[1]) + inset(group[4]) + inset(group[5]),
+    ungroupedRow: inset(ungrouped[2]) + inset(ungrouped[3]),
+  }
 }
 
 /// The move up/down controls, one PAIR per row, read from the aria-labels the
@@ -336,6 +384,75 @@ describe("PagesPanel", () => {
     // a server bug: the manifest and the layout are two separate fetches, and
     // `normalizeLayout` keeps whatever a group names.
     expect(html).not.toContain("/ghost")
+
+    // The nesting is a LIST structure, not only a heading above a run of rows:
+    // one `<ul>` for the groups, one per group for its pages, one for the
+    // ungrouped section — 1 + 3 + 1 here. Counted on the tags alone, so a
+    // restyle is not a failure and losing the structure is: the first version of
+    // this restructure dropped it silently, and heading levels were the only
+    // thing left carrying the shape.
+    expect(html.match(/<ul/g)).toHaveLength(5)
+    // One item per group, and one per row: three groups (Auth, Ops, the empty
+    // Admin) and four rows (Auth's two, Ops' one, the ungrouped one).
+    expect(html.match(/<li/g)).toHaveLength(3 + 4)
+  })
+
+  // The nesting CUE, which the review measured rather than eyeballed: a group's
+  // rows sat 4px LEFT of their own heading, and the `<h4>` shared an x with the
+  // section `<h3>`s — so nothing on screen said the rows under a heading belonged
+  // to it. The heading LEVEL was always right (`<h4>` inside a `<h3>` section),
+  // which is exactly why a test that reads only tags and text could not see this
+  // and a test that reads the insets can.
+  it("indents a group's heading inside the section, and its rows inside that", () => {
+    const html = render(layout({ groups: [{ id: "g1", name: "Auth", routes: ["/login"] }] }), {
+      open: ["/"],
+    })
+    const at = nesting(html)
+    expect(at, `rendered markup:\n${html}`).not.toBeNull()
+
+    // Each level further in than the one above it. The group heading was level
+    // with the section heading, and the rows were 4px left of their heading —
+    // both inversions of this ladder, and this is what would catch either
+    // coming back.
+    expect(at!.groupHeading).toBeGreaterThan(at!.section)
+    expect(at!.groupRow).toBeGreaterThan(at!.groupHeading)
+    // The ungrouped section has no group to nest under, so its rows only have to
+    // not start left of their own heading's text.
+    expect(at!.ungroupedRow).toBeGreaterThanOrEqual(at!.section)
+  })
+
+  // A group's NAME is the user's own text — `groupNameProblem` refuses only
+  // blank, over-long and duplicate — and the group arrows are labelled with it,
+  // so a name is also pattern syntax. `Auth (v2)` is a legal name and, in an
+  // UNESCAPED pattern, a silent non-match: `(v2)` reads as a capture group, so
+  // `control` returns `null` and every group assertion in this file instead
+  // reads "the panel draws no such arrow" — the helper failing on the FIXTURE
+  // and saying nothing about the markup. (A name whose bracket is unbalanced,
+  // `Auth (v2`, makes `new RegExp` throw outright: the same defect, louder.) The
+  // escape in `control` is what keeps this file's reading of the arrows about
+  // the panel rather than about the name someone gave a group.
+  it("reads a group's arrows when the group's own name is pattern syntax", () => {
+    const html = render(
+      layout({ groups: [{ id: "g1", name: "Auth (v2)", routes: ["/login"] }] }),
+      { open: ["/"] },
+    )
+
+    expect(groupBlocks(html), `rendered markup:\n${html}`).toEqual([
+      {
+        heading: "1. Auth (v2)",
+        up: { disabled: true },
+        down: { disabled: true },
+        rows: [
+          {
+            route: "/login",
+            open: false,
+            n: "1.",
+            name: "Sign in",
+            group: { route: "/login", label: "Auth (v2)" },
+          },
+        ],
+      },
+    ])
   })
 
   // An empty group in the MIDDLE, which is the case a heading-based parse of
@@ -406,23 +523,25 @@ describe("PagesPanel", () => {
     ])
   })
 
-  /// The design decision this restructure had to make, pinned where a later
-  /// "simplification" would break it. The arrows write a FLOW move
-  /// (`moveRoute`, ±1), so they are disabled at the FLOW's ends and not at a
+  /// Where the arrows STOP, pinned in the markup because nothing here can click
+  /// (`moveRouteInSection`'s own tests carry what a click MEANS). A move is a
+  /// flow edit whatever its distance, so the ends are the FLOW's and not a
   /// group's: `/signup` leads Auth and is 3rd of 4 in the flow, so its "up" is
-  /// ENABLED, and pressing it moves the page past `/login` — which is in no
-  /// group — so this panel's list does not change at all (the number stays 1;
-  /// in `groups` view no column moves either) while `rows` view shows the board
-  /// move up one.
+  /// ENABLED — and since Auth has no other page, that click is the flow's own one
+  /// place, which changes no number here (the number stays 1; in `groups` view no
+  /// column moves either) while `rows` view shows the board move up one.
   ///
-  /// Moving within the SECTION instead was rejected, and the reason is exact
-  /// rather than aesthetic: a page alone in its section has no section
-  /// neighbour, so both its arrows would be disabled for ever — its position in
-  /// the flow unreachable from this panel — and a single such click can push
-  /// several pages of other groups along the flow at once (moving B up past a
-  /// whole group in [A, X, B] lands [B, A, X], and X was not touched). The cost
-  /// kept instead is the one above: a control that is always enabled where it
-  /// can act, and whose effect this panel cannot always show.
+  /// That enabled-and-invisible click is the bounded residue, and the reason it
+  /// is kept is the one thing a section-local-only move cannot do: a page alone
+  /// in its section has no section neighbour, so both its arrows would be
+  /// disabled for ever and its place in the flow would be unreachable from this
+  /// panel. It is NOT justified by saying the alternative "pushes other groups'
+  /// pages along the flow" — an earlier version of this comment said that, and it
+  /// is false as a distinction: this very click moves `/login`, which is in no
+  /// group and which the user never touched, one place back, because any move
+  /// crosses what it passes. What is left is the row about which "order the
+  /// screens in this group" has nothing to say: the section's first page has
+  /// nothing above it in its group.
   it("disables the ends of the FLOW, not the ends of a group's list", () => {
     const html = render(
       layout({

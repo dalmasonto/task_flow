@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import type { RouteEntry } from "@/lib/design-api"
-import { moveRoute, normalizeLayout, removeGroup } from "@/lib/design-layout"
+import {
+  moveRoute,
+  moveRouteInSection,
+  normalizeLayout,
+  removeGroup,
+} from "@/lib/design-layout"
 import { groupedPages, numberedPages, selectAllState, type GroupedPages } from "./pages-order"
 
 // The panel these helpers exist for is the Pages tab, and what it can silently
@@ -391,6 +396,71 @@ describe("groupedPages", () => {
     const shown = listed(result)
     expect(shown).toEqual(["/login", "/settings", "/", "/signup"])
     expect([...shown].sort()).toEqual(MANIFEST.map((route) => route.path).sort())
+  })
+})
+
+// What the panel's arrow CLICKS do, in the unit the user watches: the list under
+// their group. `moveRouteInSection` decides the distance, `groupedPages` draws
+// the result, and the claim is the composition — one click, one visible place.
+//
+// The fixture is the reviewer's, and it is the user's own situation: a flow that
+// began as the manifest's order (so a group's screens are scattered through it)
+// and two groups that are subsets of it. Under a plain ±1 flow move, the first
+// click here changed NOTHING in the panel and nothing in the `groups` canvas.
+describe("groupedPages with moveRouteInSection", () => {
+  const MANIFEST5: RouteEntry[] = [
+    { path: "/login", file: "src/pages/Login.tsx", title: "Sign in" },
+    { path: "/", file: "src/pages/Home.tsx", title: "Home" },
+    { path: "/signup", file: "src/pages/Signup.tsx", title: "Sign up" },
+    { path: "/settings", file: "src/pages/Settings.tsx", title: "Settings" },
+    { path: "/onboarding", file: "src/pages/Onboarding.tsx", title: "Onboarding" },
+  ]
+  const paths = MANIFEST5.map((entry) => entry.path)
+  /// Ops holds the flow's 1st and 4th pages; Auth holds the 3rd.
+  const scatteredFlow = () =>
+    normalizeLayout({
+      view: "groups",
+      routeOrder: paths,
+      groups: [
+        { id: "g1", name: "Ops", routes: ["/login", "/settings"] },
+        { id: "g2", name: "Auth", routes: ["/signup"] },
+      ],
+      pageLabels: {},
+    })
+
+  it("moves a page exactly one place in its section per click", () => {
+    const doc = scatteredFlow()
+    const before = groupedPages(doc, MANIFEST5)
+    expect(before.groups[0].pages).toEqual([
+      { route: "/login", n: 1 },
+      { route: "/settings", n: 2 },
+    ])
+
+    // ONE click on /settings' "up".
+    const after = groupedPages(moveRouteInSection(doc, "/settings", -1, paths), MANIFEST5)
+
+    // The two Ops rows have swapped — the click moved the page one place in the
+    // list it is drawn in, which is what the user asked to be able to do. The
+    // pages of the other group keep their own numbering and their own places
+    // (Auth's single page is still 1).
+    expect(after.groups[0].pages).toEqual([
+      { route: "/settings", n: 1 },
+      { route: "/login", n: 2 },
+    ])
+    expect(after.groups[1].pages).toEqual([{ route: "/signup", n: 1 }])
+  })
+
+  it("keeps the flow's own move for a section with nothing to arrange", () => {
+    const doc = scatteredFlow()
+
+    // Auth has one page, so there is no Auth row above it to move past: the
+    // click is the flow's own one place, which is the residue the panel accepts
+    // (see `pages-order.ts` on `numberedPages`). What must NOT happen is the
+    // arrow going dead, or the page leaving its section's list.
+    const after = groupedPages(moveRouteInSection(doc, "/signup", -1, paths), MANIFEST5)
+
+    expect(after.groups[1].pages).toEqual([{ route: "/signup", n: 1 }])
+    expect(listed(after)).toHaveLength(MANIFEST5.length)
   })
 })
 

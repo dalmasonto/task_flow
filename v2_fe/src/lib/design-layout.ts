@@ -383,3 +383,85 @@ export function moveRoute(doc: LayoutDoc, route: string, delta: number, routes: 
   next.splice(to, 0, moved)
   return setRouteOrder(doc, next, routes)
 }
+
+/// The routes a page is listed WITH: the group that claims it, or the pages no
+/// group claims at all. `groupedPages`' partition read from the page's side.
+///
+/// The group is resolved with `groupOf` — the FIRST group that names the route —
+/// which is the same rule the panel's picker and the sections use, so a document
+/// putting one page in two groups (the server refuses it; a hand-built one can
+/// still arrive) agrees with what is drawn.
+function sectionOf(doc: LayoutDoc, routes: string[], route: string): Set<string> {
+  const group = groupOf(doc, route)
+  if (group) return new Set(group.routes)
+  const claimed = new Set(doc.groups.flatMap((g) => g.routes))
+  return new Set(routes.filter((r) => !claimed.has(r)))
+}
+
+/// Move a page one VISIBLE place in the section it is listed under — the group
+/// that claims it, or the ungrouped section — which is what the Pages panel's
+/// row arrows mean now that the rows are drawn under their group.
+///
+/// # Why `moveRoute` alone is not enough
+///
+/// A project's flow starts as the manifest's order and groups are subsets of it,
+/// so two screens of one group are routinely several places apart in the flow.
+/// With a plain ±1 move, ordering those two under their group costs one click
+/// per place BETWEEN them, and every click but the last changes nothing in the
+/// panel and nothing in the `groups` canvas while reordering other groups' pages
+/// in `rows`/`bands`. Measured on the fixture in the tests: `Ops`' two screens
+/// three places apart took three clicks, the first two invisible.
+///
+/// So: with a page of the same section in the direction asked, the move is TO
+/// JUST PAST IT — one click, one place in the list being looked at, and the row's
+/// number always changes. With no page of that section in that direction (a
+/// section's first page going up, a single-page section either way) it is the
+/// flow's own one place, and the arrow stays ENABLED: nothing that worked before
+/// stops working, and no page's place in the flow becomes unreachable from the
+/// panel. The residue is that one click — the section's own first page, which is
+/// exactly the row about which "order the screens in this group" has nothing to
+/// say, because there is nothing above it in its group.
+///
+/// # What is NOT a reason for this shape, because it was wrong once
+///
+/// An earlier version of this code rejected the section-local move because it
+/// "pushes other groups' pages along the flow". The ±1 flow move does that too:
+/// ANY move crosses what it passes (`[A, X, B]` with `B` moved above `A` lands
+/// `[B, A, X]`, and `X` moved). The difference between the two rules is the
+/// MAGNITUDE of one click and whether a section's own pages are reachable at all
+/// — not whether other pages are disturbed, which is unavoidable in a single
+/// flat sequence.
+///
+/// # The parameter is a DIRECTION
+///
+/// `direction` is ±1 and nothing else. It is not a distance: "two visible places
+/// in a section" is not a move this function can honour (two places in the FLOW
+/// is a different move, and the caller must ask `moveRoute` for it and know that
+/// is what it is asking). Anything else — `0`, `2`, `NaN` — is refused by
+/// returning the document ITSELF, like every other refusal in this module.
+export function moveRouteInSection(
+  doc: LayoutDoc,
+  route: string,
+  direction: number,
+  routes: string[],
+): LayoutDoc {
+  if (direction !== 1 && direction !== -1) return doc
+  const order = resolveRouteOrder(doc, routes)
+  const from = order.indexOf(route)
+  if (from < 0) return doc
+  const section = sectionOf(doc, routes, route)
+  /// The nearest page of the same section in the direction asked, walked over
+  /// the RESOLVED flow: a section entry that is not a page has no position to
+  /// be found at, so it can never be the page a click stops at.
+  let distance = 0
+  for (let i = from + direction; i >= 0 && i < order.length; i += direction) {
+    if (section.has(order[i])) {
+      distance = i - from
+      break
+    }
+  }
+  // The ENDS are `moveRoute`'s: it clamps and refuses against the flow, so the
+  // first page of the flow still cannot be moved up and this stays the one place
+  // that decides where a page may land.
+  return moveRoute(doc, route, distance === 0 ? direction : distance, routes)
+}

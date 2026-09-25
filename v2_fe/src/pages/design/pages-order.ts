@@ -152,17 +152,23 @@ export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPa
 /// The panel does not draw these — the number beside a row is its place in its
 /// own section (`groupedPages`) — and this is not a second order: it is the same
 /// `routeOrder` the canvas draws in and the same sequence the rows are listed
-/// in, read as positions. What reads it is the ROW'S MOVE CONTROLS: a move
-/// writes a flow move (`moveRoute`, ±1), so it is refused at the flow's ends,
-/// and the ends are where this says 1 and N. That is why the panel asks for both
-/// numberings, and why the drawn one is the section's.
+/// in, read as positions. What reads it is the ROW'S MOVE CONTROLS, for their
+/// BOUNDS: a move is a flow edit (`moveRouteInSection`, which ends in
+/// `moveRoute`), so it is refused at the flow's ends, and the ends are where
+/// this says 1 and N. That is why the panel asks for both numberings, and why
+/// the drawn one is the section's.
 ///
-/// The consequence, stated rather than discovered: a page that leads its group
-/// while sitting in the middle of the flow has an ENABLED "up" that changes no
-/// number in this panel — the flow moves, the section's order does not, and in
-/// `groups` view no column moves either. It is enabled because it does act: it
-/// moves the page one place in the sequence the canvas draws in `rows` and
-/// `bands`, which is still the project's presentation order.
+/// The consequence, stated rather than discovered — and it is NARROW, which an
+/// earlier version of this comment got wrong: a click moves the page past the
+/// next page of its own section, so it changes this panel's list by one place
+/// wherever the section has such a page. Only where it does NOT — a section's
+/// first page moving up, or a single-page section moving either way — does the
+/// click fall back to one place along the flow, and then it changes no number
+/// here (it moves the page in the sequence `rows` and `bands` draw, which is
+/// still the project's presentation order). That is the row about which "order
+/// the screens in this group" has nothing to say, because there is nothing above
+/// it in its group; every row that has something to arrange arranges it in one
+/// click.
 export function numberedPages(layout: LayoutDoc, routes: RouteEntry[]): NumberedPage[] {
   return flowOf(layout, routes).map((route, i) => ({ route, n: i + 1 }))
 }

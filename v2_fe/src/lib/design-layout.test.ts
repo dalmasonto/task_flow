@@ -15,6 +15,7 @@ import {
   filterRouteOrder,
   moveGroup,
   moveRoute,
+  moveRouteInSection,
   resolveRouteOrder,
   setRouteOrder,
   type LayoutDoc,
@@ -728,6 +729,172 @@ describe("moveRoute", () => {
     const doc = flowed(["/login", "/"])
     const before = JSON.stringify(doc)
     moveRoute(doc, "/login", 1, PAGES)
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+})
+
+// The arrows under a group, which are not the flat `moveRoute`: one click must
+// move the page one place in the list the user is LOOKING AT, and that list is
+// its section.
+//
+// # Why this exists at all, in the reviewer's numbers
+//
+// A project's flow begins as the manifest's order, and groups are subsets of it,
+// so two screens of one group are routinely several places apart in the flow.
+// With a plain ±1 flow move, arranging them cost one click per place *between*
+// them — and every one of those clicks changed nothing in the panel AND nothing
+// in the `groups` canvas while silently reordering other groups' pages in
+// `rows`/`bands`. The fixture below is exactly that case: `Ops`' two screens are
+// three places apart, and its first click used to be invisible.
+//
+// # What is NOT a reason, because it was wrong once
+//
+// An earlier version of this comment rejected the section-local move on the
+// grounds that it moves pages of OTHER groups along the flow ("moving B up past
+// its section neighbour in [A, X, B] lands [B, A, X] — X moved and the user
+// never touched it"). That is true of the ±1 flow move as well: ANY move crosses
+// what it passes, which is why 'up' means the flow gives way behind the page
+// wherever the page is going. The real difference between the two rules is the
+// MAGNITUDE of one click and whether a section's own pages are reachable at all.
+describe("moveRouteInSection", () => {
+  /// The reviewer's fixture: five pages, one flow, two groups that are subsets
+  /// of it. `Ops` holds the flow's 1st and 4th pages; `Auth` holds the 3rd.
+  const PAGES5 = ["/login", "/", "/signup", "/settings", "/onboarding"]
+  const twoGroups = (): LayoutDoc => ({
+    ...flowed(PAGES5),
+    groups: [
+      { id: "g1", name: "Ops", routes: ["/login", "/settings"] },
+      { id: "g2", name: "Auth", routes: ["/signup"] },
+    ],
+  })
+
+  it("moves a page past the next page of its own section, not one place in the flow", () => {
+    const moved = moveRouteInSection(twoGroups(), "/settings", -1, PAGES5)
+
+    // `/settings` and `/login` are Ops' only two pages and they are three places
+    // apart. One click swaps them in the panel — `/settings` lands at the top of
+    // the flow, over `/`, `/signup` and any other page in between — which is the
+    // whole point: the click the user makes is the move they can see.
+    expect(resolveRouteOrder(moved, PAGES5)).toEqual([
+      "/settings",
+      "/login",
+      "/",
+      "/signup",
+      "/onboarding",
+    ])
+  })
+
+  it("moves one place in the FLOW when its section has nothing in that direction", () => {
+    // `Auth` has one page and nothing above it in `Auth`, so the panel has
+    // nothing to arrange here — and the arrow keeps the move it had before, one
+    // place along the flow, rather than going dead. This is the bounded residue:
+    // a section's first page can still be clicked and still not visibly move,
+    // and that is the one row about which "order the screens in this group" has
+    // nothing to say.
+    expect(resolveRouteOrder(moveRouteInSection(twoGroups(), "/signup", -1, PAGES5), PAGES5)).toEqual([
+      "/login",
+      "/signup",
+      "/",
+      "/settings",
+      "/onboarding",
+    ])
+    // The same at the other end: `Ops`' last page has nothing below it in Ops.
+    expect(resolveRouteOrder(moveRouteInSection(twoGroups(), "/settings", 1, PAGES5), PAGES5)).toEqual([
+      "/login",
+      "/",
+      "/signup",
+      "/onboarding",
+      "/settings",
+    ])
+  })
+
+  it("treats the pages no group claims as a section of their own", () => {
+    // `/onboarding` is ungrouped, and so is `/`. One click moves it above `/` in
+    // the ungrouped list, over the two grouped pages in between — the panel's
+    // bottom section orders itself the same way a group does.
+    expect(resolveRouteOrder(moveRouteInSection(twoGroups(), "/onboarding", -1, PAGES5), PAGES5)).toEqual([
+      "/login",
+      "/onboarding",
+      "/",
+      "/signup",
+      "/settings",
+    ])
+  })
+
+  it("is still one place when the section-mate is the adjacent page", () => {
+    // The common case, and the one the old rule already handled: the two rules
+    // must agree here, or the change would have moved a step nobody complained
+    // about.
+    const doc: LayoutDoc = {
+      ...flowed(PAGES5),
+      routeOrder: ["/login", "/settings"],
+      groups: [{ id: "g1", name: "Ops", routes: ["/login", "/settings"] }],
+    }
+    const moved = moveRouteInSection(doc, "/settings", -1, ["/login", "/settings"])
+
+    expect(resolveRouteOrder(moved, ["/login", "/settings"])).toEqual(["/settings", "/login"])
+  })
+
+  // A group's `routes` array is not the manifest: it can name a page this
+  // project no longer has (the manifest and the layout are two separate
+  // fetches), and `assignRoute` appends, so such an entry can sit BETWEEN two
+  // live ones. The walk below therefore goes over the FLOW and asks the section
+  // whether each page is in it — never over the section's own array, where an
+  // entry with no place in the flow would be the next thing up.
+  //
+  // The fixture is built so the two differ, which an earlier version of it was
+  // not: the mate here is the flow's SECOND page, so a walk over the group's
+  // array (finding `/ghost`, whose flow index is -1, and asking to move past it)
+  // would send `/settings` to the TOP of the flow instead of just above
+  // `/login`. The two answers are different orders, so the test can fail.
+  it("ignores a section entry that is not a page, like every other listing", () => {
+    const doc: LayoutDoc = {
+      ...flowed(["/", "/login", "/signup", "/settings", "/onboarding"]),
+      groups: [{ id: "g1", name: "Ops", routes: ["/login", "/ghost", "/settings"] }],
+    }
+
+    expect(resolveRouteOrder(moveRouteInSection(doc, "/settings", -1, PAGES5), PAGES5)).toEqual([
+      "/",
+      "/settings",
+      "/login",
+      "/signup",
+      "/onboarding",
+    ])
+  })
+
+  it("refuses at the ends of the FLOW, by identity", () => {
+    const doc = twoGroups()
+
+    // The flow's first page has nothing above it anywhere, and its last nothing
+    // below — `moveRoute` refuses both, and so does this.
+    expect(moveRouteInSection(doc, "/login", -1, PAGES5)).toBe(doc)
+    expect(moveRouteInSection(doc, "/onboarding", 1, PAGES5)).toBe(doc)
+  })
+
+  // The parameter is a DIRECTION, not a distance, and it says so rather than
+  // guessing: "two visible places in a section" is not a thing it can honour
+  // (two places in the flow is a different move the caller must ask `moveRoute`
+  // for and know it is a flow move). Refusal is by identity, like every other
+  // refusal in this module.
+  it("refuses anything that is not a direction, rather than guessing a distance", () => {
+    const doc = twoGroups()
+
+    for (const direction of [0, 2, -3, NaN, Infinity, -Infinity, 1.5]) {
+      expect(moveRouteInSection(doc, "/settings", direction, PAGES5), String(direction)).toBe(doc)
+    }
+    expect(moveRouteInSection(doc, "/settings", 1, PAGES5)).not.toBe(doc)
+  })
+
+  it("is a no-op for a route that is not a page", () => {
+    const doc = twoGroups()
+
+    expect(moveRouteInSection(doc, "/ghost", -1, PAGES5)).toBe(doc)
+  })
+
+  it("does not mutate the document it is given", () => {
+    const doc = twoGroups()
+    const before = JSON.stringify(doc)
+    moveRouteInSection(doc, "/settings", -1, PAGES5)
     expect(JSON.stringify(doc)).toBe(before)
   })
 })

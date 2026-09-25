@@ -27,19 +27,32 @@
 /// of two screens reads "1, 2", the next group starts at 1 again, and the
 /// ungrouped section numbers itself. There is still ONE order in the project
 /// and it is still global: `routeOrder`, the flow, which the canvas draws in
-/// (`boardsForView`) and which decides the order of the pages WITHIN a group.
-/// So the row's move arrows write a FLOW move (`moveRoute`, ±1), not a
-/// per-group one — and their ends are the flow's ends, not the section's. A
-/// page that leads its group from the middle of the flow therefore has an
-/// enabled "up" that changes no number here; it moves the page one place in the
-/// sequence, which is what `rows` and `bands` draw. Making the click local
-/// instead was rejected: a page alone in its section would have BOTH arrows
-/// disabled for ever — its place in the flow unreachable from this panel — and
-/// one such click would push pages of other groups along the flow. There is
-/// deliberately NO per-group order stored anywhere, and adding one would break
-/// the link between this list and the canvas: the two numberings here are
-/// `groupedPages`' sections (drawn) and `numberedPages`' flow positions (the
-/// arrows' bounds), both pure functions over the same document.
+/// (`boardsForView`) and which decides the order of the pages WITHIN a group. So
+/// the row's move arrows are a flow edit — `moveRouteInSection`, which ends in
+/// `moveRoute` — and their ends are the flow's ends, not a section's.
+///
+/// What a click MEANS is the section: one place in the list the user is looking
+/// at. A project's flow starts as the manifest's order and groups are subsets of
+/// it, so two screens of one group are routinely several places apart in the
+/// flow, and a plain ±1 move would charge one click per place between them —
+/// with every click but the last changing nothing in this panel and nothing in
+/// the `groups` canvas while reordering other groups' pages in `rows`/`bands`.
+/// So the arrows move the page to just past the next page of its OWN section;
+/// only where the section has nothing in that direction (its first page going
+/// up, a single-page section either way) do they fall back to the flow's own one
+/// place, and the arrow stays enabled there so nothing that worked before stops
+/// working. That residue is bounded and it is the row about which "order the
+/// screens in this group" has nothing to say: there is nothing above it in its
+/// group. `moveRouteInSection` carries the full statement, including the reason
+/// this shape was chosen over the two simpler ones and the one reason that had
+/// to be retracted — that a section-local move "pushes other groups' pages along
+/// the flow", which the plain flow move does as well, because any move crosses
+/// what it passes.
+///
+/// There is deliberately NO per-group order stored anywhere, and adding one
+/// would break the link between this list and the canvas: the two numberings
+/// here are `groupedPages`' sections (drawn) and `numberedPages`' flow positions
+/// (the arrows' bounds), both pure functions over the same document.
 ///
 /// The canvas agrees with both: in the `groups` view its columns are
 /// `layout.groups` in order — which is why the GROUP arrows, which move that
@@ -113,7 +126,7 @@ import {
   MAX_GROUPS,
   MAX_LABEL,
   moveGroup,
-  moveRoute,
+  moveRouteInSection,
   pageLabel,
   setPageLabel,
   type LayoutDoc,
@@ -193,6 +206,21 @@ export function PagesPanel({
 
   const assign = (route: string, value: string) => {
     onLayoutChange(assignRoute(layout, route, value === UNGROUPED ? null : value))
+  }
+
+  /// A group's move, through the same `updateLayout` path every other layout
+  /// edit uses — and skipped entirely when `moveGroup` refused, which it signals
+  /// by returning the document ITSELF.
+  ///
+  /// The refusal is unreachable through these two buttons: the ends are the only
+  /// one an arrow can hit and they are disabled. It is kept for the reason
+  /// `rename` below keeps its own: a refusal spent on the wire is a PUT of a
+  /// document identical to the one the server already has, and a caller that
+  /// hands a refusal on is one edit away from doing that on a path where it is
+  /// reachable.
+  const moveGroupBy = (id: string, delta: number) => {
+    const next = moveGroup(layout, id, delta)
+    if (next !== layout) onLayoutChange(next)
   }
 
   /// Create the group the dialog named. `createGroup` stays the ONLY creation
@@ -302,7 +330,7 @@ export function PagesPanel({
     /// ever built out of the manifest's own routes.
     const place = flowPlace.get(page.route) ?? 1
     return (
-      <div key={page.route} className="flex items-center gap-1.5 px-2 py-1">
+      <li key={page.route} className="flex items-center gap-1.5 px-2 py-1">
         {/* The checkbox is the sketch's, and it is the panel's open/close
             control: it writes the same `openRoutes` the canvas draws from. It is
             also the ONLY thing in this row that toggles a page — the name beside
@@ -324,13 +352,15 @@ export function PagesPanel({
         <span className="w-5 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
           {page.n}.
         </span>
-        {/* The reorder control. `moveRoute` resolves the flow, moves the page one
-            place and normalises what it stores, so every click writes an order
-            the server accepts. The ends are the ends of the FLOW — `place`, not
-            `page.n`, because a move is a flow move however local its visible
-            effect is — and they are disabled because `moveRoute` refuses there:
-            the first page cannot move up. A disabled control is how that is
-            shown; the refusal returns the document UNCHANGED, and handing that
+        {/* The reorder control. `moveRouteInSection` is where one click means one
+            place in the list this row is drawn in; it resolves the flow, moves
+            the page past the next page of its own section — or one place along
+            the flow where the section has nothing that way — and normalises what
+            it stores through `moveRoute`, so every click writes an order the
+            server accepts. The disabled ends are the FLOW's (`place`, not
+            `page.n`): the first page of the flow has nothing above it in any
+            section, and `moveRoute` refuses there. A disabled control is how that
+            is shown; the refusal returns the document UNCHANGED, and handing that
             to `onLayoutChange` would PUT a document identical to the one the
             server already has. */}
         <button
@@ -338,7 +368,7 @@ export function PagesPanel({
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
           aria-label={`Move ${page.route} up`}
           disabled={place === 1}
-          onClick={() => onLayoutChange(moveRoute(layout, page.route, -1, paths))}
+          onClick={() => onLayoutChange(moveRouteInSection(layout, page.route, -1, paths))}
         >
           <ChevronUpIcon className="size-3" />
         </button>
@@ -347,7 +377,7 @@ export function PagesPanel({
           className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
           aria-label={`Move ${page.route} down`}
           disabled={place === flow.length}
-          onClick={() => onLayoutChange(moveRoute(layout, page.route, 1, paths))}
+          onClick={() => onLayoutChange(moveRouteInSection(layout, page.route, 1, paths))}
         >
           <ChevronDownIcon className="size-3" />
         </button>
@@ -377,7 +407,7 @@ export function PagesPanel({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </li>
     )
   }
 
@@ -401,7 +431,7 @@ export function PagesPanel({
     const first = index === 0
     const last = index === sections.groups.length - 1
     return (
-      <div key={section.id} className="flex flex-col">
+      <li key={section.id} className="flex flex-col pl-3">
         <div className="flex items-center gap-1 px-2 py-0.5">
           <h4 className="min-w-0 flex-1 truncate px-1 text-xs font-medium">
             {index + 1}. {section.name}
@@ -411,7 +441,7 @@ export function PagesPanel({
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
             aria-label={`Move group ${section.name} up`}
             disabled={first}
-            onClick={() => onLayoutChange(moveGroup(layout, section.id, -1))}
+            onClick={() => moveGroupBy(section.id, -1)}
           >
             <ChevronUpIcon className="size-3" />
           </button>
@@ -420,13 +450,23 @@ export function PagesPanel({
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
             aria-label={`Move group ${section.name} down`}
             disabled={last}
-            onClick={() => onLayoutChange(moveGroup(layout, section.id, 1))}
+            onClick={() => moveGroupBy(section.id, 1)}
           >
             <ChevronDownIcon className="size-3" />
           </button>
         </div>
-        {section.pages.map(pageRow)}
-      </div>
+        {/* The group's pages, as a list of their own: the nesting the user asked
+            for is a nesting here, not only a heading above a run of rows.
+            `pl-3` is the visual half of it, and it is measured rather than
+            guessed: without it a row's content starts 4px LEFT of its own
+            group's heading (the heading row is `px-2` + the `<h4>`'s `px-1`,
+            the row is `px-2`), which is nesting drawn backwards. The three
+            insets are a ladder now — section heading 12px, group heading 24px,
+            its rows 32px — and `pages-panel.test.ts` reads the ladder back out
+            of these class lists, because there is no CSS engine in the test
+            environment to measure it any other way. */}
+        <ul className="flex flex-col pl-3">{section.pages.map(pageRow)}</ul>
+      </li>
     )
   }
 
@@ -451,7 +491,7 @@ export function PagesPanel({
             </button>
           ) : null}
         </div>
-        {sections.groups.map(groupBlock)}
+        <ul className="flex flex-col">{sections.groups.map(groupBlock)}</ul>
       </div>
       {/* Bulk open/close, between the two lists. Nothing to select means no
           control: a checkbox over an empty project would do nothing, and a
@@ -474,7 +514,12 @@ export function PagesPanel({
           yet." goes, since it is the section that would have held them. */}
       <div className="flex flex-col">
         <h3 className={cn(SECTION_HEADING, "border-t")}>Ungrouped</h3>
-        {sections.ungrouped.map(pageRow)}
+        {/* `pl-1` is the 4px that puts these rows' content on the same x as
+            their own heading's text (the heading is `px-3`; a row is `px-2`) —
+            the same "a row must not start left of the heading it belongs to"
+            rule the groups' rows are held to, applied to the section that has
+            no group to be nested under. */}
+        <ul className="flex flex-col pl-1">{sections.ungrouped.map(pageRow)}</ul>
         {routes.length ? null : (
           <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
         )}

@@ -107,6 +107,46 @@ fn validate_normalises_names_on_the_way_through() {
     assert_eq!(d.groups[0].name, "Auth");
 }
 
+// The GROUP ORDER, at the seam the client writes to. The Pages panel's group
+// arrows permute `doc.groups` and PUT the whole document back — the first
+// affordance in the UI that reorders groups at all — and this is the claim that
+// order survives the write path, which had been verified by reading three times
+// (the plan, the implementer, the reviewer) and by a run never.
+//
+// The permutation is made the way the CLIENT makes it and sent the way the
+// client sends it: the same document with its two groups the other way round,
+// through `to_json_string` and back through `parse`, because `validate` on a
+// `Vec` this test built itself is not the round trip the panel's arrows take.
+// Both orders are asserted, and the second is deliberately anti-alphabetical —
+// "Ops" before "Auth" — so a name sort anywhere in the pipeline fails this
+// rather than passing it (and the first catches the mirror: a reverse).
+#[test]
+fn validate_keeps_the_group_order_it_is_given() {
+    let forwards = doc(
+        DesignView::Groups,
+        vec![group("g1", "Auth", &["/login"]), group("g2", "Ops", &["/signup"])],
+    );
+    let accepted = validate(forwards.clone(), &known()).expect("a document the client can build");
+
+    // The permutation the panel's arrows write, on the wire.
+    let permuted = LayoutDoc {
+        groups: vec![forwards.groups[1].clone(), forwards.groups[0].clone()],
+        ..forwards
+    };
+    let reparsed = parse(&to_json_string(&permuted)).expect("the client's own JSON");
+    let reversed = validate(reparsed, &known()).expect("the same two groups, reordered");
+
+    let ids = |d: &LayoutDoc| d.groups.iter().map(|g| g.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&accepted), vec!["g1".to_string(), "g2".to_string()]);
+    assert_eq!(ids(&reversed), vec!["g2".to_string(), "g1".to_string()]);
+
+    // And the groups move WHOLE: the pages travel with the group they are in,
+    // so a reorder cannot silently re-assign them to whichever group now sits
+    // in their old position.
+    assert_eq!(reversed.groups[0].routes, vec!["/signup".to_string()]);
+    assert_eq!(reversed.groups[1].routes, vec!["/login".to_string()]);
+}
+
 #[test]
 fn filter_keeps_groups_whose_routes_all_vanished() {
     // Review Focus #2: deleting pages must not delete the grouping.
