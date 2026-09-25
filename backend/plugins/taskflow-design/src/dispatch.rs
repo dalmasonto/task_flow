@@ -86,9 +86,11 @@ pub async fn dispatch_comments(
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
     // Find-or-create the caller's DM with the agent. Server-side dedup by
-    // roster mirrors what the chrome does; two dispatches reuse one room.
-    let channel = find_or_create_dm(project_id, user_id, input.agent_id, &agent.display_name)
-        .await?;
+    // roster mirrors what the chrome does; two dispatches reuse one room. The
+    // ROW comes back, not just its id: the message's `is_design` is derived from
+    // the destination room, and deriving it needs the room.
+    let dm = find_or_create_dm(project_id, user_id, input.agent_id, &agent.display_name).await?;
+    let channel = dm.id;
 
     // Format the payload. The preamble tells the agent to screenshot before +
     // after — without a visual feedback loop the edits cannot be evaluated.
@@ -156,7 +158,10 @@ pub async fn dispatch_comments(
             sender_label: caller.username.clone(),
             body_markdown: body,
             priority: TaskflowMessagePriority::Normal,
-            is_design: false,
+            // Derived from the destination, like both send paths: the DM is an
+            // ordinary room so this is `false` today, and it stays honest if
+            // `find_or_create_dm` ever answers with a marked room.
+            is_design: dm.is_design,
             client_nonce: None,
             edited_at: None,
             created_at: None,
@@ -243,8 +248,8 @@ pub async fn send_prompt(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let channel = find_or_create_dm(project_id, user_id, input.agent_id, &agent.display_name)
-        .await?;
+    let dm = find_or_create_dm(project_id, user_id, input.agent_id, &agent.display_name).await?;
+    let channel = dm.id;
 
     let mut body = format!("[design-request] from {}\n{}", caller.username, text);
     if let Some(sel) = input.selection.as_ref().filter(|v| !v.is_null()) {
@@ -269,7 +274,10 @@ pub async fn send_prompt(
             sender_label: caller.username.clone(),
             body_markdown: body,
             priority: TaskflowMessagePriority::Normal,
-            is_design: false,
+            // Derived from the destination, like both send paths: the DM is an
+            // ordinary room so this is `false` today, and it stays honest if
+            // `find_or_create_dm` ever answers with a marked room.
+            is_design: dm.is_design,
             client_nonce: None,
             edited_at: None,
             created_at: None,
@@ -290,12 +298,16 @@ pub async fn send_prompt(
 }
 
 /// The Direct channel holding exactly this user + this agent, or a fresh one.
+///
+/// Returns the ROW rather than its id so callers can derive the message's
+/// `is_design` from the destination they actually got, the way both send paths
+/// do. A caller that needs only the id reads `dm.id`.
 async fn find_or_create_dm(
     project_id: i64,
     user_id: i64,
     agent_id: i64,
     agent_label: &str,
-) -> Result<i64, StatusCode> {
+) -> Result<TaskflowAgentChannel, StatusCode> {
     use taskflow_agents::models::taskflow_agent_channel_member as m;
 
     let memberships = TaskflowAgentChannelMember::objects()
@@ -324,7 +336,7 @@ async fn find_or_create_dm(
                 .iter()
                 .any(|r| r.member_kind == TaskflowChannelMemberKind::Agent && r.agent.as_ref().map(|a| a.id()) == Some(agent_id));
             if has_user && has_agent && roster.len() == 2 {
-                return Ok(channel.id);
+                return Ok(channel);
             }
         }
     }
@@ -380,5 +392,5 @@ async fn find_or_create_dm(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(channel.id)
+    Ok(channel)
 }
