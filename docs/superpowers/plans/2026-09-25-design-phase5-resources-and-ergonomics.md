@@ -15,6 +15,7 @@
 - **The iframe is ALWAYS the preset's true `width×height`; zoom stays `transform: scale()` on the wrapper.** Rotation therefore does not "fake" a landscape board — it renders at genuinely swapped pixels, which is the honest outcome and the reason a rotated board is visible as such.
 - **Strict on write, forgiving on read** — the asymmetry established in `layout_doc.rs` applies to every document this plan touches. Unknown routes are refused by `PUT` and filtered by `GET`.
 - **Reuse before invention.** Resource sets are a `DesignFile` row at `styles/resources.json`; `for_path` already maps `styles/` to `DesignFileKind::Token`. **No new model, no new migration, no new endpoints.**
+- **But "no new plumbing" was WRONG** (found in Task 6, verified): `validation.rs:176`'s `check_extension` admits **only** `styles/tokens.json` and `styles/tokens.css` for the Token kind, so **every write to `styles/resources.json` is refused** with rule `extension` before `resources::validate` is ever reached. The document could be parsed and validated in a unit test and still be unsaveable. Task 6 extends `validation.rs`: allow the path in `check_extension` (with its `expected` message updated) and dispatch that path to `resources::validate` in `validate_write`. Cost of the miss: without it, the feature is unreachable from the UI while every test passes — the same silent-no-op shape as the Phase 4 `projectScopedRealtimeTables` omission.
 - **Never regenerate `backend/migrations/taskflow_design/0001_auto.json` or `0002_create_design_layout.json`.** No migration is expected in this plan; if one appears, a new file with a new name is the only acceptable outcome.
 - Resource link schemes: **`https:` only**; `javascript:` and `data:` refused for both link and script shapes. Allowed `rel`: `preconnect`, `dns-prefetch`, `stylesheet`, `preload`.
 - Backend tests: `cargo test --workspace` (**a bare `cargo test` in `backend/` silently skips every plugin crate**). Frontend: `npm test`, then `npm run build`.
@@ -568,8 +569,8 @@ git commit -m "feat(design): rotate as a landscape device variant"
 
 ```rust
 use taskflow_design::resources::{
-    parse, validate, ResourcesDoc, ResourceLink, ResourceSet, ALLOWED_REL, MAX_HREF,
-    MAX_LINKS_PER_SET, MAX_SETS,
+    enabled_links, parse, to_json_string, validate, ResourcesDoc, ResourceLink, ResourceSet,
+    ALLOWED_REL, MAX_HREF, MAX_LINKS_PER_SET, MAX_SETS,
 };
 
 fn link(rel: &str, href: &str) -> ResourceLink {
@@ -930,6 +931,17 @@ fn an_empty_resource_list_emits_nothing() {
 }
 
 #[test]
+fn an_attribute_breaking_url_is_escaped_not_executed() {
+    // `validate` accepts this by design — a URL is opaque to it — so the EMIT
+    // path is the only thing standing between it and execution, now that
+    // `script-src` allows any https origin.
+    let nasty = "https://ok.example/x\" onload=\"alert(1)";
+    let tags = composer::resources_tags(&[(false, lk("stylesheet", nasty))]);
+    assert!(!tags.contains("\" onload="), "attribute escaped: {tags}");
+    assert!(tags.contains("&quot;") || tags.contains("&#34;"), "quote encoded: {tags}");
+}
+
+#[test]
 fn the_emit_path_cannot_produce_a_dangerous_scheme() {
     // validate() is what refuses these, but the EMIT path is a second door —
     // it must not be able to render javascript:/data: even from a row written
@@ -1004,6 +1016,8 @@ pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
     out
 }
 ```
+
+**Escaping is load-bearing, not hygiene.** `resources::validate` accepts a URL containing a double quote by design (a URL is opaque to it), and Task 7 widens `script-src` to `https:` — so an unescaped `href="https://ok.example/x" onload="…"` or a URL carrying a `">` would break out of the attribute and execute. Every interpolated value must go through `composer::esc`, and the test below exists specifically to pin that rather than to document it.
 
 Insert `{resources_tags(&manifest.resources)}` into the `<head>` of **both** `compose_document` and `compose_export_document` (the export is the downloaded page — a font that does not travel with it would be a silent surprise), immediately before the tokens stylesheet link.
 
