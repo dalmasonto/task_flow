@@ -698,7 +698,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .boolean()
         .optional()
         .describe(
-          "Set true when this message answers a DESIGN request (an inspect/design-ref message from the design page). It then appears in the design conversation, not just general chat.",
+          "Ignored for placement — the destination channel decides where a message lands; kept only for compatibility. Design has its own room (one per project: the channel with is_design true in list_channels), so post design replies there.",
         ),
       ...profileArg,
     },
