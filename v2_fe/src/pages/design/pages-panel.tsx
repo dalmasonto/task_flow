@@ -12,7 +12,7 @@
 
 import type { DesignManifest } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
-import { assignRoute, createGroup, groupOf, type LayoutDoc } from "@/lib/design-layout"
+import { assignRoute, createGroup, groupOf, MAX_GROUPS, type LayoutDoc } from "@/lib/design-layout"
 
 const UNGROUPED = "__ungrouped__"
 
@@ -81,7 +81,13 @@ export function PagesPanel({
           </div>
         )
       })}
-      {layout.groups.length ? (
+      {/* Gated on the CAP, not on emptiness. This button is the only caller of
+          `createGroup`, so hiding it while `groups` is empty would make the
+          first group impossible to create and the whole `groups` arrangement
+          permanently empty. Do not "simplify" this back to `length`.
+          `createGroup` enforces the same cap itself — that is enforcement,
+          this is display. */}
+      {layout.groups.length < MAX_GROUPS ? (
         <button
           className="mt-1 px-3 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
           onClick={addGroup}
