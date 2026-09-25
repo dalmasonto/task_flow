@@ -2200,6 +2200,35 @@ export function resolveActiveProject(
 
 ---
 
+### Task 27: Responsive review is sluggish because one write remounts every board
+
+**Requested by the user:** *"if a user hits 'responsive review' they end up with a very slugish UI, improve rendering so that it remains smooth as updates come in."*
+
+**Mechanism confirmed at the source — and the code states it as intent:**
+- `DesignSurfacePage.tsx:196-203` subscribes to the app's single SSE stream through the design-realtime bus, and on **any** `designFiles` event does `setContentEpoch((e) => e + 1)`. The comment above it reads *"file writes remount artboards"*.
+- The epoch is part of every frame's key: `design-canvas.tsx:413` renders `epoch={contentEpoch + boardEpoch}`, and `LazyFrame` keys on it. So **one write remounts every board on the canvas**, which reloads each composed document from the server.
+- `responsiveReview` (`:425-430`) sets `RESPONSIVE_REVIEW_DEVICES` — three devices — so the board count **triples**. Same remount storm, three times the boards. That is why this is where the user notices.
+
+**Why it is worse than N reloads:** the event is table-level. Whatever an agent or collaborator writes — a component, a token, a page — produces the same indiscriminate remount of every route at every device. During any active editing session the canvas is reloading everything continuously, and each reload re-runs the composer, re-fetches the frame's document and re-parses it.
+
+**Files:** `v2_fe/src/pages/design/DesignSurfacePage.tsx`, `v2_fe/src/pages/design/design-canvas.tsx` (+ a pure module/test for the coalescing)
+
+- [ ] **1. Coalesce the bump — the confirmed, cheapest fix.** A burst of writes must produce **one** epoch change, not one per event. Same shape as the pan fix (Task 25): a short settle after the last event. A pure "should this event schedule a bump" helper is testable, and the properties that matter are: a burst of N events produces **one** bump; a lone event still bumps; and the bump is not dropped when the burst ends (the classic coalescing bug, where the trailing event is swallowed).
+
+- [ ] **2. Find out whether the invalidation can be scoped before assuming it cannot.** `PUT /file` returns `affected_routes` (`views.rs:392`, computed by `affected_routes_for`), which is exactly the information needed to remount only the routes a write touched. **Check what the SSE event actually carries** — this project's ORM signals have a known ids-only limitation (`bulk_post_save` carries ids, not values), so the affected routes may not be on the wire. If they are not, **say so in your report and do not invent a second fetch path** to get them; coalescing (item 1) is then the fix, and per-route invalidation becomes a follow-up that needs the event payload widened first. Report which it is — that distinction is the difference between a small fix and a protocol change.
+
+- [ ] **3. Stop unrelated re-renders reaching the boards.** A parent state change — the transform, a panel toggle, a comment refresh — currently re-renders the whole canvas subtree. The boards should re-render when *their* inputs change, not when the page's do. Check whether `ArtboardCard`/`LazyFrame` are memoised and whether their props are stable (a fresh object or arrow function per render defeats memoisation silently, which is worth a comment where it is fixed).
+
+- [ ] **4. Do not reduce what responsive review shows.** The feature is inherently three devices; showing fewer boards would be fixing the symptom by removing the feature. If you conclude a cap or virtualisation is needed, write it up as a proposal rather than doing it — the user asked for smoothness, not for less review.
+
+- [ ] **5. Share the technique with Task 25 rather than inventing a second one.** The pan gesture has the same root cause — a per-event React state update forcing the whole canvas subtree to re-render — and the fix shape (hold live state outside React, commit on settle) is the same. If the two land differently, say why; two mechanisms for one problem is how the next person gets it wrong.
+
+- [ ] **6. Say what you could not verify.** Smoothness is not unit-testable and this repo has no RTL/jsdom. Do not claim the UI is smooth. Give the user a script instead: which page, how many routes and devices, what to do while watching, and what "smooth" means concretely — and state plainly that the coalescing is proven by test while the *feel* is not.
+
+- [ ] **7. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning**, measured per file. **Do not run `npm run build`** and do not push: publishing is on hold pending the user's local testing. Commit with `git commit -- <paths>`, never `git add <paths> && git commit` — several agents share this worktree's index.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
