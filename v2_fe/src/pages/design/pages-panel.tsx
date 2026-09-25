@@ -5,18 +5,26 @@
 ///
 /// * **Groups** — one block per group, in `layout.groups` order: a header
 ///   carrying the group's POSITION (`1. Auth`, the index in `layout.groups`,
-///   which is what the user means by a group's position) and its move up/down
-///   arrows, then the group's pages as ordinary rows beneath it. `+ Add group`
-///   lives in this section's heading, because a group is what it makes. An
-///   EMPTY group is drawn like any other — heading, arrows, no rows — which is
-///   the state the user is in the moment they create one, and where the arrows
-///   they need are.
+///   which is what the user means by a group's position), the group's OWN bulk
+///   open/close control and its move up/down arrows, then the group's pages as
+///   ordinary rows beneath it. `+ Add group` lives in this section's heading,
+///   because a group is what it makes. An EMPTY group is drawn like any other —
+///   heading, arrows, no rows, and no select control — which is the state the
+///   user is in the moment they create one, and where the arrows they need are.
 /// * **Select all / Deselect** — the same `openRoutes` state every row's
 ///   checkbox writes, in bulk. A second ENTRY POINT, never a second state: the
 ///   box means "every page is on the canvas", which is what a row's box has
 ///   always meant. It stays between the two lists because it is a control
 ///   rather than a heading, and because that is where it reads as "every page"
 ///   — the groups above it, the rows below it.
+///
+///   Every group header carries the same control scoped to its own pages, from
+///   the same family of helper (`selectGroupState`), which is the third entry
+///   point to that one state and the reason a user can open a few screens of a
+///   big project without opening all of them: "Select group X" adds X's pages to
+///   what is already open and closes nothing, where the global "Select all"
+///   replaces the list. It is in the HEADER because the header is the only thing
+///   that scopes a control to "this group's pages".
 /// * **Ungrouped** — every page no group claims, as its own list, last. It is
 ///   the state a project is in before anyone opens the group picker, so this is
 ///   the first-run listing, and it never disappears: a page has exactly one
@@ -136,6 +144,7 @@ import {
   groupedPages,
   numberedPages,
   selectAllState,
+  selectGroupState,
   type GroupedPages,
   type NumberedPage,
 } from "./pages-order"
@@ -412,7 +421,8 @@ export function PagesPanel({
   }
 
   /// One group's block: its heading — the position number in `layout.groups`,
-  /// then its name — its move controls, and its pages beneath it.
+  /// then its name — its own bulk open/close control and its move controls, and
+  /// its pages beneath it.
   ///
   /// The arrows move the group in `layout.groups` by one place, through
   /// `moveGroup`, which normalises nothing because there is nothing to normalise
@@ -430,12 +440,46 @@ export function PagesPanel({
   const groupBlock = (section: GroupedPages["groups"][number], index: number) => {
     const first = index === 0
     const last = index === sections.groups.length - 1
+    /// This group's own bulk control, from the helper that is `selectAllState`'s
+    /// sibling — so the two can never disagree about what "all open" means, and
+    /// neither the box nor the word is derived a second time here. It is drawn
+    /// only when the group HAS pages: a checked "Deselect" over a group with
+    /// nothing in it would offer to close nothing, which is the same call the
+    /// panel already makes for a project with no pages at all (below).
+    const select = selectGroupState(routes, section, openRoutes)
     return (
       <li key={section.id} className="flex flex-col pl-3">
         <div className="flex items-center gap-1 px-2 py-0.5">
           <h4 className="min-w-0 flex-1 truncate px-1 text-xs font-medium">
             {index + 1}. {section.name}
           </h4>
+          {/* The group's own open/close control — "Select group" / "Deselect",
+              the action rather than a second name for the state — beside the
+              arrows that move the group, and above the rows it acts on. The box
+              is the panel's third checkbox and means what the other two mean:
+              every page in its scope is on the canvas. It writes the whole open
+              list through `onOpenRoutesChange`, the same setter the global
+              control uses, so the pages OUTSIDE this group keep what they had:
+              this is a scope, not a reset.
+
+              It sits between the name and the arrows so the arrows stay the
+              rightmost pair in every header, where they already are, and it is
+              wrapped in a `<span>` rather than a `<label>`: the panel's one
+              label is the bulk control's, where a click on the word is meant to
+              hit the box, and a second one here would be a second thing
+              forwarding clicks. */}
+          {section.pages.length ? (
+            <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+              <input
+                type="checkbox"
+                className="size-3.5 shrink-0 accent-foreground"
+                aria-label={`${select.label} ${section.name}`}
+                checked={select.allOpen}
+                onChange={() => onOpenRoutesChange(select.next)}
+              />
+              {select.label}
+            </span>
+          ) : null}
           <button
             type="button"
             className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"

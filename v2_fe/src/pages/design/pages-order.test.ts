@@ -7,7 +7,13 @@ import {
   normalizeLayout,
   removeGroup,
 } from "@/lib/design-layout"
-import { groupedPages, numberedPages, selectAllState, type GroupedPages } from "./pages-order"
+import {
+  groupedPages,
+  numberedPages,
+  selectAllState,
+  selectGroupState,
+  type GroupedPages,
+} from "./pages-order"
 
 // The panel these helpers exist for is the Pages tab, and what it can silently
 // get wrong is a row the user cannot find or a number that moves under them: a
@@ -589,5 +595,131 @@ describe("selectAllState", () => {
     expect(state.allOpen).toBe(false)
     expect(state.label).toBe("Select all")
     expect(state.next).toEqual([])
+  })
+})
+
+describe("selectGroupState", () => {
+  /// Two groups over the manifest: Auth holds its two middle pages, Ops its
+  /// last, and `/` belongs to no group. Read through `groupedPages`, because
+  /// that is what the panel's headers are built from — the helper's scope is the
+  /// list the SECTION carries, not the document's own `routes` array, and these
+  /// tests would be substituting a different scope if they built it by hand.
+  const sections = () =>
+    groupedPages(
+      layout([
+        { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+        { id: "g2", name: "Ops", routes: ["/settings"] },
+      ]),
+      MANIFEST,
+    )
+  const auth = () => sections().groups[0]
+  const ops = () => sections().groups[1]
+
+  // "Select group" ADDS the group's pages to what is open. It is not a reset:
+  // the pages outside the scope are carried through, which is the whole reason
+  // `next` is a list rather than the group's own routes. This fixture is chosen
+  // so that both halves are visible — Ops' page is open and must stay open, `/`
+  // is closed and must stay closed — and each of them fails a different wrong
+  // implementation: writing only the scope loses `/settings`, and acting over
+  // every route opens `/`.
+  it("opens a closed group's pages, and leaves every other page as it was", () => {
+    const state = selectGroupState(MANIFEST, auth(), ["/settings"])
+
+    expect(state.allOpen).toBe(false)
+    expect(state.label).toBe("Select group")
+    expect(state.next).toEqual(["/login", "/signup", "/settings"])
+  })
+
+  // The other direction of the same rule: "Deselect" removes the group's pages
+  // and nothing else. Everything is open here, so an implementation that wrote
+  // the empty list (as `selectAllState` does) would close the whole project, and
+  // one that acted over every route would do the same.
+  it("closes an open group's pages, and leaves every other page as it was", () => {
+    const state = selectGroupState(MANIFEST, ops(), ["/", "/login", "/signup", "/settings"])
+
+    expect(state.allOpen).toBe(true)
+    expect(state.label).toBe("Deselect")
+    expect(state.next).toEqual(["/", "/login", "/signup"])
+  })
+
+  // The property this control exists to obey, and the one that would drift
+  // silently: the group's control and the global one must never disagree about
+  // what "all open" means. Both decide it in their own helper, and a per-group
+  // control that read "Deselect" as soon as ANY of its pages was open would look
+  // perfectly reasonable on its own while offering, next to a row checkbox that
+  // says otherwise, to open nothing.
+  //
+  // It is asserted where it can be EXACT rather than paraphrased: a group that
+  // holds every page has the global control's own scope, so in every state of
+  // the project the two must reach the same verdict AND write the same list.
+  // The three states are the three cases the agreement is about — nothing open,
+  // something open, everything open — and the middle one is the partial case the
+  // panel's own tests cannot reach.
+  it("agrees with the global control when a group's scope is the whole project", () => {
+    const everything = groupedPages(
+      layout([{ id: "g1", name: "Everything", routes: MANIFEST.map((route) => route.path) }]),
+      MANIFEST,
+    ).groups[0]
+
+    for (const open of [[], ["/login"], MANIFEST.map((route) => route.path)]) {
+      const where = `open=${open.join(" ") || "none"}`
+      const global = selectAllState(MANIFEST, open)
+      const group = selectGroupState(MANIFEST, everything, open)
+
+      expect(group.allOpen, where).toBe(global.allOpen)
+      expect(group.next, where).toEqual(global.next)
+    }
+    // The one difference is the noun: the action word is the same one — the same
+    // "Select"/"Deselect" the two controls print — so neither can contradict the
+    // other on screen about what its click would do.
+    expect(selectAllState(MANIFEST, []).label).toBe("Select all")
+    expect(selectGroupState(MANIFEST, everything, []).label).toBe("Select group")
+    expect(selectAllState(MANIFEST, []).label).toContain("Select")
+    expect(selectGroupState(MANIFEST, everything, []).label).toContain("Select")
+  })
+
+  // A group entry that is not a page — the manifest and the layout are two
+  // separate fetches, and `normalizeLayout` keeps whatever a group names. It
+  // lists no row, so it must open nothing: the scope is the PAGES the section
+  // carries, and nothing about a route the project does not have belongs in the
+  // open list the canvas is drawn from.
+  it("opens nothing for a group entry that is not a page", () => {
+    const stale = groupedPages(
+      layout([{ id: "g1", name: "Ghost", routes: ["/ghost"] }]),
+      MANIFEST,
+    ).groups[0]
+    const state = selectGroupState(MANIFEST, stale, ["/settings"])
+
+    expect(state.allOpen).toBe(false)
+    expect(state.next).toEqual(["/settings"])
+  })
+
+  // The open list is not necessarily the manifest's — a stale tab can hold a
+  // route the project no longer has — and this control writes from the manifest,
+  // as `selectAllState` does: a route the panel cannot list has no row to close,
+  // so preserving it would keep a page open that nothing here shows.
+  it("writes the manifest's pages, not whatever happens to be open", () => {
+    const state = selectGroupState(MANIFEST, auth(), ["/login", "/ghost"])
+
+    expect(state.allOpen).toBe(false)
+    expect(state.next).toEqual(["/login", "/signup"])
+  })
+
+  // Vacuous truth would read "Deselect" over a group with no pages — a checked
+  // box offering to close nothing. The panel does not draw the control in that
+  // state (`pages-panel.test.ts`), and this is the definition it would fall back
+  // on if it did, exactly as `selectAllState` reads for a project with no pages.
+  // What such a control would WRITE is the open list unchanged: a scope with
+  // nothing in it can add nothing, and must not close anything either.
+  it("reads Select group when the group has no pages", () => {
+    const empty = groupedPages(
+      layout([{ id: "g1", name: "Admin", routes: [] }]),
+      MANIFEST,
+    ).groups[0]
+    const state = selectGroupState(MANIFEST, empty, ["/login"])
+
+    expect(state.allOpen).toBe(false)
+    expect(state.label).toBe("Select group")
+    expect(state.next).toEqual(["/login"])
   })
 })

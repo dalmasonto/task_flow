@@ -165,10 +165,48 @@ const rows = (html: string) =>
       ]
     })
 
+/// One group's HEADER LINE, read structurally: `li > div > h4` and everything up
+/// to that div's close — the name, the group's own open/close control and its
+/// two arrows. The rows are drawn in a `<ul>` OUTSIDE that div, so "in the
+/// group's header" becomes a claim about the markup's nesting rather than about
+/// the order of a flat scan: a control drawn over the rows, or under the next
+/// group's heading, fails on this slice.
+///
+/// The heading is ESCAPED for the reason `control` escapes the arrows' labels —
+/// a group is named by the user, and a name is pattern syntax ("Auth (v2)").
+/// `null` when the panel draws no such heading, which is a state worth seeing.
+const headerOf = (html: string, heading: string) => {
+  const pattern = new RegExp(
+    `<li[^>]*><div[^>]*><h4[^>]*>${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</h4>([\\s\\S]*?)</div>`,
+  )
+  return pattern.exec(html)?.[1] ?? null
+}
+
+/// A group's OWN bulk control: the box in its header and the word beside it,
+/// found by the aria-label the panel gives it, which carries the action AND the
+/// group's name ("Select group Auth", "Deselect Auth") — so a control that
+/// drifted onto another group's header fails here rather than passing quietly.
+/// The word is read back from the drawn TEXT, not from the pattern: the box and
+/// the word are one control, and a label that disagreed with its own text would
+/// not match at all.
+///
+/// `null` for the state an empty group is in — no control — which is asserted
+/// rather than skipped, for the reason `control` returns `null` too.
+const groupSelect = (header: string | null, name: string) => {
+  if (header === null) return null
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = new RegExp(
+    `<input[^>]*aria-label="(?:Select group|Deselect) ${escaped}"([^>]*)>([^<]*)`,
+  ).exec(header)
+  return match === null ? null : { label: match[2], checked: match[1].includes("checked") }
+}
+
 /// The panel's GROUPS as drawn, in document order: each group's numbered name,
-/// the move controls beside it, and the rows under it. Built on `blocks`, so a
-/// group's rows are the ones between its heading and the next heading — the
-/// nesting, asserted rather than assumed.
+/// the move controls beside it, the group's own bulk control, and the rows under
+/// it. Built on `blocks`, so a group's rows are the ones between its heading and
+/// the next heading — the nesting, asserted rather than assumed. The control is
+/// read from the group's header (`headerOf`) and not from its whole block, so
+/// where it sits is asserted with it.
 const groupBlocks = (html: string) =>
   blocks(html)
     .filter((block) => block.level === 4)
@@ -181,6 +219,7 @@ const groupBlocks = (html: string) =>
         heading: block.text,
         up: control(block.body, `Move group ${name} up`),
         down: control(block.body, `Move group ${name} down`),
+        select: groupSelect(headerOf(html, block.text), name),
         rows: rows(block.body),
       }
     })
@@ -307,6 +346,10 @@ describe("PagesPanel", () => {
         heading: "1. Auth",
         up: { disabled: true },
         down: { disabled: false },
+        // Every group with pages carries its own open/close control ("the
+        // feature", in full, in the test below); the only page open in this
+        // fixture is the ungrouped `/`, so both groups read the action.
+        select: { label: "Select group", checked: false },
         rows: [
           {
             route: "/signup",
@@ -328,6 +371,7 @@ describe("PagesPanel", () => {
         heading: "2. Ops",
         up: { disabled: false },
         down: { disabled: false },
+        select: { label: "Select group", checked: false },
         rows: [
           {
             route: "/login",
@@ -339,8 +383,16 @@ describe("PagesPanel", () => {
         ],
       },
       // An empty group keeps its heading, its position and its arrows: it is
-      // what `+ Add group` makes, and its row is where its arrows live.
-      { heading: "3. Admin", up: { disabled: false }, down: { disabled: true }, rows: [] },
+      // what `+ Add group` makes, and its row is where its arrows live. It gets
+      // NO open/close control — nothing to select — which is the one thing about
+      // that control that is not the same for every group.
+      {
+        heading: "3. Admin",
+        up: { disabled: false },
+        down: { disabled: true },
+        select: null,
+        rows: [],
+      },
     ])
 
     // The ungrouped section numbers ITSELF from 1 rather than continuing, and
@@ -442,6 +494,10 @@ describe("PagesPanel", () => {
         heading: "1. Auth (v2)",
         up: { disabled: true },
         down: { disabled: true },
+        // The group's own control is found the same way, and it is the same
+        // hazard: the aria-label carries the NAME, so an unescaped pattern here
+        // reads "the panel draws no control" for a group anyone could have named.
+        select: { label: "Select group", checked: false },
         rows: [
           {
             route: "/login",
@@ -578,6 +634,119 @@ describe("PagesPanel", () => {
     })
   })
 
+  // The group's own bulk control: the middle granularity between one row's box
+  // and the Select all above, so a user can open a few screens of a big project
+  // without opening all of them. What a CLICK writes is `pages-order.test.ts`'s
+  // (`selectGroupState.next`, page by page, and its agreement with
+  // `selectAllState`), because nothing here can click; what this file can pin is
+  // the state each group's control is DRAWN in, over the right group, in the
+  // right place — and that is what these three tests do.
+  it("scopes each group's control to that group, and reads the same verdict the global control does", () => {
+    const groups = [
+      { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+      { id: "g2", name: "Ops", routes: ["/settings"] },
+      { id: "g3", name: "Admin", routes: [] },
+    ]
+    // Auth is HALF open — its first page is on the canvas, its second is not.
+    // Ops is fully open. `/` is ungrouped and closed.
+    const html = render(layout({ groups }), { open: ["/login", "/settings"] })
+
+    expect(
+      groupBlocks(html).map((group) => [group.heading, group.select]),
+      `rendered markup:\n${html}`,
+    ).toEqual([
+      // Partly open reads the ACTION, not the state: "Select group" — the same
+      // verdict the global control reaches for the same situation, which reads
+      // "Select all" below. A box that said "Deselect" here (checked because
+      // ANY of the group's pages was open) would be offering to close a page the
+      // user still wants, and would contradict the row checkbox beside it.
+      ["1. Auth", { label: "Select group", checked: false }],
+      // Fully open: the box is checked and the word is the action that would
+      // undo it, exactly as the global control's is when every page is open.
+      ["2. Ops", { label: "Deselect", checked: true }],
+      // No pages, no control: a checked "Deselect" over an empty group would
+      // offer to close nothing — the call the panel already makes for a project
+      // with no pages at all.
+      ["3. Admin", null],
+    ])
+
+    // The agreement, read off the markup: with one page open of four, the two
+    // controls say the same KIND of thing about their own scopes, neither
+    // claiming "all open". The exact form of this property — a group whose scope
+    // is the whole project writing the very list the global control writes — is
+    // asserted in `pages-order.test.ts`, where both helpers can be called.
+    expect(bulk(html), `rendered markup:\n${html}`).toEqual({ checked: false, label: "Select all" })
+
+    // ...and in the other direction, too: with everything open, both read the
+    // action that would close their own scope.
+    const allOpen = render(layout({ groups }), {
+      open: MANIFEST.map((route) => route.path),
+    })
+    expect(
+      groupBlocks(allOpen).map((group) => [group.heading, group.select]),
+      `rendered markup:\n${allOpen}`,
+    ).toEqual([
+      ["1. Auth", { label: "Deselect", checked: true }],
+      ["2. Ops", { label: "Deselect", checked: true }],
+      ["3. Admin", null],
+    ])
+    expect(bulk(allOpen)).toEqual({ checked: true, label: "Deselect" })
+  })
+
+  // WHERE the control is drawn is part of the feature rather than styling: the
+  // header is the only thing that scopes a control to "this group's pages", and
+  // the user's mental model is literally "hit select group X". `headerOf` reads
+  // `li > div > h4` forward to that div's close, so both halves of this are
+  // structural — the control and BOTH arrows are inside the header div, and the
+  // group's rows are not.
+  it("draws the group's control in the header, beside the arrows that move it", () => {
+    const html = render(layout({ groups: [{ id: "g1", name: "Auth", routes: ["/login"] }] }), {
+      open: [],
+    })
+    const header = headerOf(html, "1. Auth")
+
+    expect(header, `rendered markup:\n${html}`).not.toBeNull()
+    expect(groupBlocks(html)[0].select).toEqual({ label: "Select group", checked: false })
+    expect(control(header!, "Move group Auth up")).not.toBeNull()
+    expect(control(header!, "Move group Auth down")).not.toBeNull()
+    // No ROW is in this slice: the group's own rows are drawn in the `<ul>`
+    // after the header, so the slice is the header and nothing else — which is
+    // what makes the two lines above a statement about where the control sits
+    // rather than about everything the group draws.
+    expect(rows(header!)).toEqual([])
+    // The block it was sliced out of does draw the row, so the header is a
+    // proper part of the group rather than the whole of it.
+    const group = blocks(html).find((block) => block.level === 4)!
+    expect(rows(group.body).map((row) => row.route), `rendered markup:\n${html}`).toEqual(["/login"])
+  })
+
+  // An empty group, and a group whose only entry is not a page. Neither has a
+  // row to act on, so neither gets a control — and the second fixture is why the
+  // rule is stated over the PAGES this panel lists rather than over the group's
+  // own `routes` array, which is non-empty there. (The same rule reaches the
+  // loading state, where the groups are known and their pages are not: see the
+  // test below.)
+  it("draws no control over a group with no pages, however the group is written", () => {
+    const html = render(
+      layout({
+        groups: [
+          { id: "g1", name: "Empty", routes: [] },
+          { id: "g2", name: "Stale", routes: ["/ghost"] },
+        ],
+      }),
+      { open: ["/login"] },
+    )
+
+    expect(html).not.toContain("/ghost")
+    expect(
+      groupBlocks(html).map((group) => [group.heading, group.select, group.rows]),
+      `rendered markup:\n${html}`,
+    ).toEqual([
+      ["1. Empty", null, []],
+      ["2. Stale", null, []],
+    ])
+  })
+
   it("draws no rows and no bulk control while the manifest is still loading", () => {
     // The layout can arrive before the manifest does, and the panel is mounted
     // for the whole load. Nothing to list means nothing to select: a bulk
@@ -594,8 +763,18 @@ describe("PagesPanel", () => {
     // listed with their arrows and no rows, because their pages come from the
     // manifest that has not arrived. A group drawn as a result rather than as a
     // heading would be the loading state pretending to be an answer.
+    // ...and no control either, for the same reason there are no rows: the group
+    // is scoped to the PAGES the panel lists, and the manifest that lists them
+    // has not arrived. A control here would be a box over pages nothing knows the
+    // route of yet.
     expect(groupBlocks(html)).toEqual([
-      { heading: "1. Auth", up: { disabled: true }, down: { disabled: true }, rows: [] },
+      {
+        heading: "1. Auth",
+        up: { disabled: true },
+        down: { disabled: true },
+        select: null,
+        rows: [],
+      },
     ])
     expect(ungroupedRows(html)).toEqual([])
   })

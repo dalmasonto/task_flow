@@ -208,3 +208,82 @@ export function selectAllState(routes: RouteEntry[], openRoutes: string[]): Sele
     next: allOpen ? [] : routes.map((entry) => entry.path),
   }
 }
+
+/// The same three fields as `SelectAllState`, in the same order, with the label
+/// vocabulary of a control that speaks for ONE group rather than the project:
+/// the action word is the global control's `Select`/`Deselect`, and the noun
+/// says what it is a scope over. The two controls are the same shape of thing —
+/// a box, a word, and the list a click would write — which is what lets a reader
+/// meet them together and what stops one of them growing a field the other has
+/// no counterpart for.
+export type SelectGroupState = {
+  /** Whether every page of the group is open: the state of the control's box. */
+  allOpen: boolean
+  /** What the control reads. The two states are the whole vocabulary, and
+   *  "all open" is this helper's verdict — never the panel's, and never a
+   *  second one derived beside the box. */
+  label: "Select group" | "Deselect"
+  /** The open routes the control WRITES. Deliberately NOT the group's own
+   *  pages: it is the whole list this click would produce, so the pages outside
+   *  the group keep what they had. In MANIFEST order, like every other writer
+   *  that establishes that order (`DesignSurfacePage`'s hydration comment) —
+   *  the open list's order is what `resolveRouteOrder` gives the pages no flow
+   *  names. */
+  next: string[]
+}
+
+/// The bulk open/close control for ONE group: `selectAllState`, scoped to a
+/// group's pages.
+///
+/// It is a second ENTRY POINT to `openRoutes`, never a second state — the panel
+/// hands `next` to the same setter the row checkboxes and the global control
+/// write. That is why `next` is the whole list rather than the group's pages: a
+/// control that wrote only its own scope would close every other group the
+/// moment it was used, which is the opposite of what "Select group Auth" says
+/// the click does.
+///
+/// The PARTIAL case is decided here, and it is the same decision
+/// `selectAllState` makes: the box is checked only when there is nothing left in
+/// the scope to open, so a group with some pages open reads "Select group" and
+/// not "Deselect". That is the whole of ruling 2 — the two controls cannot
+/// disagree about what "all open" means, because neither decides it anywhere
+/// else. A per-group control that read "Deselect" as soon as ANY of its pages
+/// was open would look reasonable on its own and would offer, next to a row
+/// checkbox that says otherwise, to close pages the user asked for.
+///
+/// The scope is `group.pages` — `groupedPages`' own list, which is the rows the
+/// panel draws under that header — rather than the document's `group.routes`
+/// array. A group entry naming a page this project does not have lists no row,
+/// so it must open nothing, and the two lists cannot drift apart if there is
+/// only one of them.
+///
+/// Writing from the MANIFEST's routes, and not from whatever happens to be open,
+/// is `selectAllState`'s rule kept intact (see its own note): a route this panel
+/// cannot list has no row here, so preserving one would keep an open page that
+/// nothing in this panel shows or closes.
+export function selectGroupState(
+  routes: RouteEntry[],
+  group: GroupedPages["groups"][number],
+  openRoutes: string[],
+): SelectGroupState {
+  const pages = new Set(group.pages.map((page) => page.route))
+  const open = new Set(openRoutes)
+  // `group.pages.length` and not a bare `every`, for `selectAllState`'s reason:
+  // with no pages in the group, "every page of it is open" is vacuously true and
+  // the control would read "Deselect" — a checked box offering to close nothing.
+  // The panel does not draw the control in that state either; this is the
+  // definition it falls back on.
+  const allOpen = group.pages.length > 0 && group.pages.every((page) => open.has(page.route))
+  return {
+    allOpen,
+    label: allOpen ? "Deselect" : "Select group",
+    // One rule, both directions: a page of this group follows the box, and every
+    // other page keeps what it had. Checked, the group's pages go; unchecked,
+    // they join the list — and either way the pages outside the group are
+    // carried through untouched, which is what "another group is not affected"
+    // means.
+    next: routes
+      .filter((entry) => (pages.has(entry.path) ? !allOpen : open.has(entry.path)))
+      .map((entry) => entry.path),
+  }
+}
