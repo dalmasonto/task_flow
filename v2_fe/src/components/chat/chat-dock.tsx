@@ -7,6 +7,7 @@ import { type Project } from "@/lib/workspace-view"
 import { type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { dockBodyFor } from "@/lib/chat-dock-state"
+import { findPublicRoomChat } from "@/lib/live-mappers"
 import { useCallback, useEffect, useState } from "react"
 
 
@@ -110,7 +111,7 @@ export function ChatDock({
     })
 
   // Nothing selected yet (first open, or the stored id no longer resolves):
-  // fall back to the project room, then any DM, so the dock never opens empty.
+  // fall back to the PROJECT ROOM, then any DM, so the dock never opens empty.
   //
   // It waits for the channel list first, and that matters more than it looks.
   // With a cold slice `mapLiveChannelChats` returns ONE synthesised chat
@@ -121,12 +122,22 @@ export function ChatDock({
   // real list lands, the stored id can be resolved, which is what this effect is
   // for. `allChats` is non-empty in both cases, so this cannot be expressed as
   // an emptiness check.
+  //
+  // The room is found by MARKER, like every other surface. What this used to do
+  // was `channelChats[0]`, which its own comment called "the project room" while
+  // the code meant "alphabetically first" — and the two came apart twice over:
+  // any user-created room named before it in the alphabet won, and the design
+  // room sorted ahead of the project room as "Design room" < "Project room", so
+  // for a while the dock's default WAS the design room. Excluding the design room
+  // from `mapLiveChannelChats` moved that default without fixing it, which is why
+  // the fix belongs here rather than in a filter somewhere upstream.
   useEffect(() => {
     if (selectedChat || !allChats.length) return
     if (!channelsLoaded) return
-    const first = channelChats[0] ?? directChats[0]
+    const projectRoom = liveWorkspace ? findPublicRoomChat(liveWorkspace, currentUser) : null
+    const first = projectRoom ?? directChats[0]
     if (first) onChangeChat(first.id)
-  }, [selectedChat, allChats, channelChats, directChats, channelsLoaded, onChangeChat])
+  }, [selectedChat, allChats, directChats, channelsLoaded, liveWorkspace, currentUser, onChangeChat])
 
   // The way out of the unknown-channels state: re-ask. `onRefreshWorkspace`
   // reloads the project's core workspace, which invalidates every loaded slice

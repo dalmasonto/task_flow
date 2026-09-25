@@ -1104,6 +1104,12 @@ export function liveChannelStatus(channel: TaskflowWorkspace["agentChannels"][nu
   if (channel.kind === "task") return "Task room"
   if (channel.kind === "incident") return "Incident room"
   if (channel.kind === "direct") return "Direct"
+  // A user-created Group room is the third thing the fall-through below would
+  // mislabel. Users create rooms freely and harmlessly, so this is not
+  // hypothetical: every one of them was reading as "Project room", which is the
+  // same claim the markers exist to make unforgeable — a room is named for what
+  // it IS, and only the room marked `is_public` is the project room.
+  if (channel.kind === "group") return "Group"
   return "Project room"
 }
 
@@ -1195,6 +1201,12 @@ export function mapLiveChannelChats(
       primaryAgent: primaryAgentName(workspace, members),
       unread: channelUnreadCount(workspace, channel.id, currentUser),
       messages: mapLiveChannelMessages(workspace, channel.id, channel.title, currentUser),
+      // `?? false` on a column the generated client types as a required boolean:
+      // the default is deliberate defensiveness, not doubt about the schema. A
+      // frontend can outlive the backend it was built against by one deploy (the
+      // plan's own sequencing note), and a row that predates the markers must read
+      // as "neither room" — the one answer that cannot open the wrong conversation.
+      // `mapLiveChannelMessages` reads `is_design` off a message the same way.
       isPublic: channel.is_public ?? false,
       isDesign: channel.is_design ?? false,
     }

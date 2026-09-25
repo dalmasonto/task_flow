@@ -16,6 +16,18 @@
 // serialises it. Field names are snake_case because the wire is snake_case.
 // A `ForeignKey<T>` is the target's primary-key value, not a nested object.
 
+/** `component` = Component, `instance` = Instance */
+export type DesignCommentScope = "component" | "instance";
+
+/** `open` = Open, `sent` = Sent, `addressed` = Addressed, `dismissed` = Dismissed */
+export type DesignCommentStatus = "open" | "sent" | "addressed" | "dismissed";
+
+/** `token` = Token, `component` = Component, `page` = Page, `asset` = Asset */
+export type DesignFileKind = "token" | "component" | "page" | "asset";
+
+/** `rows` = Rows, `bands` = Bands, `groups` = Groups */
+export type DesignLayoutView = "rows" | "bands" | "groups";
+
 /** `project` = Project, `task` = Task, `direct` = Direct, `incident` = Incident, `group` = Group */
 export type TaskflowAgentChannelKind = "project" | "task" | "direct" | "incident" | "group";
 
@@ -133,6 +145,54 @@ export interface AuthToken {
   last_used_at: string | null;
 }
 
+/** Table `design_comment`, from the `app` plugin. */
+export interface DesignComment {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  page_path: string;
+  component_name: string | null;
+  element_path: string;
+  src_ref: string | null;
+  viewport: string;
+  rect: string;
+  snippet: string;
+  body: string;
+  scope: DesignCommentScope;
+  status: DesignCommentStatus;
+  thread_id: string | null;
+  author: string;
+  resolution_note: string | null;
+  orphaned: boolean;
+  created_at: string | null;
+}
+
+/** Table `design_file`, from the `app` plugin. */
+export interface DesignFile {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  kind: DesignFileKind;
+  path: string;
+  content: string;
+  version: number;
+  updated_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Table `design_layout`, from the `app` plugin. */
+export interface DesignLayout {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  view: DesignLayoutView;
+  layout_json: string;
+  updated_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 /**
  * Media file
  * Table `media_file`, from the `app` plugin.
@@ -211,6 +271,8 @@ export interface TaskflowAgentChannel {
   /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
   created_by_agent: number | null;
   archived: boolean;
+  is_public: boolean;
+  is_design: boolean;
   created_at: string | null;
 }
 
@@ -784,6 +846,274 @@ export interface AuthTokenUpdate {
   last_used_at?: string | null;
 }
 
+/** Filterable query parameters for `design_comment`. Every key is optional and AND-combined server-side. */
+export interface DesignCommentFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "page_path"?: string;
+  "page_path__ne"?: string;
+  "page_path__contains"?: string;
+  "page_path__icontains"?: string;
+  "page_path__startswith"?: string;
+  "page_path__in"?: string[];
+  "component_name"?: string;
+  "component_name__ne"?: string;
+  "component_name__contains"?: string;
+  "component_name__icontains"?: string;
+  "component_name__startswith"?: string;
+  "component_name__in"?: string[];
+  "component_name__isnull"?: boolean;
+  "element_path"?: string;
+  "element_path__ne"?: string;
+  "element_path__contains"?: string;
+  "element_path__icontains"?: string;
+  "element_path__startswith"?: string;
+  "element_path__in"?: string[];
+  "src_ref"?: string;
+  "src_ref__ne"?: string;
+  "src_ref__contains"?: string;
+  "src_ref__icontains"?: string;
+  "src_ref__startswith"?: string;
+  "src_ref__in"?: string[];
+  "src_ref__isnull"?: boolean;
+  "viewport"?: string;
+  "viewport__ne"?: string;
+  "viewport__contains"?: string;
+  "viewport__icontains"?: string;
+  "viewport__startswith"?: string;
+  "viewport__in"?: string[];
+  "rect"?: string;
+  "rect__ne"?: string;
+  "rect__contains"?: string;
+  "rect__icontains"?: string;
+  "rect__startswith"?: string;
+  "rect__in"?: string[];
+  "snippet"?: string;
+  "snippet__ne"?: string;
+  "snippet__contains"?: string;
+  "snippet__icontains"?: string;
+  "snippet__startswith"?: string;
+  "snippet__in"?: string[];
+  "body"?: string;
+  "body__ne"?: string;
+  "body__contains"?: string;
+  "body__icontains"?: string;
+  "body__startswith"?: string;
+  "body__in"?: string[];
+  "scope"?: DesignCommentScope;
+  "scope__ne"?: DesignCommentScope;
+  "scope__contains"?: string;
+  "scope__icontains"?: string;
+  "scope__startswith"?: string;
+  "scope__in"?: DesignCommentScope[];
+  "status"?: DesignCommentStatus;
+  "status__ne"?: DesignCommentStatus;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: DesignCommentStatus[];
+  "thread_id"?: string;
+  "thread_id__ne"?: string;
+  "thread_id__contains"?: string;
+  "thread_id__icontains"?: string;
+  "thread_id__startswith"?: string;
+  "thread_id__in"?: string[];
+  "thread_id__isnull"?: boolean;
+  "author"?: string;
+  "author__ne"?: string;
+  "author__contains"?: string;
+  "author__icontains"?: string;
+  "author__startswith"?: string;
+  "author__in"?: string[];
+  "resolution_note"?: string;
+  "resolution_note__ne"?: string;
+  "resolution_note__contains"?: string;
+  "resolution_note__icontains"?: string;
+  "resolution_note__startswith"?: string;
+  "resolution_note__in"?: string[];
+  "resolution_note__isnull"?: boolean;
+  "orphaned"?: boolean;
+  "orphaned__ne"?: boolean;
+  "orphaned__in"?: boolean[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type DesignCommentOrdering = "id" | "-id" | "project" | "-project" | "page_path" | "-page_path" | "component_name" | "-component_name" | "element_path" | "-element_path" | "src_ref" | "-src_ref" | "viewport" | "-viewport" | "rect" | "-rect" | "snippet" | "-snippet" | "body" | "-body" | "scope" | "-scope" | "status" | "-status" | "thread_id" | "-thread_id" | "author" | "-author" | "resolution_note" | "-resolution_note" | "orphaned" | "-orphaned" | "created_at" | "-created_at";
+/** Body for creating a `design_comment`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface DesignCommentCreate {
+  project: number;
+  page_path: string;
+  component_name?: string | null;
+  element_path: string;
+  src_ref?: string | null;
+  viewport: string;
+  rect: string;
+  snippet: string;
+  body: string;
+  scope?: DesignCommentScope;
+  status?: DesignCommentStatus;
+  thread_id?: string | null;
+  author: string;
+  resolution_note?: string | null;
+  orphaned?: boolean;
+}
+/** Body for updating a `design_comment` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface DesignCommentUpdate {
+  project?: number;
+  page_path?: string;
+  component_name?: string | null;
+  element_path?: string;
+  src_ref?: string | null;
+  viewport?: string;
+  rect?: string;
+  snippet?: string;
+  body?: string;
+  scope?: DesignCommentScope;
+  status?: DesignCommentStatus;
+  thread_id?: string | null;
+  author?: string;
+  resolution_note?: string | null;
+  orphaned?: boolean;
+}
+
+/** Filterable query parameters for `design_file`. Every key is optional and AND-combined server-side. */
+export interface DesignFileFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "kind"?: DesignFileKind;
+  "kind__ne"?: DesignFileKind;
+  "kind__contains"?: string;
+  "kind__icontains"?: string;
+  "kind__startswith"?: string;
+  "kind__in"?: DesignFileKind[];
+  "path"?: string;
+  "path__ne"?: string;
+  "path__contains"?: string;
+  "path__icontains"?: string;
+  "path__startswith"?: string;
+  "path__in"?: string[];
+  "content"?: string;
+  "content__ne"?: string;
+  "content__contains"?: string;
+  "content__icontains"?: string;
+  "content__startswith"?: string;
+  "content__in"?: string[];
+  "version"?: number;
+  "version__ne"?: number;
+  "version__gte"?: number;
+  "version__lte"?: number;
+  "version__gt"?: number;
+  "version__lt"?: number;
+  "version__in"?: number[];
+  "updated_by"?: string;
+  "updated_by__ne"?: string;
+  "updated_by__contains"?: string;
+  "updated_by__icontains"?: string;
+  "updated_by__startswith"?: string;
+  "updated_by__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type DesignFileOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "path" | "-path" | "content" | "-content" | "version" | "-version" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `design_file`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface DesignFileCreate {
+  project: number;
+  kind?: DesignFileKind;
+  path: string;
+  content: string;
+  version?: number;
+  updated_by: string;
+  updated_at?: string | null;
+}
+/** Body for updating a `design_file` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface DesignFileUpdate {
+  project?: number;
+  kind?: DesignFileKind;
+  path?: string;
+  content?: string;
+  version?: number;
+  updated_by?: string;
+}
+
+/** Filterable query parameters for `design_layout`. Every key is optional and AND-combined server-side. */
+export interface DesignLayoutFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "view"?: DesignLayoutView;
+  "view__ne"?: DesignLayoutView;
+  "view__contains"?: string;
+  "view__icontains"?: string;
+  "view__startswith"?: string;
+  "view__in"?: DesignLayoutView[];
+  "layout_json"?: string;
+  "layout_json__ne"?: string;
+  "layout_json__contains"?: string;
+  "layout_json__icontains"?: string;
+  "layout_json__startswith"?: string;
+  "layout_json__in"?: string[];
+  "updated_by"?: string;
+  "updated_by__ne"?: string;
+  "updated_by__contains"?: string;
+  "updated_by__icontains"?: string;
+  "updated_by__startswith"?: string;
+  "updated_by__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type DesignLayoutOrdering = "id" | "-id" | "project" | "-project" | "view" | "-view" | "layout_json" | "-layout_json" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `design_layout`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface DesignLayoutCreate {
+  project: number;
+  view?: DesignLayoutView;
+  layout_json: string;
+  updated_by: string;
+  updated_at?: string | null;
+}
+/** Body for updating a `design_layout` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface DesignLayoutUpdate {
+  project?: number;
+  view?: DesignLayoutView;
+  layout_json?: string;
+  updated_by?: string;
+}
+
 /** Filterable query parameters for `media_file`. Every key is optional and AND-combined server-side. */
 export interface MediaFileFilters {
   "key"?: string;
@@ -1121,6 +1451,12 @@ export interface TaskflowAgentChannelFilters {
   "archived"?: boolean;
   "archived__ne"?: boolean;
   "archived__in"?: boolean[];
+  "is_public"?: boolean;
+  "is_public__ne"?: boolean;
+  "is_public__in"?: boolean[];
+  "is_design"?: boolean;
+  "is_design__ne"?: boolean;
+  "is_design__in"?: boolean[];
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1130,7 +1466,7 @@ export interface TaskflowAgentChannelFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentChannelOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "topic" | "-topic" | "kind" | "-kind" | "task" | "-task" | "created_by_user" | "-created_by_user" | "created_by_agent" | "-created_by_agent" | "archived" | "-archived" | "created_at" | "-created_at";
+export type TaskflowAgentChannelOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "topic" | "-topic" | "kind" | "-kind" | "task" | "-task" | "created_by_user" | "-created_by_user" | "created_by_agent" | "-created_by_agent" | "archived" | "-archived" | "is_public" | "-is_public" | "is_design" | "-is_design" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_channel`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentChannelCreate {
   project: number;
@@ -1141,6 +1477,8 @@ export interface TaskflowAgentChannelCreate {
   created_by_user?: number | null;
   created_by_agent?: number | null;
   archived?: boolean;
+  is_public?: boolean;
+  is_design?: boolean;
 }
 /** Body for updating a `taskflow_agent_channel` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowAgentChannelUpdate {
@@ -3012,6 +3350,9 @@ export interface UmbralResources {
   "admin_user_pref": { row: AdminUserPref; filters: AdminUserPrefFilters; ordering: AdminUserPrefOrdering; create: AdminUserPrefCreate; update: AdminUserPrefUpdate; id: number };
   "auth_challenge": { row: AuthChallenge; filters: AuthChallengeFilters; ordering: AuthChallengeOrdering; create: AuthChallengeCreate; update: AuthChallengeUpdate; id: number };
   "auth_token": { row: AuthToken; filters: AuthTokenFilters; ordering: AuthTokenOrdering; create: AuthTokenCreate; update: AuthTokenUpdate; id: number };
+  "design_comment": { row: DesignComment; filters: DesignCommentFilters; ordering: DesignCommentOrdering; create: DesignCommentCreate; update: DesignCommentUpdate; id: number };
+  "design_file": { row: DesignFile; filters: DesignFileFilters; ordering: DesignFileOrdering; create: DesignFileCreate; update: DesignFileUpdate; id: number };
+  "design_layout": { row: DesignLayout; filters: DesignLayoutFilters; ordering: DesignLayoutOrdering; create: DesignLayoutCreate; update: DesignLayoutUpdate; id: number };
   "media_file": { row: MediaFile; filters: MediaFileFilters; ordering: MediaFileOrdering; create: MediaFileCreate; update: MediaFileUpdate; id: number };
   "post": { row: Post; filters: PostFilters; ordering: PostOrdering; create: PostCreate; update: PostUpdate; id: number };
   "oauth_social_account": { row: SocialAccount; filters: SocialAccountFilters; ordering: SocialAccountOrdering; create: SocialAccountCreate; update: SocialAccountUpdate; id: number };

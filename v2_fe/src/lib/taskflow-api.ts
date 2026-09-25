@@ -106,24 +106,6 @@ export const taskflowApi = new Umbral(API_BASE_URL, {
   },
 })
 
-/// A channel row plus the two ROOM MARKERS the design-room feature added to the
-/// model (`is_public` on the project room, `is_design` on the design room).
-///
-/// Declared here rather than relied upon from `@/api/client` because that file
-/// is GENERATED (`umbral gen-client` / `umbral typegen`) and lags the model: the
-/// backend half of this feature added both columns without a regenerate, so the
-/// generated `TaskflowAgentChannel` does not name them yet. An intersection
-/// merges cleanly once it does — `boolean` and `boolean | undefined` intersect
-/// to `boolean` — so this is a bridge, not a duplicate.
-///
-/// Optional because the markers must be READ as possibly-absent, not because the
-/// server may omit them: every reader takes `?? false`, so a stale row or an
-/// older server is "neither room" rather than a crash.
-export type TaskflowChannel = TaskflowAgentChannel & {
-  is_public?: boolean
-  is_design?: boolean
-}
-
 export type TaskflowWorkspace = {
   project: TaskflowProject
   members: TaskflowProjectMember[]
@@ -140,7 +122,7 @@ export type TaskflowWorkspace = {
   agents: TaskflowAgent[]
   agentCredentials: TaskflowAgentCredential[]
   agentSessions: TaskflowAgentSession[]
-  agentChannels: TaskflowChannel[]
+  agentChannels: TaskflowAgentChannel[]
   agentChannelMembers: TaskflowAgentChannelMember[]
   /// Whether `agentChannels` is the SERVER'S answer for this project, rather than
   /// the empty array the core workspace starts it at.

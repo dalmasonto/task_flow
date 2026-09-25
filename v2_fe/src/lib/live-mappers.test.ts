@@ -331,16 +331,27 @@ function channelWorkspace(
 /// A channel row by the fields the mappers read — id, title, kind and the two
 /// markers. Cast rather than spelled out column by column: these tests are about
 /// which room a lookup RETURNS, not about the row.
-function room(id: number, title: string, markers: { isPublic?: boolean; isDesign?: boolean } = {}) {
+function room(
+  id: number,
+  title: string,
+  markers: { isPublic?: boolean; isDesign?: boolean; kind?: TaskflowWorkspace["agentChannels"][number]["kind"] } = {}
+) {
   return {
     id,
     title,
     topic: null,
-    kind: "project",
+    kind: markers.kind ?? "project",
     archived: false,
     is_public: markers.isPublic ?? false,
     is_design: markers.isDesign ?? false,
   } as unknown as TaskflowWorkspace["agentChannels"][number]
+}
+
+/// A row from a server that predates the markers — the COLUMNS are absent, not
+/// false. That is the one deploy-window shape the readers must survive, and it is
+/// a different row from `room(...)`'s, which always carries both.
+function roomWithoutMarkers(id: number, title: string) {
+  return { id, title, topic: null, kind: "project", archived: false } as unknown as TaskflowWorkspace["agentChannels"][number]
 }
 
 /// A saved message row by the three fields `channelUnreadCount` reads.
@@ -409,6 +420,22 @@ describe("mapLiveChannelChats — the design room is not an ordinary room", () =
 
 
 describe("findPublicRoomChat / findDesignRoomChat — by marker, never by title or position", () => {
+  it("reads a row that PREDATES the markers as neither room", () => {
+    // The deploy window, and the reason the readers coalesce rather than trust the
+    // type: the generated client says `is_public: boolean` because the model says
+    // so, but a frontend can outlive the backend it was built against by one
+    // release (the plan's own sequencing note), and a channel row from before the
+    // columns existed arrives with them ABSENT. "Neither room" is the only answer
+    // that cannot open the wrong conversation, so it is the one asserted here.
+    const staleRoom = roomWithoutMarkers(1, "Project room")
+    const workspace = channelWorkspace([staleRoom, room(9, "Announcements")])
+
+    expect(mapLiveChannelChats(workspace, null)[0]?.isPublic).toBe(false)
+    expect(mapLiveChannelChats(workspace, null)[0]?.isDesign).toBe(false)
+    expect(findDesignRoomChat(workspace, null)).toBeNull()
+    expect(findPublicRoomChat(workspace, null)).toBeNull()
+  })
+
   it("returns the project room when a user-created room sorts before it", () => {
     // `channelChats[0]` was really "alphabetically first". "Announcements" wins.
     const workspace = channelWorkspace([room(9, "Announcements"), projectRoomRow])
@@ -480,6 +507,22 @@ describe("liveChannelStatus — a marked room is not labelled by its kind", () =
     expect(liveChannelStatus(designRoomRow)).toBe("Design room")
     expect(liveChannelStatus(projectRoomRow)).toBe("Project room")
     expect(liveChannelStatus(room(9, "Announcements"))).toBe("Project room")
+  })
+
+  it("does not call a user-created Group room 'Project room'", () => {
+    // Users create rooms freely, so this is not hypothetical: every Group room in
+    // every project was reading as the project room — the same claim the marker
+    // exists to make unforgeable. Only the room marked `is_public` is the project
+    // room, and the other kinds keep the labels they already had.
+    expect(liveChannelStatus(room(9, "Launch crew", { kind: "group" }))).toBe("Group")
+    expect(liveChannelStatus(room(10, "T-1", { kind: "task" }))).toBe("Task room")
+    expect(liveChannelStatus(room(11, "Sev1", { kind: "incident" }))).toBe("Incident room")
+  })
+
+  it("lets the DESIGN marker win over the kind, since both rooms are kind project", () => {
+    // The order of the two checks is the whole point of the first test above; this
+    // is the same fact from the other side, so a reorder fails loudly.
+    expect(liveChannelStatus(room(17, "Design room", { isDesign: true, kind: "group" }))).toBe("Design room")
   })
 })
 
