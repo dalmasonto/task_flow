@@ -23,6 +23,7 @@
 - **Publish order: the backend must deploy before the frontend.** Measured, not assumed: the deployed backend answers `403` to a realtime group it does not know and the realtime layer refuses the *entire* handshake. Phase 4's held build is still held. So **no task in this plan runs `npm run build`**: a frontend build produced before the user's backend deploy is precisely the hazard this line describes, and Task 9 owns the plan's single one, on the user's go-ahead.
 - **Stage explicit paths when committing. Never `git add -A`** — the tree carries an unrelated modified `backend/README.md`, and `v2_fe/yarn.lock` is tracked but CI-unused and gets dirtied by npm.
 - **Do not edit `docs/superpowers/plans/…` or a task brief** — those are the controller's. Report defects instead.
+- **A Rust test fixture containing `"#` needs `r##"…"##`, not `r#"…"#`.** A `r#"…"#` literal closes at the *first* `"#`, so `r#"<a href="#section">…"#` ends at `href="#` and the line does not compile. This bit a brief in this plan and cost an implementer a round; check any fixture whose markup contains a fragment anchor.
 
 ## Review Focus
 
@@ -1477,7 +1478,7 @@ fn hrefs_that_are_not_pages_are_left_alone() {
         (r#"<a href="//cdn.example/x">proto-relative</a>"#, r#"href="//cdn.example/x""#),
         (r#"<a href="mailto:a@b.c">mail</a>"#, r#"href="mailto:a@b.c""#),
         (r#"<a href="tel:+1">tel</a>"#, r#"href="tel:+1""#),
-        (r#"<a href="#section">anchor</a>"#, r#"href="#section""#),
+        (r##"<a href="#section">anchor</a>"##, r##"href="#section""##),
         (r#"<a href="/not-a-page">not a page</a>"#, r#"href="/not-a-page""#),
         (r#"<a href="app">relative</a>"#, r#"href="app""#),
     ] {
