@@ -598,6 +598,23 @@ describe("design_delete_component", () => {
     expect(description).toMatch(/reason/);
   });
 
+  it("does not claim the stranded page is unrecoverable", async () => {
+    // A page left holding a deleted component is stuck for edits that KEEP the
+    // reference — a write that removes the tag is accepted (proved in
+    // `phase3_agent_surface.rs`). The earlier wording said "can never be written
+    // again", and the overstatement is the harmful direction: it points an agent
+    // at deleting and recreating the page when the repair is a rewrite.
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_delete_component");
+    const description = tool?.description ?? "";
+
+    expect(description).not.toMatch(/never be written|permanently/i);
+    // And the bound positively, because "it is not permanent" alone does not
+    // tell an agent what to do instead.
+    expect(description).toMatch(/removes it is accepted|removes the tag/i);
+  });
+
   it("passes the name and the reason through, aimed at the credential's project", async () => {
     const client = await connectedClient();
     const result = await client.callTool({

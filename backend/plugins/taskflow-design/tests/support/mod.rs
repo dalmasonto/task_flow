@@ -268,8 +268,15 @@ impl TestApp {
     /// path). `TestClient` offers `delete` (no body) and `send` (no
     /// content-type), so this composes them: the content type rides on the
     /// default header, which `TestClient::request` replays on every request.
-    /// A stray `content-type` on a bodyless GET is inert, so leaving it set
-    /// costs nothing.
+    ///
+    /// Two things about that header, stated rather than assumed. It PERSISTS:
+    /// it stays on this `TestApp` for every later request, not just this one,
+    /// so a test that calls this first runs its remaining requests with a
+    /// `content-type` it did not ask for. And it is INERT for routing: the
+    /// router dispatches on method and path, and no extractor here reads
+    /// `content-type` on a request with no body, so a stray one on a bodyless
+    /// GET is ignored. The persistence is the reason the helper is not used
+    /// mid-test for a request whose headers are themselves under assertion.
     pub async fn delete_json_as_agent(&self, key: &str, path: &str, body: &Value) -> TestResponse {
         self.set_agent_auth(key);
         self.client.set_default_header(

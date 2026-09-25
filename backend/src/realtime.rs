@@ -38,7 +38,7 @@ use taskflow_projects::models::{
 use taskflow_tasks::models::{
     TaskflowTask, TaskflowTaskActivity, TaskflowTaskRelation, TaskflowTaskSession,
 };
-use umbral_realtime::{Expose, PresenceSpec, RealtimePlugin};
+use umbral_realtime::{Expose, ModelAction, PresenceSpec, RealtimePlugin};
 
 const PROJECTS_GROUP: &str = "taskflow:projects";
 
@@ -291,7 +291,40 @@ pub fn plugin() -> RealtimePlugin {
         // deliberately so: it is a SHARED project-level document (not a
         // per-viewer one), and the client adopts it by refetching, which keeps
         // the per-user viewport half of its state untouched.
-        .expose::<DesignFile>(Expose::to_group_with(|ev| group_for(DESIGN_FILES, &ev.instance)))
+        //
+        // DELETED IS EXCLUDED, and this is the one registration where dropping
+        // an action is load-bearing rather than tidiness. A group here is
+        // derived from a COLUMN (`project`), and the ORM's delete payload cannot
+        // supply it: `QuerySet::delete` emits its per-row `post_delete` with the
+        // primary key alone — `{ "instance": { "id": N } }`, by design, because
+        // the row is gone and a pre-image SELECT per delete was not worth it
+        // (`umbral-core/src/orm/queryset/mod.rs`, the `gaps3 #29` note). So
+        // `group_for` finds no `project` and takes its `PROJECTS_GROUP` fallback,
+        // and a design_file delete would land on `taskflow:projects` — the group
+        // the frontend maps to `taskflowTables.projects`, whose handler is
+        // `setWorkspaceProjects(current => current.filter(p => p.id !== rowId))`
+        // plus, on a match, `setLiveWorkspace(null)`. `design_file.id` and
+        // `taskflow_project.id` are independent sequences over the same small
+        // integers, so that is a coin-toss at removing an unrelated project from
+        // the sidebar and blanking the open workspace.
+        //
+        // Creates and updates are unaffected: `post_save` carries the whole row,
+        // so `project` is there. Deletes are served by the WRITER instead —
+        // `taskflow_design::agent_views::delete_component` sends the id-only
+        // `deleted` event on `signals::files_group` itself, where the project id
+        // is in hand and cannot be lost in a payload. A `bulk_post_delete`
+        // bridge in `taskflow_design::signals` cannot do that job for the same
+        // reason the payload is bare: the row is already gone.
+        //
+        // The two sibling registrations below have the same latent shape and are
+        // deliberately left as they are: nothing deletes a comment or a layout
+        // row today, so their `Deleted` action is unreachable. Whoever adds one
+        // must either exclude the action here too or emit from the writer, as
+        // `delete_component` does.
+        .expose::<DesignFile>(
+            Expose::to_group_with(|ev| group_for(DESIGN_FILES, &ev.instance))
+                .actions(&[ModelAction::Created, ModelAction::Updated]),
+        )
         .expose::<DesignComment>(
             Expose::to_group_with(|ev| group_for(DESIGN_COMMENTS, &ev.instance)),
         )

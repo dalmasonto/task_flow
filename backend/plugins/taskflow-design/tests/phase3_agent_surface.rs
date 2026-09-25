@@ -640,6 +640,22 @@ async fn a_component_a_page_still_uses_is_refused_and_the_refusal_names_the_rout
         body.contains("unknown-component"),
         "and say what a stranded page costs — the rule name is the agent's handle on it: {body}"
     );
+    // The BOUND, both ways. An earlier wording said the page "can never be
+    // written again", which is false — only a write that KEEPS the tag is
+    // refused (`a_page_holding_a_vanished_component_is_still_writable_without_it`
+    // proves it) — and it is false in the harmful direction: it points an agent
+    // at deleting and recreating the page when the repair is a rewrite that
+    // drops the tag.
+    assert!(
+        !body.contains("never be written"),
+        "the refusal must not claim the page is unrecoverable: {body}"
+    );
+    let lower = body.to_lowercase();
+    assert!(
+        lower.contains("removes the tag") && lower.contains("accepted"),
+        "and it must say what IS possible — a write that removes the reference is \
+         accepted — or the agent's only visible repair is the destructive one: {body}"
+    );
 
     // Both halves of "nothing was stranded": the component is still in the
     // registry, and the page is still writable.
@@ -1060,5 +1076,71 @@ async fn an_agent_cannot_write_an_asset_into_another_projects_design() {
         original,
         "a foreign write must not have replaced it: {}",
         served.text()
+    );
+}
+
+/// The bound on the damage the refusal exists to prevent — asserted by DOING it
+/// rather than by describing it.
+///
+/// With the component gone from the registry, a page that used it is still
+/// writable, as long as the write drops the reference. Only a write that KEEPS
+/// the tag is refused. So the page is stuck for edits that keep the reference,
+/// not permanently — and the repair is a rewrite, not delete-and-recreate.
+///
+/// This is the fact the tool's refusal text and the MCP description have to
+/// carry, and it is why they say it. The state is reached here by deleting at
+/// the STORE level, because the route refuses to produce it — which is the
+/// whole point of the route, and precisely the state an operator holding the
+/// framework admin can still create.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_holding_a_vanished_component_is_still_writable_without_it() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+    seed_registry(&app, project, key.as_str()).await;
+    write_settings_page_using_the_header(&app, project, key.as_str(), "<main>hi</main>").await;
+
+    assert!(
+        taskflow_design::store::delete_file(project, "components/app-header.js").await,
+        "precondition: the component row was there"
+    );
+
+    // A write that KEEPS the tag is refused — this is the damage.
+    let kept = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_PAGE,
+            json!({
+                "project": project,
+                "route": "/settings",
+                "html": "<app-header title=\"Settings\"></app-header>\n<main>hi</main>"
+            }),
+        )
+        .await;
+    assert_eq!(kept.status(), 422, "{}", kept.text());
+    assert_eq!(
+        kept.json()["errors"][0]["rule"],
+        "unknown-component",
+        "{}",
+        kept.text()
+    );
+
+    // A write that REMOVES it is ACCEPTED — this is the bound.
+    let fixed = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_PAGE,
+            json!({
+                "project": project,
+                "route": "/settings",
+                "html": "<main>no header any more</main>"
+            }),
+        )
+        .await;
+    assert_eq!(
+        fixed.status(),
+        201,
+        "the page must still be writable once the reference is gone — otherwise the \
+         refusal's own advice (edit the routes, then delete) would be impossible to \
+         follow in the other order: {}",
+        fixed.text()
     );
 }

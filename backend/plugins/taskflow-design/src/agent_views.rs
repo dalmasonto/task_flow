@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use umbral::web::{IntoResponse, Json, Path, Query, Response, StatusCode};
+use umbral_realtime::Realtime;
 use taskflow_agents::agent_auth::RequireAgent;
 
 use crate::layout_doc;
@@ -380,8 +381,9 @@ pub struct AgentDeleteComponentInput {
 /// inside the project lock. Returned rather than responded to from inside the
 /// closure so the response is built after the lock is released.
 enum DeleteOutcome {
-    /// The row was there and is gone.
-    Deleted,
+    /// The row was there and is gone; carries its primary key, which is what
+    /// the realtime event names (the row itself no longer exists to re-read).
+    Deleted(i64),
     /// No such component in this project.
     NotFound,
     /// Referenced by at least one page fragment; carries the routes and the
@@ -396,13 +398,15 @@ enum DeleteOutcome {
 /// those routes. That check is the whole safety property of this tool, and it
 /// is not visible from the outside: `composer::compose_document` emits the
 /// `<script src>` for a component only while it is in the manifest, so a page
-/// left holding the tag renders without its definition — and then EVERY future
-/// write to that page is refused, because `store::write_file` re-validates the
-/// fragment against the registry on every write and
+/// left holding the tag renders without its definition — and it cannot be
+/// edited again until that reference is gone, because `store::write_file`
+/// re-validates the fragment against the registry on every write and
 /// `validate_page_fragment` rejects an unregistered tag with rule
-/// `unknown-component`. A page stranded in a permanently unwritable state is
-/// worse than the registry drift retirement fixes, so the reference check comes
-/// first and the route list is what makes the refusal actionable.
+/// `unknown-component`. Note the bound exactly: a write that REMOVES the tag is
+/// accepted (the rule fires on the tag, not on the page), so the page is stuck
+/// only for edits that keep the reference. It is still a broken page — it
+/// renders without the definition — which is what the refusal is for, and the
+/// route list is what makes it actionable.
 ///
 /// `used_on`/`usage_count` are already computed per read (`manifest::build`
 /// scans each fragment once per registered component), so this is a lookup, not
@@ -411,6 +415,18 @@ enum DeleteOutcome {
 /// Requires a `reason`, like `write_component`: retiring a shared part is a
 /// registry-level decision. There is no `base_version` — a delete is not an
 /// overwrite, so there is nothing to lose a race against.
+///
+/// ## The realtime event is emitted HERE, not by the ORM
+///
+/// `backend/src/realtime.rs` exposes `DesignFile` to `project:{id}:design_files`
+/// through a group derived from the row's `project` column, and the ORM's delete
+/// signal cannot supply it: `QuerySet::delete` emits its per-row `post_delete`
+/// with the primary key alone, so `group_for` finds no `project` and falls back
+/// to `taskflow:projects` — the group whose frontend handler removes a project
+/// from the sidebar. The `Deleted` action is therefore excluded from that
+/// registration, and this handler sends the event itself, from inside the same
+/// call that holds the project id and the row. Id-only, matching what `Expose`
+/// projects for this table: the chrome refetches over REST.
 pub async fn delete_component(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentDeleteComponentInput>,
@@ -454,26 +470,46 @@ pub async fn delete_component(
                     entry.map(|c| c.usage_count).unwrap_or(0),
                 );
             }
+            let row_id = files
+                .iter()
+                .find(|f| f.path == path)
+                .map(|f| f.id)
+                .unwrap_or(0);
             if !store::delete_file(agent.project_id, &path).await {
                 return DeleteOutcome::NotFound;
             }
-            DeleteOutcome::Deleted
+            DeleteOutcome::Deleted(row_id)
         })
         .await;
 
     match outcome {
-        DeleteOutcome::Deleted => Ok((
-            StatusCode::OK,
-            Json(json!({
-                "ok": true,
-                "deleted": path,
-                "name": name,
-                "note": format!(
-                    "{name} deleted; no route used it, so nothing rendered changed."
-                ),
-            })),
-        )
-            .into_response()),
+        DeleteOutcome::Deleted(row_id) => {
+            // The realtime event, from the one place that still knows the
+            // project. Not from the ORM: see the handler's doc comment — its
+            // delete payload carries no `project`, so `Expose` would route this
+            // to `taskflow:projects` and a viewer of THIS project would hear
+            // nothing but a random sidebar entry might disappear.
+            //
+            // Sent AFTER the lock is released and after the row is gone, so a
+            // subscriber that reacts by refetching cannot read the row back and
+            // resurrect it. Id-only, like every other event on this group: the
+            // chrome refetches content and recomputes the manifest over REST.
+            Realtime::to_group(crate::signals::files_group(agent.project_id))
+                .send("deleted", &json!({ "id": row_id }))
+                .await;
+            Ok((
+                StatusCode::OK,
+                Json(json!({
+                    "ok": true,
+                    "deleted": path,
+                    "name": name,
+                    "note": format!(
+                        "{name} deleted; no route used it, so nothing rendered changed."
+                    ),
+                })),
+            )
+                .into_response())
+        }
         DeleteOutcome::NotFound => Err(StatusCode::NOT_FOUND),
         DeleteOutcome::InUse(used_on, usage_count) => Ok((
             StatusCode::CONFLICT,
@@ -486,10 +522,13 @@ pub async fn delete_component(
                 "detail": format!(
                     "Refused: <{name}> is still used {usage_count} time(s) on {} route(s): {}. \
                      A page that references a component the registry no longer has renders \
-                     without its definition AND can never be written again — every write \
-                     re-validates the fragment against the registry (rule `unknown-component`). \
-                     Edit those pages to stop using <{name}>, then delete it: design_read_page \
-                     shows a fragment and design_write_page replaces it.",
+                     without its definition, and cannot be edited until the reference is gone — \
+                     every write re-validates the fragment against the registry, and an \
+                     unregistered tag is refused with rule `unknown-component`. (The bound \
+                     matters: a write that REMOVES the tag is accepted, so the repair is to \
+                     rewrite those pages without it — not to delete and recreate them.) \
+                     design_read_page shows a fragment and design_write_page replaces it, so \
+                     remove <{name}> from the routes above and call this again.",
                     used_on.len(),
                     used_on.join(", ")
                 ),

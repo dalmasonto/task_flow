@@ -26,9 +26,32 @@
 //! The per-row `post_save` half is already covered by the `Expose`
 //! registrations in `backend/src/realtime.rs`; subscribing to it here as well
 //! would broadcast every per-row write twice. Comments (`design_comment`) are
-//! written with `Manager::save` only, so they need no bridge at all — and no
-//! design row is ever deleted (only a project cascade removes them), so there
-//! is no `bulk_post_delete` half to cover either.
+//! written with `Manager::save` only, so they need no bridge at all.
+//!
+//! ## Deletes: neither half, and neither could
+//!
+//! This module deliberately does NOT bridge deletes, and that is not the same
+//! claim it used to make ("no design row is ever deleted"). A `design_file` row
+//! IS deleted now — `agent_views::delete_component` retires a component — and
+//! the gap is in the ORM's payloads rather than in the absence of a delete:
+//!
+//! - The per-row `post_delete` **does** fire (`QuerySet::delete` emits it,
+//!   `umbral-core/src/orm/queryset/mod.rs`), but with the primary key alone —
+//!   `{ "instance": { "id": N } }` — because the row is gone by then. `Expose`
+//!   routes on the row's `project` column, does not find one, and takes
+//!   `group_for`'s `taskflow:projects` fallback. So the event is not missing, it
+//!   is MISROUTED: the project's own viewers hear nothing and an unrelated
+//!   sidebar entry can vanish.
+//! - `bulk_post_delete` carries `{ "ids": [...] }` and no instance at all, so a
+//!   bridge here could not resolve a project from it either — re-reading is not
+//!   an option, the row is gone.
+//!
+//! Both halves are therefore closed at their SOURCE instead, and there are two
+//! of them, together: `backend/src/realtime.rs` drops `ModelAction::Deleted`
+//! from its `DesignFile` registration (so the misrouted event is never sent),
+//! and the deleting handler sends the correct one itself on
+//! [`files_group`], where the project id is in hand. See that registration's
+//! comment for the frontend handler the misroute would have triggered.
 //!
 //! ## What it emits
 //!

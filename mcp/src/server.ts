@@ -1159,7 +1159,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_delete_component",
-    "Retire one component from the registry — the other half of design_write_component, for a part nothing needs any more. REFUSED while any page still uses it, and the refusal names those routes: edit them off the component first (design_read_page, then design_write_page), because a page that references a component the registry no longer has renders without its definition AND can never be written again. Requires `reason`. Check the blast radius with design_read_component (its `usedOn`) before calling this.",
+    "Retire one component from the registry — the other half of design_write_component, for a part nothing needs any more. REFUSED while any page still uses it, and the refusal names those routes: remove the tag from them first (design_read_page, then design_write_page), because a page that references a component the registry no longer has renders without its definition and cannot be edited until that reference is gone — a write that KEEPS the tag is refused with `unknown-component`; one that removes it is accepted, so the repair is a rewrite that drops the tag — not deleting and recreating the page. Requires `reason`. Check the blast radius with design_read_component (its `usedOn`) before calling this.",
     {
       name: z.string().min(1).regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/)
         .describe("Custom element name WITHOUT the .js — e.g. 'app-header'."),

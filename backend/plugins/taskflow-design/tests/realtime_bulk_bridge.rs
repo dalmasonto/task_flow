@@ -154,3 +154,79 @@ async fn editing_an_existing_page_broadcasts_to_the_project_group() {
         "id-only payload — the chrome refetches content over REST"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retiring_a_component_broadcasts_a_delete_to_the_project_group() {
+    // A delete is the third write path through this module's subject, and the
+    // only one the ORM cannot route. `QuerySet::delete` fires its per-row
+    // `post_delete` with the primary key alone — `{ "instance": { "id": N } }` —
+    // so a registration that derives the group from the row's `project` column
+    // has nothing to derive it from and falls back to `taskflow:projects`. That
+    // fallback is not inert: the frontend maps it to the project LIST, whose
+    // handler filters the sidebar by id. `backend/tests/design_delete_routing.rs`
+    // pins the backend half (the misrouted event is never sent); this pins the
+    // half that has to work instead — the deleting handler emitting the real
+    // event itself, on the right group, with the payload the chrome reads.
+    let app = TestApp::new_with_realtime().await;
+    let (user, project) = app.create_member_with_project().await;
+    let (agent_id, key) = support::seed_agent(project, "Retirer").await;
+    let _ = (user.id, agent_id);
+    let group = format!("project:{project}:design_files");
+    let mut rx = watch(&group).await;
+    // NOT watched here: `taskflow:projects`. The failure mode is delivery to the
+    // wrong room, but that room is reached through `Expose`, which this harness
+    // does not register (see this file's header) — so a watch on it here could
+    // never fire, and an assertion that cannot fail is worse than none.
+    // `backend/tests/design_delete_routing.rs` boots the PRODUCTION spec and is
+    // where that claim is pinned.
+
+    let seeded = app
+        .put_as_agent(
+            &key,
+            "/api/taskflow/agents/design/component",
+            json!({
+                "project": project,
+                "name": "app-header",
+                "js": support::sample_header_component(),
+                "reason": "the settings page needs a header"
+            }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 201, "{}", seeded.text());
+    let row_id = seeded.json()["file"]["id"].as_i64().expect("the created row id");
+
+    let deleted = app
+        .delete_json_as_agent(
+            &key,
+            "/api/taskflow/agents/design/component",
+            &json!({
+                "project": project,
+                "name": "app-header",
+                "reason": "nothing in the registry needs it any more"
+            }),
+        )
+        .await;
+    assert_eq!(deleted.status(), 200, "{}", deleted.text());
+
+    let events = drain(&mut rx);
+    assert_eq!(
+        events.len(),
+        1,
+        "exactly one broadcast per retirement — a second would mean the ORM's \
+         delete path is emitting again: {events:?}"
+    );
+    let (channel, event, data) = &events[0];
+    assert_eq!(
+        channel, &group,
+        "the delete must land on the PROJECT's group: a viewer of this project is \
+         who needs to know the component is gone"
+    );
+    assert_eq!(event, "deleted", "a delete, not an update");
+    assert_eq!(
+        data,
+        &json!({ "id": row_id }),
+        "id-only, the same projection every other event on this group carries — \
+         the row is gone, so there is nothing else to send and the chrome \
+         refetches over REST"
+    );
+}
