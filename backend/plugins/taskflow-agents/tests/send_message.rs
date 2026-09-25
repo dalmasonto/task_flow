@@ -5,8 +5,8 @@ use serde_json::json;
 
 mod support;
 use support::{
-    MultipartPart, TestApp, encode_multipart, make_active_project_member, seed_channel_of_kind,
-    seed_channel_with_member, seed_channel_without_member, seed_project,
+    MultipartPart, TestApp, design_room_of, encode_multipart, make_active_project_member,
+    seed_channel_of_kind, seed_channel_with_member, seed_channel_without_member, seed_project,
     seed_project_member_off_roster,
 };
 use taskflow_agents::models::TaskflowChannelKind;
@@ -318,12 +318,13 @@ async fn message_defaults_is_design_false() {
     assert_eq!(row["is_design"], json!(false));
 }
 
-// The multipart branch parses `is_design` from a form field (a string), not
-// from JSON — a distinct code path from `human_send_sets_is_design_when_requested`
-// above. Send a file alongside it so this genuinely exercises the multipart
-// parser, not a fallback to the JSON branch.
+// The multipart branch reads `is_design` from a form field (a string), not from
+// JSON — a distinct parse path from the JSON branch below — and, like it, the
+// value is ACCEPTED AND IGNORED: the destination room decides. Send a file
+// alongside it so this genuinely exercises the multipart parser rather than
+// falling back to JSON.
 #[tokio::test]
-async fn multipart_send_sets_is_design_when_requested() {
+async fn multipart_send_accepts_but_ignores_the_declared_design_flag() {
     let app = TestApp::new().await;
     let (channel, user) = seed_channel_with_member(&app).await;
 
@@ -339,11 +340,21 @@ async fn multipart_send_sets_is_design_when_requested() {
 
     assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
     let row = response.json().await;
-    assert_eq!(row["is_design"], json!(true));
+    assert_eq!(
+        row["is_design"],
+        json!(false),
+        "the request is not rejected, and the flag follows the room it landed in"
+    );
 }
 
+// The design flag is DERIVED from the destination, not declared. A client that
+// still sends `is_design: true` to an ordinary room is neither rejected nor
+// obeyed: the message lands where it was addressed and the stored flag tells the
+// truth about it. (The other direction — a message in the design room becoming a
+// design message with nothing declared — is pinned in `design_room.rs`, which
+// also covers the agent path.)
 #[tokio::test]
-async fn human_send_sets_is_design_when_requested() {
+async fn human_send_accepts_but_ignores_the_declared_design_flag() {
     let app = TestApp::new().await;
     let (channel, user) = seed_channel_with_member(&app).await;
 
@@ -356,6 +367,28 @@ async fn human_send_sets_is_design_when_requested() {
         .await;
 
     assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json().await["is_design"],
+        json!(false),
+        "an ordinary room's message is not a design message, whatever was declared"
+    );
+
+    // The same declaration sent to the DESIGN room stores true — the flag is a
+    // fact about the room, so the two rooms answer differently for one body.
+    // (This user is rostered on the ordinary room above but is not a project
+    // member yet; the design room is project-wide, so posting there needs the
+    // membership the send gate falls back to.)
+    let project = app.project_of_channel(channel).await;
+    make_active_project_member(project, user).await;
+    let design = design_room_of(project).await;
+    let response = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({ "channel": design, "body_markdown": "design ask", "is_design": true }),
+        )
+        .await;
+    assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
     assert_eq!(response.json().await["is_design"], json!(true));
 }
 
@@ -399,8 +432,12 @@ async fn seed_channel_with_agent(app: &TestApp) -> (i64, String) {
     (channel, key)
 }
 
+// The agent path obeys the same rule as the human one: the declared flag is
+// accepted and ignored, and the destination decides. An agent that posts to the
+// ordinary room with `is_design: true` gets an ordinary message — visibly in the
+// room it addressed, rather than silently placed by a declaration.
 #[tokio::test]
-async fn agent_send_honors_is_design_param() {
+async fn agent_send_accepts_but_ignores_the_declared_design_flag() {
     let app = TestApp::new().await;
     // Reuse the same seeding the other agent-path tests use to get an agent
     // credential + a channel the agent is a member of.
@@ -415,5 +452,22 @@ async fn agent_send_honors_is_design_param() {
         .await;
 
     assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
-    assert_eq!(response.json().await["is_design"], json!(true));
+    assert_eq!(response.json().await["is_design"], json!(false));
+
+    // And posting into the DESIGN room makes it a design message with nothing
+    // declared at all.
+    let design = design_room_of(app.project_of_channel(channel).await).await;
+    let response = app
+        .post_as_agent(
+            &key,
+            AGENT_SEND,
+            json!({ "channel": design, "body_markdown": "design reply" }),
+        )
+        .await;
+    assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
+    assert_eq!(
+        response.json().await["is_design"],
+        json!(true),
+        "the design room makes an agent's message a design message"
+    );
 }

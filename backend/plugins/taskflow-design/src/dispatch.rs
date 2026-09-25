@@ -342,6 +342,10 @@ async fn find_or_create_dm(
             created_by_user: Some(ForeignKey::new(user_id)),
             created_by_agent: None,
             archived: false,
+            // A design-request DM is an ordinary room: neither of the two
+            // project-wide markers (`is_public` / `is_design`) applies to it.
+            is_public: false,
+            is_design: false,
             created_at: None,
         })
         .await

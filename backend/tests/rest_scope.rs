@@ -325,6 +325,9 @@ async fn make_channel(project: i64, title: &str, kind: TaskflowChannelKind) -> i
             created_by_user: None,
             created_by_agent: None,
             archived: false,
+            // An ordinary room: neither of the two project-wide markers.
+            is_public: false,
+            is_design: false,
             created_at: None,
         })
         .await

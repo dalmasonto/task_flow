@@ -113,6 +113,9 @@ async fn make_dm(project: i64, members: &[i64]) -> i64 {
             created_by_user: None,
             created_by_agent: None,
             archived: false,
+            // An ordinary room: neither of the two project-wide markers.
+            is_public: false,
+            is_design: false,
             created_at: None,
         })
         .await

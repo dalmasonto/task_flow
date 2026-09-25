@@ -3581,6 +3581,7 @@ dependencies = [
  "taskflow-tasks",
  "tokio",
  "tokio-stream",
+ "tracing",
  "umbral",
  "umbral-auth",
  "umbral-realtime",

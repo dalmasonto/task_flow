@@ -104,10 +104,16 @@ async fn creator_is_added_to_the_roster() {
 }
 
 // 2. A channel with only its creator is legal.
+//
+// The project is seeded through the transaction path (no write signal), so it
+// starts with NO rooms and this `kind=project` request is the one that creates
+// the public room — hence 201 below, exactly as before this feature. A project
+// that already has its pair answers 200 with the same room (see
+// `project_room_creation_is_idempotent`).
 #[tokio::test]
 async fn an_empty_member_list_yields_a_channel_with_just_the_creator() {
     let app = TestApp::new().await;
-    let project = seed_project().await;
+    let project = seed_project_via_transaction().await;
     let creator = app.create_user().await;
     make_active_project_member(project, creator).await;
 
@@ -127,10 +133,12 @@ async fn an_empty_member_list_yields_a_channel_with_just_the_creator() {
 // EXISTING room (get-or-create, 200), never a duplicate — this is what stops the
 // design rail and the dock from minting duplicate "Project room" channels when a
 // surface sends before it has loaded the channel list.
+// Seeded through the transaction path so the first call CREATES the room (201)
+// and the second REUSES it (200) — the two halves the contract distinguishes.
 #[tokio::test]
 async fn project_room_creation_is_idempotent() {
     let app = TestApp::new().await;
-    let project = seed_project().await;
+    let project = seed_project_via_transaction().await;
     let creator = app.create_user().await;
     make_active_project_member(project, creator).await;
 
@@ -335,13 +343,16 @@ async fn a_task_from_another_project_drops_the_link() {
     make_active_project_member(project, creator).await;
     let foreign_task = seed_task(other_project).await;
 
+    // `kind: "task"`: a `kind: "project"` request is answered by the project's
+    // public room (get-or-create) and never carries a task link, so it could not
+    // exercise `scoped_task_link` at all.
     let response = app
         .post_as(
             creator,
             CREATE,
             json!({
                 "project": project,
-                "kind": "project",
+                "kind": "task",
                 "title": "Room",
                 "task": foreign_task,
                 "members": []

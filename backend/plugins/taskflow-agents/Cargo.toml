@@ -28,7 +28,13 @@ uuid = { version = "1", features = ["v4"] }
 umbral-realtime = "0.0.10"
 tokio-stream = "0.1"
 # Drop is sync but deregistration is async — the guard spawns onto the runtime.
-tokio = { version = "1", features = ["rt"] }
+# `rt` for the boot backfill's spawn; `sync` for its run-at-most-once cell.
+tokio = { version = "1", features = ["rt", "sync"] }
+# `signals.rs` (the project-write -> ensure_project_rooms bridge) and the
+# best-effort room calls in `views.rs` log when they cannot do their job: a
+# signal subscriber that fails silently is the trap this bridge exists to close.
+# Same dependency `taskflow-tasks` carries for its own signal bridge.
+tracing = "0.1"
 
 [dev-dependencies]
 umbral-testing = "0.0.10"

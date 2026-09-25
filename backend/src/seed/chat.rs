@@ -74,6 +74,13 @@ pub async fn dev_workspace() -> Result<(), Box<dyn std::error::Error + Send + Sy
                     created_by_user: Some(ForeignKey::new(user.id)),
                     created_by_agent: None,
                     archived: false,
+                    // The seeded room IS the project's public room, so it carries
+                    // the marker (see `taskflow_agents::models::TaskflowAgentChannel`).
+                    // The design room is not seeded here: the plugin's boot
+                    // backfill creates it, through the same idempotent path every
+                    // other project's rooms come from.
+                    is_public: true,
+                    is_design: false,
                     created_at: None,
                 })
                 .await?;

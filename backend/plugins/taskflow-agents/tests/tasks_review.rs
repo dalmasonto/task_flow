@@ -8,11 +8,9 @@
 use serde_json::json;
 
 mod support;
-use support::{
-    TestApp, make_active_project_member, seed_channel_of_kind, seed_project,
-};
+use support::{TestApp, make_active_project_member, public_room_of, seed_project};
 use taskflow_agents::models::{
-    TaskflowAgentMessage, TaskflowChannelKind, TaskflowTaskReview, taskflow_agent_message,
+    TaskflowAgentMessage, TaskflowTaskReview, taskflow_agent_message,
     taskflow_task_review,
 };
 use taskflow_tasks::models::{
@@ -181,8 +179,12 @@ async fn human_review_approves_transitions_and_reports() {
     let project = seed_project().await;
     let user = app.create_user().await;
     let member_label = make_active_project_member(project, user).await;
-    // The project room the report-back message lands in.
-    let room = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    // The project room the report-back message lands in: the channel MARKED
+    // `is_public`, which this project already has (the write signal created the
+    // pair when the project was seeded). A seeded kind=Project room here would be
+    // an ORDINARY room, which is exactly what the report-back must stop landing
+    // in.
+    let room = public_room_of(project).await;
     let (key, agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
 
     // Agent authors + claims a task, then moves it to partial_done for review.
@@ -252,7 +254,8 @@ async fn agent_review_changes_requested() {
     let project = seed_project().await;
     let user = app.create_user().await;
     make_active_project_member(project, user).await;
-    seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    // No room is seeded here any more: the project HAS its public room (the write
+    // signal makes the pair), and `apply_review` ensures it regardless.
 
     // The assignee agent authors + claims the task and requests review.
     let (assignee_key, assignee_id) = mint_agent(&app, user, project, "Builder", "main").await;
@@ -321,7 +324,6 @@ async fn review_requires_access() {
     let project = seed_project().await;
     let owner = app.create_user().await;
     make_active_project_member(project, owner).await;
-    seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
     let (owner_key, _owner_agent) = mint_agent(&app, owner, project, "Builder", "main").await;
 
     let task_id = app
@@ -375,7 +377,9 @@ async fn human_review_notifies_the_operator_agent_when_not_assigned() {
     let project = seed_project().await;
     let user = app.create_user().await;
     make_active_project_member(project, user).await;
-    let room = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    // The MARKED public room is where the report-back lands (see
+    // `human_review_approves_transitions_and_reports`).
+    let room = public_room_of(project).await;
     let (_key, agent_id) = mint_agent(&app, user, project, "Builder", "main").await;
 
     // Operator-only task: no assigned_agent_id, operator_agent_id = the agent.

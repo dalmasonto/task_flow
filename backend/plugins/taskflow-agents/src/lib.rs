@@ -7,6 +7,7 @@
 //!     models.rs  — `#[derive(Model)]` structs (this app's tables)
 //!     views.rs   — HTTP handlers
 //!     urls.rs    — the URL conf: maps paths to `views::` handlers
+//!     signals.rs — the project-write -> "both rooms exist" bridge + backfill
 //!
 //! Wire this into your App by adding to `src/main.rs`:
 //!
@@ -20,10 +21,11 @@
 
 pub mod agent_auth;
 pub mod models;
+pub mod signals;
 pub mod urls;
 pub mod views;
 
-use umbral::plugin::{AppContext, Plugin, PluginError};
+use umbral::plugin::{AppContext, Plugin, PluginError, block_on_ready};
 use umbral::web::Router;
 
 #[derive(Debug, Default, Clone)]
@@ -62,7 +64,37 @@ impl Plugin for TaskflowAgentsPlugin {
         urls::router()
     }
 
-    fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+    fn on_ready(&self, ctx: &AppContext) -> Result<(), PluginError> {
+        // Every project must have its two rooms (the public one and the design
+        // one). Three layers deliver that, and no single one of them is trusted:
+        //
+        //   1. the project write signals (below),
+        //   2. this boot-time backfill, and
+        //   3. `link_agent`, the choke point for "agent added to a project".
+        //
+        // All three call the same idempotent `views::ensure_project_rooms`, so
+        // the invariant is enforced rather than hoped for — see `signals.rs` for
+        // what each layer covers, and for the one write path (`create_project`,
+        // through the ORM's transaction terminal) that emits no signal at all.
+        //
+        // The durable guard goes in FIRST: `ensure_project_rooms` is
+        // get-or-create, so two callers racing (this backfill against a live
+        // write and vice versa) could otherwise both create a marked room, and a
+        // second marked room is exactly the ambiguity the markers exist to
+        // remove.
+        block_on_ready(signals::install_room_marker_guard(&ctx.pool))?;
+
+        signals::subscribe();
+
+        // The backfill runs OFF the boot path: it is a full table walk, and
+        // nothing may depend on it having finished before the first request. A
+        // project it has not reached yet is repaired by the signal on its next
+        // write, by a link, or by a channel create.
+        tokio::spawn(async move {
+            let repaired = signals::backfill_once().await;
+            tracing::debug!(projects = repaired, "taskflow-agents room backfill done");
+        });
+
         Ok(())
     }
 }

@@ -209,6 +209,28 @@ pub struct TaskflowAgentChannel {
     pub created_by_agent: Option<ForeignKey<TaskflowAgent>>,
     #[umbral(default = "false")]
     pub archived: bool,
+    /// Marks THE public room of this project — the shared room everyone in the
+    /// project talks in. Exactly one channel per project carries it, and it keeps
+    /// `kind = Project` so the existing project-wide visibility gates treat it as
+    /// a shared room. The title ("Project room") is cosmetic.
+    ///
+    /// It exists because a project may hold any number of OTHER rooms — users
+    /// create #42 Groups freely, and that is harmless by design — which makes
+    /// every looser selector ambiguous: a lookup by `kind`, by `title`, or by
+    /// index/order can land on a user's room. This flag makes the two special
+    /// rooms findable by what they ARE, never by where they sort.
+    #[umbral(default = "false")]
+    pub is_public: bool,
+    /// Marks THE design room of this project — the one channel the design
+    /// conversation lives in. Same one-per-project rule, same reasoning, and the
+    /// same `kind = Project` as `is_public`: the two markers are siblings and
+    /// both are ensured together (see `views::ensure_project_rooms`).
+    ///
+    /// With this, placement decides what a design message is: a message is the
+    /// design conversation's when it was posted HERE, and
+    /// `TaskflowAgentMessage.is_design` is derived from that (see its doc).
+    #[umbral(default = "false")]
+    pub is_design: bool,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
@@ -275,10 +297,17 @@ pub struct TaskflowAgentMessage {
     pub body_markdown: String,
     #[umbral(choices, default = "normal")]
     pub priority: TaskflowMessagePriority,
-    /// Marks a message as belonging to the design conversation. Ordinary chat
-    /// messages are `false`; the design page filters the Project-room channel to
-    /// `is_design = true`. Set by the design composer (human) or explicitly by an
-    /// agent via the MCP `send_message` `is_design` param.
+    /// Marks a message as belonging to the design conversation. **Derived, not
+    /// declared**: both send paths set it from the DESTINATION channel's
+    /// `is_design` marker — true exactly when the message was posted into the
+    /// project's design room — and override whatever the client sent. The
+    /// `is_design` request parameter is still ACCEPTED on both paths (so no
+    /// client breaks) but no longer decides placement.
+    ///
+    /// The column is kept and kept populated for back-compat with rows and
+    /// readers that predate the design room (the repo's precedent is
+    /// `target_agent`, above): the design page's own filters, its badge, the
+    /// retry path and the optimistic store all still read it.
     #[umbral(default = "false")]
     pub is_design: bool,
     /// Client-generated correlation id. The sender renders its bubble

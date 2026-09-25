@@ -77,7 +77,10 @@ pub struct SendMessageInput {
     /// is authoritative and `target_agent` is derived from it.
     #[serde(default)]
     pub targets: Option<Vec<MessageTarget>>,
-    /// Marks this as a design-conversation message. Absent/false = ordinary chat.
+    /// Accepted for back-compat and then IGNORED: the design flag is derived
+    /// server-side from the destination channel's kind (true only in the
+    /// project's `Design` room). Kept in the body so a client that still sends
+    /// it is neither rejected nor able to place a message by declaring it.
     #[serde(default)]
     pub is_design: bool,
 }
@@ -339,7 +342,22 @@ pub async fn send_message(
 
     // Normalise both transports to the same logical input: the message fields
     // plus any uploaded file parts (JSON posts carry none).
-    let (channel_id, body_markdown, priority, client_nonce, target_agent, targets, files, is_design): (
+    //
+    // The trailing `is_design` is the client's DECLARATION, parsed and then
+    // deliberately ignored: ruling 4 makes the flag derived from the destination
+    // channel (see the derivation after the channel is loaded). It is still
+    // parsed so the parameter stays ACCEPTED — a client that still sends it is
+    // neither rejected nor obeyed, and nothing about the request shape changes.
+    let (
+        channel_id,
+        body_markdown,
+        priority,
+        client_nonce,
+        target_agent,
+        targets,
+        files,
+        _declared_is_design,
+    ): (
         i64,
         String,
         Option<TaskflowMessagePriority>,
@@ -395,7 +413,9 @@ pub async fn send_message(
             .as_deref()
             .and_then(|s| serde_json::from_str::<Vec<MessageTarget>>(s).ok());
 
-        // A design-composer message flags itself; anything but "true" is false.
+        // The design flag as DECLARED by the client ("true", case-insensitive;
+        // anything else false). Parsed so the field stays accepted, then
+        // discarded — placement is decided by the destination channel.
         let is_design = is_design_field
             .as_deref()
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
@@ -466,6 +486,15 @@ pub async fn send_message(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    // The DESTINATION decides. `is_design` is derived from the channel this
+    // message actually lands in — true exactly when that channel is the
+    // project's design room (`is_design`, a property of the room, not of the
+    // sender) — and it overrides whatever the client declared. A client that
+    // sent a mismatched value is not rejected: the parameter is still accepted
+    // (its value is discarded above), so the message simply goes where it was
+    // addressed and the flag tells the truth about it.
+    let is_design = channel.is_design;
 
     // Membership is the authorization boundary: you may only speak in rooms
     // you have joined. Checked BEFORE the idempotency lookup on purpose — the
@@ -918,67 +947,53 @@ pub async fn create_channel(
                 })
                 .collect();
             if roster == seen {
-                let mut value = serde_json::to_value(&candidate)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                if let serde_json::Value::Object(map) = &mut value {
-                    map.insert("members".to_string(), json!(members));
-                }
-                return Ok((StatusCode::OK, Json(value)).into_response());
+                return Ok((
+                    StatusCode::OK,
+                    Json(channel_json_with_members(&candidate).await?),
+                )
+                    .into_response());
             }
         }
     }
 
-    // One project room per project. A Project channel is the SHARED room, not a
-    // per-roster DM, so if a non-archived one already exists we return it instead
-    // of minting a duplicate. This is what the design rail and the dock both need:
-    // each calls this on first send, and a surface that has not yet loaded the
-    // channel list would otherwise create a second "Project room". Get-or-create,
-    // race-safe on the server rather than trusting the client to look first. The
-    // earliest id is the canonical room (the seeded one). The caller is ensured
-    // onto the roster so they can actually see the room they asked for.
+    // The design room is NOT a separate kind — it is a `Project`-kind room
+    // MARKED `is_design`, and it is created together with the public room by
+    // `ensure_project_rooms` (below). There is deliberately no
+    // "kind = design" request: a client selects the design room by the marker,
+    // read off the channel list, so nothing here has to guess.
+
+    // One public room per project. The room a `kind = project` request means is
+    // the one MARKED `is_public` — get-or-create, exactly as before, but by
+    // property rather than by kind or by "the earliest channel that is not a
+    // DM". That matters once a project may hold a design room and any number of
+    // user rooms: a kind/order lookup would return one of those and the caller
+    // could not tell. The caller is ensured onto the roster so they can actually
+    // see the room they asked for, and a project that has NO rooms gets BOTH
+    // (the invariant is "both or neither", so the request that creates one
+    // creates the other too — this is the human path for a project with no
+    // agents, and the design room has to exist for the design page to find it).
     if input.kind == TaskflowChannelKind::Project {
-        // `find_project_room` is the one canonical "the project room" lookup
-        // (earliest Project channel), shared with `ensure_project_room` so the
-        // agent-mint path and this create path can never disagree on which room
-        // is THE room.
-        if let Some(room) = find_project_room(input.project).await? {
-            let caller_rostered = TaskflowAgentChannelMember::objects()
-                .filter(
-                    taskflow_agent_channel_member::CHANNEL.eq(room.id)
-                        & taskflow_agent_channel_member::USER.eq(caller_id),
-                )
-                .first()
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                .is_some();
-            if !caller_rostered {
-                TaskflowAgentChannelMember::objects()
-                    .create(TaskflowAgentChannelMember {
-                        id: 0,
-                        project: ForeignKey::new(input.project),
-                        channel: ForeignKey::new(room.id),
-                        member_kind: TaskflowChannelMemberKind::User,
-                        user: Some(ForeignKey::new(caller_id)),
-                        agent: None,
-                        display_name: caller_membership.display_name.clone(),
-                        role: CHANNEL_ROLE_MEMBER.to_string(),
-                        joined_at: None,
-                    })
-                    .await
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            }
-            let members = TaskflowAgentChannelMember::objects()
-                .filter(taskflow_agent_channel_member::CHANNEL.eq(room.id))
-                .fetch()
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            let mut value =
-                serde_json::to_value(&room).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            if let serde_json::Value::Object(map) = &mut value {
-                map.insert("members".to_string(), json!(members));
-            }
-            return Ok((StatusCode::OK, Json(value)).into_response());
-        }
+        let existing = find_public_room(input.project).await?;
+        let (room, _design) = ensure_project_rooms(input.project).await?;
+        ensure_user_channel_row(
+            input.project,
+            room.id,
+            caller_id,
+            &caller_membership.display_name,
+        )
+        .await?;
+        // A reused room answers 200; a room this request just created answers
+        // 201, exactly as the pre-marker code did.
+        let status = if existing.is_some() {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        };
+        return Ok((
+            status,
+            Json(channel_json_with_members(&room).await?),
+        )
+            .into_response());
     }
 
     // Resolve the task link against THIS project before the transaction opens,
@@ -1007,6 +1022,13 @@ pub async fn create_channel(
                     created_by_user: Some(ForeignKey::new(caller_id)),
                     created_by_agent: None,
                     archived: false,
+                    // A room a client creates is an ordinary room: neither of the
+                    // two project-wide markers. `kind = project` requests never
+                    // reach here (they are answered by `ensure_project_rooms`
+                    // above), so this is a DM, a #42 Group, a task or an incident
+                    // room.
+                    is_public: false,
+                    is_design: false,
                     created_at: None,
                 })
                 .await?;
@@ -1362,7 +1384,26 @@ pub async fn link_agent(
     // reported back to) the moment it is linked. Best-effort: a failure here
     // must not lose the freshly-minted key, which is unrecoverable after this
     // response — the agent can still be rostered later.
-    let _ = ensure_project_room(project_id, agent_id, &display_name, Some(user_id)).await;
+    //
+    // Both rooms, in one place: the single choke point for "agent added to a
+    // project" is also the moment its membership of BOTH rooms is decided, so an
+    // agent can answer a design request immediately rather than only after a
+    // human happens to open the design page. A re-linked agent (an existing id)
+    // is rostered onto rooms that already exist, which is why the roster writes
+    // are here and not only inside `ensure_project_rooms`.
+    match ensure_project_rooms(project_id).await {
+        Ok((public, design)) => {
+            let _ = ensure_agent_channel_row(project_id, public.id, agent_id, &display_name).await;
+            let _ = ensure_agent_channel_row(project_id, design.id, agent_id, &display_name).await;
+        }
+        Err(_) => {
+            tracing::warn!(
+                project = project_id,
+                agent = agent_id,
+                "could not ensure the project's rooms on agent link; the agent can still be rostered later"
+            );
+        }
+    }
 
     // The raw key appears here and NOWHERE else. `taskflow_profile` is the block
     // the caller pastes into `.taskflow.json` under `profiles.<profile>`.
@@ -1396,9 +1437,11 @@ pub struct AgentSendMessageInput {
     pub priority: Option<TaskflowMessagePriority>,
     #[serde(default)]
     pub client_nonce: Option<String>,
-    /// Agent-set design flag. The agent passes `true` when answering a design
-    /// request; there is no server inference (no targets/reply linkage on this
-    /// path), so an omitted value defaults to false.
+    /// Accepted for back-compat and then IGNORED: the design flag is derived
+    /// server-side from the destination channel's kind (true only in the
+    /// project's `Design` room). Kept in the body so an agent that still sends
+    /// it — every currently-installed MCP does — is neither rejected nor able to
+    /// place a message by declaring it.
     #[serde(default)]
     pub is_design: bool,
 }
@@ -1431,7 +1474,20 @@ pub async fn send_message_as_agent(
 
     // Normalise both transports to the same logical input, exactly as the human
     // `send_message` does. JSON posts carry no file parts.
-    let (channel_id, body_markdown, priority, client_nonce, files, is_design): (
+    //
+    // The trailing `is_design` is the agent's DECLARATION, parsed and then
+    // deliberately ignored: ruling 4 makes the flag derived from the destination
+    // channel. Still parsed so the parameter stays ACCEPTED (Task 3 rewrites the
+    // MCP text that describes it) — an agent that still sends it is neither
+    // rejected nor obeyed.
+    let (
+        channel_id,
+        body_markdown,
+        priority,
+        client_nonce,
+        files,
+        _declared_is_design,
+    ): (
         i64,
         String,
         Option<TaskflowMessagePriority>,
@@ -1471,7 +1527,9 @@ pub async fn send_message_as_agent(
             .filter(|s| !s.is_empty())
             .and_then(|s| serde_json::from_value::<TaskflowMessagePriority>(json!(s)).ok());
 
-        // A design-composer message flags itself; anything but "true" is false.
+        // The design flag as DECLARED by the client ("true", case-insensitive;
+        // anything else false). Parsed so the field stays accepted, then
+        // discarded — placement is decided by the destination channel.
         let is_design = is_design_field
             .as_deref()
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
@@ -1532,6 +1590,12 @@ pub async fn send_message_as_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    // The DESTINATION decides, exactly as on the human path — `is_design` is
+    // true when this message lands in the project's design room, whatever the
+    // agent declared. See `send_message` for what a mismatched declaration sees
+    // (it is discarded, not rejected).
+    let is_design = channel.is_design;
 
     // Membership is the authorization boundary. Checked BEFORE the idempotency
     // lookup for the same reason as the human path: a guessed nonce must not let
@@ -2773,48 +2837,21 @@ pub struct ReviewInput {
     pub body_markdown: Option<String>,
 }
 
-/// Ensure the project has a shared room, creating one if it has none, and make
-/// `agent_id` a member of it.
+/// Insert `agent_id`'s roster row into `channel_id` unless it is already there.
 ///
-/// Without this an agent linked into a fresh project is BOTH mute and deaf: it
-/// has no channel to post into, and `apply_review`'s report-back silently skips
-/// (no room → no message), so review feedback never reaches it. The human
-/// frontend creates the room lazily on first send, which leaves the agent
-/// stranded until a human happens to type — so linking, not sending, is the
-/// right moment to guarantee the room exists.
-///
-/// Idempotent: an existing shared room is reused, and the roster row is only
-/// inserted when absent. (The `(channel, user)` unique index does NOT dedupe
-/// agent rows — `user` is NULL for them, and SQL treats NULLs as distinct — so
-/// the existence check here is load-bearing, not just an optimization.)
-async fn ensure_project_room(
+/// The existence check is load-bearing, not just an optimization: the
+/// `(channel, user)` unique index does NOT dedupe agent rows — `user` is NULL
+/// for them, and SQL treats NULLs as distinct — so a second insert would leave
+/// the channel with two identical agent members.
+async fn ensure_agent_channel_row(
     project_id: i64,
+    channel_id: i64,
     agent_id: i64,
     agent_label: &str,
-    created_by_user: Option<i64>,
-) -> Result<TaskflowAgentChannel, StatusCode> {
-    let room = match find_project_room(project_id).await? {
-        Some(room) => room,
-        None => TaskflowAgentChannel::objects()
-            .create(TaskflowAgentChannel {
-                id: 0,
-                project: ForeignKey::new(project_id),
-                title: "Project room".to_string(),
-                topic: Some("Shared room for humans and agents in this project.".to_string()),
-                kind: TaskflowChannelKind::Project,
-                task: None,
-                created_by_user: created_by_user.map(ForeignKey::new),
-                created_by_agent: None,
-                archived: false,
-                created_at: None,
-            })
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-    };
-
+) -> Result<(), StatusCode> {
     let already_rostered = TaskflowAgentChannelMember::objects()
         .filter(
-            taskflow_agent_channel_member::CHANNEL.eq(room.id)
+            taskflow_agent_channel_member::CHANNEL.eq(channel_id)
                 & taskflow_agent_channel_member::AGENT.eq(agent_id),
         )
         .first()
@@ -2827,7 +2864,7 @@ async fn ensure_project_room(
             .create(TaskflowAgentChannelMember {
                 id: 0,
                 project: ForeignKey::new(project_id),
-                channel: ForeignKey::new(room.id),
+                channel: ForeignKey::new(channel_id),
                 member_kind: TaskflowChannelMemberKind::Agent,
                 user: None,
                 agent: Some(ForeignKey::new(agent_id)),
@@ -2839,30 +2876,414 @@ async fn ensure_project_room(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
-    Ok(room)
+    Ok(())
 }
 
-/// Find the shared room to report a review back into: prefer the project's
-/// `Project`-kind channel, else the first non-`Direct` channel in the project.
-/// Returns `None` when the project has no shared room (the review still records;
-/// the report-back is skipped).
-async fn find_project_room(project_id: i64) -> Result<Option<TaskflowAgentChannel>, StatusCode> {
+/// Insert `user_id`'s roster row into `channel_id` unless it is already there.
+///
+/// The `(channel, user)` unique index makes the check redundant for a single
+/// writer, but the caller is also the reused-room path in `create_channel`,
+/// where a second insert would be a hard 500 rather than a duplicate — and the
+/// callers here are non-transactional, so a race between two callers is exactly
+/// what the index would reject. Same shape as `ensure_agent_channel_row`.
+async fn ensure_user_channel_row(
+    project_id: i64,
+    channel_id: i64,
+    user_id: i64,
+    display_name: &str,
+) -> Result<(), StatusCode> {
+    let already_rostered = TaskflowAgentChannelMember::objects()
+        .filter(
+            taskflow_agent_channel_member::CHANNEL.eq(channel_id)
+                & taskflow_agent_channel_member::USER.eq(user_id),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some();
+
+    if !already_rostered {
+        TaskflowAgentChannelMember::objects()
+            .create(TaskflowAgentChannelMember {
+                id: 0,
+                project: ForeignKey::new(project_id),
+                channel: ForeignKey::new(channel_id),
+                member_kind: TaskflowChannelMemberKind::User,
+                user: Some(ForeignKey::new(user_id)),
+                agent: None,
+                display_name: display_name.to_string(),
+                role: CHANNEL_ROLE_MEMBER.to_string(),
+                joined_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    Ok(())
+}
+
+/// A channel serialized for the create-channel responses, with its roster
+/// attached — the shape `create_channel` has always answered with.
+async fn channel_json_with_members(
+    channel: &TaskflowAgentChannel,
+) -> Result<serde_json::Value, StatusCode> {
+    let members = TaskflowAgentChannelMember::objects()
+        .filter(taskflow_agent_channel_member::CHANNEL.eq(channel.id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut value = serde_json::to_value(channel).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert("members".to_string(), json!(members));
+    }
+    Ok(value)
+}
+
+/// The public room's title. Cosmetic, like the design room's: nothing selects a
+/// room by name (the two markers do), so the title must not be load-bearing.
+const PUBLIC_ROOM_TITLE: &str = "Project room";
+
+/// The design room's title. Cosmetic on purpose: nothing in the code selects the
+/// room by name — `find_design_room` selects by the `is_design` MARKER — so the
+/// title carries no meaning and must not be tuned to dodge a sort. (A `"Design…"`
+/// name sorts before `"Project room"`, which is the latent title-based selection
+/// bug the frontend fixes by selecting on the marker; naming around it here
+/// would hide it.)
+const DESIGN_ROOM_TITLE: &str = "Design room";
+
+/// Find THE public room of `project`: the channel MARKED `is_public`, or `None`
+/// when the project has none.
+///
+/// **By property only — no fallback and no ordering.** Both restrictions are the
+/// point of the markers. A fallback ("else the earliest non-DM room") answers
+/// with some OTHER room whenever the marked one is missing — a design room, a
+/// user's #42 Group, a task room — and the caller cannot tell, so a read or a
+/// write lands in a conversation nobody meant. "This project has no public room"
+/// has to be observable, because the callers' next move differs: `create_channel`
+/// creates the pair, `apply_review` ensures the pair, and a read surface shows
+/// nothing rather than the wrong thing.
+pub(crate) async fn find_public_room(project_id: i64) -> Result<Option<TaskflowAgentChannel>, StatusCode> {
+    TaskflowAgentChannel::objects()
+        .filter(
+            taskflow_agent_channel::PROJECT.eq(project_id)
+                & taskflow_agent_channel::IS_PUBLIC.eq(true),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Find THE design room of `project`: the channel MARKED `is_design`, or `None`.
+///
+/// Same "no fallback, no ordering" contract as `find_public_room`, for the same
+/// reason — the two finders are deliberately symmetric, and each is the reason
+/// the other cannot be replaced by a looser query.
+pub(crate) async fn find_design_room(project_id: i64) -> Result<Option<TaskflowAgentChannel>, StatusCode> {
+    TaskflowAgentChannel::objects()
+        .filter(
+            taskflow_agent_channel::PROJECT.eq(project_id)
+                & taskflow_agent_channel::IS_DESIGN.eq(true),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Roster every agent this project already has onto `channel_id`.
+///
+/// Used only when a room is being CREATED: an agent linked before the room
+/// existed is otherwise missing from its roster, and the user's rule is that an
+/// agent in a project belongs to both rooms. Idempotent per agent (see
+/// `ensure_agent_channel_row`), so it is safe on any call.
+async fn ensure_project_agents_rostered(
+    project_id: i64,
+    channel_id: i64,
+) -> Result<(), StatusCode> {
+    let agents = TaskflowAgent::objects()
+        .filter(taskflow_agent::PROJECT.eq(project_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    for agent in agents {
+        ensure_agent_channel_row(project_id, channel_id, agent.id, &agent.display_name).await?;
+    }
+    Ok(())
+}
+
+/// Ensure BOTH of a project's rooms exist — the public room (`is_public`) and the
+/// design room (`is_design`) — and return them as `(public, design)`.
+///
+/// This is the ONLY place either room is created, and the invariant is "both, or
+/// neither" in the sense that matters: every caller asks for the PAIR, so no
+/// surface can end up depending on a room the other surfaces never made. This is
+/// deliberately not a transaction — the two creates are separate writes and a
+/// failure between them leaves the first room in place. That partial state is
+/// safe rather than special-cased, because the same call repairs it on its next
+/// run (the finder for the half that exists answers, the other half is created).
+///
+/// ## Idempotence is what makes the three layers trustworthy
+///
+/// It is driven from three independent places — the project write signals
+/// (`signals::subscribe`), the `on_ready` backfill, and `link_agent` — any of
+/// which may run first, twice, or not at all. Rather than the layers having to
+/// agree, each one just calls this, and this enforces the invariant: a missing
+/// room, a room that predates the markers, a failed transaction or a signal
+/// that never arrived are all self-healing on the next call.
+///
+/// ## Adopting a room that predates the markers
+///
+/// A project room created before `is_public` existed carries BOTH markers false,
+/// which is indistinguishable from a user's room — the very ambiguity the
+/// markers remove. So when a project has no marked public room but DOES have an
+/// unmarked `kind = Project` room, that room is MARKED, never duplicated: a
+/// duplicate would leave the project with two "public" rooms and the old one
+/// orphaned from design and review traffic. The legacy room is identified as the
+/// earliest `Project`-kind room that is not the design room, and that ordering
+/// is bounded on purpose: before the markers the only Project-kind room a
+/// project could have was the one get-or-create made, and this branch can fire
+/// at most once per project (nothing ever CLEARS `is_public`). The finders
+/// themselves stay order-free; the ordering lives here, where the choice is
+/// whether to adopt, not which room to answer with.
+///
+/// ## Roster rows
+///
+/// A room created here gets every agent the project already has on its roster
+/// (see `ensure_project_agents_rostered`), mirroring what `link_agent` does for
+/// an agent added later. Users are rostered by the paths that speak for them
+/// (`create_channel` rosters its caller); project membership alone already grants
+/// read and post access to a project-wide room, so no build of the rooms needs
+/// a user roster row to be visible.
+pub async fn ensure_project_rooms(
+    project_id: i64,
+) -> Result<(TaskflowAgentChannel, TaskflowAgentChannel), StatusCode> {
+    // Public first, then design: the design room is created knowing the public
+    // one already exists, so the two can never both be missing when one is
+    // created, and the adoption of a legacy room never has to reason about a
+    // design room it just made.
+    let public = match find_public_room(project_id).await? {
+        Some(room) => room,
+        None => match oldest_unmarked_room(project_id).await? {
+            Some(legacy) => {
+                let mut legacy = legacy;
+                legacy.is_public = true;
+                match TaskflowAgentChannel::objects().save(legacy).await {
+                    Ok(room) => room,
+                    // Another caller marked a room between the find and the save.
+                    // Its room IS the public room; this one takes it rather than
+                    // creating a second (the marker guard is what turns that race
+                    // into this error instead of two public rooms).
+                    Err(_) => {
+                        let room = find_public_room(project_id)
+                            .await?
+                            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+                        // The winner may not have finished rostering the project's
+                        // agents yet, and a caller must never observe half-made
+                        // rooms. Re-running it is idempotent per agent.
+                        ensure_project_agents_rostered(project_id, room.id).await?;
+                        room
+                    }
+                }
+            }
+            None => {
+                let created = TaskflowAgentChannel::objects()
+                    .create(TaskflowAgentChannel {
+                        id: 0,
+                        project: ForeignKey::new(project_id),
+                        title: PUBLIC_ROOM_TITLE.to_string(),
+                        topic: Some(
+                            "Shared room for humans and agents in this project.".to_string(),
+                        ),
+                        kind: TaskflowChannelKind::Project,
+                        task: None,
+                        created_by_user: None,
+                        created_by_agent: None,
+                        archived: false,
+                        is_public: true,
+                        is_design: false,
+                        created_at: None,
+                    })
+                    .await;
+                match created {
+                    Ok(room) => {
+                        ensure_project_agents_rostered(project_id, room.id).await?;
+                        room
+                    }
+                    Err(_) => {
+                        let room = find_public_room(project_id)
+                            .await?
+                            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+                        // Same edge as the adoption race above: the winner creates
+                        // the room and THEN rosters, so a caller that takes the
+                        // winner's row can otherwise see a room with no seats in it.
+                        ensure_project_agents_rostered(project_id, room.id).await?;
+                        room
+                    }
+                }
+            }
+        },
+    };
+
+    let design = match find_design_room(project_id).await? {
+        Some(room) => room,
+        None => {
+            let created = TaskflowAgentChannel::objects()
+                .create(TaskflowAgentChannel {
+                    id: 0,
+                    project: ForeignKey::new(project_id),
+                    title: DESIGN_ROOM_TITLE.to_string(),
+                    topic: Some("The design conversation for this project.".to_string()),
+                    kind: TaskflowChannelKind::Project,
+                    task: None,
+                    created_by_user: None,
+                    created_by_agent: None,
+                    archived: false,
+                    is_public: false,
+                    is_design: true,
+                    created_at: None,
+                })
+                .await;
+            let room = match created {
+                Ok(room) => {
+                    ensure_project_agents_rostered(project_id, room.id).await?;
+
+                    // The FIRST creation adopts the project's design history, in
+                    // the same operation. No migration does this: migrations here
+                    // are schema-only (there is no `RunSql` anywhere in the repo)
+                    // and adopt-on-create is lazy, self-healing for projects that
+                    // predate this room, and cannot double-run.
+                    adopt_design_history(project_id, room.id).await?;
+                    room
+                }
+                // Another caller created the design room first: it is THE design
+                // room, and the adoption is its business (it either ran it or is
+                // past the point where it would). The ROSTER is re-checked here
+                // for the same reason as the public room's: the winner writes it
+                // after its create, so taking the winner's row is not yet a
+                // promise that its agents have seats.
+                Err(_) => {
+                    let room = find_design_room(project_id)
+                        .await?
+                        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+                    ensure_project_agents_rostered(project_id, room.id).await?;
+                    room
+                }
+            };
+            room
+        }
+    };
+
+    Ok((public, design))
+}
+
+/// The candidate for marker adoption: the oldest `Project`-kind room of
+/// `project` that is not already the design room, or `None` when the project has
+/// no such row.
+///
+/// This exists ONLY for rows that predate the markers; see
+/// [`ensure_project_rooms`] for why the ordering is bounded and why the finders
+/// themselves stay order-free. The design room is excluded explicitly — it is a
+/// `Project`-kind room too, and adopting it as the public room would leave the
+/// project with no shared room at all.
+async fn oldest_unmarked_room(
+    project_id: i64,
+) -> Result<Option<TaskflowAgentChannel>, StatusCode> {
     let channels = TaskflowAgentChannel::objects()
         .filter(taskflow_agent_channel::PROJECT.eq(project_id))
         .order_by(taskflow_agent_channel::ID.asc())
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // Prefer a dedicated project room; otherwise any non-DM shared channel.
-    if let Some(room) = channels
-        .iter()
-        .find(|c| c.kind == TaskflowChannelKind::Project)
-    {
-        return Ok(Some(room.clone()));
-    }
     Ok(channels
         .into_iter()
-        .find(|c| c.kind != TaskflowChannelKind::Direct))
+        .find(|c| c.kind == TaskflowChannelKind::Project && !c.is_design))
+}
+
+/// Ruling 1's adoption: re-point the project's existing design messages into its
+/// newly created design room, and return how many moved.
+///
+/// Two restrictions, both deliberate:
+///
+///   * **Only this project's messages** (`project = project_id`), never another
+///     project's — the room is one project's conversation.
+///   * **Only messages in SHARED rooms.** `is_design` was a client-declared flag,
+///     so a message posted in a DM or a #42 Group could carry it. This room is
+///     project-wide visible, so re-pointing one of those would publish a private
+///     conversation — the message stays where its roster can read it and nowhere
+///     else. What comes along is the design conversation proper, which
+///     `models.rs` records as having lived in the project room.
+///
+/// The predicate also excludes messages already in `room_id`, which is what makes
+/// a repeat call a no-op rather than a re-write (the caller only reaches this on
+/// creation, but "cannot double-run" should not rest on that alone).
+///
+/// Of those three clauses, only the shared-room restriction is observable: a
+/// channel belongs to exactly one project, so `m.channel` being one of this
+/// project's channels already implies `m.project = project_id`, and the
+/// `room_id` clause only ever spares a no-op UPDATE. The project scope and the
+/// `room_id` clause are kept as belt-and-braces on a bulk write that moves other
+/// people's messages — and are knowingly not pinned by a test, because no state
+/// the ORM can produce distinguishes them.
+///
+/// Attachments move with their message: `TaskflowMessageAttachment.channel` is
+/// denormalized from the message *for the REST scope*, so a message that moves
+/// without its attachments leaves its files resolvable only through the room it
+/// came from.
+async fn adopt_design_history(project_id: i64, room_id: i64) -> Result<u64, StatusCode> {
+    let shared_channel_ids: HashSet<i64> = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::PROJECT.eq(project_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .filter(|c| {
+            !matches!(
+                c.kind,
+                TaskflowChannelKind::Direct | TaskflowChannelKind::Group
+            )
+        })
+        .map(|c| c.id)
+        .collect();
+
+    let ids: Vec<i64> = TaskflowAgentMessage::objects()
+        .filter(
+            taskflow_agent_message::PROJECT.eq(project_id)
+                & taskflow_agent_message::IS_DESIGN.eq(true),
+        )
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .filter(|m| m.channel.id() != room_id && shared_channel_ids.contains(&m.channel.id()))
+        .map(|m| m.id)
+        .collect();
+
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let moved = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::ID.in_(&ids))
+        .update_values(
+            json!({ "channel": room_id })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    TaskflowMessageAttachment::objects()
+        .filter(taskflow_message_attachment::MESSAGE.in_(&ids))
+        .update_values(
+            json!({ "channel": room_id })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(moved)
 }
 
 /// The shared core of both review routes. Records the review, transitions the
@@ -2931,14 +3352,39 @@ async fn apply_review(
     // 4. Report back to the responsible agent: a message in the project room
     // referencing the task, directed at that agent so it surfaces in its pane
     // (live via SSE, the reconnect catch-up, or check_messages). Only when the
-    // task has a responsible agent (assignee OR operator) AND a shared room
-    // exists — otherwise the review still stands, the message is skipped. The
-    // create auto-emits the realtime event (the message model is Exposed).
+    // task has a responsible agent (assignee OR operator) — otherwise the review
+    // still stands, the message is skipped. The create auto-emits the realtime
+    // event (the message model is Exposed).
     // The agent responsible for the task: the assignee if set, else the operator.
     // Most tasks are operator-only, so gating on `assigned_agent_id` alone (as it
     // did) meant a review on them notified nobody (#37).
+    //
+    // The room is ENSURED rather than merely looked up, and it is the room
+    // MARKED `is_public`, never "whatever shared room exists". Both halves are
+    // the fix for the same bug: with a design room and user-created rooms in a
+    // project, a loose lookup answers with one of those, and review feedback
+    // lands in a conversation the reviewer never meant — or, when no shared room
+    // exists at all, the report-back silently vanishes, which is the failure the
+    // room-ensuring paths exist to prevent.
     if let Some(recipient_agent) = task.assigned_agent_id.or(task.operator_agent_id) {
-        if let Some(channel) = find_project_room(project_id).await? {
+        let room = match ensure_project_rooms(project_id).await {
+            // The PUBLIC room, by its marker — the room the review conversation
+            // belongs in.
+            Ok((public, _design)) => Some(public),
+            Err(_) => {
+                // The review itself is already recorded and the task already
+                // transitioned above, so the report-back is the only thing at
+                // stake: log the skip instead of turning a durable review into a
+                // 500 whose retry would record a second one.
+                tracing::warn!(
+                    project = project_id,
+                    task = task.id,
+                    "could not ensure the project's rooms; the review report-back was skipped"
+                );
+                None
+            }
+        };
+        if let Some(channel) = room {
             let mut message_body = format!("Review: **{decision_label}** on _{}_.", task.title);
             if let Some(b) = &body {
                 message_body.push_str("\n\n");
@@ -3480,6 +3926,13 @@ pub async fn list_channels_as_agent(
                 "title": c.title,
                 "kind": c.kind,
                 "topic": c.topic,
+                // The two markers, so an agent selects the public room and the
+                // design room the same way the server and the frontend do —
+                // by what they ARE. Without them the only handle left in this
+                // payload is the title, which this feature deliberately made
+                // cosmetic (`models.rs`: titles are not load-bearing).
+                "is_public": c.is_public,
+                "is_design": c.is_design,
             })
         })
         .collect();

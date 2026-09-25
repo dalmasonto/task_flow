@@ -180,6 +180,22 @@ impl TestApp {
         taskflow_tasks::session_timer::install_open_session_guard(umbral::db::pool_dispatched())
             .await
             .expect("install task session guard");
+        // `boot` fires each plugin's `on_ready` BEFORE `create_tables`, so the
+        // marker guard installs nothing on that pass (it defers when the schema
+        // does not exist yet, exactly as the task-session guard does) and the
+        // marker uniqueness the design-room tests assert would go unguarded.
+        // Installing it again here, now that the schema exists, is the same
+        // pattern in the same place.
+        taskflow_agents::signals::install_room_marker_guard(umbral::db::pool_dispatched())
+            .await
+            .expect("install room marker guard");
+        // The boot backfill sweeps EVERY project, including one a test creates
+        // a moment later — which would give that project its rooms while the
+        // test is still arranging markers and fixtures, and fail the arrange for
+        // reasons that have nothing to do with what it is testing. Awaiting the
+        // sweep here (the same cell `on_ready` spawned, so it runs once) closes
+        // that window: every project a test makes afterwards is its own.
+        taskflow_agents::signals::backfill_once().await;
 
         Self {
             client: TestClient::new(taskflow_agents::urls::router()),
@@ -517,22 +533,110 @@ async fn seed_channel(project: i64) -> i64 {
 
 pub async fn seed_channel_of_kind(project: i64, kind: TaskflowChannelKind) -> i64 {
     let n = seq();
+    seed_room(project, kind, &format!("Channel {n}"), false, false).await
+}
+
+/// Seed a channel with EXPLICIT markers — the shape a room has in the database,
+/// which is what the design-room tests need to arrange a state the API cannot
+/// produce directly (a marked design room, a user's room that mimics the public
+/// room's title, an unmarked room that predates the markers).
+///
+/// Prefer [`seed_channel_of_kind`] when the markers are not the point: both
+/// markers false is exactly what an ordinary room and a pre-marker room look
+/// like.
+pub async fn seed_room(
+    project: i64,
+    kind: TaskflowChannelKind,
+    title: &str,
+    is_public: bool,
+    is_design: bool,
+) -> i64 {
     TaskflowAgentChannel::objects()
         .create(TaskflowAgentChannel {
             id: 0,
             project: ForeignKey::new(project),
-            title: format!("Channel {n}"),
+            title: title.to_string(),
             topic: None,
             kind,
             task: None,
             created_by_user: None,
             created_by_agent: None,
             archived: false,
+            is_public,
+            is_design,
             created_at: None,
         })
         .await
         .expect("create channel")
         .id
+}
+
+/// The project's PUBLIC room id — the channel MARKED `is_public`.
+///
+/// Panics when the project has none, on purpose: the backend guarantees both
+/// rooms for every project (the write signal, the boot backfill or `link_agent`),
+/// so a test that needs the public room should fail loudly rather than accept
+/// whichever other room happens to exist. See
+/// `taskflow_agents::models::TaskflowAgentChannel`.
+pub async fn public_room_of(project: i64) -> i64 {
+    marked_room_of(project, |c| c.is_public, "public").await
+}
+
+/// The project's DESIGN room id — the channel MARKED `is_design`. Same panic
+/// contract as [`public_room_of`].
+pub async fn design_room_of(project: i64) -> i64 {
+    marked_room_of(project, |c| c.is_design, "design").await
+}
+
+async fn marked_room_of(project: i64, marker: fn(&TaskflowAgentChannel) -> bool, which: &str) -> i64 {
+    TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::PROJECT.eq(project))
+        .fetch()
+        .await
+        .unwrap_or_else(|e| panic!("load {which} room: {e}"))
+        .into_iter()
+        .find(|c| marker(c))
+        .unwrap_or_else(|| panic!("the project has a {which} room"))
+        .id
+}
+
+/// Seed a project the way `POST /api/taskflow/projects` creates one: inside an
+/// explicit `umbral::transaction`, through `on_tx(tx).create(..)`, with the owner
+/// membership landing in the same transaction.///
+/// The difference from [`seed_project`] is load-bearing, not cosmetic. The ORM's
+/// transaction terminal emits NO signal — only the non-transactional
+/// `QuerySet::create` / `Manager::save` / dynamic-insert paths do — so a project
+/// made this way has no rooms until something explicitly gives it some. That is
+/// the state the boot backfill exists for, and it is the state a project created
+/// through the API is really in.
+pub async fn seed_project_via_transaction() -> i64 {
+    let n = seq();
+    umbral::transaction(move |tx| {
+        Box::pin(async move {
+            let project = TaskflowProject::objects()
+                .on_tx(tx)
+                .create(TaskflowProject {
+                    id: 0,
+                    name: format!("Project {n}"),
+                    slug: format!("project-{n}"),
+                    description_markdown: String::new(),
+                    repository_url: None,
+                    default_api_base_url: None,
+                    status: TaskflowProjectStatus::Active,
+                    owner: None,
+                    github_repo: None,
+                    github_linked_by: None,
+                    github_default_branch: None,
+                    github_auto_mirror: false,
+                    created_at: None,
+                    updated_at: None,
+                })
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(project.id)
+        })
+    })
+    .await
+    .expect("create project in a transaction")
 }
 
 /// Seed a bare message directly in `channel` (bypassing the send endpoint), so a

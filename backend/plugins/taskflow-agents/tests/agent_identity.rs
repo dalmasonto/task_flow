@@ -7,6 +7,7 @@ use serde_json::json;
 mod support;
 use support::{
     TestApp, make_active_project_member, seed_channel_of_kind, seed_project,
+    seed_project_via_transaction,
 };
 use taskflow_agents::models::TaskflowChannelKind;
 
@@ -233,47 +234,66 @@ async fn agent_send_is_idempotent_per_nonce() {
     assert_eq!(app.count_messages(channel).await, 1);
 }
 
-// Linking into a project with NO channels creates the shared room and rosters
-// the agent into it. Without this the agent is mute (nowhere to post) and deaf
+// Linking into a project with NO rooms creates BOTH of them and rosters the
+// agent into both. Without this the agent is mute (nowhere to post) and deaf
 // (review report-back silently skips when no room exists) until a human happens
-// to open the chat UI, which is what lazily created the room before.
+// to open the chat UI, which is what lazily created the room before — and an
+// agent linked before the design page was ever opened could not answer a design
+// request at all.
+//
+// The project is inserted through the transaction path so it really starts with
+// no rooms: `seed_project` writes through the signal-carrying path, which has
+// already created the pair by the time the link runs.
 #[tokio::test]
-async fn linking_bootstraps_a_shared_room() {
+async fn linking_bootstraps_both_rooms() {
     let app = TestApp::new().await;
-    let project = seed_project().await;
+    let project = seed_project_via_transaction().await;
     let user = app.create_user().await;
     make_active_project_member(project, user).await;
 
     let minted = mint(&app, user, project, "Builder", "main").await;
     let key = minted["key"].as_str().unwrap().to_string();
 
-    // The freshly linked agent can see a room without anyone having sent a thing.
+    // The freshly linked agent can see both rooms without anyone having sent a
+    // thing, and can tell them apart by the markers rather than by their names.
     let resp = app.get_as_agent(&key, "/api/taskflow/agents/channels").await;
     assert_eq!(resp.status(), 200);
     let channels = resp.json().await;
     let rooms = channels.as_array().expect("channels array");
-    assert_eq!(rooms.len(), 1, "expected exactly one bootstrapped room, got {channels:?}");
+    assert_eq!(rooms.len(), 2, "the public room and the design room, got {channels:?}");
+    let public = rooms
+        .iter()
+        .find(|r| r["is_public"] == json!(true))
+        .expect("a room marked is_public");
+    let design = rooms
+        .iter()
+        .find(|r| r["is_design"] == json!(true))
+        .expect("a room marked is_design");
+    assert_ne!(public["id"], design["id"]);
 
-    // ...and can actually post into it, which is the whole point.
-    let room = rooms[0]["id"].as_i64().expect("room id");
-    let sent = app
-        .post_as_agent(
-            &key,
-            "/api/taskflow/agents/agent/messages",
-            json!({ "channel": room, "body_markdown": "linked and ready" }),
-        )
-        .await;
-    assert_eq!(sent.status(), 200, "agent should be able to post in its bootstrapped room");
+    // ...and can actually post into both, which is the whole point.
+    for room in [public["id"].as_i64().expect("room id"), design["id"].as_i64().expect("room id")] {
+        let sent = app
+            .post_as_agent(
+                &key,
+                "/api/taskflow/agents/agent/messages",
+                json!({ "channel": room, "body_markdown": "linked and ready" }),
+            )
+            .await;
+        assert_eq!(sent.status(), 200, "agent should be able to post in its bootstrapped rooms");
+    }
 }
 
 // The bootstrap is idempotent: re-linking (which mints a fresh key) must not
 // pile up duplicate rooms or duplicate roster rows. The `(channel, user)` unique
 // index does NOT cover agent rows -- `user` is NULL for them and SQL treats
 // NULLs as distinct -- so nothing at the schema level would catch a regression.
+// (The two markers DO have a durable guard, one partial unique index per marker,
+// so a second marked room per project is a constraint violation, not a count.)
 #[tokio::test]
-async fn linking_twice_reuses_one_room() {
+async fn linking_twice_reuses_the_same_two_rooms() {
     let app = TestApp::new().await;
-    let project = seed_project().await;
+    let project = seed_project_via_transaction().await;
     let user = app.create_user().await;
     make_active_project_member(project, user).await;
 
@@ -283,19 +303,33 @@ async fn linking_twice_reuses_one_room() {
 
     let resp = app.get_as_agent(&key, "/api/taskflow/agents/channels").await;
     let channels = resp.json().await;
+    let rooms = channels.as_array().expect("channels array");
     assert_eq!(
-        channels.as_array().expect("channels array").len(),
+        rooms.len(),
+        2,
+        "re-linking must reuse the existing pair, not mint a second, got {channels:?}"
+    );
+    assert_eq!(
+        rooms.iter().filter(|r| r["is_public"] == json!(true)).count(),
         1,
-        "re-linking must reuse the existing room, got {channels:?}"
+        "exactly one public room"
+    );
+    assert_eq!(
+        rooms.iter().filter(|r| r["is_design"] == json!(true)).count(),
+        1,
+        "exactly one design room"
     );
 }
 
-// An existing shared room is adopted rather than duplicated -- the human
-// frontend may well have created one already.
+// A room that already exists is ADOPTED, not duplicated -- the marker-less room
+// the pre-marker code created is exactly this shape, and the human frontend may
+// well have created one already.
 #[tokio::test]
 async fn linking_adopts_an_existing_room() {
     let app = TestApp::new().await;
-    let project = seed_project().await;
+    // The transaction path: with `seed_project` the write signal would have made
+    // the pair (and marked a public room) before the legacy room below existed.
+    let project = seed_project_via_transaction().await;
     let user = app.create_user().await;
     make_active_project_member(project, user).await;
     let existing = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
@@ -306,6 +340,14 @@ async fn linking_adopts_an_existing_room() {
     let resp = app.get_as_agent(&key, "/api/taskflow/agents/channels").await;
     let channels = resp.json().await;
     let rooms = channels.as_array().expect("channels array");
-    assert_eq!(rooms.len(), 1, "should adopt the existing room, got {channels:?}");
-    assert_eq!(rooms[0]["id"].as_i64().unwrap(), existing);
+    assert_eq!(rooms.len(), 2, "the adopted room plus the design room, got {channels:?}");
+    let public = rooms
+        .iter()
+        .find(|r| r["is_public"] == json!(true))
+        .expect("a room marked is_public");
+    assert_eq!(
+        public["id"].as_i64().unwrap(),
+        existing,
+        "the room that already existed is THE public room now"
+    );
 }
