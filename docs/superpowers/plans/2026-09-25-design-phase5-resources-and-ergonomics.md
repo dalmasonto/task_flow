@@ -1117,10 +1117,16 @@ git commit -m "feat(design): inject enabled resource links; allow https in the s
 **Files:**
 - Create: `v2_fe/src/pages/design/resource-editor.tsx`
 - Create: `v2_fe/src/lib/resources.ts`, `v2_fe/src/lib/resources.test.ts`
+- Modify: `v2_fe/src/lib/design-api.ts` (add the resource document's fetch/put pair, mirroring the tokens pair)
 - Modify: `v2_fe/src/pages/design/DesignSurfacePage.tsx` (mount it in the Tokens tab)
 
 **Interfaces:**
 - Consumes: the `DesignFile` endpoints already used by `TokenEditor` (`styles/resources.json`), and `ResourceLink`/`ResourceSet`/`ResourcesDoc` mirrored from Task 6.
+- **The data pair goes in `design-api.ts`, mirroring the tokens pair.** "The endpoints `TokenEditor` uses" is not a generic client — it is two thin wrappers over the generic file calls, and the resource document needs its own:
+  - `export const RESOURCES_JSON_PATH = "styles/resources.json"`, beside `TOKENS_JSON_PATH`.
+  - `fetchDesignResources(projectId): Promise<{ doc: ResourcesDoc; version: number }>` over `fetchDesignFile(projectId, RESOURCES_JSON_PATH)`, **failing soft to an empty document** when the row is absent *or* its content does not parse — the same tolerant read `fetchDesignTokens` (`design-api.ts:210-223`) does, and the read half of the strict-write/forgiving-read asymmetry.
+  - `putDesignResources(projectId, doc, baseVersion): Promise<WriteFileResult>` over `putDesignFile(projectId, RESOURCES_JSON_PATH, JSON.stringify(doc), baseVersion)`.
+  - The save has **three** outcomes, not two (`design-api.ts:101-102`): `{ok: true}`, `{ok: false, errors: ValidationError[]}`, and `{ok: false, error: "version_conflict"}`. Step 3's "show the server's message" means rendering `errors[].message` — and the `version_conflict` arm must be handled too, or an editor that went stale silently saves nothing.
 - Produces: `normalizeResources(raw: unknown): ResourcesDoc`, `toggleSet(doc, id): ResourcesDoc`, `addSet(doc, name): { doc: ResourcesDoc; id: string }`, `removeSet(doc, id): ResourcesDoc`, `appendLinks(doc, setId, links): { doc: ResourcesDoc; added: number; skipped: number }`, `parsePastedLinks(text: string): ResourceLink[]`.
 - **Wire shape, mirrored from Task 6's Rust exactly** (it is `#[serde(rename_all = "camelCase")]` there): `ResourceLink = { rel?: string; href?: string; crossorigin: boolean; script?: string; isScript: boolean; isAsync: boolean }`; `ResourceSet = { id: string; name: string; enabled: boolean; links: ResourceLink[] }`; `ResourcesDoc = { version: number; sets: ResourceSet[] }`. Every field is always present on the wire — the Rust side does not skip serialising — so `normalizeResources` must tolerate `null` for the optional ones.
 - **`removeSet` on an unknown id, and `toggleSet` on an unknown id, both return the SAME document object** (identity), matching `createGroup`'s refusal convention so a caller can tell "nothing happened".
@@ -1288,6 +1294,7 @@ Run: `cd v2_fe && npx tsc -b && npm test` — type-check and tests only. **Do no
 ```bash
 cd /home/dalmas/E/projects/local_task_tracker
 git add v2_fe/src/lib/resources.ts v2_fe/src/lib/resources.test.ts \
+        v2_fe/src/lib/design-api.ts \
         v2_fe/src/pages/design/resource-editor.tsx \
         v2_fe/src/pages/design/DesignSurfacePage.tsx
 git commit -m "feat(design): resource-set editor with paste-a-snippet import"
