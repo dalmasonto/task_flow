@@ -18,6 +18,7 @@ import {
   CopyIcon,
   ExternalLinkIcon,
   RefreshCwIcon,
+  Undo2Icon,
   XIcon,
   EllipsisIcon,
   ClipboardCopyIcon,
@@ -45,6 +46,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { type CanvasTool } from "./canvas-tools"
 import { boardKeyForSource } from "./design-frame-source"
+import {
+  divergedRoute,
+  reportedRoute,
+  routeFromSandboxPath,
+  trackFrameRoute,
+  type FrameRoute,
+} from "./design-route"
 import { createSettleGate } from "./settle-gate"
 import { gridDotOpacity, resolveLive, transformCss } from "./canvas-paint"
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./canvas-zoom"
@@ -68,6 +76,9 @@ type FrameMessage =
   | { type: "design:ready"; h: number }
   | { type: "design:size"; h: number }
   | { type: "design:deselect" }
+  /** Where the frame is, as the sandbox serves it (`/s/{token}{route}`) — NOT
+   *  an app route. `design-route.ts` converts it, and only there. */
+  | { type: "design:route"; path: string }
   | {
       type: "design:select"
       [key: string]: unknown
@@ -108,7 +119,11 @@ export type DesignCanvasProps = {
   /** The devices currently selected on the surface. "Duplicate at another
    *  device" offers the presets this list does NOT already contain. */
   deviceIds: string[]
-  /** Remount this one board's frame (the canvas's explicit reload). */
+  /** Remount this ONE board's frame. It is the whole mechanism behind "put this
+   *  frame back on the page it belongs to": a frame's `src` IS that page, so a
+   *  remount returns it — which is what the header's reset control and the ⋯
+   *  menu's Reload both ask for. The per-board half only, never the global one:
+   *  a global bump would reload every board at every device. */
   onReloadBoard: (key: string) => void
   /** Open this board's route in a new tab, in the same origin-isolated sandbox
    *  render the frame shows. */
@@ -194,6 +209,16 @@ export const DesignCanvas = memo(function DesignCanvas({
   useEffect(() => () => gate.cancel(), [gate])
   const [spaceDown, setSpaceDown] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  /** Where each board's frame SAYS it is, by board key — the route it last
+   *  announced, stamped with the frame generation that announced it. Not always
+   *  the page the board was created for: a page's own links navigate inside its
+   *  frame. Kept HERE rather than on the surface because the report arrives at
+   *  this component's message listener and is read by this component's boards;
+   *  the surface owns only the remount action, which is already a prop
+   *  (`onReloadBoard`). The rules that update and read it are pure and tested
+   *  (`design-route.ts`), including the stamp that makes a report expire with
+   *  the document that sent it. */
+  const [frameRoutes, setFrameRoutes] = useState<Map<string, FrameRoute>>(() => new Map())
   const selectionBoard = selection
     ? artboards.find((b) => b.key === selection.boardKey)
     : undefined
@@ -356,11 +381,29 @@ export const DesignCanvas = memo(function DesignCanvas({
         const key = boardKeyForSource(frameSources(), event.source as Window | null)
         const board = artboards.find((b) => b.key === key)
         if (board) onSelect(m as unknown as Record<string, unknown>, board)
+      } else if (m.type === "design:route") {
+        // Navigational state derived from a frame's URL, so it is accepted on
+        // exactly the same terms as a selection: the same identity check (never
+        // a property off `event.source`), and only from a frame this canvas
+        // mounted for a board it still knows — a closed board's frame can
+        // outlive its board by a tick, and its path is not a claim about
+        // anything on screen. The path itself is then parsed by `design-route`,
+        // which refuses anything that is not a sandbox path or is absurdly long;
+        // a report it refuses is IGNORED, not recorded as unknown.
+        const key = boardKeyForSource(frameSources(), event.source as Window | null)
+        if (!key || !artboards.some((b) => b.key === key)) return
+        const route = typeof m.path === "string" ? routeFromSandboxPath(m.path) : null
+        if (!route) return
+        // Stamped with the generation the frame is on NOW — the same sum its
+        // iframe is keyed by — so the report expires with the document that
+        // sent it, without anything having to clear it.
+        const epoch = contentEpoch + (boardEpochs.get(key) ?? 0)
+        setFrameRoutes((current) => trackFrameRoute(current, key, { route, epoch }))
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [artboards, onSelect])
+  }, [artboards, onSelect, contentEpoch, boardEpochs])
 
   // Broadcast picking/theme state to every mounted frame.
   useEffect(() => {
@@ -407,25 +450,34 @@ export const DesignCanvas = memo(function DesignCanvas({
           willChange: "transform",
         }}
       >
-        {artboards.map((board) => (
-          <ArtboardCard
-            key={board.key}
-            board={board}
-            label={labelFor(board.route)}
-            theme={theme}
-            picking={picking}
-            contentEpoch={contentEpoch}
-            boardEpoch={boardEpochs.get(board.key) ?? 0}
-            deviceIds={deviceIds}
-            onReloadBoard={onReloadBoard}
-            onOpenBoard={onOpenBoard}
-            onDuplicateBoard={onDuplicateBoard}
-            onRemoveBoard={onRemoveBoard}
-            sandboxToken={sandboxToken}
-            projectId={projectId}
-            panMode={spaceDown || canvasTool === "pan"}
-          />
-        ))}
+        {artboards.map((board) => {
+          // This frame's generation, computed ONCE: it is both what remounts
+          // the iframe (`LazyFrame`'s key) and what expires the route the frame
+          // last reported, and two spellings of it could disagree.
+          const epoch = contentEpoch + (boardEpochs.get(board.key) ?? 0)
+          return (
+            <ArtboardCard
+              key={board.key}
+              board={board}
+              label={labelFor(board.route)}
+              epoch={epoch}
+              strayRoute={divergedRoute(
+                board.route,
+                reportedRoute(frameRoutes.get(board.key), epoch),
+              )}
+              theme={theme}
+              picking={picking}
+              deviceIds={deviceIds}
+              onReloadBoard={onReloadBoard}
+              onOpenBoard={onOpenBoard}
+              onDuplicateBoard={onDuplicateBoard}
+              onRemoveBoard={onRemoveBoard}
+              sandboxToken={sandboxToken}
+              projectId={projectId}
+              panMode={spaceDown || canvasTool === "pan"}
+            />
+          )
+        })}
         {/* Selection rect: chrome-owned, drawn over the frame at the captured
             rect. ~120ms ease-out; direct manipulation stays unanimated. */}
         {selection && selectionBoard ? (
@@ -483,10 +535,10 @@ function frameSources(): { key: string; win: Window | null }[] {
 const ArtboardCard = memo(function ArtboardCard({
   board,
   label,
+  strayRoute,
+  epoch,
   theme,
   picking,
-  contentEpoch,
-  boardEpoch,
   deviceIds,
   onReloadBoard,
   onOpenBoard,
@@ -499,12 +551,20 @@ const ArtboardCard = memo(function ArtboardCard({
   board: Artboard
   /** The page's resolved display name (see `labelFor`). */
   label: string
+  /** This frame's GENERATION: `contentEpoch + boardEpoch`, the sum the iframe
+   *  below is keyed by, handed over already computed so the key and the route
+   *  report's stamp can never spell it differently. */
+  epoch: number
+  /** The route this board's frame has navigated to, when that is not the page
+   *  the board points at — else null. Rendered, never derived here: see
+   *  `divergedRoute`, which decided it. */
+  strayRoute: string | null
   theme: string
   picking: boolean
-  contentEpoch: number
-  /** This board's own reload counter (see `DesignCanvasProps.boardEpochs`). */
-  boardEpoch: number
   deviceIds: string[]
+  /** Remount this board's frame — what the header's reset control and the ⋯
+   *  menu's Reload both do, because a frame's `src` IS the page it belongs to
+   *  and the generation above is how a remount is asked for. */
   onReloadBoard: (key: string) => void
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
@@ -528,6 +588,7 @@ const ArtboardCard = memo(function ArtboardCard({
         boardKey={board.key}
         route={board.route}
         label={label}
+        strayRoute={strayRoute}
         device={device}
         projectId={projectId}
         width={boardWidth(device)}
@@ -547,7 +608,7 @@ const ArtboardCard = memo(function ArtboardCard({
               name={board.key}
               theme={theme}
               picking={picking}
-              epoch={contentEpoch + boardEpoch}
+              epoch={epoch}
             />
           ) : (
             <FrameError width={device.width} height={device.height} reason="No sandbox token — reload the surface." />
@@ -558,10 +619,18 @@ const ArtboardCard = memo(function ArtboardCard({
   )
 })
 
-function ArtboardHeader({
+/// Exported for `design-canvas.test.ts`, which renders it with
+/// `renderToStaticMarkup`: the repo has no jsdom, so the markup this draws — and
+/// in particular whether the "the frame has gone elsewhere" chip is drawn at all
+/// — is only assertable if the component can be reached from outside. It is
+/// rendered by `ArtboardCard` and by nothing else, and it takes the stray route
+/// as a STRING rather than reading the report map, so the rule that decides
+/// whether a frame has wandered stays in `design-route.ts` with its tests.
+export function ArtboardHeader({
   boardKey,
   route,
   label,
+  strayRoute,
   device,
   projectId,
   width,
@@ -581,6 +650,10 @@ function ArtboardHeader({
    *  displays it and derives nothing, so it cannot disagree with the Pages
    *  panel or the row headers. */
   label: string
+  /** The route this board's frame has navigated to, when that is NOT the page
+   *  the board points at — else null. Null draws nothing: a frame that is home
+   *  (or has not reported) must look exactly as it always did. */
+  strayRoute: string | null
   device: DevicePreset
   projectId: number | null
   /** The board's rendered width. The header is clamped to it so a narrow
@@ -589,6 +662,11 @@ function ArtboardHeader({
   width: number
   /** Devices already on the canvas — the duplicate submenu omits them. */
   deviceIds: string[]
+  /** Remount this board's frame, which is how it is returned to its own page:
+   *  a frame's `src` IS that page. The ⋯ menu's Reload is the same action and
+   *  goes through this same prop, so the header's reset control and the menu
+   *  cannot drift apart — and neither has to clear the tracked route, whose
+   *  stamp this remount moves. */
   onReloadBoard: (key: string) => void
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
@@ -634,6 +712,30 @@ function ArtboardHeader({
       <span className="truncate font-medium text-zinc-200">{label}</span>
       <span className="shrink-0 text-zinc-500">·</span>
       <span className="shrink-0">{device.label}</span>
+      {strayRoute ? (
+        // The frame is not on the page this board was created for — its own
+        // links can navigate it to another one — so the header says WHERE it is
+        // instead of leaving the page name above to be read as a claim about
+        // what is on screen. The name stays: it is what this board IS, and what
+        // the control beside it returns the frame to.
+        <>
+          <span
+            className="max-w-24 shrink-0 truncate font-mono text-amber-300"
+            title={`This frame navigated to ${strayRoute}`}
+          >
+            → {strayRoute}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 rounded p-1 text-amber-300 hover:bg-zinc-800"
+            title={`Show ${route} again`}
+            aria-label={`Show ${route} again`}
+            onClick={() => onReloadBoard(boardKey)}
+          >
+            <Undo2Icon className="size-3.5" />
+          </button>
+        </>
+      ) : null}
       <button
         className="ml-auto shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
         title="Copy HTML"

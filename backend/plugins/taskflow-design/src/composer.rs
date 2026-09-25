@@ -143,6 +143,31 @@ const PICKER_RUNTIME: &str = r#"(() => {
 
   parent.postMessage({ type: 'design:ready',
     h: document.documentElement.scrollHeight }, '*');
+
+  // Report where this frame actually IS. A page navigated by its own links is
+  // showing a DIFFERENT page than the board was created for, and the chrome
+  // must not keep claiming the old one.
+  //
+  // The path crosses the wire exactly as the sandbox serves it — `/s/{token}`
+  // plus the page's own route, UNSTRIPPED: the chrome turns it into an app
+  // route, where that rule is a pure function with a test on it
+  // (`v2_fe/src/pages/design/design-route.ts`). A conversion written into this
+  // string could not be unit-tested from either side — see the plan's own note
+  // on this runtime (Task 15, Step 3) — and the frame's message is untrusted
+  // input however it is spelled, so parsing it one hop later costs nothing.
+  const announce = () => parent.postMessage(
+    { type: 'design:route', path: location.pathname }, '*');
+  // `pageshow`, NOT `load`. A Back or Forward the browser satisfies from the
+  // back/forward cache restores the document WITHOUT firing `load` — and a Back
+  // is precisely the interaction this exists for, so `load` would leave the
+  // header claiming the old route at the one moment it matters. `pageshow`
+  // fires on a normal load as well (with `persisted: false`), so it subsumes
+  // `load` rather than supplementing it.
+  addEventListener('pageshow', announce);
+  // A same-document history change (pushState/replaceState) fires neither of
+  // the above; an agent-authored page that routes in JS would otherwise go
+  // unreported.
+  addEventListener('popstate', announce);
 })();"#;
 
 /// Escape text for interpolation into HTML.
