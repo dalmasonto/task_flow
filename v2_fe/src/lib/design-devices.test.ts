@@ -97,18 +97,25 @@ describe("design devices", () => {
 
   it("layoutBands: one band per device, its pages across, next device below", () => {
     const open = ["/", "/about"]
-    const boards = layoutBands(open, ["laptop", "bp-sm"])
-    expect(boards).toHaveLength(4)
+    // Three devices of three different heights — the shape
+    // `RESPONSIVE_REVIEW_DEVICES` produces. With only two bands, a middle band
+    // stepping by the FIRST band's height is indistinguishable from stepping by
+    // its own, so the third band is what makes the stacking assertable.
+    const boards = layoutBands(open, ["laptop", "bp-sm", "ipad-mini"])
+    expect(boards).toHaveLength(6)
 
     const laptop = deviceById("laptop")
     const bp = deviceById("bp-sm")
+    const ipad = deviceById("ipad-mini")
     const colStep = boardWidth(laptop) + GUTTER
 
     const band0 = boards.filter((b) => b.deviceId === "laptop")
     const band1 = boards.filter((b) => b.deviceId === "bp-sm")
+    const band2 = boards.filter((b) => b.deviceId === "ipad-mini")
     // One board per open page in each band — no duplicates, none dropped.
     expect(band0).toHaveLength(open.length)
     expect(band1).toHaveLength(open.length)
+    expect(band2).toHaveLength(open.length)
 
     // Within a band, this device's pages run left→right along the band's top.
     expect(band0.every((b) => b.y === 0)).toBe(true)
@@ -124,6 +131,15 @@ describe("design devices", () => {
     expect(HEADER_H + boardHeight(bp) + GUTTER).not.toBe(bandStep)
     // ...and columns step by their OWN device's width, not the first band's.
     expect(band1.find((b) => b.route === "/about")!.x).toBe(boardWidth(bp) + GUTTER)
+
+    // Band 2 stacks on BAND 1's step, not on band 0's step repeated. The three
+    // steps are pairwise distinct (ipad-mini is taller than bp-sm, which is
+    // taller than laptop), so this cannot pass by reusing an earlier band's.
+    const band1Step = HEADER_H + boardHeight(bp) + GUTTER
+    const band2Step = HEADER_H + boardHeight(ipad) + GUTTER
+    expect(new Set([bandStep, band1Step, band2Step]).size).toBe(3)
+    expect(band2.every((b) => b.y === bandStep + band1Step)).toBe(true)
+    expect(band2.find((b) => b.route === "/")!.x).toBe(0)
   })
 
   it("layoutBands is the transpose of layoutRows", () => {
