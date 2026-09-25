@@ -2109,6 +2109,91 @@ Groups                              [+Add Group]
 
 ---
 
+### Task 24: The default project is re-picked from list order (site-wide, not the design page)
+
+**Requested by the user:** *"the global default project issue in which that may sometimes lead to random page reloads as different projects try to take that spot. Update dexie, create a new config table for the website to track default project atleast and watch that its only selected once and does not lead to random rerenders as projects keep changing."*
+
+**Suspected mechanism, confirmed at the source — but you must confirm WHICH path fires before changing behaviour, because there are two and they are independent:**
+
+1. **The resolver** (`App.tsx:396-433`, `loadLiveWorkspace`): it fetches the project summary and picks `preferredProjectId && nextProjects.some(p => p.id === preferredProjectId) ? preferredProjectId : nextProjects[0].id`. So when the preferred id is absent from the freshly-fetched list, the active project **silently becomes whatever is first** — and `loadLiveWorkspace` is called on `activeProjectId` change *and* on realtime events (`:894`).
+2. **The render path** (`App.tsx:159-160`): `workspaceProjects.find(p => p.id === activeProjectId) ?? workspaceProjects[0]` — a second, independently written fallback to the same order-dependent `[0]`.
+
+Both are **order-dependent on a list whose order this client does not control**, which is what *"different projects try to take that spot"* describes. Do not assume which one the user is hitting — instrument or instrument-by-reasoning and say which, because a fix to the unreachable one changes nothing.
+
+**Files:**
+- Modify: `v2_fe/src/App.tsx` (both fallbacks)
+- Create a site-wide config module + Dexie table (see below)
+- A colocated pure module + test for the choice
+
+- [ ] **1. Extract the choice as a pure function, tested first.** This is the part that must be provably stable:
+
+```ts
+export function resolveActiveProject(
+  preferred: string | null,
+  persisted: string | null,
+  projects: { id: string }[]
+): string | null
+```
+
+  Tests, each naming what would change to fail it: `preferred` present → `preferred`; `preferred` absent but `persisted` present → `persisted` (**this is the fix** — today it would be `projects[0]`); both absent → `projects[0]`; **an empty list returns `null` rather than throwing or inventing**; and — the one that encodes the user's complaint — **a list that reorders does NOT change the answer when the preferred project is still present.**
+
+- [ ] **2. A site-wide config table in Dexie, per user.** The user asked for *"a new config table for the website"*. Note what exists: the only Dexie DB today is `pages/design/design-ui-state.ts`, whose own doc comment says it is **per-user and per-project design viewport state** — so a site-wide default does not belong in that table's shape. **Decide and state**: either a new version of that DB with a separate `config` table keyed by user (one DB, two concerns — say why that is acceptable) or a separate small DB (cleaner boundary, another connection to open). Either way: **bump the Dexie schema version**, since an added table without a version bump silently does not exist.
+
+- [ ] **3. Write the choice only when the user makes it, and read it in preference to list order.** The persisted value should be updated when the user *switches* projects — an explicit act — not when the resolver happens to land somewhere. Then `resolveActiveProject` reads it as the second preference, ahead of any positional fallback.
+
+- [ ] **4. Both fallbacks must agree.** Whichever you confirm is live, the other must not remain as a differently-behaving second answer to the same question. If you cannot remove it, make it call the same function.
+
+- [ ] **5. Prove the reload is gone, as far as a unit test can.** A pure function cannot show a missing reload. State plainly what you verified and how — and give the user a short manual check: switch projects, then cause a project list change, and confirm the active project does not move. Do not claim the rerender is fixed if you only tested the choice.
+
+- [ ] **6. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning** (a mid-round repo-wide read can show 29 — measure your files). **Do not run `npm run build`** and do not push: publishing is on hold pending the user's local testing.
+
+---
+
+### Task 25: The two-finger pan re-renders the whole canvas on every event
+
+**Requested by the user:** *"We usually use 2 fingers to pan the view, it sought of glitches, I think this is an issue with rerendering which should not be happening."* **They are right, and it is worse than a rerender.**
+
+**Confirmed at the source:**
+- `design-canvas.tsx:196-214`'s `onWheel` calls `onTransformChange(...)` on **every** wheel event, pan and zoom alike.
+- `transform` is `useState` in `DesignSurfacePage` (`:127`), so every event **rerenders `DesignSurfacePage` and the entire board subtree** — and Task 3 latched the frames so they all stay mounted, which is exactly when this got expensive.
+- `transform` is also in the dependency list of the **Dexie persist effect** (`:318`). So every pan event **also schedules an IndexedDB write**, mid-gesture.
+
+**Files:** `v2_fe/src/pages/design/DesignSurfacePage.tsx`, `v2_fe/src/pages/design/design-canvas.tsx` (+ a pure module/test if the settle logic needs one)
+
+- [ ] **1. The gesture must not go through React state.** Hold the live transform in a ref during the gesture and apply it **imperatively** — set the wrapper element's `style.transform` directly, reading the ref — so the boards are not re-rendered while the user is panning. Commit to React state (and therefore Dexie) only when the gesture **settles**, e.g. a short debounce after the last event.
+
+- [ ] **2. Keep the existing maths untouched.** `design-canvas.tsx`'s zoom keeps the point under the cursor fixed, its clamp uses `MIN_SCALE`/`MAX_SCALE`/`ZOOM_STEP`, and the pan subtracts `deltaX`/`deltaY`. That logic is correct and testable; this task changes **when it commits**, not what it computes. Do not rewrite it.
+
+- [ ] **3. The settle must be right, and it is the testable part.** A pure helper for "should this event schedule a commit" is testable; a debounce that never fires, or fires per event, is the same bug in a new shape. Cover: many events in a burst produce **one** commit; a single event still commits; and the final committed value equals the last event's value — not an earlier one, which is the classic dropped-tail bug.
+
+- [ ] **4. This is NOT the item-5 spike.** The spec's item 5 is a *scroll freeze inside a frame* after using pan; this is canvas jank during a pan. Same code, different symptom. Do not merge them, and do not claim to have fixed item 5.
+
+- [ ] **5. Verify and commit.** `npx tsc -b && npm test && npx eslint <files>`. **No build, no push.** Say what a human should do to confirm the smoothness, since jank is not unit-testable.
+
+---
+
+### Task 26: Order the screens into a flow
+
+**Requested by the user:** *"We have been able to group the screens, now can we be able to order them so that I can say its signup screen 1 > signup screen 2 > login with email > login with phone > password recovery > new password reset, password confirmed … Like can I safely reorder different screens to have a good play atleast so that everything can be together as it should so that we can have a good flow that one can present after doing that."*
+
+**The storage already exists and nothing reads it.** `LayoutDoc.route_order: Vec<String>` (`layout_doc.rs:40`) is in the document, is validated, and is filtered on read (`:121-128`, `:149`). A grep across `v2_fe/src` finds it **only in test fixtures** — so the field is plumbed end to end and entirely dead. **This task makes it mean something; it does not add a field, a migration or an endpoint.**
+
+**Files:** `v2_fe/src/lib/design-layout.ts` (+ helpers and tests), `v2_fe/src/pages/design/pages-panel.tsx`, `v2_fe/src/pages/design/DesignSurfacePage.tsx` / `design-canvas.tsx` for the board order
+
+- [ ] **1. Decide the axis before writing code, and write the decision down.** The user's example is **one sequence that crosses groups** (`signup screen 1 > signup screen 2 > login with email > …`), and groups are a separate axis they already have. So `routeOrder` is a **single global presentation order**, not a per-group one. State that explicitly — a per-group order would be a different feature, and the field is singular.
+
+- [ ] **2. Pure helpers first, tested.** `moveRoute(doc, route, delta)` / `setRouteOrder(doc, order)` with the invariants that matter: the order is a **permutation of known routes** (unknown routes dropped, missing routes appended in manifest order — never silently lost); moving the first item up is a no-op; moving the last down is a no-op; and a document whose `routeOrder` is empty falls back to manifest order rather than to nothing. **The repair case is the important one**: a stored order that disagrees with the current manifest must produce a total order containing every page exactly once, because that state is reachable — a page added after the order was written is not in it.
+
+- [ ] **3. The reorder affordance goes where the ordering is legible.** The Pages panel already lists every page with a number and a group control; add explicit **move up / move down** controls (and, if you can do it cleanly, drag). Prefer the boring, testable control over a drag implementation that cannot be unit-tested in this repo — and if you do drag, the *pure* reorder function is still the thing that must be tested.
+
+- [ ] **4. The order must be visible where it is claimed.** If the panel lists pages in `routeOrder`, say so and make it so; and the canvas boards must follow the same order, or the panel and the canvas will disagree about the flow the user just built. Note the constraint §F records: the canvas must not *reflow* on a grouping edit — but this is an explicit reordering, so re-flowing the boards in the new order is the point. Make that distinction in a comment, because the two look alike.
+
+- [ ] **5. Out of scope, and say so:** a presentation/walkthrough mode. The user said *"a good flow that one can present"* — an ordered sequence is what makes that possible later, and building a presentation mode now would be guessing at its shape.
+
+- [ ] **6. Verify and commit.** `npx tsc -b && npm test && npx eslint <files>`. **No build, no push.**
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
