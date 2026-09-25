@@ -369,6 +369,7 @@ pub fn to_json(manifest: &DesignManifest) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{CommentScope, CommentStatus, DesignComment};
     use umbral::orm::ForeignKey;
 
     /// The KEYS of a JSON object, sorted. The assertions below name all of them
@@ -556,25 +557,42 @@ mod tests {
         );
     }
 
-    /// The serialised KEY NAMES of every shape `v2_fe/src/lib/design-api.ts`
-    /// mirrors by hand, asserted against the JSON the server actually emits.
+    /// The serialised KEY NAMES of the shapes `v2_fe/src/lib/design-api.ts`
+    /// mirrors by hand, asserted against the JSON the server actually emits:
+    /// `DesignManifest` (with `RouteEntry`, `ComponentEntry`, `TokenGroup` and
+    /// its `resources` tuples), `ResourceLink` and the stored
+    /// `ResourcesDoc`/`ResourceSet` document, `views::FileSummary`,
+    /// `DesignComment`, and the `DesignFile` row.
     ///
-    /// Nothing else checks the two against each other. `tsc` pins a reader
+    /// SHAPE BY SHAPE, and not "every shape", because the claim is the thing
+    /// that decays. That file enumerates its own mirrors (`design-api.ts:37-53`)
+    /// and it lists more than the list above: `ValidationError` is not here (its
+    /// keys are read by the existing rejection tests) and neither is
+    /// `LayoutDoc`/`LayoutGroup` (the layout endpoint's tests pin it with a
+    /// `contains`). Naming the two keeps a reader from reading a shorter list as
+    /// full coverage — and the shape this test originally omitted was
+    /// `DesignComment`, which is the one whose `page_path`/`pagePath` mismatch
+    /// started this whole class. Adding a shape is one `assert_eq!` and a
+    /// fixture.
+    ///
+    /// Nothing else checks the wire against the type. `tsc` pins a reader
     /// against the TYPE, never the type against the WIRE, so a key spelled
     /// differently on this side is `undefined` at runtime with no error
     /// anywhere — which is how `variables_dark` sat here promising a value under
-    /// a name the frontend never receives, and why this test exists rather than
-    /// one assertion for that one field. A field's own name does not decide its
-    /// key: the CONTAINER's `#[serde(rename_all)]` does, and reading the field
-    /// while missing the container is the mistake this pins.
+    /// a name the frontend never receives. A field's own name does not decide
+    /// its key: the CONTAINER's `#[serde(rename_all)]` does, and reading the
+    /// field while missing the container is the mistake this pins.
     ///
-    /// What it does NOT cover, and cannot: the responses built from a
-    /// `json!({...})` literal rather than a struct — `views::put_file`'s
-    /// `affected_routes`, `conflict_response`'s `current_version`. There is no
-    /// type here to serialise, so no assertion on this side can see a rename
-    /// there; `design-api.ts` records that those two rest on the Rust source
-    /// alone. This test closes the struct half of the mismatch, which is the
-    /// half that produced four instances in one phase.
+    /// The exclusion, stated precisely, because the loose version of it would
+    /// read as "everything under a `json!` is out of reach": what is excluded is
+    /// the keys TYPED INTO a literal — `views::put_file`'s `affected_routes`,
+    /// `conflict_response`'s `current_version`. There is no Rust type behind
+    /// those, so no assertion on this side can see a rename; `design-api.ts`
+    /// records that they rest on the Rust source alone. A literal that EMBEDS a
+    /// struct is a different case and is NOT excluded: `put_file`'s
+    /// `"file": row` is a `DesignFile` and `rejection_response`'s
+    /// `"errors": verdict.errors` is a `Vec<ValidationError>`, both
+    /// struct-decided, both serialised here.
     #[test]
     fn the_mirrored_shapes_serialise_under_the_key_names_the_frontend_declares() {
         let json = serde_json::json!({
@@ -653,6 +671,55 @@ mod tests {
         assert_eq!(
             keys(&serde_json::to_value(&summary).unwrap()),
             ["bytes", "kind", "path", "updated_at", "updated_by", "version"]
+        );
+
+        // `DesignFile` — the ORM row itself, served on its own by `get_file`
+        // and embedded as `"file": row` in every accepted write
+        // (`views::put_file`). `design-api.ts`'s `DesignFileRow` mirrors it, and
+        // `updated_by` is the second snake_case pair this test pins. Nine keys,
+        // no `rename_all`: every one of them is the field as written.
+        assert_eq!(
+            keys(&serde_json::to_value(&files[0]).unwrap()),
+            [
+                "content", "created_at", "id", "kind", "path", "project", "updated_at",
+                "updated_by", "version"
+            ]
+        );
+
+        // `DesignComment` — the row `views.rs`'s comment handlers serialise
+        // whole (list, create, update), and the shape this class STARTED with:
+        // `design-api.ts`'s own note records that the inspector read `pagePath`
+        // while the endpoint sent `page_path`. Seventeen keys, no `rename_all`,
+        // so the wire is the column names. Only `resolution_note` is pinned
+        // anywhere else on the wire (`phase3_agent_surface.rs`), and
+        // `design-comments.test.ts` pins the CLIENT helpers against a CLIENT
+        // fixture — which is exactly the gap this closes.
+        let comment = DesignComment {
+            id: 1,
+            project: ForeignKey::new(1),
+            page_path: "/settings".to_string(),
+            component_name: None,
+            element_path: "app-header > div:nth-child(2)".to_string(),
+            src_ref: None,
+            viewport: "iphone-16-pro".to_string(),
+            rect: r#"{"x":0,"y":0,"w":1,"h":1}"#.to_string(),
+            snippet: "<div></div>".to_string(),
+            body: "make it blue".to_string(),
+            scope: CommentScope::Instance,
+            status: CommentStatus::Open,
+            thread_id: None,
+            author: "operator".to_string(),
+            resolution_note: None,
+            orphaned: false,
+            created_at: None,
+        };
+        assert_eq!(
+            keys(&serde_json::to_value(&comment).unwrap()),
+            [
+                "author", "body", "component_name", "created_at", "element_path", "id",
+                "orphaned", "page_path", "project", "rect", "resolution_note", "scope",
+                "snippet", "src_ref", "status", "thread_id", "viewport"
+            ]
         );
     }
 }

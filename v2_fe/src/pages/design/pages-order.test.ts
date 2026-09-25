@@ -257,6 +257,50 @@ describe("groupedPages", () => {
     ])
   })
 
+  // The SAME transition with the other group removed — and the two are not the
+  // same case, however much they look it. Removing the FIRST of two groups
+  // cannot tell `removeGroup`'s filter apart from "drop the first group": the
+  // answer is the surviving group either way, so the test above passes under
+  // both. Removing the SECOND can, because the right answer keeps a group the
+  // mutation has thrown away. That is the only difference between this fixture
+  // and the one above, and it is the whole reason this case exists.
+  //
+  // The shape it guards is data loss with nothing on screen to say so: a page
+  // whose group silently disappears from the panel is still open on the canvas
+  // with no row to close it, and its siblings fall into the ungrouped section
+  // without ever having been ungrouped.
+  //
+  // Stated plainly, because it bounds what this is worth: `removeGroup` has NO
+  // CALLER today (`git grep removeGroup v2_fe/src` → `lib/design-layout.ts`'s
+  // definition and its own unit tests, nothing else). This is coverage of an
+  // unwired contract, not a live bug — group delete is still unbuilt.
+  it("keeps the FIRST group when the second of two is removed", () => {
+    const grouped = layout([
+      { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
+      { id: "g2", name: "Ops", routes: ["/settings"] },
+    ])
+
+    const result = groupedPages(removeGroup(grouped, "g2"), MANIFEST)
+
+    expect(result.groups).toEqual([
+      {
+        id: "g1",
+        name: "Auth",
+        pages: [
+          { route: "/login", n: 1 },
+          { route: "/signup", n: 2 },
+        ],
+      },
+    ])
+    // /settings was Ops's only page, so it falls back to the ungrouped section
+    // and takes its place there by the flow.
+    expect(result.ungrouped).toEqual([
+      { route: "/", n: 1 },
+      { route: "/settings", n: 2 },
+    ])
+    expect(listed(result)).toHaveLength(MANIFEST.length)
+  })
+
   // A group entry that is not a page at all — the manifest and the layout are
   // two separate fetches, and `normalizeLayout` keeps whatever routes a group
   // names (only the server's `filter_to_known` drops them, and it does that
