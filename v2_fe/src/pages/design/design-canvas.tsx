@@ -665,6 +665,17 @@ function LazyFrame({
     return () => window.removeEventListener("message", onMessage)
   }, [])
 
+  // A new epoch is an explicit reload — this board's Reload counter or the
+  // global content epoch. A frame that failed BEFORE it ever rendered has no
+  // iframe for the new key to remount (the `failed` early return below), which
+  // would make Reload a silent no-op in exactly the state a user reaches for
+  // it; clearing the error re-runs the mount instead. Epoch-scoped on purpose:
+  // it touches `failed` only, never `near`, so the latch above is undisturbed —
+  // a seen frame stays mounted and its reload swaps the inner document. Do NOT
+  // give this component a `key` instead: remounting LazyFrame would reset
+  // `near` to false and undo the latch.
+  useEffect(() => setFailed(null), [epoch])
+
   const frameSrc = `${src}${src.includes("?") ? "&" : "?"}board=${encodeURIComponent(name)}`
 
   if (failed) {
