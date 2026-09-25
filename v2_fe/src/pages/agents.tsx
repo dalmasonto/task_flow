@@ -31,6 +31,10 @@ export type AgentsOutletContext = {
   /// The question the selected agent is blocked on, if any.
   pendingPrompt?: TaskflowWorkspace["agentPrompts"][number]
   onAnswerPrompt: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
+  /// Clear a prompt card WITHOUT answering it — for a question the agent's own
+  /// terminal already resolved. It types nothing into the terminal; it re-opens
+  /// the agent's message queue, which is held while the prompt is pending.
+  onDismissPrompt: (promptId: number) => Promise<void>
   /// #56: fetch the next page of older messages for the open conversation.
   onLoadOlder: () => void
   /// Turn a message into a task — first line as the title, the rest as the body.

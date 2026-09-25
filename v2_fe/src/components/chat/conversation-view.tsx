@@ -36,6 +36,7 @@ export function AgentsConversationView({
   onAddMember,
   pendingPrompt,
   onAnswerPrompt,
+  onDismissPrompt,
   onLoadOlder,
   onCreateTask,
   onEditMessage,
@@ -526,7 +527,7 @@ export function AgentsConversationView({
 
         {pendingPrompt ? (
           <div className="shrink-0 border-t bg-background px-3 pt-3">
-            <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} />
+            <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} onDismiss={onDismissPrompt} />
           </div>
         ) : null}
 

@@ -1,6 +1,6 @@
 import { type AgentsOutletContext } from "@/pages/agents"
 import { PROJECT_ROOM_TITLE, type AgentChatContext, type MessagePriority, type Project, type TargetMember } from "@/lib/workspace-view"
-import { addChannelMember, answerAgentPrompt, createTaskflowChannel, editTaskflowAgentMessage, fetchAttachmentsForMessages, fetchChannelMessages, sendTaskflowAgentMessage, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { addChannelMember, answerAgentPrompt, cancelAgentPrompt, createTaskflowChannel, editTaskflowAgentMessage, fetchAttachmentsForMessages, fetchChannelMessages, sendTaskflowAgentMessage, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { addPending, dismissPending, findPending, isPending, markFailed, markRetrying, reconcile, type PendingAttachment } from "@/lib/message-store"
 import { liveId, mapLiveChannelChats, mapLiveDirectChats, mapLiveTerminalSessions, revokeBlobUrls, toLiveMessagePriority, upsertById, type LiveChannelChat } from "@/lib/live-mappers"
 import { type AuthUser } from "@/lib/auth-api"
@@ -436,6 +436,18 @@ export function useAgentChat({
     []
   )
 
+  /// Dismiss a card whose question the agent's terminal already resolved.
+  ///
+  /// No local state is touched: the row's own update comes back over realtime
+  /// (`agentPrompts` upsert in App), and `pendingPrompt` filters on
+  /// `status === "pending"`, so the card unmounts from the server's answer rather
+  /// than from an optimistic guess. That is the same path an answer takes, and it
+  /// is also what un-gates the agent — the cancel emits the `:prompts` event the
+  /// MCP's message gate re-evaluates on.
+  const handleDismissPrompt = useCallback(async (promptId: number) => {
+    await cancelAgentPrompt(promptId)
+  }, [])
+
   const outletContext: AgentsOutletContext = {
     selectedChat,
     selectedSession,
@@ -448,6 +460,7 @@ export function useAgentChat({
     currentUser,
     pendingPrompt,
     onAnswerPrompt: handleAnswerPrompt,
+    onDismissPrompt: handleDismissPrompt,
     onLoadOlder: loadOlderMessages,
     onCreateTask: createTaskFromMessage,
     onEditMessage: editLiveMessage,

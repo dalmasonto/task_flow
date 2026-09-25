@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  cancelAgentPrompt,
   fetchChannelMessages,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
@@ -257,5 +258,50 @@ describe("fetchChannelMessages", () => {
     expect(search.get("channel")).toBe("17")
     expect(search.get("page")).toBe("2")
     expect(search.get("is_design")).toBeNull()
+  })
+})
+
+describe("cancelAgentPrompt", () => {
+  /// Record what the call actually sends. `stubApi` above is table-shaped (its
+  /// stub answers LIST reads), so this is the small ad-hoc recorder for a
+  /// one-shot write, the same shape the design/board tests use.
+  function recordFetch(status: number, body: unknown = {}) {
+    const calls: Array<{ url: string; method?: string; body?: unknown }> = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: unknown, init?: RequestInit) => {
+        calls.push({ url: String(input), method: init?.method, body: init?.body })
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          })
+        )
+      })
+    )
+    return calls
+  }
+
+  it("POSTs to the prompt's cancel route carrying no answer", async () => {
+    // This endpoint is what makes a card for an already-resolved prompt
+    // dismissable, and dismissing it is what re-opens the agent's message queue
+    // (the MCP holds every message while a prompt is pending). So the request
+    // SHAPE matters: it must be the cancel route, and it must carry no choice —
+    // a body with a choice would be an ANSWER, which types keys into the agent's
+    // terminal and is the workaround this route exists to replace.
+    const calls = recordFetch(200)
+
+    await cancelAgentPrompt(42)
+
+    expect(calls).toHaveLength(1)
+    expect(new URL(calls[0].url, "http://test").pathname).toBe("/api/taskflow/prompts/42/cancel")
+    expect(calls[0].method).toBe("POST")
+    expect(JSON.parse(String(calls[0].body))).toEqual({})
+  })
+
+  it("reports a refusal instead of silently leaving the card on screen", async () => {
+    recordFetch(403, { detail: "forbidden" })
+
+    await expect(cancelAgentPrompt(42)).rejects.toThrow(/member of this project/)
   })
 })

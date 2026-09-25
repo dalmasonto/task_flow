@@ -1354,6 +1354,34 @@ export async function answerAgentPrompt(
   }
 }
 
+/// Dismiss a prompt whose question the agent's terminal already resolved.
+///
+/// The counterpart of [`answerAgentPrompt`], and the one that types NOTHING into
+/// anybody's terminal: it only clears the row. That matters because the MCP holds
+/// every message for an agent while one of its prompts is `pending`
+/// (`mcp/src/prompt-gate.ts`, #127) — so a question answered at the keyboard that
+/// the agent's own watcher never reported leaves that agent's chat queueing for
+/// ever, with no way out from the dashboard. This is that way out.
+///
+/// The cancel is per-prompt and touches only a prompt still `pending`; a card that
+/// went stale before the click is a quiet success server-side, so there is no 409
+/// branch here. The agent is un-gated over realtime by the row's own update.
+export async function cancelAgentPrompt(promptId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/prompts/${promptId}/cancel`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({}),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "You must be a member of this project to dismiss the prompt."
+        : await readErrorDetail(response, `Could not dismiss the prompt (${response.status}).`)
+    )
+  }
+}
+
 /// Create a channel and its roster in one authorized call. The caller is added
 /// server-side, so `members` lists only the OTHER participants.
 ///

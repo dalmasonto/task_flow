@@ -1972,12 +1972,18 @@ fn session_is_live(session: &TaskflowAgentSession, now: chrono::DateTime<chrono:
     (now - last_beat).num_seconds() <= AGENT_HEARTBEAT_WINDOW_SECS
 }
 
-/// Count an agent's currently-live sessions. Used instead of a bare
-/// `status = connected` count so abandoned sessions can't pin an agent online.
-async fn live_session_count(
+/// The ids of an agent's LIVE sessions right now: `connected` AND heartbeated
+/// inside [`AGENT_HEARTBEAT_WINDOW_SECS`].
+///
+/// The single definition of "this session is real", shared with
+/// [`live_session_count`] (which is this, counted) and with
+/// `register_session`'s identifier claim — a row whose owner stopped beating is
+/// released by the same rule. Anything that needs to know whether a session
+/// still exists asks here rather than inventing a second notion of dead.
+async fn live_session_ids(
     agent_id: i64,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<usize, StatusCode> {
+) -> Result<std::collections::HashSet<i64>, StatusCode> {
     let sessions = TaskflowAgentSession::objects()
         .filter(
             taskflow_agent_session::AGENT.eq(agent_id)
@@ -1986,7 +1992,20 @@ async fn live_session_count(
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(sessions.iter().filter(|s| session_is_live(s, now)).count())
+    Ok(sessions
+        .iter()
+        .filter(|s| session_is_live(s, now))
+        .map(|s| s.id)
+        .collect())
+}
+
+/// Count an agent's currently-live sessions. Used instead of a bare
+/// `status = connected` count so abandoned sessions can't pin an agent online.
+async fn live_session_count(
+    agent_id: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<usize, StatusCode> {
+    Ok(live_session_ids(agent_id, now).await?.len())
 }
 
 /// The agent's effective status, correcting a stored value that outlived its
@@ -4168,7 +4187,7 @@ pub async fn list_agents_as_agent(
 }
 
 /// `GET /api/taskflow/agents/prompts` — this agent's currently OPEN (pending)
-/// prompts.
+/// prompts, on the sessions that still exist.
 ///
 /// #127: the MCP hydrates its message gate from this on connect/reconnect. Prompt
 /// creation is a realtime `:prompts` event, but those are at-most-once and not
@@ -4176,9 +4195,44 @@ pub async fn list_agents_as_agent(
 /// pending when the MCP (re)starts, would otherwise be invisible and let chat be
 /// typed into the open prompt. This authoritative read closes that gap. Scoped to
 /// the caller's own agent id, so it never leaks another agent's prompts.
+///
+/// ## Why there is also a SESSION term
+///
+/// The gate protects a PANE, and a pane is a session. A prompt whose session is
+/// gone cannot be waiting on any pane the caller owns — but it used to be
+/// reported anyway, because this query had no session term at all. An agent
+/// restarted into a NEW session (a different tmux pane, or `host:pid` outside
+/// tmux) while an old row still held a `pending` prompt therefore read as
+/// blocked: the gate shut on a question nobody's terminal was showing, and
+/// every message for the LIVE session queued behind it for ever, silently —
+/// while `whoami` reported the agent connected and the event stream answered
+/// 200. Cancelling it is the other half of the fix; this is the half that stops
+/// the row being reported at all.
+///
+/// Liveness is [`live_session_ids`] — `connected` AND heartbeated inside
+/// [`AGENT_HEARTBEAT_WINDOW_SECS`], the same rule `register_session` uses to
+/// decide a session's row is abandoned, and the same rule the roster and
+/// `whoami` use to decide the agent is offline. One definition of "this session
+/// is dead", not a second one here.
+///
+/// ## The fallback, and why it is not a hole
+///
+/// If the agent has NO live session at all, every pending prompt is still
+/// reported. Delivery is paused by an agent that cannot reach the backend, so
+/// during a longer outage (heartbeats are every 30s against a 90s window) the
+/// genuinely-blocked agent has no live session — and answering "you are blocked
+/// on nothing" there would open the gate mid-outage and let the reconnect's
+/// catch-up type chat into the prompt that IS still on the screen. That is the
+/// corruption #127 exists to prevent. So this errs toward BLOCKING, which costs
+/// queued messages that flush once the prompt resolves, never a corrupted answer.
+/// The stale-session filter can only bite when a live session is there to receive
+/// the delivery.
 pub async fn list_open_prompts_as_agent(
     RequireAgent(agent): RequireAgent,
 ) -> Result<Response, StatusCode> {
+    let now = chrono::Utc::now();
+    let live_sessions = live_session_ids(agent.agent_id, now).await?;
+
     let prompts = TaskflowAgentPrompt::objects()
         .filter(
             taskflow_agent_prompt::AGENT.eq(agent.agent_id)
@@ -4188,6 +4242,15 @@ pub async fn list_open_prompts_as_agent(
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let prompts: Vec<TaskflowAgentPrompt> = if live_sessions.is_empty() {
+        prompts
+    } else {
+        prompts
+            .into_iter()
+            .filter(|p| live_sessions.contains(&p.session.id()))
+            .collect()
+    };
 
     let items: Vec<serde_json::Value> = prompts
         .into_iter()
@@ -4728,6 +4791,71 @@ pub async fn answer_prompt(
     Ok((StatusCode::OK, Json(saved)).into_response())
 }
 
+/// `POST /api/taskflow/prompts/{prompt}/cancel` (human-authed) — dismiss a card
+/// for a question that was already resolved in the agent's own terminal.
+///
+/// ## The gap this closes
+///
+/// `mcp/src/prompt-gate.ts` pauses pane message delivery while THIS agent has an
+/// open prompt — injecting text into a pane waiting on a prompt corrupts the
+/// answer (#127). Its only authority is `list_open_prompts_as_agent`, which lists
+/// this agent's `pending` prompts. Every other way to stop a prompt being
+/// `pending` is driven by the AGENT (`report_session_prompt` supersedes,
+/// `clear_session_prompt` when its pane-watcher sees the prompt leave the
+/// screen); `answer_prompt` is the one human path and it *answers*, typing keys
+/// into a terminal. So a prompt answered at the keyboard whose transition the MCP
+/// missed stays `pending` for ever, and every message for that agent queues
+/// behind it silently.
+///
+/// This is the missing human half: dismiss the row, emit the same `:prompts`
+/// event the other paths do (via [`cancel_prompt_row`]'s per-row save), and the
+/// running agent's gate opens with no reconnect.
+///
+/// ## Authorisation
+///
+/// `answer_prompt`'s exactly, because it is the same class of write: the prompt's
+/// own project, and an ACTIVE membership of it read from the table, never from
+/// the request. A cancel any authenticated user could fire would let one member
+/// unblock another member's agent.
+///
+/// Deliberately PER-PROMPT, not per-session: the caller is dismissing one card,
+/// and the session (or the agent) may legitimately have another question open —
+/// which must keep its own gate closed.
+///
+/// Only a `pending` prompt moves. A card is stale the moment the agent's own
+/// watcher gets there first, and a 4xx/5xx on a prompt that is already settled
+/// would be worse than a quiet success — so an already-terminal prompt returns
+/// 200 with its current state.
+pub async fn cancel_prompt(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(prompt_id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let prompt = TaskflowAgentPrompt::objects()
+        .filter(taskflow_agent_prompt::ID.eq(prompt_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let project_id = prompt.project.id();
+    TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    // Already answered / already cancelled → nothing to unblock, and nothing to
+    // report as a failure either. The helper returns the row untouched, so the
+    // caller can reconcile its card from the response.
+    let settled = cancel_prompt_row(prompt).await?;
+    Ok((StatusCode::OK, Json(settled)).into_response())
+}
+
 /// One option as stored in `options_json`.
 #[derive(Debug, Deserialize)]
 struct PromptOptionPayload {
@@ -4740,7 +4868,36 @@ struct PromptOptionPayload {
 /// The stored value of `TaskflowPromptStatus::Pending` (the column is text).
 const PENDING_PROMPT: &str = "pending";
 
+/// Move ONE prompt to `Cancelled` iff it is still `Pending`, and return it as
+/// stored (so a caller that found it already terminal gets that state back
+/// rather than a lie about what it did).
+///
+/// The `save` is load-bearing, and it is why this is the shared primitive rather
+/// than a loop body. `Manager::save` is the ORM's PER-ROW write path, so it fires
+/// `post_save:taskflow_agent_prompt` — the signal
+/// `backend/src/realtime.rs`'s `Expose::<TaskflowAgentPrompt>` subscribes to and
+/// broadcasts the `:prompts` event on. That broadcast, routed to the gate by
+/// `mcp/src/events.ts`, is what opens a RUNNING agent's message gate without a
+/// reconnect. A queryset `update_values` would fire `bulk_post_save` instead,
+/// which `Expose` never sees: the row would move and no agent would be un-gated.
+async fn cancel_prompt_row(
+    mut row: TaskflowAgentPrompt,
+) -> Result<TaskflowAgentPrompt, StatusCode> {
+    if row.status != TaskflowPromptStatus::Pending {
+        return Ok(row);
+    }
+    row.status = TaskflowPromptStatus::Cancelled;
+    TaskflowAgentPrompt::objects()
+        .save(row)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 /// Mark every pending prompt on a session cancelled. Returns how many.
+///
+/// Best-effort per row, exactly as before this shared the primitive: a prompt
+/// that fails to save stays pending and the next report/clear retries it, and
+/// the caller's own write (a new prompt, a cleared screen) must not fail on it.
 async fn cancel_pending_prompts(session_id: i64) -> Result<usize, StatusCode> {
     let pending = TaskflowAgentPrompt::objects()
         .filter(
@@ -4752,9 +4909,8 @@ async fn cancel_pending_prompts(session_id: i64) -> Result<usize, StatusCode> {
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let count = pending.len();
-    for mut row in pending {
-        row.status = TaskflowPromptStatus::Cancelled;
-        let _ = TaskflowAgentPrompt::objects().save(row).await;
+    for row in pending {
+        let _ = cancel_prompt_row(row).await;
     }
     Ok(count)
 }

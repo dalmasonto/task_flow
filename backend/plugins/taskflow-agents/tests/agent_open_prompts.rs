@@ -110,3 +110,121 @@ async fn requires_agent_auth() {
     let resp = app.get_noauth("/api/taskflow/agents/prompts").await;
     assert_eq!(resp.status(), 401);
 }
+
+// --- The session term ------------------------------------------------------
+//
+// The gate is per-PANE, and a pane is a session. Without a session term this
+// endpoint reported a `pending` prompt on a session that no longer exists, and
+// the MCP's gate — hydrated from exactly this list — shut on a question nobody's
+// terminal was showing: every message for the LIVE session queued behind it for
+// ever, while `whoami` said connected and the event stream answered 200. These
+// three tests are the contract: a dead session's prompt is not open, a live
+// session's still is, and an agent with NO live session keeps all of them.
+
+async fn open_ids(app: &TestApp, key: &str) -> Vec<i64> {
+    let resp = app.get_as_agent(key, "/api/taskflow/agents/prompts").await;
+    assert_eq!(resp.status(), 200);
+    resp.json()
+        .await
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|row| row["id"].as_i64().expect("prompt id"))
+        .collect()
+}
+
+/// A prompt on a session whose process is GONE — crashed, never closed — must not
+/// be reported as something the agent is blocked on. The stale session is not
+/// deleted here: a killed MCP leaves `status = connected` behind for ever, which
+/// is why liveness, not status alone, is the rule.
+#[tokio::test]
+async fn a_pending_prompt_on_a_dead_session_is_not_open() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (_agent, key) = mint(&app, user, project, "claude").await;
+
+    // The LIVE session — the agent as it is now.
+    let live = register_session(&app, &key).await;
+    let live_prompt = report(&app, &key, live).await;
+
+    // An older session of the SAME agent whose process died without closing, and
+    // the prompt it was showing when it died.
+    let dead = register_session(&app, &key).await;
+    let dead_prompt = report(&app, &key, dead).await;
+    app.backdate_session_heartbeat(dead, 600).await;
+
+    let ids = open_ids(&app, &key).await;
+    assert!(
+        ids.contains(&live_prompt),
+        "the live session's prompt must stay open — the fix must not be 'return \
+         fewer rows'. got {ids:?}"
+    );
+    assert!(
+        !ids.contains(&dead_prompt),
+        "a prompt on a session that stopped heartbeating is still reported as \
+         open, so the gate latches on a question no live terminal is showing. \
+         got {ids:?}"
+    );
+}
+
+/// The explicit half of the same rule: a session closed through the API is gone,
+/// and its prompt stops blocking the session that replaced it.
+#[tokio::test]
+async fn a_pending_prompt_on_a_closed_session_is_not_open() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (_agent, key) = mint(&app, user, project, "claude").await;
+
+    let live = register_session(&app, &key).await;
+    let live_prompt = report(&app, &key, live).await;
+
+    let old = register_session(&app, &key).await;
+    let old_prompt = report(&app, &key, old).await;
+
+    // Precondition: while it is open the prompt IS listed (so the assertion
+    // below is about the close, not about the prompt never being seen).
+    assert_eq!(open_ids(&app, &key).await, vec![live_prompt, old_prompt]);
+
+    let closed = app
+        .post_as_agent(&key, &format!("/api/taskflow/agents/sessions/{old}/close"), json!({}))
+        .await;
+    assert_eq!(closed.status(), 200, "close failed");
+
+    assert_eq!(
+        open_ids(&app, &key).await,
+        vec![live_prompt],
+        "a prompt on a CLOSED session must not block the live one"
+    );
+}
+
+/// The fallback, and the #127 guarantee it defends: an agent that cannot reach
+/// the backend long enough for its heartbeats to lapse is STILL blocked. The
+/// session is stale here only because nothing could beat — the pane may well be
+/// sitting on the prompt — so answering "nothing is open" would let the
+/// reconnect's catch-up type chat into it.
+#[tokio::test]
+async fn a_blocked_agent_with_no_live_session_still_reports_its_prompt() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (_agent, key) = mint(&app, user, project, "claude").await;
+
+    let only = register_session(&app, &key).await;
+    let prompt = report(&app, &key, only).await;
+
+    // Its ONE session goes stale: no live session of this agent remains.
+    app.backdate_session_heartbeat(only, 600).await;
+
+    assert_eq!(
+        open_ids(&app, &key).await,
+        vec![prompt],
+        "with no live session at all the prompt must STILL be reported: scoping \
+         by liveness alone would open the gate mid-outage and deliver chat into \
+         the prompt that is still on the screen (#127)"
+    );
+}

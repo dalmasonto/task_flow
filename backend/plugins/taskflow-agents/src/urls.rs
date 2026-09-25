@@ -126,6 +126,16 @@ pub fn router() -> Router {
             "/api/taskflow/prompts/{prompt}/answer",
             post(views::answer_prompt),
         )
+        // Human-authed: DISMISS a prompt (not answer it) — for a card whose
+        // question the agent's terminal already resolved and the MCP missed the
+        // transition for. The only human-driven way to open the #127 message
+        // gate on a prompt that is stuck `pending`; emits the same `:prompts`
+        // event the agent-driven clears do, so a running agent un-blocks without
+        // a reconnect.
+        .route(
+            "/api/taskflow/prompts/{prompt}/cancel",
+            post(views::cancel_prompt),
+        )
         .route(
             "/api/taskflow/agents/sessions/{session}/close",
             post(views::close_session),

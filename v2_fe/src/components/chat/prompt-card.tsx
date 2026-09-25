@@ -111,11 +111,16 @@ function clearPromptDraft(promptId: number): void {
 export function AgentPromptCard({
   prompt,
   onAnswer,
+  onDismiss,
 }: {
   prompt: TaskflowWorkspace["agentPrompts"][number]
   onAnswer: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
+  /// Clear the card WITHOUT answering — for a question the agent's own terminal
+  /// already resolved. See `dismiss` below.
+  onDismiss: (promptId: number) => Promise<void>
 }) {
   const [pending, setPending] = useState(false)
+  const [dismissing, setDismissing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const questions = useMemo(
@@ -194,6 +199,57 @@ export function AgentPromptCard({
     }
   }
 
+  /// Clear this card without answering it.
+  ///
+  /// The case this exists for: the question was resolved IN THE AGENT'S TERMINAL
+  /// (answered at the keyboard, or timed out) and the agent's own watcher missed
+  /// it, so the row is stuck `pending`. While a prompt is pending the agent's
+  /// message queue is HELD (#127 — text typed into a pane waiting on a prompt
+  /// corrupts the answer), so that stuck row silently blocks every message for
+  /// that agent, for ever.
+  ///
+  /// Deliberately NOT the "Cancel" button further down, which is the terminal's
+  /// own review-screen Cancel and travels WITH the answers: that one types keys
+  /// into the agent's terminal. This one types nothing anywhere — it just clears
+  /// the card and re-opens the agent's message queue.
+  const dismiss = async () => {
+    if (dismissing || pending) return
+    setDismissing(true)
+    setError(null)
+    try {
+      await onDismiss(prompt.id)
+      clearPromptDraft(prompt.id)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not dismiss.")
+      setDismissing(false)
+    }
+  }
+
+  /// The dismiss row, shared by both card shapes — including the option-less one
+  /// below, where it is the ONLY control: a prompt whose on-screen options could
+  /// not be read is exactly a prompt someone answers in the terminal, and without
+  /// this the card sat there holding the agent's messages with nothing to click.
+  const dismissRow = (
+    <div className="mt-3 border-t border-amber-300/60 pt-2 dark:border-amber-900/40">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={dismissing || pending}
+          onClick={() => void dismiss()}
+        >
+          {dismissing ? "Dismissing…" : "Dismiss"}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          Already answered in the agent's terminal? Dismissing clears this card only — it types
+          nothing into the terminal, and it re-opens the agent's message queue, which is held
+          while the prompt is pending.
+        </span>
+      </div>
+    </div>
+  )
+
   // #48: a prompt with no options is not a broken row — it is a tool-approval
   // request whose terminal screen could not be parsed with certainty, reported
   // deliberately without options so nothing can type a digit into a screen we
@@ -211,6 +267,8 @@ export function AgentPromptCard({
           Answer this in the agent's terminal — the on-screen options could not be read, so they
           aren't offered here.
         </p>
+        {dismissRow}
+        {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
       </div>
     )
   }
@@ -330,6 +388,8 @@ export function AgentPromptCard({
               : "Choose an option, then submit."}
         </span>
       </div>
+
+      {dismissRow}
 
       {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
     </div>
