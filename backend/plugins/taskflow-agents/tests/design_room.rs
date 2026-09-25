@@ -877,6 +877,139 @@ async fn adoption_leaves_a_row_whose_project_names_another_project() {
 }
 
 // ---------------------------------------------------------------------------
+// The adoption's predicate is SPELLED in SQL — a shape check, because nothing
+// else can see it
+// ---------------------------------------------------------------------------
+
+// The final whole-branch review's Critical was not a wrong answer, it was a wrong
+// COST. `adopt_design_history` fetched every `is_design` message of the project as
+// FULL rows — `body_markdown` included, which `models.rs` caps at ~10 MiB each —
+// and then discarded all but the candidates in Rust. It runs on EVERY ensure call
+// (see `ensure_project_rooms`: the retry is the point), and since the flag became
+// derived from the destination, every message in the design room is a hit, so the
+// steady state was the whole design conversation read and dropped on every project
+// write, every `link_agent`, every channel request, every review, and the boot
+// sweep for every project. That was a correctness risk, not a performance
+// preference: `umbral_core::signals` bounds an async subscriber at 30 s and DROPS
+// the future on expiry, so a large enough design history could CANCEL an ensure
+// mid-flight. The fix moved the whole predicate into SQL.
+//
+// The two versions are BEHAVIOURALLY IDENTICAL — same rows adopted, always; only
+// the number of bytes read differs — so no ordinary test can fail when the Rust
+// filter comes back. The three adoption tests above pass against both, because
+// they build small histories, where "read everything and drop it" and "read the
+// matches" hand the write the same ids. This is a cost regression with no
+// observable state change, and every other kind of test available here is blind
+// to it by construction.
+//
+// The precedent is one section DOWN and the argument is the same: the migration
+// tests read files off disk for a fact no other test kind can see ("tests never
+// apply migrations, so nothing else here would notice a missing or malformed
+// file"). What a migration file is to that, the SPELLING of this query is to
+// "no test can see how much was read".
+//
+// WHAT THIS DOES NOT COVER, stated so nobody mistakes it for more:
+//
+//   * It checks the query's SHAPE, not how many rows it reads. A predicate
+//     written in SQL but spelled so that it matches every row would pass here.
+//     The shape is what the regression changed, and the shape is what this pins.
+//   * It is NOT a query-count harness and is no substitute for one. Such a
+//     harness is possible in this repo — `umbral::App::builder()`
+//     `.database("default", pool)` takes an injected pool with logging on, and
+//     `backend/vendor/umbral-core/tests/query_counts.rs` does exactly that with a
+//     tracing layer counting `sqlx::query` events — but it needs ~50-80 lines of
+//     bespoke boot, because `umbral_testing::boot` hardcodes `connect_sqlite`.
+//     That is the follow-up, not this test.
+//   * It says nothing about whether the two clauses that `adopt_design_history`'s
+//     own doc comment calls belt-and-braces (`project = project_id`, the `room_id`
+//     no-op guard) DO anything: no ORM state distinguishes them, which is what
+//     "knowingly not pinned by a test" there means, and that stays true. This pins
+//     where the clauses are SPELLED — SQL or Rust — which is the one thing that
+//     changed.
+//   * Like every source-level pin, it is anchored on exact spellings, so a
+//     legitimate refactor that renames an anchor fails it LOUDLY. That is the
+//     intended cost: update the pin deliberately, do not delete it.
+#[test]
+fn the_adoption_predicate_is_spelled_in_sql_and_not_in_rust() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/views.rs");
+    let source = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("the adoption's source must be readable at {path}: {e}"));
+
+    let start = source
+        .find("async fn adopt_design_history")
+        .expect("`adopt_design_history` is still defined in views.rs — the anchors below are its body");
+    let rest = &source[start..];
+    let end = rest
+        .find("let moved =")
+        .expect("the adoption still names its write `let moved =`");
+    // Up to the bulk UPDATE: everything the candidate query does between building
+    // its queryset and handing ids to the write.
+    let body = &rest[..end];
+
+    let queryset = body
+        .find("TaskflowAgentMessage::objects()")
+        .expect("the candidate query still builds from the message model");
+    let fetch = body
+        .rfind(".fetch()")
+        .expect("the candidate query still materialises with `.fetch()`");
+    let ids_map = fetch
+        + body[fetch..]
+            .find("map(|m| m.id)")
+            .expect("the candidate query still hands ids to the write as `map(|m| m.id)`");
+    let sql = &body[queryset..fetch];
+    let tail = &body[fetch + ".fetch()".len()..ids_map];
+
+    // Clause by clause, and IN the queryset rather than merely "somewhere in the
+    // function": each clause is a separate way to lose the fix, and a predicate
+    // that slid back into Rust fails the clause it slid FROM. (`CHANNEL.in_(` is
+    // also the clause that bounds the row count: the Rust shape reads every
+    // `is_design` message of the project and keeps the ones in shared rooms,
+    // whereas the SQL shape never materialises the rest.)
+    assert!(
+        sql.contains("taskflow_agent_message::CHANNEL.ne("),
+        "the `channel != room_id` no-op guard must stay in the SQL predicate: it is what \
+         makes the steady state a query over ZERO rows, and the reason re-running the \
+         adoption on every ensure call is affordable. If it moved into Rust, every \
+         project write reads the whole design conversation. SQL region checked:\n{sql}"
+    );
+    assert!(
+        sql.contains("taskflow_agent_message::CHANNEL.in_("),
+        "the shared-rooms-only restriction (`channel IN (...)`) must stay in the SQL \
+         predicate: it is what stops a DM's or a #42 Group's design-flagged message from \
+         being re-pointed into a project-wide room, and it is the clause that bounds the \
+         row count. Applied after `.fetch()` it reads every `is_design` message of the \
+         project, `body_markdown` and all, to discard all but these. SQL region \
+         checked:\n{sql}"
+    );
+
+    // The half a clause-by-clause check cannot express: the Rust-side post-filter
+    // ITSELF. Both clauses can sit in the queryset and the same predicate still be
+    // applied a second time in Rust — which is exactly the shape that pays for the
+    // full rows it is about to throw away.
+    assert!(
+        !tail.trim().is_empty(),
+        "the anchors above resolved to an EMPTY region, which would make the loop below \
+         pass for the wrong reason. The query is spelled differently than this pin \
+         expects; update the anchors deliberately rather than deleting them."
+    );
+    // `.retain(` is the same regression spelled for a `Vec` in place. This stretch of
+    // the chain unwraps a result and extracts ids, so neither spelling has any
+    // business here.
+    for rust_filter in [".filter(", ".retain("] {
+        assert!(
+            !tail.contains(rust_filter),
+            "`{rust_filter}` between `.fetch()` and the ids map is the regression this \
+             test exists for: the queryset's `.fetch()` materialises FULL message rows \
+             (`body_markdown` included, ~10 MiB each), so a predicate applied here pays \
+             for every row it then discards — and on a large enough design history that \
+             read runs into the signal subscriber's 30 s deadline, which DROPS the \
+             future and cancels the ensure mid-flight. The predicate belongs in the \
+             queryset above, where the SQL is. Region checked:\n{tail}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The message flag is derived from the destination
 // ---------------------------------------------------------------------------
 
