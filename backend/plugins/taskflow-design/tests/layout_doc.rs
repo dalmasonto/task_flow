@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
     default_doc, filter_to_known, parse, to_json_string, to_value, validate, LayoutDoc, LayoutGroup,
-    MAX_GROUPS,
+    MAX_GROUPS, MAX_LABEL,
 };
 use taskflow_design::models::DesignView;
 
@@ -148,9 +148,7 @@ fn page_labels_round_trip_as_camel_case() {
 }
 
 #[test]
-// The camelCase is the wire field this test is about, so the name keeps it.
-#[allow(non_snake_case)]
-fn a_document_without_pageLabels_still_parses() {
+fn a_document_without_page_labels_still_parses() {
     // Every document written before this field existed must keep working.
     let d = parse(r#"{"view":"rows","routeOrder":[],"groups":[]}"#).unwrap();
     assert!(d.page_labels.is_empty());
@@ -170,7 +168,7 @@ fn validate_trims_labels_and_refuses_bad_ones() {
 
     // over the cap
     let mut long = doc(DesignView::Rows, vec![]);
-    long.page_labels.insert("/login".into(), "x".repeat(41));
+    long.page_labels.insert("/login".into(), "x".repeat(MAX_LABEL + 1));
     assert!(validate(long, &known()).is_err());
 
     // a route that is not a page — same rule as group routes
