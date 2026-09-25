@@ -73,7 +73,7 @@ export function DesignInspector({
           when the frame sent its path (`ancestorPaths`) — a label alone cannot
           be turned back into an element, so a button there would be the dead
           control this breadcrumb used to be. */}
-      <nav className="flex flex-wrap items-center gap-x-1 px-3 py-2 font-mono text-[11px]">
+      <nav className="flex flex-wrap items-center gap-x-1 px-3 py-2 text-[11px]">
         {crumbs.map((crumb, i) => {
           const current = i === crumbs.length - 1
           const canWiden = !current && !!onWiden && !!selection.ancestorPaths[i]
@@ -187,11 +187,11 @@ function CommentForm({
     <>
       <div className="mx-3 rounded-lg border bg-card p-3">
         <p className="text-xs text-muted-foreground">
-          <span className="font-mono text-[11px] text-foreground">{selection.tag}</span>
+          <span className="text-[11px] text-foreground">{selection.tag}</span>
           {selection.component ? (
             <>
               {" · inside "}
-              <span className="font-mono text-[11px] text-foreground">{selection.component}</span>
+              <span className="text-[11px] text-foreground">{selection.component}</span>
             </>
           ) : null}
         </p>
