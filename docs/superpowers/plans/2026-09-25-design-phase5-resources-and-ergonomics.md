@@ -1599,7 +1599,9 @@ The event choice is load-bearing rather than stylistic, and there is a reason to
 
   **There are still two `message` listeners and only one validates the sender.** The one to extend is the identity-checked one (`:353-361`). The other (`:848-856`, which was `:690` before Task 27's work moved it) handles `design:ready` with **no** source check at all. A route report is navigational state derived from a frame's URL, so it belongs with the validated listener; adding it to the unvalidated one would let any window on the page move a board's header.
 
-- [ ] **Step 3: Render it.** `ArtboardHeader` shows the board's own route normally. When the reported route differs, it shows the current one distinctly (e.g. `→ /app`) plus a **reset** control that returns the frame to the board's route by remounting it — the same per-board epoch mechanism Task 4 built, so a reset reloads one frame and nothing else.
+- [ ] **Step 3: Render it.** `ArtboardHeader` shows the board's own route normally. When the reported route differs, it shows the current one distinctly (e.g. `→ /app`) plus a **reset** control that returns the frame to the board's route by remounting it — the same per-board epoch mechanism Task 4 built, so a **reset reloads one frame and nothing else**.
+
+  ⚠️ **Bump the PER-BOARD half only.** *(Added 2026-09-25, after Task 27 changed this machinery.)* The epoch a frame now keys on is `epoch={contentEpoch + boardEpoch}` — **two halves summed**, and the global half is no longer a raw per-event counter: Task 27 made it a coalesced commit-on-settle value so that one file write remounts every board **once per burst** instead of once per event, which is what made responsive review sluggish. Resetting a board by moving the global half would remount every board at every device — **reintroducing exactly the cost Task 27 removed** — and, because that half is now settle-gated, it would not even do so predictably. The per-board half is the one a single-board reset owns.
 
 - [ ] **Step 4: Verify and commit.** `npm test` — **not the build** (Task 9 owns the plan's single held publish, backend first). Visual verification is Task 9's job.
 
