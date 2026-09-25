@@ -315,6 +315,23 @@ export function DesignSurfacePage({
       if (cancelled) return
 
       if (stored) {
+        // `openRoutes` is restored AS STORED, and it must be in MANIFEST order —
+        // the invariant every other writer here maintains deliberately: the
+        // seed below and `openRoute` both rebuild from `manifest.routes`,
+        // `PagePicker` filters the manifest, and `selectAllState.next` is the
+        // manifest's paths. This line is the one writer that does not check, and
+        // what it would break is not the boards' order but the TAIL of it:
+        // `resolveRouteOrder` appends the pages the flow does not name in the
+        // order the open list arrives in, while the panel resolves the same tail
+        // against the manifest, so a list in some other order would make the two
+        // disagree about pages the user never moved.
+        //
+        // Latent rather than broken today, and not reconciled here for that
+        // reason: the manifest the server serves is sorted by path
+        // (`manifest.rs:206`), so a list stored from it reads back in manifest
+        // order. Reconciling would mean filtering and re-sorting persisted state
+        // against a manifest that may itself be a project behind — the guard
+        // above — for a divergence that cannot currently arise.
         setOpenRoutes(stored.openRoutes)
         setDeviceIds(stored.deviceIds)
         setTransform(stored.transform)

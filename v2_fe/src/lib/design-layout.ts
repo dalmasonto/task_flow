@@ -287,7 +287,13 @@ export function resolveRouteOrder(doc: LayoutDoc, routes: string[]): string[] {
 /// fresh load) resolves it to exactly this order without having to know what
 /// the manifest looked like at the time.
 export function setRouteOrder(doc: LayoutDoc, order: string[], routes: string[]): LayoutDoc {
-  return { ...filterRouteOrder(doc, routes), routeOrder: resolveRouteOrder({ ...doc, routeOrder: order }, routes) }
+  // ONE normalisation, and it is `resolveRouteOrder`'s: it filters what `order`
+  // names (unknown dropped, repeats first-wins) and appends the rest of
+  // `routes`. There is deliberately no `filterRouteOrder` pass over
+  // `doc.routeOrder` as well — the value below REPLACES that field, so a stale
+  // entry in the document is gone by construction rather than by a second
+  // sweep, and a reader cannot mistake one for the other.
+  return { ...doc, routeOrder: resolveRouteOrder({ ...doc, routeOrder: order }, routes) }
 }
 
 /// Move a page `delta` places along the flow (the panel's move up/down is
@@ -297,18 +303,23 @@ export function setRouteOrder(doc: LayoutDoc, order: string[], routes: string[])
 /// the other way, so "two places down" leaves the page two places further along
 /// rather than trading it with whichever page happened to be there.
 ///
-/// `delta` is clamped to the ends of the list rather than refused: a page asked
-/// to move past an end stops at it, which makes a large delta the spelling of a
-/// move to the top or the bottom. A call that would not change the order — an
-/// end, a delta of zero, a route that is not one of the pages — returns the
-/// document ITSELF, so the caller can skip a save by identity rather than
-/// comparing lists.
+/// `delta` is a WHOLE number of places, and anything else — `NaN`, `±Infinity`,
+/// a fraction — is refused by returning the document itself. That is not
+/// tidiness: the clamp below cannot express `NaN` (`Math.max(0, NaN)` is `NaN`),
+/// and `splice(NaN, 0, …)` reads its start as 0, so a `NaN` delta would silently
+/// insert the page at the TOP of the flow instead of leaving it alone. A whole
+/// `delta` past an end is clamped rather than refused: the page stops at that
+/// end, which makes a large delta the spelling of a move to the top or the
+/// bottom. A call that would not change the order — an end, a delta of zero, a
+/// route that is not one of the pages — returns the document ITSELF, so the
+/// caller can skip a save by identity rather than comparing lists.
 ///
 /// The move is applied to the RESOLVED flow, not to the pages' own order: in a
 /// document with no flow stored the two are the same list, and in one that has
 /// a flow it is the user's list that moves. Going through `setRouteOrder` is
 /// what makes the result writable, stale entries and all.
 export function moveRoute(doc: LayoutDoc, route: string, delta: number, routes: string[]): LayoutDoc {
+  if (!Number.isInteger(delta)) return doc
   const order = resolveRouteOrder(doc, routes)
   const from = order.indexOf(route)
   if (from < 0) return doc

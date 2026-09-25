@@ -528,6 +528,29 @@ describe("design devices", () => {
     expect(column.every((b) => b.x === 0)).toBe(true)
   })
 
+  // The DEFAULT of that same rule, and the deliberate one: with no flow set the
+  // sequence IS the pages' own order, so a column reads in the pages' own order
+  // — not in `g.routes`, which is ASSIGNMENT order because `assignRoute`
+  // appends. A column that rendered `g.routes` would reshuffle its existing
+  // pages the moment one more page was grouped into it, and would disagree with
+  // the panel listing the same pages beside it. This is what every project sees
+  // before anything has been moved, in the one view whose arrangement the user
+  // chose, so it is pinned here rather than left to the sort above.
+  it("draws a group column in the pages' own order when no flow has been set", () => {
+    const open = ["/", "/login", "/settings"]
+    const groups = [{ id: "g1", name: "Auth", routes: ["/settings", "/login"] }]
+    const doc: LayoutDoc = { ...DEFAULT_LAYOUT, view: "groups", groups }
+    const boards = boardsForView(doc, open, ["laptop"])
+    /// The group's own two boards, in the order the canvas draws them.
+    const column = boards.filter((b) => b.route !== "/")
+
+    expect(doc.routeOrder).toEqual([]) // the premise: no flow has been set
+    expect(column.map((b) => b.route)).toEqual(["/login", "/settings"])
+    // One column, not two: the arrangement is untouched by what orders it.
+    expect(column[0].x).toBe(column[1].x)
+    expect(column[1].y).toBeGreaterThan(column[0].y)
+  })
+
   // §F, next to the two edits that look alike and are not: a grouping edit is a
   // LISTING edit — it never touches `routeOrder` — so it must not move a board,
   // while an explicit move is the whole point of the flow and does. The canvas

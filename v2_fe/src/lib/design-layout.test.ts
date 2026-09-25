@@ -589,6 +589,24 @@ describe("moveRoute", () => {
     expect(doc.routeOrder.every((route) => PAGES.includes(route))).toBe(true)
   })
 
+  // The clamp has to be TOTAL, and `Math.max(0, NaN)` is `NaN`: with a delta
+  // that is not a whole number the `to === from` refusal is false, `splice(NaN,
+  // 0, …)` treats its start as 0, and the page is inserted at the TOP — a move
+  // nobody asked for, spelled by a caller that passed nothing sensible. The
+  // panel only ever passes ±1, so this is reachable through the next caller
+  // rather than today's — and `moveRoute` is the seam a drag or a "move to top"
+  // would go through. It refuses instead of guessing.
+  it("refuses a delta that is not a whole number, rather than sending the page to the top", () => {
+    const doc = flowed([])
+
+    for (const delta of [NaN, Infinity, -Infinity, 1.5]) {
+      expect(moveRoute(doc, "/login", delta, PAGES), String(delta)).toBe(doc)
+    }
+    // The refusal is the DELTA's and not a general one: the same call with a
+    // whole number still moves the page.
+    expect(moveRoute(doc, "/login", 1, PAGES)).not.toBe(doc)
+  })
+
   it("does not mutate the document it is given", () => {
     const doc = flowed(["/login", "/"])
     const before = JSON.stringify(doc)

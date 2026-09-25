@@ -294,11 +294,14 @@ export function layoutBands(openRoutes: string[], deviceIds: string[], gutter = 
 /// open pages, ordered by their position in `openRoutes`. The caller that
 /// matters (`boardsForView`) hands it the user's flow, so a column reads down in
 /// the same sequence the panel lists, and the pages the flow does not name keep
-/// the caller's own order. The COLUMNS themselves are the document's group order
-/// and are never sorted by it: the arrangement the user picked is what this view
-/// is for — §F's "The canvas layout never reflows" is stated about a link click,
-/// and this phase reads it the same way for every edit that is not an explicit
-/// reorder.
+/// the caller's own order. With NO flow set — every project's first state — that
+/// means a column reads in the pages' own order, deliberately not in `g.routes`,
+/// which is ASSIGNMENT order (`assignRoute` appends) and would reshuffle a
+/// column's existing pages the moment one more page was grouped into it. The
+/// COLUMNS themselves are the document's group order and are never sorted by it:
+/// the arrangement the user picked is what this view is for — §F's "The canvas
+/// layout never reflows" is stated about a link click, and this phase reads it
+/// the same way for every edit that is not an explicit reorder.
 ///
 /// Ungrouped pages deliberately stay on ONE row (no wrapping): the band grows
 /// wider rather than deeper. Balanced packing of a long ungrouped tail is a

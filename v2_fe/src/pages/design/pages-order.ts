@@ -92,6 +92,12 @@ export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPa
   /// Routes already placed in a section. A page lives in at most one group —
   /// the first group in document order that names it, which is the same rule
   /// `groupOf` resolves the row's own picker with.
+  ///
+  /// A route two groups both claim therefore lists ONCE here, while the canvas
+  /// would draw it in both columns (`layoutGroups` does not dedupe across
+  /// columns). That divergence is unreachable rather than handled: the server's
+  /// `validate` refuses a document putting one page in two groups
+  /// (`layout_doc.rs:111-113`), so it can only be built by hand.
   const claimed = new Set<string>()
   /// The pages in presentation order. This IS the manifest's page list — the
   /// same routes, resolved — so a group entry naming a page this project does
