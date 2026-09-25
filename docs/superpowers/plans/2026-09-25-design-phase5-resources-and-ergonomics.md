@@ -1581,9 +1581,23 @@ The path is the sandbox path (`/s/{token}/app`), so strip the `/s/{token}` prefi
 
 The event choice is load-bearing rather than stylistic, and there is a reason to prefer `pageshow` over the `load` it replaces beyond correctness: `pageshow` fires *after* `load` on a normal navigation too, so a frame reports once per navigation either way, but only `pageshow` covers the restore path.
 
-- [ ] **Step 2: Track it per board.** `DesignCanvas` keeps `Map<boardKey, string>` of reported routes, updated from the existing message listener (which already validates `event.source` against a board before trusting anything — keep that discipline: **only accept a route from a frame that maps to a known board**, and ignore anything else).
+- [ ] **Step 2: Track it per board.** `DesignCanvas` keeps `Map<boardKey, string>` of reported routes, updated from the existing message listener (which already validates the sender against a board before trusting anything — keep that discipline: **only accept a route from a frame that maps to a known board**, and ignore anything else).
 
-  **There are two `message` listeners in this tree and only one of them validates the source.** The one to extend is `design-canvas.tsx:228`, which matches the sender against a board (`(b) => b.key === (event.source as Window | null)?.name`) — that is the discipline to keep. The other (`design-canvas.tsx:690`) handles `design:ready` with **no** source check at all. A route report is navigational state derived from a frame's URL, so it belongs with the validated listener; adding it to the unvalidated one would let any window on the page move a board's header.
+  🛑 **This step previously named `event.source.name` as "the discipline to keep". That is the bug, not the discipline, and obeying it would re-introduce a user-reported crash.** *(Corrected 2026-09-25, before this task was ever dispatched. The old text read: "The one to extend is `design-canvas.tsx:228`, which matches the sender against a board (`(b) => b.key === (event.source as Window | null)?.name`) — that is the discipline to keep.")*
+
+  The sandbox is a **different origin** in every deployment, so **reading any property off `event.source` throws**:
+
+  ```
+  Uncaught SecurityError: Failed to read a named property 'name' from 'Window':
+  Blocked a frame with origin "https://taskflow.supercodehive.com" from accessing
+  a cross-origin frame.
+  ```
+
+  That throw escaped the whole `onMessage` handler, so **inspect had never worked cross-origin at all** — it is the first half of the user's own bug report. The matching was rewritten by Task 15 to compare **WindowProxy references**, which is allowed across origins, and the pattern is now banned in a doc comment of its own (`design-frame-source.ts`: *"never 'solve' this by matching `event.source.name` against a board key again, however right the `name={board.key}` on the iframe makes it look"*).
+
+  **So the discipline to keep is the current one, and it lives at `design-canvas.tsx:353-361`:** `boardKeyForSource(frameSources(), event.source as Window | null)` — identity in, board key out. **Never read a property off `event.source`.** If you find yourself wanting `name`, or thinking the `name={board.key}` on the iframe makes it cheap, read `design-frame-source.ts` first.
+
+  **There are still two `message` listeners and only one validates the sender.** The one to extend is the identity-checked one (`:353-361`). The other (`:848-856`, which was `:690` before Task 27's work moved it) handles `design:ready` with **no** source check at all. A route report is navigational state derived from a frame's URL, so it belongs with the validated listener; adding it to the unvalidated one would let any window on the page move a board's header.
 
 - [ ] **Step 3: Render it.** `ArtboardHeader` shows the board's own route normally. When the reported route differs, it shows the current one distinctly (e.g. `→ /app`) plus a **reset** control that returns the frame to the board's route by remounting it — the same per-board epoch mechanism Task 4 built, so a reset reloads one frame and nothing else.
 
