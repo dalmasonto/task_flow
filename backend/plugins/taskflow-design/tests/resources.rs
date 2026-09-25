@@ -54,6 +54,25 @@ fn refuses_dangerous_schemes_in_every_spelling() {
 }
 
 #[test]
+fn refuses_a_url_containing_a_nul() {
+    // The one character the strip above cannot cover. The HTML tokenizer
+    // rewrites U+0000 to U+FFFD before any URL parsing happens, and U+FFFD is
+    // neither a C0 control nor a space, so it is not stripped: a leading NUL
+    // would leave the browser with a value that has no scheme, resolved as a
+    // RELATIVE url — https-looking in the document, not https in the browser.
+    // Refused wherever it appears, not merely un-stripped, because an interior
+    // NUL mangles the address just as silently.
+    for bad in [
+        "\u{0}https://ok.example/x",
+        "https://ok.example/x\u{0}",
+        "https://ok.example/\u{0}x",
+    ] {
+        let d = doc(vec![set("Bad", vec![link("stylesheet", bad)])]);
+        assert!(validate(d).is_err(), "should refuse a url containing U+0000: {bad:?}");
+    }
+}
+
+#[test]
 fn refuses_a_script_with_a_dangerous_scheme() {
     let mut l = link("stylesheet", "https://ok.example/x.js");
     l.is_script = true;

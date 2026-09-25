@@ -100,7 +100,10 @@ fn is_safe_url(url: &str) -> bool {
     // leading NBSP survives into the emitted value, the browser finds no
     // scheme there, and resolves the whole thing as a RELATIVE url, which is
     // the bare-path case above under a different spelling. The predicate below
-    // is the parser's own strip, so what we check is what the browser sees.
+    // is the parser's own strip, so what is checked here is what the browser
+    // sees — for every character but U+0000, which the tokenizer rewrites to
+    // U+FFFD before any of this runs; `validate` refuses a url containing it
+    // rather than stripping it, keeping this claim literally true.
     let u = url.trim_matches(|c: char| c <= ' ').to_ascii_lowercase();
     u.starts_with("https://") && !u.starts_with("https://javascript:")
 }
@@ -156,6 +159,18 @@ pub fn validate(doc: ResourcesDoc) -> Result<ResourcesDoc, String> {
             })?;
             if url.trim().is_empty() {
                 return Err(format!("a link in \"{name}\" has an empty url"));
+            }
+            // U+0000 is the one character `is_safe_url`'s strip cannot account
+            // for, because the value reaches a TOKENIZER before it reaches a
+            // URL parser: the tokenizer rewrites NUL to U+FFFD, which is
+            // neither a C0 control nor a space, so it is not stripped and the
+            // value resolves as a relative url while still reading as https
+            // here. Refused wherever it appears rather than un-stripped, since
+            // an interior NUL mangles the address just as silently.
+            if url.contains('\u{0}') {
+                return Err(format!(
+                    "a url in \"{name}\" contains a U+0000 character; the html parser rewrites it to U+FFFD, so the address that loads would not be the one written"
+                ));
             }
             if url.chars().count() > MAX_HREF {
                 return Err(format!("a url in \"{name}\" is too long"));
