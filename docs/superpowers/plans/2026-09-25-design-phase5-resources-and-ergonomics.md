@@ -421,7 +421,9 @@ git commit -m "feat(design): per-device actions — reload, open, duplicate, rem
 
 **Files:**
 - Modify: `v2_fe/src/lib/design-devices.ts`, `v2_fe/src/lib/design-devices.test.ts`
-- Modify: `v2_fe/src/pages/design/design-canvas.tsx`, `v2_fe/src/pages/design/DesignSurfacePage.tsx`
+- Modify: `v2_fe/src/pages/design/design-canvas.tsx`
+
+`DesignSurfacePage.tsx` is **not** in this task: the only Rotate site is `ArtboardHeader`, and the action reuses Task 4's `onDuplicateBoard` plumbing, which the surface already wires. An earlier draft listed it and an implementer correctly invented nothing.
 
 **Interfaces:**
 - Consumes: `DEVICE_PRESETS`, `deviceById`.
@@ -501,6 +503,11 @@ export function landscapeId(deviceId: string): string {
 /// breakpoint change, and giving it its own preset makes that visible instead
 /// of hiding it. Returns null when the device has no meaningful landscape form.
 export function landscapeVariant(device: DevicePreset): DevicePreset | null {
+  // Already landscape: rotating again would build `${id}:landscape:landscape`,
+  // an id no preset declares — `deviceById` would fall back to a laptop, so two
+  // different boards would collide on one key while one renders the wrong
+  // device. The helper must be total; a caller guard is defence, not the fix.
+  if (device.id.endsWith(":landscape")) return null
   if (device.group !== "phone" && device.group !== "tablet") return null
   return {
     ...device,
@@ -529,7 +536,9 @@ for (const preset of [...DEVICE_PRESETS]) {
 
 - [ ] **Step 4: Wire the Rotate action**
 
-In `ArtboardHeader`, replace the Rotate placeholder with one that adds the board's landscape variant to `deviceIds` when one exists, and is **disabled with an explanatory title** when it does not (`landscapeVariant` returned null). Use the same `onDuplicateBoard(key, deviceId)` plumbing from Task 4 — the effect is identical — with the variant's id.
+In `ArtboardHeader`, replace the Rotate placeholder with one that adds the board's landscape variant to `deviceIds` when one exists, and is **disabled with a readable reason** when it does not (`landscapeVariant` returned null).
+
+**The reason must be in the item's rendered TEXT, not a `title` attribute.** `dropdown-menu.tsx:91` sets `data-disabled:pointer-events-none`, so a disabled item can never show a tooltip — a `title` there is unreachable and produces a greyed item with an explanation nobody can read, which is a milder form of the "feels broken" complaint this phase exists to fix. Use the same `onDuplicateBoard(key, deviceId)` plumbing from Task 4 — the effect is identical — with the variant's id.
 
 - [ ] **Step 5: Verify and commit**
 
