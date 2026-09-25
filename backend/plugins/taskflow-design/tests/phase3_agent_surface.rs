@@ -137,6 +137,55 @@ async fn agent_reads_context_and_registry() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn context_serves_the_link_back_and_media_guidance() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+
+    // The check that makes the guidance real: ask the endpoint the way an agent
+    // does, and read what it actually SERVES. A string that is written into
+    // `agent_views.rs` but never reaches this response is indistinguishable
+    // from a capability that was never delivered.
+    let ctx = app
+        .get_as_agent(
+            key.as_str(),
+            &format!("/api/taskflow/agents/design/context?project={project}"),
+        )
+        .await;
+    assert_eq!(ctx.status(), 200, "{}", ctx.text());
+    let v = ctx.json();
+    let guide = v["guide"]
+        .as_str()
+        .expect("context response carries the authoring guide");
+    println!("--- context.guide as served ---\n{guide}\n--- end ---");
+
+    // Linking, back navigation, and the two habits that would silently undo
+    // them (a hand-written sandbox URL, and a new tab).
+    for needle in [
+        "<a href=\"/route\">",
+        "the browser's back/forward work",
+        "<button onclick=\"history.back()\">Back</button>",
+        "Do NOT hand-write sandbox URLs",
+        "target=\"_blank\"",
+    ] {
+        assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
+    }
+
+    // The media half, including the two things the policy does NOT allow
+    // (plain http, and a `<script src>` in a page fragment).
+    for needle in [
+        "<img src=\"https://cdn.example/hero.png\"",
+        "<video src=\"https://cdn.example/clip.mp4\" controls>",
+        "data:/blob: URIs still work",
+        "Plain http is refused",
+        "<script src> in a page",
+        "COMPONENT instead",
+        "INLINE in that component",
+        "assets/ accepts image",
+    ] {
+        assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_creates_third_page_from_existing_components() {
     let (app, project, _user, _agent, key) = setup_app().await;
     // Registry: tokens + two components (the shared parts).

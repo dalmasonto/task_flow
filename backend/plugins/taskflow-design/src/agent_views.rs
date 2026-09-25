@@ -66,9 +66,55 @@ pub struct AgentContextQuery {
     pub project: i64,
 }
 
+/// The authoring guidance that is true of the sandbox but is not derivable
+/// from the manifest: how a page links to another page, how a back control is
+/// written, and what a page may load from outside the sandbox.
+///
+/// It is served from HERE because this response is what the agent receives:
+/// `design_get_tokens` and `design_list_components` both return it, and the
+/// first is the read an agent is told to always make before its first design
+/// write. The MCP tool descriptions are the other place this could live, and
+/// to a reader they are the more obvious one — but the MCP is served from its
+/// package's built `dist/` (`mcp/package.json`'s `bin`), so text that lives
+/// only in `mcp/src` is not what an agent receives until the MCP is rebuilt.
+/// This response has no such step.
+const AUTHORING_GUIDE: &str = r#"Links between pages
+  Use a plain <a href="/route"> for any route in the manifest — e.g.
+  <a href="/app">. The composer rewrites it to the sandbox URL, so the click
+  navigates the preview frame and the browser's back/forward work.
+
+  A back control is just:
+      <button onclick="history.back()">Back</button>
+  The frame keeps its own history, so this works with no extra wiring.
+
+  Do NOT hand-write sandbox URLs, and do not use target="_blank" for
+  in-project links — a new tab leaves the frame and loses its history.
+
+Images, video and motion
+  External https images and media work:
+      <img src="https://cdn.example/hero.png" alt="…">
+      <video src="https://cdn.example/clip.mp4" controls></video>
+  That covers sprite sheets and CSS background-image from an https origin.
+  Plain http is refused, and inline data:/blob: URIs still work for small
+  assets. Motion no longer has to be CSS/SVG/inline — a video is a real
+  option — though CSS and SVG animation are still the default for interface
+  motion.
+
+  A Lottie animation works, but NOT by putting <script src> in a page: page
+  fragments may not contain one, and the server refuses that markup. Write a
+  COMPONENT instead — in the sandbox a component is a same-origin script, and
+  the player it appends from a CDN is allowed by script-src.
+
+  Pass the animation data INLINE in that component (lottie's animationData),
+  because there is nowhere to store it as a file: assets/ accepts image
+  extensions only, and styles/ accepts only tokens.css, tokens.json and
+  resources.json.
+"#;
+
 /// `GET /api/taskflow/agents/design/context` — everything `design_get_tokens`
 /// and `design_list_components` need, in one read: the tokens css + parsed
-/// scale, the component registry with usage, and the routes.
+/// scale, the component registry with usage, the routes, and the authoring
+/// guide (links, back navigation, external media).
 pub async fn context(
     RequireAgent(agent): RequireAgent,
     Query(q): Query<AgentContextQuery>,
@@ -89,6 +135,7 @@ pub async fn context(
         "routes": manifest::to_json(&m)["routes"],
         "revision": revision,
         "primitives": crate::primitives::catalog(),
+        "guide": AUTHORING_GUIDE,
         "note": "Always call design_get_tokens before your first design write: colour and \
                  spacing MUST come from this scale."
     })))
