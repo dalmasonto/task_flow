@@ -2002,7 +2002,7 @@ git commit -m "feat(design): view picker + viewport hydration and persistence"
 - Modify: `v2_fe/src/lib/design-layout.test.ts` (a helper used here is already covered; no new test file)
 
 **Interfaces:**
-- Consumes: `createGroup`/`assignRoute`/`renameGroup`/`removeGroup`/`groupOf` (Task 7).
+- Consumes: `createGroup`/`assignRoute`/`groupOf` (Task 7), and `MAX_GROUPS` for the cap guard. **Not** `renameGroup` (it does not exist — see Task 7) and **not** `removeGroup`, which has no caller anywhere in this phase: groups are create-only here. Both are deferred with the group-management surface.
 - Produces: `PagesPanel({ manifest, openRoutes, onToggleRoute, groups, onLayoutChange })`.
 
 - [ ] **Step 1: Create `pages-panel.tsx`** — move the existing `PagesPanel` out of `DesignSurfacePage.tsx` verbatim and add the group picker.
