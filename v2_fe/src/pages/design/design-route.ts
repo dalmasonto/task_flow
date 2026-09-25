@@ -91,10 +91,35 @@ function normalizeRoute(path: string): string {
 /// `` `${frameSrc}|${epoch}` `` in `LazyFrame`, where `frameSrc` is the token's
 /// sandbox URL for this board plus `?board={boardKey}`. The board key is the
 /// third part of that key and is what the report is held under (see
-/// `ArtboardCard`), so an equal stamp means the SAME DOCUMENT is still mounted.
-/// Nothing coarser would do: a stamp of the epoch alone reads as fresh after a
-/// remount caused by a new `sandboxToken`, which moves `frameSrc` and leaves
-/// both epoch halves exactly where they were.
+/// `ArtboardCard`), so an equal stamp means the same mounted document **as far
+/// as this app can distinguish one** — same key, same token, same epoch. Nothing
+/// coarser would do: a stamp of the epoch alone reads as fresh after a remount
+/// caused by a new `sandboxToken`, which moves `frameSrc` and leaves both epoch
+/// halves exactly where they were.
+///
+/// "As far as this app can distinguish one" is load-bearing, and there is one
+/// reachable case where an equal stamp is NOT the document that reported it.
+/// `sandbox::mint` signs `"{project}.{expiry}"` with `expiry = now + TTL`, so the
+/// token is a PURE FUNCTION of the project and the wall-clock second: an A→B→A
+/// project round trip inside one second re-mints A's token byte-for-byte. The
+/// frame IS remounted on that path (`frameSrc` changed twice), the surviving
+/// `ArtboardCard` keeps the report the old document left it, and the stamp
+/// matches again — so the chip can read a route for a frame that was just
+/// remounted to its home route. It is narrower than what this design replaced in
+/// every direction (a stale report used to survive any remount), and it
+/// self-heals when the new frame announces on `pageshow`.
+///
+/// Deliberately NOT fixed by making the token monotonic: that value is
+/// security-adjacent, and changing how it is minted to close a same-second round
+/// trip on a board that had already wandered is the wrong trade. Recorded here so
+/// the next reader is not surprised by the residue rather than by the absolute.
+///
+/// The neighbouring residue, same family, opposite sign — a LOST report rather
+/// than an attributed one: the sender is resolved by WindowProxy identity against
+/// the frames mounted NOW (`boardKeyForSource` over `frameSources`), so a report
+/// in flight while its frame is being replaced finds no sender and is dropped,
+/// leaving the chip blank until the new document announces on `pageshow`. Read
+/// off the code, not reproduced.
 ///
 /// That is not hypothetical — it is a project switch. The surface is not keyed
 /// by project (`App.tsx` mounts one `DesignSurfacePage`), so a switch refetches

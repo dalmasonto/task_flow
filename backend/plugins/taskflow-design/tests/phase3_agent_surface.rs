@@ -166,6 +166,12 @@ async fn context_serves_the_link_back_and_media_guidance() {
         "<button onclick=\"history.back()\">Back</button>",
         "only once the frame HAS history",
         "opened directly at one route",
+        // The claim itself, not just its setup and its remedy. The two markers
+        // around it pin the CONDITION (`opened directly at one route`) and the
+        // escape hatch (`A link to a known route always`), so a rewrite to
+        // "and Back works there" — the sentence saying the opposite of what it
+        // was added for — would satisfy both while the advice inverts.
+        "and Back there does nothing",
         "A link to a known route always",
         "Do NOT hand-write sandbox URLs",
         "target=\"_blank\"",

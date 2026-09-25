@@ -689,10 +689,20 @@ pub async fn design_events(
 // Sandbox-facing handlers — token-granted, origin-isolated, no cookies
 // ---------------------------------------------------------------------------
 
-/// The headers EVERY token-granted sandbox response carries, whatever its body:
-/// this response must not be kept (`no-store` — tokens outlive nothing), must
-/// not be indexed (`x-robots-tag: noindex`), and must not hand its own URL to
-/// another origin (`referrer-policy: no-referrer`).
+/// The headers every token-granted sandbox response that SERVES something
+/// carries, whatever its body: it must not be kept (`no-store` — tokens outlive
+/// nothing), must not be indexed (`x-robots-tag: noindex`), and must not hand
+/// its own URL to another origin (`referrer-policy: no-referrer`).
+///
+/// "That serves something" is not a hedge. A request that verifies its token and
+/// then misses — an unknown path prefix, or a row that does not exist — returns
+/// a bare 404 with none of the three (`serve_file`'s two early returns), and one
+/// of those misses is past the point where the headers could have been applied.
+/// Nothing is lost by that: a 404 has no body to pull a subresource in, so there
+/// is no URL for a `Referer` to carry and nothing to cache or index. The claim
+/// this comment used to make — EVERY response, whatever its body — was broader
+/// than the code, which is the class this phase has corrected more than any
+/// other.
 ///
 /// `no-referrer` is not polish, and it does not fix a leak that fires today: the
 /// sandbox URL IS the credential (`/s/{token}/…`), but under the current browser
@@ -1058,10 +1068,13 @@ pub async fn export_page_html(
         .collect();
 
     // The project's external resources (web fonts and their companion links),
-    // derived the SAME way the sandbox document derives them — `manifest::build`'s
-    // forgiving read of `styles/resources.json` — so the download cannot drift
-    // from the artboard: a font that renders in the preview ships in page.html.
-    let resources = manifest::build(project_id, &files, 0).resources;
+    // derived the SAME way the sandbox document derives them — the one
+    // `manifest::resources_from`, which `manifest::build` calls for its own
+    // `resources` field — so the download cannot drift from the artboard: a font
+    // that renders in the preview ships in page.html. Called directly rather
+    // than through `build`, which would scan every page fragment once per
+    // registered component for a `usedOn` this response does not read.
+    let resources = manifest::resources_from(&files);
 
     let html = composer::compose_export_document(
         &page_path,

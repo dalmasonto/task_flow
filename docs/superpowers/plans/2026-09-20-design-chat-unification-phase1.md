@@ -852,12 +852,19 @@ Replace the body (372-420) + bottom prompt bar (422-…) so the three columns fi
         {/* RIGHT: interim — inspector + the pages/components/tokens panel that
             used to sit on the left. Phase 2 turns this into proper tabs. */}
         <aside className="hidden w-[340px] shrink-0 flex-col overflow-y-auto border-l lg:flex">
+          {/* NOTE (2026-09-25): this sketch predates the inspector's rework, and
+              its prop names are the Phase 1 ones. `onCommentCreated` has been
+              renamed to `onCommentsChanged` (corrected here — a reader copying
+              this block would otherwise pass a prop that no longer exists); the
+              rest are also gone: `selection` is now `selections` + `activeIndex`
+              and `onDeselect` is `onClear`. The current contract is
+              `v2_fe/src/pages/design/design-inspector.tsx` — read that. */}
           <DesignInspector
             selection={selection}
             manifest={manifest}
             projectId={projectId}
             onDeselect={() => setSelection(null)}
-            onCommentCreated={() => refreshComments()}
+            onCommentsChanged={() => refreshComments()}
           />
           <LeftPanel
             manifest={manifest}

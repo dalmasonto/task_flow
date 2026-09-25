@@ -466,7 +466,14 @@ export function CommentsListSection({
   onFocus,
 }: {
   projectId: number
-  /** Controlled list from the page (live via SSE); fetched when omitted. */
+  /** Controlled list from the page (live via SSE); fetched when omitted — and
+   *  the "when omitted" half has NO CALLER today: both call sites in this file
+   *  pass `comments`, and so does the only thing that renders `DesignInspector`
+   *  (`DesignSurfacePage`), where the prop is required. The self-fetch below is
+   *  a fallback that nothing takes, kept rather than deleted because a
+   *  controllable list is the component's contract; it is described here so it
+   *  is not read as a live second source of comments, which would be the wrong
+   *  thing to reason from. */
   comments?: DesignComment[]
   onChanged?: () => void
   onFocus?: (comment: DesignComment) => void
@@ -478,6 +485,10 @@ export function CommentsListSection({
   const [dispatching, setDispatching] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
+  // The uncontrolled fallback — unreachable as the panel is wired (see the
+  // `comments` prop's note): every caller passes the list. Kept because the
+  // contract is "controlled or it fetches its own", and the effect is guarded
+  // rather than removed so a future caller that omits `comments` still works.
   useEffect(() => {
     if (!projectId || controlledComments) return
     let cancelled = false

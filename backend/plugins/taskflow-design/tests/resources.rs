@@ -402,6 +402,18 @@ async fn enabled_links_reach_both_the_composed_page_and_the_download() {
         html.find(preconnect).expect("preconnect") < html.find("f/styles/tokens.css").expect("tokens link"),
         "resource links must precede the page's own stylesheet, so a page can override a webfont"
     );
+    // ...and emitted ONCE. The ordering assertion above cannot see a duplicate:
+    // `find` returns the FIRST occurrence, so a second emission anywhere after
+    // the tokens link leaves it true. Every other assertion in this file is a
+    // `contains` or a head-comparison BETWEEN the two documents, and a
+    // consistently duplicated emission preserves all of them — so without this
+    // line a doubled `{resources}` in `compose_document`'s format string is
+    // invisible to the whole suite.
+    assert_eq!(
+        html.matches(preconnect).count(),
+        1,
+        "the preconnect must be emitted exactly once, not merely before the stylesheet: {html}"
+    );
 
     let export = app
         .get_as(user.id, &format!("/api/design/{project_id}/page.html?route=/"))
@@ -431,6 +443,16 @@ async fn enabled_links_reach_both_the_composed_page_and_the_download() {
          (resources at {resource_at}, tokens stylesheet at {tokens_at}), as they do in the \
          sandbox head — placing them after it silently stops a page overriding a webfont: \
          {downloaded}"
+    );
+    // The same duplicate blind spot as the sandbox half, and it is a SEPARATE
+    // one: the two documents are composed by different functions
+    // (`compose_document` and `compose_export_document`), each with its own
+    // `resources_tags` call site, so the count in one says nothing about the
+    // other. `resource_at` is likewise a `find`, i.e. the first occurrence.
+    assert_eq!(
+        downloaded.matches(preconnect).count(),
+        1,
+        "the preconnect must be emitted exactly once in page.html too: {downloaded}"
     );
 }
 

@@ -127,11 +127,14 @@ describe("layout edits", () => {
     // counts code points (`[...trimmed].length`) for exactly this reason, and
     // the resources baseline proves it.
     //
-    // Which way this proves: every expectation below PASSES under
-    // `[...name].length` and FAILS under `.length` — 40 emoji is 40 code
-    // points (accepted) but 80 UTF-16 units (refused), so `.length` turns the
-    // first two lines red. The ASCII test above is green under either measure,
-    // which is why it never caught this.
+    // Which way this proves, and how far: `.length` turns the `createGroup`
+    // line below red — 40 emoji is 40 code points (accepted) but 80 UTF-16
+    // units (refused) — so the direction is pinned. NOT every expectation here
+    // discriminates, and saying so is the point: the two raw-string assertions
+    // measure the two spellings directly, and the one-code-point-past-the-cap
+    // refusal below is refused under EITHER measure, so those three are
+    // measure-insensitive by construction. The ASCII test above is green under
+    // either measure too, which is why it never caught this.
     const emoji = "\u{1F3A8}" // one code point, two UTF-16 units
     const atCap = emoji.repeat(MAX_GROUP_NAME)
     expect(atCap.length).toBe(MAX_GROUP_NAME * 2) // the measure being pinned against

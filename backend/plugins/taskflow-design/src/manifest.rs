@@ -240,22 +240,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
             parse_token_groups(&tokens_css)
         });
 
-    // Absent, unparseable, or invalid: no links, page composes normally. The
-    // read path is forgiving by design — a bad resource document must never
-    // stop a page from rendering, because the page is the thing being worked on.
-    //
-    // `validate` runs BEFORE `enabled_links`, and that order is the security
-    // property, not a formality: it is why `composer::resources_tags` can
-    // ESCAPE its values instead of FILTERING them. A document carrying a
-    // refused url — `javascript:`, a bare path, a scheme-relative `//host` —
-    // contributes no links at all, so the composer never holds one.
-    let resources = files
-        .iter()
-        .find(|f| f.path == resources::RESOURCES_PATH)
-        .and_then(|f| resources::parse(&f.content).ok())
-        .and_then(|d| resources::validate(d).ok())
-        .map(|d| resources::enabled_links(&d).into_iter().map(|(s, l)| (s, l.clone())).collect())
-        .unwrap_or_default();
+    let resources = resources_from(files);
 
     DesignManifest {
         project: project_id,
@@ -265,6 +250,38 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
         revision,
         resources,
     }
+}
+
+/// The project's enabled resource links, in document order — [`build`]'s
+/// `resources` field on its own.
+///
+/// Split out for callers that need only this: `build` also scans every page
+/// fragment once per registered component (`usage_of`), parses the token
+/// document and sorts the routes, none of which the link list depends on. The
+/// exported `page.html` is such a caller — it needs the links and nothing else —
+/// and it is what made the cost worth naming.
+///
+/// Absent, unparseable, or invalid: no links, page composes normally. The read
+/// path is forgiving by design — a bad resource document must never stop a page
+/// from rendering, because the page is the thing being worked on.
+///
+/// `validate` runs BEFORE `enabled_links`, and that order is the security
+/// property, not a formality: it is why `composer::resources_tags` can ESCAPE
+/// its values instead of FILTERING them. A document carrying a refused url —
+/// `javascript:`, a bare path, a scheme-relative `//host` — contributes no links
+/// at all, so the composer never holds one.
+///
+/// This is the ONE implementation of that read. `build` calls it rather than
+/// repeating it, so the two cannot drift; a caller that re-derived the links
+/// itself would be a second place for the validate-before-emit order to be lost.
+pub fn resources_from(files: &[DesignFile]) -> Vec<(bool, ResourceLink)> {
+    files
+        .iter()
+        .find(|f| f.path == resources::RESOURCES_PATH)
+        .and_then(|f| resources::parse(&f.content).ok())
+        .and_then(|d| resources::validate(d).ok())
+        .map(|d| resources::enabled_links(&d).into_iter().map(|(s, l)| (s, l.clone())).collect())
+        .unwrap_or_default()
 }
 
 /// Group custom properties from `@theme` into named groups by prefix.
@@ -353,6 +370,17 @@ pub fn to_json(manifest: &DesignManifest) -> Value {
 mod tests {
     use super::*;
     use umbral::orm::ForeignKey;
+
+    /// The KEYS of a JSON object, sorted. The assertions below name all of them
+    /// rather than a few, because the failure this guards is a key that is not
+    /// the one the frontend declares: a subset check passes on exactly the
+    /// misspelling it is meant to catch.
+    fn keys(value: &Value) -> Vec<&str> {
+        let mut out: Vec<&str> =
+            value.as_object().expect("expected a JSON object").keys().map(String::as_str).collect();
+        out.sort_unstable();
+        out
+    }
 
     fn token_file(path: &str, content: &str) -> DesignFile {
         DesignFile {
@@ -525,6 +553,106 @@ mod tests {
                 .variables
                 .contains(&("--accent".to_string(), "#000000".to_string())),
             "tokens.json must win over legacy tokens.css when both rows exist"
+        );
+    }
+
+    /// The serialised KEY NAMES of every shape `v2_fe/src/lib/design-api.ts`
+    /// mirrors by hand, asserted against the JSON the server actually emits.
+    ///
+    /// Nothing else checks the two against each other. `tsc` pins a reader
+    /// against the TYPE, never the type against the WIRE, so a key spelled
+    /// differently on this side is `undefined` at runtime with no error
+    /// anywhere — which is how `variables_dark` sat here promising a value under
+    /// a name the frontend never receives, and why this test exists rather than
+    /// one assertion for that one field. A field's own name does not decide its
+    /// key: the CONTAINER's `#[serde(rename_all)]` does, and reading the field
+    /// while missing the container is the mistake this pins.
+    ///
+    /// What it does NOT cover, and cannot: the responses built from a
+    /// `json!({...})` literal rather than a struct — `views::put_file`'s
+    /// `affected_routes`, `conflict_response`'s `current_version`. There is no
+    /// type here to serialise, so no assertion on this side can see a rename
+    /// there; `design-api.ts` records that those two rest on the Rust source
+    /// alone. This test closes the struct half of the mismatch, which is the
+    /// half that produced four instances in one phase.
+    #[test]
+    fn the_mirrored_shapes_serialise_under_the_key_names_the_frontend_declares() {
+        let json = serde_json::json!({
+            "version": 1,
+            "categories": {
+                "colors": { "accent": { "light": "#6366f1", "dark": "#818cf8" } }
+            }
+        })
+        .to_string();
+        let resources_doc = r#"{"version":1,"sets":[{"id":"a","name":"A","enabled":true,
+            "links":[{"rel":"preconnect","href":"https://fonts.googleapis.com"}]}]}"#
+            .to_string();
+        let component = DesignFile {
+            kind: DesignFileKind::Component,
+            path: "components/app-header.js".to_string(),
+            content: "<app-header></app-header>".to_string(),
+            ..resource_file("")
+        };
+        let files = vec![
+            page_file("pages/index.html"),
+            token_file("styles/tokens.json", &json),
+            resource_file(&resources_doc),
+            component,
+        ];
+        let m = to_json(&build(1, &files, 1));
+
+        // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys).
+        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "tokens"]);
+
+        // `RouteEntry` — NO `rename_all`, and still right only because none of
+        // its keys has a second word. Add one and the two spellings part company.
+        assert_eq!(keys(&m["routes"][0]), ["file", "path", "title"]);
+
+        // `ComponentEntry` — camelCase: this is where `usedOn`/`usageCount` come
+        // from, and `phase1_storage_composer.rs` reads the SAME two off a served
+        // response, so the pair is pinned end to end.
+        assert_eq!(keys(&m["components"][0]), ["attrs", "file", "name", "usageCount", "usedOn"]);
+
+        // `TokenGroup` — camelCase, and `variablesDark` is why this test exists:
+        // the Rust field is `variables_dark` and it carries no `rename_all` of
+        // its own, so the container is the whole of the answer. A group with a
+        // dark override also proves the field is not omitted when it has one.
+        assert_eq!(keys(&m["tokens"][0]), ["name", "variables", "variablesDark"]);
+
+        // `DesignManifest.resources` is a `Vec<(bool, ResourceLink)>`: a tuple
+        // serialises as an ARRAY, so each entry is `[isScript, link]` and never
+        // an object with `0`/`1` keys. `ResourceLink` carries NO
+        // `skip_serializing_if`, so all six keys are present even here, where
+        // four of them are null/false.
+        let entry = &m["resources"][0];
+        assert!(entry.is_array(), "a tuple is a JSON array: {entry}");
+        assert_eq!(entry[0], Value::Bool(false));
+        assert_eq!(
+            keys(&entry[1]),
+            ["crossorigin", "href", "isAsync", "isScript", "rel", "script"]
+        );
+
+        // The stored resources document itself (`ResourcesDoc`/`ResourceSet`),
+        // which the editor round-trips through `v2_fe/src/lib/resources.ts` —
+        // same container attribute, same class of mistake, no manifest needed.
+        let doc = serde_json::to_value(resources::parse(&resources_doc).unwrap()).unwrap();
+        assert_eq!(keys(&doc), ["sets", "version"]);
+        assert_eq!(keys(&doc["sets"][0]), ["enabled", "id", "links", "name"]);
+
+        // `views::FileSummary` — a hand-written view struct with NO rename, so
+        // its keys are the column names it chose. `updated_by`/`updated_at` are
+        // the snake_case pair `design-api.ts`'s `DesignFileSummary` declares.
+        let summary = crate::views::FileSummary {
+            path: "pages/index.html".to_string(),
+            kind: DesignFileKind::Page,
+            version: 1,
+            updated_by: "test".to_string(),
+            updated_at: None,
+            bytes: 4,
+        };
+        assert_eq!(
+            keys(&serde_json::to_value(&summary).unwrap()),
+            ["bytes", "kind", "path", "updated_at", "updated_by", "version"]
         );
     }
 }

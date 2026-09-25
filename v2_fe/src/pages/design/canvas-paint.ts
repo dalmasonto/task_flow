@@ -13,9 +13,11 @@
 /// `resolveLive` is here for the same reason from the other side: it is the
 /// decision of WHICH transform is painted — three inputs wide, the shape that
 /// reads as obvious inline and is not — and it was walked by hand and never
-/// pinned. Both halves of it are tests now (`canvas-paint.test.ts`), which is
-/// the whole of the claim: a rule that lived in render sequences somebody had to
-/// hold in their head is a rule nothing could fail for.
+/// pinned. Both halves of it are tests (`canvas-paint.test.ts`) — they went in
+/// with the fix that extracted this rule, before this comment, and the comment
+/// they replaced claimed a bug no committed revision shows — which is the whole
+/// of the claim: a rule that lived in render sequences somebody had to hold in
+/// their head is a rule nothing could fail for.
 
 import type { CanvasTransform } from "./design-canvas"
 

@@ -600,6 +600,22 @@ async fn tokens_must_carry_a_theme_block_and_no_remote_import() {
         .await;
     assert_eq!(remote.status(), 422);
     assert_eq!(remote.json()["errors"][0]["rule"], "remote-import");
+
+    // The TEXT, not only the rule. This message is read by an agent at the
+    // moment it has already been refused once, and until recently it sent that
+    // agent to `assets/` — which admits image extensions only — so the advice it
+    // gave could not be followed and the agent had no way to find that out. The
+    // wording is the deliverable here, and nothing else asserts it: a later edit
+    // putting the old advice back would leave every rule assertion green, and
+    // the only thing standing between the two is that nobody edits the string.
+    let message = remote.json()["errors"][0]["message"]
+        .as_str()
+        .expect("a refusal carries a message")
+        .to_string();
+    assert!(
+        message.contains("styles/resources.json"),
+        "the refusal must name where a font can actually go: {message}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -645,6 +661,18 @@ async fn tokens_json_is_validated_as_json_not_css() {
         .await;
     assert_eq!(remote.status(), 422);
     assert_eq!(remote.json()["errors"][0]["rule"], "remote-url");
+
+    // The other half of the same pair, asserted the same way and for the same
+    // reason: both messages used to send an agent to `assets/` for a font, and
+    // the rule alone does not pin a word of what either one says.
+    let message = remote.json()["errors"][0]["message"]
+        .as_str()
+        .expect("a refusal carries a message")
+        .to_string();
+    assert!(
+        message.contains("styles/resources.json"),
+        "the refusal must name where a font can actually go: {message}"
+    );
 }
 
 // ---------------------------------------------------------------------------

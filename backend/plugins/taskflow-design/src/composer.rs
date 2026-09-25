@@ -324,6 +324,13 @@ fn opens_new_tab(tag: &str) -> bool {
 /// history, and back/forward — and an agent-written `history.back()` — work with
 /// nothing further built.
 ///
+/// A mechanism, not a guarantee, and the same condition the agent-facing guide
+/// states (`AUTHORING_GUIDE`, `agent_views.rs`): the history is built by clicks
+/// INSIDE the frame, so a frame opened directly at a route has a single entry
+/// and `back()` there is inert until one of these rewrites is followed. Two
+/// documents describing one behaviour is how they come to disagree, so this one
+/// says what the guide says.
+///
 /// Deliberately conservative, because a rewrite that is wrong turns a link that
 /// works into one that does not:
 ///   * an href is rewritten only when it NAMES A MANIFEST ROUTE, compared on
