@@ -1350,7 +1350,7 @@ git commit -m "feat(design): resource-set editor with paste-a-snippet import"
 
 **Files:** none expected; any fix found gets its own commit.
 
-- [ ] **Step 1: Point a local backend at a COPY of the dev database** (never the live one) and confirm the schema is current.
+- [ ] **Step 1: Bring up the local stack** — a backend pointed at a COPY of the dev database (never the live one), and a frontend the browser can actually load.
 
 ```bash
 cd /home/dalmas/E/projects/local_task_tracker/backend
@@ -1359,15 +1359,24 @@ UMBRAL_DATABASE_URL="sqlite:///tmp/tf-phase5.db?mode=rwc" cargo run -- migrate
 UMBRAL_DATABASE_URL="sqlite:///tmp/tf-phase5.db?mode=rwc" cargo run -- serve
 ```
 
+Then, in a second shell, **`cd v2_fe && npm run dev`** — the dev server, *not* `npm run build`. Steps 2 and 3 need a browser, so a served frontend is required; the build is the publish and stays Step 5.
+
+**The port has to line up in three places, and it already does — check it rather than assuming.** The backend's default bind is `127.0.0.1:8000` (`umbral-core/src/settings.rs:192`), `vite.config.ts:43` proxies `/api`, `/oauth`, `/media`, `/openapi` and `/realtime` to `VITE_API_PROXY_TARGET ?? http://localhost:8000`, and `v2_fe/.env.local` sets `VITE_SANDBOX_ORIGIN=http://localhost:8000`. Two consequences worth knowing before you debug a blank artboard:
+
+- **`/s/` is not in the proxy list**, deliberately: `VITE_SANDBOX_ORIGIN` is an absolute URL, so every frame loads straight from the backend origin rather than through the dev server. If that variable were unset, `sandboxUrl` would fall back to `API_BASE_URL` and the frames would resolve against the dev server instead — which is the failure to look for first if artboards come up empty.
+- **Leave `TASKFLOW_CORS_ALLOWED_ORIGINS` unset.** `src/main.rs:93-98` documents why: unset adds no CORS layer at all, "which keeps same-origin dev behavior byte-identical" — local dev is only same-origin *because* it goes through the proxy.
+
 - [ ] **Step 2: Verify the fonts actually load** — the load-bearing claim of this phase. Add a Google Fonts set in the editor, enable it, and confirm **in the browser's network panel** that the CSS and the font files are fetched (i.e. not CSP-blocked). A tag that appears in the DOM but whose request was refused is precisely the failure the composer's own comment records, so DOM presence is not evidence.
 
 - [ ] **Step 3: Verify the rest —** labels (rename, reload, persists, and the label appears in every arrangement); the four actions (reload affects only its board; open-in-new-tab; duplicate; remove); a seen page stays loaded after scrolling far away and back; a disabled set emits nothing; a `javascript:` URL is refused with a message.
 
-- [ ] **Step 4: Run both suites and the build.**
+- [ ] **Step 4: Run both suites.**
 
-Run: `cd backend && cargo test --workspace` then `cd ../v2_fe && npm test && npm run build`
+Run: `cd backend && cargo test --workspace` then `cd ../v2_fe && npx tsc -b && npm test`
 
-- [ ] **Step 5: Publish — backend first.** Per the measured constraint: the frontend must not go out before the backend, or the realtime handshake 403s app-wide. **This step waits for the user's go-ahead; it is not executed by the implementer.**
+- [ ] **Step 5: Publish — backend first, and the build comes after it.** Per the measured constraint: the frontend must not go out before the backend, or the realtime handshake 403s app-wide. So this step is ordered, not parallel: **the backend deploy happens first, and `npm run build` — the plan's single build — only after it**, on the user's go-ahead. Their words were "deploy the backend first, then I build".
+
+  This is the reason Step 4 runs `npx tsc -b && npm test` and *not* `npm run build`: the build is the publish in this repo, and running it here would put the new frontend in front of the user before the backend exists to serve it. **This step is not executed by the implementer; it waits.**
 
 ---
 
