@@ -1161,7 +1161,200 @@ Run: `cd backend && cargo test --workspace` then `cd ../v2_fe && npm test && npm
 
 ---
 
+---
+
+### Task 10: Backend — rewrite route links so pages can navigate to each other
+
+**Files:**
+- Modify: `backend/plugins/taskflow-design/src/composer.rs`
+- Modify: `backend/plugins/taskflow-design/tests/` (a composer test)
+
+**Interfaces:**
+- Consumes: the manifest's route list (already available wherever the composer runs).
+- Produces: `pub fn rewrite_page_links(html: &str, token: &str, routes: &[String]) -> String`.
+
+**Why this is the whole feature:** a click that becomes a *real navigation inside the frame* gives the iframe its own history, so back/forward and `history.back()` work with no further machinery. Nothing else needs building for the user's back-button ask.
+
+- [ ] **Step 1: Write the failing tests**
+
+```rust
+use taskflow_design::composer;
+
+fn routes() -> Vec<String> {
+    ["/", "/app", "/settings"].iter().map(|r| r.to_string()).collect()
+}
+
+#[test]
+fn a_link_to_a_known_route_becomes_a_sandbox_url() {
+    let out = composer::rewrite_page_links(r#"<a href="/app" class="btn">Open</a>"#, "tok", &routes());
+    assert!(out.contains(r#"href="/s/tok/app""#), "{out}");
+    assert!(out.contains(r#"class="btn""#), "other attributes survive: {out}");
+}
+
+#[test]
+fn the_root_route_maps_to_the_bare_sandbox_url() {
+    // `sandboxUrl` in the client drops the trailing path for "/", and the
+    // server must agree or the root link would 404.
+    let out = composer::rewrite_page_links(r#"<a href="/">Home</a>"#, "tok", &routes());
+    assert!(out.contains(r#"href="/s/tok""#), "{out}");
+}
+
+#[test]
+fn hrefs_that_are_not_pages_are_left_alone() {
+    // Rewriting any of these would turn a working link into a broken one.
+    for html in [
+        r#"<a href="https://example.com/x">ext</a>"#,
+        r#"<a href="//cdn.example/x">proto-relative</a>"#,
+        r#"<a href="mailto:a@b.c">mail</a>"#,
+        r#"<a href="tel:+1">tel</a>"#,
+        r#"<a href="#section">anchor</a>"#,
+        r#"<a href="/not-a-page">path-shaped but not a page</a>"#,
+        r#"<a href="app">relative, not site-absolute</a>"#,
+    ] {
+        let out = composer::rewrite_page_links(html, "tok", &routes());
+        assert_eq!(out, html, "must be untouched: {html}");
+    }
+}
+
+#[test]
+fn a_new_tab_link_is_left_alone() {
+    // The author asked for a new tab; hijacking it into the frame would
+    // contradict the intent the markup states.
+    let html = r#"<a href="/app" target="_blank">Open</a>"#;
+    assert_eq!(composer::rewrite_page_links(html, "tok", &routes()), html);
+}
+
+#[test]
+fn several_links_in_one_fragment_are_all_rewritten() {
+    let out = composer::rewrite_page_links(
+        r#"<a href="/app">a</a><a href="/settings">b</a><a href="https://x.example">c</a>"#,
+        "tok", &routes());
+    assert_eq!(out.matches(r#"/s/tok/"#).count(), 2, "{out}");
+}
+```
+
+- [ ] **Step 2: Run to verify they fail.**
+
+- [ ] **Step 3: Implement** — in `composer.rs`
+
+Follow the existing `rewrite_hrefs` pass's shape (it already walks the fragment rewriting style/component/asset paths), and apply this one to `<a href>` in the page fragment before it is assembled:
+
+```rust
+/// Rewrite `<a href="/route">` for a KNOWN route into the sandbox URL for that
+/// route, so a click navigates the frame itself.
+///
+/// That is the entire mechanism behind in-device navigation: because the click
+/// becomes a real navigation inside the iframe, the frame gets its own session
+/// history, and back/forward — and an agent-written `history.back()` — work
+/// with nothing further built.
+///
+/// Deliberately conservative. Only a site-absolute path that matches a manifest
+/// route is rewritten; everything else (`http(s)://`, protocol-relative `//`,
+/// `mailto:`/`tel:`, `#fragment`, a relative path, or a path that is simply not
+/// a page) is left byte-identical, because rewriting any of them would turn a
+/// link that works into one that does not. A `target="_blank"` link is left
+/// alone too: the markup asked for a new tab.
+pub fn rewrite_page_links(html: &str, token: &str, routes: &[String]) -> String {
+    // Root maps to the bare `/s/{token}` — matching `sandboxUrl` on the client.
+    let url_for = |route: &str| {
+        if route == "/" { format!("/s/{token}") } else { format!("/s/{token}{route}") }
+    };
+    let mut out = String::with_capacity(html.len() + 64);
+    let mut rest = html;
+    while let Some(at) = rest.find("<a ") {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let end = match rest.find('>') { Some(e) => e, None => break };
+        let (tag, after) = rest.split_at(end + 1);
+        out.push_str(&rewrite_one_anchor(tag, &url_for, routes));
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+```
+
+Implement `rewrite_one_anchor` alongside it: parse the `href="…"` and the presence of `target="_blank"` out of the tag, apply the rules above, and rebuild the tag. Keep it a small helper in the same file, next to the existing rewriting code.
+
+- [ ] **Step 4: Call it** where the page fragment is composed, so both the sandbox document and the `page.html` export carry working links.
+
+- [ ] **Step 5: Run the tests and the workspace suite, then commit**
+
+```bash
+cd /home/dalmas/E/projects/local_task_tracker
+git add backend/plugins/taskflow-design/src/composer.rs         backend/plugins/taskflow-design/tests/
+git commit -m "feat(design): rewrite route links so pages navigate inside their frame"
+```
+
+---
+
+### Task 11: Frontend — show where a frame actually is, with a reset
+
+**Files:**
+- Modify: `backend/plugins/taskflow-design/src/composer.rs` (the sandbox runtime)
+- Modify: `v2_fe/src/pages/design/design-canvas.tsx`, `v2_fe/src/pages/design/DesignSurfacePage.tsx`
+
+**Interfaces:**
+- Consumes: the navigation from Task 10.
+- Produces: a `design:route` postMessage from the frame carrying its current path, and a board header that renders it.
+
+- [ ] **Step 1: Have the frame report its route.** In the composer's system-owned runtime (the same script that already posts `design:ready`/`design:select`), post the current path on load **and** on history changes:
+
+```js
+// Report where this frame currently is. A page navigated by its own links is
+// showing a DIFFERENT page than the board was created for, and the chrome must
+// not keep claiming the old one.
+var announce = function () { parent.postMessage({ type: 'design:route', path: location.pathname }, '*') }
+addEventListener('load', announce)
+addEventListener('popstate', announce)
+```
+
+The path is the sandbox path (`/s/{token}/app`), so strip the `/s/{token}` prefix before reporting — report `/app`, and `/` for the bare sandbox root.
+
+- [ ] **Step 2: Track it per board.** `DesignCanvas` keeps `Map<boardKey, string>` of reported routes, updated from the existing message listener (which already validates `event.source` against a board before trusting anything — keep that discipline: **only accept a route from a frame that maps to a known board**, and ignore anything else).
+
+- [ ] **Step 3: Render it.** `ArtboardHeader` shows the board's own route normally. When the reported route differs, it shows the current one distinctly (e.g. `→ /app`) plus a **reset** control that returns the frame to the board's route by remounting it — the same per-board epoch mechanism Task 4 built, so a reset reloads one frame and nothing else.
+
+- [ ] **Step 4: Verify and commit.** `npm test`, `npm run build`. Visual verification is Task 9's job.
+
+---
+
+### Task 12: Tell agents how to link and go back
+
+**Files:**
+- Modify: the agent-facing context (`backend/plugins/taskflow-design/src/agent_views.rs`) and/or the primitives catalogue the agent reads
+
+**Interfaces:**
+- Consumes: Tasks 10 and 11.
+- Produces: agent-visible guidance.
+
+**Why this is a task and not a footnote:** the user asked for it explicitly — *"we need to tell the agent how to write a go back function"*. Cross-page links did not work before, so an agent's existing habit is to avoid them; shipping the capability without saying so leaves the gap open in practice.
+
+- [ ] **Step 1: Add the guidance** to whatever the agent reads when writing pages, in the register of the surrounding text:
+
+```
+Links between pages
+  Use a plain <a href="/route"> for any route in the manifest — e.g.
+  <a href="/app">. The composer rewrites it to the sandbox URL, so the click
+  navigates the preview frame and the browser's back/forward work.
+
+  A back control is just:
+      <button onclick="history.back()">Back</button>
+  The frame keeps its own history, so this works with no extra wiring.
+
+  Do NOT hand-write sandbox URLs, and do not use target="_blank" for
+  in-project links — a new tab leaves the frame and loses its history.
+```
+
+- [ ] **Step 2: Verify the text lands where the agent reads it** — check it appears in the context response, not merely in the source.
+
+- [ ] **Step 3: Commit.**
+
+---
+
 ## Deferred / not in this plan
+
+Items 1–7 are all now planned above. The following remain deliberately out.
 
 - **Item 5, the pan→select scroll freeze — a SPIKE, not a task.** Its leading theory was falsified by the user's own observation (they can highlight text, so frames do receive pointer events). Reproduce on the local stack, report the cause, and return for a decision. **No fix is written under this plan.** Re-check it *after* Task 3, since latching frames changes how many are alive.
 - **The realtime suffix drift guard** was declined by the user previously; still not added. Note for the record that the failure mode is worse than assumed: a mismatch 403s the whole handshake, not one silent group.
