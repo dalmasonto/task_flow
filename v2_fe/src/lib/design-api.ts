@@ -9,6 +9,7 @@
 /// except a fully same-origin dev setup.
 
 import { API_BASE_URL, readJson } from "@/lib/auth-api"
+import { normalizeLayout, type LayoutDoc } from "@/lib/design-layout"
 
 export const SANDBOX_ORIGIN: string =
   (import.meta.env.VITE_SANDBOX_ORIGIN as string | undefined) ?? API_BASE_URL
@@ -380,4 +381,20 @@ export async function dispatchDesignComments(
   )
   if (!res.ok) throw new Error(`Dispatch failed (${res.status}).`)
   return readJson(res)
+}
+
+/// The project's shared canvas arrangement. The server answers with the default
+/// document for a project nobody has arranged, so this never 404s — but it is
+/// still normalised, because a stale tab can outlive a schema change.
+export async function fetchLayout(projectId: number): Promise<LayoutDoc> {
+  const res = await designFetch(`/api/design/${projectId}/layout`)
+  if (!res.ok) throw new Error(`Could not load the canvas layout (${res.status}).`)
+  return normalizeLayout(await readJson(res))
+}
+
+/// Replace the project's arrangement. Last-write-wins on the server.
+export async function saveLayout(projectId: number, doc: LayoutDoc): Promise<LayoutDoc> {
+  const res = await designFetch(`/api/design/${projectId}/layout`, jsonInit("PUT", doc))
+  if (!res.ok) throw new Error(`Could not save the canvas layout (${res.status}).`)
+  return normalizeLayout(await readJson(res))
 }
