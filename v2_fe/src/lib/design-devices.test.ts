@@ -16,6 +16,7 @@ import {
   layoutRows,
   makeArtboard,
 } from "./design-devices"
+import { DEFAULT_LAYOUT, assignRoute, createGroup, moveRoute, type LayoutDoc } from "./design-layout"
 
 describe("design devices", () => {
   it("covers the spec's device table exactly", () => {
@@ -459,6 +460,96 @@ describe("design devices", () => {
     const open = ["/"]
     const weird = { view: "diagonal" as never, routeOrder: open, groups: [], pageLabels: {} }
     expect(boardsForView(weird, open, ["laptop"])).toEqual(layoutRows(open, ["laptop"]))
+  })
+
+  // The FLOW, at the canvas: `routeOrder` is the order the pages are presented
+  // in, and the boards are the presentation. In `rows` and `bands` the sequence
+  // is the only ordering those views have, so the boards follow it directly —
+  // and the pages the flow does not name keep their own order after the ones it
+  // does, which is what makes a half-written flow (a page added since, a page
+  // deleted since) still a total sequence rather than a list with holes.
+  it("draws the boards in the flow, in rows and in bands", () => {
+    const open = ["/", "/login", "/signup"]
+    const doc = { ...DEFAULT_LAYOUT, routeOrder: ["/signup", "/login"] }
+
+    for (const view of ["rows", "bands"] as const) {
+      expect(
+        boardsForView({ ...doc, view }, open, ["laptop"]).map((b) => b.route),
+        view,
+      ).toEqual(["/signup", "/login", "/"])
+    }
+    // And the same document with no flow at all is the pages' own order — the
+    // fallback, not an empty canvas.
+    expect(boardsForView(DEFAULT_LAYOUT, open, ["laptop"]).map((b) => b.route)).toEqual(open)
+  })
+
+  // A flow naming pages that are not open — the ordinary case of a half-open
+  // canvas: the open routes still all appear, in their own order, because the
+  // flow is resolved over the OPEN pages rather than filtered down to the ones
+  // it happens to name.
+  it("keeps every open page when the flow names none of them", () => {
+    const doc = { ...DEFAULT_LAYOUT, routeOrder: ["/settings", "/about"] }
+
+    expect(boardsForView(doc, ["/", "/login"], ["laptop"]).map((b) => b.route)).toEqual(["/", "/login"])
+  })
+
+  // The ruling, and the one place the two orderings meet: in `groups` the
+  // COLUMNS are the arrangement the user chose — the flow must not sort them —
+  // but the pages WITHIN each column are drawn in the flow, so the sequence the
+  // user built is visible in this view too rather than only in the other two.
+  it("keeps the group columns as the arrangement and orders the pages inside them by the flow", () => {
+    const open = ["/login", "/settings"]
+    const groups = [
+      { id: "g1", name: "Auth", routes: ["/login"] },
+      { id: "g2", name: "Admin", routes: ["/settings"] },
+    ]
+    // The flow leads with the SECOND group's page: the columns must stay put
+    // anyway, which is what the two x positions below are.
+    const doc = { ...DEFAULT_LAYOUT, view: "groups" as const, groups, routeOrder: ["/settings", "/login"] }
+    const boards = boardsForView(doc, open, ["laptop"])
+    const xOf = (route: string) => boards.find((b) => b.route === route)!.x
+
+    expect(xOf("/login")).toBe(0)
+    expect(xOf("/settings")).toBe(boardWidth(deviceById("laptop")) + GUTTER)
+
+    // Within one column: three pages, one column, in the flow's order. The flow
+    // here leads with the page that sits LAST in the group's own `routes` array
+    // and in the pages' order, so a column that ignored it — or that fell back
+    // to `g.routes`, which is assignment order — cannot produce this sequence.
+    const oneColumn = {
+      ...doc,
+      routeOrder: ["/signup", "/"],
+      groups: [{ id: "g1", name: "Auth", routes: ["/", "/login", "/signup"] }],
+    }
+    const column = boardsForView(oneColumn, ["/", "/login", "/signup"], ["laptop"])
+    const step = HEADER_H + boardHeight(deviceById("laptop")) + GUTTER
+    expect(column.map((b) => b.route)).toEqual(["/signup", "/", "/login"])
+    expect(column.map((b) => b.y)).toEqual([0, step, 2 * step])
+    expect(column.every((b) => b.x === 0)).toBe(true)
+  })
+
+  // §F, next to the two edits that look alike and are not: a grouping edit is a
+  // LISTING edit — it never touches `routeOrder` — so it must not move a board,
+  // while an explicit move is the whole point of the flow and does. The canvas
+  // is never sorted into the panel's listing order; it is sorted into the flow,
+  // and the flow is only ever changed by moving a page.
+  it("does not reflow the boards for a grouping edit, and does for an explicit move", () => {
+    const open = ["/", "/login", "/signup"]
+    const doc = { ...DEFAULT_LAYOUT, routeOrder: ["/signup", "/login"] }
+    const { doc: withGroup, id } = createGroup(doc, "Auth")
+    const assigned = assignRoute(withGroup, "/login", id)
+    const sequence = (view: "rows" | "bands", d: LayoutDoc) =>
+      boardsForView({ ...d, view }, open, ["laptop"]).map((b) => b.route)
+
+    // Rows and bands draw the flow and nothing else, so grouping `/login` — the
+    // one page the two documents differ by — leaves both sequences as they were.
+    // (In `groups` this same edit moves the page into its column, which is what
+    // that view IS; it still does not reorder the columns.)
+    expect(sequence("rows", assigned)).toEqual(sequence("rows", doc))
+    expect(sequence("bands", assigned)).toEqual(sequence("bands", doc))
+
+    // A move is the one edit that reflows them.
+    expect(sequence("rows", moveRoute(doc, "/", -1, open))).not.toEqual(sequence("rows", doc))
   })
 })
 

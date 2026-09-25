@@ -9,55 +9,57 @@
 /// apiece (the same reasoning as `design-comments.ts`, the other module of pure
 /// helpers the design page shares between files).
 ///
-/// Four rules are load-bearing, and each has a test in `pages-order.test.ts`:
+/// Three rules are load-bearing, and each has a test in `pages-order.test.ts`:
 ///
-/// * **The flat list is the MANIFEST, in manifest order, numbered 1..N.** A
-///   page's number is where it sits in the project's own route list, full stop:
-///   `numberedPages` does not even receive the arrangement document, so grouping
-///   a page cannot renumber it or move it. That is the whole value of a number
-///   the user can quote ("the page at 4"), and it is why this list is not sorted
-///   into the Groups section's order.
-/// * **A group's pages are listed in MANIFEST order, not assignment order.**
-///   This is a deliberate divergence from the canvas, whose `layoutGroups`
-///   (`lib/design-devices.ts:315`) renders a group's boards in `g.routes` order
-///   — and `assignRoute` APPENDS, so that array is assignment order. Matching it
-///   here was considered and rejected:
-///   * it would agree on the sequence of NAMES and not on positions: the canvas
-///     draws only the OPEN routes of each column (`g.routes.filter(r =>
-///     openRoutes.includes(r))`, same line), so the panel's order could not be a
-///     board ordinal unless every page happens to be open;
-///   * and it would cost STABILITY. `assignRoute` appends, so putting one page
-///     into a group would move that group's existing pages under the user — the
-///     opposite of what a fixed listing is for.
-///   Flipping it is a ONE-LINE change here, in `groupedPages` (iterate
-///   `group.routes` instead of `routes`, resolving each path against the
-///   manifest). If anyone does, the manifest MUST stay the FILTER
-///   (`group.routes.filter(r => byPath.has(r))`): dropping it lists a route for a
-///   page that does not exist — the phantom-row case `pages-order.test.ts` pins.
-/// * **The canvas is NOT sorted to match.** `openRoutes` stays in manifest order
-///   (`DesignSurfacePage`'s `openRoute`) and the boards render in it, so
-///   sorting the boards into the panel's grouped order would move every board
-///   below the edited row. The spec's §F is absolute about this — *"The canvas
-///   layout never reflows. Boards stay keyed `route@device`; clicking a link must
-///   not add, remove or move anything"*
+/// * **The flat list is every page, in the FLOW order, numbered 1..N.** The
+///   flow is `routeOrder` — the sequence the user built by moving pages up and
+///   down — resolved over the manifest by `resolveRouteOrder`
+///   (`lib/design-layout.ts`), which falls back to the pages' own order when no
+///   flow has been set and appends every page the stored flow does not name.
+///   The number beside a row is therefore the page's position in the sequence
+///   it is being presented in, which is the only reading of a number the user
+///   can act on. What it is NOT is a position in any GROUP: a grouping edit is
+///   not a reorder (`assignRoute` never touches `routeOrder`), so grouping can
+///   still never renumber or move a row. Only an explicit move can, and that is
+///   what the row's arrows are for.
+/// * **Every listing agrees with the canvas, in every view.** A group's pages
+///   are listed in flow order and the ungrouped tail is listed in flow order;
+///   the canvas draws its boards in flow order too, in all three arrangements
+///   (`boardsForView` in `lib/design-devices.ts`). Panel and canvas describing
+///   one sequence is the point of the feature — a panel that listed the flow and
+///   a canvas that drew something else would each be claiming to be "the" order.
+///   The one thing that must NOT follow the flow is a grouping edit's effect on
+///   the canvas: `assignRoute` changes where a page is grouped, never where it
+///   sits in the flow, so grouping a page leaves the boards in `rows` and
+///   `bands` exactly where they were. (In `groups` the page joins its column,
+///   which is what that view is for; the columns themselves stay put, ordered by
+///   the document's groups and not by the flow.) §F states its rule about a LINK
+///   CLICK — *"The canvas layout never reflows. Boards stay keyed `route@device`;
+///   clicking a link must not add, remove or move anything"*
 ///   (`docs/superpowers/specs/2026-09-25-design-phase5-resources-and-ergonomics-design.md:152`)
-///   — and a grouping edit is no more entitled to a reflow than a link is.
-/// * **Nothing can vanish.** `ungrouped` is the COMPLEMENT of the routes the
-///   listed groups claim, never a separate "pages with no group id" scan, so
-///   every manifest route lands in exactly one place. These are the states that
-///   make it matter, all of them reachable: a group the user deleted
-///   (`removeGroup` leaves its pages in no group at all), a page two groups both
-///   claim (the client reads whatever it is sent; `groupOf` resolves the row's
-///   picker with a `find`, so the FIRST group has to win here too, or the
-///   section and the picker disagree), and a group entry that is not a page —
-///   the manifest and the layout are two separate fetches, and the server's
-///   forgiving `filter_to_known` only drops those against the manifest it read
-///   at that moment.
+///   — and this phase reads it the same way for every edit that is not an
+///   explicit reorder, which is the only edit here that is allowed to move a
+///   board.
+/// * **Nothing can vanish, whatever the flow says.** `ungrouped` is the
+///   COMPLEMENT of the routes the listed groups claim, never a separate "pages
+///   with no group id" scan, so every manifest route lands in exactly one place.
+///   These are the states that make it matter, all of them reachable: a group
+///   the user deleted (`removeGroup` leaves its pages in no group at all), a
+///   page two groups both claim (the client reads whatever it is sent;
+///   `groupOf` resolves the row's picker with a `find`, so the FIRST group has to
+///   win here too, or the section and the picker disagree), a group entry that is
+///   not a page — the manifest and the layout are two separate fetches, and the
+///   server's forgiving `filter_to_known` only drops those against the manifest
+///   it read at that moment — and a STORED FLOW that names pages this project no
+///   longer has. The manifest stays the filter for all of them, which is why the
+///   sections walk the resolved order rather than whatever a group's own `routes`
+///   array happens to hold.
 
 import type { RouteEntry } from "@/lib/design-api"
 import type { LayoutDoc } from "@/lib/design-layout"
+import { resolveRouteOrder } from "@/lib/design-layout"
 
-/** A page as the flat list draws it: its route, and the number it carries. */
+/// A page as the flat list draws it: its route, and the number it carries.
 export type NumberedPage = { route: string; n: number }
 
 /// The Groups section, as the panel draws it: each group with the pages it
@@ -68,8 +70,16 @@ export type GroupedPages = {
   ungrouped: string[]
 }
 
+/// The routes of a manifest, in the order the pages are presented in: what
+/// every listing below is built from, so the panel has ONE idea of the flow.
+const flowOf = (layout: LayoutDoc, routes: RouteEntry[]) =>
+  resolveRouteOrder(
+    layout,
+    routes.map((entry) => entry.path),
+  )
+
 /// The Groups section: each group in `layout.groups` order with its pages in
-/// manifest order, then everything ungrouped, each as a route.
+/// flow order, then everything ungrouped, each as a route.
 ///
 /// These are the NAMES the overview lists; no number is attached, because the
 /// panel's one numbering is the flat list's (`numberedPages`) and a second
@@ -83,22 +93,18 @@ export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPa
   /// the first group in document order that names it, which is the same rule
   /// `groupOf` resolves the row's own picker with.
   const claimed = new Set<string>()
+  /// The pages in presentation order. This IS the manifest's page list — the
+  /// same routes, resolved — so a group entry naming a page this project does
+  /// not have can never reach the list, which is what the loop below walks
+  /// instead of the group's own `routes`.
+  const order = flowOf(layout, routes)
 
   const groups = layout.groups.map((group) => {
     const pages: string[] = []
-    // The MANIFEST is the loop, not the group's `routes`: that is what puts the
-    // pages in canonical order and what keeps an entry naming a page this
-    // project does not have out of the list.
-    //
-    // This line IS the one-line flip to assignment order, and the divergence
-    // from the canvas's `g.routes` order is deliberate — the reasoning is in
-    // the module header. Flipping it means iterating `group.routes` and
-    // resolving each path against `routes`; the manifest must stay the FILTER,
-    // or the phantom-row case comes back.
-    for (const entry of routes) {
-      if (claimed.has(entry.path) || !group.routes.includes(entry.path)) continue
-      claimed.add(entry.path)
-      pages.push(entry.path)
+    for (const route of order) {
+      if (claimed.has(route) || !group.routes.includes(route)) continue
+      claimed.add(route)
+      pages.push(route)
     }
     return { id: group.id, name: group.name, pages }
   })
@@ -106,21 +112,18 @@ export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPa
   /// Everything no listed group claims — including a page whose group was
   /// removed, which is why this is computed from `claimed` and not from the
   /// stored grouping: a page whose group is gone must be listed, not hidden.
-  const ungrouped = routes
-    .filter((entry) => !claimed.has(entry.path))
-    .map((entry) => entry.path)
+  const ungrouped = order.filter((route) => !claimed.has(route))
 
   return { groups, ungrouped }
 }
 
-/// The flat list: every page in the panel, numbered 1..N in MANIFEST order.
+/// The flat list: every page in the panel, numbered 1..N in FLOW order.
 ///
-/// A pure function of the route list alone. The arrangement document is not a
-/// parameter and must not become one: the number is the page's position in the
-/// project, so assigning the page to a group — or creating one — cannot renumber
-/// it under the user. See the module header's first rule.
-export function numberedPages(routes: RouteEntry[]): NumberedPage[] {
-  return routes.map((entry, i) => ({ route: entry.path, n: i + 1 }))
+/// The number is the page's position in the sequence, and the sequence is the
+/// pages' own order until the user moves one — see the module header's first
+/// rule for what that number is for and what it deliberately is not.
+export function numberedPages(layout: LayoutDoc, routes: RouteEntry[]): NumberedPage[] {
+  return flowOf(layout, routes).map((route, i) => ({ route, n: i + 1 }))
 }
 
 export type SelectAllState = {

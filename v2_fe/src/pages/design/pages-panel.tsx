@@ -12,11 +12,19 @@
 ///   checkbox writes, in bulk. A second ENTRY POINT, never a second state: the
 ///   box means "every page is on the canvas", which is what a row's box has
 ///   always meant.
-/// * **The flat list** — every manifest route, numbered 1..N in manifest order,
-///   one row each: the canvas checkbox, the number, the name, the group picker.
+/// * **The flat list** — every manifest route, one row each: the canvas
+///   checkbox, the number, the move up/down controls, the name, the group
+///   picker. It is listed in the FLOW (`routeOrder`) and numbered 1..N in it,
+///   so "3" is the third screen of the sequence the user is presenting — see
+///   `pages-order.ts`, which decides both.
 ///
-/// It is a listing and nothing more — grouping a page here does NOT move its
-/// board on the canvas, and must not be made to. See the call site below.
+/// The rows and the canvas agree about that sequence: the boards are drawn in
+/// the same flow (`boardsForView`). What a row does NOT do is reorder the
+/// boards: grouping is a listing edit, and the only edit here that reorders the
+/// canvas is a move through the arrows below. (In the `groups` view a regrouped
+/// page does move into its new column — that view IS the grouping — but the
+/// columns keep their own order, and in `rows` and `bands` a grouping edit moves
+/// nothing at all.)
 ///
 /// Extracted from `DesignSurfacePage.tsx` (already ~1000 lines) when the group
 /// picker landed; it is the one panel with per-row local interaction.
@@ -48,6 +56,7 @@
 /// event, which is not a Select's job. It is hidden behind the name until the
 /// name is clicked (`PageName` below), which is what the sketch asks for.
 
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { useId, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -77,6 +86,7 @@ import {
   groupOf,
   MAX_GROUPS,
   MAX_LABEL,
+  moveRoute,
   pageLabel,
   setPageLabel,
   type LayoutDoc,
@@ -124,6 +134,11 @@ export function PagesPanel({
   onLayoutChange: (next: LayoutDoc) => void
 }) {
   const routes = manifest?.routes ?? []
+
+  /// The manifest's routes as plain paths, which is what the flow helpers take:
+  /// the sequence is a list of routes, and every edit below builds a new
+  /// document from it. Computed once here rather than at each call site.
+  const paths = routes.map((entry) => entry.path)
 
   /// Whether the New group dialog is open. Held here, not inside it: the button
   /// that opens it is the panel's, and so is the `createGroup` call below.
@@ -177,22 +192,28 @@ export function PagesPanel({
     onLayoutChange(next)
   }
 
-  // Which group a page is listed under, and which number it carries, are
-  // `pages-order.ts`'s job rather than this component's: pure functions, so
-  // there are tests on them (this repo's test setup has no DOM, so JSX cannot
-  // have one), and one place that can be wrong about the edge cases — a group
-  // the user deleted, a page two groups both claim, a route the manifest does
-  // not have — instead of two.
+  // Which group a page is listed under, in what order the pages are listed, and
+  // which number each carries are `pages-order.ts`'s job rather than this
+  // component's: pure functions, so there are tests on them (this repo's test
+  // setup has no DOM, so JSX cannot have one), and one place that can be wrong
+  // about the edge cases — a group the user deleted, a page two groups both
+  // claim, a route the manifest does not have, a stored flow written against
+  // different pages — instead of two.
   //
-  // This is a LISTING. The canvas is deliberately NOT sorted to match it: the
-  // boards render in `openRoutes`, which `openRoute` keeps in MANIFEST order,
-  // so re-sorting them into these sections would move every board below the
-  // edited row the moment a single page is grouped. The spec's §F is absolute
-  // about that — "The canvas layout never reflows" — and a grouping edit is no
-  // more entitled to a reflow than a link click is. Grouping a page changes
-  // where the page is LISTED; it never changes what the canvas looks like.
+  // The order in both sections is the FLOW, and the canvas draws its boards in
+  // that same flow (`boardsForView`), so the list and the sequence on screen are
+  // one order rather than two. The edit that changes it is a move — the arrows
+  // below — and that is the ONLY edit here that reaches the canvas's arrangement.
+  //
+  // Grouping a page is a LISTING edit and stays one: `assignRoute` never touches
+  // `routeOrder`, so picking a group for a page changes which section lists it
+  // and nothing about the order the boards are drawn in (in `groups`, the view
+  // that IS grouping, the page joins its column — the columns themselves still
+  // keep the document's order). The two edits look alike from the outside, since
+  // a page's position on screen changes in both, which is exactly why they are
+  // separated here rather than left to look the same.
   const sections = groupedPages(layout, routes)
-  const flat = numberedPages(routes)
+  const flat = numberedPages(layout, routes)
   const bulk = selectAllState(routes, openRoutes)
 
   /// The group picker's items — and its value→label map, which is the same
@@ -205,18 +226,23 @@ export function PagesPanel({
     ...layout.groups.map((group) => ({ value: group.id, label: group.name })),
   ]
 
-  /// One page's row: the canvas checkbox, the number, the name, the group
-  /// picker. A plain function the list maps CALL, not a component it mounts: a
-  /// component defined in here would be a new type on every render of the panel,
-  /// so React would remount every row — `PageName`'s editor and `LabelInput`'s
-  /// draft included — each time anything above it changed. Called, a row is an
-  /// ordinary keyed child of the list.
+  /// One page's row: the canvas checkbox, the number, the move up/down
+  /// controls, the name, the group picker. A plain function the list maps CALL,
+  /// not a component it mounts: a component defined in here would be a new type
+  /// on every render of the panel, so React would remount every row —
+  /// `PageName`'s editor and `LabelInput`'s draft included — each time anything
+  /// above it changed. Called, a row is an ordinary keyed child of the list.
   ///
-  /// The rows are in MANIFEST order and cannot move: grouping a page changes
-  /// where the Groups section lists it, never which row it is in. So the old
-  /// warning about a remote regrouping remounting a row and dropping an
-  /// uncommitted label draft no longer applies to this list — the only thing
-  /// that reparents a row is the manifest itself changing.
+  /// The rows are in FLOW order and DO move when the user moves a page. That is
+  /// a reorder of keyed children within one parent, so React moves the existing
+  /// nodes rather than remounting them and an uncommitted label draft rides
+  /// along with its row; what would remount a row is the manifest changing.
+  /// Grouping, which never touches the flow, does not even move the row.
+  ///
+  /// The move controls are plain buttons at the ENDS of the flow: the first
+  /// page's up and the last page's down are disabled, which is the same rule
+  /// `moveRoute` refuses by one layer down. `page.n` is 1-based, so the ends are
+  /// `1` and `flat.length`, and nothing needs the row's index.
   const pageRow = (page: NumberedPage) => {
     const open = openRoutes.includes(page.route)
     const current = groupOf(layout, page.route)
@@ -229,7 +255,9 @@ export function PagesPanel({
             also the ONLY thing in this row that toggles a page — the name beside
             it opens the label editor instead, and a click there must not reach
             this box. Nothing joins them: no wrapper handler, no `<label>` around
-            the row. */}
+            the row. The move controls are buttons of their own for the same
+            reason — a handler on the row would have made the checkbox and the
+            arrows reach one another. */}
         <input
           type="checkbox"
           className="size-3.5 shrink-0 accent-foreground"
@@ -237,12 +265,37 @@ export function PagesPanel({
           checked={open}
           onChange={() => onToggleRoute(page.route)}
         />
-        {/* The page's position in the flat list. `pages-order.ts` decides it,
-            and it is the page's position in the MANIFEST — not its position in
-            the Groups section above, which may list it first. */}
+        {/* The page's place in the FLOW — the sequence the canvas draws its
+            boards in, and what the arrows beside it change. `pages-order.ts`
+            decides it. */}
         <span className="w-5 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
           {page.n}.
         </span>
+        {/* The reorder control. `moveRoute` resolves the flow, moves the page one
+            place and normalises what it stores, so every click writes an order
+            the server accepts. The ends are disabled because `moveRoute` refuses
+            there — the first page cannot move up — and a disabled control is how
+            that is shown: the refusal returns the document UNCHANGED, and handing
+            that to `onLayoutChange` would PUT a document identical to the one the
+            server already has. */}
+        <button
+          type="button"
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          aria-label={`Move ${page.route} up`}
+          disabled={page.n === 1}
+          onClick={() => onLayoutChange(moveRoute(layout, page.route, -1, paths))}
+        >
+          <ChevronUpIcon className="size-3" />
+        </button>
+        <button
+          type="button"
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          aria-label={`Move ${page.route} down`}
+          disabled={page.n === flat.length}
+          onClick={() => onLayoutChange(moveRoute(layout, page.route, 1, paths))}
+        >
+          <ChevronDownIcon className="size-3" />
+        </button>
         <PageName
           route={page.route}
           label={label}
@@ -329,7 +382,7 @@ export function PagesPanel({
           {bulk.label}
         </label>
       ) : null}
-      {/* The flat list: every page, in manifest order, numbered 1..N. */}
+      {/* The flat list: every page, in the flow, numbered 1..N in it. */}
       {routes.length ? (
         <div className="flex flex-col">{flat.map(pageRow)}</div>
       ) : (

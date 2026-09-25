@@ -191,3 +191,134 @@ export function setPageLabel(doc: LayoutDoc, route: string, label: string): Layo
   else pageLabels[route] = trimmed
   return { ...doc, pageLabels }
 }
+
+// ---------------------------------------------------------------------------
+// The flow: the order the pages are presented in
+// ---------------------------------------------------------------------------
+
+/// `routeOrder` is ONE global presentation order, not a per-group one.
+///
+/// The user's ask was a single sequence that CROSSES groups — "signup screen 1
+/// > signup screen 2 > login with email > login with phone > password recovery"
+/// — and groups are the other, separate axis they already have. A per-group
+/// order would be a different feature (and a different field: the one that
+/// exists is a flat list of routes, and a route lives in at most one group).
+///
+/// So: this order is the flow of the whole project, and it is what the panel
+/// lists pages in and what the canvas draws them in — in every view. Grouping
+/// is untouched by it and does not touch it: a grouping edit must not reflow the
+/// canvas, and only an explicit reorder does (see `boardsForView`).
+///
+/// # Both directions are the SERVER's, and the strict one is the write
+///
+/// `layout_doc.rs` is asymmetric, and this half of the client has to match both
+/// sides:
+/// * **Strict write** (`validate`, :121-130): a `routeOrder` entry that is not a
+///   known route is refused with a **400**; duplicates are dropped
+///   **first-wins** (`seen_order.insert`). The document is PUT whole — every
+///   layout edit sends `routeOrder` back — so a stale entry does not merely
+///   fail to save itself, it fails the NEXT save of anything, including a
+///   rename. That is why `setRouteOrder`/`moveRoute` normalise before they
+///   return, and why the surface filters the order on its way out
+///   (`filterRouteOrder`).
+/// * **Forgiving read** (`filter_to_known`, :159-163): unknown entries are
+///   dropped, not repaired. An optimistic render that keeps one is therefore a
+///   row that disappears on the next reload — the other half of why the order
+///   is deduped and filtered here rather than left to the server.
+///
+/// Nothing here mutates its input, and a refusal is by IDENTITY (the document
+/// itself comes back), the way every other refusal in this module reads.
+
+/// The document with its `routeOrder` cut down to what `routes` can answer for:
+/// entries that are not in `routes` dropped, repeats dropped FIRST-WINS so the
+/// result is a permutation of a subset of `routes` — exactly the shape
+/// `validate` accepts.
+///
+/// `null` for `routes` means "the caller cannot know" (the manifest is still
+/// loading, or the copy in hand belongs to another project). Nothing is judged,
+/// so nothing is dropped and the document comes back untouched: filtering
+/// against an empty list instead would wipe the user's flow on any save that
+/// happened to land before the manifest did.
+export function filterRouteOrder(doc: LayoutDoc, routes: string[] | null): LayoutDoc {
+  if (!routes) return doc
+  const known = new Set(routes)
+  const seen = new Set<string>()
+  const routeOrder: string[] = []
+  for (const route of doc.routeOrder) {
+    if (!known.has(route) || seen.has(route)) continue
+    seen.add(route)
+    routeOrder.push(route)
+  }
+  return { ...doc, routeOrder }
+}
+
+/// The order the pages are presented in: the stored flow first, then every page
+/// it does not name, appended in the order `routes` arrives in.
+///
+/// Total and lossless, which is the property everything else rests on: the
+/// result is a permutation of `routes`, so every page has a position and none
+/// has two. `routes` is the candidate set — the pages of the project for the
+/// panel, the OPEN pages for the canvas — and its own order is the fallback,
+/// which is why an empty `routeOrder` renders the pages in their manifest order
+/// rather than in nothing.
+///
+/// The append is what repairs a stored flow: a page added after it was written
+/// is not in it (the state is reachable and ordinary), and dropping unnamed
+/// pages instead of appending them would lose them from every listing at once.
+/// The mirror case is a page that is GONE — its entry is dropped here rather
+/// than carried, which is also what keeps the document writable.
+///
+/// The tail keeps the INPUT's order, so a caller that passes its pages in
+/// manifest order gets manifest order for the tail. `openRoutes` is maintained
+/// that way (`DesignSurfacePage`'s `openRoute`) and is the canvas's argument.
+export function resolveRouteOrder(doc: LayoutDoc, routes: string[]): string[] {
+  const named = filterRouteOrder(doc, routes).routeOrder
+  const placed = new Set(named)
+  return [...named, ...routes.filter((route) => !placed.has(route))]
+}
+
+/// Store a new flow. The order asked for is NORMALISED against `routes` — the
+/// pages it names, in its order, then the rest of `routes` appended — so what
+/// lands in the document is always a permutation of `routes` and can never be
+/// a document the server refuses.
+///
+/// Appending rather than storing the caller's list verbatim means the stored
+/// array is a complete flow of its own: a later reader (another viewer's tab, a
+/// fresh load) resolves it to exactly this order without having to know what
+/// the manifest looked like at the time.
+export function setRouteOrder(doc: LayoutDoc, order: string[], routes: string[]): LayoutDoc {
+  return { ...filterRouteOrder(doc, routes), routeOrder: resolveRouteOrder({ ...doc, routeOrder: order }, routes) }
+}
+
+/// Move a page `delta` places along the flow (the panel's move up/down is
+/// ±1), from where it sits now.
+///
+/// It is a MOVE, not a swap: the pages between the two positions shift one place
+/// the other way, so "two places down" leaves the page two places further along
+/// rather than trading it with whichever page happened to be there.
+///
+/// `delta` is clamped to the ends of the list rather than refused: a page asked
+/// to move past an end stops at it, which makes a large delta the spelling of a
+/// move to the top or the bottom. A call that would not change the order — an
+/// end, a delta of zero, a route that is not one of the pages — returns the
+/// document ITSELF, so the caller can skip a save by identity rather than
+/// comparing lists.
+///
+/// The move is applied to the RESOLVED flow, not to the pages' own order: in a
+/// document with no flow stored the two are the same list, and in one that has
+/// a flow it is the user's list that moves. Going through `setRouteOrder` is
+/// what makes the result writable, stale entries and all.
+export function moveRoute(doc: LayoutDoc, route: string, delta: number, routes: string[]): LayoutDoc {
+  const order = resolveRouteOrder(doc, routes)
+  const from = order.indexOf(route)
+  if (from < 0) return doc
+  const to = Math.min(order.length - 1, Math.max(0, from + delta))
+  if (to === from) return doc
+  const next = [...order]
+  // The removal shortens the list, so inserting at `to` in the shortened array
+  // is the position `to` the caller asked for — the pages it passed shift one
+  // place back and nothing else moves.
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return setRouteOrder(doc, next, routes)
+}

@@ -70,6 +70,7 @@ import {
 import {
   CANVAS_VIEWS,
   DEFAULT_LAYOUT,
+  filterRouteOrder,
   pageLabel,
   type CanvasView,
   type LayoutDoc,
@@ -182,6 +183,12 @@ export function DesignSurfacePage({
   // Which pages are open on the canvas — one ROW per open route. Seeded to
   // every route once per project (see the hydration effect below); after that,
   // purely user-driven (PagePicker / PagesPanel / row close button).
+  //
+  // It is kept in MANIFEST order, and that still matters now that the boards are
+  // drawn in the document's FLOW: `resolveRouteOrder` appends the pages the flow
+  // does not name in the order it is handed, so this list is what gives them
+  // their order. It is deliberately NOT the flow itself — the flow is shared
+  // (`layout`), and this is per-user viewport state.
   const [openRoutes, setOpenRoutes] = useState<string[]>([])
   const seededProjectRef = useRef<number | null>(null)
   /** The SHARED arrangement (view + groups + page labels). Server-owned; see
@@ -198,6 +205,9 @@ export function DesignSurfacePage({
   // Artboards are DERIVED, never stored: `boardsForView` is pure, so the same
   // (layout, openRoutes, deviceIds) always produces the same boards in the same
   // `route@device`-keyed shape DesignCanvas/selection/pins already expect.
+  // `layout` carries the flow, so an explicit reorder is in these deps and
+  // redraws the boards in the new sequence — which is the point of the feature,
+  // and the one edit allowed to move them (see `boardsForView`).
   const artboards = useMemo(
     () => boardsForView(layout, openRoutes, deviceIds),
     [layout, openRoutes, deviceIds],
@@ -348,17 +358,36 @@ export function DesignSurfacePage({
   // The server decides validity, so a rejected save is surfaced rather than
   // swallowed — otherwise the toolbar would show a view the project does not
   // actually have.
+  //
+  // The stored flow is FILTERED against the manifest first, and that is what
+  // keeps every later save possible: the document goes back whole, so a
+  // `routeOrder` naming a page the project no longer has is refused with a 400
+  // on the next save of ANYTHING — a rename, a group — not merely on the edit
+  // that left it there. The manifest is fetched once per project (the load
+  // effect above) and a page deleted in another tab does not refresh it, so the
+  // flow in hand can name a route the server has; `filterRouteOrder` drops
+  // exactly those, and the pages it keeps are the ones the user ordered.
+  //
+  // `manifest.project === projectId` is the guard the manifest itself needs: on
+  // a project switch the previous project's manifest is still in state for one
+  // render, and filtering a project's flow against a DIFFERENT project's pages
+  // would delete entries the user set. When the manifest is not this project's
+  // (or has not arrived), `filterRouteOrder` is handed `null` and drops nothing.
   const updateLayout = useCallback(
     (next: LayoutDoc) => {
       const previous = layout
-      setLayout(next)
+      const safe = filterRouteOrder(
+        next,
+        manifest?.project === projectId ? manifest.routes.map((route) => route.path) : null,
+      )
+      setLayout(safe)
       if (!projectId) return
-      saveLayout(projectId, next).catch((err: Error) => {
+      saveLayout(projectId, safe).catch((err: Error) => {
         setLayout(previous)
         setError(err.message)
       })
     },
-    [layout, projectId],
+    [layout, projectId, manifest],
   )
 
   // --- keyboard shortcuts (§9.7) --------------------------------------------
@@ -386,8 +415,12 @@ export function DesignSurfacePage({
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  // Open a route (idempotent) preserving the manifest's route order, so a
-  // freshly-opened row's position is deterministic regardless of click order.
+  // Open a route (idempotent), keeping the open list in the MANIFEST's route
+  // order. That order is no longer what POSITIONS a row — `boardsForView`
+  // resolves the presentation order from the document's flow — but it is the
+  // order the flow does not name, since `resolveRouteOrder` appends those in the
+  // order it is handed. Rebuilding from the manifest (rather than appending the
+  // clicked route) is what keeps that tail canonical however the user clicks.
   const openRoute = useCallback(
     (route: string) => {
       setOpenRoutes((current) => {

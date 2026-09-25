@@ -12,6 +12,10 @@ import {
   groupOf,
   pageLabel,
   setPageLabel,
+  filterRouteOrder,
+  moveRoute,
+  resolveRouteOrder,
+  setRouteOrder,
   type LayoutDoc,
 } from "./design-layout"
 
@@ -380,6 +384,215 @@ describe("page labels", () => {
     const doc = DEFAULT_LAYOUT
     const before = JSON.stringify(doc)
     setPageLabel(doc, "/", "Home")
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+})
+
+// The FLOW: the order the pages are presented in, which the user builds by
+// moving pages up and down in the Pages panel.
+//
+// Two properties run through everything below, and both are about the SERVER
+// rather than about the screen. The document is written back whole
+// (`updateLayout` PUTs the whole `LayoutDoc`), so an order naming a route the
+// manifest does not have is refused with a 400 — the save fails, the edit is
+// lost, and the error is about a field the user never touched. And the order is
+// read back through `filter_to_known`, so what a save stores and what the next
+// read returns must be the same list, or the flow would move under the user on
+// every reload.
+//
+// The page list here is the manifest's, and this module has no manifest: the
+// functions take it as an argument, which is also what keeps them testable.
+const PAGES = ["/", "/login", "/signup", "/settings"]
+
+/// A document whose flow is `order` — the shape a save writes and a read
+/// returns. Built through the spread rather than by hand so a new field on
+/// `LayoutDoc` cannot leave this fixture a shape the wire never has.
+const flowed = (order: string[]): LayoutDoc => ({ ...DEFAULT_LAYOUT, routeOrder: order })
+
+describe("resolveRouteOrder", () => {
+  // The state every project is in until someone moves something. The fallback
+  // has to be the pages' own order rather than nothing — `routeOrder` empty is
+  // the normal case, not an error case.
+  it("falls back to the pages' own order when no flow has been set", () => {
+    expect(resolveRouteOrder(DEFAULT_LAYOUT, PAGES)).toEqual(PAGES)
+  })
+
+  it("puts the stored flow first, then the pages it does not name, in their own order", () => {
+    expect(resolveRouteOrder(flowed(["/signup", "/login"]), PAGES)).toEqual([
+      "/signup",
+      "/login",
+      "/",
+      "/settings",
+    ])
+  })
+
+  // The two rules the server applies on the way in (`layout_doc.rs:121-130`),
+  // applied here so that a document this module builds is one the server takes:
+  // an unknown route is refused, and a repeat is dropped FIRST-WINS
+  // (`seen_order.insert`). The second half is what keeps an optimistic render
+  // equal to what the next read returns.
+  it("drops an entry that is not a page, and keeps the first mention of a page named twice", () => {
+    const resolved = resolveRouteOrder(flowed(["/ghost", "/signup", "/login", "/signup"]), PAGES)
+
+    expect(resolved).toEqual(["/signup", "/login", "/", "/settings"])
+    expect(resolved).toHaveLength(PAGES.length)
+  })
+
+  // THE REPAIR CASE, and the reason this cannot be a filter alone. A stored
+  // order is a snapshot of the pages at the time it was written: the project has
+  // since gained `/settings` and lost `/about`. The order must still be TOTAL —
+  // a page missing from it would have no position, and every consumer of this
+  // (the panel's list, the canvas's boards) draws what it is given and would
+  // simply lose the page.
+  it("is a total order over the pages it is given — a page added later is appended, a deleted one is gone", () => {
+    const stored = flowed(["/about", "/login", "/"])
+    const resolved = resolveRouteOrder(stored, PAGES)
+
+    expect([...resolved].sort()).toEqual([...PAGES].sort())
+    expect(resolved.slice(0, 2)).toEqual(["/login", "/"]) // the flow, unknown entry dropped
+    expect(resolved).not.toContain("/about") // not a page any more
+    expect(resolved).toContain("/settings") // added after the flow was written
+  })
+})
+
+describe("filterRouteOrder", () => {
+  it("drops the entries the manifest no longer has, and dedupes first-wins", () => {
+    const filtered = filterRouteOrder(flowed(["/ghost", "/signup", "/signup"]), PAGES)
+
+    expect(filtered.routeOrder).toEqual(["/signup"])
+  })
+
+  // The reason this exists on the WRITE path: the flow is stored whole, so it
+  // names every page — and the manifest is fetched once per project, so a page
+  // deleted in another tab leaves this document naming a route the server has.
+  // Every later save of ANY layout edit would then be a 400, and the flow would
+  // have wedged an unrelated control. Filtering keeps the document writable.
+  //
+  // `null` is "the manifest is not known here" (still loading, or another
+  // project's copy): nothing can be judged, so nothing is dropped. Filtering
+  // against an empty list instead would wipe the user's flow on a save that
+  // happened before the manifest arrived.
+  it("filters nothing when the manifest is not known, rather than wiping the flow", () => {
+    const doc = flowed(["/signup", "/ghost"])
+
+    expect(filterRouteOrder(doc, null)).toBe(doc)
+  })
+})
+
+describe("setRouteOrder", () => {
+  it("stores an order that resolves to the order asked for", () => {
+    const wanted = ["/settings", "/", "/login", "/signup"]
+    const doc = setRouteOrder(DEFAULT_LAYOUT, wanted, PAGES)
+
+    expect(resolveRouteOrder(doc, PAGES)).toEqual(wanted)
+  })
+
+  // The 400 guard, as a property rather than a case: whatever the caller passes,
+  // what lands in the document is a subset of the pages the caller named as
+  // belonging to the project. A stale entry can therefore never reach a save
+  // from here.
+  it("never stores a route the caller did not name as a page", () => {
+    const doc = setRouteOrder(DEFAULT_LAYOUT, ["/ghost", "/nope", "/login"], PAGES)
+
+    expect(doc.routeOrder.every((route) => PAGES.includes(route))).toBe(true)
+    expect(doc.routeOrder).toContain("/login")
+  })
+
+  // `setRouteOrder` is the writer `moveRoute` goes through, so a stale entry
+  // already in the document is cleaned by any move — the flow is normalised on
+  // the way out, not merely on the way in.
+  it("cleans a stale entry out of the document it is given", () => {
+    const doc = setRouteOrder(flowed(["/ghost", "/login"]), ["/login"], PAGES)
+
+    expect(doc.routeOrder).not.toContain("/ghost")
+  })
+
+  it("does not mutate the document it is given", () => {
+    const doc = flowed(["/login"])
+    const before = JSON.stringify(doc)
+    setRouteOrder(doc, ["/settings"], PAGES)
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+})
+
+describe("moveRoute", () => {
+  // The first move of a session: the document has no flow at all, and the move
+  // has to be a move within the pages' own order — not a move within an empty
+  // list, which would drop every page but the two that swapped.
+  it("moves a page one place down, from the pages' own order", () => {
+    const doc = moveRoute(DEFAULT_LAYOUT, "/", 1, PAGES)
+
+    expect(resolveRouteOrder(doc, PAGES)).toEqual(["/login", "/", "/signup", "/settings"])
+  })
+
+  it("moves a page one place up", () => {
+    const doc = moveRoute(DEFAULT_LAYOUT, "/settings", -1, PAGES)
+
+    expect(resolveRouteOrder(doc, PAGES)).toEqual(["/", "/login", "/settings", "/signup"])
+  })
+
+  // The one that says the move is applied to the FLOW and not to the pages' own
+  // order: in the user's order, `/signup` sits after `/login`, and after the
+  // move it must sit after `/settings` — a `moveRoute` that rebuilt the list
+  // from `routes` first would put it back beside `/login`.
+  it("moves within the flow the user set, not within the pages' own order", () => {
+    const doc = moveRoute(flowed(["/settings", "/login", "/signup", "/"]), "/login", 1, PAGES)
+
+    expect(resolveRouteOrder(doc, PAGES)).toEqual(["/settings", "/signup", "/login", "/"])
+  })
+
+  // The ends of the list: the panel draws both of these as a disabled control,
+  // and this is the same rule one layer down, so a click that got through
+  // anyway (a keyboard, a stale render) cannot wrap `/` to the bottom. Refusal
+  // is by IDENTITY, the way every other refusal in this module reads, so a
+  // caller can tell "nothing happened" without comparing the lists.
+  it("refuses to move the first page up or the last page down", () => {
+    // No flow stored, so the list being moved in is the pages' own order and
+    // the ends are the manifest's ends. `flowed` builds that state explicitly
+    // rather than leaning on `DEFAULT_LAYOUT`'s spelling of it.
+    const doc = flowed([])
+
+    expect(moveRoute(doc, "/", -1, PAGES)).toBe(doc)
+    expect(moveRoute(doc, "/settings", 1, PAGES)).toBe(doc)
+  })
+
+  it("is a no-op for a route that is not a page", () => {
+    const doc = DEFAULT_LAYOUT
+
+    expect(moveRoute(doc, "/ghost", 1, PAGES)).toBe(doc)
+  })
+
+  // A move, not a swap: the pages in between shift the other way, and a page
+  // asked to go past the end stops at it rather than wrapping. The two cases
+  // are here together because they are the same rule — where the page lands —
+  // read at a distance of two and at a distance past the list.
+  it("moves a page by more than one place, and stops at the end", () => {
+    const twoDown = moveRoute(DEFAULT_LAYOUT, "/", 2, PAGES)
+    const past = moveRoute(DEFAULT_LAYOUT, "/login", 99, PAGES)
+
+    // A swap would have traded `/` with `/signup` and left `/login` where it
+    // was: ["/", "/login", "/signup", "/settings"] with the first two traded.
+    expect(resolveRouteOrder(twoDown, PAGES)).toEqual(["/login", "/signup", "/", "/settings"])
+    expect(resolveRouteOrder(past, PAGES)).toEqual(["/", "/signup", "/settings", "/login"])
+  })
+
+  // The writability property, at the layer the UI uses: whatever the document
+  // already said, a move leaves nothing in the order that the server would
+  // refuse — so the very next save cannot 400 on a stale entry.
+  it("never builds an order the server would refuse, whatever the document held", () => {
+    const doc = moveRoute(flowed(["/ghost", "/login", "/about"]), "/login", 2, PAGES)
+
+    // The stale and the unknown entry are both gone, and the move was applied
+    // to the flow those entries were filtered OUT of: `/login` led it, and two
+    // places down puts it after `/signup`.
+    expect(doc.routeOrder).toEqual(["/", "/signup", "/login", "/settings"])
+    expect(doc.routeOrder.every((route) => PAGES.includes(route))).toBe(true)
+  })
+
+  it("does not mutate the document it is given", () => {
+    const doc = flowed(["/login", "/"])
+    const before = JSON.stringify(doc)
+    moveRoute(doc, "/login", 1, PAGES)
     expect(JSON.stringify(doc)).toBe(before)
   })
 })

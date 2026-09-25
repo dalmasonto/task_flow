@@ -149,8 +149,33 @@ const bulk = (html: string) => {
   return match ? { checked: match[1].includes("checked"), label: match[2] } : null
 }
 
+/// The move up/down controls, one PAIR per row, read from the aria-labels the
+/// panel gives them rather than from a class. Parsed the way `rows` is — split
+/// on the canvas checkbox — because the controls live inside the row and must
+/// be read with the route they move; a control that drifted onto the wrong row
+/// fails here rather than passing quietly.
+///
+/// `null` for a control the row does not draw, which is a state worth seeing
+/// rather than skipping. `disabled` is read from the ATTRIBUTE — a bare
+/// `disabled=""`, which is what React renders — rather than from the word,
+/// because the control's class list carries Tailwind's `disabled:` variants and
+/// a test that matched those would pass over a control that is never disabled.
+const moves = (html: string) =>
+  html
+    .split(/<input/)
+    .slice(1)
+    .flatMap((chunk) => {
+      const route = /aria-label="Show ([^"]*) on the canvas"/.exec(chunk)?.[1]
+      if (!route) return []
+      const control = (dir: "up" | "down") => {
+        const attrs = new RegExp(`<button[^>]*aria-label="Move ${route} ${dir}"([^>]*)>`).exec(chunk)
+        return attrs === null ? null : { disabled: / disabled(?:=""|\s|$)/.test(attrs[1]) }
+      }
+      return [{ route, up: control("up"), down: control("down") }]
+    })
+
 describe("PagesPanel", () => {
-  it("draws the group overview, the bulk control, then every page numbered by manifest position", () => {
+  it("draws the group overview, the bulk control, then every page numbered by its place in the flow", () => {
     const html = render(
       layout({
         groups: [
@@ -173,20 +198,22 @@ describe("PagesPanel", () => {
 
     // The Groups section: document order, NOT alphabetical ("Admin" sorts
     // before "Auth"), each group numbered by its own position, its pages as
-    // bullets beneath it in manifest order — and the bullets are NAMES, with no
-    // number of their own, so a page has exactly one number and it is the one
-    // beside its row below.
+    // bullets beneath it in the flow's order — the pages' own, in a document
+    // that has set none — and the bullets are NAMES, with no number of their
+    // own, so a page has exactly one number and it is the one beside its row
+    // below.
     expect(groupList(html)).toEqual([
       { name: "1. Auth", bullets: ["Sign up", "Preferences"] },
       { name: "2. Admin", bullets: [] },
     ])
 
-    // The flat list: every page, in manifest order, 1..4 — even though the group
-    // above lists Sign up and Preferences FIRST. Numbering by that position
-    // would give Sign up=1, Preferences=2, Home=3, Sign in=4. The markup rides
-    // in the message because the likeliest break is a change to the row's shape,
-    // which is exactly the case where this list comes back empty and says
-    // nothing about why.
+    // The flat list: every page, 1..4 in the order the flow puts them in —
+    // which is the pages' own order here, since this document has set no flow —
+    // even though the group above lists Sign up and Preferences FIRST.
+    // Numbering by that position would give Sign up=1, Preferences=2, Home=3,
+    // Sign in=4. The markup rides in the message because the likeliest break is
+    // a change to the row's shape, which is exactly the case where this list
+    // comes back empty and says nothing about why.
     expect(rows(html), `rendered markup:\n${html}`).toEqual([
       { route: "/", open: true, n: "1.", name: "Home", group: { route: "/", label: "—" } },
       {
@@ -246,6 +273,54 @@ describe("PagesPanel", () => {
       ["2.", "Sign in", "—"],
       ["3.", "Sign up", "—"],
       ["4.", "Settings", "—"],
+    ])
+  })
+
+  // The reorder affordance: one pair per row, in the row, beside the number it
+  // changes. Disabled at the ends of the list — the same rule `moveRoute`
+  // enforces one layer down, so a click that got through anyway cannot wrap a
+  // page round the list. The disabled state is read from the markup because
+  // nothing here can click: the panel's interactions are out of reach in this
+  // environment (see the header), and what CAN be pinned is that the control is
+  // drawn, on the right row, in the state the flow puts it in.
+  it("draws a move up/down control on every row, disabled at the ends of the flow", () => {
+    const html = render(layout({}), { open: ["/"] })
+
+    expect(moves(html)).toEqual([
+      { route: "/", up: { disabled: true }, down: { disabled: false } },
+      { route: "/login", up: { disabled: false }, down: { disabled: false } },
+      { route: "/signup", up: { disabled: false }, down: { disabled: false } },
+      { route: "/settings", up: { disabled: false }, down: { disabled: true } },
+    ])
+  })
+
+  // The ends move with the flow, not with the manifest: `/settings` leads this
+  // flow, so ITS up control is the disabled one. A panel that disabled the
+  // manifest's first and last rows would offer a dead control on the page the
+  // user is most likely to want to move.
+  it("disables the ends of the FLOW when one has been set", () => {
+    const html = render(layout({ routeOrder: ["/settings", "/signup"] }), { open: ["/"] })
+
+    expect(moves(html)).toEqual([
+      { route: "/settings", up: { disabled: true }, down: { disabled: false } },
+      { route: "/signup", up: { disabled: false }, down: { disabled: false } },
+      { route: "/", up: { disabled: false }, down: { disabled: false } },
+      { route: "/login", up: { disabled: false }, down: { disabled: true } },
+    ])
+  })
+
+  it("lists the pages in the flow, numbered by their place in it", () => {
+    const html = render(layout({ routeOrder: ["/settings", "/signup"] }), { open: ["/"] })
+
+    // The list IS the sequence the user built — the number is the page's place
+    // in it, the arrows sit beside that number, and the pages the flow does not
+    // name follow in their own order. The canvas draws its boards in this same
+    // order (`boardsForView`), which is the whole point of the two agreeing.
+    expect(rows(html).map((row) => [row.n, row.route])).toEqual([
+      ["1.", "/settings"],
+      ["2.", "/signup"],
+      ["3.", "/"],
+      ["4.", "/login"],
     ])
   })
 

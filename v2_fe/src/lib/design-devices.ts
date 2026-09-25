@@ -1,4 +1,4 @@
-import type { LayoutDoc, LayoutGroup } from "./design-layout"
+import { resolveRouteOrder, type LayoutDoc, type LayoutGroup } from "./design-layout"
 
 /// Device presets for the design canvas (§9.3).
 ///
@@ -288,6 +288,18 @@ export function layoutBands(openRoutes: string[], deviceIds: string[], gutter = 
 /// named group is a vertical COLUMN of its pages, and pages in no group flow
 /// right of every group column.
 ///
+/// `openRoutes` is positional here as it is in the other two engines, and the
+/// order it arrives in does two jobs: it is the order of the ungrouped tail, and
+/// it is the order of the pages INSIDE each column — a column is that group's
+/// open pages, ordered by their position in `openRoutes`. The caller that
+/// matters (`boardsForView`) hands it the user's flow, so a column reads down in
+/// the same sequence the panel lists, and the pages the flow does not name keep
+/// the caller's own order. The COLUMNS themselves are the document's group order
+/// and are never sorted by it: the arrangement the user picked is what this view
+/// is for — §F's "The canvas layout never reflows" is stated about a link click,
+/// and this phase reads it the same way for every edit that is not an explicit
+/// reorder.
+///
 /// Ungrouped pages deliberately stay on ONE row (no wrapping): the band grows
 /// wider rather than deeper. Balanced packing of a long ungrouped tail is a
 /// real design choice and is deferred — see the spec's §C.
@@ -299,6 +311,11 @@ export function layoutGroups(
 ): Artboard[] {
   const grouped = new Set(groups.flatMap((g) => g.routes))
   const ungrouped = openRoutes.filter((r) => !grouped.has(r))
+  /// Where each open page sits in the order this engine was handed. Every route
+  /// a column can hold is open (it is filtered against `openRoutes`), so every
+  /// survivor of that filter has an index — the `?? 0` is for the type, not for
+  /// a case.
+  const position = new Map(openRoutes.map((route, i) => [route, i]))
 
   const boards: Artboard[] = []
   let y = 0
@@ -312,7 +329,11 @@ export function layoutGroups(
     // ungrouped page its own one-board column, so the tail stays on the band's
     // top row instead of stacking. A column with nothing open takes no space,
     // so no phantom gap appears.
-    const columns: string[][] = groups.map((g) => g.routes.filter((r) => openRoutes.includes(r)))
+    const columns: string[][] = groups.map((g) =>
+      g.routes
+        .filter((r) => openRoutes.includes(r))
+        .sort((a, b) => (position.get(a) ?? 0) - (position.get(b) ?? 0)),
+    )
     for (const route of ungrouped) columns.push([route])
 
     let x = 0
@@ -343,20 +364,39 @@ export function layoutGroups(
 /// the user's open pages and devices into positioned boards. Everything
 /// downstream (canvas, selection, pins, focus) is keyed on `route@device` and
 /// does not care which arrangement produced them.
+///
+/// The order the boards are drawn in is the document's FLOW — `routeOrder`, the
+/// sequence the user built by moving pages up and down in the Pages panel —
+/// resolved over the open pages by `resolveRouteOrder`. Resolving it here, at
+/// the one entry point, is what makes all three arrangements agree: `rows` and
+/// `bands` lay the boards out in the sequence they are given, and `groups` uses
+/// it for the pages inside each column.
+///
+/// An explicit reorder is the ONE edit that moves boards, and the flow is
+/// deliberately not the same thing as the panel's listing: grouping a page
+/// changes where it is listed and never touches `routeOrder`, so a grouping edit
+/// leaves these boards exactly where they were. The two edits look alike from
+/// the outside — a page's position on screen changes in both — which is why they
+/// are separated here rather than left to look the same.
 export function boardsForView(
   doc: LayoutDoc,
   openRoutes: string[],
   deviceIds: string[],
 ): Artboard[] {
+  // Resolved against the OPEN pages, so a flow written when more (or other)
+  // pages were open still describes a sequence of exactly the boards on screen:
+  // the pages it names come first, in its order, and the ones it does not name
+  // keep the order `openRoutes` arrives in — its manifest order.
+  const ordered = resolveRouteOrder(doc, openRoutes)
   switch (doc.view) {
     case "bands":
-      return layoutBands(openRoutes, deviceIds)
+      return layoutBands(ordered, deviceIds)
     case "groups":
-      return layoutGroups(openRoutes, deviceIds, doc.groups)
+      return layoutGroups(ordered, deviceIds, doc.groups)
     // `rows` and anything unrecognised: a document written by a newer build
     // must still render *something* rather than blanking the canvas.
     case "rows":
     default:
-      return layoutRows(openRoutes, deviceIds)
+      return layoutRows(ordered, deviceIds)
   }
 }
