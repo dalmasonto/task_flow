@@ -85,8 +85,14 @@ async fn pages_render_as_styled_documents_with_working_links() {
     assert_eq!(settings.status(), 200);
     let shtml = settings.text();
     assert!(shtml.contains("Workspace name"));
-    // Back-link works too.
-    assert!(shtml.contains(&format!("href=\"/s/{token}/\"")));
+    // Back-link works too — and lands on the BARE sandbox root, not on
+    // `/s/{token}/`. Both forms serve (`serve_page_root` handles either), but
+    // the composer emits the bare one because that is the form the chrome's
+    // `sandboxUrl` builds for "/" (`design-api.ts`), so a followed link and the
+    // chrome agree on the URL. Only the rewrite of a route-shaped href is at
+    // stake here; this assertion used to pin the trailing slash.
+    assert!(shtml.contains(&format!("href=\"/s/{token}\"")));
+    assert!(!shtml.contains(&format!("href=\"/s/{token}/\"")));
 
     // Both pages share ONE head — same tokens URL, same component script URL.
     let head_of = |doc: &str| doc.split("<body").next().unwrap_or("").to_string();

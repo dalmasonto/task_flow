@@ -153,30 +153,103 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Rewrite sandbox-relative hrefs to tokenized URLs so `<a href="/settings">`
-/// navigates natively inside the frame — no router needed.
-fn rewrite_hrefs(html: &str, base: &str) -> String {
-    // Match href="/..." and href="./..." and href="#..."; only path-form hrefs
-    // need the prefix. Anchors pass through untouched.
+/// Does this href carry a `scheme:` prefix — `http:`, `mailto:`, `tel:`, and by
+/// construction `javascript:`/`data:`/`blob:`? Matches RFC 3986's scheme
+/// grammar (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`), so a path or query
+/// that merely CONTAINS a colon is not mistaken for one.
+fn has_scheme(href: &str) -> bool {
+    match href.split_once(':') {
+        Some((scheme, _)) => {
+            scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        }
+        None => false,
+    }
+}
+
+/// Does the tag this href sits in ask for a new tab? HTML attribute names and
+/// values are case-insensitive and either quote style is legal.
+fn opens_new_tab(tag: &str) -> bool {
+    let tag = tag.to_ascii_lowercase();
+    tag.contains("target=\"_blank\"") || tag.contains("target='_blank'")
+}
+
+/// Rewrite a sandbox-relative href to a tokenized URL so a click navigates
+/// natively inside the frame — no router needed.
+///
+/// That is the whole mechanism behind in-device navigation: because the click
+/// becomes a real navigation inside the iframe, the frame gets its own session
+/// history, and back/forward — and an agent-written `history.back()` — work with
+/// nothing further built.
+///
+/// Deliberately conservative, because a rewrite that is wrong turns a link that
+/// works into one that does not:
+///   * only a site-absolute path that MATCHES A MANIFEST ROUTE is rewritten —
+///     `/not-a-page` is left alone, since a 404 under a plausible URL is worse
+///     than the dead link the author wrote;
+///   * an empty href, `#fragment`, `//protocol-relative`, anything with a
+///     `scheme:` prefix (`http:`, `mailto:`, `tel:`, and by construction
+///     `javascript:`/`data:`), and a plain relative path are all returned
+///     byte-identical — note a relative path already resolves correctly inside
+///     the frame, so it needs no help;
+///   * a `target="_blank"` link is left alone: the markup asked for a new tab.
+///
+/// `routes` is the manifest's route list, the only paths a link in the frame
+/// can reach; they are matched exactly, against the href as written.
+fn rewrite_hrefs(html: &str, base: &str, routes: &[String]) -> String {
+    // `/s/{token}` and `/s/{token}/` both serve, so the base never carries a
+    // trailing slash — the rewrite below appends the route's own path, and the
+    // root route appends nothing.
+    let base = base.trim_end_matches('/');
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
     while let Some(pos) = rest.find("href=\"") {
-        let abs = pos;
-        out.push_str(&rest[..abs]);
-        let after = &rest[abs + "href=\"".len()..];
+        out.push_str(&rest[..pos]);
+        let value_start = pos + "href=\"".len();
+        let after = &rest[value_start..];
         let end = after.find('"').unwrap_or(after.len());
         let href = &after[..end];
-        let rewritten = if href.starts_with('/') && !href.starts_with("/s/") && !href.starts_with("//")
-        {
-            format!("{}{}", base.trim_end_matches('/'), href)
-        } else if href.starts_with('#') || href.is_empty() || href.starts_with("http") {
-            href.to_string()
+
+        // The whole tag this href belongs to — from its `<` to its `>` — so
+        // the new-tab check below can read a SECOND attribute off the same
+        // element. `end` is where the closing quote sits, or the end of input
+        // for an unterminated value.
+        let tag_start = rest[..pos].rfind('<').map_or(0, |i| i + 1);
+        let tag_end = rest[value_start + end..]
+            .find('>')
+            .map_or(rest.len(), |i| value_start + end + i);
+
+        // A rewrite is only ever right for a site-absolute path naming a real
+        // route, in a tag that did not ask for a new tab. Everything else is
+        // returned byte-identical — including the `#anchor` and the plain
+        // relative path the exclusions below catch.
+        let qualifies = !href.is_empty()
+            // A `scheme:` URL belongs to another protocol entirely. Implied by
+            // the site-absolute test below (no scheme begins with `/`) and
+            // stated anyway, because a `mailto:`/`tel:` is precisely the link
+            // this pass used to break — and because a later relaxation of the
+            // site-absolute rule must not resurrect it.
+            && !has_scheme(href)
+            && href.starts_with('/')
+            && !href.starts_with("//")
+            // Idempotence: a page may already carry a tokenized href (a pasted
+            // composed URL, say), and rewriting it again would nest the prefix.
+            && !href.starts_with("/s/")
+            && !opens_new_tab(&rest[tag_start..tag_end]);
+
+        let rewritten = if qualifies && routes.iter().any(|r| r == href) {
+            // "/" is the frame's root and maps to the BARE base: the client's
+            // `sandboxUrl` drops the path for it, and both forms serve.
+            format!("{base}{}", if href == "/" { "" } else { href })
         } else {
-            // Relative like "settings" → sibling route.
-            format!("{}/{}", base.trim_end_matches('/'), href)
+            href.to_string()
         };
         out.push_str(&format!("href=\"{rewritten}\""));
-        rest = &after[end..];
+        // `end + 1` skips the closing quote, which is not consumed by the
+        // `href="…"` written above and would otherwise be emitted twice.
+        rest = after.get(end + 1..).unwrap_or("");
     }
     out.push_str(rest);
     out
@@ -250,13 +323,24 @@ pub fn annotate_sources(fragment: &str, file: &str) -> String {
     out
 }
 
-/// The body-fragment pipeline shared by [`compose_document`] and the
-/// chrome-facing `page.html` export (`fragment=1`): rewrite sandbox-relative
-/// hrefs, stamp `data-src`, then expand `<ui-*>` primitives into real markup.
-/// Kept as one function so the two callers can never drift apart.
-pub fn compose_body_fragment(token: &str, page_path: &str, fragment: &str) -> String {
+/// The body-fragment pipeline for the sandbox: rewrite sandbox-relative hrefs,
+/// stamp `data-src`, then expand `<ui-*>` primitives into real markup.
+///
+/// The chrome-facing `page.html` export does NOT share this pipeline — it calls
+/// [`compose_export_body`], which expands primitives and nothing else, so a
+/// portable export carries neither `/s/<token>/` hrefs nor `data-src`.
+///
+/// `routes` is the manifest's route list, passed straight through to
+/// [`rewrite_hrefs`]: only those paths are reachable inside the frame, and a
+/// link to anything else is left as the author wrote it.
+pub fn compose_body_fragment(
+    token: &str,
+    page_path: &str,
+    fragment: &str,
+    routes: &[String],
+) -> String {
     let base = format!("/s/{token}");
-    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base), page_path);
+    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base, routes), page_path);
     crate::primitives::expand_primitives(&annotated)
 }
 
@@ -318,7 +402,10 @@ pub fn compose_document(
     theme: &str,
     state: Option<&str>,
 ) -> String {
-    let annotated = compose_body_fragment(token, page_path, fragment);
+    // The route list the pages were built from — the only paths a link inside
+    // the frame can navigate to. Computed once, here, and passed down.
+    let routes: Vec<String> = manifest.routes.iter().map(|r| r.path.clone()).collect();
+    let annotated = compose_body_fragment(token, page_path, fragment, &routes);
 
     // The project's external resources (a webfont and its companion links) land
     // in the head before the page's own stylesheet, so a page can override a
