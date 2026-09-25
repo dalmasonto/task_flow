@@ -2060,6 +2060,51 @@ export function removeSelection(list: SelectionState[], index: number): { list: 
 
 ---
 
+### Task 23: The Pages tab, restructured
+
+**Requested by the user, with a layout sketch.** *"The grouping does not look good"* — the inline group headings Task 16 built are not what they want. Their sketch:
+
+```
+Groups                              [+Add Group]
+1. Group 1
+  - Page 1
+  - Page 2
+2. Auth
+  - Login
+  - Signup
+
+[ ] Select all (Deselect)
+
+[ ] 1. Pricing   [Click to Edit Label]        [Group ▾]
+[ ] 2. Login     [Click to Edit Label]        [Auth  ▾]
+[ ] 3. Signup    [Click to Edit Label]        [Auth  ▾]
+```
+
+**Three sections, in that order: Groups, a select-all control, then a flat numbered list of every page.** The checkbox meaning was asked and answered: **it shows the page on the canvas** — it is the open/close control the panel already has, so *"Select all / Deselect"* is bulk open/close, which the panel has never had.
+
+**Files:**
+- Modify: `v2_fe/src/pages/design/pages-panel.tsx`
+- Modify: `v2_fe/src/pages/design/pages-order.ts` (the numbering changes) and its test
+- Reuse the dialog from Task 20 for `+Add Group`
+
+- [ ] **1. The Groups section is a read-only overview, and it is numbered.** A `Groups` header with `+Add Group` in it (the button moves up from the bottom of the panel), then the groups in `layout.groups` order as `1.`, `2.`, … each with its pages nested as bullets beneath it. **The bullets carry names only** — the numbering lives in the flat list below, so a page has exactly one number and it is the one the user reads next to its row. `groupedPages` from Task 16 already produces the sections and can drive this; what changes is that its numbers stop being rendered *here*.
+
+- [ ] **2. The flat list is every page, numbered 1..N in manifest order.** One row per page, in the order the rest of the panel already uses — **keep manifest order**, the ruling from Task 16 still stands and its reasoning (a stable number beats matching a canvas column that filters to open routes anyway) is unchanged. Each row: the canvas checkbox, the number, the name, and the group select.
+
+- [ ] **3. The name becomes click-to-edit.** Today it is an always-live input. The sketch says `[Click to Edit Label]`, which is the better affordance here: render the resolved `pageLabel` as text, and turn it into the existing `LabelInput` on click, keeping its commit-on-blur/Enter semantics and its refusal rules exactly as they are. **A click that opens the editor must not also toggle the checkbox** — they sit in the same row.
+
+- [ ] **4. The group control becomes a real Select, and the native-select rationale must be dealt with rather than ignored.** The row currently uses a native `<select>` with a comment saying it is *"Kept native on purpose — see the file header"*. **Read that header first.** If its reason still holds, say so in your report and keep it; if the user's request supersedes it, change it and **update the header** — do not leave a comment whose stated reason no longer applies, which is a defect this phase has fixed four times.
+
+  ⚠️ **Known trap, from this repo's own history: `@/components/ui/select.tsx` is Base UI, not Radix, and `SelectValue` renders the raw *value* unless the root is given an `items` value→label map.** Wire that map, or every row will read `g1` where it should read `Auth`. There is a memory note about exactly this; treat it as a real defect if it appears.
+
+- [ ] **5. Select all / Deselect.** A checkbox reflecting whether *every* page is open. Clicking it when not all are open opens them all; clicking it when all are open closes them all. Label reads `Select all` in the first state and `Deselect` in the second. Keep the per-row toggling behaviour it summarises — this is a second entry point to the same `openRoutes` state, not a second state.
+
+- [ ] **6. Numbering stays testable.** The flat 1..N is a pure function of the route list; Task 16's `groupedPages` tests should be updated rather than deleted, since the Groups section still depends on it. Add the case that the sketch implies: **a page in a group is numbered in the flat list by its manifest position, not by its position inside the group.**
+
+- [ ] **7. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning**. **Do not run `npm run build`** and do not push: the user is testing locally and publishing is on hold. The render test Task 16 committed (`pages-panel.test.ts`, SSR markup) should be updated for the new structure — it is the only test that sees the panel's actual markup, and it is exactly the kind of change that silently outlives its subject.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
