@@ -311,7 +311,7 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // already limits a caller to channels they can see: every active
             // project member can see the shared project room, so PATCHing
             // `kind` to "direct" would hide it from every human (Direct
-            // visibility requires a roster row that ensure_project_room never
+            // visibility requires a roster row that ensure_project_rooms never
             // writes for humans), and DELETE cascades every message in it
             // (`taskflow_agent_message.channel` is `on_delete = "cascade"`).
             // Nothing in the frontend or MCP layer ever calls either verb on

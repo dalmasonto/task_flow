@@ -18,6 +18,7 @@ use taskflow_agents::models::{
     TaskflowChannelKind, taskflow_agent_channel, taskflow_agent_channel_member,
 };
 use taskflow_agents::signals::backfill_project_rooms;
+use taskflow_agents::views::ensure_project_rooms;
 use umbral::orm::ForeignKey;
 
 /// The project's rooms carrying `marker`, asserting at most one — a second
@@ -147,17 +148,21 @@ async fn the_backfill_gives_rooms_to_projects_that_lack_them() {
     assert_eq!(channel_count(legacy_project).await, 2);
 }
 
-// The sweep gives a project's EXISTING agents a seat in any room it creates for
-// them. Without this, an agent linked before the design room existed is missing
-// from its roster — the user's rule is that an agent added to a project belongs to
-// both rooms, and the backfill is the moment the second room appears for a
-// project that already had agents.
+// A room created for a project that already has agents gives those agents a seat.
+// Without this, an agent linked before the design room existed is missing from its
+// roster — the user's rule is that an agent added to a project belongs to both
+// rooms, and room creation is the moment the second room appears for a project
+// that already had agents.
 //
 // The agent row is seeded directly because `link_agent` creates the rooms itself:
 // it cannot produce "an agent in a project that has no design room", which is the
 // state a project predating this feature is in.
+//
+// It drives `ensure_project_rooms` rather than the boot sweep, so this binary has
+// exactly ONE caller of the global sweep (the test below): a second one repairs
+// this file's other projects mid-arrange.
 #[tokio::test]
-async fn a_room_the_sweep_creates_rosters_the_projects_existing_agents() {
+async fn a_room_created_for_a_project_rosters_its_existing_agents() {
     let _app = TestApp::new().await;
     let project = seed_project_via_transaction().await;
 
@@ -182,7 +187,7 @@ async fn a_room_the_sweep_creates_rosters_the_projects_existing_agents() {
         .expect("create agent")
         .id;
 
-    backfill_project_rooms().await;
+    ensure_project_rooms(project).await.expect("ensure rooms");
 
     let public = marked(project, |c| c.is_public).await;
     let design = marked(project, |c| c.is_design).await;
@@ -203,7 +208,7 @@ async fn a_room_the_sweep_creates_rosters_the_projects_existing_agents() {
 async fn a_second_marked_room_is_a_constraint_violation() {
     let _app = TestApp::new().await;
     let project = seed_project_via_transaction().await;
-    backfill_project_rooms().await;
+    ensure_project_rooms(project).await.expect("ensure rooms");
 
     let room = |is_public: bool, is_design: bool| {
         let project = project;

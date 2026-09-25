@@ -1385,24 +1385,21 @@ pub async fn link_agent(
     // must not lose the freshly-minted key, which is unrecoverable after this
     // response — the agent can still be rostered later.
     //
-    // Both rooms, in one place: the single choke point for "agent added to a
-    // project" is also the moment its membership of BOTH rooms is decided, so an
-    // agent can answer a design request immediately rather than only after a
-    // human happens to open the design page. A re-linked agent (an existing id)
-    // is rostered onto rooms that already exist, which is why the roster writes
-    // are here and not only inside `ensure_project_rooms`.
-    match ensure_project_rooms(project_id).await {
-        Ok((public, design)) => {
-            let _ = ensure_agent_channel_row(project_id, public.id, agent_id, &display_name).await;
-            let _ = ensure_agent_channel_row(project_id, design.id, agent_id, &display_name).await;
-        }
-        Err(_) => {
-            tracing::warn!(
-                project = project_id,
-                agent = agent_id,
-                "could not ensure the project's rooms on agent link; the agent can still be rostered later"
-            );
-        }
+    // One call does the whole job, and it is deliberately the ONLY one here:
+    // `ensure_project_rooms` owns both halves of the invariant — the rooms AND
+    // their rosters, which it re-checks for every agent of the project on every
+    // call. The agent being linked is an agent of the project by now (its row
+    // landed above), so this call seats it in both rooms, whether they already
+    // existed or were just created for it. A second, explicit roster write here
+    // used to sit beside this and could not be told apart from it by any test —
+    // which is what "redundant" looks like.
+    if let Err(status) = ensure_project_rooms(project_id).await {
+        tracing::warn!(
+            project = project_id,
+            agent = agent_id,
+            status = status.as_u16(),
+            "could not ensure the project's rooms on agent link; the agent can still be rostered later"
+        );
     }
 
     // The raw key appears here and NOWHERE else. `taskflow_profile` is the block
@@ -2999,12 +2996,28 @@ async fn ensure_project_agents_rostered(
     project_id: i64,
     channel_id: i64,
 ) -> Result<(), StatusCode> {
+    // Two reads regardless of how many agents there are, so this is cheap enough
+    // to be part of the invariant on every `ensure_project_rooms` call rather than
+    // a creation-only step. A creation-only version left a race: a caller that
+    // took a room another caller was still creating observed it without its seats.
     let agents = TaskflowAgent::objects()
         .filter(taskflow_agent::PROJECT.eq(project_id))
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rostered: HashSet<i64> = TaskflowAgentChannelMember::objects()
+        .filter(taskflow_agent_channel_member::CHANNEL.eq(channel_id))
+        .fetch()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .filter_map(|m| m.agent.as_ref().map(|fk| fk.id()))
+        .collect();
+
     for agent in agents {
+        if rostered.contains(&agent.id) {
+            continue;
+        }
         ensure_agent_channel_row(project_id, channel_id, agent.id, &agent.display_name).await?;
     }
     Ok(())
@@ -3072,16 +3085,9 @@ pub async fn ensure_project_rooms(
                     // Its room IS the public room; this one takes it rather than
                     // creating a second (the marker guard is what turns that race
                     // into this error instead of two public rooms).
-                    Err(_) => {
-                        let room = find_public_room(project_id)
-                            .await?
-                            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-                        // The winner may not have finished rostering the project's
-                        // agents yet, and a caller must never observe half-made
-                        // rooms. Re-running it is idempotent per agent.
-                        ensure_project_agents_rostered(project_id, room.id).await?;
-                        room
-                    }
+                    Err(_) => find_public_room(project_id)
+                        .await?
+                        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
                 }
             }
             None => {
@@ -3104,20 +3110,13 @@ pub async fn ensure_project_rooms(
                     })
                     .await;
                 match created {
-                    Ok(room) => {
-                        ensure_project_agents_rostered(project_id, room.id).await?;
-                        room
-                    }
-                    Err(_) => {
-                        let room = find_public_room(project_id)
-                            .await?
-                            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-                        // Same edge as the adoption race above: the winner creates
-                        // the room and THEN rosters, so a caller that takes the
-                        // winner's row can otherwise see a room with no seats in it.
-                        ensure_project_agents_rostered(project_id, room.id).await?;
-                        room
-                    }
+                    Ok(room) => room,
+                    // Another caller created the public room first (the marker
+                    // guard turned this race into an error instead of two public
+                    // rooms). Its room IS the public room; this one takes it.
+                    Err(_) => find_public_room(project_id)
+                        .await?
+                        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
                 }
             }
         },
@@ -3142,35 +3141,52 @@ pub async fn ensure_project_rooms(
                     created_at: None,
                 })
                 .await;
-            let room = match created {
-                Ok(room) => {
-                    ensure_project_agents_rostered(project_id, room.id).await?;
-
-                    // The FIRST creation adopts the project's design history, in
-                    // the same operation. No migration does this: migrations here
-                    // are schema-only (there is no `RunSql` anywhere in the repo)
-                    // and adopt-on-create is lazy, self-healing for projects that
-                    // predate this room, and cannot double-run.
-                    adopt_design_history(project_id, room.id).await?;
-                    room
-                }
+            match created {
+                Ok(room) => room,
                 // Another caller created the design room first: it is THE design
-                // room, and the adoption is its business (it either ran it or is
-                // past the point where it would). The ROSTER is re-checked here
-                // for the same reason as the public room's: the winner writes it
-                // after its create, so taking the winner's row is not yet a
-                // promise that its agents have seats.
-                Err(_) => {
-                    let room = find_design_room(project_id)
-                        .await?
-                        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-                    ensure_project_agents_rostered(project_id, room.id).await?;
-                    room
-                }
-            };
-            room
+                // room, and the room-scoped work that follows (rosters, the
+                // adoption re-check) runs for it below, exactly as it does for a
+                // room this call created.
+                Err(_) => find_design_room(project_id)
+                    .await?
+                    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
+            }
         }
     };
+
+    // The rooms' ROSTERS are part of the invariant, so they are re-checked on every
+    // call for the same reason the adoption is: a caller must never observe a room
+    // without its seats. It cannot drift in practice (`link_agent` rosters at link
+    // time and nothing removes an agent from a channel), and it is two indexed
+    // reads per room when nothing is missing.
+    ensure_project_agents_rostered(project_id, public.id).await?;
+    ensure_project_agents_rostered(project_id, design.id).await?;
+
+    // Ruling 2's adoption, run on EVERY call rather than gated on the creation of
+    // the design room, and never fatal.
+    //
+    // Retryable, because the creation-gated version was not: a transient failure
+    // there (a SQLite lock, a concurrent writer — realistic on the first boot
+    // sweep, where every project's rooms are built at once) left the history
+    // un-moved FOREVER, since the room now existed and no later call re-ran it.
+    // That is the opposite of the self-healing claim the rest of this function
+    // makes. The move is idempotent and bails on an empty candidate set, so
+    // re-checking on every ensure costs two indexed SELECTs and repairs a
+    // previously failed adoption on the next layer that runs.
+    //
+    // Non-fatal, because the rooms are the caller's business and the history move
+    // is not: a failure here must never make a caller believe the rooms are
+    // missing. `link_agent` shows why that matters — its `Err(_)` arm skips BOTH
+    // roster writes, so a failed adoption used to leave a freshly linked agent
+    // un-rostered in a room that had just been created for it.
+    if let Err(status) = adopt_design_history(project_id, design.id).await {
+        tracing::warn!(
+            project = project_id,
+            room = design.id,
+            status = status.as_u16(),
+            "design history not adopted; the rooms are fine and the next ensure call will retry"
+        );
+    }
 
     Ok((public, design))
 }

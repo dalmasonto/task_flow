@@ -66,25 +66,51 @@ use crate::views::{ensure_project_rooms, find_design_room, find_public_room};
 ///
 /// Partial unique indexes are the guard, the same shape `taskflow-tasks` installs
 /// for its one-open-session-per-task invariant (`session_timer`). The ORM cannot
-/// express a partial index, but both supported backends accept this syntax. The
-/// loser of a race then takes the unique violation, and
-/// `views::ensure_project_rooms` recovers by re-reading the winner's room.
-const ONE_PUBLIC_PER_PROJECT_INDEX: &str = "taskflow_agent_channel_one_public_per_project";
-const ONE_PUBLIC_PER_PROJECT_SQL: &str = "CREATE UNIQUE INDEX IF NOT EXISTS taskflow_agent_channel_one_public_per_project ON taskflow_agent_channel (project) WHERE is_public";
-const ONE_DESIGN_PER_PROJECT_INDEX: &str = "taskflow_agent_channel_one_design_per_project";
-const ONE_DESIGN_PER_PROJECT_SQL: &str = "CREATE UNIQUE INDEX IF NOT EXISTS taskflow_agent_channel_one_design_per_project ON taskflow_agent_channel (project) WHERE is_design";
+/// express a partial index (`AddIndex` in the migration JSON is `{table,
+/// columns, unique}` with no predicate), but both supported backends accept this
+/// syntax verbatim — and a `RunSql` migration CAN carry it, so the guard ships in
+/// migration `0022_add_taskflow_agent_channel_marker_guard_indexes` as the
+/// durable, `migrate`-time form. The loser of a race takes the unique violation,
+/// and `views::ensure_project_rooms` recovers by re-reading the winner's room.
+pub const ONE_PUBLIC_PER_PROJECT_INDEX: &str = "taskflow_agent_channel_one_public_per_project";
+pub const ONE_PUBLIC_PER_PROJECT_SQL: &str = "CREATE UNIQUE INDEX IF NOT EXISTS taskflow_agent_channel_one_public_per_project ON taskflow_agent_channel (project) WHERE is_public";
+pub const ONE_DESIGN_PER_PROJECT_INDEX: &str = "taskflow_agent_channel_one_design_per_project";
+pub const ONE_DESIGN_PER_PROJECT_SQL: &str = "CREATE UNIQUE INDEX IF NOT EXISTS taskflow_agent_channel_one_design_per_project ON taskflow_agent_channel (project) WHERE is_design";
+/// The two statements as a pair, for the tests that check this module's names
+/// against the `RunSql` migration that carries the same guard.
+pub const MARKER_GUARD_STATEMENTS: [(&str, &str); 2] = [
+    (ONE_PUBLIC_PER_PROJECT_INDEX, ONE_PUBLIC_PER_PROJECT_SQL),
+    (ONE_DESIGN_PER_PROJECT_INDEX, ONE_DESIGN_PER_PROJECT_SQL),
+];
 
 /// Install the marker guard. Called once from
 /// [`TaskflowAgentsPlugin::on_ready`](crate::TaskflowAgentsPlugin) BEFORE the
 /// backfill is spawned, so nothing can create a duplicate marker while it runs.
 ///
-/// The columns are brand new when this first runs, so no existing row can
-/// violate either index and the CREATE cannot fail on pre-existing data.
+/// ## Why this exists next to the `RunSql` migration that already creates them
+///
+/// Migration `0022_add_taskflow_agent_channel_marker_guard_indexes` is the
+/// durable form: a real `migrate` creates both indexes, so a database that has
+/// been migrated is guarded whether or not this process ever runs `on_ready`
+/// against a schema. This call is what makes the guard true in the places a
+/// migration cannot reach:
+///
+///  * **Tests build their schema from the models** (`umbral::testing::boot` →
+///    `create_tables_for_tests`), which is a fresh CREATE TABLE from the registry
+///    and never runs a migration file — so without this the constraint the
+///    design-room tests assert would not exist in any test. The test harness
+///    calls this again after the schema exists, for the same reason it re-installs
+///    the task-session guard.
+///  * **A process booted against an un-migrated database** would otherwise be
+///    unguarded until the next restart. It still is (`on_ready` runs before the
+///    schema exists there, so this defers), but the migration means the next
+///    `migrate` fixes it rather than only a code path.
+///
+/// Both statements are `IF NOT EXISTS`, so running them over a migrated database
+/// is a no-op. The columns are brand new when this first runs on such a database,
+/// so no existing row can violate either index.
 pub async fn install_room_marker_guard(pool: &DbPool) -> Result<(), sqlx::Error> {
-    for (index, sql) in [
-        (ONE_PUBLIC_PER_PROJECT_INDEX, ONE_PUBLIC_PER_PROJECT_SQL),
-        (ONE_DESIGN_PER_PROJECT_INDEX, ONE_DESIGN_PER_PROJECT_SQL),
-    ] {
+    for (index, sql) in MARKER_GUARD_STATEMENTS {
         let result: Result<(), sqlx::Error> = match pool {
             DbPool::Sqlite(pool) => sqlx::query(sql).execute(pool).await.map(|_| ()),
             DbPool::Postgres(pool) => sqlx::query(sql).execute(pool).await.map(|_| ()),

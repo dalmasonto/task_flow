@@ -953,7 +953,7 @@ async fn auto_rest_cannot_create_a_channel() {
 /// can already see — but every active project member CAN see the shared
 /// project room, so a live PATCH could flip `kind` to "direct" and hide the
 /// room from every human: `visible_channel_ids` requires a roster row for
-/// Direct channels, and `ensure_project_room` only ever writes roster rows for
+/// Direct channels, and `ensure_project_rooms` only ever writes roster rows for
 /// agents, never for the humans who share the room.
 #[tokio::test]
 async fn a_member_cannot_rename_or_archive_the_shared_room_via_patch() {

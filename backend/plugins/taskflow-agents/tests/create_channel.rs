@@ -53,9 +53,9 @@ async fn seed_task(project: i64) -> i64 {
 /// Create an agent in `project` and return its id. `POST /agents/link` returns
 /// `agent_id` alongside the raw key; the tests here need the id, not the key.
 ///
-/// Note `link_agent` calls `ensure_project_room`, so minting an agent also
-/// creates a shared project room — any `count_channels` baseline must be taken
-/// AFTER seeding agents.
+/// Note `link_agent` calls `ensure_project_rooms`, so minting an agent also
+/// creates the project's public AND design rooms — any `count_channels` baseline
+/// must be taken AFTER seeding agents.
 async fn seed_agent_id(app: &TestApp, project: i64, label: &str) -> i64 {
     let human = app.create_user().await;
     make_active_project_member(project, human).await;

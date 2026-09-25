@@ -600,15 +600,21 @@ async fn marked_room_of(project: i64, marker: fn(&TaskflowAgentChannel) -> bool,
         .id
 }
 
-/// Seed a project the way `POST /api/taskflow/projects` creates one: inside an
+/// Seed a project the way `POST /api/taskflow/projects` WRITES one: inside an
 /// explicit `umbral::transaction`, through `on_tx(tx).create(..)`, with the owner
-/// membership landing in the same transaction.///
+/// membership landing in the same transaction.
+///
 /// The difference from [`seed_project`] is load-bearing, not cosmetic. The ORM's
 /// transaction terminal emits NO signal — only the non-transactional
 /// `QuerySet::create` / `Manager::save` / dynamic-insert paths do — so a project
-/// made this way has no rooms until something explicitly gives it some. That is
-/// the state the boot backfill exists for, and it is the state a project created
-/// through the API is really in.
+/// written this way has no rooms until something explicitly gives it some.
+///
+/// The API route now ANNOUNCES the row itself from the handler
+/// (`umbral::signals::emit` in `taskflow_projects::views::create_project`, which
+/// `a_project_created_through_the_api_gets_both_rooms` covers), so this helper is
+/// precisely the write WITHOUT that announcement: use it when a test needs the
+/// state "a project exists and nothing has given it rooms yet" — the state the
+/// boot backfill, the adoption retry and the sweep tests exist for.
 pub async fn seed_project_via_transaction() -> i64 {
     let n = seq();
     umbral::transaction(move |tx| {

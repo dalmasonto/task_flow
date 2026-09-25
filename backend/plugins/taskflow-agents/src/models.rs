@@ -219,7 +219,12 @@ pub struct TaskflowAgentChannel {
     /// every looser selector ambiguous: a lookup by `kind`, by `title`, or by
     /// index/order can land on a user's room. This flag makes the two special
     /// rooms findable by what they ARE, never by where they sort.
-    #[umbral(default = "false")]
+    ///
+    /// `noedit`: the dynamic write path refuses to SET a `noedit` column, so a
+    /// marker cannot be cleared or forged through auto-REST/admin even if the
+    /// channel table ever leaves the read-only list that protects it today.
+    /// `created_at` is the in-repo precedent for the same guard.
+    #[umbral(default = "false", noedit)]
     pub is_public: bool,
     /// Marks THE design room of this project — the one channel the design
     /// conversation lives in. Same one-per-project rule, same reasoning, and the
@@ -229,7 +234,10 @@ pub struct TaskflowAgentChannel {
     /// With this, placement decides what a design message is: a message is the
     /// design conversation's when it was posted HERE, and
     /// `TaskflowAgentMessage.is_design` is derived from that (see its doc).
-    #[umbral(default = "false")]
+    ///
+    /// `noedit` for the same reason as `is_public`: the ORM, not a route list,
+    /// is what keeps the markers honest.
+    #[umbral(default = "false", noedit)]
     pub is_design: bool,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,

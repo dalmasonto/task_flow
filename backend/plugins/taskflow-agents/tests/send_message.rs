@@ -318,11 +318,18 @@ async fn message_defaults_is_design_false() {
     assert_eq!(row["is_design"], json!(false));
 }
 
-// The multipart branch reads `is_design` from a form field (a string), not from
-// JSON — a distinct parse path from the JSON branch below — and, like it, the
-// value is ACCEPTED AND IGNORED: the destination room decides. Send a file
-// alongside it so this genuinely exercises the multipart parser rather than
-// falling back to JSON.
+// The multipart branch reads `is_design` from a FORM FIELD (a string) rather than
+// from JSON, and, like the JSON branch, the value is ACCEPTED AND IGNORED: the
+// destination room decides.
+//
+// Be precise about what that leaves observable, because it is not the parse. The
+// decoded value is discarded, so no assertion can tell a parsed `true` from a
+// field that was never read — the `"is_design" => …` arm is unobservable by
+// construction now, and this test no longer claims otherwise. What it DOES pin is
+// that a multipart send reaches the same destination-derived flag as the JSON
+// path, in both directions, and that the field's presence is never a rejection.
+// The file part stays: it keeps the request on the multipart branch rather than
+// letting it fall back to JSON.
 #[tokio::test]
 async fn multipart_send_accepts_but_ignores_the_declared_design_flag() {
     let app = TestApp::new().await;
@@ -344,6 +351,25 @@ async fn multipart_send_accepts_but_ignores_the_declared_design_flag() {
         row["is_design"],
         json!(false),
         "the request is not rejected, and the flag follows the room it landed in"
+    );
+
+    // The same branch, pointed at the DESIGN room: no field at all, and the flag
+    // is true — the destination is what decides, on this path too.
+    let project = app.project_of_channel(channel).await;
+    make_active_project_member(project, user).await;
+    let design = design_room_of(project).await;
+    let (content_type, body) = encode_multipart(&[
+        field("channel", &design.to_string()),
+        field("body_markdown", "design ask via multipart"),
+    ]);
+    let response = app
+        .post_multipart_as(user, "/api/taskflow/agents/messages", &content_type, body)
+        .await;
+    assert_eq!(response.status(), 200, "body: {:?}", response.json().await);
+    assert_eq!(
+        response.json().await["is_design"],
+        json!(true),
+        "the design room makes a multipart message a design message"
     );
 }
 

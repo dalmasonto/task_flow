@@ -35,6 +35,7 @@ use taskflow_agents::models::{
 use taskflow_agents::views::ensure_project_rooms;
 use taskflow_projects::models::{TaskflowProject, taskflow_project};
 use umbral::orm::{FileField, ForeignKey};
+use umbral_auth::{AuthUser, auth_user};
 
 /// The titles the plan fixes. Nothing SELECTS a room by title — the tests that
 /// matter seed differently-titled rooms on purpose — so these are asserted only
@@ -378,8 +379,9 @@ async fn a_project_room_that_predates_the_markers_is_marked_not_duplicated() {
 //
 // Without that, the report-back is silently skipped and the agent never learns
 // its task was reviewed — the exact failure the room-ensuring paths exist to
-// prevent (`ensure_project_room`'s own doc says so). The project here is created
-// the way the API creates one (no signal) and its agent is seeded directly,
+// prevent (`ensure_project_rooms` says so in its own doc). The project here is
+// written the way the API writes one (no ORM signal, and no announcement) and its
+// agent is seeded directly,
 // because `link_agent` — the other path that would create the rooms — is what
 // this test needs to stay out of the way.
 #[tokio::test]
@@ -740,6 +742,73 @@ async fn adoption_repoints_only_this_projects_shared_design_messages() {
     );
 }
 
+// Adoption is RETRYABLE, not something that happens only beside a freshly created
+// design room. The arrange below is exactly the state a transient failure leaves
+// behind — the room exists, the flagged messages were never moved — and the
+// creation-gated version could never repair it: the room existed, so no later call
+// re-ran the move, and the history stayed behind for good.
+#[tokio::test]
+async fn adoption_runs_again_on_a_later_call_and_repairs_a_missed_history() {
+    let _app = TestApp::new().await;
+    let project = seed_project_via_transaction().await;
+
+    // The rooms exist FIRST. That is the whole point: the design room here was
+    // not created by this call, so a creation-gated adoption has nothing to hang
+    // itself on.
+    let (public, design) = ensure_project_rooms(project).await.expect("ensure rooms");
+
+    let missed = seed_flagged_message(project, public.id, true).await;
+    let ordinary = seed_flagged_message(project, public.id, false).await;
+
+    // Any later ensure call — the boot sweep, a link, a channel request, a review
+    // — re-checks and repairs it.
+    ensure_project_rooms(project).await.expect("ensure again");
+
+    assert_eq!(
+        message_row(missed).await.channel.id(),
+        design.id,
+        "a design message the earlier adoption missed is moved by a later call"
+    );
+    assert_eq!(
+        message_row(ordinary).await.channel.id(),
+        public.id,
+        "and an ordinary message still stays put"
+    );
+    assert_eq!(
+        channels(project).await.len(),
+        2,
+        "the repair reuses the existing rooms rather than creating any"
+    );
+}
+
+// The move is scoped by the message's denormalized `project`, and that clause is
+// NOT decoration: the `project`/`channel` pair is denormalized at send time, so a
+// row can sit in THIS project's channel while its `project` column names another
+// one — and this is a bulk UPDATE over other people's messages. Such a row is left
+// alone; the project it names is the project that owns it.
+//
+// (The shared-room restriction does not exclude it — the channel really is one of
+// this project's — so this is the test that pins the project scope.)
+#[tokio::test]
+async fn adoption_leaves_a_row_whose_project_names_another_project() {
+    let _app = TestApp::new().await;
+    let project = seed_project_via_transaction().await;
+    let other_project = seed_project_via_transaction().await;
+
+    let (public, _design) = ensure_project_rooms(project).await.expect("ensure rooms");
+
+    // In this project's channel, owned by another project.
+    let foreign = seed_flagged_message(other_project, public.id, true).await;
+
+    ensure_project_rooms(project).await.expect("ensure again");
+
+    assert_eq!(
+        message_row(foreign).await.channel.id(),
+        public.id,
+        "a row whose `project` names another project is not moved by this project's adoption"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The message flag is derived from the destination
 // ---------------------------------------------------------------------------
@@ -877,4 +946,126 @@ fn the_migration_adds_both_markers_without_rewriting_an_older_one() {
     };
     assert!(field("is_public"), "snapshot: is_public");
     assert!(field("is_design"), "snapshot: is_design");
+}
+
+// THE end-to-end claim: a project created through the API comes with its two
+// rooms, in that one request.
+//
+// It needs a client that serves BOTH plugins' routes — the harness mounts only
+// the agents router, and project creation lives in the projects plugin — plus a
+// bearer token minted the way the harness mints one. The point of the test is the
+// join between the two plugins: `create_project` writes through
+// `QuerySetTx::create`, which emits no signal, so it announces the row itself
+// after the transaction commits, and the agents plugin's subscriber turns that
+// announcement into the pair.
+#[tokio::test]
+async fn a_project_created_through_the_api_gets_both_rooms() {
+    use http::header::HeaderValue;
+    use umbral_auth::token::AuthToken;
+
+    let app = TestApp::new().await;
+    let user = app.create_user().await;
+
+    // The merged router: the agents routes the harness already serves, plus the
+    // projects routes that create a project.
+    let router = taskflow_agents::urls::router().merge(taskflow_projects::urls::router());
+    let client = umbral_testing::TestClient::new(router);
+    let auth_user = AuthUser::objects()
+        .filter(auth_user::ID.eq(user))
+        .first()
+        .await
+        .expect("load auth user")
+        .expect("auth user exists");
+    let (_, token) = AuthToken::create_for(&auth_user, "design-room-e2e")
+        .await
+        .expect("mint bearer token");
+    client.set_default_header(
+        umbral::web::header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token.0)).expect("bearer header"),
+    );
+
+    let slug = format!("e2e-rooms-{}", umbral_testing::seq());
+    let created = client
+        .post_json(
+            "/api/taskflow/projects",
+            &json!({ "name": "Rooms E2E", "slug": slug }),
+        )
+        .await;
+    let body: serde_json::Value = created.body_json();
+    assert_eq!(created.status().as_u16(), 201, "body: {body:?}");
+    let project = body["id"].as_i64().expect("project id");
+
+    // No second call, no link, no boot: the creation request itself left the
+    // project with both rooms, marked.
+    let public = public_room(project)
+        .await
+        .expect("the creation request created the public room");
+    let design = design_room(project)
+        .await
+        .expect("and the design room");
+    assert_ne!(public.id, design.id);
+    assert_eq!(
+        channels(project).await.len(),
+        2,
+        "exactly the pair, from one API call"
+    );
+}
+
+// The guard's durable half: migration `0022` carries the same two partial unique
+// indexes the `on_ready` install creates, so a migrated database is guarded
+// whether or not a process ever runs `on_ready` against the schema. Tests build
+// their schema from the models and never run migrations, so nothing else here
+// would notice this file going missing — the same reason the marker migration has
+// its own check.
+#[test]
+fn the_guard_migration_carries_both_indexes_and_disturbs_no_snapshot() {
+    use taskflow_agents::signals::{MARKER_GUARD_STATEMENTS, ONE_DESIGN_PER_PROJECT_INDEX};
+
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../migrations/taskflow_agents");
+    let path = format!("{dir}/0022_add_taskflow_agent_channel_marker_guard_indexes.json");
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("the migration that makes the guard durable must exist at {path}: {e}"));
+    let file: serde_json::Value = serde_json::from_str(&raw).expect("migration is valid JSON");
+
+    assert_eq!(
+        file["id"], "0022_add_taskflow_agent_channel_marker_guard_indexes",
+        "the file's id must match its name — migrations are tracked by name"
+    );
+    assert_eq!(file["plugin"], "taskflow_agents");
+
+    let ops = file["operations"].as_array().expect("operations array");
+    assert_eq!(ops.len(), 2, "one statement per marker");
+    for (op, (index, sql)) in ops.iter().zip(MARKER_GUARD_STATEMENTS) {
+        assert_eq!(op["kind"], "RunSql", "raw SQL: `AddIndex` cannot express a partial predicate");
+        assert_eq!(
+            op["sql"], sql,
+            "the migration creates the same index as the on_ready install, byte for byte"
+        );
+        let column = if index == ONE_DESIGN_PER_PROJECT_INDEX { "is_design" } else { "is_public" };
+        assert!(
+            op["sql"].as_str().expect("sql").contains(&format!("WHERE {column}")),
+            "the statement is a PARTIAL index: {index} must be guarded by {column}"
+        );
+        assert_eq!(
+            op["reverse_sql"],
+            format!("DROP INDEX IF EXISTS {index}"),
+            "and it is reversible"
+        );
+    }
+    assert!(ops[1]["sql"].as_str().expect("sql").contains(ONE_DESIGN_PER_PROJECT_INDEX));
+
+    // A `RunSql` migration has no model-state effect, so the snapshot chain must
+    // be untouched: a file here that changed the snapshot would silently become a
+    // schema assertion nobody reviewed.
+    let previous: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(format!(
+            "{dir}/0021_add_taskflow_agent_channel_is_public_and_is_design.json"
+        ))
+        .expect("the marker migration is there"),
+    )
+    .expect("valid JSON");
+    assert_eq!(
+        file["snapshot_after"], previous["snapshot_after"],
+        "a RunSql-only migration must not disturb the model-snapshot chain"
+    );
 }
