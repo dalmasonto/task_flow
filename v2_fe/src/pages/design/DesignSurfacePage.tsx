@@ -85,7 +85,7 @@ import { fitTransform } from "./canvas-view"
 import { toolForKey, type CanvasTool } from "./canvas-tools"
 import { CommentPins, DesignInspector } from "./design-inspector"
 import { boardForComment, commentRoute } from "./design-comments"
-import { sanitizeSelection, type SelectionState } from "./design-selection"
+import { sanitizeSelection, widenSelection, pinNumber, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
 import { nextDesignTab, type DesignTab } from "./design-tabs"
 import { readUIState, writeUIState } from "./design-ui-state"
@@ -419,6 +419,30 @@ export function DesignSurfacePage({
     return { rect: selection.rect, boardKey: selection.boardKey }
   }, [selection])
 
+  // Re-anchor the selection to a breadcrumb crumb (`widenSelection` decides
+  // what that means; index 0 is the outermost ancestor). The board is kept
+  // deliberately: the crumb's path is only resolvable inside the frame it was
+  // captured in — it is the selector `design:flash` queries and the anchor the
+  // comment saves — so widening must not move the comment to another board.
+  const handleWiden = useCallback((index: number) => {
+    setSelection((current) => {
+      if (!current) return current
+      const widened = widenSelection(current, index)
+      return widened ? { ...widened, boardKey: current.boardKey } : current
+    })
+  }, [])
+
+  // "Take me there" for a comment row or a palette entry: one function, so the
+  // two surfaces cannot drift into focusing different boards. (The pin has its
+  // own handler because it also flashes the element inside the frame.)
+  const focusComment = useCallback(
+    (comment: DesignComment) => {
+      const board = boardForComment(artboards, comment)
+      if (board) focusBoard(board.key, transform)
+    },
+    [artboards, transform],
+  )
+
   // The inspected element rides into the design rail's composer as a context
   // chip; the conversation view encodes it as a design-ref block on send. Map
   // the sandbox SelectionState fields onto the DesignRef shape (nulls → absent).
@@ -542,15 +566,14 @@ export function DesignSurfacePage({
     const commentItems: PaletteItem[] = comments.map((c) => ({
       key: `comment:${c.id}`,
       label: c.body.slice(0, 60),
-      hint: commentRoute(c),
+      // The pin letter is the ONLY thing tying a palette entry to the badge on
+      // the canvas — without it the two lists are unrelatable.
+      hint: `${pinNumber(c.id)} · ${commentRoute(c)}`,
       group: "Comments",
-      run: () => {
-        const board = boardForComment(artboards, c)
-        if (board) focusBoard(board.key, transform)
-      },
+      run: () => focusComment(c),
     }))
     return [...routeItems, ...componentItems, ...commentItems]
-  }, [manifest, comments, artboards, transform, deviceIds, openRoute, labelFor])
+  }, [manifest, comments, transform, deviceIds, openRoute, labelFor, focusComment])
 
   if (!projectId) {
     return (
@@ -714,6 +737,8 @@ export function DesignSurfacePage({
                 projectId={projectId}
                 onDeselect={() => setSelection(null)}
                 onCommentCreated={() => refreshComments()}
+                onWiden={handleWiden}
+                onFocusComment={focusComment}
               />
             </TabsContent>
 

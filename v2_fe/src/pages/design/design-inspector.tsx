@@ -34,12 +34,18 @@ export function DesignInspector({
   projectId,
   onDeselect,
   onCommentCreated,
+  onWiden,
+  onFocusComment,
 }: {
   selection: SelectionState | null
   manifest: DesignManifest | null
   projectId: number
   onDeselect: () => void
   onCommentCreated: (comment: DesignComment) => void
+  /** Re-anchor the selection to the crumb at this index (see `widenSelection`). */
+  onWiden?: (index: number) => void
+  /** Take the canvas to where a comment was captured. */
+  onFocusComment?: (comment: DesignComment) => void
 }) {
   if (!selection) {
     return (
@@ -48,7 +54,7 @@ export function DesignInspector({
         <p className="px-3 py-6 text-center text-xs text-muted-foreground">
           Hit <code>C</code> and click any element to select it. <code>Esc</code> deselects.
         </p>
-        <CommentsListSection projectId={projectId} />
+        <CommentsListSection projectId={projectId} onFocus={onFocusComment} />
       </div>
     )
   }
@@ -56,28 +62,46 @@ export function DesignInspector({
   // Keyed by the selection: a new selection remounts the form with fresh
   // scope/body state — no setState-in-effect reset dance.
   const formKey = `${selection.route}|${selection.elementPath}|${selection.component ?? ""}`
+  const crumbs = selection.ancestors.length ? selection.ancestors : [selection.tag]
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PanelTitle onClose={onDeselect}>Inspector</PanelTitle>
 
-      {/* Breadcrumb — every crumb widens the selection upward. */}
+      {/* Breadcrumb — every crumb widens the selection upward. The LAST crumb is
+          the selection itself, so it is current state, not a control; the ones
+          before it widen to that ancestor. A crumb is only offered as a button
+          when the frame sent its path (`ancestorPaths`) — a label alone cannot
+          be turned back into an element, so a button there would be the dead
+          control this breadcrumb used to be. */}
       <nav className="flex flex-wrap items-center gap-x-1 px-3 py-2 font-mono text-[11px]">
-        {(selection.ancestors.length ? selection.ancestors : [selection.tag]).map((crumb, i, all) => (
-          <span key={`${crumb}-${i}`} className="flex items-center gap-1">
-            <button
-              className={cn(
-                "rounded px-1 hover:bg-muted",
-                i === all.length - 1
-                  ? "bg-accent/10 font-semibold text-accent"
-                  : "text-muted-foreground",
+        {crumbs.map((crumb, i) => {
+          const current = i === crumbs.length - 1
+          const canWiden = !current && !!onWiden && !!selection.ancestorPaths[i]
+          const crumbClass = cn(
+            "rounded px-1",
+            current ? "bg-accent/10 font-semibold text-accent" : "text-muted-foreground",
+            canWiden && "hover:bg-muted",
+          )
+          return (
+            <span key={`${crumb}-${i}`} className="flex items-center gap-1">
+              {canWiden ? (
+                <button
+                  type="button"
+                  className={crumbClass}
+                  title={`Widen selection to ${crumb}`}
+                  onClick={() => onWiden(i)}
+                >
+                  {crumb}
+                </button>
+              ) : (
+                <span className={crumbClass} title={current ? "Selected element" : undefined}>
+                  {crumb}
+                </span>
               )}
-              title={`Widen selection to ${crumb}`}
-            >
-              {crumb}
-            </button>
-            {i < all.length - 1 && <span className="text-muted-foreground">›</span>}
-          </span>
-        ))}
+              {!current && <span className="text-muted-foreground">›</span>}
+            </span>
+          )
+        })}
       </nav>
 
       <CommentForm
@@ -99,7 +123,7 @@ export function DesignInspector({
         </details>
       ) : null}
 
-      <CommentsListSection projectId={projectId} />
+      <CommentsListSection projectId={projectId} onFocus={onFocusComment} />
     </div>
   )
 }
@@ -352,12 +376,20 @@ export function CommentsListSection({
                 >
                   {c.status}
                 </span>
-                <button
-                  className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
-                  onClick={() => onFocus?.(c)}
-                >
-                  {commentRoute(c)}
-                </button>
+                {/* The label is a control only when a caller wired one: an
+                    unhandled button is indistinguishable from a broken one. */}
+                {onFocus ? (
+                  <button
+                    type="button"
+                    className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                    title={`Show ${commentRoute(c)} on the canvas`}
+                    onClick={() => onFocus(c)}
+                  >
+                    {commentRoute(c)}
+                  </button>
+                ) : (
+                  <span className="font-mono text-[10px] text-muted-foreground">{commentRoute(c)}</span>
+                )}
                 {c.orphaned ? <span className="ml-auto text-[10px] text-destructive">orphaned</span> : null}
               </div>
               <p className="mt-1 line-clamp-3 whitespace-pre-line">{c.body}</p>

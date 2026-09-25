@@ -12,7 +12,18 @@ export type SelectionState = {
   text: string
   snippet: string
   rect: { x: number; y: number; w: number; h: number }
+  /** The clicked element's chain of ancestors, outermost first, ending with the
+   *  element itself. `dataset.component || tagName` per element, so a label is
+   *  a component name where one is stamped and a tag name otherwise. */
   ancestors: string[]
+  /** Per crumb, what `elementPath` would have been had that element been
+   *  clicked — the only way back from a crumb to an element, since a label
+   *  cannot be turned into a selector. Index-aligned with `ancestors`. */
+  ancestorPaths: string[]
+  /** Per crumb, what `component` would have been (`closest('[data-component]')`
+   *  at or above it). `""` means "inside no component" — an empty hole rather
+   *  than a dropped entry, so the three arrays stay index-aligned. */
+  ancestorComponents: string[]
   route: string
   viewport: string
 }
@@ -28,6 +39,16 @@ export function sanitizeSelection(
     typeof v === "string" ? v.slice(0, max) : ""
   const num = (v: unknown): number =>
     typeof v === "number" && Number.isFinite(v) ? v : 0
+  // The three per-crumb arrays are three slices of ONE chain of elements in the
+  // frame, so they are clamped by ONE rule: same last-six window, same order,
+  // nothing filtered out. Index `i` has to name the same element in all three —
+  // the breadcrumb widens a selection by index — so a non-string entry becomes
+  // `""` (an empty crumb) rather than being dropped and shifting every crumb
+  // after it onto its neighbour's path. Lengths mirror the columns they feed:
+  // `ancestors`/`ancestorComponents` a component name, `ancestorPaths` an
+  // `element_path` (500).
+  const chain = (v: unknown, max: number): string[] =>
+    Array.isArray(v) ? v.slice(-6).map((x) => (typeof x === "string" ? x.slice(0, max) : "")) : []
   const rectRaw = (raw.rect ?? {}) as Record<string, unknown>
   return {
     component: typeof raw.component === "string" ? raw.component.slice(0, 120) : null,
@@ -42,11 +63,59 @@ export function sanitizeSelection(
       w: Math.max(0, num(rectRaw.w)),
       h: Math.max(0, num(rectRaw.h)),
     },
-    ancestors: Array.isArray(raw.ancestors)
-      ? raw.ancestors.filter((a): a is string => typeof a === "string").slice(-6)
-      : [],
+    ancestors: chain(raw.ancestors, 120),
+    ancestorPaths: chain(raw.ancestorPaths, 500),
+    ancestorComponents: chain(raw.ancestorComponents, 120),
     route,
     viewport,
+  }
+}
+
+/// The tag a frame path ends on: `header:nth-child(1) > nav:nth-child(3)` →
+/// `nav`. A crumb's label is `dataset.component || tagName`, so for a component
+/// crumb the label names the COMPONENT and the path's last segment is the only
+/// place the element's own tag survives — which is why widening reads it here
+/// rather than assuming the label.
+function tagOfPath(path: string): string {
+  const last = path.split(" > ").pop() ?? ""
+  return last.split(":nth-child(")[0].trim().slice(0, 40)
+}
+
+/// The selection a breadcrumb click produces: the same click, re-anchored to
+/// the crumb at `index`.
+///
+/// `index` counts from the OUTERMOST crumb (0) to the clicked element itself
+/// (`ancestors.length - 1`), matching how the breadcrumb renders the chain.
+///
+/// Identity comes from the crumb — `elementPath`, `component` and `tag` all
+/// describe THAT element — while the captured artifacts (`rect`, `snippet`,
+/// `src_ref`, `text`) stay the click's: the chrome cannot measure or re-read a
+/// cross-origin element, and a pin that moved off the spot the human pointed at
+/// would mark a region they never touched. `element_path` is the resolvable
+/// anchor on both sides (the frame's `design:flash` querySelector, and the
+/// dispatch's target), so the agent is sent to the crumb's element regardless.
+///
+/// `null` for an index outside the chain, or a crumb with no path: a stale
+/// render, or a frame from before the chain existed. Refused rather than
+/// guessed — a comment that silently names the wrong element is exactly the
+/// failure this function exists to prevent.
+export function widenSelection(selection: SelectionState, index: number): SelectionState | null {
+  if (!Number.isInteger(index) || index < 0 || index >= selection.ancestors.length) return null
+  const elementPath = selection.ancestorPaths[index]
+  if (!elementPath) return null
+  // The innermost crumb IS the clicked element, so when a frame sent paths
+  // without components its nearest host is already known from the click.
+  const isClicked = index === selection.ancestors.length - 1
+  return {
+    ...selection,
+    elementPath,
+    component: selection.ancestorComponents[index] || (isClicked ? selection.component : null),
+    tag: tagOfPath(elementPath) || selection.ancestors[index],
+    // The crumb's own upward chain: a prefix of the chain we already hold, so
+    // the rebuilt breadcrumb shows this crumb as current and can widen again.
+    ancestors: selection.ancestors.slice(0, index + 1),
+    ancestorPaths: selection.ancestorPaths.slice(0, index + 1),
+    ancestorComponents: selection.ancestorComponents.slice(0, index + 1),
   }
 }
 

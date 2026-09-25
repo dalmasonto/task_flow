@@ -82,6 +82,20 @@ const PICKER_RUNTIME: &str = r#"(() => {
     e.preventDefault(); e.stopImmediatePropagation();
     const el = e.target, host = el.closest('[data-component]');
     const r = el.getBoundingClientRect();
+    // The crumb chain: el upward to the body, of which the chrome keeps the
+    // nearest six. All THREE arrays are slices of that one window, so index i
+    // names the same element in each — the chrome's breadcrumb widens a
+    // selection BY INDEX and never re-derives the chain. `ancestors` is each
+    // element's label (`dataset.component || tagName`), `ancestorPaths` its
+    // `pathTo` (what `elementPath` would have been), and `ancestorComponents`
+    // the nearest `[data-component]` host at or above it (what `component`
+    // would have been) — a label alone cannot be turned back into an element,
+    // and a component label does not carry the element's tag.
+    const chain = [];
+    for (let n = el; n && n !== document.body; n = n.parentElement) chain.unshift(n);
+    const kept = chain.slice(-6);
+    const hostOf = (n) => { const h = n.closest('[data-component]');
+      return h && h.dataset.component || null; };
     parent.postMessage({ type: 'design:select',
       component: host && host.dataset.component || null,
       elementPath: pathTo(el),
@@ -90,9 +104,9 @@ const PICKER_RUNTIME: &str = r#"(() => {
       text: (el.textContent || '').trim().slice(0, 80),
       rect: { x: r.x, y: r.y, w: r.width, h: r.height },
       snippet: el.outerHTML.slice(0, 600),
-      ancestors: (() => { const a = []; let n = el;
-        while (n && n !== document.body) { a.unshift((n.dataset && n.dataset.component) || n.tagName.toLowerCase()); n = n.parentElement; }
-        return a.slice(-6); })()
+      ancestors: kept.map((n) => (n.dataset && n.dataset.component) || n.tagName.toLowerCase()),
+      ancestorPaths: kept.map(pathTo),
+      ancestorComponents: kept.map(hostOf)
     }, '*');
   }, true);
 
