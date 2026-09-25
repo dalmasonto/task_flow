@@ -21,6 +21,8 @@ import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, 
 import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
 import { loadDockOpen, loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
+import { resolveActiveProject } from "@/lib/active-project"
+import { readDefaultProjectId, writeDefaultProjectId } from "@/lib/site-config"
 import { type BoardColumnId } from "@/lib/board-columns"
 import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -144,6 +146,43 @@ function App() {
   const [authGateStatus, setAuthGateStatus] = useState<AuthGateStatus>(
     () => (hasStoredAuthSession() ? "checking" : "anonymous")
   )
+  // The project the USER last chose, from the site-wide config table
+  // (lib/site-config) — the second preference in `resolveActiveProject`, and the
+  // reason a fresh load no longer drops them onto whichever project sorts first.
+  //
+  // State, because the render path resolves against it; mirrored in a ref,
+  // because the async loader has to read it WITHOUT taking a reactive
+  // dependency — a dependency there would churn loadLiveWorkspace's identity,
+  // and the realtime effect below re-opens the SSE stream whenever that identity
+  // changes. Both copies are written only through rememberPersistedProjectId.
+  const [persistedProjectId, setPersistedProjectId] = useState<string | null>(null)
+  const persistedProjectIdRef = useRef<string | null>(null)
+  const rememberPersistedProjectId = useCallback((projectId: string | null) => {
+    persistedProjectIdRef.current = projectId
+    setPersistedProjectId(projectId)
+  }, [])
+  // Mirror of the signed-in user's id, for the same reason: the loader reads the
+  // site config BY USER and cannot depend on `currentUser`. This effect is
+  // declared above the auth and load effects, and React runs effects in
+  // declaration order, so the ref is filled by the commit in which authGateStatus
+  // becomes "authenticated" — the one that first lets the loader run.
+  //
+  // It also DROPS the cached choice whenever the user changes. Logout is a
+  // client-side navigate, not a reload (see handleLogout), so a second account
+  // can sign in on this same tab and would otherwise inherit the first one's
+  // project: the ref short-circuits the Dexie read, and the read is keyed by user
+  // precisely so that cannot happen. The state copy is left to the loader's next
+  // publish, which runs in this same effect pass.
+  //
+  // Keyed on the ID rather than the `currentUser` object: the auth effect
+  // refetches the user on every dashboard navigation, and a fresh object
+  // identity would clear the cache on each of them for no reason.
+  const currentUserId = currentUser?.id ?? null
+  const currentUserIdRef = useRef<number | null>(null)
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId
+    persistedProjectIdRef.current = null
+  }, [currentUserId])
   // The signed-in user's own invite inbox count (GET .../invites/mine), distinct
   // from `pendingInvites` below which counts the ACTIVE PROJECT's outgoing invites.
   const [myInviteCount, setMyInviteCount] = useState(0)
@@ -156,8 +195,18 @@ function App() {
     }
   }, [])
 
-  const activeProjectBase: Project | undefined =
-    workspaceProjects.find((project) => project.id === activeProjectId) ?? workspaceProjects[0]
+  // The ONE resolver (lib/active-project) answers "which project is active?" —
+  // for this line AND for loadLiveWorkspace, so the two cannot disagree. This
+  // replaces a hand-written `?? workspaceProjects[0]`: a second, independently
+  // written fallback to the same order-dependent answer, which let a deleted or
+  // renamed-away active project silently move to whatever sorted first.
+  //
+  // `find` can only miss when the resolver answered null (an empty list), which
+  // is exactly the state that renders the "no projects" empty state.
+  const resolvedActiveProjectId = resolveActiveProject(activeProjectId, persistedProjectId, workspaceProjects)
+  const activeProjectBase: Project | undefined = workspaceProjects.find(
+    (project) => project.id === resolvedActiveProjectId
+  )
   const activeLiveProjectId = activeProjectBase ? liveId(activeProjectBase.id) : null
   const activeLiveWorkspace =
     activeLiveProjectId && liveWorkspace?.project.id === activeLiveProjectId ? liveWorkspace : null
@@ -396,6 +445,19 @@ function App() {
     async (preferredProjectId: string | null = activeProjectId) => {
       setIsLiveSyncing(true)
 
+      // The user's own choice, read HERE rather than taken from render state:
+      // this must not race the state update that publishes it, or the first
+      // resolve of a session would fall back to list order — the very bug. The
+      // in-session ref wins once it holds anything, so this is one IndexedDB get
+      // per session, not per refresh. Safe to await ahead of the try: the reader
+      // is total and answers null on ANY failure, so it cannot skip the finally
+      // that releases isLiveSyncing.
+      const userId = currentUserIdRef.current
+      const persisted =
+        persistedProjectIdRef.current ??
+        (userId != null ? await readDefaultProjectId(userId) : null)
+      rememberPersistedProjectId(persisted)
+
       try {
         const summary = await fetchTaskflowProjectSummary()
 
@@ -415,10 +477,17 @@ function App() {
         }
 
         const nextProjects = mapLiveProjects(summary)
-        const nextActiveProjectId =
-          preferredProjectId && nextProjects.some((project) => project.id === preferredProjectId)
-            ? preferredProjectId
-            : nextProjects[0].id
+        // The ONE resolver (lib/active-project): the caller's preferred id, then
+        // the user's persisted choice, then the first row. Replaces an inline
+        // `preferredProjectId && ... ? preferredProjectId : nextProjects[0].id`,
+        // which silently moved the active project to whatever the server's order
+        // put first whenever the preferred id was missing from this fresh list —
+        // "different projects try to take that spot".
+        //
+        // `nextProjects` is non-empty (the empty case returned above), so the
+        // resolver always answers with an id from it; the assertion satisfies the
+        // type checker and is NOT a second fallback.
+        const nextActiveProjectId = resolveActiveProject(preferredProjectId, persisted, nextProjects)!
         const nextProjectId = liveId(nextActiveProjectId) ?? summary.projects[0].id
 
         setWorkspaceProjects(nextProjects)
@@ -466,7 +535,7 @@ function App() {
         setIsLiveSyncing(false)
       }
     },
-    [activeProjectId]
+    [activeProjectId, rememberPersistedProjectId]
   )
 
   const applyWorkspaceUpdate = useCallback(
@@ -1271,9 +1340,23 @@ function App() {
     return <AuthGateScreen />
   }
 
+  /// The ONLY place a project switch is recorded.
+  ///
+  /// Called from the three places the user CHOOSES a project — the sidebar
+  /// switcher, creating one, and following a task ref into another project — and
+  /// deliberately not from the resolver. Persisting whatever the resolver landed
+  /// on would save the list-order accidents this change removes and faithfully
+  /// restore them on the next load. The Dexie write is fire-and-forget: it is a
+  /// preference for the NEXT page load, and a failed write costs one click.
+  function chooseProject(projectId: string) {
+    setActiveProjectId(projectId)
+    rememberPersistedProjectId(projectId)
+    if (currentUserId != null) void writeDefaultProjectId(currentUserId, projectId)
+  }
+
   function handleProjectChange(projectId: string) {
     const firstTask = tasks.find((task) => task.projectId === projectId)
-    setActiveProjectId(projectId)
+    chooseProject(projectId)
     if (firstTask) {
       setSelectedTaskId(firstTask.id)
     }
@@ -1309,7 +1392,7 @@ function App() {
     const projectId = String(project.id)
     setLiveSyncError(null)
     setWorkspaceProjects((current) => [...current, mappedProject])
-    setActiveProjectId(projectId)
+    chooseProject(projectId)
     setSelectedTaskId((current) => tasks.find((task) => task.projectId === projectId)?.id ?? current)
     setLiveWorkspace({
       project,
@@ -2336,7 +2419,11 @@ function App() {
               element={
                 <DesignSurfacePage
                   projectId={activeProject ? Number(liveId(activeProject.id)) : null}
-                  project={activeProject}
+                  // `?? null`, not a bare `activeProject`: the resolver answers
+                  // null for an empty list, and the type now says so honestly.
+                  // Before, `workspaceProjects[0]` was *typed* Project while
+                  // being undefined on an empty array.
+                  project={activeProject ?? null}
                   liveWorkspace={activeLiveWorkspace}
                   currentUser={currentUser}
                   onWorkspaceUpdate={(updater) => {
@@ -2392,7 +2479,7 @@ function App() {
           onSwitchProject={(projectId) => {
             // Keep openTaskId set: once the new project's tasks land the
             // resolver flips to "ready" and the sheet opens on its own.
-            setActiveProjectId(projectId)
+            chooseProject(projectId)
           }}
         />
       ) : null}
