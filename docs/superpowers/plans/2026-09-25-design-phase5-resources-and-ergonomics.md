@@ -2230,6 +2230,56 @@ export function resolveActiveProject(
 
 ---
 
+### Task 28: The eager-load leaks, and a reference-list cliff
+
+**Requested by the user:** *"the client tries to load all the data once and this leads to long load times ie in production where there is lots of data and the UI is frozen … let the sidebar load its data alone, then let each screen load its data when the user hits it … For now the data cache unless it's the sidebar data like projects since they dont often change … but for the rest of the pages let them fetch when the user is there."* They also said: **do this after the UI upgrades.**
+
+**Read `boot-load-map.md` first** — it is in this plan's workspace and it is the whole basis of this task: `bash scripts/sdd-workspace` prints the directory. It maps the boot path request by request, and it was written read-only with file:line citations.
+
+**The headline finding, and it changes the shape of the work: the per-surface mechanism already exists and the user's named case mostly already holds.** Chat is **not** fetched on the board for a first-time visitor. There is no `<x>Needed` component — the gates are **nine booleans** computed from the route at `App.tsx:1083-1132`, funnelling into **one** effect (`App.tsx:1134-1247`) guarded by a ref of loaded flags. **So do not build a second mechanism.** The work is plugging specific leaks and fixing one correctness bug.
+
+**Files:** `v2_fe/src/App.tsx`, `v2_fe/src/lib/taskflow-api.ts`, possibly `v2_fe/src/lib/live-mappers.ts`
+
+- [ ] **1. `dockOpen` is persisted, so chat loads on every route forever — the user's own case.** `chat-dock-state.ts:41-51` persists the dock's open state to localStorage (read at `App.tsx:912`), and the chat slice is gated on `dockOpen` — so once a user has *ever* opened the chat dock, `chatNeeded` is true on **every** dashboard route for the rest of that browser's life. This is a gate-*input* bug, not a missing gate. **Rule: a persisted preference must not mean "load it everywhere"; gate on the current route's need, and let the dock's own surface trigger its own fetch.**
+
+- [ ] **2. The board's five column queries are dragged in by two feeds that do not render them.** `App.tsx:1125-1129` gates `tasksNeeded` on `board|reviews|activity|openTask` (`taskflow-api.ts:664-675`), so `/dashboard/activity` and `/dashboard/reviews` pull up to 125 rows of the fattest row in the app (`description_markdown` + `notes_markdown`, `taskflow-tasks/src/models.rs:72-74`) which **neither feed renders**. Their only use there is title resolution (`live-mappers.ts:247-249`, `289-290`) — and that **already degrades honestly** to `Task #<id>`.
+  **So this needs a title source, not a gate.** Removing the gate without one would leave the feeds showing `Task #123` everywhere, which is a regression dressed as an optimisation. Find or add the cheap title source first, and say in your report which it was. Biggest single win in the map — sequence it first.
+
+- [ ] **3. The chat slice on `/dashboard/design` is six queries for a rail that needs two.** `App.tsx:1097` gates the whole chat slice for the design page, which needs only `agentChannels` + `agentChannelMembers` to resolve the project room.
+  ⚠️ **Do not simply drop or narrow the gate — there is a duplicate-creation hazard behind it.** The empty-channel placeholder **synthesises** a project room (`live-mappers.ts:1088-1101`, `App.tsx:1089-1092`), so a send from that synthesised room creates a **duplicate** channel. The fix is a **channels-only slice**, not a narrow gate. Read those lines before changing anything here.
+
+- [ ] **4. A production correctness cliff, which is a BUG rather than a weight problem — surface this even if you do nothing else on it.** `REFERENCE_PAGE_SIZE = 100` **is the server's hard ceiling** (`umbral-rest/src/pagination.rs:296-302`), and the "reference" loaders read **page 1 with no walk**. So in production — exactly the "lots of data" case the user describes — those lists **silently truncate at 100** with no indication. That is a wrong answer, not a slow one. Either walk the pages or make the truncation visible; say which you chose and why. If it is too large to fix here, write it up rather than leaving it implied — it is currently invisible.
+
+- [ ] **5. The smaller leaks, in the map's ranked order.** The summary's **2 count queries per project** on every route (`taskflow-api.ts:470-484`); the core workspace + summary loading on `/account/*` (`App.tsx:818-828` guards on auth, not route, while the account area renders no workspace data); `fetchMyInvites` fetched twice (boot + invitations page); `fetchCurrentUser` re-firing on every route change (`App.tsx:816` has `location.pathname` in its deps); `fetchGithubProjectStatus` fired by the header on every dashboard route (`:2012`). Take them in that order and stop where the risk stops being worth it — say where you stopped.
+
+- [ ] **6. The sidebar badge that changes for the wrong reason.** `countOnlineAgents` feeds the sidebar's online badge from the **presence slice** (`App.tsx:176`, `live-mappers.ts:641-645`), so the number moves when an *unrelated* surface loads — even though `mapLiveProjects` deliberately avoids exactly that (`live-mappers.ts:652-658`). The map calls this a hazard rather than a bug; judge it and fix it if the fix is small, because a badge that changes while nothing relevant happened is the kind of thing that erodes trust in every other number.
+
+- [ ] **7. Give the mechanism an executable spec, because it has none.** It is documented only in code comments — no plan, spec, README or `CLAUDE.md` — and `taskflow-api.ts` has **no test file at all**. The gates are **nine booleans computed from a route string plus three flags**, which is a pure function and perfectly testable. Extract and test it: which routes need which slices, that a *persisted* dock state does not enable chat everywhere (item 1 as a regression test), and that a route change resets what it should. This is the difference between fixing the leaks and preventing the next one.
+
+- [ ] **8. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning**, measured per file. **Do not run `npm run build`** and do not push: publishing is on hold. Commit with `git commit -- <paths>`, never `git add <paths> && git commit` — several agents share this worktree's index and that form has already produced a commit here whose tree does not compile.
+
+- [ ] **9. What you cannot verify, stated rather than implied.** Every payload figure in the map is quoted from a code comment, not measured; nobody has profiled the built app. Do not claim a load-time improvement. Give the user a script — which routes to open, what to watch in the network panel, and **which requests should be absent** — since "fewer requests on a route that does not need them" is checkable by eye and a millisecond figure is not.
+
+---
+
+### Task 29: Realtime activity re-sorts thousands of rows on every event
+
+**Found by the boot-load investigation**, which was looking for main-thread hot spots and found this one in the **app shell** rather than the design page: realtime grows `taskActivity` to **8000 rows**, and `mapLiveActivityEvents` **re-sorts all of them on nearly every event** (`live-mappers.ts:748-750`, `App.tsx:626`).
+
+**Why it matters here:** the user reports *"the UI is frozen"* in production, and this is a plausible **second** cause of it, entirely separate from Task 27's design-page remount storm. **Do not conflate them** — Task 27 is a design-page epoch remounting boards; this is the shell re-sorting a large array per event. If the user's freeze is this one, fixing Task 27 alone would leave it.
+
+**Files:** `v2_fe/src/lib/live-mappers.ts`, `v2_fe/src/App.tsx`
+
+- [ ] **1. Establish which one the user is hitting before optimising.** The map could not tell, because it had no profiler and no running stack. Say what you can determine from reading — how often the activity path runs relative to the design-page path, and whether 8000 rows is a cap or a growth — and be explicit that the *decision* between the two causes needs a profile of the built app.
+
+- [ ] **2. The sort is the hot part; the array size is the multiplier.** Take both if they are separately cheap: stop re-sorting the whole array when the incoming change touches one row (insert into position, or batch), and reconsider whether 8000 rows need to be in memory at all when only a tail is rendered. A pure helper for the merge is testable; the *arrangement* is not, so test the helper and say what remains unverified.
+
+- [ ] **3. Do not change what the activity feed shows.** Reducing rows rendered is fine; silently dropping events from the *data* is not — the feed is a record. If you cap the in-memory array, say what a user loses.
+
+- [ ] **4. Verify and commit.** `npx tsc -b && npm test && npx eslint <files>`. **No build, no push.** Commit with `git commit -- <paths>`.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
