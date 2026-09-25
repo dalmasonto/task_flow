@@ -501,9 +501,12 @@ function DeviceChrome({
   )
 }
 
-/// Mount an iframe only while near the viewport (§9.2): within ~1.5 viewports
-/// (IntersectionObserver margin) → mount. A static placeholder keeps the
-/// canvas free of holes while unmounted.
+/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
+/// (IntersectionObserver margin) → mount, and it stays mounted. A static
+/// placeholder keeps the canvas free of holes while unmounted. Frames are never
+/// released, so a long session on a large canvas costs one live document per
+/// board seen: that is the accepted price of keeping pages comparable side by
+/// side, not an oversight.
 function LazyFrame({
   src,
   width,
@@ -530,7 +533,13 @@ function LazyFrame({
     if (!el) return
     const observer = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) setNear(entry.isIntersecting)
+        // Latch: mount on first sight, never unmount. A page that vanishes when
+        // scrolled past cannot be compared against its neighbour, and reloading
+        // it on return throws away exactly the live state the comparison needs.
+        // Initial mounting stays lazy — a frame nobody has scrolled to still
+        // costs nothing, which is what keeps a large canvas from mounting a
+        // dozen documents at once.
+        for (const entry of entries) if (entry.isIntersecting) setNear(true)
       },
       { root: null, rootMargin: "150%", threshold: 0 }
     )
