@@ -40,15 +40,28 @@ const targetKey = (route: string, elementPath: string) => `${route}\u0000${eleme
 const key = (s: SelectionState) => targetKey(s.route, s.elementPath)
 
 /// Add `next` unless an equivalent selection is already present (same route AND
-/// same elementPath), in which case re-activate the existing one. Returns the
-/// list and the index that is now active.
+/// same elementPath), in which case that row is RE-POINTED at `next` and left
+/// where it is. Returns the list and the index that is now active.
 ///
-/// The list handed in is never modified: it is returned as it is when the row
-/// already exists, and copied when a row is appended. Two clicks on one element
-/// are one row — the second click is a re-activation, not a second selection.
+/// Two clicks on one element are one row — the second click is a re-activation,
+/// not a second selection — but they are still two CLICKS, and the row carries
+/// where the click landed: `boardKey`, `rect` and `viewport`. One route is open
+/// on one board per selected device, and those boards are the same page in the
+/// same DOM, so the same element clicked on the laptop board has the same route
+/// and the same element path as the click on the phone board. Re-activating
+/// without re-pointing therefore leaves the row naming the FIRST board: the
+/// canvas overlay stays on the other screen and the click just made shows
+/// nothing at all, which is the whole feedback the human gets.
+///
+/// What a refresh leaves alone is the row's IDENTITY — route and elementPath,
+/// the pair the search matched on — so the row's React key and its comment
+/// badge, which are both keyed on that pair, do not move.
+///
+/// The list handed in is never modified: a hit maps to a new array and a miss
+/// copies, so a caller holding the previous list cannot be surprised by it.
 export function addSelection<T extends SelectionState>(list: T[], next: T): SelectionList<T> {
   const at = list.findIndex((s) => key(s) === key(next))
-  if (at >= 0) return { list, active: at }
+  if (at >= 0) return { list: list.map((s, i) => (i === at ? next : s)), active: at }
   return { list: [...list, next], active: list.length }
 }
 

@@ -797,13 +797,16 @@ export function DesignSurfacePage({
                 manifest={manifest}
                 projectId={projectId}
                 labelFor={labelFor}
-                // The live list (SSE + a refetch on create), which is what the
-                // per-row "already commented" badges are counted from.
+                // The live list (SSE + a refetch on create). ONE list for the
+                // panel: the per-row "already commented" badges are counted from
+                // it, and the Comments section below them is drawn from it —
+                // which is why the section takes it as a prop rather than
+                // fetching its own copy that would go stale on the next comment.
                 comments={comments}
                 onActivate={handleActivateSelection}
                 onRemove={handleRemoveSelection}
                 onClear={handleClearSelections}
-                onCommentCreated={() => refreshComments()}
+                onCommentsChanged={refreshComments}
                 onWiden={handleWiden}
                 onFocusComment={focusComment}
               />

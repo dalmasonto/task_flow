@@ -85,7 +85,7 @@ const render = (props: {
       onActivate: () => {},
       onRemove: () => {},
       onClear: () => {},
-      onCommentCreated: () => {},
+      onCommentsChanged: () => {},
       onWiden: () => {},
     }),
   )
@@ -177,6 +177,35 @@ describe("DesignInspector — the selection list", () => {
     // comment's column names by the selection's spelling (no badge at all —
     // silently, since `undefined` compares as nothing).
     expect(badges(html)).toEqual(["2", "1"])
+  })
+
+  it("draws the Comments list from the SAME list the badges count, not a second fetch", async () => {
+    // One question — "which of these have I already commented on?" — and until
+    // now it had two answers: the badge counted the page's LIVE list (SSE + a
+    // refetch on create), while the list below fetched its own copy once per
+    // project and never refreshed. Commenting therefore raised a badge over a
+    // list that still showed nothing, and the human cannot tell "not mapped yet"
+    // from "not loaded yet" — so they comment a second time. The row's badge and
+    // the list it sits above have to be the same list.
+    //
+    // SSR is what makes this provable here, and it is why this case can be a
+    // test at all: the section's own fetch lives in an effect and effects do not
+    // run under `renderToStaticMarkup`, so a Comments title in this markup can
+    // only have come from the prop it was handed.
+    const html = render({
+      selections: [PRICING, SETTINGS],
+      activeIndex: 0,
+      comments: await comments([
+        { id: 1, route: "/pricing", path: "nav:nth-child(3)" },
+        { id: 2, route: "/settings", path: "nav:nth-child(3)" },
+      ]),
+    })
+
+    // What has to change to fail: not passing the list down (the section renders
+    // nothing at all — its `Comments (…)` title is drawn by the section and
+    // nowhere else), or drawing it from a different list (the count is this
+    // list's).
+    expect(html).toContain("Comments (2)")
   })
 
   it("draws the empty state, and no rows, when nothing is selected", () => {

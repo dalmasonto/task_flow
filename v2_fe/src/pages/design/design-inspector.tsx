@@ -39,7 +39,7 @@ export function DesignInspector({
   onActivate,
   onRemove,
   onClear,
-  onCommentCreated,
+  onCommentsChanged,
   onWiden,
   onFocusComment,
 }: {
@@ -53,13 +53,23 @@ export function DesignInspector({
    *  same resolver the canvas and the comment rows use, so a renamed page
    *  cannot read one way here and another way everywhere else). */
   labelFor: (route: string) => string
-  /** Every comment on the project — the per-row "already commented" badge. */
+  /** Every comment on the project — the per-row "already commented" badge AND
+   *  the Comments list at the bottom of this panel, which is the same list on
+   *  purpose (see `onCommentsChanged`). The caller owns it: it fetches it, and
+   *  it refreshes it on create and on the design-comments SSE event. */
   comments: DesignComment[]
   onActivate: (index: number) => void
   onRemove: (index: number) => void
   /** Drop every selection (the panel's ✕). */
   onClear: () => void
-  onCommentCreated: (comment: DesignComment) => void
+  /** The project's comments changed — one was created, dismissed or dispatched.
+   *  The caller refetches the live list it hands back in as `comments`. ONE
+   *  callback rather than a separate one per cause, because the badge above and
+   *  the list below answer ONE question ("which of these have I already
+   *  commented on?") and two ways to answer it is how a badge ends up counting a
+   *  comment the list has not drawn yet — read as "not mapped yet" when it means
+   *  "not loaded yet", so the human comments twice. */
+  onCommentsChanged: () => void
   /** Re-anchor the ACTIVE selection to the crumb at this index (see
    *  `widenSelection`). */
   onWiden?: (index: number) => void
@@ -77,7 +87,12 @@ export function DesignInspector({
           Hit <code>C</code> and click any element to select it — pick as many as
           you like, on as many pages. Each one gets its own comment.
         </p>
-        <CommentsListSection projectId={projectId} onFocus={onFocusComment} />
+        <CommentsListSection
+          projectId={projectId}
+          comments={comments}
+          onChanged={onCommentsChanged}
+          onFocus={onFocusComment}
+        />
       </div>
     )
   }
@@ -147,7 +162,10 @@ export function DesignInspector({
         selection={active}
         manifest={manifest}
         projectId={projectId}
-        onCreated={onCommentCreated}
+        // The comment itself is the caller's to insert if it wants it; today it
+        // refetches, which is also what the list below needs on a dismiss or a
+        // dispatch — one refresh, one list.
+        onCreated={() => onCommentsChanged()}
       />
 
       {active.snippet ? (
@@ -161,7 +179,12 @@ export function DesignInspector({
         </details>
       ) : null}
 
-      <CommentsListSection projectId={projectId} onFocus={onFocusComment} />
+      <CommentsListSection
+        projectId={projectId}
+        comments={comments}
+        onChanged={onCommentsChanged}
+        onFocus={onFocusComment}
+      />
     </div>
   )
 }

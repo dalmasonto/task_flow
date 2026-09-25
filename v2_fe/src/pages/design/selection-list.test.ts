@@ -25,8 +25,15 @@ import {
 // or be quietly re-spelled to match.
 
 /// One click, sanitized the way `handleSelect` does it. `over` exists to vary
-/// the two fields `selectionName` reads.
-function pick(route: string, elementPath: string, over: Record<string, unknown> = {}): SelectionState {
+/// the two fields `selectionName` reads; `viewport` exists because the same
+/// route is open on several boards at once, and that is the device the click
+/// happened on.
+function pick(
+  route: string,
+  elementPath: string,
+  over: Record<string, unknown> = {},
+  viewport = "iphone-16-pro",
+): SelectionState {
   const clean = sanitizeSelection(
     {
       type: "design:select",
@@ -37,7 +44,7 @@ function pick(route: string, elementPath: string, over: Record<string, unknown> 
       ...over,
     },
     route,
-    "iphone-16-pro",
+    viewport,
   )
   if (!clean) throw new Error("fixture must sanitize")
   return clean
@@ -96,6 +103,79 @@ describe("addSelection", () => {
     expect(again.active).toBe(1)
   })
 
+  it("keeps two DIFFERENT elements of ONE page as two rows", () => {
+    // The commonest way anyone picks twice: a second component on the page they
+    // are already looking at. Same route, different paths — and this is the only
+    // fixture in this file that pins the SECOND half of the key, because every
+    // other case either varies the route or varies nothing.
+    const nav = pick("/settings", "nav:nth-child(3)")
+    const header = pick("/settings", "header:nth-child(1)")
+    const both = addSelection(addSelection([], nav).list, header)
+
+    // What has to change to fail: deduping on `route` alone. The second click
+    // would re-activate the nav row, so a page could hold ONE selected component
+    // and never two — which is most of what "multiple selects from different
+    // design pages" means. (That mutant is invisible to the test BELOW, whose
+    // two clicks are on different pages; only this one and the shared key behind
+    // `commentsForSelection` catch it.)
+    expect(both.list.map((s) => s.elementPath)).toEqual([
+      "nav:nth-child(3)",
+      "header:nth-child(1)",
+    ])
+    expect(both.list.map((s) => s.route)).toEqual(["/settings", "/settings"])
+    expect(both.active).toBe(1)
+  })
+
+  it("re-points the row at the board just clicked when a route is open on two devices", () => {
+    // One route, two boards: the canvas renders a board per selected device, so
+    // the same element can be clicked twice in the same route, on two different
+    // screens. Both clicks agree on route AND elementPath — it IS one component,
+    // one row — but they differ in everything that says WHERE the click landed.
+    // The row has to follow the second click: the canvas overlay is this row's
+    // `rect` drawn inside this row's `boardKey`, so a row still pointing at the
+    // first board puts the mark on the other screen and shows nothing at all
+    // under the pointer — a click that appears to do nothing.
+    const onPhone = {
+      ...pick("/settings", "nav:nth-child(3)", { rect: { x: 1, y: 2, w: 3, h: 4 } }),
+      boardKey: "settings@iphone-16-pro",
+    }
+    const onLaptop = {
+      ...pick("/settings", "nav:nth-child(3)", { rect: { x: 40, y: 50, w: 60, h: 70 } }, "laptop"),
+      boardKey: "settings@laptop",
+    }
+    const both = addSelection(addSelection([], onPhone).list, onLaptop)
+
+    // What has to change to fail: returning the list untouched on a dedupe hit.
+    // The single-selection code this replaced re-pointed on EVERY click
+    // (`setSelection({ ...clean, boardKey: board.key })`), so a hit that keeps
+    // the old row is a REGRESSION rather than a missing nicety — and `boardKey`
+    // is the field nobody would notice, since the row's route and path stay
+    // right and only the mark on the canvas is in the wrong place.
+    expect(both.list).toHaveLength(1)
+    expect(both.active).toBe(0)
+    expect(both.list[0]?.boardKey).toBe("settings@laptop")
+    expect(both.list[0]?.rect).toEqual({ x: 40, y: 50, w: 60, h: 70 })
+    expect(both.list[0]?.viewport).toBe("laptop")
+  })
+
+  it("never writes to the list it was handed, on a hit or on a miss", () => {
+    // The module's doc says the caller's array is never modified, and a
+    // `push`-then-return (a miss) or a `list[at] = next` (a hit) passes every
+    // other test here. Both are invisible at the call site: React state held by
+    // the page would be mutated in place, so the re-render the new value should
+    // cause never happens and the canvas keeps drawing the old rows.
+    const first = pick("/settings", "nav:nth-child(3)")
+    const appended = [first]
+    addSelection(appended, pick("/settings", "header:nth-child(1)"))
+    expect(appended).toHaveLength(1)
+    expect(appended[0]).toBe(first)
+
+    const refreshed = [first]
+    addSelection(refreshed, pick("/settings", "nav:nth-child(3)", { tag: "settings-nav" }))
+    expect(refreshed).toHaveLength(1)
+    expect(refreshed[0]).toBe(first)
+  })
+
   it("keeps the SAME element path on two different routes as two rows", () => {
     // The case this whole feature exists for: `nav > img` on the home page and
     // the same markup on /settings are two different places to comment, on two
@@ -107,7 +187,9 @@ describe("addSelection", () => {
     // What has to change to fail: deduping on `elementPath` alone. The second
     // page's click would activate the first page's row, and the element on
     // /settings could never be selected at all. (Deduping on `route` alone
-    // fails the test above instead.)
+    // passes THIS test — the two clicks are on different pages — and is what the
+    // two-different-elements-on-one-page case above is for. Neither half of the
+    // key has a case that can stand in for the other's.)
     expect(both.list.map((s) => s.route)).toEqual(["/", "/settings"])
     expect(both.active).toBe(1)
   })
