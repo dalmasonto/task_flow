@@ -17,7 +17,7 @@
 - **Reuse before invention.** Resource sets are a `DesignFile` row at `styles/resources.json`; `for_path` already maps `styles/` to `DesignFileKind::Token`. **No new model, no new migration, no new endpoints.**
 - **But "no new plumbing" was WRONG** (found in Task 6, verified): `validation.rs:176`'s `check_extension` admits **only** `styles/tokens.json` and `styles/tokens.css` for the Token kind, so **every write to `styles/resources.json` is refused** with rule `extension` before `resources::validate` is ever reached. The document could be parsed and validated in a unit test and still be unsaveable. Task 6 extends `validation.rs`: allow the path in `check_extension` (with its `expected` message updated) and dispatch that path to `resources::validate` in `validate_write`. Cost of the miss: without it, the feature is unreachable from the UI while every test passes — the same silent-no-op shape as the Phase 4 `projectScopedRealtimeTables` omission.
 - **Never regenerate `backend/migrations/taskflow_design/0001_auto.json` or `0002_create_design_layout.json`.** No migration is expected in this plan; if one appears, a new file with a new name is the only acceptable outcome.
-- Resource link schemes: **`https:` only**; `javascript:` and `data:` refused for both link and script shapes. Allowed `rel`: `preconnect`, `dns-prefetch`, `stylesheet`, `preload`.
+- Resource link schemes: **`https:` only**; `javascript:` and `data:` refused for both link and script shapes. Allowed `rel`: `preconnect`, `dns-prefetch`, `stylesheet`. (**`preload` was removed in Task 7's fix round** — without an `as` attribute it is inert, so it produced a link that fetched nothing; see the spec's correction. Re-adding it means adding `as` to the model.)
 - Backend tests: `cargo test --workspace` (**a bare `cargo test` in `backend/` silently skips every plugin crate**). Frontend tasks: `npx tsc -b && npm test` — **and NOT `npm run build`**, because the build is what publishes the app (Phase 4's own note: *"Run the build LAST — it is what publishes the app"*). It runs exactly once, in Task 9's held publish, on the user's go-ahead.
 - This repo has **no RTL/jsdom** — pure unit tests only, plus visual verification.
 - **Publish order: the backend must deploy before the frontend.** Measured, not assumed: the deployed backend answers `403` to a realtime group it does not know and the realtime layer refuses the *entire* handshake. Phase 4's held build is still held. So **no task in this plan runs `npm run build`**: a frontend build produced before the user's backend deploy is precisely the hazard this line describes, and Task 9 owns the plan's single one, on the user's go-ahead.
@@ -712,7 +712,7 @@ pub const MAX_SET_NAME: usize = 60;
 /// `rel` values we accept on a `<link>`. All four are inert: none executes or
 /// mutates the document, which is what makes them safe to allow alongside a
 /// stylesheet.
-pub const ALLOWED_REL: &[&str] = &["preconnect", "dns-prefetch", "stylesheet", "preload"];
+pub const ALLOWED_REL: &[&str] = &["preconnect", "dns-prefetch", "stylesheet"];
 
 /// camelCase on the wire throughout, so the frontend mirror is mechanical.
 /// Everything is always serialised — no `skip_serializing_if` — because a
@@ -952,17 +952,52 @@ fn an_attribute_breaking_url_is_escaped_not_executed() {
 // pinned in `src/manifest.rs`'s test module, where a two-file fixture costs
 // three lines (the tests are in Step 3 below).
 
+// This test replaces an earlier draft that asserted `csp.contains("https:")`,
+// `!csp.contains("http://")` and `!csp.contains("'unsafe-eval'")`. Every one of
+// those passes on the UNWIDENED policy too — `https:` is already present via
+// `https://cdn.jsdelivr.net` — so the test could not see the very change it was
+// written for, and would equally have passed if `connect-src` had been widened
+// by mistake. The implementer caught that by running it at RED, before adding
+// the widening, rather than by reading it. The lesson to keep: for a test whose
+// job is to fail on the WRONG code, "the assertions hold on the current code" is
+// not verification.
 #[test]
-fn the_sandbox_csp_allows_https_but_never_widens_dangerously() {
+fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
+    // Pin the boundary in both directions — the three directives that MUST carry
+    // a scheme source, and the four that must not move at all.
     let csp = composer::sandbox_csp("token");
+    let directives: HashMap<&str, &str> = csp
+        .split(';')
+        .filter_map(|part| part.trim().split_once(' '))
+        .map(|(name, value)| (name, value.trim()))
+        .collect();
+
     for directive in ["script-src", "style-src", "font-src"] {
-        assert!(csp.contains(directive), "missing {directive}: {csp}");
+        let value = directives.get(directive).copied().unwrap_or_default();
+        assert!(
+            value.split_whitespace().any(|src| src == "https:"),
+            "{directive} must allow any https origin for a webfont to load: {csp}"
+        );
+        assert!(
+            value.split_whitespace().any(|src| src == "https://cdn.jsdelivr.net"),
+            "{directive} must keep the jsdelivr origin it already had: {csp}"
+        );
     }
-    assert!(csp.contains("https:"), "external fonts cannot load without it: {csp}");
-    assert!(!csp.contains("http://"), "plain http must not be allowed: {csp}");
-    assert!(!csp.contains("'unsafe-eval'"), "eval is never granted: {csp}");
+
+    // Asserted as VALUES rather than as substrings, so a widened `connect-src`
+    // (which would let agent-authored JS POST the operator's localhost and
+    // intranet anywhere) cannot slip through. Token equality is what makes this
+    // test unattributable to a `https:` occurring anywhere else in the string.
+    assert_eq!(directives.get("default-src").copied(), Some("'self'"));
+    assert_eq!(directives.get("img-src").copied(), Some("'self' data: blob:"));
+    assert_eq!(directives.get("connect-src").copied(), Some("'self' https://cdn.jsdelivr.net"));
+    assert_eq!(directives.get("form-action").copied(), Some("'none'"));
+    assert_eq!(directives.get("base-uri").copied(), Some("'none'"));
+    assert_eq!(directives.get("frame-ancestors").copied(), Some("*"));
 }
 ```
+
+Add `use std::collections::HashMap;` to the test file's imports.
 
 - [ ] **Step 2: Run to verify they fail.**
 
