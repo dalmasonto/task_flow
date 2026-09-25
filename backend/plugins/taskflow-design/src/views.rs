@@ -31,6 +31,7 @@ use crate::models::{
     design_layout,
 };
 use crate::sandbox;
+use crate::signals;
 use crate::store::{self, ProjectLocks, WriteOutcome};
 use crate::tokens::{TokensDoc, tokens_json_to_css};
 
@@ -661,9 +662,9 @@ pub async fn design_events(
     ensure_member(user_id, project_id).await?;
 
     let mut groups = HashSet::new();
-    groups.insert(format!("project:{project_id}:design_files"));
+    groups.insert(signals::files_group(project_id));
     groups.insert(format!("project:{project_id}:design_comments"));
-    groups.insert(format!("project:{project_id}:design_layout"));
+    groups.insert(signals::layout_group(project_id));
 
     let registry = Realtime::registry();
     let (conn_id, rx) = registry

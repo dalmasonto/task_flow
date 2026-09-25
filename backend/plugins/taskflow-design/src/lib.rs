@@ -16,6 +16,7 @@
 //!     manifest.rs   — derived manifest + usedOn blast-radius computation
 //!     composer.rs   — the HTML shell composer + system-owned picker runtime
 //!     sandbox.rs    — HMAC read tokens for the sandbox origin
+//!     signals.rs    — realtime bridge for the bulk-write paths
 //!     views.rs      — chrome-facing + sandbox-facing handlers
 //!     urls.rs       — the route table
 //!
@@ -34,6 +35,7 @@ pub mod models;
 pub mod primitives;
 pub mod sandbox;
 pub mod screenshots;
+pub mod signals;
 pub mod store;
 pub mod tokens;
 pub mod urls;
@@ -70,6 +72,11 @@ impl Plugin for TaskflowDesignPlugin {
     }
 
     fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+        // Broadcast the writes that land through `update_values` (existing page
+        // edits, re-arrangements); the per-row `post_save` path is already
+        // covered by the `Expose` registrations in the backend. See
+        // `signals.rs` for why the two paths differ.
+        signals::subscribe();
         Ok(())
     }
 }

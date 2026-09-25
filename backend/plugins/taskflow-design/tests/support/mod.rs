@@ -82,18 +82,36 @@ pub struct TestApp {
 
 impl TestApp {
     pub async fn new() -> Self {
+        Self::boot(false).await
+    }
+
+    /// Same app, plus the realtime plugin. `taskflow_design::signals` broadcasts
+    /// through `Realtime::to_group(..).send(..)`, which no-ops without the
+    /// ambient realtime handle — so a test that asserts on what a write
+    /// BROADCASTS (not just what it stores) needs this boot.
+    pub async fn new_with_realtime() -> Self {
+        Self::boot(true).await
+    }
+
+    async fn boot(with_realtime: bool) -> Self {
         // Boot the full plugin set so FK targets and the membership tables the
         // scope helpers read actually exist. Schema comes from the plugins'
         // own models — no hand-written DDL anywhere.
         boot(|b| {
-            b.plugin(AuthPlugin::<AuthUser>::default())
+            let b = b
+                .plugin(AuthPlugin::<AuthUser>::default())
                 .plugin(taskflow_projects::TaskflowProjectsPlugin::default())
                 .plugin(taskflow_tasks::TaskflowTasksPlugin::default())
                 .plugin(taskflow_agents::TaskflowAgentsPlugin::default())
                 // The agents plugin's attachment model has a FileField; the
                 // boot storage check needs a registered backend.
                 .plugin(MemoryMediaPlugin)
-                .plugin(TaskflowDesignPlugin::default())
+                .plugin(TaskflowDesignPlugin::default());
+            if with_realtime {
+                b.plugin(umbral_realtime::RealtimePlugin::new())
+            } else {
+                b
+            }
         })
         .await;
 
