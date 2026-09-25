@@ -78,9 +78,11 @@ pub struct AgentContextQuery {
 /// runs is a global COPY of the package, not this repo
 /// (`$(npm root -g)/@dalmasonto/taskflow-mcp`: real files, no symlink into the
 /// repo), so text written into `mcp/src` reaches an agent only after a build
-/// AND a reinstall — the installed copy's `dist/` is already stale, carrying
-/// no occurrence of `primitives` where this repo's `src/` and `dist/` both do.
-/// This response has no such step.
+/// AND a reinstall — a build refreshes this repo's `dist/`, and only a
+/// reinstall replaces the installed copy. At the time of writing that copy was
+/// already behind this repo's `src/` and `dist/`: its `dist/server.js` carried
+/// no occurrence of `primitives`, which both of them do. This response has no
+/// such step.
 const AUTHORING_GUIDE: &str = r#"Links between pages
   Use a plain <a href="/route"> for any route in the manifest — e.g.
   <a href="/app">. The composer rewrites it to the sandbox URL, so the click
