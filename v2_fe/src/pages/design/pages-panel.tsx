@@ -114,10 +114,23 @@ export function PagesPanel({
   /// included — each time anything above it changed. Called, a row is an
   /// ordinary keyed child of its section.
   ///
-  /// A row does remount when grouping moves it to another section, and that is
-  /// the one place a draft could be lost; it is not, because the select's own
-  /// `onChange` is what moves it, and reaching the select blurs the rename box
-  /// first — the blur commits the draft before the row changes parent.
+  /// A row does remount when grouping moves it to another section. For the
+  /// self-inflicted path that is harmless: the select's own `onChange` is what
+  /// moves it, and reaching the select blurs the rename box first, so the blur
+  /// commits the draft before the row changes parent.
+  ///
+  /// It does NOT cover a REMOTE move. `DesignSurfacePage` adopts another
+  /// viewer's arrangement on the `designLayout` realtime event
+  /// (`fetchLayout().then(setLayout)`), so an agent or a second viewer
+  /// regrouping this very page re-renders the panel with a new `layout`, the row
+  /// changes parent, `LabelInput` remounts, and an uncommitted draft is dropped
+  /// with no blur to commit it. A known limitation, not corruption: the loss is
+  /// one uncommitted label — visible as the box emptying itself — and nothing
+  /// reaches the shared document. Hoisting the draft into this component to
+  /// close it was rejected as too expensive for that: `LabelInput`'s
+  /// resync-when-someone-else-renames rule (see it below) would have to be
+  /// re-implemented at panel level, and every keystroke would then re-render
+  /// every row.
   const pageRow = (page: NumberedPage) => {
     const open = openRoutes.includes(page.route)
     const current = groupOf(layout, page.route)
@@ -177,18 +190,28 @@ export function PagesPanel({
     <div className="flex flex-col py-1">
       {/* A group with no pages still gets its heading: `+ New group` is the only
           way to make one, so hiding an empty group would make that button look
-          like it did nothing. */}
-      {grouped.groups.map((section) => (
-        <div key={section.id} className="flex flex-col">
-          <h3 className={SECTION_HEADING}>{section.name}</h3>
-          {section.pages.map(pageRow)}
-        </div>
-      ))}
+          like it did nothing. But a section needs pages to be a section OF
+          anything: with `manifest === null` — the panel is mounted for the whole
+          load — there are no pages yet, so every section would be empty and the
+          panel would read as headings stacked above "No pages yet.": the empty
+          state drawn as though it were a result. Same for a project with no
+          pages at all. */}
+      {routes.length
+        ? grouped.groups.map((section) => (
+            <div key={section.id} className="flex flex-col">
+              <h3 className={SECTION_HEADING}>{section.name}</h3>
+              {section.pages.map(pageRow)}
+            </div>
+          ))
+        : null}
       <div className="flex flex-col">
         {/* The tail is only a NAMED thing once something is grouped. With no
             groups at all every page is ungrouped, and a lone "Ungrouped" above
-            the entire list is noise. */}
-        {grouped.groups.length ? <h3 className={SECTION_HEADING}>Ungrouped</h3> : null}
+            the entire list is noise — and with no PAGES at all it is worse than
+            noise. */}
+        {routes.length && grouped.groups.length ? (
+          <h3 className={SECTION_HEADING}>Ungrouped</h3>
+        ) : null}
         {grouped.ungrouped.map(pageRow)}
       </div>
       {/* Gated on the CAP, not on emptiness. This button is the only caller of

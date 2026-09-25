@@ -14,12 +14,24 @@
 ///   document order, then the ungrouped tail. Restarting per section would print
 ///   two different pages as "1" and the number would stop meaning "where this
 ///   page sits in the list".
-/// * **A group's pages are in MANIFEST order, not assignment order.**
-///   `assignRoute` appends, so a group's own `routes` array is the order pages
-///   were put into it, and the canvas's `layoutGroups`
-///   (`lib/design-devices.ts:315`) renders in exactly that order. The panel
-///   deliberately differs: it lists the project's canonical order, so assigning
-///   a page to a group never reshuffles rows the user did not touch.
+/// * **A group's pages are in MANIFEST order, not assignment order.** This is a
+///   deliberate divergence from the canvas, whose `layoutGroups`
+///   (`lib/design-devices.ts:315`) renders a group's boards in `g.routes` order
+///   — and `assignRoute` APPENDS, so that array is assignment order. Matching it
+///   here was considered and rejected:
+///   * it would agree on the sequence of NAMES and not on positions: the canvas
+///     draws only the OPEN routes of each column (`g.routes.filter(r =>
+///     openRoutes.includes(r))`, same line), so the panel's number cannot be a
+///     board ordinal unless every page happens to be open;
+///   * and it would cost STABILITY. `assignRoute` appends, so putting one page
+///     into a group would renumber that group's existing pages under the user —
+///     the opposite of what a fixed 1..N reference is for.
+///   Flipping it is a ONE-LINE change here, in `groupedPages` (iterate
+///   `group.routes` instead of `routes`, resolving each path against the
+///   manifest). If anyone does, the manifest MUST stay the FILTER
+///   (`group.routes.filter(r => byPath.has(r))`): dropping it draws a row for a
+///   page that does not exist and spends a number on it — the phantom-row case
+///   `pages-order.test.ts` pins with mutation M8.
 /// * **The canvas is NOT sorted to match.** `openRoutes` stays in manifest order
 ///   (`DesignSurfacePage`'s `openRoute`) and the boards render in it, so
 ///   sorting the boards into the panel's grouped order would move every board
@@ -71,6 +83,12 @@ export function groupedPages(layout: LayoutDoc, routes: RouteEntry[]): GroupedPa
     // The MANIFEST is the loop, not the group's `routes`: that is what puts the
     // pages in canonical order and what keeps an entry naming a page this
     // project does not have out of the list.
+    //
+    // This line IS the one-line flip to assignment order, and the divergence
+    // from the canvas's `g.routes` order is deliberate — the reasoning is in
+    // the module header. Flipping it means iterating `group.routes` and
+    // resolving each path against `routes`; the manifest must stay the FILTER,
+    // or the phantom-row case below comes back.
     for (const entry of routes) {
       if (claimed.has(entry.path) || !group.routes.includes(entry.path)) continue
       claimed.add(entry.path)
