@@ -1370,6 +1370,8 @@ Then, in a second shell, **`cd v2_fe && npm run dev`** — the dev server, *not*
 
 - [ ] **Step 3: Verify the rest —** labels (rename, reload, persists, and the label appears in every arrangement); the four actions (reload affects only its board; open-in-new-tab; duplicate; remove); a seen page stays loaded after scrolling far away and back; a disabled set emits nothing; a `javascript:` URL is refused with a message.
 
+  **Plus Task 13's claim, which is visual and cannot be checked any other way:** an external `https:` image actually renders inside a frame, and a plain `http:` one does not. The negative half is what proves the widening was a *scheme source* and not `*` — a policy that allowed everything would pass the positive half just as well.
+
 - [ ] **Step 4: Run both suites.**
 
 Run: `cd backend && cargo test --workspace` then `cd ../v2_fe && npx tsc -b && npm test`
@@ -1559,7 +1561,7 @@ The event choice is load-bearing rather than stylistic, and there is a reason to
 
 ---
 
-### Task 12: Tell agents how to link and go back
+### Task 12: Tell agents how to link, go back, and use external media
 
 **Files:**
 - Modify: the agent-facing context (`backend/plugins/taskflow-design/src/agent_views.rs`) and/or the primitives catalogue the agent reads
@@ -1586,9 +1588,103 @@ Links between pages
   in-project links — a new tab leaves the frame and loses its history.
 ```
 
+Add the media half as a second block in the same register. Task 13 widens the policy; without this, an agent's habit stays "static SVG only", which is the gap the user reported:
+
+```
+Images, video and motion
+  External https images and media work:
+      <img src="https://cdn.example/hero.png" alt="…">
+      <video src="https://cdn.example/clip.mp4" controls></video>
+  That covers sprite sheets and CSS background-image from an https origin.
+  Plain http is refused, and inline data:/blob: URIs still work for small
+  assets. Motion no longer has to be CSS/SVG/inline — a video is a real
+  option — though CSS and SVG animation are still the default for interface
+  motion.
+
+  A Lottie animation works, but NOT by putting <script src> in a page: page
+  fragments may not contain one, and the server refuses that markup. Write a
+  COMPONENT that loads the player (component JS is inlined into the document,
+  and any https script origin is allowed), and keep the animation JSON under
+  assets/ so it is fetched same-origin.
+```
+
+- [ ] **Step 1b: Do not let this become a dead sentence.** Whichever surface you add it to, the check in Step 2 is the same and it now covers the media text too — a guidance string that is written but never served is worse than none, because it looks like the capability was delivered.
+
 - [ ] **Step 2: Verify the text lands where the agent reads it** — check it appears in the context response, not merely in the source.
 
 - [ ] **Step 3: Commit.**
+
+---
+
+### Task 13: Backend — let external images and media load, and stop leaking the token to them
+
+**Files:**
+- Modify: `backend/plugins/taskflow-design/src/composer.rs` (`sandbox_csp`)
+- Modify: `backend/plugins/taskflow-design/src/views.rs` (`apply_sandbox_headers`)
+- Modify: `backend/plugins/taskflow-design/tests/resources.rs` (the CSP test)
+
+**Interfaces:**
+- Consumes: nothing from earlier tasks; the CSP test Task 7 built is the one to extend.
+- Produces: nothing new. Two widened directives in an existing function, and one added response header.
+
+**Why this is small — and why it is not §E.** A font is *declared* in the head, so §E needed a document, a validator, an editor and an emitter. An image or a video is *referenced* by the page's own markup, so there is nothing to store and nothing to toggle: the policy is the only blocker. Verified by reading `validate_page_fragment` (`validation.rs:318-474`), which has **no attribute-level URL rules at all** — `<img src="https://…">` and `<video src="https://…">` already pass validation today. **Do not build a document, a model or a UI for this.**
+
+- [ ] **Step 1: Extend the CSP test first**
+
+`tests/resources.rs` already has `the_widening_reaches_the_three_fetch_directives_and_stops_there`, which parses the CSP into a directive map and asserts exact values per directive. Follow its shape exactly: add the two new directives to the loop that requires the `https:` scheme source, and add `media-src`'s exact value to the block that pins the directives which must not move.
+
+```rust
+    for directive in ["script-src", "style-src", "font-src", "img-src", "media-src"] {
+        let value = directives.get(directive).copied().unwrap_or_default();
+        assert!(
+            value.split_whitespace().any(|src| src == "https:"),
+            "{directive} must allow any https origin, or the design layer cannot show a real image: {csp}"
+        );
+    }
+```
+
+```rust
+    assert_eq!(directives.get("img-src").copied(), Some("'self' data: blob: https:"));
+    assert_eq!(directives.get("media-src").copied(), Some("'self' data: blob: https:"));
+```
+
+The existing `connect-src` assertion must keep passing unchanged — it stays `'self' https://cdn.jsdelivr.net`, and that is the point of the next step's comment.
+
+- [ ] **Step 2: Add a test for the referrer header**
+
+`apply_sandbox_headers` (`views.rs:697`) is private, so test it through the real route: boot the app, seed a project, `app.get_sandbox(&format!("/s/{token}/"))`, and assert the response carries `referrer-policy: no-referrer` next to the `x-robots-tag: noindex` it already sets. `tests/phase1_storage_composer.rs` has the harness pattern (`TestApp`, `seed_minimal_project`). If that is heavier than the task wants, a focused test in the resources file is fine — but say which you chose and why.
+
+- [ ] **Step 3: Make the change**
+
+In `sandbox_csp` (`composer.rs`), two directives change and one is added:
+
+```
+img-src 'self' data: blob: https:; \
+media-src 'self' data: blob: https:; \
+```
+
+Keep `default-src 'self'`, `connect-src 'self' https://cdn.jsdelivr.net`, `form-action 'none'`, `base-uri 'none'` and `frame-ancestors *` **byte-identical**.
+
+Then add `Referrer-Policy: no-referrer` in `apply_sandbox_headers`, beside the existing `x-robots-tag`. **This is not polish.** The sandbox URL *is* the credential (`/s/{token}/…`), and every external subresource request carries it in `Referer`: the font widening already leaks the token to the font origins, and widening images would leak it to every image host a page references. The response already sets `no-store` and `noindex`, so this is the header that makes the intent already expressed there true for subresources.
+
+- [ ] **Step 4: Record the reasoning, including why `connect-src` was NOT widened**
+
+Extend the doc comment above `sandbox_csp` rather than starting a new paragraph — it already carries the font widening's bounded rationale (separate origin, no cookies, short-lived read-only token, values supplied by the project's own members), and the same argument covers images and media. Add the two facts a future reader would otherwise have to rediscover:
+
+- that `https:` here is a **scheme source, not `*`** — plain `http:` stays refused, and `data:`/`blob:` stay because inline content is what the design layer already had;
+- **why `connect-src` was not widened for Lottie**, because "Lottie does not work" is the sentence that leads the next person to widen it: a Lottie animation is deliverable today without it — the player loads as part of a *component* (inline script, and `script-src https:` already permits the player itself from any https origin), and the animation JSON lives in `assets/`, served same-origin and therefore covered by `connect-src 'self'`.
+
+- [ ] **Step 5: Run the suite and commit**
+
+Run: `cd backend && cargo test --workspace`
+
+```bash
+cd /home/dalmas/E/projects/local_task_tracker
+git add backend/plugins/taskflow-design/src/composer.rs \
+        backend/plugins/taskflow-design/src/views.rs \
+        backend/plugins/taskflow-design/tests/resources.rs
+git commit -m "feat(design): allow external https images and media, and stop leaking the sandbox token to them"
+```
 
 ---
 

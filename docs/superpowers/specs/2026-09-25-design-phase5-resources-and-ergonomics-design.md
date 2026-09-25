@@ -154,6 +154,27 @@ Rules, because a blanket rewrite would break pages:
 
 **Agents must be told.** The user asked for this explicitly: the agent-facing context should document that a plain `<a href="/route">` is the correct way to link between pages, and that `history.back()` works for a back control. Without that, an agent will keep avoiding cross-page links because they did not work.
 
+### §G — External images and media (added 2026-09-25, while Phase 5 was executing)
+
+The user's ask, verbatim: *"while working, also allow external urls for images, videos as we did for google fonts"* — with the observation that `img-src 'self' data: blob:` means *"no external images, no Lottie from a CDN, no sprite sheets. Motion must be CSS/SVG/inline"*, and that this *"limits the full design view"*, because a design layer built only from static SVGs is not a real preview.
+
+**This looks like §E and is not.** The fonts work needed a storage format, a validator, an editor and an emitter because a font is *declared* in the head by a `<link>`. An image or a video is *referenced* in the body by the page's own `<img>`/`<video>`, so there is nothing to declare, nothing to store and nothing to toggle — the sole blocker is the policy. Verified rather than assumed: `validate_page_fragment` (`validation.rs:318-474`) has no attribute-level URL rules at all, so `<img src="https://…">` and `<video src="https://…">` already pass validation today; the CSP is what refuses them.
+
+**So the change is two directives and one header:**
+
+- `img-src 'self' data: blob:` → **add `https:`**. Covers `<img>`, CSS `background-image`, and sprite sheets.
+- **Add `media-src 'self' data: blob: https:`.** It does not exist today, so `default-src 'self'` governs `<video>` and `<audio>` and every external source is refused.
+- **Add `Referrer-Policy: no-referrer` to sandbox responses** (`views.rs:697-705`). This is not polish. The sandbox URL *is* the credential (`/s/{token}/…`), and every external subresource request carries it in `Referer`. The font widening already leaks the token to the font origins; widening images would leak it to **every image host any page references**. The response already sets `no-store` and `noindex` — it plainly does not want to be referenced or tracked, and this is the header that makes that true for subresources.
+- `connect-src` stays tight, deliberately — see below.
+
+Both `https:` additions are scheme sources, not `*`: plain `http:` stays refused (mixed content would block it anyway), and the existing `data:`/`blob:` entries remain for inline content. The rationale recorded for the font widening carries over unchanged — separate origin, no cookies, short-lived read-only token, values supplied by the project's own members.
+
+**What this deliberately does not do — Lottie.** The user named "no Lottie from a CDN" as a symptom, and it is worth being exact about why the above does not fix it: there are two independent blockers, and neither is `img-src`. (a) `<script src` is a **banned marker** in a page fragment (`validation.rs:332`) — a page cannot declare a CDN script at all. (b) A Lottie player fetches its animation JSON, which is `connect-src` — the one directive with a deliberate tightness rationale, documented in the composer: it is what stops agent-authored JS from `fetch()`ing the operator's localhost and internal network from their browser. Widening it would trade a load-bearing boundary for a nice-to-have.
+
+**And Lottie still works without touching it, which is the path agents should be told about:** a *component* may load the player — the composer inlines component JS as an inline script, and `script-src https:` already permits the player itself from any https origin — and the animation JSON goes in `assets/`, which the sandbox serves same-origin, so `connect-src 'self'` covers the fetch. Nothing in this section is required for that, which is precisely why `connect-src` should not be widened for it.
+
+**Motion.** CSS, SVG and inline animation are unaffected; video is newly possible. What changes is that "motion must be CSS/SVG/inline" stops being a constraint agents must design around and becomes one option among several.
+
 ## Publish order (unchanged, and now wider)
 
 Measured, not theoretical: the deployed backend answers **403** to a realtime group it does not know, and the realtime layer refuses the **entire** handshake when any one group fails policy. So a frontend built from this code, served before the backend, kills realtime app-wide. **The backend must be deployed before the frontend** — and Phase 5's CSP change is likewise backend-first, since a frontend expecting fonts to load would show them missing against an old backend.
