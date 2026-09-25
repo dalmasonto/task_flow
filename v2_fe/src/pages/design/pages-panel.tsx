@@ -12,6 +12,15 @@
 /// Extracted from `DesignSurfacePage.tsx` (already ~1000 lines) when the group
 /// picker landed; it is the one panel with per-row local interaction.
 ///
+/// `+ New group` opens the app's own `Dialog` (`components/ui/dialog.tsx`) —
+/// this panel's `window.prompt` was the last native dialog in the app. The
+/// dialog asks BEFORE it creates: `createGroup` refuses a blank, over-long or
+/// duplicate name by returning the document unchanged and an empty id, which
+/// behind a prompt or a closing dialog is a no-op nobody can see. So the name
+/// rules are asked first (`group-name.ts`) and the answer is printed under the
+/// field, Create disabled while it stands — the resource editor's live reason,
+/// one panel over.
+///
 /// The group picker is a native `<select>` on purpose, not the app's Base UI
 /// `Select`: that component renders the raw value unless the root is given an
 /// `items` value→label map, which is an easy way to ship a picker that shows
@@ -19,8 +28,19 @@
 /// no extra client state. The rename box is a plain `<input>` for the same
 /// reason: a field that commits its own text needs no value→label map either.
 
-import { useState } from "react"
+import { useId, useState } from "react"
 
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import type { DesignManifest } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
 import {
@@ -34,6 +54,7 @@ import {
   type LayoutDoc,
 } from "@/lib/design-layout"
 
+import { groupNameProblem } from "./group-name"
 import { groupedPages, type NumberedPage } from "./pages-order"
 
 const UNGROUPED = "__ungrouped__"
@@ -61,18 +82,27 @@ export function PagesPanel({
 }) {
   const routes = manifest?.routes ?? []
 
+  /// Whether the New group dialog is open. Held here, not inside it: the button
+  /// that opens it is the panel's, and so is the `createGroup` call below.
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+
   const assign = (route: string, value: string) => {
     onLayoutChange(assignRoute(layout, route, value === UNGROUPED ? null : value))
   }
 
-  const addGroup = () => {
-    const name = window.prompt("Group name")
-    if (!name) return
+  /// Create the group the dialog named. `createGroup` stays the ONLY creation
+  /// path — the dialog only decides whether to offer the button.
+  ///
+  /// An empty id here is unreachable while the rule the dialog asks
+  /// (`group-name.ts`) and the rule `createGroup` enforces agree, and
+  /// `group-name.test.ts` pins that they do. If they ever part company, the
+  /// dialog stays open over the name rather than closing on a group that was
+  /// never made — the silent no-op this dialog exists to remove.
+  const addGroup = (name: string) => {
     const { doc, id } = createGroup(layout, name)
-    // `createGroup` returns the input unchanged when the name is taken or the
-    // cap is hit, so an empty id means "nothing happened" — do not claim else.
     if (!id) return
     onLayoutChange(doc)
+    setGroupDialogOpen(false)
   }
 
   // A rename is an edit to the SHARED arrangement document, so it goes through
@@ -223,7 +253,7 @@ export function PagesPanel({
       {layout.groups.length < MAX_GROUPS ? (
         <button
           className="mt-1 px-3 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
-          onClick={addGroup}
+          onClick={() => setGroupDialogOpen(true)}
         >
           + New group
         </button>
@@ -231,7 +261,124 @@ export function PagesPanel({
       {!routes.length ? (
         <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
       ) : null}
+      {/* Mounted, not mounted-and-open: the dialog renders nothing until it is
+          open, and holding its `open` here is what lets `addGroup` close it. */}
+      <NewGroupDialog
+        open={groupDialogOpen}
+        layout={layout}
+        onOpenChange={setGroupDialogOpen}
+        onCreate={addGroup}
+      />
     </div>
+  )
+}
+
+/// The New group dialog: a labelled field, the reason a name is refused, and
+/// Create/Cancel. Escape, the focus trap and focus restore are Base UI's
+/// (`components/ui/dialog.tsx`); Enter submits through the field.
+///
+/// The reason is the point of the whole thing. `createGroup` refuses a blank,
+/// over-long or duplicate name by returning the document unchanged and an empty
+/// id, so a dialog that simply closed would be a no-op the user reads as
+/// success. Create is therefore disabled while `groupNameProblem` returns a
+/// reason, and the reason is printed under the field — the resource editor's
+/// rule, and this phase's whole subject.
+///
+/// The draft is cleared when the dialog OPENS (adjusting state during render —
+/// the pattern `LabelInput` below uses for a prop that changes), so a name typed
+/// and then cancelled is not waiting behind the next open. There is no error
+/// state to keep: the reason is derived from the live `layout` on every
+/// keystroke, so it also follows a group someone else deletes while it is open.
+///
+/// The field is the app's `Input` (a styled `<input>`), and does not touch the
+/// header's rule that THIS panel's controls are native: that rule is about the
+/// picker's value→label map and the rename box's commit-on-blur, and neither
+/// applies to a modal's own form, where the app's field and buttons are the
+/// convention (`WorkspaceDialog`, `TaskRefNotice`).
+function NewGroupDialog({
+  open,
+  layout,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean
+  layout: LayoutDoc
+  onOpenChange: (open: boolean) => void
+  /** The typed name, when it is usable. The caller creates the group. */
+  onCreate: (name: string) => void
+}) {
+  const [name, setName] = useState("")
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (open) setName("")
+  }
+
+  const problem = groupNameProblem(layout, name)
+  /// The field is not marked invalid until something has been typed: an empty
+  /// box beside a disabled Create already says "type a name", and a red border
+  /// on open reads as a mistake the user has not made yet. A box holding only
+  /// spaces DOES show it — that is the case where the sentence is the only way
+  /// to find out why Create will not light up.
+  const showProblem = problem !== null && name !== ""
+  /// The reason's own id, so the field can point at it: a screen reader reads
+  /// "invalid" and the sentence together, rather than announcing the field and
+  /// leaving the why somewhere after it.
+  const problemId = `${useId()}-problem`
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>New group</DialogTitle>
+          <DialogDescription>
+            A group is a listing in this panel, not a layout: pages you put in it
+            keep their place on the canvas.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            // Create is disabled under a reason, and a disabled submit button
+            // means Enter in the field submits nothing — this guard is the
+            // second half of that, so no keystroke can reach `createGroup` with
+            // a name the engine will refuse.
+            if (problem !== null) return
+            onCreate(name)
+          }}
+        >
+          <label className="grid gap-1.5 text-sm font-medium">
+            <span>Group name</span>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Auth"
+              autoComplete="off"
+              aria-invalid={showProblem ? true : undefined}
+              aria-describedby={showProblem ? problemId : undefined}
+            />
+          </label>
+          {showProblem ? (
+            <p id={problemId} className="text-xs text-amber-600">
+              {problem}
+            </p>
+          ) : null}
+          <DialogFooter>
+            {/* `render`, the same composition `ComponentDialog` uses: the
+                dialog's own Close, wearing this app's Button. */}
+            <DialogClose
+              render={<Button type="button" variant="outline" size="sm" />}
+            >
+              Cancel
+            </DialogClose>
+            <Button type="submit" size="sm" disabled={problem !== null}>
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

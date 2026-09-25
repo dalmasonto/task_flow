@@ -15,9 +15,9 @@ import { PagesPanel } from "./pages-panel"
 //
 // It renders the REAL component — `createElement(PagesPanel, props)` and
 // `renderToStaticMarkup` — never `PagesPanel(props)` called as a function. A
-// direct call skips React's element boundary, which happens to work only because
-// the panel has no hooks today; the first `useState` added to it would turn every
-// such call into an "Invalid hook call" instead of a render.
+// direct call skips React's element boundary, and the panel HAS hooks now (the
+// `+ New group` dialog's open state), so such a call would be an "Invalid hook
+// call" instead of a render: this file's idiom is the only one that works.
 //
 // `renderToStaticMarkup` runs in the default node environment: no jsdom, no
 // Testing Library, no new dependency. It is a `.ts` and not a `.tsx` because
@@ -26,7 +26,10 @@ import { PagesPanel } from "./pages-panel"
 //
 // Scope: this is the SSR MARKUP only. Nothing here clicks or types, so the
 // panel's interactions — the select's commit, the rename box's blur/Escape, the
-// `+ New group` prompt — stay untested, as they were.
+// `+ New group` dialog — stay untested, as they were. The dialog is out of
+// reach here for a second reason: its popup lives in a client-only portal
+// (`@base-ui/react`'s FloatingPortal renders nothing on the server), so not
+// even the markup exists until a browser mounts it.
 
 /// A layout document as `/api/design/{id}/layout` sends it, through the same
 /// read path `fetchLayout` uses — the fixtures are the wire, as in
