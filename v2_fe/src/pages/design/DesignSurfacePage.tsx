@@ -84,6 +84,7 @@ import {
 import { fitTransform } from "./canvas-view"
 import { toolForKey, type CanvasTool } from "./canvas-tools"
 import { CommentPins, DesignInspector } from "./design-inspector"
+import { boardForComment, commentRoute } from "./design-comments"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
 import { nextDesignTab, type DesignTab } from "./design-tabs"
@@ -443,13 +444,13 @@ export function DesignSurfacePage({
         selectedPinId={null}
         onSelectPin={(comment) => {
           // Zoom to the pin's artboard and flash the element inside the frame.
-          const board = artboards.find((b) => b.route === comment.pagePath)
+          const board = boardForComment(artboards, comment)
           if (board) {
             focusBoard(board.key, transform)
             const frame = document.querySelector<HTMLIFrameElement>(
               `iframe[data-board-key="${CSS.escape(board.key)}"]`,
             )
-            frame?.contentWindow?.postMessage({ type: "design:flash", selector: comment.elementPath }, "*")
+            frame?.contentWindow?.postMessage({ type: "design:flash", selector: comment.element_path }, "*")
           }
         }}
       />
@@ -541,10 +542,10 @@ export function DesignSurfacePage({
     const commentItems: PaletteItem[] = comments.map((c) => ({
       key: `comment:${c.id}`,
       label: c.body.slice(0, 60),
-      hint: c.pagePath,
+      hint: commentRoute(c),
       group: "Comments",
       run: () => {
-        const board = artboards.find((b) => b.route === c.pagePath)
+        const board = boardForComment(artboards, c)
         if (board) focusBoard(board.key, transform)
       },
     }))

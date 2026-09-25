@@ -13,6 +13,7 @@ import { normalizeLayout, type LayoutDoc } from "@/lib/design-layout"
 import {
   DEFAULT_RESOURCES_DOC,
   normalizeResources,
+  type ResourceLink,
   type ResourcesDoc,
 } from "@/lib/resources"
 
@@ -33,21 +34,32 @@ export function sandboxUrl(token: string, route: string): string {
 // wire, and a type that names a field the server does not send is a promise of a
 // value that is `undefined` at runtime (the editor then renders nothing at all).
 //
-// * DOCUMENT shapes are camelCase. The Rust document types carry
-//   `#[serde(rename_all = "camelCase")]` (`resources.rs`, `layout_doc`,
-//   `manifest`), so `ResourcesDoc` and `DesignTokensDoc` mirror them key for key
-//   — `isScript`, `isAsync`, `usedOn`.
-// * ROW and VIEW shapes are snake_case. They are serialised straight off the ORM
-//   (`DesignFile`, `views::FileSummary`) or written as a `json!({...})` literal
-//   with no serde rename (`views::conflict_response`, `put_file`'s
-//   `affected_routes`) — hence `updated_by`, `current_version`, `affected_routes`
-//   below. `toMatchObject` in the tests pins them.
+// * DOCUMENT shapes are camelCase because the Rust type they mirror carries
+//   `#[serde(rename_all = "camelCase")]` — `resources.rs`'s `ResourcesDoc`,
+//   `ResourceSet` and `ResourceLink`, `layout_doc`'s `LayoutDoc`, and
+//   `manifest.rs`'s `ComponentEntry`, `TokenGroup` and `DesignManifest` — hence
+//   `isScript`, `isAsync`, `usedOn`. Where the mirrored struct carries NO
+//   `rename_all` (`tokens.rs`'s `TokensDoc`, `manifest.rs`'s `RouteEntry`,
+//   `layout_doc`'s `LayoutGroup`) this side is still right only because every
+//   key on both sides is a single word (`version`, `categories`, `light`,
+//   `dark`; `path`, `file`, `title`; `id`, `name`, `routes`). Add one two-word
+//   key there and the two spellings part company.
+// * ROW and VIEW shapes are snake_case, and again the mechanism is the absence
+//   of a rename, not the kind of Rust type: the ORM models (`DesignFile`,
+//   `DesignComment`) serialise their columns as written, `views::FileSummary` is
+//   a hand-written `#[derive(Serialize)]` struct naming its own fields, and a
+//   `json!({...})` literal (`views::conflict_response`, `put_file`'s
+//   `affected_routes`) sends exactly what was typed into it — hence `updated_by`,
+//   `current_version`, `affected_routes`, `page_path`, `resolution_note`.
 //
-// `DesignComment` below is neither: it is a row typed camelCase, and that is a
-// defect of this same class rather than a third convention (`design_comment`
-// serialises snake_case — the backend's phase3 test reads `resolution_note`
-// straight off that endpoint, while `design-inspector.tsx` reads
-// `c.resolutionNote`). Left as found; it is not this round's to rename.
+// A spelling is only pinned where something READS it. `toMatchObject` pins the
+// conflict arm's `current_version`/`current_content`, and `design-comments.test.ts`
+// pins the comment fields through the helpers that read them. `updated_by` and
+// `affected_routes` are read by NOTHING in this client, so no test can pin them:
+// they rest on the Rust source alone, and the first reader is the moment to check
+// the Rust rather than this type. That is how `DesignComment` reached this round —
+// the inspector read `pagePath` while the endpoint sent `page_path`, and `tsc` was
+// perfectly satisfied throughout.
 
 export type DesignFileKind = "token" | "component" | "page" | "asset"
 
@@ -61,7 +73,14 @@ export type ComponentEntry = {
   usageCount: number
 }
 
-export type TokenGroup = { name: string; variables: [string, string][] }
+export type TokenGroup = {
+  name: string
+  variables: [string, string][]
+  /// Dark-mode overrides, as `(name, dark value)` pairs. A Rust tuple
+  /// serialises as a JSON array — `[string, string]`, not `{0, 1}` — and the
+  /// server OMITS this field when nothing in the group has one.
+  variables_dark?: [string, string][]
+}
 
 /// Mirrors the backend's `TokensDoc` (styles/tokens.json) exactly: a flat
 /// version counter plus category → token-name → {light, dark?} values. `dark`
@@ -86,13 +105,22 @@ export type DesignManifest = {
   components: ComponentEntry[]
   tokens: TokenGroup[]
   revision: number
+  /// The enabled resource sets' links, in document order, as `(isScript, link)`
+  /// pairs — a Rust tuple serialises as a JSON ARRAY, so each entry is
+  /// `[boolean, ResourceLink]` and not an object. Nothing in the chrome reads
+  /// it (the server injects the same links into every composed page); it is
+  /// declared because this type claims to mirror the manifest, and the next
+  /// reader should not have to go and check what `Vec<(bool, ResourceLink)>`
+  /// turned into.
+  resources: [boolean, ResourceLink][]
 }
 
 export type DesignFileSummary = {
   path: string
   kind: DesignFileKind
   version: number
-  /// Snake_case because `views::FileSummary` is an ORM row serialised as-is.
+  /// Snake_case because `views::FileSummary` names its own fields and carries
+  /// no `rename_all` — a hand-written view struct, not an ORM row.
   updated_by: string
   updated_at: string | null
   bytes: number
@@ -104,21 +132,27 @@ export type CommentStatus = "open" | "sent" | "addressed" | "dismissed"
 export type DesignComment = {
   id: number
   project: number
-  pagePath: string
-  componentName: string | null
-  elementPath: string
-  srcRef: string | null
+  /// Snake_case, and these are COLUMN names: an ORM model with no `rename_all`
+  /// (the backend's phase3 test reads `resolution_note` off this very endpoint,
+  /// `tests/phase3_agent_surface.rs:294`). Read one through the other spelling
+  /// and it is `undefined` — no error, a blank label and a click that does
+  /// nothing — so the reads live in `design-comments.ts`, where a wire-shaped
+  /// test can reach them.
+  page_path: string
+  component_name: string | null
+  element_path: string
+  src_ref: string | null
   viewport: string
   rect: string
   snippet: string
   body: string
   scope: CommentScope
   status: CommentStatus
-  threadId: string | null
+  thread_id: string | null
   author: string
-  resolutionNote: string | null
+  resolution_note: string | null
   orphaned: boolean
-  createdAt: string | null
+  created_at: string | null
 }
 
 export type ValidationError = {

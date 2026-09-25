@@ -22,6 +22,7 @@ import {
   type CommentScope,
 } from "@/lib/design-api"
 import { type SelectionState, pinNumber } from "./design-selection"
+import { boardsForComment, commentResolutionNote, commentRoute } from "./design-comments"
 
 // ---------------------------------------------------------------------------
 // Inspector (right panel)
@@ -326,58 +327,61 @@ export function CommentsListSection({
     <div className="mt-4 border-t">
       <PanelTitle>Comments ({list.length})</PanelTitle>
       <div className="space-y-2 p-3">
-        {list.map((c) => (
-          <div key={c.id} className="rounded-lg border p-2 text-xs">
-            <div className="flex items-center gap-1.5">
-              {c.status === "open" ? (
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(c.id)}
-                  onChange={() => toggle(c.id)}
-                  title="Select for dispatch"
-                />
-              ) : null}
-              <span
-                className={cn(
-                  "inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                  c.status === "open" && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-                  c.status === "sent" && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-                  c.status === "addressed" &&
-                    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-                  c.status === "dismissed" && "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-                )}
-              >
-                {c.status}
-              </span>
-              <button
-                className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
-                onClick={() => onFocus?.(c)}
-              >
-                {c.pagePath}
-              </button>
-              {c.orphaned ? <span className="ml-auto text-[10px] text-destructive">orphaned</span> : null}
-            </div>
-            <p className="mt-1 line-clamp-3 whitespace-pre-line">{c.body}</p>
-            {c.resolutionNote ? (
-              <p className="mt-1 rounded bg-muted/60 p-1.5 text-[11px] italic">{c.resolutionNote}</p>
-            ) : null}
-            {c.status === "open" ? (
-              <div className="mt-1.5 flex gap-1.5">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={async () => {
-                    await updateDesignComment(projectId, c.id, { status: "dismissed" }).catch(() => null)
-                    onChanged?.()
-                  }}
+        {list.map((c) => {
+          const note = commentResolutionNote(c)
+          return (
+            <div key={c.id} className="rounded-lg border p-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                {c.status === "open" ? (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(c.id)}
+                    onChange={() => toggle(c.id)}
+                    title="Select for dispatch"
+                  />
+                ) : null}
+                <span
+                  className={cn(
+                    "inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                    c.status === "open" && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+                    c.status === "sent" && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+                    c.status === "addressed" &&
+                      "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+                    c.status === "dismissed" && "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+                  )}
                 >
-                  Dismiss
-                </Button>
+                  {c.status}
+                </span>
+                <button
+                  className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() => onFocus?.(c)}
+                >
+                  {commentRoute(c)}
+                </button>
+                {c.orphaned ? <span className="ml-auto text-[10px] text-destructive">orphaned</span> : null}
               </div>
-            ) : null}
-          </div>
-        ))}
+              <p className="mt-1 line-clamp-3 whitespace-pre-line">{c.body}</p>
+              {note ? (
+                <p className="mt-1 rounded bg-muted/60 p-1.5 text-[11px] italic">{note}</p>
+              ) : null}
+              {c.status === "open" ? (
+                <div className="mt-1.5 flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={async () => {
+                      await updateDesignComment(projectId, c.id, { status: "dismissed" }).catch(() => null)
+                      onChanged?.()
+                    }}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
 
         {/* Dispatch bar — visible whenever there is something open to send. */}
         {openOnes.length > 0 ? (
@@ -444,35 +448,33 @@ export function CommentPins({
   return (
     <>
       {parsed.map(({ comment, rect }) =>
-        boards
-          .filter((b) => b.route === comment.pagePath)
-          .map((board) => (
-            <button
-              key={`${comment.id}@${board.key}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                onSelectPin(comment)
-              }}
-              title={comment.body}
-              className={cn(
-                "absolute z-20 flex size-7 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none text-[11px] font-bold text-white shadow-md transition-all duration-[120ms] ease-out hover:scale-110",
-                comment.status === "addressed"
-                  ? "bg-emerald-600"
-                  : comment.status === "sent"
-                    ? "bg-blue-600"
-                    : comment.orphaned
-                      ? "bg-zinc-500"
-                      : "bg-accent",
-                selectedPinId === comment.id && "ring-2 ring-white ring-offset-2 ring-offset-accent",
-              )}
-              style={{
-                left: board.x + rect.x + rect.w,
-                top: board.y + rect.y,
-              }}
-            >
-              {pinNumber(comment.id)}
-            </button>
-          )),
+        boardsForComment(boards, comment).map((board) => (
+          <button
+            key={`${comment.id}@${board.key}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelectPin(comment)
+            }}
+            title={comment.body}
+            className={cn(
+              "absolute z-20 flex size-7 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none text-[11px] font-bold text-white shadow-md transition-all duration-[120ms] ease-out hover:scale-110",
+              comment.status === "addressed"
+                ? "bg-emerald-600"
+                : comment.status === "sent"
+                  ? "bg-blue-600"
+                  : comment.orphaned
+                    ? "bg-zinc-500"
+                    : "bg-accent",
+              selectedPinId === comment.id && "ring-2 ring-white ring-offset-2 ring-offset-accent",
+            )}
+            style={{
+              left: board.x + rect.x + rect.w,
+              top: board.y + rect.y,
+            }}
+          >
+            {pinNumber(comment.id)}
+          </button>
+        )),
       )}
     </>
   )
