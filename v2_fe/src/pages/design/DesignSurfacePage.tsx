@@ -119,6 +119,12 @@ export function DesignSurfacePage({
   const [theme, setTheme] = useState("light")
   /** Bumped on server-side file changes so iframes remount with fresh content. */
   const [contentEpoch, setContentEpoch] = useState(0)
+  /** One counter per board, layered ON TOP of the global `contentEpoch` above.
+   *  A server-side file change remounts everything (that epoch), while a single
+   *  board's Reload must remount only that board — without this overlay, one
+   *  click would reload every frame on the canvas. The state lives HERE, on the
+   *  surface, because the surface owns the actions. */
+  const [boardEpochs, setBoardEpochs] = useState<Map<string, number>>(new Map())
   const [comments, setComments] = useState<DesignComment[]>([])
   const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
@@ -353,6 +359,35 @@ export function DesignSurfacePage({
   const closeRoute = useCallback((route: string) => {
     setOpenRoutes((current) => current.filter((r) => r !== route))
   }, [])
+
+  // --- per-board actions (the ⋯ menu on every artboard header) ---------------
+  const handleReloadBoard = useCallback((key: string) => {
+    setBoardEpochs((current) => new Map(current).set(key, (current.get(key) ?? 0) + 1))
+  }, [])
+
+  const handleOpenBoard = useCallback(
+    (key: string) => {
+      if (!sandboxToken) return
+      const board = artboards.find((b) => b.key === key)
+      if (!board) return
+      // The sandbox URL is the same origin-isolated render the frame shows.
+      window.open(sandboxUrl(sandboxToken, board.route), "_blank", "noopener")
+    },
+    [sandboxToken, artboards],
+  )
+
+  const handleDuplicateBoard = useCallback(
+    (key: string, deviceId: string) => {
+      const board = artboards.find((b) => b.key === key)
+      if (!board) return
+      setDeviceIds((current) =>
+        current.includes(deviceId) ? current : [...current, deviceId],
+      )
+    },
+    [artboards],
+  )
+
+  const handleRemoveBoard = useCallback((route: string) => closeRoute(route), [closeRoute])
 
   // Swap in the three review devices for whatever pages are already open, and
   // fit the new (wider) grid into view. Fits the arrangement actually on
@@ -633,6 +668,12 @@ export function DesignSurfacePage({
               labelFor={labelFor}
               sandboxToken={sandboxToken}
               contentEpoch={contentEpoch}
+              boardEpochs={boardEpochs}
+              deviceIds={deviceIds}
+              onReloadBoard={handleReloadBoard}
+              onOpenBoard={handleOpenBoard}
+              onDuplicateBoard={handleDuplicateBoard}
+              onRemoveBoard={handleRemoveBoard}
               selection={selectionOverlay}
               pins={
                 <>

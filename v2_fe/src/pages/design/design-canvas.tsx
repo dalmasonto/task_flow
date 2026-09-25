@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 
 import {
+  DEVICE_PRESETS,
   type Artboard,
   type DevicePreset,
   boardWidth,
@@ -36,6 +37,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { type CanvasTool } from "./canvas-tools"
@@ -81,6 +85,27 @@ export type DesignCanvasProps = {
   onSelect?: (selection: Record<string, unknown>, board: Artboard) => void
   /** Bumped whenever files change server-side; remounts live iframes. */
   contentEpoch: number
+  /** One counter per board, owned by the SURFACE (it owns the actions) and
+   *  layered ON TOP of `contentEpoch` when each frame's key is built. The
+   *  global epoch still remounts every frame — that is the "the project's
+   *  content changed" signal — while a single board's Reload must remount only
+   *  that board. Without this overlay one Reload click would reload the whole
+   *  canvas. */
+  boardEpochs: Map<string, number>
+  /** The devices currently selected on the surface. "Duplicate at another
+   *  device" offers the presets this list does NOT already contain. */
+  deviceIds: string[]
+  /** Remount this one board's frame (the canvas's explicit reload). */
+  onReloadBoard: (key: string) => void
+  /** Open this board's route in a new tab, in the same origin-isolated sandbox
+   *  render the frame shows. */
+  onOpenBoard: (key: string) => void
+  /** Show this board's route at another device size. It adds the DEVICE, not a
+   *  board: boards are derived from `openRoutes × deviceIds`, so that is the
+   *  only way the route appears at the new size in every arrangement. */
+  onDuplicateBoard: (key: string, deviceId: string) => void
+  /** Close this board's route from the canvas — the page, everywhere. */
+  onRemoveBoard: (route: string) => void
   /** Current chrome-side selection (world-space overlay). */
   selection?: {
     rect: { x: number; y: number; w: number; h: number }
@@ -102,6 +127,12 @@ export function DesignCanvas({
   sandboxToken,
   onSelect,
   contentEpoch,
+  boardEpochs,
+  deviceIds,
+  onReloadBoard,
+  onOpenBoard,
+  onDuplicateBoard,
+  onRemoveBoard,
   selection,
   pins,
 }: DesignCanvasProps) {
@@ -252,6 +283,12 @@ export function DesignCanvas({
             theme={theme}
             picking={picking}
             contentEpoch={contentEpoch}
+            boardEpoch={boardEpochs.get(board.key) ?? 0}
+            deviceIds={deviceIds}
+            onReloadBoard={onReloadBoard}
+            onOpenBoard={onOpenBoard}
+            onDuplicateBoard={onDuplicateBoard}
+            onRemoveBoard={onRemoveBoard}
             sandboxToken={sandboxToken}
             projectId={projectId}
             panMode={spaceDown || canvasTool === "pan"}
@@ -293,6 +330,12 @@ function ArtboardCard({
   theme,
   picking,
   contentEpoch,
+  boardEpoch,
+  deviceIds,
+  onReloadBoard,
+  onOpenBoard,
+  onDuplicateBoard,
+  onRemoveBoard,
   sandboxToken,
   projectId,
   panMode,
@@ -303,6 +346,13 @@ function ArtboardCard({
   theme: string
   picking: boolean
   contentEpoch: number
+  /** This board's own reload counter (see `DesignCanvasProps.boardEpochs`). */
+  boardEpoch: number
+  deviceIds: string[]
+  onReloadBoard: (key: string) => void
+  onOpenBoard: (key: string) => void
+  onDuplicateBoard: (key: string, deviceId: string) => void
+  onRemoveBoard: (route: string) => void
   sandboxToken: string | null
   projectId: number | null
   /** Pan tool active or Space held: the iframe must not swallow the drag that
@@ -319,11 +369,17 @@ function ArtboardCard({
       data-artboard-key={board.key}
     >
       <ArtboardHeader
+        boardKey={board.key}
         route={board.route}
         label={label}
         device={device}
         projectId={projectId}
         width={boardWidth(device)}
+        deviceIds={deviceIds}
+        onReloadBoard={onReloadBoard}
+        onOpenBoard={onOpenBoard}
+        onDuplicateBoard={onDuplicateBoard}
+        onRemoveBoard={onRemoveBoard}
       />
       <div className="overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
         <DeviceChrome device={device}>
@@ -335,7 +391,7 @@ function ArtboardCard({
               name={board.key}
               theme={theme}
               picking={picking}
-              epoch={contentEpoch}
+              epoch={contentEpoch + boardEpoch}
             />
           ) : (
             <FrameError width={device.width} height={device.height} reason="No sandbox token — reload the surface." />
@@ -347,12 +403,21 @@ function ArtboardCard({
 }
 
 function ArtboardHeader({
+  boardKey,
   route,
   label,
   device,
   projectId,
   width,
+  deviceIds,
+  onReloadBoard,
+  onOpenBoard,
+  onDuplicateBoard,
+  onRemoveBoard,
 }: {
+  /** This board's `route@device` key — what the per-board actions are keyed by
+   *  (`route` alone is not unique: one route renders once per device). */
+  boardKey: string
   /** The route, for the per-page actions (Copy HTML / Download) — NOT for the
    *  header's text: the name comes in as `label`. */
   route: string
@@ -366,6 +431,12 @@ function ArtboardHeader({
    *  device's label and actions can never spill into the neighbouring board —
    *  which is what the old unconstrained flex row did. */
   width: number
+  /** Devices already on the canvas — the duplicate submenu omits them. */
+  deviceIds: string[]
+  onReloadBoard: (key: string) => void
+  onOpenBoard: (key: string) => void
+  onDuplicateBoard: (key: string, deviceId: string) => void
+  onRemoveBoard: (route: string) => void
 }) {
   const copyHtml = async () => {
     if (projectId == null) return
@@ -384,6 +455,10 @@ function ArtboardHeader({
       console.error("Could not download page HTML", err)
     }
   }
+
+  // Only the sizes this route is not already rendered at: adding a device that
+  // is already on the canvas would change nothing.
+  const otherDevices = DEVICE_PRESETS.filter((d) => !deviceIds.includes(d.id))
 
   return (
     <div
@@ -418,23 +493,45 @@ function ArtboardHeader({
           <EllipsisIcon className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
+          {/* Rotate is Task 5 (a landscape device variant, not a board action)
+              and stays a placeholder until then. */}
           <DropdownMenuItem>
             <RotateCwIcon className="size-3.5" />
             Rotate
           </DropdownMenuItem>
-          <DropdownMenuItem>
-            <CopyIcon className="size-3.5" />
-            Duplicate at another device
-          </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <CopyIcon className="size-3.5" />
+              Duplicate at another device
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+              {otherDevices.length ? (
+                otherDevices.map((d) => (
+                  <DropdownMenuItem
+                    key={d.id}
+                    onClick={() => onDuplicateBoard(boardKey, d.id)}
+                  >
+                    <span className="flex-1">{d.label}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {d.width}×{d.height}
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              ) : (
+                // Reachable: the DevicePicker lets every preset be selected.
+                <DropdownMenuItem disabled>Every device is already shown</DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem onClick={() => onOpenBoard(boardKey)}>
             <ExternalLinkIcon className="size-3.5" />
             Open in new tab
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onReloadBoard(boardKey)}>
             <RefreshCwIcon className="size-3.5" />
             Reload
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onRemoveBoard(route)}>
             <XIcon className="size-3.5" />
             Remove
           </DropdownMenuItem>
