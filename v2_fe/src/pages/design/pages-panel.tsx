@@ -2,6 +2,13 @@
 /// picker per page for the `groups` arrangement, and a box to give a page a
 /// display label.
 ///
+/// The list is GROUPED and NUMBERED: the groups first, in the document's own
+/// order, then everything ungrouped, numbered 1..N across the whole sequence.
+/// `pages-order.ts` owns that order and those numbers, and the test on them.
+///
+/// It is a listing and nothing more — grouping a page here does NOT move its
+/// board on the canvas, and must not be made to. See the call site below.
+///
 /// Extracted from `DesignSurfacePage.tsx` (already ~1000 lines) when the group
 /// picker landed; it is the one panel with per-row local interaction.
 ///
@@ -27,7 +34,17 @@ import {
   type LayoutDoc,
 } from "@/lib/design-layout"
 
+import { groupedPages, type NumberedPage } from "./pages-order"
+
 const UNGROUPED = "__ungrouped__"
+
+/// The heading a section (a group, or the ungrouped tail) is introduced by — one
+/// constant so the two cannot drift apart. The headings themselves are `<h3>`,
+/// the level the rest of the app uses for a section inside a page, so the
+/// panel's sections are headings a screen reader can jump between rather than
+/// merely styled text.
+const SECTION_HEADING =
+  "px-3 pt-2.5 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
 
 export function PagesPanel({
   manifest,
@@ -73,52 +90,107 @@ export function PagesPanel({
     onLayoutChange(next)
   }
 
+  // Which section a page is listed under, and which number it carries, are
+  // `pages-order.ts`'s job rather than this component's: one pure function, so
+  // there is a test on it (this repo's test setup has no DOM, so JSX cannot
+  // have one), and one place that can be wrong about the edge cases — a group
+  // the user deleted, a page two groups both claim — instead of two.
+  //
+  // This is a LISTING. The canvas is deliberately NOT sorted to match it: the
+  // boards render in `openRoutes`, which `openRoute` keeps in MANIFEST order,
+  // so re-sorting them into these sections would move every board below the
+  // edited row the moment a single page is grouped. The spec's §F is absolute
+  // about that — "The canvas layout never reflows" — and a grouping edit is no
+  // more entitled to a reflow than a link click is. Grouping a page changes
+  // where the page is LISTED; it never changes what the canvas looks like.
+  const grouped = groupedPages(layout, routes)
+
+  /// Manifest entries by path, for the row's title fallback.
+  const byPath = new Map(routes.map((entry) => [entry.path, entry]))
+
+  /// One page's row. A plain function the section maps CALL, not a component
+  /// they mount: a component defined in here would be a new type on every render
+  /// of the panel, so React would remount every row — `LabelInput`'s draft
+  /// included — each time anything above it changed. Called, a row is an
+  /// ordinary keyed child of its section.
+  ///
+  /// A row does remount when grouping moves it to another section, and that is
+  /// the one place a draft could be lost; it is not, because the select's own
+  /// `onChange` is what moves it, and reaching the select blurs the rename box
+  /// first — the blur commits the draft before the row changes parent.
+  const pageRow = (page: NumberedPage) => {
+    const open = openRoutes.includes(page.route)
+    const current = groupOf(layout, page.route)
+    const label = layout.pageLabels[page.route] ?? ""
+    // The row's name comes from the resolver, never from `route.title`
+    // directly — the canvas headers resolve through the same call. A
+    // `NumberedPage` is only ever built out of `routes`, so the lookup always
+    // hits; the raw path as the fallback (which `pageLabel` itself documents as
+    // the last resort) keeps a nameless row off the screen if it ever did not.
+    const name = pageLabel(layout, page.route, byPath.get(page.route)?.title ?? page.route)
+    return (
+      <div key={page.route} className="flex items-center gap-1 px-2 py-1">
+        <button
+          className={cn(
+            "flex min-w-0 flex-1 items-center justify-between rounded px-1 py-0.5 text-left text-sm hover:bg-muted",
+            open && "bg-muted/60 font-medium",
+          )}
+          onClick={() => onToggleRoute(page.route)}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            {/* The page's position in THIS list, so the number a reader sees
+                always matches the position they see it in. */}
+            <span className="w-5 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+              {page.n}
+            </span>
+            <span className="truncate">{name}</span>
+          </span>
+          <span className="ml-2 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {page.route}
+          </span>
+        </button>
+        {/* Kept native on purpose — see the file header. */}
+        <select
+          className="max-w-24 shrink-0 rounded border bg-transparent px-1 py-0.5 text-[11px]"
+          aria-label={`Group for ${page.route}`}
+          value={current?.id ?? UNGROUPED}
+          onChange={(e) => assign(page.route, e.target.value)}
+        >
+          <option value={UNGROUPED}>—</option>
+          {layout.groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
+        <LabelInput
+          route={page.route}
+          label={label}
+          name={name}
+          onCommit={(value) => rename(page.route, value)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col py-1">
-      {routes.map((route) => {
-        const open = openRoutes.includes(route.path)
-        const current = groupOf(layout, route.path)
-        const label = layout.pageLabels[route.path] ?? ""
-        // The row's name comes from the resolver, never from `route.title`
-        // directly — the canvas headers resolve through the same call.
-        const name = pageLabel(layout, route.path, route.title)
-        return (
-          <div key={route.path} className="flex items-center gap-1 px-2 py-1">
-            <button
-              className={cn(
-                "flex min-w-0 flex-1 items-center justify-between rounded px-1 py-0.5 text-left text-sm hover:bg-muted",
-                open && "bg-muted/60 font-medium",
-              )}
-              onClick={() => onToggleRoute(route.path)}
-            >
-              <span className="truncate">{name}</span>
-              <span className="ml-2 shrink-0 font-mono text-[11px] text-muted-foreground">
-                {route.path}
-              </span>
-            </button>
-            {/* Kept native on purpose — see the file header. */}
-            <select
-              className="max-w-24 shrink-0 rounded border bg-transparent px-1 py-0.5 text-[11px]"
-              aria-label={`Group for ${route.path}`}
-              value={current?.id ?? UNGROUPED}
-              onChange={(e) => assign(route.path, e.target.value)}
-            >
-              <option value={UNGROUPED}>—</option>
-              {layout.groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-            <LabelInput
-              route={route.path}
-              label={label}
-              name={name}
-              onCommit={(value) => rename(route.path, value)}
-            />
-          </div>
-        )
-      })}
+      {/* A group with no pages still gets its heading: `+ New group` is the only
+          way to make one, so hiding an empty group would make that button look
+          like it did nothing. */}
+      {grouped.groups.map((section) => (
+        <div key={section.id} className="flex flex-col">
+          <h3 className={SECTION_HEADING}>{section.name}</h3>
+          {section.pages.map(pageRow)}
+        </div>
+      ))}
+      <div className="flex flex-col">
+        {/* The tail is only a NAMED thing once something is grouped. With no
+            groups at all every page is ungrouped, and a lone "Ungrouped" above
+            the entire list is noise. */}
+        {grouped.groups.length ? <h3 className={SECTION_HEADING}>Ungrouped</h3> : null}
+        {grouped.ungrouped.map(pageRow)}
+      </div>
       {/* Gated on the CAP, not on emptiness. This button is the only caller of
           `createGroup`, so hiding it while `groups` is empty would make the
           first group impossible to create and the whole `groups` arrangement
