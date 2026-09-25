@@ -162,6 +162,12 @@ describe("widenSelection — a crumb click rebuilds the selection", () => {
     expect(widenSelection(s, s.ancestors.length)).toBeNull()
     expect(widenSelection(s, -1)).toBeNull()
     expect(widenSelection(s, 1.5)).toBeNull()
+    // A chain that disagrees with itself — more paths than labels, which is what
+    // a hostile frame can send and what `!elementPath` alone cannot catch: there
+    // IS a path at that index, so only the bound on `ancestors` keeps the click
+    // from naming an element the breadcrumb cannot show.
+    const ragged = { ...s, ancestorPaths: [...s.ancestorPaths, "div:nth-child(9)"] }
+    expect(widenSelection(ragged, s.ancestors.length)).toBeNull()
   })
 
   it("carries the captured artifacts and leaves the original untouched", () => {
