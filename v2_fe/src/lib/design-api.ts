@@ -28,6 +28,27 @@ export function sandboxUrl(token: string, route: string): string {
 // Types — mirrors taskflow-design's serde shapes
 // ---------------------------------------------------------------------------
 
+// TWO naming conventions live below, and each one mirrors the Rust shape it comes
+// from. Do not "tidy" either into the other — a rename here is a rename of the
+// wire, and a type that names a field the server does not send is a promise of a
+// value that is `undefined` at runtime (the editor then renders nothing at all).
+//
+// * DOCUMENT shapes are camelCase. The Rust document types carry
+//   `#[serde(rename_all = "camelCase")]` (`resources.rs`, `layout_doc`,
+//   `manifest`), so `ResourcesDoc` and `DesignTokensDoc` mirror them key for key
+//   — `isScript`, `isAsync`, `usedOn`.
+// * ROW and VIEW shapes are snake_case. They are serialised straight off the ORM
+//   (`DesignFile`, `views::FileSummary`) or written as a `json!({...})` literal
+//   with no serde rename (`views::conflict_response`, `put_file`'s
+//   `affected_routes`) — hence `updated_by`, `current_version`, `affected_routes`
+//   below. `toMatchObject` in the tests pins them.
+//
+// `DesignComment` below is neither: it is a row typed camelCase, and that is a
+// defect of this same class rather than a third convention (`design_comment`
+// serialises snake_case — the backend's phase3 test reads `resolution_note`
+// straight off that endpoint, while `design-inspector.tsx` reads
+// `c.resolutionNote`). Left as found; it is not this round's to rename.
+
 export type DesignFileKind = "token" | "component" | "page" | "asset"
 
 export type RouteEntry = { path: string; file: string; title: string }
@@ -71,8 +92,9 @@ export type DesignFileSummary = {
   path: string
   kind: DesignFileKind
   version: number
-  updatedBy: string
-  updatedAt: string | null
+  /// Snake_case because `views::FileSummary` is an ORM row serialised as-is.
+  updated_by: string
+  updated_at: string | null
   bytes: number
 }
 
@@ -108,9 +130,14 @@ export type ValidationError = {
 }
 
 export type WriteFileResult =
-  | { ok: true; file: DesignFileRow; warnings?: unknown[]; affectedRoutes: string[] }
+  | { ok: true; file: DesignFileRow; warnings?: unknown[]; affected_routes: string[] }
   | { ok: false; errors: ValidationError[]; warnings?: unknown[] }
-  | { ok: false; error: "version_conflict"; currentVersion: number; currentContent: string }
+  | {
+      ok: false
+      error: "version_conflict"
+      current_version: number
+      current_content: string
+    }
 
 type DesignFileRow = {
   id: number
@@ -118,7 +145,8 @@ type DesignFileRow = {
   kind: DesignFileKind
   content: string
   version: number
-  updatedBy: string
+  /// Snake_case: `DesignFile` is the ORM row itself, nothing renames it.
+  updated_by: string
 }
 
 async function designFetch(path: string, init?: RequestInit): Promise<Response> {

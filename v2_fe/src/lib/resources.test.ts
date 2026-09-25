@@ -85,9 +85,17 @@ describe("set edits", () => {
   ]})
 
   it("toggleSet flips only the named set", () => {
-    const out = toggleSet(base, "s2")
+    // Needs a second FALSE set, or this cannot fail. Written first against
+    // `base` — where `s1` is already `true` — the assertions were "s2 became
+    // true, s1 stayed true", which an implementation that forces EVERY set
+    // enabled satisfies. The false pin is the half with teeth.
+    const both = normalizeResources({ version: 1, sets: [
+      { id: "s1", name: "Inter", enabled: false, links: [] },
+      { id: "s2", name: "Analytics", enabled: false, links: [] },
+    ]})
+    const out = toggleSet(both, "s2")
     expect(out.sets.find((s) => s.id === "s2")!.enabled).toBe(true)
-    expect(out.sets.find((s) => s.id === "s1")!.enabled).toBe(true)
+    expect(out.sets.find((s) => s.id === "s1")!.enabled).toBe(false)
   })
 
   // "Only the named set" is not the same claim as "s2 became true" — a toggle
@@ -255,7 +263,12 @@ describe("setNameProblem", () => {
     [full, "s0"],
   ]
 
-  it("stays silent exactly when addSet accepts the name", () => {
+  // This table cannot fail unless `addSet`'s delegation to `setNameProblem` is
+  // broken — it pins that the two AGREE, not the rules themselves (blank, cap
+  // and duplicate are pinned by the tests above and by "names the rule that was
+  // broken" below). It is kept because it is the only pin on the shared
+  // predicate, and the two drifting apart is a refusal with no message anywhere.
+  it("delegates to setNameProblem, so the refusal and its message cannot disagree", () => {
     for (const [doc, name] of cases) {
       expect([name, setNameProblem(doc, name) !== null]).toEqual([name, addSet(doc, name).id === ""])
     }

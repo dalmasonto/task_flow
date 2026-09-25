@@ -43,7 +43,69 @@ import {
 
 /// What the paste box tells the user afterwards, and whether it is a warning
 /// (something was skipped) rather than a plain confirmation.
-type PasteOutcome = { message: string; warn: boolean }
+export type PasteOutcome = { message: string; warn: boolean }
+
+/// Parse a pasted snippet and append it to `setId` — the paste box's whole
+/// behaviour as a pure function, so the sentences it produces are pinned
+/// without rendering the component (the repo's convention; see
+/// `token-editor.test.ts`'s `parseSizeValue`).
+///
+/// The parse result is never spliced into a set directly: `appendLinks` is the
+/// ONLY path pasted links take into the document, because it is the capped one.
+export function pasteIntoSet(
+  doc: ResourcesDoc,
+  setId: string,
+  text: string
+): { doc: ResourcesDoc; outcome: PasteOutcome } {
+  const parsed = parsePastedLinks(text)
+  if (!parsed.length) {
+    return { doc, outcome: { message: "No <link> or <script> tag with a url in that text.", warn: true } }
+  }
+  // `appendLinks` answers `added: 0` for TWO different reasons — a set with no
+  // room and an id that is not in the document at all — and those are not the
+  // same sentence to a reader. The set is looked up here rather than inferred
+  // from `added`, so the cap message can only ever describe a set that exists.
+  if (!doc.sets.some((s) => s.id === setId)) {
+    return {
+      doc,
+      outcome: { message: "That set is no longer in the document — reload and paste again.", warn: true },
+    }
+  }
+  const result = appendLinks(doc, setId, parsed)
+  if (!result.added) {
+    return { doc, outcome: { message: `Already at the ${MAX_LINKS_PER_SET}-link limit for this set.`, warn: true } }
+  }
+  if (result.skipped) {
+    return {
+      doc: result.doc,
+      outcome: {
+        message: `Added ${result.added}; skipped ${result.skipped} over the ${MAX_LINKS_PER_SET}-link limit.`,
+        warn: true,
+      },
+    }
+  }
+  return { doc: result.doc, outcome: { message: `Added ${result.added} ${result.added === 1 ? "link" : "links"}.`, warn: false } }
+}
+
+/// The editor's error list for a refused save: the validator's own messages,
+/// handed straight back, or a fallback when a refusal arrives carrying none.
+///
+/// An empty list is not cosmetic. The block below renders `errors?.length ? …
+/// : null`, so a refusal with no messages is a save that silently did nothing —
+/// the failure class this round exists to remove. Nothing sends an empty
+/// refusal today; that is not a reason to render one as silence, since the next
+/// server change is free to, and the user has no other way to tell a refusal
+/// from a dead button.
+export function refusalErrors(errors: ValidationError[]): ValidationError[] {
+  if (errors.length) return errors
+  return [
+    {
+      line: 0,
+      rule: "refused",
+      message: "The save was refused, but the server sent no detail.",
+    },
+  ]
+}
 
 function LinkRow({ link, onRemove }: { link: ResourceLink; onRemove: () => void }) {
   // Whatever the document actually addresses: a link carries one url field or
@@ -225,8 +287,9 @@ export function ResourceEditor({
         if ("errors" in result) {
           // The validator's verdict, verbatim. It is the whole feedback loop:
           // the server refuses the document as a whole, so without these the
-          // save is a dead button.
-          setErrors(result.errors)
+          // save is a dead button. `refusalErrors` guarantees the block below
+          // never renders an empty list for a refusal.
+          setErrors(refusalErrors(result.errors))
         } else {
           // The stale-editor arm. Silently doing nothing here would look like a
           // save that worked; "Reload" above is the way out.
@@ -267,24 +330,13 @@ export function ResourceEditor({
   /// The paste box's whole behaviour: parse, then append through the capped
   /// helper — never splicing the parse result into a set directly, so the
   /// per-set cap is the only thing that can turn a paste away, and it says so.
+  /// A paste that changed nothing comes back with the SAME document, which
+  /// React bails out of (no re-render, no lost caret).
   const handlePaste = (setId: string, text: string): PasteOutcome => {
     if (!doc) return { message: "", warn: false }
-    const parsed = parsePastedLinks(text)
-    if (!parsed.length) {
-      return { message: "No <link> or <script> tag with a url in that text.", warn: true }
-    }
-    const result = appendLinks(doc, setId, parsed)
-    if (!result.added) {
-      return { message: `Already at the ${MAX_LINKS_PER_SET}-link limit for this set.`, warn: true }
-    }
-    setDoc(result.doc)
-    if (result.skipped) {
-      return {
-        message: `Added ${result.added}; skipped ${result.skipped} over the ${MAX_LINKS_PER_SET}-link limit.`,
-        warn: true,
-      }
-    }
-    return { message: `Added ${result.added} ${result.added === 1 ? "link" : "links"}.`, warn: false }
+    const { doc: next, outcome } = pasteIntoSet(doc, setId, text)
+    setDoc(next)
+    return outcome
   }
 
   const addProblem = doc ? setNameProblem(doc, newName) : null
@@ -306,7 +358,10 @@ export function ResourceEditor({
         Enabled sets load in every page's head, and in the exported page.html.
       </p>
 
-      {loading && !doc ? (
+      {/* Rendered whenever a load is in flight, like `TokenEditor`'s: gating it
+          on `!doc` would leave a Reload press — which hides the body below —
+          showing neither the sets nor any sign that something is happening. */}
+      {loading ? (
         <p className="px-3 py-2 text-xs text-muted-foreground">Loading resources…</p>
       ) : null}
       {loadError ? <p className="px-3 py-2 text-xs text-destructive">{loadError}</p> : null}

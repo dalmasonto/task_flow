@@ -114,7 +114,7 @@ describe("fetchDesignResources", () => {
       ]},
     ]})
     const fetchMock = vi.fn((_url: string) =>
-      Promise.resolve(jsonRes({ id: 1, path: RESOURCES_JSON_PATH, kind: "token", content, version: 3, updatedBy: "dalmas" }))
+      Promise.resolve(jsonRes({ id: 1, path: RESOURCES_JSON_PATH, kind: "token", content, version: 3, updated_by: "dalmas" }))
     )
     vi.stubGlobal("fetch", fetchMock)
 
@@ -151,7 +151,7 @@ describe("putDesignResources", () => {
 
   it("PUTs the serialised document to the resources path with its base version", async () => {
     const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
-      Promise.resolve(jsonRes({ ok: true, file: { path: RESOURCES_JSON_PATH }, affectedRoutes: [] }))
+      Promise.resolve(jsonRes({ ok: true, file: { path: RESOURCES_JSON_PATH }, affected_routes: [] }))
     )
     vi.stubGlobal("fetch", fetchMock)
     const doc = { version: 1, sets: [{ id: "s1", name: "Inter", enabled: true, links: [] }] }
@@ -176,23 +176,27 @@ describe("putDesignResources", () => {
       Promise.resolve(jsonRes({ ok: false, errors }, 422))
     ))
     const refused = await putDesignResources(7, { version: 1, sets: [] }, 0)
-    expect(refused.ok).toBe(false)
-    if (!refused.ok && "errors" in refused) {
-      expect(refused.errors[0].message).toBe(errors[0].message)
-    }
+    // The ARM is asserted, in full, before any narrowing: an assertion written
+    // inside an `if` is skipped whenever the discriminant is not what this test
+    // expects — which is exactly the regression that matters here. A 409 folded
+    // into this arm arrives as `errors: []`, passes a bare `ok === false`, and
+    // leaves the editor rendering nothing at all for a save it refused.
+    expect(refused).toMatchObject({ ok: false, errors })
 
     vi.stubGlobal("fetch", vi.fn((_url: string, _init?: RequestInit) =>
       Promise.resolve(jsonRes({ ok: false, error: "version_conflict", current_version: 9, current_content: "{}" }, 409))
     ))
     const conflicted = await putDesignResources(7, { version: 1, sets: [] }, 0)
-    expect(conflicted.ok).toBe(false)
-    // Only the discriminant is asserted: `WriteFileResult`'s conflict arm names
-    // `currentVersion`/`currentContent`, but `views::conflict_response` writes
-    // the keys snake_case (no serde rename on a `json!` body), so those two
-    // fields are undefined at runtime and a test on them could never pass. The
-    // editor keys off `error` alone, which IS the wire's spelling.
-    if (!conflicted.ok && !("errors" in conflicted)) {
-      expect(conflicted.error).toBe("version_conflict")
-    }
+    // Snake_case, and the whole arm: `views::conflict_response` is a `json!`
+    // literal with no serde rename. Matching the shape (rather than probing
+    // `error` inside an `if`) is what makes a body that renamed these keys, or
+    // that claimed to be a conflict while carrying `errors`, fail HERE — instead
+    // of in the editor, as an `undefined` it would render as nothing.
+    expect(conflicted).toMatchObject({
+      ok: false,
+      error: "version_conflict",
+      current_version: 9,
+      current_content: "{}",
+    })
   })
 })
