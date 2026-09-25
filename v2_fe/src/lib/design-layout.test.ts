@@ -3,16 +3,27 @@ import {
   DEFAULT_LAYOUT,
   MAX_GROUPS,
   MAX_GROUP_NAME,
+  MAX_LABEL,
   normalizeLayout,
   createGroup,
   assignRoute,
   removeGroup,
   groupOf,
+  pageLabel,
+  setPageLabel,
 } from "./design-layout"
 
 describe("normalizeLayout", () => {
   it("passes a well-formed document through", () => {
-    const doc = { view: "bands", routeOrder: ["/"], groups: [{ id: "g1", name: "Auth", routes: ["/login"] }] }
+    // `pageLabels` is part of the wire document (always present — `{}` when
+    // empty), so the "well-formed document" fixture has to carry one; the
+    // server's `#[serde(default)]` does not make it optional on the way out.
+    const doc = {
+      view: "bands",
+      routeOrder: ["/"],
+      groups: [{ id: "g1", name: "Auth", routes: ["/login"] }],
+      pageLabels: { "/": "Home" },
+    }
     expect(normalizeLayout(doc)).toEqual({ ...doc, view: "bands" })
   })
 
@@ -134,6 +145,45 @@ describe("layout edits", () => {
     createGroup(doc, "Ops")
     assignRoute(doc, "/login", doc.groups[0].id)
     removeGroup(doc, doc.groups[0].id)
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+})
+
+describe("page labels", () => {
+  it("falls back to the manifest title when no label is set", () => {
+    expect(pageLabel(DEFAULT_LAYOUT, "/", "Dashboard")).toBe("Dashboard")
+  })
+
+  it("prefers a label, and treats a blank one as unset", () => {
+    const doc = setPageLabel(DEFAULT_LAYOUT, "/", "  Home  ")
+    expect(pageLabel(doc, "/", "Dashboard")).toBe("Home")
+    // A blank label must behave like no label, not like an empty name.
+    expect(pageLabel(doc, "/login", "Login")).toBe("Login")
+  })
+
+  it("clearing a label removes the key", () => {
+    const doc = setPageLabel(DEFAULT_LAYOUT, "/", "Home")
+    const cleared = setPageLabel(doc, "/", "   ")
+    expect(cleared.pageLabels["/"]).toBeUndefined()
+    expect(pageLabel(cleared, "/", "Dashboard")).toBe("Dashboard")
+  })
+
+  it("refuses a label over the cap, returning the document unchanged", () => {
+    const doc = setPageLabel(DEFAULT_LAYOUT, "/", "x".repeat(MAX_LABEL + 1))
+    expect(doc).toBe(DEFAULT_LAYOUT)
+  })
+
+  it("normaliseLayout defaults a missing or malformed pageLabels", () => {
+    expect(normalizeLayout({ view: "rows" }).pageLabels).toEqual({})
+    expect(normalizeLayout({ view: "rows", pageLabels: "nope" }).pageLabels).toEqual({})
+    expect(normalizeLayout({ view: "rows", pageLabels: { "/": 7 } }).pageLabels).toEqual({})
+    expect(normalizeLayout({ view: "rows", pageLabels: { "/": "Home" } }).pageLabels).toEqual({ "/": "Home" })
+  })
+
+  it("edits do not mutate the input", () => {
+    const doc = DEFAULT_LAYOUT
+    const before = JSON.stringify(doc)
+    setPageLabel(doc, "/", "Home")
     expect(JSON.stringify(doc)).toBe(before)
   })
 })

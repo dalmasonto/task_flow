@@ -66,6 +66,12 @@ export type DesignCanvasProps = {
    * (`GET /api/design/{project}/page.html`). Null while the surface is still
    * resolving its project — those actions are hidden until it lands. */
   projectId: number | null
+  /** The display name for a page, resolved by the CALLER through `pageLabel`
+   * (label → manifest title → route). Each artboard header renders this string
+   * and derives nothing itself, so it can never disagree with the Pages panel
+   * or the row headers — the guess this replaced was `route === "/" ?
+   * "Dashboard" : route.slice(1)`. */
+  labelFor: (route: string) => string
   /** Pointer mode: "select" (today's click/pick behavior) or "pan" (plain
    * left-drag pans). Space-drag and middle-drag pan regardless of mode.
    * Defaults to "select" when omitted. */
@@ -91,6 +97,7 @@ export function DesignCanvas({
   picking,
   theme,
   projectId,
+  labelFor,
   canvasTool = "select",
   sandboxToken,
   onSelect,
@@ -241,6 +248,7 @@ export function DesignCanvas({
           <ArtboardCard
             key={board.key}
             board={board}
+            label={labelFor(board.route)}
             theme={theme}
             picking={picking}
             contentEpoch={contentEpoch}
@@ -281,6 +289,7 @@ function mountedFrames(): HTMLIFrameElement[] {
 
 function ArtboardCard({
   board,
+  label,
   theme,
   picking,
   contentEpoch,
@@ -289,6 +298,8 @@ function ArtboardCard({
   panMode,
 }: {
   board: Artboard
+  /** The page's resolved display name (see `labelFor`). */
+  label: string
   theme: string
   picking: boolean
   contentEpoch: number
@@ -309,6 +320,7 @@ function ArtboardCard({
     >
       <ArtboardHeader
         route={board.route}
+        label={label}
         device={device}
         projectId={projectId}
         width={boardWidth(device)}
@@ -336,11 +348,18 @@ function ArtboardCard({
 
 function ArtboardHeader({
   route,
+  label,
   device,
   projectId,
   width,
 }: {
+  /** The route, for the per-page actions (Copy HTML / Download) — NOT for the
+   *  header's text: the name comes in as `label`. */
   route: string
+  /** The page's resolved display name, computed by the caller. The header
+   *  displays it and derives nothing, so it cannot disagree with the Pages
+   *  panel or the row headers. */
+  label: string
   device: DevicePreset
   projectId: number | null
   /** The board's rendered width. The header is clamped to it so a narrow
@@ -371,9 +390,7 @@ function ArtboardHeader({
       className="mb-2 flex items-center gap-1.5 overflow-hidden text-xs text-zinc-400"
       style={{ width }}
     >
-      <span className="truncate font-medium text-zinc-200">
-        {route === "/" ? "Dashboard" : route.slice(1)}
-      </span>
+      <span className="truncate font-medium text-zinc-200">{label}</span>
       <span className="shrink-0 text-zinc-500">·</span>
       <span className="shrink-0">{device.label}</span>
       <button

@@ -69,6 +69,7 @@ import {
 import {
   CANVAS_VIEWS,
   DEFAULT_LAYOUT,
+  pageLabel,
   type CanvasView,
   type LayoutDoc,
 } from "@/lib/design-layout"
@@ -419,6 +420,17 @@ export function DesignSurfacePage({
     [comments, artboards, transform],
   )
 
+  // The display name for a page, resolved ONCE for both places this file draws
+  // one: the row-header overlay below, and the per-board header inside
+  // DesignCanvas (handed over as `labelFor`). `pageLabel` is the single
+  // resolver — a label if the document has one, else the manifest's own title,
+  // else the raw route — so a renamed page cannot show one name in the row
+  // header and another on the artboard.
+  const labelFor = useMemo(() => {
+    const titles = new Map((manifest?.routes ?? []).map((r) => [r.path, r.title]))
+    return (route: string) => pageLabel(layout, route, titles.get(route) ?? route)
+  }, [layout, manifest])
+
   // A small header per ROW (not per artboard — `ArtboardHeader` inside
   // DesignCanvas already labels each device column): the page's name plus a
   // close button, sitting at the row's origin. Row `y` comes straight out of
@@ -441,14 +453,13 @@ export function DesignSurfacePage({
         {openRoutes.map((route) => {
           const y = rowY.get(route)
           if (y == null) return null
-          const title = manifest?.routes.find((r) => r.path === route)?.title ?? route
           return (
             <div
               key={`row-header:${route}`}
               className="absolute flex items-center gap-2 text-xs text-zinc-300"
               style={{ left: 0, top: y - HEADER_H }}
             >
-              <span className="font-semibold text-zinc-100">{title}</span>
+              <span className="font-semibold text-zinc-100">{labelFor(route)}</span>
               <span className="font-mono text-[11px] text-zinc-500">{route}</span>
               <button
                 type="button"
@@ -463,7 +474,7 @@ export function DesignSurfacePage({
         })}
       </>
     )
-  }, [artboards, openRoutes, manifest, closeRoute, layout.view])
+  }, [artboards, openRoutes, labelFor, closeRoute, layout.view])
 
   const paletteItems: PaletteItem[] = useMemo(() => {
     if (!manifest) return []
@@ -613,6 +624,7 @@ export function DesignSurfacePage({
               canvasTool={canvasTool}
               theme={theme}
               projectId={projectId}
+              labelFor={labelFor}
               sandboxToken={sandboxToken}
               contentEpoch={contentEpoch}
               selection={selectionOverlay}

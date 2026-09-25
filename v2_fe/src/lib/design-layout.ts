@@ -12,12 +12,19 @@ export type LayoutDoc = {
   view: CanvasView
   routeOrder: string[]
   groups: LayoutGroup[]
+  /// Display names, route → human name. A *label* only: the page's own title
+  /// and the real app are untouched, and the real route is what everything
+  /// else keys on. A route that has never been renamed is ABSENT rather than
+  /// blank, so every reader must fall back to the manifest title — that is
+  /// what `pageLabel` is for.
+  pageLabels: Record<string, string>
 }
 
-export const DEFAULT_LAYOUT: LayoutDoc = { view: "rows", routeOrder: [], groups: [] }
+export const DEFAULT_LAYOUT: LayoutDoc = { view: "rows", routeOrder: [], groups: [], pageLabels: {} }
 
 export const MAX_GROUPS = 24
 export const MAX_GROUP_NAME = 40
+export const MAX_LABEL = 40
 
 /** Toolbar order and labels for the arrangement picker. */
 export const CANVAS_VIEWS: { id: CanvasView; label: string; hint: string }[] = [
@@ -49,12 +56,31 @@ export function normalizeLayout(raw: unknown): LayoutDoc {
         return [{ id: candidate.id, name: candidate.name, routes: asStrings(candidate.routes) }]
       })
     : []
-  return { view, routeOrder: asStrings(obj.routeOrder), groups }
+  // Same tolerant read as `groups`, and for the same reason: the server refuses
+  // to store a blank label, so a non-string or blank entry here is a document
+  // this build should not trust. Dropping it costs a fallback title; keeping it
+  // would render an empty page name.
+  const rawLabels = obj.pageLabels
+  const pageLabels: Record<string, string> = {}
+  if (rawLabels && typeof rawLabels === "object" && !Array.isArray(rawLabels)) {
+    for (const [route, label] of Object.entries(rawLabels as Record<string, unknown>)) {
+      if (typeof label === "string" && label.trim()) pageLabels[route] = label
+    }
+  }
+  return { view, routeOrder: asStrings(obj.routeOrder), groups, pageLabels }
 }
 
 /** The group a route belongs to, if any. */
 export function groupOf(doc: LayoutDoc, route: string): LayoutGroup | undefined {
   return doc.groups.find((g) => g.routes.includes(route))
+}
+
+/** The name to show for a page: its label if it has one, else the manifest's
+ *  own title, else the raw route. One resolver so the three places that render
+ *  a page name can never disagree. */
+export function pageLabel(doc: LayoutDoc, route: string, fallback: string): string {
+  const label = doc.pageLabels[route]
+  return label && label.trim() ? label : fallback
 }
 
 /// Group ids are opaque to the server; a counter plus a nonce is enough (they
@@ -97,4 +123,20 @@ export function assignRoute(doc: LayoutDoc, route: string, groupId: string | nul
 /// tail, which is what "remove this grouping" should mean.
 export function removeGroup(doc: LayoutDoc, id: string): LayoutDoc {
   return { ...doc, groups: doc.groups.filter((g) => g.id !== id) }
+}
+
+/// Set or clear a page's display label. An empty (or whitespace) label CLEARS
+/// the key rather than storing a blank — a blank label must render identically
+/// to no label, and storing one would mean two spellings of the same state.
+///
+/// Non-mutating, like every other edit here. An over-cap label is refused by
+/// returning the document itself, so the caller can tell "nothing happened" by
+/// identity rather than comparing contents.
+export function setPageLabel(doc: LayoutDoc, route: string, label: string): LayoutDoc {
+  const trimmed = label.trim()
+  if (trimmed.length > MAX_LABEL) return doc
+  const pageLabels = { ...doc.pageLabels }
+  if (!trimmed) delete pageLabels[route]
+  else pageLabels[route] = trimmed
+  return { ...doc, pageLabels }
 }

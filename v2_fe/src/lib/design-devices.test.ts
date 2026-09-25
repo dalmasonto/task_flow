@@ -434,12 +434,15 @@ describe("design devices", () => {
   it("boardsForView dispatches on the document's view", () => {
     const open = ["/", "/login"]
     const devices = ["laptop"]
-    const rows = { view: "rows" as const, routeOrder: open, groups: [] }
-    const bands = { view: "bands" as const, routeOrder: open, groups: [] }
+    // `pageLabels` rides on every document the server serves, so a fixture for
+    // `LayoutDoc` carries it too — `boardsForView` ignores it either way.
+    const rows = { view: "rows" as const, routeOrder: open, groups: [], pageLabels: {} }
+    const bands = { view: "bands" as const, routeOrder: open, groups: [], pageLabels: {} }
     const groups = {
       view: "groups" as const,
       routeOrder: open,
       groups: [{ id: "g1", name: "Auth", routes: ["/login"] }],
+      pageLabels: {},
     }
 
     expect(boardsForView(rows, open, devices)).toEqual(layoutRows(open, devices))
@@ -452,7 +455,7 @@ describe("design devices", () => {
   it("boardsForView treats an unknown view as rows rather than crashing", () => {
     // A document from a newer build must still render something.
     const open = ["/"]
-    const weird = { view: "diagonal" as never, routeOrder: open, groups: [] }
+    const weird = { view: "diagonal" as never, routeOrder: open, groups: [], pageLabels: {} }
     expect(boardsForView(weird, open, ["laptop"])).toEqual(layoutRows(open, ["laptop"]))
   })
 })
