@@ -503,4 +503,25 @@ describe("landscape variants", () => {
     expect(landscapeId("ipad-mini")).toBe("ipad-mini:landscape")
     expect(deviceById(landscapeId("ipad-mini")).id).toBe("ipad-mini:landscape")
   })
+
+  it("a variant has no landscape of its own — the helper cannot lie", () => {
+    // Swapping a variant would produce `${id}:landscape:landscape`, an id NO
+    // preset declares. That is worse than a missing device: `deviceById`
+    // resolves it to the laptop fallback, so the board would render a laptop at
+    // a key a real laptop board already holds, and `design-ui-state` would drop
+    // the id on reload. The helper is total instead, so no caller can be handed
+    // an undeclared id.
+    expect(landscapeVariant(deviceById("iphone-16-pro:landscape"))).toBeNull()
+    expect(landscapeVariant(deviceById("ipad-mini:landscape"))).toBeNull()
+    // The guard keys off the id `landscapeId` builds, so it cannot drift from
+    // the ids the expansion declares: every variant in the table is rejected.
+    for (const d of DEVICE_PRESETS) {
+      if (d.id.endsWith(":landscape")) {
+        expect(landscapeVariant(d)).toBeNull()
+      }
+    }
+    // ...and the portrait device those came from still rotates — the guard
+    // rejects the variant, not the phone.
+    expect(landscapeVariant(deviceById("iphone-16-pro"))).not.toBeNull()
+  })
 })

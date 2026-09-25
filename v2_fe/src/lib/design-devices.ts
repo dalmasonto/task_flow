@@ -53,9 +53,15 @@ export function deviceById(id: string): DevicePreset {
   )
 }
 
+/** What `landscapeId` appends to a device id — and what `landscapeVariant`
+ *  rejects, so a variant can never be rotated into a second one. One spelling,
+ *  because those two must agree: a guard that silently stopped matching would
+ *  let undeclared `${id}:landscape:landscape` ids back out. */
+const LANDSCAPE_SUFFIX = ":landscape"
+
 /** Id of a device's landscape variant. */
 export function landscapeId(deviceId: string): string {
-  return `${deviceId}:landscape`
+  return `${deviceId}${LANDSCAPE_SUFFIX}`
 }
 
 /// A rotated rendering of a device: the SAME device, rendered at swapped
@@ -67,7 +73,20 @@ export function landscapeId(deviceId: string): string {
 /// iframe must render at true pixel dimensions: rotating therefore IS a
 /// breakpoint change, and giving it its own preset makes that visible instead
 /// of hiding it. Returns null when the device has no meaningful landscape form.
+///
+/// Total by design: it can never emit an id that is not a declared preset. A
+/// variant has no landscape of its own — swapping it back would be portrait,
+/// not landscape — and `${id}:landscape:landscape` is not a device at all:
+/// `deviceById` resolves it to the laptop fallback, so two boards would collide
+/// on one key while one of them rendered a laptop, and the stored-id filter
+/// would drop it on reload. The caller is therefore never handed an undeclared
+/// id to trust.
 export function landscapeVariant(device: DevicePreset): DevicePreset | null {
+  // Already landscape: rotating again would build `${id}:landscape:landscape`,
+  // an id no preset declares — `deviceById` would fall back to a laptop, so two
+  // different boards would collide on one key while one renders the wrong
+  // device. The helper must be total; a caller guard is defence, not the fix.
+  if (device.id.endsWith(LANDSCAPE_SUFFIX)) return null
   if (device.group !== "phone" && device.group !== "tablet") return null
   return {
     ...device,
@@ -83,9 +102,11 @@ export function landscapeVariant(device: DevicePreset): DevicePreset | null {
 // resolve them with no special case. Built from the portrait entries, so the
 // two can never disagree about a device's dimensions.
 //
-// Iterating a COPY is load-bearing: pushing into the array being iterated would
-// have the loop consume the variants it is producing (`a:landscape` is a phone,
-// so it would spawn `a:landscape:landscape`, forever).
+// The loop expands a COPY: pushing into the array being iterated would let the
+// loop consume the variants it is producing. `landscapeVariant` also refuses to
+// nest a variant, so this cannot run away even if the copy were dropped — but
+// the loop does not lean on that guard to terminate, and a variant must never
+// be input to the expansion in the first place.
 for (const preset of [...DEVICE_PRESETS]) {
   const variant = landscapeVariant(preset)
   if (variant) DEVICE_PRESETS.push(variant)

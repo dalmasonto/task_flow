@@ -466,14 +466,10 @@ function ArtboardHeader({
   // always renders at its true pixel width. It is a duplicate at the variant's
   // id, so it reuses that plumbing rather than a second mechanism.
   //
-  // The table lookup is what makes this null when the device has no landscape
-  // FORM, not merely no rotated shape: `landscapeVariant` also swaps an
-  // already-landscape preset, into an id (`x:landscape:landscape`) that no
-  // preset declares — `deviceById` would resolve that to the laptop fallback
-  // and `design-ui-state` would drop it on reload. Rotating a rotated board is
-  // not a thing, so the item is disabled instead.
-  const variant = landscapeVariant(device)
-  const rotateTo = variant && DEVICE_PRESETS.some((d) => d.id === variant.id) ? variant : null
+  // Null is "this device has no landscape form": laptops and breakpoints, and
+  // equally a board that is ALREADY landscape (`landscapeVariant` is total, so
+  // it never hands back an id no preset declares). Null disables the item.
+  const rotateTo = landscapeVariant(device)
 
   return (
     <div
@@ -508,17 +504,27 @@ function ArtboardHeader({
           <EllipsisIcon className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
+          {/* Whether Rotate is available, and why not, must be legible without
+              a hover: a disabled item is `data-disabled:pointer-events-none`
+              (dropdown-menu.tsx), so its `title` is unreadable — the reason has
+              to be the row's own text, as "Every device is already shown"
+              below does it. */}
           <DropdownMenuItem
             disabled={!rotateTo}
             title={
               rotateTo
                 ? `Add ${rotateTo.label} — ${rotateTo.width}×${rotateTo.height}`
-                : "No landscape form: a laptop is not a portrait device, and a breakpoint is a width rather than a device"
+                : undefined
             }
             onClick={() => rotateTo && onDuplicateBoard(boardKey, rotateTo.id)}
           >
             <RotateCwIcon className="size-3.5" />
-            Rotate
+            <span className="flex-1">Rotate</span>
+            {rotateTo ? null : (
+              <span className="text-[10px] text-muted-foreground">
+                no landscape form
+              </span>
+            )}
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
