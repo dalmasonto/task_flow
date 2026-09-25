@@ -30,6 +30,7 @@ import type {
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken, readJson } from "@/lib/auth-api"
 import { BOARD_COLUMN_IDS, columnStatuses, type BoardColumnId } from "@/lib/board-columns"
+import { fetchAllReferencePages } from "@/lib/reference-pages"
 import type { ChatMessage } from "@/lib/message-store"
 
 export const taskflowTables = {
@@ -500,12 +501,28 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
 /// #56: reference lists — rosters, channels, endpoints — are read whole by the
 /// surfaces that use them, so they take ONE page sized to that use rather than a
 /// default 25 that would silently hide the rest. 100 is umbral's ceiling
-/// (max_page_size = page_size * 4).
+/// (`PageNumberPagination::new(25)` in backend/src/main.rs sets
+/// `max_page_size = page_size * 4`), which is why it cannot simply be raised.
 ///
-/// This is a bounded page, not "load everything": a project that outgrows it
-/// needs these surfaces paged like the board and the feed. `count` is in the
-/// envelope, so that limit is detectable rather than silent.
+/// A ceiling is not a target: `fetchReferenceList` below walks past this page
+/// until the list is complete, because reading page 1 and calling it the list
+/// showed a prefix of every roster, room list and settings list over 100 rows —
+/// in production, the case this work exists for. The page size stays at the
+/// ceiling so the walk costs one request per 100 rows and none for a list that
+/// fits.
 const REFERENCE_PAGE_SIZE = 100
+
+/// One reference list, walked to completion (see lib/reference-pages).
+///
+/// `build` must return a FRESH query for each page: the client's builder mutates
+/// the query it is called on, so a shared query would carry page 1's `page` param
+/// into every later request and re-fetch the same page forever.
+async function fetchReferenceList<T>(
+  label: string,
+  build: (page: number) => Promise<{ results: T[]; count: number }>
+): Promise<T[]> {
+  return fetchAllReferencePages(build, label)
+}
 
 /// One page of a paginated surface, as the SERVER paged it.
 ///
@@ -593,10 +610,12 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
   //
   // NOT here anymore, because react-router mounts one page at a time and these
   // are page-specific — they load as slices when their surface is up:
-  //   - board task columns  -> fetchWorkspaceBoard (board/reviews/activity/open task)
+  //   - board task columns  -> fetchWorkspaceBoard (board/reviews/open task)
   //   - agent SESSIONS       -> fetchWorkspacePresence (API-Base page / task sheet)
+  //   - chat channels        -> fetchWorkspaceChannels (the design rail)
   // plus the existing slices (chat, terminal, settings, reviews, task detail,
-  // activity). See the slice loaders below and App.tsx's slice effect.
+  // activity). See the slice loaders below and lib/live-slices, which is where
+  // the route → slice decision now lives.
   const [
     project,
     members,
@@ -605,12 +624,18 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     agents,
   ] = await Promise.all([
     taskflowApi.get(taskflowTables.projects, projectId),
-    taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    // The four lists below are walked, not paged-by-100: each is rendered (or
+    // counted) by a surface that treats it as the WHOLE set — the member and
+    // agent rosters feed the owner/operator selects and the online counts, the
+    // invites list feeds the sidebar's badge, and the session list feeds the
+    // global timer dock, where a still-running session older than the newest 100
+    // rows would simply vanish. See lib/reference-pages.
+    fetchReferenceList(taskflowTables.members, (page) => taskflowApi.from(taskflowTables.members).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
     // invites are core, not a settings slice: the ALWAYS-visible sidebar renders
     // a per-project pending-invites badge, so it must be loaded on every surface.
-    taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    fetchReferenceList(taskflowTables.invites, (page) => taskflowApi.from(taskflowTables.invites).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+    fetchReferenceList(taskflowTables.taskSessions, (page) => taskflowApi.from(taskflowTables.taskSessions).filter({ project: projectId }).orderBy("-started_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+    fetchReferenceList(taskflowTables.agents, (page) => taskflowApi.from(taskflowTables.agents).filter({ project: projectId }).orderBy("display_name", "id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
   ])
 
   return {
@@ -619,10 +644,10 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     // always mounted, so its five column queries must not fire on every route.
     tasks: [],
     taskCounts: EMPTY_TASK_COUNTS,
-    members: members.results,
-    invites: invites.results,
-    taskSessions: taskSessions.results,
-    agents: agents.results,
+    members,
+    invites,
+    taskSessions,
+    agents,
     // Presence detail is a slice now (fetchWorkspacePresence).
     agentSessions: [],
     // Deferred slices — loaded by the surface that renders them:
@@ -656,9 +681,14 @@ const EMPTY_TASK_COUNTS = Object.fromEntries(
 ///
 /// The board is ONE route among many, so its task loads belong to the board
 /// surface, not the core workspace. `tasks` is also the app's task-lookup table
-/// (title resolution in the activity + reviews feeds, and the open task sheet),
-/// so this slice loads for any of those surfaces, not the board alone — see the
-/// `tasksNeeded` gate in App.tsx.
+/// for the surfaces that RENDER task rows: the reviews queue draws its
+/// pending-decision table from them, and the task sheet reads the open task. So
+/// this slice loads for those too — see the `board` gate in lib/live-slices.
+///
+/// The activity feed is deliberately NOT one of them any more. It renders no
+/// task row and needs only a title, which it now fetches by id
+/// (`fetchTaskTitles`) instead of paying for five column queries of the fattest
+/// row in the app twice over.
 export type WorkspaceBoardSlice = Pick<TaskflowWorkspace, "tasks" | "taskCounts">
 
 export async function fetchWorkspaceBoard(projectId: number): Promise<WorkspaceBoardSlice> {
@@ -678,8 +708,9 @@ export async function fetchWorkspaceBoard(projectId: number): Promise<WorkspaceB
 ///
 /// Only the API-Base page and the task sheet render session detail; every other
 /// surface's "online" state falls back to the agent roster's own heartbeat
-/// (isAgentOnline), which the core already loads. So sessions load only where a
-/// surface shows them — see the `presenceNeeded` gate in App.tsx.
+/// (isAgentOnline), which the core already loads — `countOnlineAgents` reads the
+/// roster alone for exactly that reason. So sessions load only where a surface
+/// shows them: the `presence` gate in lib/live-slices.
 export type WorkspacePresenceSlice = Pick<TaskflowWorkspace, "agentSessions">
 
 export async function fetchWorkspacePresence(projectId: number): Promise<WorkspacePresenceSlice> {
@@ -692,9 +723,11 @@ export async function fetchWorkspacePresence(projectId: number): Promise<Workspa
   return { agentSessions: agentSessions.results }
 }
 
-/// The chat slice: loaded when the Agents page or the chat dock is actually
-/// open, not when a board is. Terminal frames ride along because the terminal
-/// only exists inside a conversation.
+/// The chat slice: loaded when the Agents page or the chat dock is actually on
+/// screen — not when a board is. The design page's rail takes
+/// `fetchWorkspaceChannels` instead: it needs the conversation list, not six
+/// queries' worth of content. Terminal frames load separately (they render only
+/// on the agents surface).
 export type WorkspaceChatSlice = Pick<
   TaskflowWorkspace,
   | "agentChannels"
@@ -705,6 +738,37 @@ export type WorkspaceChatSlice = Pick<
   | "agentPrompts"
 >
 
+/// The channels-only slice: the conversation LIST, without any of its content.
+///
+/// The design page's left rail is a full `useAgentChat` instance, but it is
+/// pointed at one conversation (the project room) and renders that thread — its
+/// messages arrive from the per-channel page-1 fetch, its prompts are never
+/// rendered (a prompt card needs an agent DM and the rail is always a channel).
+/// All it needs from the slice is a NON-EMPTY channel list with rosters.
+///
+/// The non-emptiness is load-bearing, which is why this is a slice rather than a
+/// narrower gate: `mapLiveChannelChats` synthesises a placeholder project room
+/// when it has no channels, and a send from that placeholder creates a channel —
+/// a duplicate of the room that already exists.
+export type WorkspaceChannelsSlice = Pick<TaskflowWorkspace, "agentChannels" | "agentChannelMembers">
+
+export async function fetchWorkspaceChannels(projectId: number): Promise<WorkspaceChannelsSlice> {
+  const [agentChannels, agentChannelMembers] = await Promise.all([
+    fetchReferenceList(taskflowTables.agentChannels, (page) => taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+    // #56 review: filter by the denormalized `project` BEFORE the page cap.
+    // Without it, channel-member rows from other projects could fill the page and
+    // truncate THIS project's roster, leaving chat labels/participants
+    // incomplete. The channel-id filter below is now a within-project refinement,
+    // not the only scope.
+    fetchReferenceList(taskflowTables.agentChannelMembers, (page) => taskflowApi.from(taskflowTables.agentChannelMembers).filter({ project: projectId }).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+  ])
+  const channelIds = new Set(agentChannels.map((channel) => channel.id))
+  return {
+    agentChannels,
+    agentChannelMembers: agentChannelMembers.filter((member) => channelIds.has(member.channel)),
+  }
+}
+
 export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceChatSlice> {
   const [
     agentChannels,
@@ -714,13 +778,11 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     channelReadCursors,
     agentPrompts,
   ] = await Promise.all([
-    taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    // #56 review: filter by the denormalized `project` BEFORE the page cap.
-    // Without it, channel-member rows from other projects could fill the 100-row
-    // page and truncate THIS project's roster, leaving chat labels/participants
-    // incomplete. The channel-id filter below is now a within-project refinement,
-    // not the only scope.
-    taskflowApi.from(taskflowTables.agentChannelMembers).filter({ project: projectId }).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    // Rooms and their rosters are walked: a chat list that is missing rooms is
+    // missing conversations, not showing fewer of them. (`agentChannels` holds
+    // direct rooms too, so this list grows with every DM.)
+    fetchReferenceList(taskflowTables.agentChannels, (page) => taskflowApi.from(taskflowTables.agentChannels).filter({ project: projectId }).orderBy("title", "id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+    fetchReferenceList(taskflowTables.agentChannelMembers, (page) => taskflowApi.from(taskflowTables.agentChannelMembers).filter({ project: projectId }).orderBy("channel", "display_name").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
     // Messages: ONE server page of the project's newest, no page_size sent —
     // this feeds the chat LIST (last-message previews, unread badges), not a
     // thread. The open conversation loads its own first page per channel (see
@@ -730,18 +792,24 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     // Newest-first so the attachments that ride along belong to the messages
     // fetched above, not to the oldest rows in the project.
     taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
-    taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    // Read cursors are walked: the current user's own cursor is what turns a
+    // channel's unread badge into a count, and a missing cursor does not read as
+    // "unknown" — it reads as "you have read nothing", so the badge OVERSTATES.
+    fetchReferenceList(taskflowTables.channelReadCursors, (page) => taskflowApi.from(taskflowTables.channelReadCursors).filter({ project: projectId }).orderBy("channel", "id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+    // Prompts are NOT walked, and page 1 is the right page: the only consumer
+    // takes the newest pending prompt for one agent (use-agent-chat), and this
+    // list is ordered newest-first to match.
     taskflowApi.from(taskflowTables.agentPrompts).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
-  const channelIds = new Set(agentChannels.results.map((channel) => channel.id))
+  const channelIds = new Set(agentChannels.map((channel) => channel.id))
 
   return {
-    agentChannels: agentChannels.results,
-    agentChannelMembers: agentChannelMembers.results.filter((member) => channelIds.has(member.channel)),
+    agentChannels,
+    agentChannelMembers: agentChannelMembers.filter((member) => channelIds.has(member.channel)),
     agentMessages: agentMessages.results,
     messageAttachments: messageAttachments.results,
-    channelReadCursors: channelReadCursors.results,
+    channelReadCursors,
     agentPrompts: agentPrompts.results,
   }
 }
@@ -766,13 +834,14 @@ export type WorkspaceSettingsSlice = Pick<TaskflowWorkspace, "apiEndpoints" | "a
 
 // #56: API endpoints + agent credentials render ONLY on the API Base surface, so
 // they load with it. (invites are core — the always-visible sidebar badge needs
-// them on every surface.)
+// them on every surface.) Both are walked: the page renders them as the
+// project's complete set of endpoints and credentials.
 export async function fetchWorkspaceSettings(projectId: number): Promise<WorkspaceSettingsSlice> {
   const [apiEndpoints, agentCredentials] = await Promise.all([
-    taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").param("page_size", REFERENCE_PAGE_SIZE).list(),
-    taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).list(),
+    fetchReferenceList(taskflowTables.apiEndpoints, (page) => taskflowApi.from(taskflowTables.apiEndpoints).filter({ project: projectId }).orderBy("environment", "label").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
+    fetchReferenceList(taskflowTables.agentCredentials, (page) => taskflowApi.from(taskflowTables.agentCredentials).filter({ project: projectId }).orderBy("-created_at", "-id").param("page_size", REFERENCE_PAGE_SIZE).param("page", page).list()),
   ])
-  return { apiEndpoints: apiEndpoints.results, agentCredentials: agentCredentials.results }
+  return { apiEndpoints, agentCredentials }
 }
 
 export type WorkspaceReviewsSlice = Pick<TaskflowWorkspace, "taskReviews">
@@ -880,6 +949,50 @@ export async function fetchWorkspaceActivity(
     .param("page", page)
     .list()
   return { rows: res.results, count: res.count, pageSize: res.page_size, totalPages: res.total_pages }
+}
+
+export type TaskflowTaskTitle = Pick<TaskflowTask, "id" | "title">
+
+/// The titles of EXACTLY these tasks.
+///
+/// The activity feed names the task each event belongs to, and the board's task
+/// rows used to be what turned an id into a title there — five column queries
+/// per visit, for a route that renders none of their fields (a task row carries
+/// `description_markdown` and `notes_markdown`, the fattest columns in the app).
+/// The feed still needs real titles, so it asks for the only column it shows.
+///
+/// Id-keyed rather than a page of the project's newest tasks: the feed renders
+/// ONE page of events, and "the 100 newest tasks" is not the set those events
+/// name — a task active today but created long ago would be missing from it and
+/// would fall back to `Task #<id>`, which is the regression this replaces rather
+/// than a fix for it.
+///
+/// `fields=id,title` is what keeps this cheap: the request carries no body text
+/// at all. Ids are de-duplicated and chunked to the server's page ceiling, so a
+/// caller can hand it a whole page of rows without counting.
+export async function fetchTaskTitles(taskIds: number[]): Promise<TaskflowTaskTitle[]> {
+  const ids = [...new Set(taskIds.filter((id) => Number.isFinite(id)))]
+  if (!ids.length) return []
+  const chunks: number[][] = []
+  for (let i = 0; i < ids.length; i += REFERENCE_PAGE_SIZE) {
+    chunks.push(ids.slice(i, i + REFERENCE_PAGE_SIZE))
+  }
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      taskflowApi
+        .from(taskflowTables.tasks)
+        // `?id__in=` goes through the raw-param escape hatch because the
+        // generated filter type carries no primary-key keys (`TaskflowTaskFilters`
+        // has no `id` / `id__in`). The REST layer accepts `__in` on any column and
+        // its own suite covers exactly this shape — see
+        // backend/vendor/umbral-rest/tests/filtering.rs, `?id__in=1,2,3`.
+        .param("id__in", chunk.join(","))
+        .fields("id", "title")
+        .param("page_size", REFERENCE_PAGE_SIZE)
+        .list()
+    )
+  )
+  return pages.flatMap((page) => page.results)
 }
 
 /// Advance the current user's read cursor for a channel to `lastReadMessage`.

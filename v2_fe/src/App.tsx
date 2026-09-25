@@ -31,7 +31,8 @@ import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, 
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
-import { loadDockOpen, loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
+import { sliceGatesFor } from "@/lib/live-slices"
+import { loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
 import { resolveActiveProject } from "@/lib/active-project"
 import { createLoadSequence } from "@/lib/load-sequence"
 import { readDefaultProjectId, writeDefaultProjectId } from "@/lib/site-config"
@@ -41,7 +42,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -187,8 +188,9 @@ function App() {
   // publish, which runs in this same effect pass.
   //
   // Keyed on the ID rather than the `currentUser` object: the auth effect
-  // refetches the user on every dashboard navigation, and a fresh object
-  // identity would clear the cache on each of them for no reason.
+  // re-resolves the user on entering the app area and publishes a fresh object
+  // each time, and a new object identity for the same user would clear the
+  // cache for no reason.
   const currentUserId = currentUser?.id ?? null
   const currentUserIdRef = useRef<number | null>(null)
   useEffect(() => {
@@ -383,6 +385,45 @@ function App() {
   const [activityTool, setActivityTool] = useState<string>(ALL_TOOLS)
   // The COMPLETE option list, from an endpoint the filter does not affect.
   const [activityToolOptions, setActivityToolOptions] = useState<string[]>([])
+  // Titles for the tasks the activity feed names, keyed by numeric id. The feed
+  // renders no task ROW — it renders a title — so the board's five column
+  // queries used to be what supplied them, on a route that shows none of their
+  // fields. This is the replacement: `fetchTaskTitles` asks for exactly the ids
+  // the loaded page references, `fields=id,title`.
+  //
+  // Additive and never cleared by a page change: realtime appends events for
+  // tasks an earlier page already named, and dropping the map would send those
+  // rows back to `Task #<id>`. It IS cleared on a project switch, because the
+  // ids in it belong to a project the user has left (and a task can be renamed).
+  const [activityTaskTitles, setActivityTaskTitles] = useState<Record<number, string>>({})
+  // Mirrored in a ref for the same reason as `persistedProjectId` above:
+  // `loadActivityPage` asks which ids are still untitled, and taking a reactive
+  // dependency on the map would rebuild that callback on every title fetch for
+  // an answer it can read without one. Both copies are written only through
+  // rememberActivityTaskTitles.
+  const activityTaskTitlesRef = useRef<Record<number, string>>({})
+  const rememberActivityTaskTitles = useCallback((titles: TaskflowTaskTitle[]) => {
+    if (!titles.length) return
+    // Built from the ref, not from a `setState` updater: the ref is the copy the
+    // loader reads, the two are always written together, and an updater that
+    // also wrote the ref would be a side effect inside a function React is free
+    // to call twice.
+    const next = { ...activityTaskTitlesRef.current }
+    for (const title of titles) next[title.id] = title.title
+    activityTaskTitlesRef.current = next
+    setActivityTaskTitles(next)
+  }, [])
+  /// Fetch the titles this page of events names, skipping ids already titled.
+  /// Shared by the slice's first load and every paged load after it — both paths
+  /// put rows in front of the feed, and the feed renders titles.
+  const rememberActivityRowTitles = useCallback(
+    async (rows: TaskflowWorkspace["taskActivity"]) => {
+      const ids = rows.map((row) => row.task).filter((task): task is number => task != null)
+      const missing = [...new Set(ids)].filter((id) => activityTaskTitlesRef.current[id] == null)
+      if (missing.length) rememberActivityTaskTitles(await fetchTaskTitles(missing))
+    },
+    [rememberActivityTaskTitles]
+  )
 
   useEffect(() => {
     setActivityPage(1)
@@ -390,11 +431,16 @@ function App() {
     setActivityTotalPages(1)
     setActivityTool(ALL_TOOLS)
     setActivityToolOptions([])
+    activityTaskTitlesRef.current = {}
+    setActivityTaskTitles({})
   }, [activeProjectId])
 
   const activityEvents = useMemo<ActivityEvent[]>(
-    () => (activeLiveWorkspace ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks) : []),
-    [activeLiveWorkspace, projectTasks]
+    () =>
+      activeLiveWorkspace
+        ? mapLiveActivityEvents(activeLiveWorkspace, projectTasks, activityTaskTitles)
+        : [],
+    [activeLiveWorkspace, projectTasks, activityTaskTitles]
   )
 
 
@@ -937,7 +983,14 @@ function App() {
     return () => {
       active = false
     }
-  }, [hasAuthSession, isAppRoute, location.pathname])
+    // Keyed on ENTERING the app area, not on every path inside it. The pathname
+    // was in this list (and still is in the effect below, where routing to the
+    // active project's data belongs), which made every tab click re-fetch
+    // `/api/auth/me` for a user object nothing had changed. Resolution still
+    // happens whenever the gate it feeds can change: entering the dashboard or
+    // the account area from a public route, or a stored session appearing or
+    // disappearing.
+  }, [hasAuthSession, isAppRoute])
 
   useEffect(() => {
     if (authGateStatus !== "authenticated") return
@@ -1032,10 +1085,20 @@ function App() {
 
   // #55: the docked chat's own state. It is deliberately NOT route-driven — the
   // dock exists so you can message someone without navigating away, so putting
-  // it in the URL would defeat the point. Persisted so it survives a reload.
-  const [dockOpen, setDockOpen] = useState(() => loadDockOpen())
+  // it in the URL would defeat the point. The CONVERSATION is persisted so it
+  // survives a reload.
+  //
+  // The OPEN flag is deliberately NOT restored from that record. It used to be,
+  // and this state is the `dockOpen` gate input, so restoring it meant that once
+  // a user had ever opened the dock, every dashboard route for the rest of that
+  // browser's life fetched the project's channels, members, newest message page,
+  // newest attachment page, read cursors and prompts — before opening a chat and
+  // whether or not one was on screen. A stored preference is not a statement
+  // that a surface is showing now; only the latter justifies a fetch, and the
+  // Chat launcher below is what states it.
+  const [dockOpen, setDockOpen] = useState(false)
   const [dockChatId, setDockChatId] = useState<string | null>(() => loadDockChatId())
-  useEffect(() => saveDockState(dockOpen, dockChatId), [dockOpen, dockChatId])
+  useEffect(() => saveDockState(dockChatId), [dockChatId])
   const openDockChat = useCallback((chatId: string) => {
     setDockChatId(chatId)
     setDockOpen(true)
@@ -1146,13 +1209,15 @@ function App() {
         setActivityPage(page)
         setActivityTool(tool)
         applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: rows }))
+        // The titles for exactly the tasks this page names.
+        void rememberActivityRowTitles(rows)
       } catch {
         // Leave the current page in place; the controls stay live for a retry.
       } finally {
         setLoadingOlder(false)
       }
     },
-    [activeLiveProjectId, applyWorkspaceUpdate]
+    [activeLiveProjectId, applyWorkspaceUpdate, rememberActivityRowTitles]
   )
 
   // #56: the heavy slices load only for the surfaces that render them. The board
@@ -1168,12 +1233,17 @@ function App() {
   // effect, which is the cascading-render pattern the lint rule objects to.
   // #56: taskDetail is keyed by the LOADED task id (not a boolean), so opening a
   // different task reloads that task's detail instead of reusing the first one's.
-  const loadedSlices = useRef<{ project: number | null; epoch: number; board: boolean; presence: boolean; chat: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: number | null }>({
+  const loadedSlices = useRef<{ project: number | null; epoch: number; board: boolean; presence: boolean; chat: boolean; channels: boolean; activity: boolean; terminal: boolean; settings: boolean; reviews: boolean; taskDetail: number | null }>({
     project: null,
     epoch: -1,
     board: false,
     presence: false,
     chat: false,
+    // The channels-only slice the design rail reads. Separate from `chat`
+    // because it is a different fetch, not a narrower gate: the rail needs a
+    // non-empty channel list to resolve the project room, and nothing else from
+    // the chat slice.
+    channels: false,
     activity: false,
     terminal: false,
     settings: false,
@@ -1210,50 +1280,21 @@ function App() {
   // table and this string never drift, and a miss leaves the page permanently
   // empty with no clue why.
   const [chatSurfaceMounted, setChatSurfaceMounted] = useState(false)
-  // The design page's left rail reuses the chat components (Phase 1) and must
-  // load the chat slice too — otherwise `agentChannels` is empty there, the
-  // project-room chat falls to the no-channel placeholder, and a design send
-  // creates a DUPLICATE "Project room" instead of reusing the existing one.
-  const chatNeeded =
-    dockOpen ||
-    chatSurfaceMounted ||
-    location.pathname.startsWith("/dashboard/agents") ||
-    location.pathname.startsWith("/dashboard/design")
-  // #56 review: the project-wide activity FEED loads here (its own paginated
-  // slice). The open task's activity is NOT this — it loads task-scoped via the
-  // taskDetail slice — so this gate is the feed route only, not openTaskId.
-  const activityNeeded = location.pathname.startsWith("/dashboard/activity")
-  // #56: terminal frames (heavy raw capture) render ONLY on the agents surface —
-  // NOT in the chat dock — so they load with the agents view, not merely when the
-  // dock is open. This keeps the 96 KB frame page off the board and dock.
-  const terminalNeeded = chatSurfaceMounted || location.pathname.startsWith("/dashboard/agents")
-  // #56: settings lists (invites/api endpoints/credentials) render on the Invites
-  // / API Base surfaces; reviews on the Reviews feed or the open task sheet; task
-  // attachments/relations only in the sheet. Load each with its surface.
-  // API endpoints + credentials are API-Base-only. (invites are core — the
-  // sidebar badge + the invites page both read them from the core workspace.)
-  const settingsNeeded = location.pathname.startsWith("/dashboard/api")
-  // #56 review: the project-wide reviews FEED loads here; the open task's reviews
-  // load task-scoped via the taskDetail slice, so this is the feed route only.
-  const reviewsNeeded = location.pathname.startsWith("/dashboard/reviews")
-  // The open task's numeric id — the taskDetail slice loads THIS task's rows and
-  // is keyed by it, so switching tasks reloads (a boolean would reuse the first).
-  const openTaskNumericId =
-    openTaskId !== null && Number.isFinite(Number(openTaskId)) ? Number(openTaskId) : null
-  // #56: board task rows are ALSO the app's task-lookup table — the activity and
-  // reviews feeds resolve task titles from them, and the task sheet reads the open
-  // task. So the board slice loads for any of those surfaces, not the board route
-  // alone. It does NOT load on the overview, agents, api or media pages — that is
-  // the whole point: the board is one route, its five column queries must not fire
-  // everywhere. The sidebar's per-project + review counts come from the summary.
-  const tasksNeeded =
-    openTaskId !== null ||
-    location.pathname.startsWith("/dashboard/board") ||
-    location.pathname.startsWith("/dashboard/reviews") ||
-    location.pathname.startsWith("/dashboard/activity")
-  // #56: agent SESSIONS (presence detail) render only on the API-Base page and in
-  // the task sheet; everywhere else "online" reads the agent roster's heartbeat.
-  const presenceNeeded = openTaskId !== null || location.pathname.startsWith("/dashboard/api")
+  // Which heavy slices the current surface needs. A pure function of the route
+  // plus the two mount/open flags and the open task, in lib/live-slices — so
+  // "which route loads what" is assertable instead of living in comments. The
+  // names below are the ones the effect and its dependency list already use.
+  const {
+    board: tasksNeeded,
+    presence: presenceNeeded,
+    chat: chatNeeded,
+    chatChannels: chatChannelsNeeded,
+    terminal: terminalNeeded,
+    settings: settingsNeeded,
+    reviews: reviewsNeeded,
+    activity: activityNeeded,
+    taskDetailId: openTaskNumericId,
+  } = sliceGatesFor({ pathname: location.pathname, chatSurfaceMounted, dockOpen, openTaskId })
 
   useEffect(() => {
     if (!activeLiveProjectId || !activeLiveWorkspace) return
@@ -1267,6 +1308,7 @@ function App() {
       slices.board = false
       slices.presence = false
       slices.chat = false
+      slices.channels = false
       slices.activity = false
       slices.terminal = false
       slices.settings = false
@@ -1308,6 +1350,27 @@ function App() {
         .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
         .catch(() => {
           slices.chat = false
+          retrySlice()
+        })
+    }
+    // The design rail's slice: the channel list and its rosters, without the
+    // messages, attachments, read cursors and prompts the full chat slice drags
+    // in. It must still load, rather than the gate being dropped — an empty
+    // `agentChannels` is what makes `mapLiveChannelChats` synthesise a project
+    // room, and a send into that placeholder creates a duplicate of a room that
+    // already exists.
+    //
+    // Skipped when the chat slice already holds those rows (`slices.chat` is the
+    // dock being open on this route), so the rail is not 2 queries of a 6-query
+    // response the app is fetching anyway. That check is on the LOADED flag, not
+    // on the gate: a chat fetch that fails clears its flag, so this falls through
+    // to the channels fetch rather than leaving the rail with no channel list.
+    if (chatChannelsNeeded && !slices.channels && !slices.chat) {
+      slices.channels = true
+      void fetchWorkspaceChannels(projectId)
+        .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
+        .catch(() => {
+          slices.channels = false
           retrySlice()
         })
     }
@@ -1362,13 +1425,17 @@ function App() {
           setActivityTotal(count)
           setActivityTotalPages(totalPages)
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, taskActivity: rows }))
+          // The first page's titles. Same reason as the paged path below: this
+          // route renders titles, not task rows, and it no longer loads the
+          // board's task columns to resolve them.
+          void rememberActivityRowTitles(rows)
         })
         .catch(() => {
           slices.activity = false
           retrySlice()
         })
     }
-  }, [tasksNeeded, presenceNeeded, chatNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, openTaskNumericId, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, sliceRetry, retrySlice, workspaceEpoch])
+  }, [tasksNeeded, presenceNeeded, chatNeeded, chatChannelsNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, openTaskNumericId, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, rememberActivityRowTitles, sliceRetry, retrySlice, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />
@@ -2671,8 +2738,9 @@ function App() {
       ) : null}
       {/* No launcher on the Agents page: it already IS the chat, so a floating
           button to open a smaller copy of it is just clutter. Keyed on the same
-          two signals as chatNeeded — the mount is the honest one, the path check
-          covers the frame before it mounts. */}
+          signals the `chat` gate reads — the mount is the honest one, the path
+          check covers the frame before it mounts. This click is also what loads
+          the chat slice now, so the button is the dock's own fetch trigger. */}
       {activeProject && !dockOpen && !chatSurfaceMounted && !location.pathname.startsWith("/dashboard/agents") ? (
         <button
           type="button"

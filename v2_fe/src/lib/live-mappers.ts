@@ -228,9 +228,17 @@ export function getLiveTaskActivity(task: Task, workspace: TaskflowWorkspace): T
 
 
 /// The project-wide activity feed, sourced from taskflow_task_activity. Rows
-/// arrive newest-first from the API; each is resolved to its task title when the
-/// task is loaded, otherwise labelled by its numeric id or the project name.
-export function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[]): ActivityEvent[] {
+/// arrive newest-first from the API; each is resolved to its task title from the
+/// loaded board rows, else from `taskTitles`, else labelled by its numeric id or
+/// the project name.
+///
+/// Two title sources, in that order, and the reason is a route. The board's rows
+/// are the richer source and are what the reviews queue and the task sheet need
+/// anyway; the activity route loads no task rows at all, so it hands in the
+/// titles it fetched by id (`fetchTaskTitles`) instead of pulling five column
+/// queries of the fattest row in the app. Same precedence shape as the sidebar's
+/// Reviews badge: prefer what is loaded, fall back to what is cheap.
+export function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks: Task[], taskTitles?: Record<number, string>): ActivityEvent[] {
   // Sort here rather than trusting insertion order. The initial fetch arrives
   // newest-first, but a realtime upsert APPENDS — so a live event landed at the
   // end of a 1500-row list and never appeared, even though the feed is paged
@@ -244,9 +252,13 @@ export function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks
     .map((event) => {
     const relatedTask =
       event.task != null ? projectTasks.find((task) => liveId(task.id) === event.task) : undefined
+    // A title we could not resolve is UNKNOWN, not absent, and the fallback says
+    // which task it is rather than showing an empty cell.
+    const resolvedTitle =
+      relatedTask?.title ?? (event.task != null ? taskTitles?.[event.task] : undefined)
     return {
       id: String(event.id),
-      title: relatedTask?.title ?? (event.task != null ? `Task #${event.task}` : workspace.project.name),
+      title: resolvedTitle ?? (event.task != null ? `Task #${event.task}` : workspace.project.name),
       detail: event.body_markdown || event.action.replace(/_/g, " "),
       actor: event.actor_label,
       action: event.action,
@@ -254,7 +266,7 @@ export function mapLiveActivityEvents(workspace: TaskflowWorkspace, projectTasks
       time: formatLiveDate(event.created_at, "Live"),
       metadata: event.metadata_json,
       timestamp: event.created_at,
-      taskLabel: relatedTask?.title ?? (event.task != null ? `Task #${event.task}` : null),
+      taskLabel: resolvedTitle ?? (event.task != null ? `Task #${event.task}` : null),
       }
     })
 }
@@ -638,9 +650,18 @@ export function isAgentOnline(
 /// Count of agents online at `now` (live session, or a live status still inside
 /// the heartbeat window). `now` is a parameter so the caller controls when the
 /// judgement is made — see useLivenessNow.
+///
+/// The ROSTER is the definition, and `workspace.agentSessions` is deliberately
+/// NOT passed to `isAgentOnline` here. Sessions are presence *detail*: they load
+/// as a slice on the API-Base page and in the task sheet, and nowhere else. When
+/// they were part of this count, the sidebar's "N online" badge moved as an
+/// unrelated surface loaded — visiting API Base could turn an agent green, and
+/// reloading elsewhere could turn it back — while `mapLiveProjects` below
+/// computed the same kind of number from the roster alone. One definition means
+/// the badge changes only when an agent's own status or heartbeat does.
 export function countOnlineAgents(workspace: TaskflowWorkspace, now: number): number {
   return workspace.agents.filter((agent) =>
-    isAgentOnline(agent.id, workspace.agents, workspace.agentSessions, now)
+    isAgentOnline(agent.id, workspace.agents, [], now)
   ).length
 }
 
