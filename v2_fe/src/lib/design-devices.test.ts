@@ -106,6 +106,9 @@ describe("design devices", () => {
 
     const band0 = boards.filter((b) => b.deviceId === "laptop")
     const band1 = boards.filter((b) => b.deviceId === "bp-sm")
+    // One board per open page in each band — no duplicates, none dropped.
+    expect(band0).toHaveLength(open.length)
+    expect(band1).toHaveLength(open.length)
 
     // Within a band, this device's pages run left→right along the band's top.
     expect(band0.every((b) => b.y === 0)).toBe(true)
@@ -119,6 +122,8 @@ describe("design devices", () => {
 
     // A band advances by ITS OWN device's height, not some other device's.
     expect(HEADER_H + boardHeight(bp) + GUTTER).not.toBe(bandStep)
+    // ...and columns step by their OWN device's width, not the first band's.
+    expect(band1.find((b) => b.route === "/about")!.x).toBe(boardWidth(bp) + GUTTER)
   })
 
   it("layoutBands is the transpose of layoutRows", () => {
@@ -129,6 +134,20 @@ describe("design devices", () => {
     // Same boards, same keys — only the arrangement differs.
     expect(new Set(bands.map((b) => b.key))).toEqual(new Set(rows.map((b) => b.key)))
     expect(bands).not.toEqual(rows)
+
+    // ...and they differ GEOMETRICALLY, not merely in iteration order: the same
+    // board sits at a different point in each arrangement. One board is enough
+    // to prove the axes swapped — `/@bp-sm` leads its band but trails its row.
+    const inBands = bands.find((b) => b.key === "/@bp-sm")!
+    const inRows = rows.find((b) => b.key === "/@bp-sm")!
+    expect({ x: inBands.x, y: inBands.y }).toEqual({
+      x: 0,
+      y: HEADER_H + boardHeight(deviceById("laptop")) + GUTTER,
+    })
+    expect({ x: inRows.x, y: inRows.y }).toEqual({
+      x: boardWidth(deviceById("laptop")) + GUTTER,
+      y: 0,
+    })
   })
 
   it("layoutRows is deterministic and order-stable", () => {

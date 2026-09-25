@@ -159,11 +159,13 @@ export function makeArtboard(route: string, deviceId: string, x: number, y: numb
  *  the route name plus its action buttons — cannot reach the next board. */
 export const GUTTER = 140
 
-/** Height of the per-board header row (`ArtboardHeader`). It renders ABOVE the
- *  board, so every stacking calculation has to add it: the board's own height
- *  does not include it, and a row that only cleared the board would put the
- *  next row's header *inside* this one's frame. */
-export const HEADER_H = 28
+/** Height of the per-board header row (`ArtboardHeader`): 22px of content —
+ *  `p-1` buttons around `size-3.5` icons — plus its `mb-2` gap, so 30px of
+ *  normal flow above the board. It renders ABOVE the board, so every stacking
+ *  calculation has to add it: the board's own height does not include it, and a
+ *  row that only cleared the board would put the next row's header *inside*
+ *  this one's frame. */
+export const HEADER_H = 30
 
 /** The 1px border `DeviceChrome` draws around the bezel. */
 const CHROME_BORDER = 1
