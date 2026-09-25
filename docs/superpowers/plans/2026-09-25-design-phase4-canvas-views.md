@@ -1056,7 +1056,11 @@ export function layoutGroups(
     // One column per group (document order), then the ungrouped tail. A column
     // with nothing open takes no space, so no phantom gap appears.
     const columns: string[][] = groups.map((g) => g.routes.filter((r) => openRoutes.includes(r)))
-    if (ungrouped.length) columns.push(ungrouped)
+    // Each ungrouped page is its OWN one-board column. Pushing `ungrouped` as a
+    // single column would STACK the tail vertically, which is the opposite of
+    // the spec's "single row, top-aligned, no wrapping" — and it fails this
+    // task's own first test.
+    for (const route of ungrouped) columns.push([route])
 
     let x = 0
     let bandHeight = 0
