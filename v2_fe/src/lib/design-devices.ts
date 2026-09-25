@@ -1,4 +1,4 @@
-import type { LayoutGroup } from "./design-layout"
+import type { LayoutDoc, LayoutGroup } from "./design-layout"
 
 /// Device presets for the design canvas (§9.3).
 ///
@@ -278,4 +278,26 @@ export function layoutGroups(
   }
 
   return boards
+}
+
+/// The single entry point the surface calls: turn the arrangement document plus
+/// the user's open pages and devices into positioned boards. Everything
+/// downstream (canvas, selection, pins, focus) is keyed on `route@device` and
+/// does not care which arrangement produced them.
+export function boardsForView(
+  doc: LayoutDoc,
+  openRoutes: string[],
+  deviceIds: string[],
+): Artboard[] {
+  switch (doc.view) {
+    case "bands":
+      return layoutBands(openRoutes, deviceIds)
+    case "groups":
+      return layoutGroups(openRoutes, deviceIds, doc.groups)
+    // `rows` and anything unrecognised: a document written by a newer build
+    // must still render *something* rather than blanking the canvas.
+    case "rows":
+    default:
+      return layoutRows(openRoutes, deviceIds)
+  }
 }

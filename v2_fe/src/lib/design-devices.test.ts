@@ -6,6 +6,7 @@ import {
   artboardKey,
   boardHeight,
   boardWidth,
+  boardsForView,
   chromeStyleForGroup,
   deviceById,
   layoutBands,
@@ -428,5 +429,30 @@ describe("design devices", () => {
     expect(layoutGroups(["/", "/login"], ["laptop"], groups)).toEqual(
       layoutGroups(["/", "/login"], ["laptop"], groups),
     )
+  })
+
+  it("boardsForView dispatches on the document's view", () => {
+    const open = ["/", "/login"]
+    const devices = ["laptop"]
+    const rows = { view: "rows" as const, routeOrder: open, groups: [] }
+    const bands = { view: "bands" as const, routeOrder: open, groups: [] }
+    const groups = {
+      view: "groups" as const,
+      routeOrder: open,
+      groups: [{ id: "g1", name: "Auth", routes: ["/login"] }],
+    }
+
+    expect(boardsForView(rows, open, devices)).toEqual(layoutRows(open, devices))
+    expect(boardsForView(bands, open, devices)).toEqual(layoutBands(open, devices))
+    expect(boardsForView(groups, open, devices)).toEqual(
+      layoutGroups(open, devices, groups.groups),
+    )
+  })
+
+  it("boardsForView treats an unknown view as rows rather than crashing", () => {
+    // A document from a newer build must still render something.
+    const open = ["/"]
+    const weird = { view: "diagonal" as never, routeOrder: open, groups: [] }
+    expect(boardsForView(weird, open, ["laptop"])).toEqual(layoutRows(open, ["laptop"]))
   })
 })
