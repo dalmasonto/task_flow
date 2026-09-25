@@ -2364,6 +2364,8 @@ export function resolveActiveProject(
 
 **This is the single fix wave after the final whole-branch review**, per the process. It is not a hardening batch like Task 30 — Task 30 is minors from *approved* tasks; this is the residue that reviews deliberately left open, including **one item a re-review marked open rather than as breakage**, which is why Task 13 is not marked complete-with-nothing-outstanding.
 
+**Sequencing decision, made here rather than at the end:** run Task 31 **before** the final whole-branch review, not after it. The process says the final review is followed by one fix wave, which would put this task's items and that wave in the same files at the same time — two writers, the exact conflict this phase has paid for repeatedly. So this closes the backlog the task reviews left, and the final review's own wave is then genuinely last and genuinely small. **Order: Task 26 → Task 30 → Task 28 → Task 29 → Task 31 → final review.** Task 30 precedes Task 28 because Task 30's `App.tsx` guard move is one line and Task 28 restructures that file; landing the small change first keeps the restructure's diff clean.
+
 **Files:** mostly backend (`composer.rs`, `views.rs`, `resources.rs`, `manifest.rs`, `tests/`), a few `v2_fe` one-liners. **Locate everything by symbol** — these were written at many different commits and the tree has moved under all of them.
 
 **The items with a real fix:**
