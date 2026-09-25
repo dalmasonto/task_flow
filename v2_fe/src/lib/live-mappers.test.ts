@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { countOnlineAgents, isSessionLive, mapLiveActivityEvents, mapLiveChannelMessages } from "./live-mappers"
+import { countOnlineAgents, formatFullDate, formatLiveDate, formatMessageTime, isSessionLive, mapLiveActivityEvents, mapLiveChannelMessages } from "./live-mappers"
 import type { TaskflowWorkspace } from "@/lib/taskflow-api"
 import type { TaskflowAgentMessage } from "@/api/client"
 
@@ -132,6 +132,108 @@ describe("mapLiveActivityEvents — task titles", () => {
     const events = mapLiveActivityEvents(workspaceWithActivity([activityEvent(null)]), [], { 42: "Fix the thing" })
     expect(events[0].title).toBe("Board")
     expect(events[0].taskLabel).toBeNull()
+  })
+})
+
+/// A row that differs from `activityEvent` only in the two fields ORDERING is
+/// decided by, so a wrong order cannot be blamed on anything else.
+function activityRow(id: number, createdAt: string) {
+  return { ...activityEvent(null), id, created_at: createdAt } as unknown as TaskflowWorkspace["taskActivity"][number]
+}
+
+describe("mapLiveActivityEvents — newest first", () => {
+  // The bug the mapper's sort exists for, as a regression test: the fetch
+  // arrives newest-first but a realtime upsert APPENDS, so without the re-sort
+  // a live row sat at the END of the list — and the feed is paged from the top,
+  // so a fresh event never appeared. The expected order is written out rather
+  // than asserted as "is sorted": restating the comparator would pass even if
+  // the ordering were the wrong one.
+  it("puts an appended live row above a newest-first fetched list", () => {
+    const fetched = [
+      activityRow(300, "2026-09-25T12:00:00Z"),
+      activityRow(299, "2026-09-25T11:59:00Z"),
+      activityRow(298, "2026-09-25T11:58:00Z"),
+    ]
+    // What upsertCapped leaves behind: live rows appended in arrival order,
+    // both newer than everything fetched.
+    const appended = [activityRow(400, "2026-09-25T12:05:00Z"), activityRow(401, "2026-09-25T12:06:00Z")]
+
+    const events = mapLiveActivityEvents(workspaceWithActivity([...fetched, ...appended]), [])
+
+    expect(events.map((event) => event.id)).toEqual(["401", "400", "300", "299", "298"])
+  })
+
+  // The tiebreak half of that guarantee: at the same instant the higher id is
+  // the newer event, so the appended row still has to come first.
+  it("orders rows that share a timestamp by descending id", () => {
+    const at = "2026-09-25T12:00:00Z"
+    const events = mapLiveActivityEvents(
+      workspaceWithActivity([activityRow(300, at), activityRow(401, at), activityRow(299, at)]),
+      []
+    )
+
+    expect(events.map((event) => event.id)).toEqual(["401", "300", "299"])
+  })
+})
+
+describe("mapLiveActivityEvents — the task index", () => {
+  // The per-event `find` became one index built per call. `find` returned the
+  // FIRST matching row, so a board carrying the same live id twice must still
+  // resolve to the first — a faster lookup may not change which row wins.
+  it("resolves a duplicated task id to the first board row, as find did", () => {
+    const events = mapLiveActivityEvents(workspaceWithActivity([activityEvent(42)]), [
+      boardTask("42", "First"),
+      boardTask("42", "Second"),
+    ])
+
+    expect(events[0].title).toBe("First")
+  })
+
+  // A row whose id is not a live id cannot match a numeric `event.task` —
+  // `liveId` answers null for it, and the index must skip it rather than key it
+  // under something a later lookup could hit.
+  it("ignores a board row whose id is not a live id", () => {
+    const events = mapLiveActivityEvents(workspaceWithActivity([activityEvent(42)]), [boardTask("local-1", "Local")])
+
+    expect(events[0].title).toBe("Task #42")
+  })
+})
+
+describe("the date formatters the feed renders with", () => {
+  // The three patterns are built once now instead of once per row — that
+  // construction was ~75% of an activity recompute. A cache is only sound if it
+  // is INVISIBLE, so each formatter must still produce exactly what a freshly
+  // constructed one produces.
+  const iso = "2026-09-25T12:34:00Z"
+
+  it("formatLiveDate matches a freshly constructed formatter", () => {
+    const fresh = new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+    expect(formatLiveDate(iso)).toBe(fresh.format(new Date(iso)))
+  })
+
+  it("formatMessageTime matches a freshly constructed formatter", () => {
+    const fresh = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
+    expect(formatMessageTime(iso)).toBe(fresh.format(new Date(iso)))
+  })
+
+  it("formatFullDate matches a freshly constructed formatter", () => {
+    const fresh = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" })
+    expect(formatFullDate(iso)).toBe(fresh.format(new Date(iso)))
+  })
+
+  // A missing or unparseable value is the same "unknown, not absent" rule the
+  // title fallback follows — the fallback still has to come back, not "Invalid
+  // Date".
+  it("keeps the fallbacks for a missing or unparseable value", () => {
+    expect(formatLiveDate(null)).toBe("Live")
+    expect(formatLiveDate("not a date", "Live")).toBe("Live")
+    expect(formatMessageTime(null)).toBe("Live")
+    expect(formatFullDate(null)).toBe("")
   })
 })
 
