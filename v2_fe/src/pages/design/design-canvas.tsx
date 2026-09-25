@@ -45,6 +45,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { type CanvasTool } from "./canvas-tools"
 import { boardKeyForSource } from "./design-frame-source"
+import { createSettleGate } from "./settle-gate"
+import { gridDotOpacity, transformCss } from "./canvas-paint"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
 
@@ -52,6 +54,13 @@ export const MIN_SCALE = 0.25
 export const MAX_SCALE = 2
 
 export const ZOOM_STEP = 1.1
+
+/** How long the gesture's events must stop before the live transform is
+ *  committed to React state (and, behind it, to Dexie). Trackpad wheel events
+ *  arrive every 8–16ms, so 120ms swallows a whole flick; it is short enough
+ *  that the committed value — the toolbar's zoom % — is never visibly behind
+ *  the canvas. */
+export const GESTURE_SETTLE_MS = 120
 
 type FrameMessage =
   | { type: "design:ready"; h: number }
@@ -139,7 +148,30 @@ export function DesignCanvas({
   pins,
 }: DesignCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement>(null)
+  /** The panning layer the transform is applied to, and the dot grid whose fade
+   *  follows the zoom. During a gesture both are written DIRECTLY (see the live
+   *  transform below) instead of being re-rendered. */
+  const layerRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
   const panningRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
+  /** The LIVE transform: what the canvas is showing right now. Mid-gesture it
+   *  deliberately runs ahead of the `transform` prop, which carries only the
+   *  COMMITTED value — the gap between the two is what keeps a two-finger pan
+   *  from re-rendering this component (and every board under it) 60–120 times a
+   *  second. */
+  const liveRef = useRef<CanvasTransform>(transform)
+  /** The settle gate (see `settle-gate.ts`). Created once, and its commit is
+   *  re-SET on every render rather than captured at creation, because the timer
+   *  that fires it outlives the render that armed it. Setting it here, in a
+   *  layout effect, is also the only shape the hooks lint allows: it refuses to
+   *  let a ref-reading closure escape into a function called during render. */
+  const [gate] = useState(() => createSettleGate<CanvasTransform>({ settleMs: GESTURE_SETTLE_MS }))
+  useLayoutEffect(() => {
+    gate.setCommit(onTransformChange)
+  })
+  // A pending settle must not outlive the canvas — the timer would otherwise
+  // call `onTransformChange` for a surface that has moved on.
+  useEffect(() => () => gate.cancel(), [gate])
   const [spaceDown, setSpaceDown] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const selectionBoard = selection
@@ -148,6 +180,54 @@ export function DesignCanvas({
 
   // --- pan + zoom ----------------------------------------------------------
   const clampScale = useCallback((s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s)), [])
+
+  // A gesture PAINTS the transform and only COMMITS it once the events stop.
+  // Committing costs a re-render of this component and every board under it
+  // (each with a live iframe) plus a Dexie write armed by the surface's persist
+  // effect, which is why it cannot happen per event. The maths is untouched:
+  // the handlers below read `liveRef.current` where they used to read the
+  // `transform` prop, and nothing else about them moved.
+
+  /** Exactly what the JSX below would have written for this value — same two
+   *  helpers, so the two cannot drift — minus the render of the whole subtree. */
+  const paint = useCallback((t: CanvasTransform) => {
+    const layer = layerRef.current
+    if (layer) layer.style.transform = transformCss(t)
+    const grid = gridRef.current
+    if (grid) grid.style.opacity = String(gridDotOpacity(t.scale))
+  }, [])
+
+  /** One gesture event: show it now, commit it if the gestures stop. */
+  const push = useCallback(
+    (next: CanvasTransform) => {
+      liveRef.current = next
+      paint(next)
+      gate.push(next)
+    },
+    [gate, paint],
+  )
+
+  // On EVERY render, and as a LAYOUT effect so the correction lands before the
+  // browser paints. React writes this render's `transform` prop onto the layer
+  // itself; while a gesture is in flight that prop is the value from BEFORE the
+  // gesture, so without this any unrelated re-render (a Space press, a comment
+  // arriving over SSE) would snap the canvas back to where the gesture started
+  // and hold it there until the settle — the glitch this task exists to remove.
+  useLayoutEffect(() => {
+    // When no gesture is in flight the two agree, and the prop is the truth
+    // (its own commit, Fit, a zoom button, a viewport restored from Dexie):
+    // adopt it, so the next gesture pans from where the canvas actually is.
+    if (!gate.pending() && transform !== liveRef.current) {
+      liveRef.current = transform
+    }
+    // While one IS in flight, the live value is the truth and this render's
+    // prop is stale — including when it is a foreign write. Such a write is
+    // deliberately left to the settle (which lands within 120ms and commits the
+    // gesture) rather than honoured now: honouring it would yank the canvas to
+    // somewhere else under a moving finger, and a lost tap on Fit is the
+    // cheaper of the two. The paint below is that decision.
+    paint(liveRef.current)
+  })
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -171,52 +251,60 @@ export function DesignCanvas({
     if (!(spaceDown || e.button === 1 || (canvasTool === "pan" && e.button === 0))) return
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-    panningRef.current = { x: e.clientX, y: e.clientY, ox: transform.x, oy: transform.y }
+    // The anchor is the LIVE position, not the committed one: a drag begun
+    // inside a wheel gesture's settle window must start from where the canvas
+    // actually is, not from where it was two gestures ago.
+    const live = liveRef.current
+    panningRef.current = { x: e.clientX, y: e.clientY, ox: live.x, oy: live.y }
     setIsPanning(true)
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const p = panningRef.current
     if (!p) return
-    onTransformChange({
-      ...transform,
-      x: p.ox + (e.clientX - p.x),
-      y: p.oy + (e.clientY - p.y),
-    })
+    const live = liveRef.current
+    push({ ...live, x: p.ox + (e.clientX - p.x), y: p.oy + (e.clientY - p.y) })
   }
   const onPointerUp = () => {
     panningRef.current = null
     setIsPanning(false)
+    // A drag has an END, unlike a wheel stream: commit on it rather than
+    // making the human wait out the settle window. A drag that never moved
+    // pushes nothing, so this is a no-op for a click.
+    gate.flush()
   }
 
   // Cmd/Ctrl+scroll zooms toward the cursor; plain two-finger scroll pans
-  // (trackpad). Zoom range 25%–200%.
+  // (trackpad). Zoom range 25%–200%. Both compute from the LIVE transform and
+  // hand the result to `push`, which paints it now and commits it when the
+  // events stop — the arithmetic below is exactly what it always was.
   useEffect(() => {
     const el = surfaceRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      const live = liveRef.current
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
         const rect = el.getBoundingClientRect()
         const cx = e.clientX - rect.left
         const cy = e.clientY - rect.top
-        const next = clampScale(transform.scale * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP))
+        const next = clampScale(live.scale * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP))
         // Keep the point under the cursor fixed while scaling.
-        const ratio = next / transform.scale
-        onTransformChange({
+        const ratio = next / live.scale
+        push({
           scale: next,
-          x: cx - (cx - transform.x) * ratio,
-          y: cy - (cy - transform.y) * ratio,
+          x: cx - (cx - live.x) * ratio,
+          y: cy - (cy - live.y) * ratio,
         })
       } else if (!e.shiftKey && Math.abs(e.deltaX) + Math.abs(e.deltaY) > 0) {
         // Two-finger pan (trackpad). Shift+scroll leaves vertical scrolling to
         // the browser for mouse users.
         e.preventDefault()
-        onTransformChange({ ...transform, x: transform.x - e.deltaX, y: transform.y - e.deltaY })
+        push({ ...live, x: live.x - e.deltaX, y: live.y - e.deltaY })
       }
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
-  }, [transform, clampScale, onTransformChange])
+  }, [clampScale, push])
 
   // --- messages from frames -------------------------------------------------
   useEffect(() => {
@@ -263,20 +351,23 @@ export function DesignCanvas({
       onPointerUp={onPointerUp}
       data-testid="design-canvas-surface"
     >
-      {/* Dot grid fades out below 50% zoom — a plotting surface, not a page. */}
+      {/* Dot grid fades out below 50% zoom — a plotting surface, not a page.
+          `gridDotOpacity` is shared with the gesture-time paint above. */}
       <div
+        ref={gridRef}
         aria-hidden
         className="absolute inset-0 transition-opacity duration-200"
         style={{
           backgroundImage: "radial-gradient(circle, #27272a 1px, transparent 1px)",
           backgroundSize: "24px 24px",
-          opacity: transform.scale >= 0.5 ? 0.55 : Math.max(0, (transform.scale - 0.3) * 1.8),
+          opacity: gridDotOpacity(transform.scale),
         }}
       />
       <div
+        ref={layerRef}
         className="absolute top-0 left-0 origin-top-left"
         style={{
-          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+          transform: transformCss(transform),
           willChange: "transform",
         }}
       >
