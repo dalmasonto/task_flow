@@ -371,21 +371,56 @@ describe("design devices", () => {
     expect(login.y).toBe(0)
     expect(signup.y).toBe(laptopRowStep)
 
-    // Two stacked boards PLUS both headers, then one gutter: the deepest
-    // column's height, not the bare device step. The two candidates differ by a
-    // whole step (1848 against 994), so an advance that ignores column depth
-    // lands the next band on the second board and fails here.
-    const deepest = 2 * (HEADER_H + boardHeight(laptop)) + GUTTER
+    // The next band starts one gutter below the deepest column's last board:
+    // that board's bottom (994 + header + height = 1848) plus GUTTER = 1988.
+    // Not 1848 — that left the bands touching, with no gutter at all, and not
+    // the bare device step 994. Both wrong values are named below so the
+    // failure mode stays pinned.
+    const deepestBottom = signup.y + HEADER_H + boardHeight(laptop)
+    const nextBand = deepestBottom + GUTTER
+    const bpRowStep = HEADER_H + boardHeight(deviceById("bp-sm")) + GUTTER
     // The whole of the next band is offset by it: its two FIRST-ROW boards —
     // `/login` (its own Auth column) and `/` (the ungrouped tail) — both sit on
     // the band top, so neither can be mistaken for the stacked one.
-    const bpRowStep = HEADER_H + boardHeight(deviceById("bp-sm")) + GUTTER
-    expect(bpRow.find((b) => b.route === "/login")!.y).toBe(deepest)
-    expect(bpRow.find((b) => b.route === "/")!.y).toBe(deepest)
+    expect(bpRow.find((b) => b.route === "/login")!.y).toBe(nextBand)
+    expect(bpRow.find((b) => b.route === "/")!.y).toBe(nextBand)
     // ...and its stacked board is a row down from there, by ITS OWN device's
     // step — not the leading band's.
-    expect(bpRow.find((b) => b.route === "/signup")!.y).toBe(deepest + bpRowStep)
-    expect(HEADER_H + boardHeight(laptop) + GUTTER).not.toBe(deepest)
+    expect(bpRow.find((b) => b.route === "/signup")!.y).toBe(nextBand + bpRowStep)
+    // The candidates this must NOT have landed on: the bare device step, and
+    // the zero-gutter number the shipped formula produced (deepestBottom).
+    expect(HEADER_H + boardHeight(laptop) + GUTTER).not.toBe(nextBand)
+    expect(deepestBottom).not.toBe(nextBand)
+  })
+
+  it("layoutGroups: a THREE-board column's band is cleared, not overlapped", () => {
+    // The depth where the shipped `n * (HEADER_H + h)` band height went wrong:
+    // a two-board column only lost its gutter, a three-board one overlaps by a
+    // full gutter. Two boards cannot tell those apart, so this case is the one
+    // that pins the defect itself.
+    const groups = [{ id: "g1", name: "Auth", routes: ["/a", "/b", "/c"] }]
+    const boards = layoutGroups(["/a", "/b", "/c"], ["laptop", "bp-sm"], groups)
+    const laptop = deviceById("laptop")
+    const laptopRowStep = HEADER_H + boardHeight(laptop) + GUTTER
+    const laptopRow = boards.filter((b) => b.deviceId === "laptop")
+    const bpRow = boards.filter((b) => b.deviceId === "bp-sm")
+    expect(laptopRow).toHaveLength(3)
+    expect(bpRow).toHaveLength(3)
+
+    // Three boards, so the last one sits two full steps down the column.
+    const last = laptopRow.find((b) => b.route === "/c")!
+    expect(laptopRow.find((b) => b.route === "/a")!.y).toBe(0)
+    expect(laptopRow.find((b) => b.route === "/b")!.y).toBe(laptopRowStep)
+    expect(last.y).toBe(2 * laptopRowStep)
+
+    // Its bottom, then one gutter — and the next band must clear it. The
+    // shipped formula put this band at 2702, inside the board that ends at 2842.
+    const lastBottom = last.y + HEADER_H + boardHeight(laptop)
+    const bpRowStep = HEADER_H + boardHeight(deviceById("bp-sm")) + GUTTER
+    expect(bpRow.find((b) => b.route === "/a")!.y).toBe(lastBottom + GUTTER)
+    expect(bpRow.find((b) => b.route === "/c")!.y).toBe(lastBottom + GUTTER + 2 * bpRowStep)
+    expect(bpRow[0].y).toBeGreaterThanOrEqual(lastBottom)
+    expect(3 * (HEADER_H + boardHeight(laptop)) + GUTTER).not.toBe(lastBottom + GUTTER)
   })
 
   it("layoutGroups is deterministic", () => {
