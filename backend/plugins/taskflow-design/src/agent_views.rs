@@ -74,9 +74,12 @@ pub struct AgentContextQuery {
 /// `design_get_tokens` and `design_list_components` both return it, and the
 /// first is the read an agent is told to always make before its first design
 /// write. The MCP tool descriptions are the other place this could live, and
-/// to a reader they are the more obvious one — but the MCP is served from its
-/// package's built `dist/` (`mcp/package.json`'s `bin`), so text that lives
-/// only in `mcp/src` is not what an agent receives until the MCP is rebuilt.
+/// to a reader they are the more obvious one — but the MCP an agent actually
+/// runs is a global COPY of the package, not this repo
+/// (`$(npm root -g)/@dalmasonto/taskflow-mcp`: real files, no symlink into the
+/// repo), so text written into `mcp/src` reaches an agent only after a build
+/// AND a reinstall — the installed copy's `dist/` is already stale, carrying
+/// no occurrence of `primitives` where this repo's `src/` and `dist/` both do.
 /// This response has no such step.
 const AUTHORING_GUIDE: &str = r#"Links between pages
   Use a plain <a href="/route"> for any route in the manifest — e.g.
@@ -85,7 +88,10 @@ const AUTHORING_GUIDE: &str = r#"Links between pages
 
   A back control is just:
       <button onclick="history.back()">Back</button>
-  The frame keeps its own history, so this works with no extra wiring.
+  The frame keeps its own history, so this works with no extra wiring — but
+  only once the frame HAS history: opened directly at one route it has a
+  single entry, and Back there does nothing. A link to a known route always
+  works, so do not let Back be the only way off a page.
 
   Do NOT hand-write sandbox URLs, and do not use target="_blank" for
   in-project links — a new tab leaves the frame and loses its history.
@@ -108,7 +114,9 @@ Images, video and motion
   Pass the animation data INLINE in that component (lottie's animationData),
   because there is nowhere to store it as a file: assets/ accepts image
   extensions only, and styles/ accepts only tokens.css, tokens.json and
-  resources.json.
+  resources.json. That data counts against the 128 KB per-file cap on the
+  component itself, so keep the animation small: a larger one is refused
+  outright (rule `size-cap`), and there is nowhere else to put it.
 "#;
 
 /// `GET /api/taskflow/agents/design/context` — everything `design_get_tokens`

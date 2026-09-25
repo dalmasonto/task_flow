@@ -157,20 +157,25 @@ async fn context_serves_the_link_back_and_media_guidance() {
         .expect("context response carries the authoring guide");
     println!("--- context.guide as served ---\n{guide}\n--- end ---");
 
-    // Linking, back navigation, and the two habits that would silently undo
-    // them (a hand-written sandbox URL, and a new tab).
+    // Linking, back navigation, and the habits that would silently undo them:
+    // a hand-written sandbox URL, a new tab, and a Back button on a frame that
+    // has no history to step back into.
     for needle in [
         "<a href=\"/route\">",
         "the browser's back/forward work",
         "<button onclick=\"history.back()\">Back</button>",
+        "only once the frame HAS history",
+        "opened directly at one route",
+        "A link to a known route always",
         "Do NOT hand-write sandbox URLs",
         "target=\"_blank\"",
     ] {
         assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
     }
 
-    // The media half, including the two things the policy does NOT allow
-    // (plain http, and a `<script src>` in a page fragment).
+    // The media half, including the three things the policy does NOT allow:
+    // plain http, a `<script src>` in a page fragment, and an inlined
+    // animation larger than the per-file cap its component has to fit in.
     for needle in [
         "<img src=\"https://cdn.example/hero.png\"",
         "<video src=\"https://cdn.example/clip.mp4\" controls>",
@@ -180,6 +185,8 @@ async fn context_serves_the_link_back_and_media_guidance() {
         "COMPONENT instead",
         "INLINE in that component",
         "assets/ accepts image",
+        "128 KB per-file cap",
+        "size-cap",
     ] {
         assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
     }
