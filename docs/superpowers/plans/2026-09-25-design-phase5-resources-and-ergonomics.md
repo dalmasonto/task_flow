@@ -1927,6 +1927,8 @@ Tests: an empty or whitespace-only query returns everything; a query matching a 
 
 - [ ] **Step 3: The search box.** One input at the top of the panel, above the Save/Export row or directly under it, filtering as you type. It must not fight the save path: filtering is view state and never mutates `doc`, so a filtered view can still be saved whole. Say that in a comment — the panel's job is editing a document, and a filter that wrote back would be a data-loss bug.
 
+> **Correction (2026-09-25, from this task's fix-round re-review).** The brief listed `resource-editor.tsx:397` (the add-*set* name input, now `:403`) among the sites that **stay mono** as "inputs". That line is wrong, and the reviewer named why: the token side's add-*name* input is off mono (`token-editor.tsx:168`), so following the instruction left **the same tab rendering two "add a name" fields in two different fonts**. The user's actual rule is names normal / values mono — the discriminator is what the field *holds*, not that it is an input. A field whose content is a URL, a hex, a size or markup stays mono; a field whose content is a name does not. **The add-set name input moves off mono**, and the paste textarea (`:160`) and the URL/rel-value sites stay as they are.
+
 - [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>`. **Not the build.**
 
   ⚠️ Note in your report whether you touched the pre-existing `react-refresh/only-export-components` violation at `token-editor.tsx:31` — you may not have to, but a second one appearing would raise the repo baseline, and this phase holds that baseline fixed.
@@ -1994,6 +1996,43 @@ export function groupNameProblem(layout: LayoutDoc, name: string): string | null
 - [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — the baseline is **27 errors / 1 warning**. **Do not run `npm run build`**; the user is testing locally first and publishing is explicitly on hold.
 
   A dialog is interactive, so no unit test reaches the modal itself — say so in your report rather than implying coverage, and state exactly what a human should click to verify it.
+
+---
+
+### Task 21: Inspect — multiple selections across pages
+
+**Requested by the user:** *"Inspect is currently doing a single component, I will need expanded to multiple selects from different design pages atleast, so during select we need to identify and say which route for example so that the underlying selected component can be mapped out well."*
+
+**The granularity was asked and answered:** **one comment per selection**, not one comment covering many targets. That follows from the existing architecture — `CommentForm` creates a comment with a single `element_path`, the backend stores one target per comment, and `dispatch_comments` already formats a target block per comment. So nothing in the comment model or the backend changes.
+
+**Confirmed at the source:** `DesignSurfacePage` holds **one** `selection`, and `design-canvas.tsx`'s `onSelect` replaces it — so selecting on a second page silently discards the first. That is the "single component" the user means. The route is already available: `sanitizeSelection(raw, route, viewport)` is called with the board's route, so **no frame-side change is needed** — the route travels with the selection already.
+
+**Files:**
+- Modify: `v2_fe/src/pages/design/DesignSurfacePage.tsx` (the selection state)
+- Modify: `v2_fe/src/pages/design/design-inspector.tsx` (the list)
+- Create a colocated pure module + test for the list operations
+
+- [ ] **Step 1: The list operations as pure functions, tested first.** Selection state is exactly the kind of thing that goes wrong invisibly — a duplicate row, a lost entry, an active index pointing past the end after a removal.
+
+```ts
+/// Add `next` unless an equivalent selection is already present (same route AND
+/// same elementPath), in which case re-activate the existing one. Returns the
+/// list and the index that is now active.
+export function addSelection(list: SelectionState[], next: SelectionState): { list: SelectionState[]; active: number }
+export function removeSelection(list: SelectionState[], index: number): { list: SelectionState[]; active: number }
+```
+
+  Tests worth having, each of which names what would have to change for it to fail: clicking the same element twice yields **one** row, not two (dedupe is by route **and** elementPath — the same element path on *different* routes is two genuinely different selections, which is the case this whole feature exists for); removing the **active** row leaves `active` pointing at a real row rather than past the end; removing the last row leaves an empty list with `active` at `-1`; and re-clicking an existing selection makes it active rather than moving it.
+
+- [ ] **Step 2: The inspector lists them, each with its route.** This is the user's explicit requirement — *"during select we need to identify and say which route"* — so every row shows the route, resolved through `pageLabel` the way the rest of the panel does, with the raw path available for precision. Each row needs: which page it is on, what was selected (component name when there is one, else the tag), a way to make it active, and a remove control. The **active** row is the one `CommentForm` edits, and `CommentForm` itself is unchanged — it still creates one comment for one selection, which is the whole contract.
+
+- [ ] **Step 3: Mark the rows that already have a comment.** A selection whose comment was saved should say so, or the user cannot tell what they have already mapped — and the point of the feature is mapping components across pages. `CommentForm`'s `onCreated` already hands back the created comment, so the count per row is available without new plumbing. Keep it cheap: a badge, not a second list.
+
+- [ ] **Step 4: Keep the single-selection path working.** The palette entries, the pins, and the comment→board focus all address one selection; they must keep working with the list present. Say in your report how you verified that, since the file is large.
+
+- [ ] **Step 5: Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>` — baseline **27 errors / 1 warning**. **Do not run `npm run build`** and do not push: the user is testing locally and publishing is on hold.
+
+  The list *operations* are testable and should be tested; the click-to-select interaction is not (no RTL/jsdom). Say so rather than implying coverage, and give the human a short script: which page to click, what to expect in the list, and what order to check.
 
 ---
 
