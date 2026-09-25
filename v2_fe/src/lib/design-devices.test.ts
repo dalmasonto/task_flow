@@ -350,6 +350,44 @@ describe("design devices", () => {
     expect(steps[2]).not.toBe(steps[0] + steps[1])
   })
 
+  it("layoutGroups: a band clears its DEEPEST column, headers and all", () => {
+    const groups = [{ id: "g1", name: "Auth", routes: ["/login", "/signup"] }]
+    const devices = ["laptop", "bp-sm"]
+    const boards = layoutGroups(["/", "/login", "/signup"], devices, groups)
+
+    const band = (id: string) => boards.filter((b) => b.deviceId === id)
+    const [laptopRow, bpRow] = devices.map((id) => band(id))
+    // Non-empty, so the per-band checks below cannot pass vacuously.
+    for (const row of [laptopRow, bpRow]) expect(row).toHaveLength(3)
+
+    // The leading band's Auth column really is two boards deep. Every column in
+    // the older fixtures held exactly one board, so a band advance that ignored
+    // column depth agreed with the right one — this assert is what makes the
+    // difference observable, and the depth is asserted rather than assumed.
+    const laptop = deviceById("laptop")
+    const laptopRowStep = HEADER_H + boardHeight(laptop) + GUTTER
+    const login = laptopRow.find((b) => b.route === "/login")!
+    const signup = laptopRow.find((b) => b.route === "/signup")!
+    expect(login.y).toBe(0)
+    expect(signup.y).toBe(laptopRowStep)
+
+    // Two stacked boards PLUS both headers, then one gutter: the deepest
+    // column's height, not the bare device step. The two candidates differ by a
+    // whole step (1848 against 994), so an advance that ignores column depth
+    // lands the next band on the second board and fails here.
+    const deepest = 2 * (HEADER_H + boardHeight(laptop)) + GUTTER
+    // The whole of the next band is offset by it: its two FIRST-ROW boards —
+    // `/login` (its own Auth column) and `/` (the ungrouped tail) — both sit on
+    // the band top, so neither can be mistaken for the stacked one.
+    const bpRowStep = HEADER_H + boardHeight(deviceById("bp-sm")) + GUTTER
+    expect(bpRow.find((b) => b.route === "/login")!.y).toBe(deepest)
+    expect(bpRow.find((b) => b.route === "/")!.y).toBe(deepest)
+    // ...and its stacked board is a row down from there, by ITS OWN device's
+    // step — not the leading band's.
+    expect(bpRow.find((b) => b.route === "/signup")!.y).toBe(deepest + bpRowStep)
+    expect(HEADER_H + boardHeight(laptop) + GUTTER).not.toBe(deepest)
+  })
+
   it("layoutGroups is deterministic", () => {
     const groups = [{ id: "g1", name: "Auth", routes: ["/login"] }]
     expect(layoutGroups(["/", "/login"], ["laptop"], groups)).toEqual(
