@@ -1773,6 +1773,80 @@ git commit -m "fix(design): comments carry snake_case on the wire, so the inspec
 
 ---
 
+### Task 15: Fix inspect — the cross-origin SecurityError and the highlight that never clears
+
+**Reported by the user from the deployed app**, with a console trace. Two bugs, both confirmed at the source before this task was written.
+
+**Files:**
+- Modify: `v2_fe/src/pages/design/design-canvas.tsx` (the frame message listener, `:220-233`)
+- Create a colocated test for the extracted matcher
+- Modify: `backend/plugins/taskflow-design/src/composer.rs` (the picker runtime, `PICKER_RUNTIME`)
+
+- [ ] **Step 1: Bug A — inspect delivers nothing, because reading `.name` across origins throws.**
+
+`design-canvas.tsx:228` matches a message's sender like this:
+
+```ts
+const board = artboards.find((b) => b.key === (event.source as Window | null)?.name)
+```
+
+`event.source` is the sandbox iframe's WindowProxy, and the sandbox is a **different origin** from the app (`SANDBOX_ORIGIN` is the API origin; in production the app is `taskflow.supercodehive.com`). Reading `window.name` on a cross-origin WindowProxy **throws**:
+
+```
+Uncaught SecurityError: Failed to read a named property 'name' from 'Window':
+  Blocked a frame with origin "https://taskflow.supercodehive.com" from accessing a cross-origin frame.
+    at Array.find (<anonymous>)
+```
+
+That exception kills the whole `onMessage` handler, so `design:select` is never processed and **inspect does nothing at all**. This is not an edge case: the frames are cross-origin in every deployment, so the feature has never worked there.
+
+**Fix by identity, not by property.** Comparing WindowProxy references is allowed cross-origin; reading their properties is not.
+
+```ts
+/// The board key whose frame sent this message, by WindowProxy identity.
+/// Reads the iframe's own `name` ATTRIBUTE — our DOM, so `getAttribute` is
+/// safe — never the Window's `name` property, which throws across origins.
+export function boardKeyForSource<T>(
+  frames: { key: string; win: T | null }[],
+  source: T | null
+): string | null {
+  if (!source) return null
+  return frames.find((f) => f.win === source)?.key ?? null
+}
+```
+
+Extracting it this way is deliberate: the repo has no RTL/jsdom, so a pure function over `{key, win}` pairs is the **only** way to get a regression test on the single line that broke inspect. Build the frames from `document.querySelectorAll("iframe[data-design-frame]")` (the existing `mountedFrames()` at `:324`) and read each element's `getAttribute("name")`, which is what `name={board.key}` (`:392`) sets.
+
+Write the test first, with plain objects, and confirm it fails against the current implementation's approach.
+
+- [ ] **Step 2: Bug B — the highlight never clears, and it fills the frame over a container.**
+
+The picker runtime (`composer.rs:28-48`) creates `box` and `label` once and removes them **only** when picking is switched off (`:83`). Two consequences the user reports as one symptom:
+
+- moving out of a frame onto the next board leaves the old box behind — "the highlight box on the previous screen";
+- moving the pointer over a **container** (the page's `<main>` or body) computes *that* element's rect, so the box covers the whole frame — "becomes active full on main component".
+
+Fix, both parts:
+- clear `box`/`label` on `mouseleave` of the document;
+- when the target is `document.body` / `documentElement`, or its rect is empty, **hide** rather than draw.
+
+Leave the rest of the picker alone — capture-phase listeners, `stopImmediatePropagation`, the label's `data-component` lookup, and the `design:mode` off-switch all behave.
+
+- [ ] **Step 3: Do not fake a test for the runtime.** `PICKER_RUNTIME` is a JS string inside Rust; a unit test asserting it *contains* `mouseleave` proves nothing about behaviour and would pass for any edit that kept the word. Browser behaviour in a composed document is verified visually — Task 9's Step 3b is where these two checks belong, and they are added there.
+
+- [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test` — **not the build** (Task 9 owns the plan's single held publish).
+
+```bash
+cd /home/dalmas/E/projects/local_task_tracker
+git add v2_fe/src/pages/design/design-canvas.tsx \
+        backend/plugins/taskflow-design/src/composer.rs
+git commit -m "fix(design): match frame messages by identity, and clear the pick highlight"
+```
+
+(Stage the new test file as well.)
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
