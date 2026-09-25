@@ -1322,19 +1322,30 @@ Run: `cd backend && cargo test --workspace` then `cd ../v2_fe && npm test && npm
 
 ---
 
-### Task 10: Backend — rewrite route links so pages can navigate to each other
+### Task 10: Backend — fix the href rewriter so page links navigate correctly
 
 **Files:**
 - Modify: `backend/plugins/taskflow-design/src/composer.rs`
-- Modify: `backend/plugins/taskflow-design/tests/` (a composer test)
+- Create: `backend/plugins/taskflow-design/tests/composer_links.rs`
+- **Modify:** `backend/plugins/taskflow-design/src/manifest.rs` — **only** to correct the stale doc comment noted below, if you touch it at all
 
 **Interfaces:**
-- Consumes: the manifest's route list (already available wherever the composer runs).
-- Produces: `pub fn rewrite_page_links(html: &str, token: &str, routes: &[String]) -> String`.
+- Consumes: the manifest's route list — `DesignManifest.routes: Vec<RouteEntry>`, each with a `path`.
+- Produces: **no new public function.** `compose_body_fragment` gains a `routes: &[String]` parameter, and the private `rewrite_hrefs` gains the same. Everything else keeps its present signature.
 
-**Why this is the whole feature:** a click that becomes a *real navigation inside the frame* gives the iframe its own history, so back/forward and `history.back()` work with no further machinery. Nothing else needs building for the user's back-button ask.
+**The mechanism already exists. This task fixes it; it does not build it.** `compose_body_fragment` (`composer.rs:212-216`) already runs `rewrite_hrefs(fragment, "/s/{token}")` over every page body, and has since an earlier phase — its doc comment says exactly why: *"Rewrite sandbox-relative hrefs to tokenized URLs so `<a href="/settings">` navigates natively inside the frame — no router needed."* So `<a href="/app">` **already** becomes `/s/{token}/app`, the click is **already** a real navigation inside the iframe, and the frame **already** has its own session history for back/forward and `history.back()`. **The spec's §F premise — that a page's own links go nowhere — is wrong**, and an implementer who builds from that premise will write a second rewriter that never runs. What this task's value actually is: the three defects the existing pass has.
 
-- [ ] **Step 1: Write the failing tests**
+| Defect in `rewrite_hrefs` today | What it does now | What it must do |
+|---|---|---|
+| **Any** path-shaped href is rewritten | `/not-a-page` → `/s/{token}/not-a-page` — a 404 wearing a plausible URL | rewrite **only** a path that matches a manifest route |
+| `mailto:` / `tel:` fall into the relative branch | `mailto:a@b.c` → `/s/{token}/mailto:a@b.c` — **a mail link is broken today** | leave them byte-identical |
+| `target="_blank"` is ignored | a new-tab link is hijacked into the frame | leave it alone: the markup asked for a new tab |
+
+**Why this must EXTEND `rewrite_hrefs` rather than add a parallel pass.** A second `rewrite_page_links` pass wired after the first would never see a route-shaped href — the first pass has already turned `href="/app"` into `href="/s/tok/app"` — so the route-membership rule would be dead code whose unit tests pass while the served page is unchanged. That is the silent-no-op shape this phase has hit three times already (`check_extension`, the bulk-signal bridge, the unread `routeOrder`). **One pass, one place.**
+
+- [ ] **Step 1: Write the failing tests** — `tests/composer_links.rs`, **through `compose_body_fragment`**
+
+Test the function the server actually calls. A test of a private helper could pass while the live pipeline was untouched — which is the failure mode this whole task exists to avoid.
 
 ```rust
 use taskflow_design::composer;
@@ -1343,106 +1354,104 @@ fn routes() -> Vec<String> {
     ["/", "/app", "/settings"].iter().map(|r| r.to_string()).collect()
 }
 
+/// Compose through the REAL pipeline. It also stamps `data-src` and expands
+/// `<ui-*>` primitives, so assert containment, never whole-string equality.
+fn body(fragment: &str) -> String {
+    composer::compose_body_fragment("tok", "pages/index.html", fragment, &routes())
+}
+
 #[test]
 fn a_link_to_a_known_route_becomes_a_sandbox_url() {
-    let out = composer::rewrite_page_links(r#"<a href="/app" class="btn">Open</a>"#, "tok", &routes());
+    let out = body(r#"<a href="/app" class="btn">Open</a>"#);
     assert!(out.contains(r#"href="/s/tok/app""#), "{out}");
     assert!(out.contains(r#"class="btn""#), "other attributes survive: {out}");
 }
 
 #[test]
 fn the_root_route_maps_to_the_bare_sandbox_url() {
-    // `sandboxUrl` in the client drops the trailing path for "/", and the
-    // server must agree or the root link would 404.
-    let out = composer::rewrite_page_links(r#"<a href="/">Home</a>"#, "tok", &routes());
+    // The client's `sandboxUrl` drops the path for "/" (`design-api.ts:18`) and
+    // the server serves BOTH `/s/{token}` and `/s/{token}/` (`views.rs:808-812`),
+    // so assert the exact form: `/s/tok/` CONTAINS `/s/tok`, and a `contains` on
+    // the bare form alone would pin nothing.
+    let out = body(r#"<a href="/">Home</a>"#);
     assert!(out.contains(r#"href="/s/tok""#), "{out}");
+    assert!(!out.contains(r#"href="/s/tok/""#), "must be the bare form: {out}");
 }
 
 #[test]
 fn hrefs_that_are_not_pages_are_left_alone() {
-    // Rewriting any of these would turn a working link into a broken one.
-    for html in [
-        r#"<a href="https://example.com/x">ext</a>"#,
-        r#"<a href="//cdn.example/x">proto-relative</a>"#,
-        r#"<a href="mailto:a@b.c">mail</a>"#,
-        r#"<a href="tel:+1">tel</a>"#,
-        r#"<a href="#section">anchor</a>"#,
-        r#"<a href="/not-a-page">path-shaped but not a page</a>"#,
-        r#"<a href="app">relative, not site-absolute</a>"#,
+    // Each of these is broken by today's pass — `mailto:`/`tel:` worst of all.
+    for (html, expected) in [
+        (r#"<a href="https://example.com/x">ext</a>"#, r#"href="https://example.com/x""#),
+        (r#"<a href="//cdn.example/x">proto-relative</a>"#, r#"href="//cdn.example/x""#),
+        (r#"<a href="mailto:a@b.c">mail</a>"#, r#"href="mailto:a@b.c""#),
+        (r#"<a href="tel:+1">tel</a>"#, r#"href="tel:+1""#),
+        (r#"<a href="#section">anchor</a>"#, r#"href="#section""#),
+        (r#"<a href="/not-a-page">not a page</a>"#, r#"href="/not-a-page""#),
+        (r#"<a href="app">relative</a>"#, r#"href="app""#),
     ] {
-        let out = composer::rewrite_page_links(html, "tok", &routes());
-        assert_eq!(out, html, "must be untouched: {html}");
+        let out = body(html);
+        assert!(out.contains(expected), "must be untouched: {html} gave {out}");
     }
 }
 
 #[test]
 fn a_new_tab_link_is_left_alone() {
-    // The author asked for a new tab; hijacking it into the frame would
-    // contradict the intent the markup states.
-    let html = r#"<a href="/app" target="_blank">Open</a>"#;
-    assert_eq!(composer::rewrite_page_links(html, "tok", &routes()), html);
+    let out = body(r#"<a href="/app" target="_blank">Open</a>"#);
+    assert!(out.contains(r#"href="/app""#), "{out}");
 }
 
 #[test]
 fn several_links_in_one_fragment_are_all_rewritten() {
-    let out = composer::rewrite_page_links(
-        r#"<a href="/app">a</a><a href="/settings">b</a><a href="https://x.example">c</a>"#,
-        "tok", &routes());
-    assert_eq!(out.matches(r#"/s/tok/"#).count(), 2, "{out}");
+    let out = body(r#"<a href="/app">a</a><a href="/settings">b</a><a href="https://x.example">c</a>"#);
+    assert_eq!(out.matches("/s/tok/").count(), 2, "{out}");
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail.**
+A relative href (`href="app"`) is deliberately left alone: inside a frame at `/s/tok/` or `/s/tok/settings` it already resolves to `/s/tok/app`, so it works today and needs nothing.
 
-- [ ] **Step 3: Implement** — in `composer.rs`
+- [ ] **Step 2: Run to verify they fail.** The `mailto:` and `tel:` cases and the `target="_blank"` case must fail against today's code; the known-route and several-links cases should already pass, which is the evidence that the mechanism exists.
 
-Follow the existing `rewrite_hrefs` pass's shape (it already walks the fragment rewriting style/component/asset paths), and apply this one to `<a href>` in the page fragment before it is assembled:
+- [ ] **Step 3: Extend `rewrite_hrefs`** — change its signature and its rules; add no second pass.
 
 ```rust
-/// Rewrite `<a href="/route">` for a KNOWN route into the sandbox URL for that
-/// route, so a click navigates the frame itself.
+/// Rewrite a sandbox-relative href to a tokenized URL so a click navigates
+/// natively inside the frame — no router needed.
 ///
-/// That is the entire mechanism behind in-device navigation: because the click
+/// That is the whole mechanism behind in-device navigation: because the click
 /// becomes a real navigation inside the iframe, the frame gets its own session
-/// history, and back/forward — and an agent-written `history.back()` — work
-/// with nothing further built.
+/// history, and back/forward — and an agent-written `history.back()` — work with
+/// nothing further built.
 ///
-/// Deliberately conservative. Only a site-absolute path that matches a manifest
-/// route is rewritten; everything else (`http(s)://`, protocol-relative `//`,
-/// `mailto:`/`tel:`, `#fragment`, a relative path, or a path that is simply not
-/// a page) is left byte-identical, because rewriting any of them would turn a
-/// link that works into one that does not. A `target="_blank"` link is left
-/// alone too: the markup asked for a new tab.
-pub fn rewrite_page_links(html: &str, token: &str, routes: &[String]) -> String {
-    // Root maps to the bare `/s/{token}` — matching `sandboxUrl` on the client.
-    let url_for = |route: &str| {
-        if route == "/" { format!("/s/{token}") } else { format!("/s/{token}{route}") }
-    };
-    let mut out = String::with_capacity(html.len() + 64);
-    let mut rest = html;
-    while let Some(at) = rest.find("<a ") {
-        out.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let end = match rest.find('>') { Some(e) => e, None => break };
-        let (tag, after) = rest.split_at(end + 1);
-        out.push_str(&rewrite_one_anchor(tag, &url_for, routes));
-        rest = after;
-    }
-    out.push_str(rest);
-    out
-}
+/// Deliberately conservative, because a rewrite that is wrong turns a link that
+/// works into one that does not:
+///   * only a site-absolute path that MATCHES A MANIFEST ROUTE is rewritten —
+///     `/not-a-page` is left alone, since a 404 under a plausible URL is worse
+///     than the dead link the author wrote;
+///   * an empty href, `#fragment`, `//protocol-relative`, anything with a
+///     `scheme:` prefix (`http:`, `mailto:`, `tel:`, and by construction
+///     `javascript:`/`data:`), and a plain relative path are all returned
+///     byte-identical — note a relative path already resolves correctly inside
+///     the frame, so it needs no help;
+///   * a `target="_blank"` link is left alone: the markup asked for a new tab.
+fn rewrite_hrefs(html: &str, base: &str, routes: &[String]) -> String
 ```
 
-Implement `rewrite_one_anchor` alongside it: parse the `href="…"` and the presence of `target="_blank"` out of the tag, apply the rules above, and rebuild the tag. Keep it a small helper in the same file, next to the existing rewriting code.
+Keep the existing character-walk shape; keep the `!href.starts_with("/s/")` guard so an already-tokenized href is never rewritten twice; add the route-membership test and the `target="_blank"` check on the tag. Keep the helper small and in this file, beside the code it belongs to.
 
-- [ ] **Step 4: Call it** where the page fragment is composed, so both the sandbox document and the `page.html` export carry working links.
+- [ ] **Step 4: Thread the routes through `compose_body_fragment`.** It gains `routes: &[String]` and passes them down. It has exactly **one** caller — `compose_document` (`composer.rs:237`) — which has `manifest` in scope, so it computes the list once and passes it.
 
-- [ ] **Step 5: Run the tests and the workspace suite, then commit**
+**Do NOT touch the export path.** `compose_export_body` (`composer.rs:352`) deliberately does *not* rewrite hrefs, and its doc comment says why: *"a portable export must carry no sandbox-only cruft."* Rewriting there would stamp the short-lived sandbox **token** into a file the user downloads and may share, and turn a link that at least resolves locally into a URL that means nothing off the server. **The spec's sentence about the export carrying working links is wrong; the export keeps its current behaviour.** While you are in the file, note that `compose_body_fragment`'s own doc comment claims it is shared with the `page.html` export — it is not, and correcting that comment is welcome but optional.
+
+- [ ] **Step 5: Run the suite and commit**
+
+Run: `cd backend && cargo test --workspace`
 
 ```bash
 cd /home/dalmas/E/projects/local_task_tracker
-git add backend/plugins/taskflow-design/src/composer.rs         backend/plugins/taskflow-design/tests/
-git commit -m "feat(design): rewrite route links so pages navigate inside their frame"
+git add backend/plugins/taskflow-design/src/composer.rs \
+        backend/plugins/taskflow-design/tests/composer_links.rs
+git commit -m "fix(design): only rewrite hrefs that match a real route, and stop breaking mailto:"
 ```
 
 ---
