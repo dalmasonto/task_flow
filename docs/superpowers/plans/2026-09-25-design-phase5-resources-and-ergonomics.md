@@ -2069,7 +2069,7 @@ export function removeSelection(list: SelectionState[], index: number): { list: 
 
 - [ ] **8. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>`, and `cd backend && cargo test --workspace`. Baseline: **27 errors / 1 warning** on lint. **Do not run `npm run build`**, and do not push — publishing is on hold pending the user's local testing.
 
-  ⚠️ **Commit with `git commit -- <explicit paths>`, not `git add <paths> && git commit`.** Several agents share this worktree and therefore share the git **index**, so `git add X && git commit` commits whatever else another agent had staged at that moment. That is not hypothetical: it happened — a controller docs commit swept in a concurrent agent's `git rm`, producing a commit whose tree does not compile (`group-name.ts` deleted while `pages-panel.tsx` still imports it). The pathspec form ignores the rest of the index and cannot do that.
+  ⚠️ **Commit with a pathspec, `git commit -F <msg-file> -- <explicit paths>`, never `git add <paths> && git commit`.** Several agents share this worktree and therefore the git **index**, so the add+commit form commits whatever else another agent had staged — which has already produced a commit here whose tree does not compile, because a docs commit swept in a concurrent agent's staged `git rm`. Two wrinkles learned since: `-F <file>` is required rather than `-m`, because everything after `--` is parsed as a pathspec; and the pathspec form **cannot name a path git does not yet track**, so a task creating files must `git add <those exact new paths>` first and *then* `git commit -F <msg> -- <all the paths>`.
 
 ---
 
