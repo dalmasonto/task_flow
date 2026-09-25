@@ -10,6 +10,11 @@
 
 import { API_BASE_URL, readJson } from "@/lib/auth-api"
 import { normalizeLayout, type LayoutDoc } from "@/lib/design-layout"
+import {
+  DEFAULT_RESOURCES_DOC,
+  normalizeResources,
+  type ResourcesDoc,
+} from "@/lib/resources"
 
 export const SANDBOX_ORIGIN: string =
   (import.meta.env.VITE_SANDBOX_ORIGIN as string | undefined) ?? API_BASE_URL
@@ -47,6 +52,12 @@ export type DesignTokensDoc = {
 
 const DEFAULT_TOKENS_DOC: DesignTokensDoc = { version: 1, categories: {} }
 const TOKENS_JSON_PATH = "styles/tokens.json"
+
+/// The project's external resource document (taskflow-design's `resources.rs`):
+/// named, toggleable sets of the `<link>`/`<script>` tags a page needs. A
+/// `DesignFile` row like the tokens file — same kind, same endpoints, its own
+/// validator — so it is reached through the same generic calls below.
+export const RESOURCES_JSON_PATH = "styles/resources.json"
 
 export type DesignManifest = {
   project: number
@@ -234,6 +245,47 @@ export async function putDesignTokens(
   return putDesignFile(
     projectId,
     TOKENS_JSON_PATH,
+    JSON.stringify(doc),
+    baseVersion
+  )
+}
+
+/// Reads the structured resources file. Same forgiving read as
+/// `fetchDesignTokens` above, and for the same reasons: a missing row (new
+/// project) is the empty document at version 0, so the first save is an
+/// unconditional create rather than racing a `base_version` that never existed,
+/// and content that does not parse fails soft to that same default instead of
+/// throwing into the editor. Normalised on the way in, because the Rust side
+/// always serialises every field — so `null` is what actually arrives for the
+/// optional ones, and an un-normalised `null` would be written straight back.
+export async function fetchDesignResources(
+  projectId: number
+): Promise<{ doc: ResourcesDoc; version: number }> {
+  const row = await fetchDesignFile(projectId, RESOURCES_JSON_PATH)
+  if (!row || !row.content) {
+    return { doc: DEFAULT_RESOURCES_DOC, version: 0 }
+  }
+  try {
+    return { doc: normalizeResources(JSON.parse(row.content)), version: row.version }
+  } catch {
+    return { doc: DEFAULT_RESOURCES_DOC, version: 0 }
+  }
+}
+
+/// Writes the structured resources file. Goes through the same `putDesignFile`
+/// path (and thus the same `validate_resources` + 409/version-conflict
+/// handling) every other design file write uses. Its refusals are the user's
+/// only feedback that a link is unusable: `validate` refuses the WHOLE document
+/// over one bad link and the manifest then contributes nothing, so swallowing
+/// them would silently remove every font in the project.
+export async function putDesignResources(
+  projectId: number,
+  doc: ResourcesDoc,
+  baseVersion: number
+): Promise<WriteFileResult> {
+  return putDesignFile(
+    projectId,
+    RESOURCES_JSON_PATH,
     JSON.stringify(doc),
     baseVersion
   )

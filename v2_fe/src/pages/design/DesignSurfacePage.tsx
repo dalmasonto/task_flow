@@ -45,6 +45,7 @@ import {
   type DesignManifest,
   sandboxUrl,
 } from "@/lib/design-api"
+import { ResourceEditor } from "@/pages/design/resource-editor"
 import { TokenEditor } from "@/pages/design/token-editor"
 import { taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { onDesignRealtimeEvent } from "@/lib/design-realtime"
@@ -721,9 +722,15 @@ export function DesignSurfacePage({
 
             <TabsContent value="tokens">
               {/* Give the token editor room — it was cramped in the old
-                  260px left-panel slot. */}
+                  260px left-panel slot. The resource editor sits below it,
+                  not in a tab of its own: both answer "how does this project
+                  look", and a font is only useful next to the colors it
+                  renders in. */}
               {projectId ? (
-                <TokenEditor projectId={projectId} onSaved={() => setContentEpoch((e) => e + 1)} />
+                <>
+                  <TokenEditor projectId={projectId} onSaved={() => setContentEpoch((e) => e + 1)} />
+                  <ResourceEditor projectId={projectId} onSaved={() => setContentEpoch((e) => e + 1)} />
+                </>
               ) : null}
             </TabsContent>
 
