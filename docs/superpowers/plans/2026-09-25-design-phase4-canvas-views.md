@@ -1069,10 +1069,16 @@ export function layoutGroups(
       for (let i = 0; i < routes.length; i++) {
         boards.push(makeArtboard(routes[i], deviceId, x, y + i * rowStep))
       }
-      // A column's height is its boards PLUS their headers, and excludes the
-      // trailing gutter — so this is `n * (HEADER_H + h)`, not `n * h`, and not
-      // the running `columnY` that overshot by one step.
-      bandHeight = Math.max(bandHeight, routes.length * (HEADER_H + boardHeight(device)))
+      // The deepest board's BOTTOM, as a footprint measured from the band's
+      // top: `(n-1)` full row steps plus one board-with-header. NOT `n * S` —
+      // that under-counts the gaps between stacked boards, leaving no clearance
+      // at depth 2 and a `gutter`-sized OVERLAP at depth 3+. The `+ gutter`
+      // below is what supplies the inter-band gutter; this value is a
+      // footprint, not an advance.
+      bandHeight = Math.max(
+        bandHeight,
+        (routes.length - 1) * rowStep + HEADER_H + boardHeight(device),
+      )
       x += columnStep
     }
     y += bandHeight + gutter
