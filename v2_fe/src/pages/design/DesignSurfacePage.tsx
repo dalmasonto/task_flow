@@ -835,6 +835,12 @@ export function DesignSurfacePage({
                 manifest={manifest}
                 openRoutes={openRoutes}
                 onToggleRoute={toggleRouteFromPanel}
+                // The panel's Select all / Deselect writes the whole list, so
+                // it takes the setter itself rather than the per-row toggle —
+                // the same one the toolbar's `PagePicker` bulk-writes through.
+                // (No focus: `toggleRouteFromPanel` focuses the board a row
+                // just opened, and a bulk open has no single board to focus.)
+                onOpenRoutesChange={setOpenRoutes}
                 layout={layout}
                 onLayoutChange={updateLayout}
               />

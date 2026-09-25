@@ -1,10 +1,19 @@
-/// The Pages tab: every manifest route with an open/closed toggle, a group
-/// picker per page for the `groups` arrangement, and a box to give a page a
-/// display label.
+/// The Pages tab, in three sections and in this order: the Groups as a
+/// read-only overview, one bulk open/close control, then every page as a flat
+/// numbered row. It is the user's own sketch, and each section answers a
+/// different question:
 ///
-/// The list is GROUPED and NUMBERED: the groups first, in the document's own
-/// order, then everything ungrouped, numbered 1..N across the whole sequence.
-/// `pages-order.ts` owns that order and those numbers, and the test on them.
+/// * **Groups** — `1. Auth`, `2. Admin`, each with its pages as bullets
+///   beneath it. NAMES ONLY: a page has exactly one number and it is the one
+///   beside its row below, so the overview must not carry a numbering of its
+///   own. `+ Add group` lives in this section's header, because a group is what
+///   it makes.
+/// * **Select all / Deselect** — the same `openRoutes` state every row's
+///   checkbox writes, in bulk. A second ENTRY POINT, never a second state: the
+///   box means "every page is on the canvas", which is what a row's box has
+///   always meant.
+/// * **The flat list** — every manifest route, numbered 1..N in manifest order,
+///   one row each: the canvas checkbox, the number, the name, the group picker.
 ///
 /// It is a listing and nothing more — grouping a page here does NOT move its
 /// board on the canvas, and must not be made to. See the call site below.
@@ -12,7 +21,7 @@
 /// Extracted from `DesignSurfacePage.tsx` (already ~1000 lines) when the group
 /// picker landed; it is the one panel with per-row local interaction.
 ///
-/// `+ New group` opens the app's own `Dialog` (`components/ui/dialog.tsx`) —
+/// `+ Add group` opens the app's own `Dialog` (`components/ui/dialog.tsx`) —
 /// this panel's `window.prompt` was the last native dialog in the app. The
 /// dialog asks BEFORE it creates: `createGroup` refuses a blank, over-long or
 /// duplicate name by returning the document unchanged and an empty id, which
@@ -23,12 +32,21 @@
 /// under the field, Create disabled while it stands — the resource editor's live
 /// reason, one panel over.
 ///
-/// The group picker is a native `<select>` on purpose, not the app's Base UI
-/// `Select`: that component renders the raw value unless the root is given an
-/// `items` value→label map, which is an easy way to ship a picker that shows
-/// `g1` instead of `Auth`. A native select has no such failure mode and needs
-/// no extra client state. The rename box is a plain `<input>` for the same
-/// reason: a field that commits its own text needs no value→label map either.
+/// The group picker is the app's `Select` (`components/ui/select.tsx`), and the
+/// reason this panel avoided it is worth keeping: that component is Base UI, not
+/// Radix, and its `SelectValue` renders the raw VALUE unless the root is given
+/// an `items` value→label map — so a row that loses the map reads `g1` where
+/// `Auth` belongs. The row was a native `<select>` for exactly that reason.
+/// That is now covered rather than avoided: `pages-panel.test.ts` renders this
+/// panel and asserts the NAME in the markup, which is a guard a native select
+/// could not have offered — it has no map to lose, and no value to mis-render.
+/// The map is `groupItems` below, built once from `layout.groups`, and it is the
+/// only thing keeping the ids out of the trigger.
+///
+/// The rename box stays a plain `<input>`: a field that edits its own text needs
+/// no value→label map, and it commits on blur/Enter rather than on a change
+/// event, which is not a Select's job. It is hidden behind the name until the
+/// name is clicked (`PageName` below), which is what the sketch asks for.
 
 import { useId, useState } from "react"
 
@@ -43,6 +61,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { DesignManifest } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
 import {
@@ -57,15 +82,19 @@ import {
   type LayoutDoc,
 } from "@/lib/design-layout"
 
-import { groupedPages, type NumberedPage } from "./pages-order"
+import { groupedPages, numberedPages, selectAllState, type NumberedPage } from "./pages-order"
 
+/// The value the group picker carries for "no group". A page is in at most one
+/// group, and none is a real state — `assignRoute` takes `null` for it — so the
+/// picker needs a sentinel of its own: an empty string would be a value the
+/// document cannot tell from a group id.
 const UNGROUPED = "__ungrouped__"
 
-/// The heading a section (a group, or the ungrouped tail) is introduced by — one
-/// constant so the two cannot drift apart. The headings themselves are `<h3>`,
-/// the level the rest of the app uses for a section inside a page, so the
-/// panel's sections are headings a screen reader can jump between rather than
-/// merely styled text.
+/// The panel's section-heading style: `<h3>`, the level the rest of the app uses
+/// for a section inside a page, so the panel's sections are headings a screen
+/// reader can jump between rather than merely styled text. A group inside the
+/// Groups section is an `<h4>` UNDER that heading and wears its own, smaller
+/// style — it is an item of the section, not another section.
 const SECTION_HEADING =
   "px-3 pt-2.5 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
 
@@ -73,12 +102,24 @@ export function PagesPanel({
   manifest,
   openRoutes,
   onToggleRoute,
+  onOpenRoutesChange,
   layout,
   onLayoutChange,
 }: {
   manifest: DesignManifest | null
   openRoutes: string[]
   onToggleRoute: (route: string) => void
+  /// Bulk open/close, for the Select all control: it REPLACES the open list
+  /// rather than toggling one route, which is what `onToggleRoute` can express.
+  /// Not optional — a panel that drew the control without a way to apply it
+  /// would be offering a checkbox that does nothing, which is the defect class
+  /// this phase exists to remove.
+  ///
+  /// The call site passes the raw setter, not the per-row toggle: opening a
+  /// page from a row focuses its board (`toggleRouteFromPanel`), and a bulk open
+  /// has no single board to focus. It is the same setter the toolbar's page
+  /// picker already bulk-writes (`PagePicker`'s `onChange`).
+  onOpenRoutesChange: (routes: string[]) => void
   layout: LayoutDoc
   onLayoutChange: (next: LayoutDoc) => void
 }) {
@@ -87,6 +128,19 @@ export function PagesPanel({
   /// Whether the New group dialog is open. Held here, not inside it: the button
   /// that opens it is the panel's, and so is the `createGroup` call below.
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+
+  /// Manifest entries by path, for the row's title fallback.
+  const byPath = new Map(routes.map((entry) => [entry.path, entry]))
+
+  /// The name a page is listed under, wherever this panel lists it: the row's
+  /// name and the Groups section's bullets both come through here. The resolver
+  /// is `pageLabel`, never `route.title` — the canvas headers resolve through
+  /// the same call. A `NumberedPage` and a section's route are only ever built
+  /// out of `routes`, so the lookup always hits; the raw path as the fallback
+  /// (which `pageLabel` itself documents as the last resort) keeps a nameless
+  /// line off the screen if it ever did not.
+  const nameFor = (route: string) =>
+    pageLabel(layout, route, byPath.get(route)?.title ?? route)
 
   const assign = (route: string, value: string) => {
     onLayoutChange(assignRoute(layout, route, value === UNGROUPED ? null : value))
@@ -123,11 +177,12 @@ export function PagesPanel({
     onLayoutChange(next)
   }
 
-  // Which section a page is listed under, and which number it carries, are
-  // `pages-order.ts`'s job rather than this component's: one pure function, so
-  // there is a test on it (this repo's test setup has no DOM, so JSX cannot
+  // Which group a page is listed under, and which number it carries, are
+  // `pages-order.ts`'s job rather than this component's: pure functions, so
+  // there are tests on them (this repo's test setup has no DOM, so JSX cannot
   // have one), and one place that can be wrong about the edge cases — a group
-  // the user deleted, a page two groups both claim — instead of two.
+  // the user deleted, a page two groups both claim, a route the manifest does
+  // not have — instead of two.
   //
   // This is a LISTING. The canvas is deliberately NOT sorted to match it: the
   // boards render in `openRoutes`, which `openRoute` keeps in MANIFEST order,
@@ -136,134 +191,150 @@ export function PagesPanel({
   // about that — "The canvas layout never reflows" — and a grouping edit is no
   // more entitled to a reflow than a link click is. Grouping a page changes
   // where the page is LISTED; it never changes what the canvas looks like.
-  const grouped = groupedPages(layout, routes)
+  const sections = groupedPages(layout, routes)
+  const flat = numberedPages(routes)
+  const bulk = selectAllState(routes, openRoutes)
 
-  /// Manifest entries by path, for the row's title fallback.
-  const byPath = new Map(routes.map((entry) => [entry.path, entry]))
+  /// The group picker's items — and its value→label map, which is the same
+  /// array: Base UI's `SelectValue` renders the raw value unless the root is
+  /// given one, so this is what puts `Auth` in the row instead of `g1`. The
+  /// ungrouped entry is spelled `—` because that is what the picker offered
+  /// before it became a `Select`; the id stays in the document.
+  const groupItems = [
+    { value: UNGROUPED, label: "—" },
+    ...layout.groups.map((group) => ({ value: group.id, label: group.name })),
+  ]
 
-  /// One page's row. A plain function the section maps CALL, not a component
-  /// they mount: a component defined in here would be a new type on every render
-  /// of the panel, so React would remount every row — `LabelInput`'s draft
-  /// included — each time anything above it changed. Called, a row is an
-  /// ordinary keyed child of its section.
+  /// One page's row: the canvas checkbox, the number, the name, the group
+  /// picker. A plain function the list maps CALL, not a component it mounts: a
+  /// component defined in here would be a new type on every render of the panel,
+  /// so React would remount every row — `PageName`'s editor and `LabelInput`'s
+  /// draft included — each time anything above it changed. Called, a row is an
+  /// ordinary keyed child of the list.
   ///
-  /// A row does remount when grouping moves it to another section. For the
-  /// self-inflicted path that is harmless: the select's own `onChange` is what
-  /// moves it, and reaching the select blurs the rename box first, so the blur
-  /// commits the draft before the row changes parent.
-  ///
-  /// It does NOT cover a REMOTE move. `DesignSurfacePage` adopts another
-  /// viewer's arrangement on the `designLayout` realtime event
-  /// (`fetchLayout().then(setLayout)`), so an agent or a second viewer
-  /// regrouping this very page re-renders the panel with a new `layout`, the row
-  /// changes parent, `LabelInput` remounts, and an uncommitted draft is dropped
-  /// with no blur to commit it. A known limitation, not corruption: the loss is
-  /// one uncommitted label — visible as the box emptying itself — and nothing
-  /// reaches the shared document. Hoisting the draft into this component to
-  /// close it was rejected as too expensive for that: `LabelInput`'s
-  /// resync-when-someone-else-renames rule (see it below) would have to be
-  /// re-implemented at panel level, and every keystroke would then re-render
-  /// every row.
+  /// The rows are in MANIFEST order and cannot move: grouping a page changes
+  /// where the Groups section lists it, never which row it is in. So the old
+  /// warning about a remote regrouping remounting a row and dropping an
+  /// uncommitted label draft no longer applies to this list — the only thing
+  /// that reparents a row is the manifest itself changing.
   const pageRow = (page: NumberedPage) => {
     const open = openRoutes.includes(page.route)
     const current = groupOf(layout, page.route)
     const label = layout.pageLabels[page.route] ?? ""
-    // The row's name comes from the resolver, never from `route.title`
-    // directly — the canvas headers resolve through the same call. A
-    // `NumberedPage` is only ever built out of `routes`, so the lookup always
-    // hits; the raw path as the fallback (which `pageLabel` itself documents as
-    // the last resort) keeps a nameless row off the screen if it ever did not.
-    const name = pageLabel(layout, page.route, byPath.get(page.route)?.title ?? page.route)
+    const name = nameFor(page.route)
     return (
-      <div key={page.route} className="flex items-center gap-1 px-2 py-1">
-        <button
-          className={cn(
-            "flex min-w-0 flex-1 items-center justify-between rounded px-1 py-0.5 text-left text-sm hover:bg-muted",
-            open && "bg-muted/60 font-medium",
-          )}
-          onClick={() => onToggleRoute(page.route)}
-        >
-          <span className="flex min-w-0 items-center gap-1.5">
-            {/* The page's position in THIS list, so the number a reader sees
-                always matches the position they see it in. */}
-            <span className="w-5 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
-              {page.n}
-            </span>
-            <span className="truncate">{name}</span>
-          </span>
-          <span className="ml-2 shrink-0 font-mono text-[11px] text-muted-foreground">
-            {page.route}
-          </span>
-        </button>
-        {/* Kept native on purpose — see the file header. */}
-        <select
-          className="max-w-24 shrink-0 rounded border bg-transparent px-1 py-0.5 text-[11px]"
-          aria-label={`Group for ${page.route}`}
-          value={current?.id ?? UNGROUPED}
-          onChange={(e) => assign(page.route, e.target.value)}
-        >
-          <option value={UNGROUPED}>—</option>
-          {layout.groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
-        <LabelInput
+      <div key={page.route} className="flex items-center gap-1.5 px-2 py-1">
+        {/* The checkbox is the sketch's, and it is the panel's open/close
+            control: it writes the same `openRoutes` the canvas draws from. It is
+            also the ONLY thing in this row that toggles a page — the name beside
+            it opens the label editor instead, and a click there must not reach
+            this box. Nothing joins them: no wrapper handler, no `<label>` around
+            the row. */}
+        <input
+          type="checkbox"
+          className="size-3.5 shrink-0 accent-foreground"
+          aria-label={`Show ${page.route} on the canvas`}
+          checked={open}
+          onChange={() => onToggleRoute(page.route)}
+        />
+        {/* The page's position in the flat list. `pages-order.ts` decides it,
+            and it is the page's position in the MANIFEST — not its position in
+            the Groups section above, which may list it first. */}
+        <span className="w-5 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+          {page.n}.
+        </span>
+        <PageName
           route={page.route}
           label={label}
           name={name}
           onCommit={(value) => rename(page.route, value)}
         />
+        {/* The row's group picker. `items` is load-bearing — see the header. */}
+        <Select
+          value={current?.id ?? UNGROUPED}
+          items={groupItems}
+          onValueChange={(value) => assign(page.route, typeof value === "string" ? value : UNGROUPED)}
+        >
+          <SelectTrigger
+            className="h-auto w-24 shrink-0 gap-1 rounded border bg-transparent px-1 py-0.5 text-[11px]"
+            aria-label={`Group for ${page.route}`}
+          >
+            <SelectValue className="min-w-0 truncate" />
+          </SelectTrigger>
+          <SelectContent>
+            {groupItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col py-1">
-      {/* A group with no pages still gets its heading: `+ New group` is the only
-          way to make one, so hiding an empty group would make that button look
-          like it did nothing. But a section needs pages to be a section OF
-          anything: with `manifest === null` — the panel is mounted for the whole
-          load — there are no pages yet, so every section would be empty and the
-          panel would read as headings stacked above "No pages yet.": the empty
-          state drawn as though it were a result. Same for a project with no
-          pages at all. */}
-      {routes.length
-        ? grouped.groups.map((section) => (
-            <div key={section.id} className="flex flex-col">
-              <h3 className={SECTION_HEADING}>{section.name}</h3>
-              {section.pages.map(pageRow)}
-            </div>
-          ))
-        : null}
+      {/* The Groups overview. Its header is drawn even with no groups at all,
+          because `+ Add group` is in it: this button is the only caller of
+          `createGroup`, so a header that appeared only once something was
+          grouped would take the first group out of reach. Gated on the CAP, not
+          on emptiness — `createGroup` enforces the same cap itself, so this is
+          display, and hiding the button at the cap is the whole of it. */}
       <div className="flex flex-col">
-        {/* The tail is only a NAMED thing once something is grouped. With no
-            groups at all every page is ungrouped, and a lone "Ungrouped" above
-            the entire list is noise — and with no PAGES at all it is worse than
-            noise. */}
-        {routes.length && grouped.groups.length ? (
-          <h3 className={SECTION_HEADING}>Ungrouped</h3>
-        ) : null}
-        {grouped.ungrouped.map(pageRow)}
+        <div className="flex items-center gap-1 pr-2">
+          <h3 className={cn(SECTION_HEADING, "flex-1")}>Groups</h3>
+          {layout.groups.length < MAX_GROUPS ? (
+            <button
+              className="shrink-0 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setGroupDialogOpen(true)}
+            >
+              + Add group
+            </button>
+          ) : null}
+        </div>
+        {/* Read-only, and numbered by the GROUP's own position. The pages under
+            each group are names and nothing else: the numbers belong to the flat
+            list below, where a page has exactly one. */}
+        <ul className="flex flex-col gap-0.5 px-3 py-1">
+          {sections.groups.map((section, index) => (
+            <li key={section.id} className="flex flex-col">
+              <h4 className="truncate text-xs font-medium">
+                {index + 1}. {section.name}
+              </h4>
+              {section.pages.length ? (
+                <ul className="flex flex-col pl-3 text-xs text-muted-foreground">
+                  {section.pages.map((route) => (
+                    <li key={route} className="truncate">
+                      {nameFor(route)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       </div>
-      {/* Gated on the CAP, not on emptiness. This button is the only caller of
-          `createGroup`, so hiding it while `groups` is empty would make the
-          first group impossible to create and the whole `groups` arrangement
-          permanently empty. Do not "simplify" this back to `length`.
-          `createGroup` enforces the same cap itself — that is enforcement,
-          this is display. */}
-      {layout.groups.length < MAX_GROUPS ? (
-        <button
-          className="mt-1 px-3 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setGroupDialogOpen(true)}
-        >
-          + New group
-        </button>
+      {/* Bulk open/close, between the overview and the list. Nothing to select
+          means no control: a checkbox over an empty project would do nothing,
+          and a checked "Deselect" beside "No pages yet." is worse than nothing. */}
+      {routes.length ? (
+        <label className="mt-1 flex items-center gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-3.5 shrink-0 accent-foreground"
+            checked={bulk.allOpen}
+            onChange={() => onOpenRoutesChange(bulk.next)}
+          />
+          {bulk.label}
+        </label>
       ) : null}
-      {!routes.length ? (
+      {/* The flat list: every page, in manifest order, numbered 1..N. */}
+      {routes.length ? (
+        <div className="flex flex-col">{flat.map(pageRow)}</div>
+      ) : (
         <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
-      ) : null}
+      )}
       {/* Mounted, not mounted-and-open: the dialog renders nothing until it is
           open, and holding its `open` here is what lets `addGroup` close it. */}
       <NewGroupDialog
@@ -293,11 +364,10 @@ export function PagesPanel({
 /// state to keep: the reason is derived from the live `layout` on every
 /// keystroke, so it also follows a group someone else deletes while it is open.
 ///
-/// The field is the app's `Input` (a styled `<input>`), and does not touch the
-/// header's rule that THIS panel's controls are native: that rule is about the
-/// picker's value→label map and the rename box's commit-on-blur, and neither
-/// applies to a modal's own form, where the app's field and buttons are the
-/// convention (`WorkspaceDialog`, `TaskRefNotice`).
+/// The field is the app's `Input` (a styled `<input>`) and the actions are the
+/// app's `Button`, which is the convention for a modal's own form
+/// (`WorkspaceDialog`, `TaskRefNotice`). The panel's rows are the exception, not
+/// the rule: they are dense, per-row controls wearing the row's own sizing.
 function NewGroupDialog({
   open,
   layout,
@@ -385,17 +455,22 @@ function NewGroupDialog({
   )
 }
 
-/// The rename box: a plain `<input>`, never a Base UI field — the rule this
-/// panel's controls follow (see the file header). Commits on Enter or blur,
-/// reverts on Escape.
+/// The row's name, and the label editor behind it: `[Click to edit label]`, as
+/// the sketch draws it. The name is TEXT until it is clicked — an always-live
+/// input in a row of controls reads as a field to fill in, and the panel's rows
+/// are a listing first — and a click swaps it for `LabelInput`, whose
+/// commit-on-blur/Enter semantics and refusal rules are unchanged.
 ///
-/// It holds the LABEL only, never the resolved name: an empty box means "no
-/// label", so clearing it is how a label is removed — the page's own title
-/// shows through again, and `name` is the placeholder saying which that is.
-/// The committed value therefore goes straight to `setPageLabel` with no "is
-/// this the title after all?" special case: re-typing the title just pins it as
-/// a label, which renders identically.
-function LabelInput({
+/// The click reaches nothing else. There is no row-level handler and no
+/// `<label>` around the row, so the canvas checkbox beside the name cannot be
+/// toggled by opening the editor, and the button is `type="button"` besides.
+///
+/// Escape is the one key that does NOT leave the editor: `LabelInput` reverts
+/// the draft in place, and the box stays where it is with the old name in it —
+/// exactly what it did before the name became clickable. Leaving the row then
+/// commits the reverted text, which is the label it already had, so nothing is
+/// written.
+function PageName({
   route,
   label,
   name,
@@ -404,9 +479,65 @@ function LabelInput({
   route: string
   /** The stored label, `""` when the page has none. */
   label: string
+  /** The name in use while there is no label: the page's own title. */
+  name: string
+  onCommit: (value: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm hover:bg-muted"
+        aria-label={`Label for ${route}`}
+        onClick={() => setEditing(true)}
+      >
+        {name}
+      </button>
+    )
+  }
+  return (
+    <LabelInput
+      route={route}
+      label={label}
+      name={name}
+      onCommit={onCommit}
+      onCommitted={() => setEditing(false)}
+    />
+  )
+}
+
+/// The rename box: a plain `<input>`, never a Base UI field. Commits on Enter or
+/// blur, reverts on Escape.
+///
+/// It holds the LABEL only, never the resolved name: an empty box means "no
+/// label", so clearing it is how a label is removed — the page's own title
+/// shows through again, and `name` is the placeholder saying which that is.
+/// The committed value therefore goes straight to `setPageLabel` with no "is
+/// this the title after all?" special case: re-typing the title just pins it as
+/// a label, which renders identically.
+///
+/// It mounts into the name's own slot (`PageName`), so it is focused on mount
+/// and sized like the name it replaces: clicking a name and having to click
+/// again to type is the affordance the sketch is trying to remove.
+function LabelInput({
+  route,
+  label,
+  name,
+  onCommit,
+  onCommitted,
+}: {
+  route: string
+  /** The stored label, `""` when the page has none. */
+  label: string
   /** The name in use while the box is empty: the page's own title. */
   name: string
   onCommit: (value: string) => void
+  /** Called after a commit, whatever committed it. The name swaps itself back
+   *  for the text on it — the box would otherwise sit open over a value the
+   *  user has already saved. Escape does NOT call it: it reverts in place. */
+  onCommitted: () => void
 }) {
   const [draft, setDraft] = useState(label)
   // The label this box last synced with. Adjusting state during render —
@@ -422,7 +553,7 @@ function LabelInput({
 
   return (
     <input
-      className="w-24 shrink-0 rounded border bg-transparent px-1 py-0.5 text-[11px]"
+      className="min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm"
       aria-label={`Label for ${route}`}
       placeholder={name}
       value={draft}
@@ -430,10 +561,20 @@ function LabelInput({
       // rule); holding it on the box means an over-cap label is never typed,
       // and the refusal in `setPageLabel` stays the contract for other callers.
       maxLength={MAX_LABEL}
+      // The box IS the click: it mounts in place of the name the user just
+      // clicked, so focus comes with it. Leaving focus on the body would make
+      // "click to edit" a two-click gesture.
+      autoFocus
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => onCommit(draft)}
+      onBlur={() => {
+        onCommit(draft)
+        onCommitted()
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") onCommit(draft)
+        if (e.key === "Enter") {
+          onCommit(draft)
+          onCommitted()
+        }
         // Revert in place WITHOUT blurring: a blur here would commit the very
         // draft this branch is discarding.
         else if (e.key === "Escape") setDraft(label)
