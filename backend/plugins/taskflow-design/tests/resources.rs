@@ -265,7 +265,7 @@ fn the_sandbox_csp_allows_https_but_never_widens_dangerously() {
 }
 
 #[test]
-fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
+fn the_widening_covers_the_five_resource_directives_and_stops_at_connect_src() {
     // The test above passes BOTH before and after the widening: `https:` is
     // already in the CSP via `https://cdn.jsdelivr.net`, so it cannot see the
     // change at all, and it would equally pass if `connect-src` had been
@@ -273,11 +273,12 @@ fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
     // directives that must carry a scheme source, and the ones that must not
     // move.
     //
-    // "three" in the name is historical: `script-src`, `style-src` and
-    // `font-src` were the count for the font widening, and §G added two more
-    // (`img-src`, `media-src`) alongside them. The name is left alone because
-    // the plan and this task's brief both identify the test by it; the loops
-    // below are the count that matters.
+    // Renamed from `the_widening_reaches_the_three_fetch_directives_and_stops
+    // _there` (spelled without the "three" in the plan's Step 1 snippet), so an
+    // older reference to either spelling still lands here. The name matters
+    // because it is what the next person greps: `img-src` and `media-src` are
+    // not fetch directives — nothing in this list is `fetch()`ed, and
+    // `connect-src` is exactly the directive they stop at.
     let csp = composer::sandbox_csp("token");
     let directives: HashMap<&str, &str> = csp
         .split(';')
@@ -285,18 +286,27 @@ fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
         .map(|(name, value)| (name, value.trim()))
         .collect();
 
-    // The three a webfont needs, each keeping the jsdelivr origin it had.
-    for directive in ["script-src", "style-src", "font-src"] {
-        let value = directives.get(directive).copied().unwrap_or_default();
-        assert!(
-            value.split_whitespace().any(|src| src == "https:"),
-            "{directive} must allow any https origin for a webfont to load: {csp}"
-        );
-        assert!(
-            value.split_whitespace().any(|src| src == "https://cdn.jsdelivr.net"),
-            "{directive} must keep the jsdelivr origin it already had: {csp}"
-        );
-    }
+    // The three a webfont needs — `script-src`, `style-src`, `font-src` — each
+    // keeping the jsdelivr origin it had, now pinned as EXACT values. They used
+    // to be checked by token membership (does the value contain `https:`? does
+    // it contain jsdelivr?), which cannot see a BROADENED value: `*`,
+    // `+ http:`, or one extra host all still contain both tokens. The values
+    // are known and short, so the whole string is the assertion.
+    assert_eq!(
+        directives.get("script-src").copied(),
+        Some("'self' 'unsafe-inline' https://cdn.jsdelivr.net https:"),
+        "{csp}"
+    );
+    assert_eq!(
+        directives.get("style-src").copied(),
+        Some("'self' 'unsafe-inline' https://cdn.jsdelivr.net https:"),
+        "{csp}"
+    );
+    assert_eq!(
+        directives.get("font-src").copied(),
+        Some("'self' data: https://cdn.jsdelivr.net https:"),
+        "{csp}"
+    );
 
     // §G's two: an external image is fetched under `img-src` (also CSS
     // background-image and sprite sheets); a `<video>`/`<audio>` source under
@@ -423,19 +433,26 @@ async fn enabled_links_reach_both_the_composed_page_and_the_download() {
 
 // ---------------------------------------------------------------------------
 // The other half of the widening: the sandbox URL IS the credential
-// (`/s/{token}/…`), and every external subresource request carries it in
-// `Referer`. Widening `font-src` already sent the token to the font origins;
-// widening `img-src`/`media-src` sends it to every image and video host any
-// page references, which is what makes the header part of this change rather
-// than polish. `no-store` and `noindex` are already set on these responses —
-// `Referrer-Policy: no-referrer` is what makes that intent true for
-// subresources.
+// (`/s/{token}/…`), and a response that carries that URL must not hand it to
+// another origin.
 //
-// Tested through the real route because `apply_sandbox_headers` is private, and
-// it lives in THIS file rather than beside `phase1_storage_composer.rs`'s
-// header assertions because it is the same change as the CSP above: the two are
-// read together, and a reader who widened the policy here is the one who needs
-// to know the token must not travel with it.
+// `referrer-policy: no-referrer` does not fix a leak that fires today, and the
+// rationale is deliberately not "every external subresource request carries the
+// token in Referer" — that is not true under current browser defaults. Under
+// the default `strict-origin-when-cross-origin` a cross-origin subresource
+// request gets the ORIGIN only: no path, so no token. A token-bearing
+// cross-origin `Referer` needs an engine whose default is
+// `no-referrer-when-downgrade`, or a future `unsafe-url`. The header is here
+// because the URL is a secret and the secrecy of a secret should not rest on a
+// browser default — which is the same reason `no-store` and `noindex` are set.
+// That is what makes it part of this change rather than polish: widening
+// `img-src`/`media-src` is what lets a page name an arbitrary host at all.
+//
+// Tested through the real routes because the header helper is private, and it
+// lives in THIS file rather than beside `phase1_storage_composer.rs`'s header
+// assertions because it is the same change as the CSP above: the two are read
+// together, and a reader who widened the policy here is the one who needs to
+// know the token must not travel with it.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
@@ -459,10 +476,12 @@ async fn sandbox_responses_never_hand_the_token_to_a_subresource() {
 
     let token = taskflow_design::sandbox::mint(project_id);
 
-    // BOTH routes that call `apply_sandbox_headers` — the composed page and the
-    // component preview. The header belongs to that shared helper: an
+    // BOTH HTML routes that call `apply_sandbox_headers` — the composed page
+    // and the component preview. The header belongs to that shared helper: an
     // implementation that set it inside one handler would leave the other route
-    // leaking, and a test that checked only the page route could not tell.
+    // leaking, and a test that checked only the page route could not tell. The
+    // third sandbox read, `/f/{*path}`, has its own test below — it is served
+    // by `serve_file`, which does not go through `apply_sandbox_headers`.
     for path in [
         format!("/s/{token}/"),
         format!("/s/{token}/preview/app-header"),
@@ -480,6 +499,81 @@ async fn sandbox_responses_never_hand_the_token_to_a_subresource() {
             res.header("referrer-policy").as_deref(),
             Some("no-referrer"),
             "the sandbox token must not reach an external subresource as a Referer: {path}"
+        );
+    }
+}
+
+/// A minimal valid tokens source, so `/f/styles/tokens.css` takes
+/// `serve_file`'s GENERATED early-return branch rather than falling through to
+/// a legacy row.
+const MINIMAL_TOKENS_JSON: &str = r##"{"version":1,"categories":{
+    "colors":{"accent":{"light":"#6366f1","dark":"#818cf8"}}
+}}"##;
+
+/// The third sandbox read: `GET /s/{token}/f/{*path}` — styles, components and
+/// assets. It does not go through `apply_sandbox_headers` (that is the two HTML
+/// routes), so the token-hygiene headers have to be applied on it separately.
+///
+/// It matters most for a STYLESHEET, because a subresource fetched by a
+/// stylesheet is governed by that stylesheet's own response headers: under
+/// `no-referrer` the request for a `url(https://host/x.png)` inside a served
+/// CSS carries no `Referer` at all, and without it the header that made that
+/// true for the page does not extend to the CSS the page loads.
+///
+/// Reachable, if narrowly — and the reachable path is the LEGACY row, not the
+/// generated one. `validate_tokens_json` refuses any token value containing
+/// `http://`/`https://` (rule `remote-url`), so the generated CSS cannot carry
+/// such a url; but a hand-authored `styles/tokens.css` row is served verbatim
+/// and `validate_tokens` bans only a remote `@import`, so `url(https://host/x.png)`
+/// in a real property there passes validation. This task's `img-src https:` is
+/// what turns that from a CSP-blocked request into a live one, which is why the
+/// header belongs to the same change.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_file_route_never_hands_the_token_to_a_subresource() {
+    let app = support::TestApp::new().await;
+    let (user, project_id) = app.create_member_with_project().await;
+
+    for (path, content) in [
+        ("styles/tokens.json", MINIMAL_TOKENS_JSON.to_string()),
+        ("components/app-header.js", support::sample_header_component()),
+        ("assets/logo.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".to_string()),
+    ] {
+        let res = app
+            .put_json_as(
+                user.id,
+                &format!("/api/design/{project_id}/file"),
+                &serde_json::json!({ "path": path, "content": content }),
+            )
+            .await;
+        assert_eq!(res.status(), 201, "seed write of {path} failed: {}", res.text());
+    }
+
+    let token = taskflow_design::sandbox::mint(project_id);
+
+    // Both branches of `serve_file`: the generated-CSS early return, and the
+    // generic one that serves a component or an asset row. Setting the header
+    // in one branch only is the mistake this loop exists to catch.
+    for path in [
+        format!("/s/{token}/f/styles/tokens.css"),
+        format!("/s/{token}/f/components/app-header.js"),
+        format!("/s/{token}/f/assets/logo.svg"),
+    ] {
+        let res = app.get_sandbox(&path).await;
+        assert_eq!(res.status(), 200, "sandbox serve of {path} failed: {}", res.text());
+        assert_eq!(
+            res.header("referrer-policy").as_deref(),
+            Some("no-referrer"),
+            "this file's own subresources must not be handed the sandbox token as a \
+             Referer either — a `url(https://…)` in a served stylesheet goes to that host \
+             with THIS response's policy, not the page's: {path}"
+        );
+        // The sibling header it is applied with, asserted AFTER the value above
+        // so a missing header fails on the assertion that names the property:
+        // proof this is the sandbox header block and not some other 200.
+        assert_eq!(
+            res.header("x-robots-tag").as_deref(),
+            Some("noindex"),
+            "precondition — this response should be the sandbox header block: {path}"
         );
     }
 }

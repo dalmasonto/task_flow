@@ -689,28 +689,45 @@ pub async fn design_events(
 // Sandbox-facing handlers — token-granted, origin-isolated, no cookies
 // ---------------------------------------------------------------------------
 
-/// Apply the sandbox response headers: tight CSP (connect-src self + Tailwind
-/// CDN only — without it agent-authored JS could fetch the operator's
-/// localhost; `script-src`/`style-src`/`font-src`/`img-src`/`media-src`
-/// additionally allow any `https:` origin for the project's external resources
-/// — see [`composer::sandbox_csp`]), no-store (tokens outlive nothing), noindex,
-/// and no-referrer.
+/// The headers EVERY token-granted sandbox response carries, whatever its body:
+/// this response must not be kept (`no-store` — tokens outlive nothing), must
+/// not be indexed (`x-robots-tag: noindex`), and must not hand its own URL to
+/// another origin (`referrer-policy: no-referrer`).
 ///
-/// `referrer-policy: no-referrer` is not polish. The sandbox URL IS the
-/// credential (`/s/{token}/…`), and every external subresource request carries
-/// it in `Referer`: allowing a webfont already sent it to the font origins, and
-/// allowing images and media sends it to every image and video host any page
-/// references. `no-store` and `noindex` already say this response must not be
-/// kept or indexed; this header is what makes that true for its subresources.
-///
-/// Both sandbox routes go through here — the composed page and the component
-/// preview — so a header added here is a header added to both.
-fn apply_sandbox_headers(response: &mut Response, token: &str) {
+/// `no-referrer` is not polish, and it does not fix a leak that fires today: the
+/// sandbox URL IS the credential (`/s/{token}/…`), but under the current browser
+/// default `strict-origin-when-cross-origin` a cross-origin subresource request
+/// gets the ORIGIN only — no path, so no token. A token-bearing cross-origin
+/// `Referer` needs an engine whose default is `no-referrer-when-downgrade`, or a
+/// future `unsafe-url`. The header is here because the URL is a secret and the
+/// secrecy of a secret should not rest on a browser default; it is what makes
+/// the intent `no-store` and `noindex` already express true for whatever origin
+/// the response's own content pulls in — an external image or media source, or
+/// a `url(https://…)` inside a served stylesheet, which is fetched under the
+/// STYLESHEET's response headers and not the page's.
+fn apply_token_response_headers(response: &mut Response) {
     let headers = response.headers_mut();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert("x-robots-tag", HeaderValue::from_static("noindex"));
     headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+}
+
+/// Apply the sandbox HTML response headers: the shared token-hygiene headers
+/// above, the HTML content type, and the tight CSP (connect-src self + Tailwind
+/// CDN only — without it agent-authored JS could fetch the operator's
+/// localhost; `script-src`/`style-src`/`font-src`/`img-src`/`media-src`
+/// additionally allow any `https:` origin for the project's external resources
+/// — see [`composer::sandbox_csp`]).
+///
+/// Both HTML sandbox routes go through here — the composed page and the
+/// component preview — so a header added here is a header added to both. The
+/// third sandbox read, `GET /s/{token}/f/{*path}`, does NOT: it is served by
+/// [`serve_file`], which calls [`apply_token_response_headers`] itself in both
+/// of its branches.
+fn apply_sandbox_headers(response: &mut Response, token: &str) {
+    apply_token_response_headers(response);
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
     if let Ok(csp) = composer::sandbox_csp(token).parse() {
         headers.insert("content-security-policy", csp);
     }
@@ -868,6 +885,11 @@ async fn serve_sandbox_page(
 
 /// `GET /s/{token}/f/{path}` — serve tokens.css / components/*.js / assets.
 /// Read-only, token-granted; pages are never served raw (they compose).
+///
+/// Carries the same token-hygiene headers as the HTML routes, via
+/// `apply_token_response_headers` — applied in BOTH branches below, because a
+/// stylesheet's own subresources (`url(https://…)`) are fetched under this
+/// response's policy, not the page's, and this response names the token too.
 pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<Response, StatusCode> {
     let Some(project_id) = sandbox::verify(&token) else {
         return Err(StatusCode::NOT_FOUND);
@@ -886,9 +908,10 @@ pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<R
     if path == "styles/tokens.css" {
         if let Some(css) = generated_tokens_css(project_id).await {
             let mut response = css.into_response();
-            let headers = response.headers_mut();
-            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
-            headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            apply_token_response_headers(&mut response);
+            response
+                .headers_mut()
+                .insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
             return Ok(response);
         }
     }
@@ -908,11 +931,10 @@ pub async fn serve_file(Path((token, path)): Path<(String, String)>) -> Result<R
         row.content.into_response()
     };
 
-    let headers = response.headers_mut();
+    apply_token_response_headers(&mut response);
     if let Ok(ct) = content_type_for(&path).parse() {
-        headers.insert(CONTENT_TYPE, ct);
+        response.headers_mut().insert(CONTENT_TYPE, ct);
     }
-    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
 }
 

@@ -476,16 +476,25 @@ pub fn compose_export_document(
 ///
 /// `connect-src` is deliberately NOT widened, and Lottie is not a reason to
 /// widen it. A Lottie animation has two independent blockers, and neither is
-/// `img-src`: a page fragment may not contain `<script src` at all (the
-/// validator refuses that marker), and a Lottie player `fetch()`es its
-/// animation JSON, which lands under `connect-src`. It is deliverable anyway
-/// WITHOUT touching this directive — the player loads inside a COMPONENT, whose
-/// JS the composer inlines as an inline script and which `script-src https:`
-/// already permits from any https origin, and the animation JSON lives under
-/// `assets/`, which the sandbox serves same-origin, so `connect-src 'self'`
-/// covers that fetch. Widening this one would buy Lottie nothing and would hand
-/// agent-authored JS a channel to POST the operator's localhost and intranet to
-/// any https host.
+/// `img-src`: a page fragment cannot name a remote script statically in its
+/// markup (the validator refuses the literal `<script src` marker), and a
+/// Lottie player `fetch()`es its animation JSON, which lands under
+/// `connect-src`. It is deliverable anyway WITHOUT touching this directive —
+/// the player wiring belongs in a COMPONENT, which the sandbox loads as a
+/// SAME-ORIGIN script: `compose_document` emits
+/// `<script src="/s/{token}/f/components/{name}.js">` per registered component,
+/// and `script-src 'self'` permits it. The player `<script src="https://…">`
+/// that component appends is permitted by `script-src https:`. What the
+/// component cannot do is fetch the animation from a file of its own, because
+/// the sandbox has no file kind for one: `assets/` admits image extensions
+/// only, and `styles/` admits `styles/tokens.css`, `styles/tokens.json` and
+/// `styles/resources.json` (`validation::check_extension`, reached by every
+/// write through `store::write_file`). So the animation travels INLINE in the
+/// component — an object, which is what the player's `animationData` input is
+/// for, rather than a `path` it would have to fetch — and the 128 KiB per-file
+/// cap applies either way. Widening this one would buy Lottie nothing and would
+/// hand agent-authored JS a channel to POST the operator's localhost and
+/// intranet to any https host.
 ///
 /// `form-action`, `base-uri` and `frame-ancestors` stay as they were.
 ///
@@ -495,8 +504,13 @@ pub fn compose_export_document(
 /// nothing of the operator's beyond the project it is already rendering. Every
 /// value in play is written by the project's own members through the normal
 /// write path — the manifest's links, and the urls a page writes into its own
-/// markup for an image or a video, alike — and a page cannot add a resource
-/// DECLARATION for itself: the validator refuses `<script src`. And the scheme
+/// markup for an image or a video, alike — and a page cannot name a remote
+/// script STATICALLY in its own markup: the validator refuses the literal
+/// `<script src` marker. (A markup rule, not a runtime one: an inline
+/// `<script>` passes validation, and inline JS can append a
+/// `<script src="https://…">` at runtime, which `'unsafe-inline'` plus the
+/// `https:` scheme source permit. What a page cannot do is put that url in the
+/// markup it hands the validator.) And the scheme
 /// is what bounds those values: `resources::validate` refuses any manifest url
 /// that is not `https:`, so `javascript:` and a `data:` document can never
 /// reach an emitted attribute in the first place, while a url written straight
