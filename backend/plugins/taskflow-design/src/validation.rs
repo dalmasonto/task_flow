@@ -173,7 +173,14 @@ fn check_extension(path: &str, kind: crate::models::DesignFileKind) -> Result<()
     let ok = match kind {
         K::Page => path.ends_with(".html"),
         K::Component => path.ends_with(".js"),
-        K::Token => path == "styles/tokens.css" || path == "styles/tokens.json",
+        // Two documents share the `styles/` kind: the token source of truth and
+        // the external resource document (`resources.rs`), whose shape is its
+        // own. Anything else under `styles/` is still a mistake worth naming.
+        K::Token => {
+            path == "styles/tokens.css"
+                || path == "styles/tokens.json"
+                || path == crate::resources::RESOURCES_PATH
+        }
         K::Asset => [".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"]
             .iter()
             .any(|ext| path.ends_with(ext)),
@@ -184,7 +191,10 @@ fn check_extension(path: &str, kind: crate::models::DesignFileKind) -> Result<()
     let expected = match kind {
         K::Page => "pages/<name>.html",
         K::Component => "components/<element-name>.js",
-        K::Token => "exactly styles/tokens.json (or legacy styles/tokens.css; there is one tokens file per project)",
+        K::Token => {
+            "exactly styles/tokens.json or styles/resources.json (or legacy \
+             styles/tokens.css; styles/ holds one tokens file and one resources file)"
+        }
         K::Asset => "an image extension (.svg, .png, .jpg, .webp, .gif, .ico)",
     };
     Err(ValidationError {
@@ -775,6 +785,31 @@ pub fn validate_tokens_json(content: &str) -> Validation {
 }
 
 // ---------------------------------------------------------------------------
+// External resources
+// ---------------------------------------------------------------------------
+
+/// Validate `styles/resources.json` — the external resource document
+/// (`resources.rs`). Must parse, then pass that module's own rules: `https:`
+/// only, `javascript:`/`data:` refused in every spelling, `rel` from a short
+/// allowlist. This is the WRITE half of the boundary whose read half is
+/// deliberately forgiving — the manifest drops a bad document rather than
+/// failing a render, so if this does not refuse a scheme, nothing does. It
+/// shares a kind with the tokens file and nothing else, so it keeps its own
+/// rules rather than borrowing `validate_tokens*`'s.
+pub fn validate_resources(content: &str) -> Validation {
+    match crate::resources::parse(content).and_then(crate::resources::validate) {
+        Ok(_) => Validation::pass(),
+        Err(message) => Validation::pass().fail(ValidationError {
+            line: 0,
+            rule: "resources",
+            message,
+            found: None,
+            suggest: None,
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -819,6 +854,9 @@ pub fn validate_write(
         DesignFileKind::Page => validate_page_fragment(path, content, registered_components),
         DesignFileKind::Component => validate_component(path, content),
         DesignFileKind::Token if path == "styles/tokens.json" => validate_tokens_json(content),
+        DesignFileKind::Token if path == crate::resources::RESOURCES_PATH => {
+            validate_resources(content)
+        }
         DesignFileKind::Token => validate_tokens(content),
         DesignFileKind::Asset => Validation::pass(),
     };

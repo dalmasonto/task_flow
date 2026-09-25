@@ -681,6 +681,88 @@ async fn files_listing_hides_content_but_file_endpoint_serves_it() {
 }
 
 // ---------------------------------------------------------------------------
+// The external resource document
+// ---------------------------------------------------------------------------
+
+/// `styles/resources.json` is a `DesignFile` row of kind `Token`, like
+/// `styles/tokens.json`. That reuse is the plan's point, and it is also the
+/// trap this test exists for: the kind's extension gate, and the dispatch that
+/// picks a content validator, both keyed on the tokens filename, so the
+/// resources document was refused as a path before any of its own rules ran.
+/// A refusal for the wrong reason reads exactly like a working gate, so the
+/// write goes through the real route here and the REFUSAL RULE is asserted —
+/// `resources`, never `extension`.
+#[tokio::test(flavor = "multi_thread")]
+async fn resource_document_saves_and_dangerous_schemes_are_refused_by_its_own_rule() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_minimal_project(&app).await;
+    let url = format!("/api/design/{project_id}/file");
+
+    let save = |doc: serde_json::Value| json!({
+        "path": "styles/resources.json",
+        "content": serde_json::to_string(&doc).expect("doc serialises"),
+    });
+
+    // A valid document — the Google Fonts triple — must be saveable at all.
+    let res = app
+        .put_json_as(
+            user_id,
+            &url,
+            &save(json!({
+                "version": 1,
+                "sets": [{
+                    "id": "set_Inter",
+                    "name": "Inter",
+                    "enabled": true,
+                    "links": [
+                        { "rel": "preconnect", "href": "https://fonts.googleapis.com" },
+                        { "rel": "preconnect", "href": "https://fonts.gstatic.com", "crossorigin": true },
+                        { "rel": "stylesheet",
+                          "href": "https://fonts.googleapis.com/css2?family=Inter&display=swap" },
+                    ],
+                }],
+            })),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "a valid resources document was not saved: {}", res.text());
+
+    // A dangerous scheme, in mixed case, refused by the resources validator.
+    let res = app
+        .put_json_as(
+            user_id,
+            &url,
+            &save(json!({
+                "version": 1,
+                "sets": [{
+                    "id": "set_Bad",
+                    "name": "Bad",
+                    "enabled": true,
+                    "links": [{ "rel": "stylesheet", "href": "JaVaScRiPt:alert(1)" }],
+                }],
+            })),
+        )
+        .await;
+    assert_eq!(res.status(), 422);
+    let v = res.json();
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["errors"][0]["rule"], "resources",
+        "refused for the wrong reason — the path gate, not the scheme rule: {v}"
+    );
+    let message = v["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains("not an https address"), "unexpected message: {message}");
+    assert!(message.contains("JaVaScRiPt:alert(1)"), "the offending url is not echoed: {message}");
+
+    // The tokens document keeps its own rules: a resources-shaped body written
+    // to tokens.json is still judged as tokens, not as resources.
+    let res = app
+        .put_json_as(user_id, &url, &json!({ "path": "styles/tokens.json", "content": "{}" }))
+        .await;
+    assert_eq!(res.status(), 422);
+    assert_eq!(res.json()["errors"][0]["rule"], "invalid-json");
+}
+
+// ---------------------------------------------------------------------------
 // Sandbox token security
 // ---------------------------------------------------------------------------
 
