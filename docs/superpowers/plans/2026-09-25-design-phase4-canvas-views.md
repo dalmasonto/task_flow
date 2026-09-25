@@ -2264,7 +2264,7 @@ Line ~567, the lazy placeholder:
 and its icon:
 
 ```tsx
-      <MaximizeIcon className="size-5 text-zinc-700" />
+      <MaximizeIcon className="size-5 text-zinc-600" />
 ```
 
 - [ ] **Step 3: Typecheck and run the suite**
