@@ -21,8 +21,6 @@ import {
   ZoomOutIcon,
 } from "lucide-react"
 
-import { cn } from "@/lib/utils"
-
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -90,6 +88,7 @@ import { nextDesignTab, type DesignTab } from "./design-tabs"
 import { readUIState, writeUIState } from "./design-ui-state"
 import { shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
+import { PagesPanel } from "./pages-panel"
 
 export function DesignSurfacePage({
   projectId,
@@ -665,6 +664,8 @@ export function DesignSurfacePage({
                 manifest={manifest}
                 openRoutes={openRoutes}
                 onToggleRoute={toggleRouteFromPanel}
+                layout={layout}
+                onLayoutChange={updateLayout}
               />
             </TabsContent>
           </Tabs>
@@ -996,41 +997,9 @@ function ZoomControl({
 }
 
 // ---------------------------------------------------------------------------
-// Right-panel tabs: Pages + Components (Inspect lives in design-inspector.tsx,
-// Tokens is the standalone TokenEditor mounted directly above).
+// Right-panel tabs: Components (Pages lives in pages-panel.tsx, Inspect in
+// design-inspector.tsx, Tokens is the standalone TokenEditor mounted above).
 // ---------------------------------------------------------------------------
-
-function PagesPanel({
-  manifest,
-  openRoutes,
-  onToggleRoute,
-}: {
-  manifest: DesignManifest | null
-  openRoutes: string[]
-  onToggleRoute: (route: string) => void
-}) {
-  return (
-    <div className="flex flex-col py-1">
-      {(manifest?.routes ?? []).map((route) => {
-        const open = openRoutes.includes(route.path)
-        return (
-          <button
-            key={route.path}
-            className={cn(
-              "flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm hover:bg-muted",
-              open && "bg-muted/60 font-medium",
-            )}
-            onClick={() => onToggleRoute(route.path)}
-          >
-            <span>{route.title}</span>
-            <span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>
-          </button>
-        )
-      })}
-      {!manifest?.routes.length && <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>}
-    </div>
-  )
-}
 
 /// The component registry list with a per-component live sandbox preview —
 /// the real component rendered against the project's real tokens, not a mock.
