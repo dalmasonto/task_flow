@@ -667,6 +667,73 @@ async fn the_review_report_back_lands_in_the_public_room_not_the_design_room() {
     assert!(!report.is_design, "and is not a design message");
 }
 
+// The report-back's `is_design` FOLLOWS THE ROOM IT LANDS IN — it is derived,
+// never a literal `false`.
+//
+// The test above cannot tell the two apart: the room it resolves is the public
+// room, whose marker is false, so a hardcoded `false` passes it. That is exactly
+// how the flag was correct before this test — by COINCIDENCE of the destination,
+// not by construction — and a report-back aimed anywhere else (a future change,
+// or a room carrying more than one marker) would then have stored a flag saying
+// "ordinary chat" about a design-room message.
+//
+// So this test moves the destination out from under the coincidence: ONE room
+// carrying BOTH markers, which the API cannot produce (`ensure_project_rooms`
+// marks each room once, and the one-design-per-project index allows only one
+// design-marked room per project) and which `seed_room` writes directly, the same
+// way the mis-titled and unmarked rooms above are arranged. The room IS the
+// public room the report-back resolves, and it IS design-marked: the stored flag
+// must say so.
+#[tokio::test]
+async fn the_report_back_flag_follows_the_room_it_lands_in() {
+    let app = TestApp::new().await;
+    let project = seed_project_via_transaction().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+
+    let both = seed_room(project, TaskflowChannelKind::Project, "Both markers", true, true).await;
+
+    let (key, _) = mint_agent(&app, user, project, "Builder", "main").await;
+    let room = public_room(project).await.expect("the link kept the one room");
+    assert_eq!(room.id, both, "the seeded room IS the room marked public");
+    assert!(
+        room.is_design,
+        "and it is design-marked — the destination the hardcode assumed away"
+    );
+
+    let task_id = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/tasks",
+            json!({ "title": "Ship the thing", "claim": true }),
+        )
+        .await
+        .json()
+        .await["id"]
+        .as_i64()
+        .expect("task id");
+    let reviewed = app
+        .post_as(
+            user,
+            &format!("/api/taskflow/tasks/{task_id}/review"),
+            json!({ "decision": "approved" }),
+        )
+        .await;
+    assert_eq!(reviewed.status(), 200, "body: {:?}", reviewed.json().await);
+
+    let report = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::TASK.eq(task_id))
+        .first()
+        .await
+        .expect("load report-back")
+        .expect("report-back exists");
+    assert_eq!(report.channel.id(), both, "still the room that was resolved");
+    assert!(
+        report.is_design,
+        "the flag is derived from the destination room, so a design-marked destination stores true"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Adoption on first creation (the design history re-point)
 // ---------------------------------------------------------------------------

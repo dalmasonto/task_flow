@@ -2988,10 +2988,12 @@ pub(crate) async fn find_design_room(project_id: i64) -> Result<Option<TaskflowA
 
 /// Roster every agent this project already has onto `channel_id`.
 ///
-/// Used only when a room is being CREATED: an agent linked before the room
-/// existed is otherwise missing from its roster, and the user's rule is that an
-/// agent in a project belongs to both rooms. Idempotent per agent (see
-/// `ensure_agent_channel_row`), so it is safe on any call.
+/// Run on EVERY `ensure_project_rooms` call, not only when a room is being
+/// created: an agent linked before the room existed is otherwise missing from its
+/// roster, and the user's rule is that an agent in a project belongs to both
+/// rooms — so a caller must never observe a room without its seats, including one
+/// another caller created a moment ago. Idempotent per agent (see
+/// `ensure_agent_channel_row`), which is what makes running it every time safe.
 async fn ensure_project_agents_rostered(
     project_id: i64,
     channel_id: i64,
@@ -3170,9 +3172,26 @@ pub async fn ensure_project_rooms(
     // sweep, where every project's rooms are built at once) left the history
     // un-moved FOREVER, since the room now existed and no later call re-ran it.
     // That is the opposite of the self-healing claim the rest of this function
-    // makes. The move is idempotent and bails on an empty candidate set, so
-    // re-checking on every ensure costs two indexed SELECTs and repairs a
-    // previously failed adoption on the next layer that runs.
+    // makes. The move is idempotent and its candidate query is bounded by the
+    // destination (see `adopt_design_history`), so in the steady state — nothing
+    // left to adopt — re-checking on every ensure is one indexed SELECT over zero
+    // rows, and it repairs a previously failed adoption on the next layer that
+    // runs.
+    //
+    // CORRECTION (final whole-branch review): this comment used to justify the
+    // same call as "costs two indexed SELECTs", and that was not a lower bound —
+    // it was a claim the code did not meet. The candidate query was indexed but
+    // unbounded: it fetched every `is_design` message of the project as FULL rows
+    // (`body_markdown` included, capped at ~10 MiB each) and discarded all but the
+    // candidates in Rust. Since the flag became derived from the destination,
+    // every message in the design room is a hit, so the steady state was the
+    // whole design conversation read and dropped on every project write (rename,
+    // status change, dashboard PATCH, GitHub link), every `link_agent`, every
+    // channel request, every review, and the boot sweep for every project. That
+    // is why it was a correctness risk rather than a performance preference:
+    // `umbral_core::signals` bounds an async subscriber at 30 s and DROPS the
+    // future on expiry, so a large enough design history could cancel an ensure
+    // mid-flight. The predicate now lives in the SQL above.
     //
     // Non-fatal, because the rooms are the caller's business and the history move
     // is not: a failure here must never make a caller believe the rooms are
@@ -3214,8 +3233,10 @@ async fn oldest_unmarked_room(
         .find(|c| c.kind == TaskflowChannelKind::Project && !c.is_design))
 }
 
-/// Ruling 1's adoption: re-point the project's existing design messages into its
-/// newly created design room, and return how many moved.
+/// Ruling 1's adoption: re-point the project's existing design messages into the
+/// design room, and return how many moved. Idempotent, and run on EVERY ensure
+/// call rather than once at the room's creation — see [`ensure_project_rooms`]
+/// for why the retry matters more than the saving.
 ///
 /// Two restrictions, both deliberate:
 ///
@@ -3229,8 +3250,9 @@ async fn oldest_unmarked_room(
 ///     `models.rs` records as having lived in the project room.
 ///
 /// The predicate also excludes messages already in `room_id`, which is what makes
-/// a repeat call a no-op rather than a re-write (the caller only reaches this on
-/// creation, but "cannot double-run" should not rest on that alone).
+/// a repeat call a no-op rather than a re-write. That is not belt-and-braces any
+/// more: the caller runs this on every ensure call, so this clause is the whole
+/// reason the steady state has nothing to adopt.
 ///
 /// Of those three clauses, only the shared-room restriction is observable: a
 /// channel belongs to exactly one project, so `m.channel` being one of this
@@ -3245,7 +3267,7 @@ async fn oldest_unmarked_room(
 /// without its attachments leaves its files resolvable only through the room it
 /// came from.
 async fn adopt_design_history(project_id: i64, room_id: i64) -> Result<u64, StatusCode> {
-    let shared_channel_ids: HashSet<i64> = TaskflowAgentChannel::objects()
+    let shared_channel_ids: Vec<i64> = TaskflowAgentChannel::objects()
         .filter(taskflow_agent_channel::PROJECT.eq(project_id))
         .fetch()
         .await
@@ -3260,16 +3282,36 @@ async fn adopt_design_history(project_id: i64, room_id: i64) -> Result<u64, Stat
         .map(|c| c.id)
         .collect();
 
+    // The WHOLE candidate predicate is in SQL, and that is the point of this
+    // query rather than a style preference: `.fetch()` materialises FULL rows —
+    // every column, `body_markdown` included, which `models.rs` caps at ~10 MiB
+    // each — so a filter applied in Rust *after* the fetch pays for every row it
+    // then throws away. This runs on every `ensure_project_rooms` call, and since
+    // `is_design` is now derived from the destination, every message in the
+    // design room is a hit: filtering in Rust made the steady state "fetch the
+    // entire design conversation on every project write, every link, every
+    // channel request, every review, and the boot sweep for every project, then
+    // drop all of it". See `ensure_project_rooms` for why that is a correctness
+    // risk (the signal subscriber's 30 s deadline) and not just waste.
+    //
+    // The two clauses are the ones the doc above describes, unchanged — only
+    // their SIDE moved. `channel` is NOT NULL on this model, so `ne` matches the
+    // Rust `!=` exactly, and an empty `shared_channel_ids` renders as `1 = 2`
+    // (sea-query's empty-`IN` form) rather than invalid `IN ()`.
     let ids: Vec<i64> = TaskflowAgentMessage::objects()
         .filter(
             taskflow_agent_message::PROJECT.eq(project_id)
-                & taskflow_agent_message::IS_DESIGN.eq(true),
+                & taskflow_agent_message::IS_DESIGN.eq(true)
+                // Already in this room: the no-op guard.
+                & taskflow_agent_message::CHANNEL.ne(room_id)
+                // Shared rooms only, so a DM or a #42 Group is never repointed
+                // into a project-wide room.
+                & taskflow_agent_message::CHANNEL.in_(&shared_channel_ids),
         )
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .into_iter()
-        .filter(|m| m.channel.id() != room_id && shared_channel_ids.contains(&m.channel.id()))
         .map(|m| m.id)
         .collect();
 
@@ -3430,7 +3472,14 @@ async fn apply_review(
                     sender_label: reviewer_label.clone(),
                     body_markdown: message_body,
                     priority: TaskflowMessagePriority::Normal,
-                    is_design: false,
+                    // Derived from the destination, like both send paths — never
+                    // hardcoded. The room resolved above IS the public room, so
+                    // this is `false` today; reading the marker off the row that
+                    // was actually resolved is what keeps it true if the
+                    // report-back is ever pointed somewhere else (a hardcoded
+                    // `false` would then store a flag that lies about the
+                    // destination).
+                    is_design: channel.is_design,
                     client_nonce: None,
                     edited_at: None,
                     created_at: None,
