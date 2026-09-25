@@ -1726,6 +1726,49 @@ git commit -m "feat(design): allow external https images and media, and stop lea
 
 ---
 
+### Task 14: Frontend — make `DesignComment` honest about the wire
+
+**Files:**
+- Modify: `v2_fe/src/lib/design-api.ts` (the `DesignComment` type, and the comment at `:44-51`)
+- Modify: `v2_fe/src/pages/design/design-inspector.tsx`
+- Modify: `v2_fe/src/pages/design/DesignSurfacePage.tsx`
+- Create/extend a colocated `*.test.ts` for whatever pure logic this needs to be testable
+
+**Why this exists:** Task 8's implementer found it while fixing the *same class* of defect in the same file, and the controller verified it at the source. It is not Task 8's defect and Task 8 did not cause it.
+
+- `models::DesignComment` (`backend/plugins/taskflow-design/src/models.rs:115-116`) derives `Serialize` with **no `rename_all`**, and `views::list_comments` returns the rows directly — so the endpoint emits **snake_case**: `page_path`, `component_name`, `element_path`, `src_ref`, `thread_id`, `resolution_note`, `created_at`. The repo's own test reads `rows[0]["resolution_note"]` off that endpoint (`tests/phase3_agent_surface.rs:294-295`), so the wire is pinned by an existing test — it is the frontend type that is wrong.
+- The TS type declares camelCase and **six** sites read the broken fields:
+
+| Site | What is broken |
+|---|---|
+| `design-inspector.tsx:356` | `{c.pagePath}` renders `undefined` — the route label is blank |
+| `design-inspector.tsx:361-362` | `c.resolutionNote ?` is always falsy — a resolution note **never** displays |
+| `design-inspector.tsx:448` | `.filter((b) => b.route === comment.pagePath)` matches nothing |
+| `DesignSurfacePage.tsx:446`, `:544`, `:547` | `artboards.find((b) => b.route === comment.pagePath)` matches nothing — **clicking a comment does not focus its board** |
+
+The last row is the significant one, and the reason this is a task rather than a note: the failure is **silent**. Nothing throws; the click simply does nothing.
+
+- [ ] **Step 1: Write the failing test first, and make it the kind that could have caught this.** The defect is a field-name mismatch, and a TS type cannot be tested at runtime — so the test has to be about *behaviour with a wire-shaped fixture*. Build the fixture the way `readJson` actually yields it, i.e. **snake_case keys**, and assert the values the inspector derives from it. If the reads are inline JSX, extract the two of them (route label, and note-or-null) into small pure helpers and test those — that extraction is what makes the bug catchable, and it is the whole point of the step.
+
+- [ ] **Step 2: Rename the declarations to the wire spelling.** Same shape as Task 8's Fix 1: rename, do **not** add a mapping layer, and extend the convention comment at `design-api.ts:44-51` rather than leaving it to be re-derived. That comment currently says the camelCase reads are "left as found; it is not this round's to rename" — it is now this round's, so it must not be left pointing the other way.
+
+- [ ] **Step 3: Check all six sites**, not just the two the report named. Each of the four `pagePath` comparisons must compare against the real route once renamed.
+
+- [ ] **Step 4: Expect and report three user-visible changes**, because that is what fixing this means: the comment list's route label appears, a resolution note appears where one exists, and clicking a comment starts focusing its board. Say so plainly in the report — a fix that makes a previously-dead control live is worth flagging to whoever tests it, who would otherwise read the new behaviour as a regression.
+
+- [ ] **Step 5: Verify and commit.** `cd v2_fe && npx tsc -b && npm test` — **not the build** (Task 9 owns the plan's single held publish, backend first).
+
+```bash
+cd /home/dalmas/E/projects/local_task_tracker
+git add v2_fe/src/lib/design-api.ts v2_fe/src/pages/design/design-inspector.tsx \
+        v2_fe/src/pages/design/DesignSurfacePage.tsx
+git commit -m "fix(design): comments carry snake_case on the wire, so the inspector was reading nothing"
+```
+
+(Stage whichever test file you create as well.)
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
