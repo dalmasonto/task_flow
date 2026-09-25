@@ -27,10 +27,17 @@ import {
 import {
   type Artboard,
   type DevicePreset,
+  boardWidth,
   chromeStyleForGroup,
   deviceById,
 } from "@/lib/design-devices"
 import { sandboxUrl, downloadPageHtml, fetchPageHtmlFragment } from "@/lib/design-api"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { type CanvasTool } from "./canvas-tools"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
@@ -300,7 +307,12 @@ function ArtboardCard({
       style={{ left: board.x, top: board.y }}
       data-artboard-key={board.key}
     >
-      <ArtboardHeader route={board.route} device={device} projectId={projectId} />
+      <ArtboardHeader
+        route={board.route}
+        device={device}
+        projectId={projectId}
+        width={boardWidth(device)}
+      />
       <div className="overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
         <DeviceChrome device={device}>
           {src ? (
@@ -326,10 +338,15 @@ function ArtboardHeader({
   route,
   device,
   projectId,
+  width,
 }: {
   route: string
   device: DevicePreset
   projectId: number | null
+  /** The board's rendered width. The header is clamped to it so a narrow
+   *  device's label and actions can never spill into the neighbouring board —
+   *  which is what the old unconstrained flex row did. */
+  width: number
 }) {
   const copyHtml = async () => {
     if (projectId == null) return
@@ -350,21 +367,17 @@ function ArtboardHeader({
   }
 
   return (
-    <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400">
-      <span className="font-medium text-zinc-200">{route === "/" ? "Dashboard" : route.slice(1)}</span>
-      <span className="text-zinc-500">·</span>
-      <span>{device.label}</span>
-      <span className="font-mono text-[11px] text-zinc-500">
-        {device.width}×{device.height}
+    <div
+      className="mb-2 flex items-center gap-1.5 overflow-hidden text-xs text-zinc-400"
+      style={{ width }}
+    >
+      <span className="truncate font-medium text-zinc-200">
+        {route === "/" ? "Dashboard" : route.slice(1)}
       </span>
-      <button className="ml-auto rounded p-1 hover:bg-zinc-800" title="Rotate">
-        <RotateCwIcon className="size-3.5" />
-      </button>
-      <button className="rounded p-1 hover:bg-zinc-800" title="Duplicate at another device">
-        <CopyIcon className="size-3.5" />
-      </button>
+      <span className="shrink-0 text-zinc-500">·</span>
+      <span className="shrink-0">{device.label}</span>
       <button
-        className="rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        className="ml-auto shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
         title="Copy HTML"
         disabled={projectId == null}
         onClick={copyHtml}
@@ -372,23 +385,44 @@ function ArtboardHeader({
         <ClipboardCopyIcon className="size-3.5" />
       </button>
       <button
-        className="rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        className="shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
         title="Download"
         disabled={projectId == null}
         onClick={downloadHtml}
       >
         <DownloadIcon className="size-3.5" />
       </button>
-      <button className="rounded p-1 hover:bg-zinc-800" title="Open in new tab">
-        <ExternalLinkIcon className="size-3.5" />
-      </button>
-      <button className="rounded p-1 hover:bg-zinc-800" title="Reload">
-        <RefreshCwIcon className="size-3.5" />
-      </button>
-      <button className="rounded p-1 hover:bg-zinc-800" title="Remove">
-        <XIcon className="size-3.5" />
-      </button>
-      <EllipsisIcon className="size-3.5 text-zinc-600" />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button className="shrink-0 rounded p-1 hover:bg-zinc-800" title="More actions" />
+          }
+        >
+          <EllipsisIcon className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-48">
+          <DropdownMenuItem>
+            <RotateCwIcon className="size-3.5" />
+            Rotate
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <CopyIcon className="size-3.5" />
+            Duplicate at another device
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <ExternalLinkIcon className="size-3.5" />
+            Open in new tab
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <RefreshCwIcon className="size-3.5" />
+            Reload
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <XIcon className="size-3.5" />
+            Remove
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }
@@ -443,7 +477,7 @@ function DeviceChrome({
           <span className="size-2 rounded-full bg-zinc-700" />
         </div>
       ) : null}
-      <div className="overflow-hidden bg-white" style={{ borderRadius: chrome.innerRadius }}>
+      <div className="overflow-hidden bg-zinc-950" style={{ borderRadius: chrome.innerRadius }}>
         {children}
       </div>
     </div>
@@ -515,7 +549,7 @@ function LazyFrame({
   }
 
   return (
-    <div ref={hostRef} style={{ width, height }} className="relative bg-zinc-100">
+    <div ref={hostRef} style={{ width, height }} className="relative bg-zinc-900">
       {near ? (
         <iframe
           key={`${frameSrc}|${epoch}`}
@@ -563,10 +597,10 @@ function FrameError({ width, height, reason }: { width: number; height: number; 
 function PlaceholderSkeleton({ width, height }: { width: number; height: number; label: string }) {
   return (
     <div
-      className="flex h-full w-full items-center justify-center bg-gradient-to-b from-zinc-200 to-zinc-300"
+      className="flex h-full w-full items-center justify-center bg-gradient-to-b from-zinc-900 to-zinc-800"
       style={{ width, height }}
     >
-      <MaximizeIcon className="size-5 text-zinc-400" />
+      <MaximizeIcon className="size-5 text-zinc-700" />
     </div>
   )
 }
