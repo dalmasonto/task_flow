@@ -85,46 +85,52 @@ function normalizeRoute(path: string): string {
   return trimmed === "" ? "/" : trimmed
 }
 
-/// One frame's report: where it said it was, and the frame GENERATION that said
-/// it.
+/// One frame's report: where it said it was, and WHICH frame document said it.
 ///
-/// The epoch is `contentEpoch + boardEpoch` — the very value in that iframe's
-/// `key` (`LazyFrame`) — so a report describes the mounted document exactly
-/// while that sum is unchanged. **Both halves only ever count up**, so an equal
-/// sum means neither moved, and any remount (a file write's global bump, a
-/// single board's Reload) leaves every stamp stale on its own. That is why the
-/// generation is carried rather than cleared: the alternative is a "forget this
-/// board" write posted from each place a frame can be remounted, and the one
-/// place that would be forgotten is the one nobody remembered.
-export type FrameRoute = { route: string; epoch: number }
+/// The stamp is `(epoch, token)` — the two parts of the iframe's own key,
+/// `` `${frameSrc}|${epoch}` `` in `LazyFrame`, where `frameSrc` is the token's
+/// sandbox URL for this board plus `?board={boardKey}`. The board key is the
+/// third part of that key and is what the report is held under (see
+/// `ArtboardCard`), so an equal stamp means the SAME DOCUMENT is still mounted.
+/// Nothing coarser would do: a stamp of the epoch alone reads as fresh after a
+/// remount caused by a new `sandboxToken`, which moves `frameSrc` and leaves
+/// both epoch halves exactly where they were.
+///
+/// That is not hypothetical — it is a project switch. The surface is not keyed
+/// by project (`App.tsx` mounts one `DesignSurfacePage`), so a switch refetches
+/// the token (`DesignSurfacePage`'s manifest/token/layout effect) and remounts
+/// every frame WITHOUT moving either epoch, while `route@device` keys repeat
+/// across projects: every project has `/` at the default device. The token was
+/// minted per project (`sandbox.rs::mint` encodes the project id), so it is what
+/// tells A's report apart from B's frame.
+export type FrameReport = { route: string; epoch: number; token: string }
 
-/// Where a board's frame is, per the report tracked for it — `null` unless that
+/// Where a board's frame is, per the report held for it — `null` unless that
 /// report came from the document CURRENTLY mounted.
 ///
 /// A stale stamp is not an error to report, it is simply no longer a claim
 /// about anything on screen: the frame has been remounted at the route its
 /// `src` names, and the header must go back to saying so.
-export function reportedRoute(report: FrameRoute | undefined, epoch: number): string | null {
-  return report && report.epoch === epoch ? report.route : null
+export function reportedRoute(
+  report: FrameReport | null | undefined,
+  epoch: number,
+  token: string | null,
+): string | null {
+  return report && report.epoch === epoch && report.token === token ? report.route : null
 }
 
-/// The tracked reports after one board's frame reported where it is.
+/// Is the frame saying what it already said?
 ///
-/// Returns the SAME map when the report changes nothing — same route, same
-/// generation. That is not a micro-optimisation: this is state every mounted
-/// board reads, and a fresh map on a report that repeats what was already known
-/// would re-render the canvas, every header and every board under it, for no
-/// change at all. A frame re-announces on each `pageshow`, so "reported the same
-/// thing again" is the common case, not an edge one.
-///
-/// The input map is never mutated: it is the state a render in flight is still
-/// reading.
-export function trackFrameRoute(
-  routes: Map<string, FrameRoute>,
-  key: string,
-  report: FrameRoute,
-): Map<string, FrameRoute> {
-  const current = routes.get(key)
-  if (current && current.route === report.route && current.epoch === report.epoch) return routes
-  return new Map(routes).set(key, report)
+/// The one caller is a `useState` updater: a report that repeats what is
+/// already held returns the CURRENT value, React drops the update, and a board
+/// whose frame re-announces where it already was costs no render at all. A
+/// frame re-announces on every `pageshow` (a Back, a Forward, a reload), so
+/// "reported the same thing again" is the common case, not an edge one.
+export function sameFrameReport(current: FrameReport | null, next: FrameReport): boolean {
+  return (
+    current !== null &&
+    current.route === next.route &&
+    current.epoch === next.epoch &&
+    current.token === next.token
+  )
 }

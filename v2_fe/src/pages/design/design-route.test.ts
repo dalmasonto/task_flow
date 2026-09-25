@@ -5,8 +5,8 @@ import {
   divergedRoute,
   reportedRoute,
   routeFromSandboxPath,
-  trackFrameRoute,
-  type FrameRoute,
+  sameFrameReport,
+  type FrameReport,
 } from "./design-route"
 
 // A sandbox frame posts the path it is ACTUALLY at, and the chrome turns that
@@ -35,13 +35,22 @@ describe("routeFromSandboxPath — the path a frame is at, as a route", () => {
   })
 
   it("keeps the route's leading slash and everything after it", () => {
+    // The second case is a REACHABLE path, not a hypothetical one: a page route
+    // is a single segment (`urls.rs` matches `/s/{token}/{route}` and
+    // `page_path_for_route` refuses a stem containing `/`), but the namespace
+    // has deeper routes of its own, and `/preview/{name}` is one of them — the
+    // same `compose_document` serves it, so that frame posts the same message,
+    // and a board frame can even navigate there itself, because an href written
+    // as `/s/…` is left byte-identical by `rewrite_hrefs` (it is already
+    // tokenized) and therefore resolves inside the namespace.
+    //
     // What has to change to fail: taking the LAST segment as the route (a frame
-    // at `/s/{token}/app/settings` then reports `/settings` — the page it really
+    // at `/s/{token}/preview/hero` then reports `/hero` — the page it really
     // navigated through is gone), or rebuilding what is left of the path without
     // its leading slash (`split('/').slice(3).join('/')` gives `app` for the
     // first case below), which no route the manifest spells could match.
     expect(routeFromSandboxPath("/s/7.1a2b3c.deadbeef/app")).toBe("/app")
-    expect(routeFromSandboxPath("/s/7.1a2b3c.deadbeef/app/settings")).toBe("/app/settings")
+    expect(routeFromSandboxPath("/s/7.1a2b3c.deadbeef/preview/hero")).toBe("/preview/hero")
   })
 
   it("reports the bare sandbox root as `/`, never as the token", () => {
@@ -147,63 +156,51 @@ describe("divergedRoute — where the frame is, when that is not where the board
   })
 })
 
-describe("trackFrameRoute — the map the canvas keeps per board", () => {
-  it("records and replaces one board's report", () => {
-    const empty = new Map<string, FrameRoute>()
-    const first = trackFrameRoute(empty, "/app@laptop", { route: "/settings", epoch: 3 })
-    expect(first.get("/app@laptop")).toEqual({ route: "/settings", epoch: 3 })
-    // The input is not touched: it is React state, and a reducer that wrote
-    // through would mutate a map an in-flight render is still reading.
-    expect(empty.size).toBe(0)
-
-    const second = trackFrameRoute(first, "/app@laptop", { route: "/inbox", epoch: 3 })
-    expect(second.get("/app@laptop")).toEqual({ route: "/inbox", epoch: 3 })
-    expect(second).not.toBe(first)
-  })
-
-  it("keeps both devices' boards apart", () => {
-    // The key is `route@device`, and one page open at two devices is two
-    // frames that navigate independently.
-    const tracked = trackFrameRoute(
-      trackFrameRoute(new Map(), "/app@laptop", { route: "/settings", epoch: 0 }),
-      "/app@iphone-16-pro",
-      { route: "/settings", epoch: 0 },
-    )
-    expect([...tracked.keys()].sort()).toEqual(["/app@iphone-16-pro", "/app@laptop"])
-  })
-
-  it("returns the same map when the report changes nothing", () => {
-    // This map is STATE that every mounted board reads. A fresh map on every
-    // `pageshow` — and a frame re-announces its route on each one — would
-    // re-render the canvas and every board under it for no change at all. The
-    // identity is the assertion: same map in, same map out.
-    const tracked = new Map([["/app@laptop", { route: "/settings", epoch: 3 }]])
-    expect(trackFrameRoute(tracked, "/app@laptop", { route: "/settings", epoch: 3 })).toBe(tracked)
-    // A NEW GENERATION is a change even when the route repeats: the stamp is
-    // what the header reads, so keeping the old map would keep the old epoch
-    // with it and the report would read as stale the moment it was recorded.
-    expect(trackFrameRoute(tracked, "/app@laptop", { route: "/settings", epoch: 4 })).not.toBe(
-      tracked,
-    )
+describe("sameFrameReport — whether a board's frame is saying anything new", () => {
+  it("calls a repeat a repeat, and any difference a change", () => {
+    const held: FrameReport = { route: "/settings", epoch: 3, token: "7.tok" }
+    expect(sameFrameReport(held, { ...held })).toBe(true)
+    expect(sameFrameReport(null, held)).toBe(false)
+    expect(sameFrameReport(held, { ...held, route: "/inbox" })).toBe(false)
+    expect(sameFrameReport(held, { ...held, epoch: 4 })).toBe(false)
+    expect(sameFrameReport(held, { ...held, token: "8.tok" })).toBe(false)
   })
 })
 
 describe("reportedRoute — a report only describes the document that sent it", () => {
-  it("reads the route while the frame generation is unchanged", () => {
-    expect(reportedRoute({ route: "/settings", epoch: 7 }, 7)).toBe("/settings")
+  const held: FrameReport = { route: "/settings", epoch: 7, token: "7.1a2b3c.deadbeef" }
+
+  it("reads the route while the frame document is unchanged", () => {
+    expect(reportedRoute(held, 7, "7.1a2b3c.deadbeef")).toBe("/settings")
   })
 
-  it("reads nothing once the frame has been remounted", () => {
+  it("reads nothing once that frame has been remounted", () => {
     // Every remount moves the epoch — a file write's global bump, or one
     // board's Reload — and both put the frame back on the page its `src` names.
     // The report is then about a document that is gone, and the header has to
     // stop drawing it; this is the assertion for that, and it is the reason no
-    // code anywhere has to remember to clear a board's entry.
-    expect(reportedRoute({ route: "/settings", epoch: 7 }, 8)).toBeNull()
-    expect(reportedRoute({ route: "/settings", epoch: 0 }, 1)).toBeNull()
+    // code anywhere has to remember to clear a board's report.
+    expect(reportedRoute(held, 8, "7.1a2b3c.deadbeef")).toBeNull()
+    expect(reportedRoute(held, 0, "7.1a2b3c.deadbeef")).toBeNull()
+  })
+
+  it("reads nothing after a project switch, which moves the token and NO epoch", () => {
+    // The case the epoch alone cannot see, and the reason the token is in the
+    // stamp: `App.tsx` mounts one surface for the whole session, so switching
+    // project refetches the sandbox token and remounts every frame through
+    // `frameSrc` — while `contentEpoch` and `boardEpochs` both stay put. Every
+    // project has `/` at the default device, so without the token A's report
+    // would read as a claim about B's frame — the same key, the same epoch, a
+    // different document.
+    //
+    // What has to change to fail: dropping the token from the comparison (the
+    // first assertion below returns `/settings`).
+    expect(reportedRoute(held, 7, "9.1a2b3c.deadbeef")).toBeNull()
+    expect(reportedRoute(held, 7, null)).toBeNull()
   })
 
   it("reads nothing for a board that never reported", () => {
-    expect(reportedRoute(undefined, 0)).toBeNull()
+    expect(reportedRoute(undefined, 0, "7.tok")).toBeNull()
+    expect(reportedRoute(null, 0, "7.tok")).toBeNull()
   })
 })

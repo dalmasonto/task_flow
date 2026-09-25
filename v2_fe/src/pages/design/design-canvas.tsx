@@ -50,8 +50,8 @@ import {
   divergedRoute,
   reportedRoute,
   routeFromSandboxPath,
-  trackFrameRoute,
-  type FrameRoute,
+  sameFrameReport,
+  type FrameReport,
 } from "./design-route"
 import { createSettleGate } from "./settle-gate"
 import { gridDotOpacity, resolveLive, transformCss } from "./canvas-paint"
@@ -209,16 +209,35 @@ export const DesignCanvas = memo(function DesignCanvas({
   useEffect(() => () => gate.cancel(), [gate])
   const [spaceDown, setSpaceDown] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
-  /** Where each board's frame SAYS it is, by board key — the route it last
-   *  announced, stamped with the frame generation that announced it. Not always
-   *  the page the board was created for: a page's own links navigate inside its
-   *  frame. Kept HERE rather than on the surface because the report arrives at
-   *  this component's message listener and is read by this component's boards;
-   *  the surface owns only the remount action, which is already a prop
-   *  (`onReloadBoard`). The rules that update and read it are pure and tested
-   *  (`design-route.ts`), including the stamp that makes a report expire with
-   *  the document that sent it. */
-  const [frameRoutes, setFrameRoutes] = useState<Map<string, FrameRoute>>(() => new Map())
+  /** Where to deliver a route report for each board on the canvas, registered
+   *  by the board itself as it mounts (`ArtboardCard`) and dropped as it
+   *  unmounts. The canvas ROUTES a report; the board KEEPS it — and that split
+   *  is load-bearing rather than tidy. `route@device` is a key a CLOSED board
+   *  hands back to a reopened one, and the surface re-derives `artboards` from
+   *  the open set, so a report held up here would outlive the frame that sent it
+   *  and read as a claim about the next frame to occupy that key: a reopened
+   *  board, or a device removed and selected again. Held in the board's own
+   *  state, it dies with the board by construction — no clearing for anything to
+   *  forget. (A new token — a project switch — is the one remount that reuses
+   *  the very same board instance, so that one is the stamp's job: see
+   *  `FrameReport`.) */
+  const reportSinks = useRef(new Map<string, (report: FrameReport) => void>())
+  const registerBoardReport = useCallback(
+    (key: string, sink: (report: FrameReport) => void) => {
+      const sinks = reportSinks.current
+      sinks.set(key, sink)
+      // Belt-and-braces, and it is only fair to say so: `registerReport` is
+      // stable for the canvas's life and board keys are unique among the mounted
+      // boards, so no cleanup can reach a newer registration today. The identity
+      // check is what keeps that true if a future path ever re-registers a key
+      // (a changed key, a second set of boards) — the failure it prevents is a
+      // live sink silently deleted, which would drop a board's reports.
+      return () => {
+        if (sinks.get(key) === sink) sinks.delete(key)
+      }
+    },
+    [],
+  )
   const selectionBoard = selection
     ? artboards.find((b) => b.key === selection.boardKey)
     : undefined
@@ -392,18 +411,23 @@ export const DesignCanvas = memo(function DesignCanvas({
         // a report it refuses is IGNORED, not recorded as unknown.
         const key = boardKeyForSource(frameSources(), event.source as Window | null)
         if (!key || !artboards.some((b) => b.key === key)) return
+        // No token, no frames (a board without one renders `FrameError`), so a
+        // report arriving in that state belongs to a document this canvas is no
+        // longer showing.
+        if (!sandboxToken) return
         const route = typeof m.path === "string" ? routeFromSandboxPath(m.path) : null
         if (!route) return
-        // Stamped with the generation the frame is on NOW — the same sum its
-        // iframe is keyed by — so the report expires with the document that
-        // sent it, without anything having to clear it.
+        // Stamped with the document the frame is on NOW — the epoch halves and
+        // the token its iframe's key is built from — so the report expires with
+        // the document that sent it, and with it goes everything a remount
+        // changes (a file write, a Reload, another project's token).
         const epoch = contentEpoch + (boardEpochs.get(key) ?? 0)
-        setFrameRoutes((current) => trackFrameRoute(current, key, { route, epoch }))
+        reportSinks.current.get(key)?.({ route, epoch, token: sandboxToken })
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [artboards, onSelect, contentEpoch, boardEpochs])
+  }, [artboards, onSelect, contentEpoch, boardEpochs, sandboxToken])
 
   // Broadcast picking/theme state to every mounted frame.
   useEffect(() => {
@@ -452,8 +476,8 @@ export const DesignCanvas = memo(function DesignCanvas({
       >
         {artboards.map((board) => {
           // This frame's generation, computed ONCE: it is both what remounts
-          // the iframe (`LazyFrame`'s key) and what expires the route the frame
-          // last reported, and two spellings of it could disagree.
+          // the iframe (`LazyFrame`'s key) and half of what expires the route
+          // the frame last reported, and two spellings of it could disagree.
           const epoch = contentEpoch + (boardEpochs.get(board.key) ?? 0)
           return (
             <ArtboardCard
@@ -461,10 +485,7 @@ export const DesignCanvas = memo(function DesignCanvas({
               board={board}
               label={labelFor(board.route)}
               epoch={epoch}
-              strayRoute={divergedRoute(
-                board.route,
-                reportedRoute(frameRoutes.get(board.key), epoch),
-              )}
+              registerReport={registerBoardReport}
               theme={theme}
               picking={picking}
               deviceIds={deviceIds}
@@ -535,8 +556,8 @@ function frameSources(): { key: string; win: Window | null }[] {
 const ArtboardCard = memo(function ArtboardCard({
   board,
   label,
-  strayRoute,
   epoch,
+  registerReport,
   theme,
   picking,
   deviceIds,
@@ -555,10 +576,10 @@ const ArtboardCard = memo(function ArtboardCard({
    *  below is keyed by, handed over already computed so the key and the route
    *  report's stamp can never spell it differently. */
   epoch: number
-  /** The route this board's frame has navigated to, when that is not the page
-   *  the board points at — else null. Rendered, never derived here: see
-   *  `divergedRoute`, which decided it. */
-  strayRoute: string | null
+  /** Register this board's report sink with the canvas, which routes a frame's
+   *  report back here (see `DesignCanvas`'s `reportSinks` for why the report is
+   *  held by the BOARD and not by the canvas). */
+  registerReport: (key: string, sink: (report: FrameReport) => void) => () => void
   theme: string
   picking: boolean
   deviceIds: string[]
@@ -577,6 +598,22 @@ const ArtboardCard = memo(function ArtboardCard({
 }) {
   const device = deviceById(board.deviceId)
   const src = sandboxToken ? sandboxUrl(sandboxToken, board.route) : null
+  /** Where this board's frame SAYS it is, or null while it is home (or has said
+   *  nothing). It lives HERE, at the lifetime of the board, so it cannot
+   *  outlive the frame that reported it — see `DesignCanvas`'s `reportSinks`. */
+  const [report, setReport] = useState<FrameReport | null>(null)
+  const onFrameReport = useCallback((next: FrameReport) => {
+    // Same value in, same value out: React drops the update, so a frame that
+    // re-announces where it already was costs no render at all (see
+    // `sameFrameReport`).
+    setReport((current) => (sameFrameReport(current, next) ? current : next))
+  }, [])
+  useEffect(() => registerReport(board.key, onFrameReport), [registerReport, board.key, onFrameReport])
+  // Read through the stamp: a report describes the document that sent it, so the
+  // moment that frame is remounted — a file write, a Reload, another project's
+  // token — this reads as nothing and the header goes back to naming the
+  // board's own page.
+  const strayRoute = divergedRoute(board.route, reportedRoute(report, epoch, sandboxToken))
 
   return (
     <div

@@ -164,9 +164,15 @@ const PICKER_RUNTIME: &str = r#"(() => {
   // fires on a normal load as well (with `persisted: false`), so it subsumes
   // `load` rather than supplementing it.
   addEventListener('pageshow', announce);
-  // A same-document history change (pushState/replaceState) fires neither of
-  // the above; an agent-authored page that routes in JS would otherwise go
-  // unreported.
+  // `popstate` fires on a history TRAVERSAL — a Back or Forward between two
+  // same-document entries — which fires neither of the above and loads nothing.
+  //
+  // It does NOT fire when a page CALLS pushState/replaceState: only the
+  // traversal does. A page that routes entirely in JS is therefore unreported
+  // until its first Back, and that limit is deliberate: announcing from inside
+  // those calls would mean wrapping `history` in the one runtime every composed
+  // page inherits, for a page shape no project here has written. A Back control
+  // (`history.back()`) IS a traversal, so that much works.
   addEventListener('popstate', announce);
 })();"#;
 
