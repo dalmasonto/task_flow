@@ -1,12 +1,53 @@
 import { useIsBelowLg } from "@/hooks/use-mobile"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
-import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MinusIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MinusIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type AuthUser } from "@/lib/auth-api"
 import { type Project } from "@/lib/workspace-view"
 import { type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
-import { useEffect, useState } from "react"
+import { dockBodyFor } from "@/lib/chat-dock-state"
+import { useCallback, useEffect, useState } from "react"
+
+
+/// The status line the dock wears while it has no conversation to draw, and the
+/// way out of it.
+///
+/// Both unknown-channels bodies draw this, because the escape is not only for
+/// the failed state: a request that never ANSWERS leaves no failure to report
+/// (nothing rejects), and a spinner with no way out of it is the thing this
+/// replaces. The retry re-asks; it does not make the dock act on a placeholder.
+function ChannelsStatus({
+  failed,
+  busy,
+  onRetry,
+}: {
+  failed: boolean
+  busy: boolean
+  onRetry: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 pb-2.5">
+      {failed ? (
+        <TriangleAlertIcon className="size-4 shrink-0 text-amber-500" />
+      ) : (
+        <LoaderCircleIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+        {failed ? "Couldn't load conversations" : "Loading conversations…"}
+      </span>
+      <button
+        type="button"
+        className="shrink-0 rounded-md border px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60"
+        onClick={onRetry}
+        disabled={busy}
+        title="Ask for the project's conversations again"
+      >
+        Try again
+      </button>
+    </div>
+  )
+}
 
 
 /// #55: the docked chat panel — message any agent or channel without leaving the
@@ -39,10 +80,23 @@ export function ChatDock({
 }) {
   const [minimised, setMinimised] = useState(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const isBelowLg = useIsBelowLg()
   // Whether `liveWorkspace`'s channel list is the server's answer. False while
   // the slice is in flight, which is when `mapLiveChannelChats` is synthesising.
   const channelsLoaded = liveWorkspace?.agentChannelsLoaded ?? false
+  // The other half of that false: whether the read FAILED. Without it the two
+  // are one flag, and a dock whose list cannot be read has nothing to say and
+  // no reason to think anything will change — the retry budget is finite
+  // (App.tsx's `MAX_SLICE_RETRIES`) and after it is spent, nothing re-asks.
+  const channelsFailed = liveWorkspace?.agentChannelsFailed ?? false
+
+  const body = dockBodyFor({
+    minimised,
+    channelsLoaded,
+    channelsFailed: channelsFailed && !retrying,
+    switcherOpen,
+  })
 
   const { directChats, channelChats, allChats, selectedChat, messageError, outletContext } =
     useAgentChat({
@@ -74,41 +128,41 @@ export function ChatDock({
     if (first) onChangeChat(first.id)
   }, [selectedChat, allChats, channelChats, directChats, channelsLoaded, onChangeChat])
 
+  // The way out of the unknown-channels state: re-ask. `onRefreshWorkspace`
+  // reloads the project's core workspace, which invalidates every loaded slice
+  // — so the channel fetch runs again — and it is the app's existing "load this
+  // project again" gesture rather than a second mechanism. `retrying` is what
+  // makes the click do something visible immediately: the status line returns
+  // to the spinner under the user's finger, instead of sitting on an error they
+  // have just acted on.
+  const retryChannels = useCallback(async () => {
+    setRetrying(true)
+    try {
+      await onRefreshWorkspace()
+    } finally {
+      setRetrying(false)
+    }
+  }, [onRefreshWorkspace])
+
   if (!allChats.length) return null
 
-  // The list is not a real answer yet: say so rather than drawing the
-  // synthesised room as though it were one of the project's conversations.
-  if (!channelsLoaded) {
-    return (
-      <section
-        role="dialog"
-        aria-label="Chat"
-        className="fixed bottom-4 right-4 flex w-[min(18rem,calc(100vw-2rem))] items-center gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-2xl"
-      >
-        <LoaderCircleIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
-        <span className="truncate text-sm text-muted-foreground">Loading conversations…</span>
-        <button
-          type="button"
-          className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onClose}
-          title="Close chat"
-          aria-label="Close chat"
-        >
-          <XIcon className="size-4" />
-        </button>
-      </section>
-    )
-  }
-
+  // Two frames, not four: the conversation gets the panel; collapsed, loading
+  // and failed all get the BAR, and their bodies are drawn inside it. The
+  // unknown-channels states used to be a card of their own, which is how a
+  // minimised dock expanded itself back into a full loading panel.
+  const bar = "bottom-4 right-4 h-auto w-[min(18rem,calc(100vw-2rem))]"
   // On a narrow screen a 380px corner panel is most of the viewport anyway, so
   // it takes the whole screen rather than fighting the page for room.
   // Sized to be a usable chat rather than a notification corner: the composer
   // carries a target picker, priority and attachments, and threads have code and
   // images in them. Still capped against the viewport so it never overruns a
   // small screen.
-  const frame = isBelowLg
-    ? "inset-2"
-    : "bottom-4 right-4 w-[min(28rem,calc(100vw-2rem))] h-[min(52rem,calc(100vh-2rem))]"
+  const frame =
+    body === "switcher" || body === "conversation"
+      ? isBelowLg
+        ? "inset-2"
+        : "bottom-4 right-4 w-[min(28rem,calc(100vw-2rem))] h-[min(52rem,calc(100vh-2rem))]"
+      : bar
 
   return (
     <section
@@ -120,22 +174,32 @@ export function ChatDock({
         // so at z-40 clicking it opened the dock behind the very sheet you
         // clicked from — the feature was unreachable.
         "fixed z-[60] flex flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl",
-        minimised ? "bottom-4 right-4 h-auto w-[min(18rem,calc(100vw-2rem))]" : frame
+        frame
       )}
     >
       <header className="flex shrink-0 items-center gap-1 border-b px-3 py-2">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-          onClick={() => setSwitcherOpen((open) => !open)}
-          aria-expanded={switcherOpen}
-          title="Switch conversation"
-        >
-          <span className="truncate text-sm font-semibold">
+        {channelsLoaded ? (
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            onClick={() => setSwitcherOpen((open) => !open)}
+            aria-expanded={switcherOpen}
+            title="Switch conversation"
+          >
+            <span className="truncate text-sm font-semibold">
+              {selectedChat?.title ?? "Chat"}
+            </span>
+            <ChevronDownIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition", switcherOpen && "rotate-180")} />
+          </button>
+        ) : (
+          // No switcher until the list is real: its one row would be the
+          // synthesised project room, and choosing that row persists it over
+          // the conversation the dock remembered. The title stays (it is null
+          // while nothing is selected, and falls back to "Chat").
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-semibold">
             {selectedChat?.title ?? "Chat"}
           </span>
-          <ChevronDownIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition", switcherOpen && "rotate-180")} />
-        </button>
+        )}
         <button
           type="button"
           className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -156,7 +220,9 @@ export function ChatDock({
         </button>
       </header>
 
-      {minimised ? null : switcherOpen ? (
+      {body === "collapsed" ? null : body === "loading" || body === "failed" ? (
+        <ChannelsStatus failed={body === "failed"} busy={retrying} onRetry={retryChannels} />
+      ) : body === "switcher" ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           {[
             { label: "Channels", chats: channelChats },

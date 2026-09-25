@@ -5,6 +5,7 @@ import {
   fetchTaskflowWorkspace,
   fetchTaskTitles,
   fetchWorkspaceChannels,
+  fetchWorkspaceChat,
   taskflowTables,
 } from "./taskflow-api"
 
@@ -15,7 +16,9 @@ import {
 ///
 /// What they do NOT cover: any rendering or gating that consumes the results.
 /// The gate decisions are tested in live-slices.test.ts, and the surfaces that
-/// read `agentChannelsLoaded` are components (no DOM in this environment).
+/// read `agentChannelsLoaded` are components, which have no DOM here — the chat
+/// dock's unknown-list states are pinned as MARKUP instead
+/// (components/chat/chat-dock.test.ts).
 
 type ScriptedTable = { rows: unknown[]; count?: number; pageSize?: number }
 
@@ -124,6 +127,10 @@ describe("fetchWorkspaceChannels", () => {
     const slice = await fetchWorkspaceChannels(7)
     expect(slice.agentChannels.map((row) => row.id)).toEqual([3])
     expect(slice.agentChannelsLoaded).toBe(true)
+    // A loader ANSWERING is the only thing that clears a recorded failure —
+    // the flag's other half, and the reason it can be read as "the last
+    // completed read".
+    expect(slice.agentChannelsFailed).toBe(false)
   })
 
   it("keeps only the members of the channels it fetched", async () => {
@@ -139,6 +146,26 @@ describe("fetchWorkspaceChannels", () => {
     })
     const slice = await fetchWorkspaceChannels(7)
     expect(slice.agentChannelMembers.map((row) => row.id)).toEqual([5])
+  })
+})
+
+describe("fetchWorkspaceChat", () => {
+  // The third loader that sets `agentChannelsLoaded`, and the only one that set
+  // it with nothing asserting it: this is the slice the chat DOCK loads on
+  // every route that is not the design page. Mutating it to `false` used to
+  // leave every test green — and the fallthrough that repairs a missing channel
+  // list (`chatChannelsNeeded && !slices.channels && !slices.chat`, App.tsx)
+  // only fires on `/dashboard/design`, so the state it produces elsewhere is
+  // the one the dock's error affordance exists for: an unknown list that
+  // nothing is coming to fix.
+  //
+  // Same two assertions as the channels-only loader above, deliberately.
+  it("returns the fetched channels and marks the list as loaded", async () => {
+    stubApi({ [taskflowTables.agentChannels]: { rows: [channel(3)], count: 1 } })
+    const slice = await fetchWorkspaceChat(7)
+    expect(slice.agentChannels.map((row) => row.id)).toEqual([3])
+    expect(slice.agentChannelsLoaded).toBe(true)
+    expect(slice.agentChannelsFailed).toBe(false)
   })
 })
 

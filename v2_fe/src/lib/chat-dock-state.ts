@@ -56,3 +56,44 @@ export function saveDockState(chatId: string | null) {
   if (typeof window === "undefined") return
   window.localStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify({ chatId }))
 }
+
+
+/// What the dock's BODY is, decided in one place from the four facts that
+/// decide it.
+///
+/// Here rather than in `chat-dock.tsx` for the same reason the record above is:
+/// this is the dock's state, and a component file that exports a plain function
+/// is not a component file any more (`react-refresh/only-export-components`).
+///
+/// The ORDER is the behaviour, and it is not obvious: the two unknown-channels
+/// states have to outrank the switcher and the conversation, and `minimised`
+/// has to outrank them all. Written inline as nested ternaries this was got
+/// wrong in both directions — the loading card was drawn OVER a dock the user
+/// had already collapsed, and before the gate existed the body was drawn from a
+/// SYNTHESISED project room, which is a row the project does not have.
+export type DockBody = "collapsed" | "loading" | "failed" | "switcher" | "conversation"
+
+export function dockBodyFor(input: {
+  minimised: boolean
+  /// Whether the channel list is the server's answer yet.
+  channelsLoaded: boolean
+  /// Whether the last COMPLETED read of it failed. Callers pass this suppressed
+  /// while a manual retry is in flight: the failure is still the last completed
+  /// attempt, but a new one is now running, so the body belongs back on the
+  /// honest spinner rather than on the error the user just acted on.
+  channelsFailed: boolean
+  switcherOpen: boolean
+}): DockBody {
+  // Collapsed wins over everything: a dock the user collapsed stays collapsed,
+  // whatever the channel list is doing.
+  if (input.minimised) return "collapsed"
+  // FAIL-CLOSED. With the list unknown, `mapLiveChannelChats` has no channels
+  // to draw and invents one — so every other body here would be built from a
+  // room that does not exist. That includes the switcher, whose single row
+  // would be that room and whose click PERSISTS the choice, displacing the
+  // conversation the dock was remembering. The two states below are the only
+  // honest ones, and they are distinguished rather than merged: a spinner for a
+  // read that has not completed, an error for one that failed.
+  if (!input.channelsLoaded) return input.channelsFailed ? "failed" : "loading"
+  return input.switcherOpen ? "switcher" : "conversation"
+}

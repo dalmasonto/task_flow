@@ -1292,6 +1292,24 @@ function App() {
     setSliceRetry((current) => (current < MAX_SLICE_RETRIES ? current + 1 : current))
   }, [])
 
+  // A failed read of the channel LIST — the one fact a surface cannot recover
+  // from on its own. `agentChannelsLoaded: false` means two different things
+  // (not asked yet, and asked and failed) and this is the flag that separates
+  // them; without it a dock whose list cannot be read is an indefinite spinner,
+  // because the retry budget above is finite and spends itself. Both carriers
+  // of the slice (the chat slice and the channels-only slice) report a failure
+  // through here, so they cannot report it differently.
+  //
+  // Returning the SAME workspace when it already says so is not cosmetic: this
+  // runs inside the retrying effect, and a fresh object would re-run that
+  // effect, which would fetch again — the failure would multiply the retries
+  // instead of counting them.
+  const markChannelsFailed = useCallback(() => {
+    if (activeLiveProjectId == null) return
+    applyWorkspaceUpdate(activeLiveProjectId, (workspace) =>
+      workspace.agentChannelsFailed ? workspace : { ...workspace, agentChannelsFailed: true })
+  }, [activeLiveProjectId, applyWorkspaceUpdate])
+
   // #56: the chat slice is needed when the dock is open, or when a chat surface
   // is actually mounted. The route-string check stays as a fast path, but the
   // MOUNT signal is the reliable one — matching on pathname assumes the route
@@ -1357,6 +1375,8 @@ function App() {
         .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
         .catch(() => {
           slices.chat = false
+          // This slice carries the channel list, so a failure here is one.
+          markChannelsFailed()
           retrySlice()
         })
     }
@@ -1380,6 +1400,7 @@ function App() {
         .then((slice) => applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, ...slice })))
         .catch(() => {
           slices.channels = false
+          markChannelsFailed()
           retrySlice()
         })
     }
@@ -1444,7 +1465,7 @@ function App() {
           retrySlice()
         })
     }
-  }, [tasksNeeded, presenceNeeded, chatNeeded, chatChannelsNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, openTaskNumericId, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, rememberActivityRowTitles, sliceRetry, retrySlice, workspaceEpoch])
+  }, [tasksNeeded, presenceNeeded, chatNeeded, chatChannelsNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, openTaskNumericId, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, rememberActivityRowTitles, sliceRetry, retrySlice, markChannelsFailed, workspaceEpoch])
 
   if (publicPath === "/") {
     return <LandingPage />
@@ -1545,6 +1566,7 @@ function App() {
       // local stand-in rather than the server's answer — so the channel list is
       // UNKNOWN here, not empty. See the field's note in taskflow-api.
       agentChannelsLoaded: false,
+      agentChannelsFailed: false,
       agentChannelMembers: [],
       agentMessages: [],
       messageAttachments: [],

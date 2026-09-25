@@ -135,6 +135,19 @@ export type TaskflowWorkspace = {
   /// placeholder — which is why the flag travels with the workspace rather than
   /// being inferred from `length`.
   agentChannelsLoaded: boolean
+  /// Whether the last COMPLETED read of `agentChannels` FAILED.
+  ///
+  /// `agentChannelsLoaded: false` covers two states that need different
+  /// surfaces — "not asked yet" and "asked and failed" — and they are not
+  /// interchangeable: a surface that cannot tell them apart draws an honest
+  /// spinner that nothing will ever end, because once the slice retry budget is
+  /// spent (App.tsx's `MAX_SLICE_RETRIES`) nothing re-asks. This flag is that
+  /// difference, and it is what lets a surface say so and offer a way out.
+  ///
+  /// The code that catches the failure sets it; only a loader ANSWERING clears
+  /// it. An in-flight retry therefore leaves it set and it keeps reporting the
+  /// last completed attempt, which is what it claims to be.
+  agentChannelsFailed: boolean
   agentMessages: ChatMessage[]
   messageAttachments: TaskflowMessageAttachment[]
   terminalFrames: TaskflowAgentTerminalFrame[]
@@ -680,6 +693,9 @@ export async function fetchTaskflowWorkspace(projectId: number): Promise<Taskflo
     taskActivity: [],
     agentChannels: [],
     agentChannelsLoaded: false,
+    // Not a failure: the core workspace has not asked. The slice that does ask
+    // is what reports one.
+    agentChannelsFailed: false,
     agentChannelMembers: [],
     agentMessages: [],
     messageAttachments: [],
@@ -751,6 +767,7 @@ export type WorkspaceChatSlice = Pick<
   | "agentChannels"
   | "agentChannelMembers"
   | "agentChannelsLoaded"
+  | "agentChannelsFailed"
   | "agentMessages"
   | "messageAttachments"
   | "channelReadCursors"
@@ -776,7 +793,7 @@ export type WorkspaceChatSlice = Pick<
 /// list. That is the whole reason the surface loads its channels.
 export type WorkspaceChannelsSlice = Pick<
   TaskflowWorkspace,
-  "agentChannels" | "agentChannelMembers" | "agentChannelsLoaded"
+  "agentChannels" | "agentChannelMembers" | "agentChannelsLoaded" | "agentChannelsFailed"
 >
 
 export async function fetchWorkspaceChannels(projectId: number): Promise<WorkspaceChannelsSlice> {
@@ -795,6 +812,7 @@ export async function fetchWorkspaceChannels(projectId: number): Promise<Workspa
     agentChannelMembers: agentChannelMembers.filter((member) => channelIds.has(member.channel)),
     // The list below is the server's answer, empty or not.
     agentChannelsLoaded: true,
+    agentChannelsFailed: false,
   }
 }
 
@@ -842,6 +860,7 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     agentPrompts: agentPrompts.results,
     // The channel list is the server's answer now, whether or not it is empty.
     agentChannelsLoaded: true,
+    agentChannelsFailed: false,
   }
 }
 
