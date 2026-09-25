@@ -106,6 +106,24 @@ export const taskflowApi = new Umbral(API_BASE_URL, {
   },
 })
 
+/// A channel row plus the two ROOM MARKERS the design-room feature added to the
+/// model (`is_public` on the project room, `is_design` on the design room).
+///
+/// Declared here rather than relied upon from `@/api/client` because that file
+/// is GENERATED (`umbral gen-client` / `umbral typegen`) and lags the model: the
+/// backend half of this feature added both columns without a regenerate, so the
+/// generated `TaskflowAgentChannel` does not name them yet. An intersection
+/// merges cleanly once it does — `boolean` and `boolean | undefined` intersect
+/// to `boolean` — so this is a bridge, not a duplicate.
+///
+/// Optional because the markers must be READ as possibly-absent, not because the
+/// server may omit them: every reader takes `?? false`, so a stale row or an
+/// older server is "neither room" rather than a crash.
+export type TaskflowChannel = TaskflowAgentChannel & {
+  is_public?: boolean
+  is_design?: boolean
+}
+
 export type TaskflowWorkspace = {
   project: TaskflowProject
   members: TaskflowProjectMember[]
@@ -122,7 +140,7 @@ export type TaskflowWorkspace = {
   agents: TaskflowAgent[]
   agentCredentials: TaskflowAgentCredential[]
   agentSessions: TaskflowAgentSession[]
-  agentChannels: TaskflowAgentChannel[]
+  agentChannels: TaskflowChannel[]
   agentChannelMembers: TaskflowAgentChannelMember[]
   /// Whether `agentChannels` is the SERVER'S answer for this project, rather than
   /// the empty array the core workspace starts it at.
@@ -595,14 +613,18 @@ export async function fetchBoardColumn(
 /// (not project) is what makes "older in THIS conversation" meaningful — a
 /// project-wide page would interleave other channels and exhaust itself long
 /// before this thread ran out.
-export async function fetchChannelMessages(
-  channelId: number,
-  page = 1,
-  opts?: { isDesign?: boolean }
-): Promise<ServerPage<TaskflowAgentMessage>> {
+///
+/// There is deliberately no `is_design` narrowing to opt into. The design
+/// conversation lives in its own room now, so the CHANNEL is the filter, and a
+/// `is_design = true` clause here would be worse than redundant: it would drop
+/// every message that is legitimately in the design room while its own flag
+/// disagreed — the flag is derived from the destination, so a row written before
+/// that derivation existed (or by an older writer) can sit in the room with
+/// `is_design = false`, and it is still a design message by virtue of where it is.
+export async function fetchChannelMessages(channelId: number, page = 1): Promise<ServerPage<TaskflowAgentMessage>> {
   const res = await taskflowApi
     .from(taskflowTables.agentMessages)
-    .filter(opts?.isDesign ? { channel: channelId, is_design: true } : { channel: channelId })
+    .filter({ channel: channelId })
     .orderBy("-created_at", "-id")
     .param("page", page)
     .list()

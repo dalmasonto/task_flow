@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { NewConversationPanel, type ConversationCandidate } from "@/components/chat/new-conversation"
 import { Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom"
-import { PROJECT_ROOM_TITLE, type AgentChatContext, type AgentTerminalSessionView, type MessagePriority, type Project, type TargetMember, countMemberType } from "@/lib/workspace-view"
+import { type AgentChatContext, type AgentTerminalSessionView, type MessagePriority, type Project, type TargetMember, countMemberType } from "@/lib/workspace-view"
 import { agentStatusClass } from "@/lib/workspace-view"
-import { chatIdToSlug, liveId, slugToChatId, upsertById } from "@/lib/live-mappers"
+import { chatIdToSlug, findPublicRoomChat, liveId, slugToChatId, upsertById } from "@/lib/live-mappers"
 import { cn } from "@/lib/utils"
 import { createTaskflowChannel, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { type AuthUser } from "@/lib/auth-api"
@@ -130,13 +130,22 @@ export function AgentsPage({
     // firing (a conversationId is set), so the page stayed on the phantom instead
     // of opening the room once it arrived.
     if (!liveWorkspace?.agentChannelsLoaded) return
-    // Prefer the PROJECT ROOM explicitly. channelChats is ordered by title, so
-    // "first channel" was really "alphabetically first" — a group called
-    // "Announcements" would win over the room everyone actually talks in.
-    const projectRoom = channelChats.find((chat) => chat.title === PROJECT_ROOM_TITLE)
-    const first = projectRoom ?? channelChats[0] ?? directChats[0]
+    // The PROJECT ROOM, by MARKER — and with no fallback to another room, which
+    // is where this used to go wrong twice over. `channelChats` is ordered by
+    // title, so the old `channelChats[0]` fallback was really "alphabetically
+    // first": a group called "Announcements" won over the room everyone actually
+    // talks in, and the design room — which is not an ordinary conversation and
+    // is filtered out of this list precisely so it is not one — sorted ahead of
+    // the project room as "Design room" < "Project room". A title match was no
+    // better: any user-created room may be named "Project room".
+    //
+    // A DM is still a fine landing spot (it is a conversation that is genuinely
+    // the user's, named for who it is with); a ROOM that is merely near the right
+    // one is not, so when there is no room marked `is_public` this falls through
+    // to the DM and then to the page's own empty state.
+    const first = findPublicRoomChat(liveWorkspace, currentUser) ?? directChats[0]
     if (first) navigate(chatIdToSlug(first.id), { replace: true })
-  }, [conversationId, isBelowLg, channelChats, directChats, liveWorkspace?.agentChannelsLoaded, navigate])
+  }, [conversationId, isBelowLg, directChats, liveWorkspace, currentUser, navigate])
   // #42: create a DM or group explicitly, then open it. The server dedups DMs
   // (find-or-create by roster), so starting a DM you already have just reopens
   // it. Throws on failure so the picker shows the reason.

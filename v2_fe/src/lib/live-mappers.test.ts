@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest"
-import { countOnlineAgents, formatFullDate, formatLiveDate, formatMessageTime, isSessionLive, mapLiveActivityEvents, mapLiveChannelMessages } from "./live-mappers"
+import {
+  PROJECT_ROOM_PLACEHOLDER_ID,
+  channelUnreadCount,
+  countOnlineAgents,
+  findDesignRoomChat,
+  findPublicRoomChat,
+  formatFullDate,
+  formatLiveDate,
+  formatMessageTime,
+  isSessionLive,
+  liveChannelStatus,
+  mapLiveActivityEvents,
+  mapLiveChannelChats,
+  mapLiveChannelMessages,
+} from "./live-mappers"
 import type { TaskflowWorkspace } from "@/lib/taskflow-api"
 import type { TaskflowAgentMessage } from "@/api/client"
+import type { AuthUser } from "@/lib/auth-api"
 
 function workspaceWithMessages(messages: TaskflowWorkspace["agentMessages"]): TaskflowWorkspace {
   return {
@@ -281,5 +296,215 @@ describe("countOnlineAgents — the sidebar's badge", () => {
     // The session itself IS live by the shared definition — the point is that
     // this badge is not what reads it.
     expect(isSessionLive({ status: "connected", last_seen_at: live }, now)).toBe(true)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The two ROOM MARKERS — `is_public` on the project room, `is_design` on the
+// design room.
+//
+// Every test below exists because a looser predicate is available and looks
+// right. A project may hold any number of user-created rooms, channels arrive
+// ordered by title, and both rooms share a name with rooms a human may create —
+// so "the room titled X" and "the first room" each resolve to a DIFFERENT room
+// as soon as one exists. The marker is the only thing that survives that.
+// ---------------------------------------------------------------------------
+
+/// A workspace holding just channels, plus the (empty) arrays the channel
+/// mappers walk. `mapLiveChannelChats` reads nothing else.
+function channelWorkspace(
+  channels: TaskflowWorkspace["agentChannels"],
+  messages: TaskflowWorkspace["agentMessages"] = []
+): TaskflowWorkspace {
+  return {
+    agentChannels: channels,
+    agentChannelMembers: [],
+    agentMessages: messages,
+    messageAttachments: [],
+    channelReadCursors: [],
+    members: [],
+    agents: [],
+  } as unknown as TaskflowWorkspace
+}
+
+/// A channel row by the fields the mappers read — id, title, kind and the two
+/// markers. Cast rather than spelled out column by column: these tests are about
+/// which room a lookup RETURNS, not about the row.
+function room(id: number, title: string, markers: { isPublic?: boolean; isDesign?: boolean } = {}) {
+  return {
+    id,
+    title,
+    topic: null,
+    kind: "project",
+    archived: false,
+    is_public: markers.isPublic ?? false,
+    is_design: markers.isDesign ?? false,
+  } as unknown as TaskflowWorkspace["agentChannels"][number]
+}
+
+/// A saved message row by the three fields `channelUnreadCount` reads.
+function messageRow(id: number, channel: number) {
+  return {
+    id,
+    channel,
+    sender_kind: "agent",
+    sender_user: null,
+    status: "posted",
+  } as unknown as TaskflowWorkspace["agentMessages"][number]
+}
+
+const projectRoomRow = room(1, "Project room", { isPublic: true })
+const designRoomRow = room(17, "Design room", { isDesign: true })
+
+
+describe("mapLiveChannelChats — the design room is not an ordinary room", () => {
+  it("keeps the room marked is_design out of the ordinary chat list", () => {
+    const chats = mapLiveChannelChats(channelWorkspace([projectRoomRow, designRoomRow]), null)
+    expect(chats.map((chat) => chat.liveChannelId)).toEqual([1])
+  })
+
+  it("returns the design room when, and only when, the caller asks for it", () => {
+    const chats = mapLiveChannelChats(channelWorkspace([projectRoomRow, designRoomRow]), null, {
+      includeDesignRoom: true,
+    })
+    expect(chats.map((chat) => chat.liveChannelId)).toEqual([1, 17])
+  })
+
+  it("keeps a user-created room in the ordinary list, marked as neither room", () => {
+    // Users are allowed to create rooms in a project, and harmlessly. The
+    // exclusion is for the one room that has a surface of its own — not for
+    // rooms in general, which are exactly the rooms this list is for.
+    const announcements = room(9, "Announcements")
+    const chats = mapLiveChannelChats(channelWorkspace([announcements, projectRoomRow, designRoomRow]), null)
+    expect(chats.map((chat) => chat.liveChannelId)).toEqual([9, 1])
+    const userRoom = chats.find((chat) => chat.liveChannelId === 9)
+    expect(userRoom?.isPublic).toBe(false)
+    expect(userRoom?.isDesign).toBe(false)
+  })
+
+  it("marks each chat with the row's own markers, and no others", () => {
+    const chats = mapLiveChannelChats(channelWorkspace([projectRoomRow, designRoomRow]), null, {
+      includeDesignRoom: true,
+    })
+    expect(chats.map((chat) => [chat.liveChannelId, chat.isPublic, chat.isDesign])).toEqual([
+      [1, true, false],
+      [17, false, true],
+    ])
+  })
+
+  it("carries every message IN the design room, including rows whose own flag disagrees", () => {
+    // The room IS the filter. A row sitting in the design room whose `is_design`
+    // mirror says false — written before the flag became derived from the
+    // destination, or by an older writer — is still a design message, and a rail
+    // that filtered on the flag would silently drop it.
+    const workspace = channelWorkspace([projectRoomRow, designRoomRow], [
+      { ...designRow, id: 5, channel: 17, is_design: false, body_markdown: "older row, flag disagrees" },
+    ])
+    const messages = findDesignRoomChat(workspace, null)?.messages ?? []
+    expect(messages).toHaveLength(1)
+    expect(messages[0].body).toBe("older row, flag disagrees")
+  })
+})
+
+
+describe("findPublicRoomChat / findDesignRoomChat — by marker, never by title or position", () => {
+  it("returns the project room when a user-created room sorts before it", () => {
+    // `channelChats[0]` was really "alphabetically first". "Announcements" wins.
+    const workspace = channelWorkspace([room(9, "Announcements"), projectRoomRow])
+    expect(findPublicRoomChat(workspace, null)?.liveChannelId).toBe(1)
+  })
+
+  it("is not fooled by a user-created room NAMED 'Project room'", () => {
+    const workspace = channelWorkspace([room(9, "Project room"), projectRoomRow])
+    expect(findPublicRoomChat(workspace, null)?.liveChannelId).toBe(1)
+  })
+
+  it("is not fooled by a user-created room NAMED 'Design room'", () => {
+    // The impostor comes first AND carries the same title on purpose: with the
+    // titles equal, only the marker can tell the two apart — which is the whole
+    // argument for the markers.
+    const workspace = channelWorkspace([room(9, "Design room"), designRoomRow])
+    expect(findDesignRoomChat(workspace, null)?.liveChannelId).toBe(17)
+  })
+
+  it("does not hand the design room to the project-room lookup, or the reverse", () => {
+    const workspace = channelWorkspace([projectRoomRow, designRoomRow])
+    expect(findPublicRoomChat(workspace, null)?.isDesign).toBe(false)
+    expect(findDesignRoomChat(workspace, null)?.isPublic).toBe(false)
+  })
+
+  it("returns null rather than another room when the project has no design room", () => {
+    // The design rail holds a composer, so a fallback would post design work into
+    // whichever room it guessed. "Not ready yet" is the honest answer.
+    const workspace = channelWorkspace([projectRoomRow, room(9, "Announcements")])
+    expect(findDesignRoomChat(workspace, null)).toBeNull()
+  })
+
+  it("returns null rather than another room when the project has no public room", () => {
+    const workspace = channelWorkspace([designRoomRow, room(9, "Announcements")])
+    expect(findPublicRoomChat(workspace, null)).toBeNull()
+  })
+
+  it("never hands the design rail the synthesised placeholder", () => {
+    // The footgun this pins: `mapLiveChannelChats` INVENTS a project room when
+    // there are no channels, and the design rail's instance is the one that keeps
+    // the design room in its list. If the placeholder carried the design marker,
+    // the rail would resolve to a room with no server row — a conversation the
+    // project does not have, with a composer attached — which is the same failure
+    // the Agents page guards against with `agentChannelsLoaded`, arrived at from
+    // the other side. The placeholder stands in for the PROJECT room, and only it.
+    expect(findDesignRoomChat(channelWorkspace([]), null)).toBeNull()
+  })
+
+  it("falls back to the synthesised project room only when there is no shared room at all", () => {
+    // The placeholder STANDS IN for the project room — a send through it creates
+    // the channel marked `is_public` — so it carries the public marker. It is
+    // explicitly NOT a design room, which is what keeps the design rail from ever
+    // resolving it.
+    const workspace = channelWorkspace([designRoomRow])
+    const publicRoom = findPublicRoomChat(workspace, null)
+    expect(publicRoom?.id).toBe(PROJECT_ROOM_PLACEHOLDER_ID)
+    expect(publicRoom?.isPublic).toBe(true)
+    expect(publicRoom?.liveChannelId).toBeUndefined()
+    expect(findDesignRoomChat(workspace, null)?.liveChannelId).toBe(17)
+  })
+})
+
+
+describe("liveChannelStatus — a marked room is not labelled by its kind", () => {
+  it("labels the design room 'Design room', not 'Project room'", () => {
+    // Both marked rooms keep `kind = project`, so the project-wide visibility
+    // gates keep treating them alike — which is precisely why the kind cannot be
+    // what names them.
+    expect(liveChannelStatus(designRoomRow)).toBe("Design room")
+    expect(liveChannelStatus(projectRoomRow)).toBe("Project room")
+    expect(liveChannelStatus(room(9, "Announcements"))).toBe("Project room")
+  })
+})
+
+
+describe("channelUnreadCount — the watermark is per room", () => {
+  it("leaves the project room's unread count alone when the design room is marked read", () => {
+    // What the design rail's read cursor now does, and what it used to do wrong:
+    // it pointed at the project room, so opening the design page marked ordinary
+    // chat read on the user's behalf and the badge in the Agents page and the
+    // dock never appeared. The cursor is keyed by channel, so the two rooms do
+    // not share a watermark.
+    const me = { id: 4, username: "dalmas" } as unknown as AuthUser
+    const workspace = {
+      ...channelWorkspace([projectRoomRow, designRoomRow], [
+        messageRow(100, 1),
+        messageRow(101, 1),
+        messageRow(200, 17),
+        messageRow(201, 17),
+      ]),
+      channelReadCursors: [
+        { channel: 17, member_kind: "user", member_user: 4, last_read_message: 200 },
+      ],
+    } as unknown as TaskflowWorkspace
+
+    expect(channelUnreadCount(workspace, 17, me)).toBe(1)
+    expect(channelUnreadCount(workspace, 1, me)).toBe(2)
   })
 })

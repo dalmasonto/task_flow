@@ -1095,6 +1095,12 @@ export function mapLiveChannelMessages(
 
 export function liveChannelStatus(channel: TaskflowWorkspace["agentChannels"][number]) {
   if (channel.archived) return "Archived"
+  // The MARKERS are checked before `kind`, and that order is the point: both
+  // special rooms keep `kind = project` so the visibility gates treat them as
+  // project-wide, which means the fall-through below would label the design room
+  // "Project room" — the exact ambiguity these markers exist to remove. A marker
+  // states what a room IS; the kind only says how it is scoped.
+  if (channel.is_design) return "Design room"
   if (channel.kind === "task") return "Task room"
   if (channel.kind === "incident") return "Incident room"
   if (channel.kind === "direct") return "Direct"
@@ -1137,8 +1143,45 @@ export function channelUnreadCount(
 export const PROJECT_ROOM_PLACEHOLDER_ID = "live:project-room"
 
 
-export function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: AuthUser | null): AgentChatContext[] {
-  const projectChannels = workspace.agentChannels.filter((channel) => !channel.archived && channel.kind !== "direct")
+/// A channel chat as `mapLiveChannelChats` builds it: the shared
+/// `AgentChatContext` plus the two ROOM MARKERS the channel row carries.
+///
+/// The markers are why a room is never selected by title, `kind` or position. A
+/// project may contain any number of user-created rooms — harmlessly — so every
+/// looser predicate can land on a room that is not the one asked for: a user
+/// room titled "Project room" wins a title match, and a room titled "Design
+/// room" sorts BEFORE the real project room (channels arrive ordered by title),
+/// so `chats[0]` is not "the project room" and never was.
+export type LiveChannelChat = AgentChatContext & {
+  /// True on THE project room — the channel marked `is_public`.
+  isPublic: boolean
+  /// True on THE design room — the channel marked `is_design`.
+  isDesign: boolean
+}
+
+
+/// Every shared room of this project as a chat. Channels arrive ordered by
+/// title, so the list order carries no meaning: select by marker, not by index.
+///
+/// The DESIGN room is EXCLUDED by default (ruling 3): it is not an ordinary
+/// conversation, and the Agents page and the dock switcher both build their
+/// lists from this function — listing it there as well as on the design page
+/// recreates the "which conversation am I in" ambiguity this change removes. The
+/// one caller that does want it is the design rail's own `useAgentChat`
+/// instance, which passes `includeDesignRoom: true`.
+///
+/// No `is_design` MESSAGE filter survives here, and none should be added: the
+/// room IS the filter now, so a message sitting in the design room renders
+/// whether or not its own flag agrees.
+export function mapLiveChannelChats(
+  workspace: TaskflowWorkspace,
+  currentUser: AuthUser | null,
+  opts?: { includeDesignRoom?: boolean }
+): LiveChannelChat[] {
+  const projectChannels = workspace.agentChannels.filter(
+    (channel) =>
+      !channel.archived && channel.kind !== "direct" && ((opts?.includeDesignRoom ?? false) || !channel.is_design)
+  )
   const chats = projectChannels.map((channel) => {
     const members = mapLiveChannelMembers(workspace, channel.id, currentUser, true)
     return {
@@ -1152,6 +1195,8 @@ export function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: A
       primaryAgent: primaryAgentName(workspace, members),
       unread: channelUnreadCount(workspace, channel.id, currentUser),
       messages: mapLiveChannelMessages(workspace, channel.id, channel.title, currentUser),
+      isPublic: channel.is_public ?? false,
+      isDesign: channel.is_design ?? false,
     }
   })
 
@@ -1161,7 +1206,7 @@ export function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: A
   return [
     {
       id: PROJECT_ROOM_PLACEHOLDER_ID,
-      mode: "channel",
+      mode: "channel" as const,
       title: "Project room",
       detail: "Shared group chat for humans and agents in this project. The live channel is created on first send.",
       status: "Ready",
@@ -1169,8 +1214,50 @@ export function mapLiveChannelChats(workspace: TaskflowWorkspace, currentUser: A
       primaryAgent: primaryAgentName(workspace, members),
       unread: 0,
       messages: [],
+      // It STANDS IN for the project room — that is what it is for, and a send
+      // through it creates-or-returns the channel marked `is_public` (the server
+      // dedups on that marker) — so it carries the public marker and not the
+      // design one. `isDesign: false` is load-bearing: a project whose only room
+      // is the design room must NOT hand this placeholder to the design rail,
+      // which selects strictly by `isDesign`.
+      isPublic: true,
+      isDesign: false,
     },
   ]
+}
+
+
+/// THE project room of this project — the channel MARKED `is_public` — or null
+/// when it has none yet.
+///
+/// By property, and with NO fallback to another room. A fallback would be the
+/// ambiguity this whole change removes: it silently opens a conversation that is
+/// not the project room (a user-created room, or the design room), under a name
+/// that claims otherwise. Absence is transient — the backend creates both rooms
+/// with the project, on `link_agent`, and in a boot backfill — so "not yet" is
+/// the honest answer, and the surfaces show it rather than guessing.
+export function findPublicRoomChat(
+  workspace: TaskflowWorkspace,
+  currentUser: AuthUser | null
+): LiveChannelChat | null {
+  // The 2-arg call: the design room is not an ordinary room, so it cannot be the
+  // answer here even if the placeholder path is what ends up matching.
+  return mapLiveChannelChats(workspace, currentUser).find((chat) => chat.isPublic) ?? null
+}
+
+
+/// THE design room of this project — the channel MARKED `is_design` — or null
+/// when it has none yet. Same no-fallback rule as `findPublicRoomChat`, for the
+/// same reason: the design rail holds a composer, so opening it on a room that
+/// is merely *near* the right one posts design work into an ordinary
+/// conversation.
+export function findDesignRoomChat(
+  workspace: TaskflowWorkspace,
+  currentUser: AuthUser | null
+): LiveChannelChat | null {
+  return (
+    mapLiveChannelChats(workspace, currentUser, { includeDesignRoom: true }).find((chat) => chat.isDesign) ?? null
+  )
 }
 
 

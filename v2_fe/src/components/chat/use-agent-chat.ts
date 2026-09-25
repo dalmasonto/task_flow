@@ -2,7 +2,7 @@ import { type AgentsOutletContext } from "@/pages/agents"
 import { PROJECT_ROOM_TITLE, type AgentChatContext, type MessagePriority, type Project, type TargetMember } from "@/lib/workspace-view"
 import { addChannelMember, answerAgentPrompt, createTaskflowChannel, editTaskflowAgentMessage, fetchAttachmentsForMessages, fetchChannelMessages, sendTaskflowAgentMessage, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { addPending, dismissPending, findPending, isPending, markFailed, markRetrying, reconcile, type PendingAttachment } from "@/lib/message-store"
-import { liveId, mapLiveChannelChats, mapLiveDirectChats, mapLiveTerminalSessions, revokeBlobUrls, toLiveMessagePriority, upsertById } from "@/lib/live-mappers"
+import { liveId, mapLiveChannelChats, mapLiveDirectChats, mapLiveTerminalSessions, revokeBlobUrls, toLiveMessagePriority, upsertById, type LiveChannelChat } from "@/lib/live-mappers"
 import { type AuthUser } from "@/lib/auth-api"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
@@ -32,12 +32,23 @@ export function useAgentChat({
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
   onRefreshWorkspace: () => Promise<void>
   selectedChatId: string | null
-  /// #Task10: scope this instance to design messages. When set, the first-page
-  /// effect and `loadOlderMessages` fetch `is_design`-scoped pages and sends
-  /// carry `is_design: true`. Defaults OFF so `/agents` and the dock are
-  /// unaffected. The design rail instantiates its own scoped instance; a
-  /// separate `useAgentChat` opens no SSE of its own (realtime feeds the shared
-  /// `liveWorkspace` at the app level), so this does not duplicate the stream.
+  /// #Task10: this instance is the DESIGN RAIL's. It decides two things, and
+  /// they are the same fact read twice:
+  ///
+  ///   * the chat list it resolves against INCLUDES the room marked `is_design`
+  ///     (`mapLiveChannelChats` excludes it for every ordinary surface, ruling 3)
+  ///     — without this the rail's `selectedChatId` would resolve to nothing and
+  ///     the rail would have no thread, no send and no read cursor;
+  ///   * its sends declare `is_design: true`. The server DERIVES the flag from
+  ///     the destination room and ignores the declaration, so this is not what
+  ///     places the message — it keeps the optimistic bubble's mirrored flag
+  ///     agreeing with the row the server is about to store.
+  ///
+  /// `fetchChannelMessages` is NOT scoped by it: the room is the filter now, and
+  /// a flag-scoped read would drop messages that are in the design room with a
+  /// disagreeing flag. A separate `useAgentChat` opens no SSE of its own
+  /// (realtime feeds the shared `liveWorkspace` at the app level), so this does
+  /// not duplicate the stream.
   isDesign?: boolean
 }) {
   const [messageError, setMessageError] = useState<string | null>(null)
@@ -49,9 +60,9 @@ export function useAgentChat({
     () => (liveWorkspace ? mapLiveDirectChats(liveWorkspace, currentUser, livenessNow) : []),
     [currentUser, liveWorkspace, livenessNow]
   )
-  const channelChats = useMemo<AgentChatContext[]>(
-    () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser) : []),
-    [currentUser, liveWorkspace]
+  const channelChats = useMemo<LiveChannelChat[]>(
+    () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser, { includeDesignRoom: isDesign }) : []),
+    [currentUser, liveWorkspace, isDesign]
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
 
@@ -385,7 +396,7 @@ export function useAgentChat({
       return
     }
     channelPageState.current[key] = "pending"
-    void fetchChannelMessages(channelId, 1, { isDesign })
+    void fetchChannelMessages(channelId, 1)
       .then(async ({ rows }) => {
         await mergeChannelPage(rows)
         channelPageState.current[key] = rows.length ? "loaded" : "empty"
@@ -395,7 +406,7 @@ export function useAgentChat({
         // Retried the next time the effect runs (any workspace change).
         delete channelPageState.current[key]
       })
-  }, [selectedChat?.liveChannelId, liveWorkspace, mergeChannelPage, isDesign])
+  }, [selectedChat?.liveChannelId, liveWorkspace, mergeChannelPage])
 
   const loadOlderMessages = useCallback(() => {
     const channelId = selectedChat?.liveChannelId
@@ -404,12 +415,12 @@ export function useAgentChat({
     // Claimed before the request: scrolling fires this repeatedly, and two hits
     // must not fetch the same page twice. Released on failure so it can retry.
     messagePages.current[channelId] = nextPage
-    void fetchChannelMessages(channelId, nextPage, { isDesign })
+    void fetchChannelMessages(channelId, nextPage)
       .then(({ rows }) => mergeChannelPage(rows))
       .catch(() => {
         messagePages.current[channelId] = nextPage - 1
       })
-  }, [selectedChat?.liveChannelId, mergeChannelPage, isDesign])
+  }, [selectedChat?.liveChannelId, mergeChannelPage])
 
   /// Capture a message as a task. Commitments made in conversation go missing
   /// because opening a form costs more than the sentence did; this makes it one

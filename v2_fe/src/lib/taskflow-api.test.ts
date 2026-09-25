@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  fetchChannelMessages,
   fetchTaskflowProjectSummary,
   fetchTaskflowWorkspace,
   fetchTaskTitles,
@@ -235,5 +236,26 @@ describe("fetchTaskflowProjectSummary", () => {
     // The numbers come from the envelope, which `fields` does not touch.
     expect(summary.taskCounts).toEqual({ 7: 4 })
     expect(summary.reviewCounts).toEqual({ 7: 4 })
+  })
+})
+
+
+describe("fetchChannelMessages", () => {
+  it("asks for one channel's messages with no message-flag narrowing", async () => {
+    // The design conversation is a ROOM now, so the channel is the whole filter.
+    // The `is_design = true` clause this used to take on request would drop rows
+    // that ARE in the design room while their own mirror flag disagrees — rows
+    // written before the flag became derived from the destination. The option is
+    // deleted rather than left unused, and tsc pins the shape; this pins the
+    // REQUEST, which is what reaches the server and what a future re-add changes.
+    const api = stubApi({ [taskflowTables.agentMessages]: { rows: [{ id: 5, channel: 17 }], count: 1 } })
+    await fetchChannelMessages(17, 2)
+
+    const requests = api.for(taskflowTables.agentMessages)
+    expect(requests).toHaveLength(1)
+    const search = searchOf(requests[0])
+    expect(search.get("channel")).toBe("17")
+    expect(search.get("page")).toBe("2")
+    expect(search.get("is_design")).toBeNull()
   })
 })

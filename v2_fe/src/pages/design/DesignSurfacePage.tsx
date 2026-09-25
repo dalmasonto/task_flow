@@ -51,8 +51,8 @@ import { taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { onDesignRealtimeEvent } from "@/lib/design-realtime"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
-import { mapLiveChannelChats } from "@/lib/live-mappers"
-import { PROJECT_ROOM_TITLE, type Project } from "@/lib/workspace-view"
+import { findDesignRoomChat } from "@/lib/live-mappers"
+import { type Project } from "@/lib/workspace-view"
 import { type AuthUser } from "@/lib/auth-api"
 import { type DesignRef } from "@/lib/design-ref"
 import {
@@ -981,15 +981,15 @@ function focusBoard(key: string, transform: CanvasTransform) {
 
 /// The left rail is the SAME `useAgentChat` + `AgentsConversationView` the
 /// Agents page and the dock use, so @mentions, attachments, prompt cards and the
-/// media lightbox all work here for free. Two things make it design-specific:
-///   1. This instance is `isDesign`-scoped, so its first-page + older fetches
-///      are `is_design`-scoped and its sends carry `is_design: true` (the hook's
-///      shared `handleSendMessage` does NOT forward the flag, so we rely on the
-///      scoped instance rather than the shared one).
-///   2. The rail reads the shared Project-room channel but DISPLAYS only design
-///      messages — the shared workspace still holds the whole channel.
+/// media lightbox all work here for free. What makes it design-specific:
+///   1. It is pointed at THE design room — the channel marked `is_design` — and
+///      that room is what separates design from ordinary chat. The flag on a
+///      message no longer filters anything here.
+///   2. Its `useAgentChat` instance is the one that keeps the design room in its
+///      chat list (`isDesign`), which is what lets `selectedChatId` resolve and
+///      what keeps the room out of the Agents page and the dock switcher.
 /// It opens no SSE of its own: realtime feeds the shared `liveWorkspace` at the
-/// app level, and this instance only reads it and fetches scoped pages.
+/// app level, and this instance only reads it and fetches pages.
 function DesignChatRail({
   project,
   liveWorkspace,
@@ -1009,20 +1009,19 @@ function DesignChatRail({
   contextChip: { label: string; ref: DesignRef } | null
   onClearContextChip: () => void
 }) {
-  // Point the shared hook at the Project-room chat so its is_design-scoped
-  // loaders fire for the right channel. Derived from the same mapper + title the
-  // Agents page uses; falls back to the first channel, then null (placeholder).
+  // The design room, SELECTED BY MARKER — never by the title "Design room", and
+  // never by position. A project may hold any number of user-created rooms, and
+  // channels arrive ordered by title, so a title match picks whatever room a
+  // human happened to name and `chats[0]` picks the alphabetically first one.
   //
-  // Null until the channel list is a REAL answer (`agentChannelsLoaded`): with an
-  // unloaded list the mapper synthesises a project room, and pointing the rail at
-  // a room that does not exist shows a conversation the project does not have —
-  // with a composer attached, i.e. a send that should have gone to the room
-  // already in the list. Waiting renders this rail's "Loading design
-  // conversation…" instead, which is the true state.
-  const projectRoomChatId = useMemo(() => {
+  // Null in two situations that are NOT the same and are worded differently
+  // below: the channel list is not yet a real answer, or this project has no
+  // design room. Nothing is substituted for either. Pointing the rail at some
+  // other room would show a conversation that is not the design one, with a
+  // composer attached — a send that would land in ordinary chat as design work.
+  const designRoomChatId = useMemo(() => {
     if (!liveWorkspace?.agentChannelsLoaded) return null
-    const chats = mapLiveChannelChats(liveWorkspace, currentUser)
-    return (chats.find((chat) => chat.title === PROJECT_ROOM_TITLE) ?? chats[0])?.id ?? null
+    return findDesignRoomChat(liveWorkspace, currentUser)?.id ?? null
   }, [liveWorkspace, currentUser])
 
   const { outletContext } = useAgentChat({
@@ -1031,21 +1030,19 @@ function DesignChatRail({
     currentUser,
     onWorkspaceUpdate,
     onRefreshWorkspace,
-    selectedChatId: projectRoomChatId,
+    selectedChatId: designRoomChatId,
     onComposeTask,
     isDesign: true,
   })
 
-  // Only design messages render in the rail even though the shared workspace
-  // holds the whole channel; the is_design-scoped fetches keep "newest 20 design
-  // first, older on scroll" correct.
-  const designChat = useMemo(() => {
-    const chat = outletContext.selectedChat
-    return chat ? { ...chat, messages: chat.messages.filter((message) => message.isDesign) } : null
-  }, [outletContext.selectedChat])
+  // The rail renders the design room WHOLE. The `is_design` filter that used to
+  // sit here is gone along with the flag-scoped fetch: the room is the filter, so
+  // a message sitting in it renders whether or not its own flag agrees — and a
+  // message in ordinary chat can no longer reach this rail at all.
+  const designChat = outletContext.selectedChat
 
   if (!designChat) {
-    return <EmptyCanvas message={"Loading design conversation…"} />
+    return <EmptyCanvas message={noDesignRoomMessage(liveWorkspace)} />
   }
 
   return (
@@ -1056,12 +1053,30 @@ function DesignChatRail({
       showDesignBadge={false}
       contextChip={contextChip}
       onClearContextChip={onClearContextChip}
-      // Render only design messages, but advance the read cursor over the WHOLE
-      // channel (like the Agents page) — the watermark must not lag on the last
-      // design message.
-      readCursorMessages={outletContext.selectedChat?.messages}
+      // No `readCursorMessages` override: that prop exists for a rail that
+      // RENDERS a subset of a channel but must mark the whole of it read, and
+      // there is no subset any more. The read cursor now advances over the design
+      // room's own newest message, which is what finally stops opening this page
+      // from marking the project room's ordinary chat read on the user's behalf.
     />
   )
+}
+
+/// What the rail says while it has no design room to show. Three states, because
+/// only the middle one is a fault: "not asked yet", "asked and the read failed",
+/// and "asked, and this project has no design room".
+///
+/// The last one is a real state rather than a bug: the backend creates both rooms
+/// with the project, on `link_agent`, and in a boot backfill, so a project can be
+/// mid-flight without one. Saying so is the honest answer — the alternative is
+/// pointing the rail at whichever room IS there.
+function noDesignRoomMessage(workspace: TaskflowWorkspace | null): string {
+  if (!workspace?.agentChannelsLoaded) {
+    return workspace?.agentChannelsFailed
+      ? "Could not read this project's rooms, so the design conversation is unknown rather than missing. Reload to try again."
+      : "Loading design conversation…"
+  }
+  return "This project has no design room yet. Both rooms are created with the project — reload in a moment."
 }
 
 // ---------------------------------------------------------------------------
