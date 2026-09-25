@@ -178,7 +178,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const server = new McpServer(
     {
       name: "taskflow-mcp",
-      version: "2.3.0",
+      version: "2.4.0",
     },
     // Surfaced in the `initialize` result so the client shows the model how to
     // use these tools on connect — the workflow and conventions the per-tool
