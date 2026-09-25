@@ -50,11 +50,16 @@ export function categoryLabel(category: string): string {
 /// `null`, and `.toLowerCase()` on a number — thrown from the search box's own
 /// filter, which takes the panel down instead of narrowing it.
 ///
-/// This file's promise is narrow and is the whole of it: the SEARCH does not
-/// throw. The editor reads these same halves and still will — `token-editor.tsx`
-/// reads `value.light` on the token — so a `{"accent": null}` document is not
-/// usable either way; the difference is that searching it no longer crashes the
-/// panel showing it.
+/// This file's promise is narrow and is the whole of it: the FILTER does not
+/// throw. What the panel does with the result is a different claim, and the
+/// difference is which kind of query ran. A query that reaches a token's VALUE
+/// drops an unreadable one — it matches nothing, so it is not in the filtered
+/// document at all, which is the case that used to crash the box. A KEY match
+/// keeps it, deliberately (`keeps a token whose key matches even when its value
+/// is unreadable`), and the panel then draws the editor's own read of that token
+/// — `token-editor.tsx`'s `value.light` — which is where a `{"accent": null}`
+/// document still fails. So the document is not usable either way; what changed
+/// is that the search box is no longer the thing that breaks first.
 function valueMatches(value: unknown, needle: string): boolean {
   if (typeof value !== "object" || value === null) return false
   const { light, dark } = value as { light?: unknown; dark?: unknown }

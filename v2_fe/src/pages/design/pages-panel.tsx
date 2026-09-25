@@ -542,16 +542,20 @@ function PageName({
   const [editing, setEditing] = useState(false)
 
   if (!editing) {
-    // `title` is the route, and this button is the only sighted place in the
+    // `title` is the route, and this button is the only sighted place IN THE
     // PANEL that can show one: the row draws four slots with no path among them,
-    // and the picker beside it shows a group. For a page that is NOT open on the
-    // canvas the only other sighted path is the ⌘K palette's per-route hint —
-    // the canvas's own surfaces (its row-header overlay in `rows` view, the
-    // amber badge a strayed frame wears) exist only for boards that are open,
-    // and the headers themselves resolve through `pageLabel`. A label accepts
-    // anything up to `MAX_LABEL`, so a page renamed into ambiguity has nothing
-    // beside its name to check against. The accessible name already carries the
-    // route (`aria-label` below), so this closes the sighted gap only.
+    // and the picker beside it shows a group. It is not the only place on
+    // screen, and saying so would be the same overstatement in the other
+    // direction: the toolbar's `PagePicker` lists every manifest route with its
+    // raw path, open or not, and the ⌘K palette's per-route hint shows one too.
+    // The canvas's own surfaces — its row-header overlay in `rows` view, the
+    // amber badge a strayed frame wears — exist only for boards that are open,
+    // and the headers themselves resolve through `pageLabel`. What this adds is
+    // the path BESIDE the name it belongs to, which is where the doubt is: a
+    // label accepts anything up to `MAX_LABEL`, so a page renamed into ambiguity
+    // has nothing next to its name to check against. The accessible name already
+    // carries the route (`aria-label` below), so this closes the sighted gap
+    // only.
     return (
       <button
         type="button"

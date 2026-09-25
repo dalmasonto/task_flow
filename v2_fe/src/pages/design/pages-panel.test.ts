@@ -249,10 +249,12 @@ describe("PagesPanel", () => {
     // the text node (`>Settings<`): the text-node form stops covering the title
     // the moment it can reach an attribute instead — a `title=`, a
     // `placeholder=` (which is what `LabelInput` puts the resolved name in) —
-    // and it would then pass while the title was on screen. This markup carries
-    // neither today (no `LabelInput` is mounted server-side, so there are no
-    // `placeholder=` attributes at all), which is why the two forms are
-    // equivalent HERE and this one is the one that keeps being true.
+    // and it would then pass while the title was on screen. In THIS markup no
+    // attribute carries the manifest title (the four `title=` attributes the
+    // rows draw hold the raw ROUTE), and there are no `placeholder=` attributes
+    // at all, since no `LabelInput` mounts server-side — so the two forms are
+    // equivalent here, and this is the one that keeps being true when that
+    // changes.
     expect(html).not.toContain("Settings")
     // The group picker shows the group's NAME. This is the failure the app's
     // Base UI `Select` has by default — an `items` value→label map that goes
