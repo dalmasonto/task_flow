@@ -157,6 +157,17 @@ fn esc(s: &str) -> String {
 /// construction `javascript:`/`data:`/`blob:`? Matches RFC 3986's scheme
 /// grammar (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`), so a path or query
 /// that merely CONTAINS a colon is not mistaken for one.
+///
+/// BELT-AND-BRACES, and it is only fair to say so: as the caller uses it this
+/// can never change the outcome. A scheme cannot begin with `/`, so it cannot
+/// apply to a site-absolute href; and a route path can never contain a `:`
+/// (`manifest::page_path_for_route` admits alphanumerics, `-` and `_` only), so
+/// it cannot apply to a relative one either. The route-membership test is what
+/// actually refuses `mailto:`. It is kept, and kept as a conjunct rather than a
+/// branch, for two reasons: the rule it states is the one the brief names, and
+/// a conjunct can only ever turn a would-be rewrite into a leave-alone — so if
+/// the route-membership rule is ever relaxed, this cannot resurrect the
+/// `mailto:` bug from the other direction.
 fn has_scheme(href: &str) -> bool {
     match href.split_once(':') {
         Some((scheme, _)) => {
@@ -169,11 +180,88 @@ fn has_scheme(href: &str) -> bool {
     }
 }
 
-/// Does the tag this href sits in ask for a new tab? HTML attribute names and
-/// values are case-insensitive and either quote style is legal.
+/// Does the tag this href sits in ask for a new tab?
+///
+/// A real attribute read, not a substring search, because EVERY spelling that
+/// is legal HTML for the same instruction has to be recognised: the attribute
+/// name is case-insensitive, whitespace may surround the `=`, and the value may
+/// be double-quoted, single-quoted or BARE (`target=_blank`). A fixed
+/// `target="_blank"` substring missed the last three and silently hijacked
+/// those links into the frame — the exact thing this check exists to prevent.
+///
+/// `tag` is the element's text from its `<` to just before its `>`.
 fn opens_new_tab(tag: &str) -> bool {
-    let tag = tag.to_ascii_lowercase();
-    tag.contains("target=\"_blank\"") || tag.contains("target='_blank'")
+    // `to_ascii_lowercase` rewrites only ASCII bytes in place, so it never
+    // shifts an offset: every byte position found in the lowered copy is a
+    // valid position in `tag` too.
+    let lower = tag.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        // A quoted VALUE is never an attribute: skip it whole, so a `target=`
+        // written inside another attribute's value (`href="/target=_blank"`)
+        // cannot be mistaken for one. Quote bytes are ASCII, so they can never
+        // occur inside a multi-byte sequence and the offsets stay on
+        // boundaries.
+        if b[i] == b'"' || b[i] == b'\'' {
+            let quote = b[i];
+            i += 1;
+            while i < b.len() && b[i] != quote {
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        // The NAME has to be a whole token — `data-target=` is a different
+        // attribute and must not count.
+        if !b[i..].starts_with(b"target")
+            || (i > 0
+                && (b[i - 1].is_ascii_alphanumeric() || matches!(b[i - 1], b'-' | b'_' | b':')))
+        {
+            i += 1;
+            continue;
+        }
+        let mut j = i + "target".len();
+        while j < b.len() && b[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if b.get(j) != Some(&b'=') {
+            // `targets=`, or a bare `target` with no value at all.
+            i += 1;
+            continue;
+        }
+        j += 1;
+        while j < b.len() && b[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let value = match b.get(j) {
+            Some(q) if *q == b'"' || *q == b'\'' => {
+                let start = j + 1;
+                let len = b[start..]
+                    .iter()
+                    .position(|c| c == q)
+                    .unwrap_or(b.len() - start);
+                &lower[start..start + len]
+            }
+            Some(_) => {
+                // Unquoted: ends at whitespace, `>`, or a quote. `=` is the
+                // HTML rule too, and keeps `target=_blank=` from reading as
+                // `_blank`.
+                let end = b[j..]
+                    .iter()
+                    .position(|c| {
+                        c.is_ascii_whitespace() || matches!(c, b'>' | b'"' | b'\'' | b'=')
+                    })
+                    .map_or(b.len(), |n| j + n);
+                &lower[j..end]
+            }
+            None => return false,
+        };
+        // First match wins, like a browser: a tag cannot legally carry the
+        // attribute twice.
+        return value == "_blank";
+    }
+    false
 }
 
 /// Rewrite a sandbox-relative href to a tokenized URL so a click navigates
@@ -186,19 +274,40 @@ fn opens_new_tab(tag: &str) -> bool {
 ///
 /// Deliberately conservative, because a rewrite that is wrong turns a link that
 /// works into one that does not:
-///   * only a site-absolute path that MATCHES A MANIFEST ROUTE is rewritten —
-///     `/not-a-page` is left alone, since a 404 under a plausible URL is worse
-///     than the dead link the author wrote;
-///   * an empty href, `#fragment`, `//protocol-relative`, anything with a
-///     `scheme:` prefix (`http:`, `mailto:`, `tel:`, and by construction
-///     `javascript:`/`data:`), and a plain relative path are all returned
-///     byte-identical — note a relative path already resolves correctly inside
-///     the frame, so it needs no help;
+///   * an href is rewritten only when it NAMES A MANIFEST ROUTE, compared on
+///     the href's PATH — everything before a `?` or a `#`. `/not-a-page` is
+///     left alone, since a 404 under a plausible URL is worse than the dead
+///     link the author wrote;
+///   * the query and the fragment RIDE ALONG with a rewrite: `href="/app?tab=2"`
+///     names the `/app` route and becomes `/s/{token}/app?tab=2`, which serves.
+///     Comparing the href as written instead left it alone, to resolve on the
+///     sandbox origin's bare `/app` — a 404;
+///   * a trailing slash is not part of a route path, so it is normalized away:
+///     `/app/` becomes `/s/{token}/app`. Only the ROOT is served in both shapes
+///     (`/s/{token}` and `/s/{token}/` both 200); `/s/{token}/app/` 404s, so a
+///     rewrite that appended `/app/` verbatim would only move the 404 inside
+///     the namespace;
+///   * a plain relative path is rewritten on the ROOT page and nowhere else,
+///     because the root frame's document URL is the bare `/s/{token}` with NO
+///     trailing slash (`serve_page_root` is registered without one, and the
+///     request is served, not redirected, so a browser's base path is `/s/`):
+///     `href="app"` there resolves to `/s/app` — outside the namespace, and a
+///     404 — and is rewritten to `/s/{token}/app`. On every other route the
+///     same href already resolves inside the namespace
+///     (`/s/{token}/settings` + `app` = `/s/{token}/app`), so it is left
+///     byte-identical. A dot-segment relative (`./app`, `../app`) names no
+///     route and is left as written: resolving dot segments is a different
+///     job, and a guess there is a rewrite that is wrong;
+///   * an empty href, `#fragment`, `?query`, `//protocol-relative`, anything
+///     with a `scheme:` prefix (`http:`, `mailto:`, `tel:`, and by
+///     construction `javascript:`/`data:`), and an already-tokenized `/s/…`
+///     href are all returned byte-identical;
 ///   * a `target="_blank"` link is left alone: the markup asked for a new tab.
 ///
 /// `routes` is the manifest's route list, the only paths a link in the frame
-/// can reach; they are matched exactly, against the href as written.
-fn rewrite_hrefs(html: &str, base: &str, routes: &[String]) -> String {
+/// can reach. `is_root` says whether the page being composed IS the root route,
+/// which is the one case where a relative href needs a hand.
+fn rewrite_hrefs(html: &str, base: &str, routes: &[String], is_root: bool) -> String {
     // `/s/{token}` and `/s/{token}/` both serve, so the base never carries a
     // trailing slash — the rewrite below appends the route's own path, and the
     // root route appends nothing.
@@ -221,30 +330,70 @@ fn rewrite_hrefs(html: &str, base: &str, routes: &[String]) -> String {
             .find('>')
             .map_or(rest.len(), |i| value_start + end + i);
 
-        // A rewrite is only ever right for a site-absolute path naming a real
-        // route, in a tag that did not ask for a new tab. Everything else is
-        // returned byte-identical — including the `#anchor` and the plain
-        // relative path the exclusions below catch.
-        let qualifies = !href.is_empty()
-            // A `scheme:` URL belongs to another protocol entirely. Implied by
-            // the site-absolute test below (no scheme begins with `/`) and
-            // stated anyway, because a `mailto:`/`tel:` is precisely the link
-            // this pass used to break — and because a later relaxation of the
-            // site-absolute rule must not resurrect it.
-            && !has_scheme(href)
-            && href.starts_with('/')
-            && !href.starts_with("//")
-            // Idempotence: a page may already carry a tokenized href (a pasted
-            // composed URL, say), and rewriting it again would nest the prefix.
-            && !href.starts_with("/s/")
-            && !opens_new_tab(&rest[tag_start..tag_end]);
+        // The href's PATH — everything before its query or fragment. The route
+        // a link names is decided by the path alone: `/app?tab=2` is the `/app`
+        // page with a query, and both serve as `/s/{token}/app?tab=2`.
+        let path_end = href.find(['?', '#']).unwrap_or(href.len());
+        let path = &href[..path_end];
+        let suffix = &href[path_end..];
 
-        let rewritten = if qualifies && routes.iter().any(|r| r == href) {
-            // "/" is the frame's root and maps to the BARE base: the client's
-            // `sandboxUrl` drops the path for it, and both forms serve.
-            format!("{base}{}", if href == "/" { "" } else { href })
+        // A trailing slash is not a route. Only the ROOT is registered in both
+        // shapes; for a child route, `/s/{token}/app/` 404s where
+        // `/s/{token}/app` serves, so the match is made on the slashless path
+        // and the rewrite emits the route's own spelling.
+        let route_path = if path == "/" {
+            "/"
         } else {
-            href.to_string()
+            path.trim_end_matches('/')
+        };
+
+        // Which route this href names, if any. ONE rule, three shapes, and each
+        // shape is fully handled by its own arm — none of them falls through to
+        // the next, because a guard that hands an excluded href to a more
+        // permissive branch is how `//cdn.example/x` came to be rewritten to
+        // `/s/tok///cdn.example/x` while an unreachable `!starts_with("//")`
+        // guard sat two lines above it.
+        let route: Option<&String> = if href.is_empty()
+            // A bare `#fragment` or `?query` names THIS page, not another
+            // route: their path is empty, and both resolve against the
+            // document's own URL wherever it is.
+            || path.is_empty()
+            // A `scheme:` URL belongs to another protocol entirely. Inert as
+            // the rule now stands — membership already refuses them — and kept
+            // as a conjunct, see `has_scheme`.
+            || has_scheme(href)
+            || opens_new_tab(&rest[tag_start..tag_end])
+        {
+            None
+        } else if path.starts_with('/') {
+            if path.starts_with("//") || path.starts_with("/s/") {
+                // `//host/path` is protocol-relative — another origin — and
+                // `/s/…` is already tokenized (a pasted composed URL); rewriting
+                // either would nest the prefix.
+                None
+            } else {
+                routes.iter().find(|r| r.as_str() == route_path)
+            }
+        } else if is_root {
+            // Relative, on the root page: see the doc comment. Resolved the way
+            // a browser would — against the sandbox root — and rewritten only
+            // if what it resolves to is a route.
+            let resolved = format!("/{route_path}");
+            routes.iter().find(|r| r.as_str() == resolved)
+        } else {
+            // Relative on any other page: resolves correctly inside the
+            // namespace on its own, so it is left alone.
+            None
+        };
+
+        let rewritten = match route {
+            // "/" is the frame's root and maps to the BARE base: the client's
+            // `sandboxUrl` drops the path for it, and both forms serve. Every
+            // other route is emitted as the manifest spells it, with the href's
+            // own query/fragment re-attached.
+            Some(r) if r == "/" => format!("{base}{suffix}"),
+            Some(r) => format!("{base}{r}{suffix}"),
+            None => href.to_string(),
         };
         out.push_str(&format!("href=\"{rewritten}\""));
         // `end + 1` skips the closing quote, which is not consumed by the
@@ -330,17 +479,21 @@ pub fn annotate_sources(fragment: &str, file: &str) -> String {
 /// [`compose_export_body`], which expands primitives and nothing else, so a
 /// portable export carries neither `/s/<token>/` hrefs nor `data-src`.
 ///
-/// `routes` is the manifest's route list, passed straight through to
-/// [`rewrite_hrefs`]: only those paths are reachable inside the frame, and a
-/// link to anything else is left as the author wrote it.
+/// `route` is the route this page IS (`/`, `/settings`, …), and `routes` the
+/// manifest's route list; both go straight through to [`rewrite_hrefs`]: only
+/// those paths are reachable inside the frame, a link to anything else is left
+/// as the author wrote it, and `route` is what tells a relative href which page
+/// it is resolving against.
 pub fn compose_body_fragment(
     token: &str,
+    route: &str,
     page_path: &str,
     fragment: &str,
     routes: &[String],
 ) -> String {
     let base = format!("/s/{token}");
-    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base, routes), page_path);
+    let is_root = route.is_empty() || route == "/";
+    let annotated = annotate_sources(&rewrite_hrefs(fragment, &base, routes, is_root), page_path);
     crate::primitives::expand_primitives(&annotated)
 }
 
@@ -396,7 +549,7 @@ pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
 pub fn compose_document(
     token: &str,
     manifest: &DesignManifest,
-    _route: &str,
+    route: &str,
     page_path: &str,
     fragment: &str,
     theme: &str,
@@ -405,7 +558,10 @@ pub fn compose_document(
     // The route list the pages were built from — the only paths a link inside
     // the frame can navigate to. Computed once, here, and passed down.
     let routes: Vec<String> = manifest.routes.iter().map(|r| r.path.clone()).collect();
-    let annotated = compose_body_fragment(token, page_path, fragment, &routes);
+    // `route` is not only for diagnostics: which page this IS decides how a
+    // RELATIVE href resolves (see [`rewrite_hrefs`]), because the root frame's
+    // document URL has no trailing slash.
+    let annotated = compose_body_fragment(token, route, page_path, fragment, &routes);
 
     // The project's external resources (a webfont and its companion links) land
     // in the head before the page's own stylesheet, so a page can override a
