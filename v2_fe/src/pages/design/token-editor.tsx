@@ -312,7 +312,19 @@ export function TokenEditor({
     })
   }
 
+  /// Adding a token also clears the search box, and that is not a convenience:
+  /// a token added under an active query can be filtered straight back out of
+  /// the view. It IS in `doc` (correctly, and Save writes it), but nothing
+  /// appears where the add happened, so the reasonable reading is that the add
+  /// did not work. Clearing the query is the smallest fix that removes that
+  /// state, and it leaves the save path alone — the token is in `doc` either
+  /// way, so what Save sends is identical.
+  ///
+  /// A duplicate name adds nothing (the updater below refuses to clobber an
+  /// existing token), so it does not clear: the misleading state is an add
+  /// that worked and showed nothing, and that one did not happen.
   const addToken = (category: string, key: string) => {
+    const alreadyThere = doc?.categories[category]?.[key] !== undefined
     setDoc((prev) => {
       if (!prev) return prev
       const catTokens = prev.categories[category] ?? {}
@@ -325,6 +337,7 @@ export function TokenEditor({
         },
       }
     })
+    if (!alreadyThere) setQuery("")
   }
 
   const removeToken = (category: string, key: string) => {

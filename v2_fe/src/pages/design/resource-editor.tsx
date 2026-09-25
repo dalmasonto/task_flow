@@ -344,7 +344,13 @@ export function ResourceEditor({
   return (
     <div className="flex flex-col border-t">
       <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-2">
-        <p className="mr-auto font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+        {/* The section's name, given the same treatment as the Tokens panel's
+            group labels (`token-editor.tsx`'s `CategorySection`). A NAME comes
+            off mono on this surface — it was `font-mono text-[11px] uppercase`,
+            the class string the category header carried before that change —
+            and the label is a heading over the sets rather than a value in
+            them. Mono starts below, at the urls and the inputs. */}
+        <p className="mr-auto text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           External resources
         </p>
         <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>

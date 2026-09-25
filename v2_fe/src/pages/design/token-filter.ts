@@ -31,16 +31,43 @@ export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category
 }
 
+/// A token's own VALUE, as a search surface: both halves of its light/dark
+/// pair. This is the surface a user reaches for by *reading* — `inter` for the
+/// font stack they pasted in, `#6366f1` for the colour they can see — and it is
+/// the one that is nowhere in the key the token is filed under (`font_sans`
+/// says nothing about Inter). A token with no dark override has only the one
+/// string, so `dark` is checked only when it is there.
+///
+/// The empty string a missing `dark` falls back to cannot match: the caller
+/// has already returned for a needle that trims to nothing.
+function valueMatches(value: { light: string; dark?: string }, needle: string): boolean {
+  return (
+    value.light.toLowerCase().includes(needle) ||
+    (value.dark ?? "").toLowerCase().includes(needle)
+  )
+}
+
 /// The document narrowed to the tokens a query asks for: a case-insensitive
-/// substring match over the token's key AND over its category's label, so
-/// `spac` finds `pad_x` and `gap` (their label says "Spacing") and `accent`
-/// finds `accent` and `accent_soft` and nothing else.
+/// substring match over the token's key, over its category's label, and over
+/// the token's own value. So `spac` finds `pad_x` and `gap` (their label says
+/// "Spacing" — it also finds `font_mono`, whose value `ui-monospace` contains
+/// it), `accent` finds `accent` and `accent_soft` and nothing else, and `inter`
+/// finds the typography token whose value is `Inter, ui-sans-serif` — which is
+/// the search a project that has added a Google Fonts set actually performs:
+/// which token uses the font I pasted in.
+///
+/// The three surfaces are not equal in what they keep. A key match and a value
+/// match keep the ONE token that matched; only a label match keeps the whole
+/// group, because a user searching "spacing" wants the spacing tokens, whose
+/// keys and values say nothing about spacing.
 ///
 /// Substring is the whole rule, and it is narrow on purpose: the label
 /// "Spacing" is found by `spac`, `paci`, `spacing` — but NOT by `space`, which
 /// is not a substring of it (the two part company at the fifth character).
 /// Bridging that near-miss needs stemming or fuzzy matching, which would also
-/// pull in query/token pairs nobody asked for, so it is not done here.
+/// pull in query/token pairs nobody asked for, so it is not done here. The
+/// boundary is a decision rather than drift, and `token-filter.test.ts`
+/// asserts it so the next person does not rediscover it as a bug.
 ///
 /// Three things this owes its caller, all of them the difference between a
 /// search box and a bug:
@@ -63,10 +90,12 @@ export function filterTokenCategories(doc: DesignTokensDoc, query: string): Desi
   for (const [category, tokens] of Object.entries(doc.categories)) {
     // A label match keeps the whole group — a user searching "spacing" wants
     // the spacing tokens, whose keys say nothing about spacing. A key match
-    // keeps only the keys that matched.
+    // keeps only the keys that matched, and a value match only the token whose
+    // value matched (see `valueMatches`).
     const labelMatches = categoryLabel(category).toLowerCase().includes(needle)
     const kept = Object.entries(tokens).filter(
-      ([key]) => labelMatches || key.toLowerCase().includes(needle)
+      ([key, value]) =>
+        labelMatches || key.toLowerCase().includes(needle) || valueMatches(value, needle)
     )
     // A group with nothing left in it is not a search result: the caller draws
     // a group per category it is given, and an empty one would answer a query

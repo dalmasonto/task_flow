@@ -104,24 +104,84 @@ describe("filterTokenCategories", () => {
 
   // Substring, not equality: "spac" is a user mid-word, "Spacing" is what the
   // label says. An equality test — or a `startsWith` on the whole label — would
-  // answer this query with nothing.
+  // answer this query with nothing. The whole group comes back, and neither
+  // `gap` nor `pad_x` carries "spac" in its key or its value, so the label is
+  // the only thing that can have matched them.
   it("matches a category label by substring, not by equality", () => {
     const filtered = filterTokenCategories(tokensDoc(), "spac")
-    expect(Object.keys(filtered.categories)).toEqual(["spacing"])
     expect(Object.keys(filtered.categories.spacing)).toEqual(["gap", "pad_x"])
+    // `spac` is ALSO a substring of `ui-monospace`, the value of `font_mono` —
+    // so this query legitimately lands on two categories now, and that second
+    // one is the value rule rather than this one. The query is left as `spac`
+    // on purpose: it is the one the near-miss test below says is the honest way
+    // to find the Spacing group, so it is the one worth reading here.
+    expect(Object.keys(filtered.categories)).toEqual(["spacing", "typography"])
+    expect(Object.keys(filtered.categories.typography)).toEqual(["font_mono"])
   })
 
-  // The near-miss, pinned because the plan promised the opposite: task-17's
-  // brief says "`space` finds every spacing token", and it cannot — "space" is
-  // not a substring of "spacing" (they part company at the fifth character,
-  // `spac-e` vs `spac-ing`), and no non-fuzzy rule makes it one. This does NOT
-  // mean the search is broken: `spac` above finds it, and the panel draws its
-  // nothing-matched line naming the query, so a dead query is legible rather
-  // than blank. If the rule is ever meant to bridge near-misses, it is the
-  // matching rule that has to change (stemming/fuzzy), and this test is the
-  // one that will say so.
-  it("answers nothing for a near-miss of a category label", () => {
-    expect(filterTokenCategories(tokensDoc(), "space").categories).toEqual({})
+  // A BOUNDARY, deliberately, and it is asserted rather than dodged: "space"
+  // is not a substring of the label "Spacing" (they part company at the fifth
+  // character — `spac-e` vs `spac-ing`) and no non-fuzzy rule makes it one.
+  // Reaching it would need stemming or fuzzy matching, which for a token
+  // filter is over-engineering and would drag in pairs nobody asked for, so
+  // the honest way to find the group is `spac` (the test above). If someone
+  // ever makes the match fuzzy, THIS is the test that says a decision was
+  // taken.
+  it("does not find the Spacing group from `space` — a deliberate boundary", () => {
+    const filtered = filterTokenCategories(tokensDoc(), "space")
+    expect(filtered.categories.spacing).toBeUndefined()
+    expect(Object.keys(filtered.categories)).not.toContain("spacing")
+    // And what the query DOES find is the value rule working, not the
+    // boundary leaking: `font_mono`'s value is `ui-monospace`, whose text
+    // really does contain "space". A token whose value says the word is a
+    // match under the rule; the Spacing group, which says `spacing`, is not.
+    expect(Object.keys(filtered.categories)).toEqual(["typography"])
+    expect(Object.keys(filtered.categories.typography)).toEqual(["font_mono"])
+  })
+
+  // The case the brief got wrong twice over. `inter` is in neither the key
+  // `font_sans` nor the label `Typography` — it is in the token's VALUE
+  // (`Inter, ui-sans-serif`), and this is the search a project with a Google
+  // Fonts set actually performs: "which token uses Inter".
+  it("finds a token by its value, not just by its key or category", () => {
+    const filtered = filterTokenCategories(tokensDoc(), "inter")
+    expect(Object.keys(filtered.categories)).toEqual(["typography"])
+    expect(Object.keys(filtered.categories.typography)).toEqual(["font_sans"])
+    expect(filtered.categories.typography.font_sans).toEqual({ light: "Inter, ui-sans-serif" })
+  })
+
+  // Values are literals and are typed in whatever case the user remembers:
+  // the fixture's own value carries a capital `I` (`Inter`), so this fails if
+  // the value side is lowercased and the query is not, or vice versa.
+  it("matches a token value case-insensitively", () => {
+    const filtered = filterTokenCategories(tokensDoc(), "INTER")
+    expect(Object.keys(filtered.categories)).toEqual(["typography"])
+    expect(Object.keys(filtered.categories.typography)).toEqual(["font_sans"])
+  })
+
+  // A value match is per-TOKEN, like a key match — it is the category LABEL
+  // that keeps a whole group, and a value is not a label. `monospace` is in
+  // `font_mono`'s value and nowhere else in the document, so a rule that kept
+  // the category on any match, or that let a value match reach the other
+  // categories, would answer this with every token in the file.
+  it("does not leak a value match into another category, or the whole group", () => {
+    const filtered = filterTokenCategories(tokensDoc(), "monospace")
+    expect(Object.keys(filtered.categories)).toEqual(["typography"])
+    expect(Object.keys(filtered.categories.typography)).toEqual(["font_mono"])
+  })
+
+  // The next thing a user tries: the colour they can see. Both halves of the
+  // pair are searchable, so the full hex finds `accent` and so does a fragment
+  // of its DARK value — `818cf8` appears in no key, no label and no light
+  // value, so a filter that read only `light` would answer this with nothing.
+  it("finds a colour token by its hex value, full and fragment", () => {
+    const full = filterTokenCategories(tokensDoc(), "#6366f1")
+    expect(Object.keys(full.categories)).toEqual(["colors"])
+    expect(Object.keys(full.categories.colors)).toEqual(["accent"])
+
+    const fragment = filterTokenCategories(tokensDoc(), "818cf8")
+    expect(Object.keys(fragment.categories)).toEqual(["colors"])
+    expect(Object.keys(fragment.categories.colors)).toEqual(["accent"])
   })
 
   it("matches a category label case-insensitively", () => {
