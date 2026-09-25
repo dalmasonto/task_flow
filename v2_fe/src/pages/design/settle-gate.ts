@@ -3,9 +3,18 @@
 /// WHY THIS EXISTS. The canvas used to write its pan/zoom transform into React
 /// state on every wheel and pointermove event. A two-finger pan therefore
 /// re-rendered `DesignSurfacePage` and the whole board subtree 60–120 times a
-/// second, and — because `transform` is in the dependency list of the viewport
-/// persist effect — armed an IndexedDB write behind every one of them. Two
-/// problems per finger movement.
+/// second — 120 renders of every board, each holding a live iframe. That render
+/// storm is the problem this removes.
+///
+/// FOR THE RECORD, because an earlier version of this comment (and the commit
+/// message that added it) claimed otherwise: NO IndexedDB write was landing per
+/// event. The surface's viewport persist effect already had a debounce of its
+/// own at 400ms (`DesignSurfacePage`, from before this gate existed), so each
+/// event merely cleared and re-armed its timer and the write happened once, after
+/// the gesture settled, either way. `transform` sitting in that effect's
+/// dependency list was never a per-event write, and a reader setting out to hunt
+/// a Dexie bug behind the old claim is hunting something that does not exist. The
+/// per-event cost was the render; committing once per gesture is what removes it.
 ///
 /// The gesture now lives in a ref and is painted straight onto the wrapper
 /// element; this gate is what decides WHEN that live value is allowed back into
@@ -33,7 +42,12 @@ export const windowTimers: SettleTimers = {
 
 export type SettleGate<T> = {
   /** Record the live value and (re)start the settle window. Every call defers
-   *  the commit, so a burst commits once and a lone event still commits. */
+   *  the commit, so a burst commits once and a lone event still commits.
+   *
+   *  REPLACES whatever was held — there is no read back and no merge — so a
+   *  caller that needs the UNION of a burst (the set of routes a run of writes
+   *  touched, say) must accumulate it itself and push the union; last-wins here
+   *  would silently commit one member of the burst and drop the rest. */
   push(value: T): void
   /** Commit the pending value NOW — a gesture that has an end (pointerup).
    *  No-op when nothing is pending. */

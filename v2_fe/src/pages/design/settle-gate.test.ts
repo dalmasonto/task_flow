@@ -66,8 +66,8 @@ describe("createSettleGate", () => {
     expect(commits).toEqual([])
 
     clock.advance(1)
-    // A gate that never fires leaves the canvas's committed state (and the
-    // Dexie write behind it) permanently behind the gesture.
+    // A gate that never fires leaves the canvas's committed state — and so the
+    // viewport the next session hydrates — permanently behind the gesture.
     expect(commits).toEqual([t(1)])
   })
 
@@ -81,8 +81,10 @@ describe("createSettleGate", () => {
       clock.advance(8)
     }
     // Firing per event is the bug this task exists to remove: 20 wheel events
-    // must not be 20 commits (`setTransform`, a re-render of every board, and a
-    // Dexie write armed behind each one).
+    // must not be 20 commits (`setTransform`, and a re-render of this canvas and
+    // every board under it, each board holding a live iframe). The Dexie write
+    // is not a per-event cost either way — the persist effect debounces at 400ms
+    // of its own — so the render is the whole of it.
     expect(commits).toEqual([])
 
     clock.advance(120)

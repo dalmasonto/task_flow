@@ -46,14 +46,16 @@ import {
 import { type CanvasTool } from "./canvas-tools"
 import { boardKeyForSource } from "./design-frame-source"
 import { createSettleGate } from "./settle-gate"
-import { gridDotOpacity, transformCss } from "./canvas-paint"
+import { gridDotOpacity, resolveLive, transformCss } from "./canvas-paint"
+import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./canvas-zoom"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
 
-export const MIN_SCALE = 0.25
-export const MAX_SCALE = 2
-
-export const ZOOM_STEP = 1.1
+// The zoom range's home is `canvas-zoom` (no component imports, so a pure test
+// can pin the ends of the range without importing this file's React tree).
+// Re-exported here because every call site reads it beside the canvas: the
+// toolbar's zoom buttons, Fit's clamp and the stored-viewport sanitiser.
+export { MAX_SCALE, MIN_SCALE, ZOOM_STEP }
 
 /** How long the gesture's events must stop before the live transform is
  *  committed to React state (and, behind it, to Dexie). Trackpad wheel events
@@ -182,7 +184,13 @@ export const DesignCanvas = memo(function DesignCanvas({
     gate.setCommit(onTransformChange)
   })
   // A pending settle must not outlive the canvas — the timer would otherwise
-  // call `onTransformChange` for a surface that has moved on.
+  // call `onTransformChange` for a surface that has moved on. That cancel DROPS
+  // a pending transform with it: a pan abandoned by unmounting (navigating away,
+  // switching project) within 120ms of its last event is never committed, so its
+  // last position is never persisted. Deliberate and bounded — the loss is one
+  // gesture's tail, and committing after unmount would push a value into a
+  // surface that is gone — but it is the one place this change can LOSE a value
+  // rather than merely defer one.
   useEffect(() => () => gate.cancel(), [gate])
   const [spaceDown, setSpaceDown] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
@@ -194,11 +202,15 @@ export const DesignCanvas = memo(function DesignCanvas({
   const clampScale = useCallback((s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s)), [])
 
   // A gesture PAINTS the transform and only COMMITS it once the events stop.
-  // Committing costs a re-render of this component and every board under it
-  // (each with a live iframe) plus a Dexie write armed by the surface's persist
-  // effect, which is why it cannot happen per event. The maths is untouched:
-  // the handlers below read `liveRef.current` where they used to read the
-  // `transform` prop, and nothing else about them moved.
+  // Committing costs a re-render of this component and every board under it —
+  // each with a live iframe — and that is the whole of the cost, which is why it
+  // cannot happen per event. (It is NOT a second, per-event cost on the wire:
+  // the surface's viewport persist effect has a debounce of its own at 400ms, so
+  // the events re-armed its timer and the write landed once, after the gesture
+  // settled, either way. An earlier version of this comment claimed an
+  // IndexedDB write behind every event; nothing in Dexie was ever doing that.)
+  // The maths is untouched: the handlers below read `liveRef.current` where they
+  // used to read the `transform` prop, and nothing else about them moved.
 
   /** Exactly what the JSX below would have written for this value — same two
    *  helpers, so the two cannot drift — minus the render of the whole subtree. */
@@ -222,22 +234,34 @@ export const DesignCanvas = memo(function DesignCanvas({
   // On EVERY render, and as a LAYOUT effect so the correction lands before the
   // browser paints. React writes this render's `transform` prop onto the layer
   // itself; while a gesture is in flight that prop is the value from BEFORE the
-  // gesture, so without this any unrelated re-render (a Space press, a comment
-  // arriving over SSE) would snap the canvas back to where the gesture started
-  // and hold it there until the settle — the glitch this task exists to remove.
+  // gesture, so without the correction below any unrelated re-render (a Space
+  // press, a comment arriving over SSE) would snap the canvas back to where the
+  // gesture started and hold it there until the settle — the glitch this task
+  // exists to remove.
+  //
+  // WHICH value is the truth is `resolveLive`'s one call, and it is tested there
+  // as a rule rather than walked through here. What that rule costs, plainly: a
+  // foreign write arriving mid-gesture is not honoured now, it is left to the
+  // settle (within ~120ms, which commits the gesture). That is the right trade —
+  // the alternative is the canvas jumping under a moving finger, and the
+  // gesture's accumulator (the pan anchor, the wheel's live scale) continuing
+  // from a position the hand never chose — but the loss is not always the cheap
+  // one, so both cases are named rather than implied:
+  //
+  //   * The window is not reliably 120ms. macOS momentum wheel events keep
+  //     arriving after the fingers leave the trackpad, so `pending()` stays true
+  //     through the inertial tail — and a keyboard +/- zoom or a Fit click that
+  //     lands inside that tail is swallowed with it.
+  //   * The same rule can swallow a HYDRATION write (the stored viewport's
+  //     `setTransform` on mount), losing a saved view rather than a tap. It
+  //     needs the Dexie read to land inside a gesture window, so it is unlikely.
+  //
+  // If a user ever reports "Fit sometimes does nothing", the refinement is to
+  // distinguish gesture KINDS rather than to honour everything: a pointer-held
+  // drag must never yield (a finger is on the canvas), while a wheel tail with
+  // no pointer down may `cancel()` the gate and adopt the external write.
   useLayoutEffect(() => {
-    // When no gesture is in flight the two agree, and the prop is the truth
-    // (its own commit, Fit, a zoom button, a viewport restored from Dexie):
-    // adopt it, so the next gesture pans from where the canvas actually is.
-    if (!gate.pending() && transform !== liveRef.current) {
-      liveRef.current = transform
-    }
-    // While one IS in flight, the live value is the truth and this render's
-    // prop is stale — including when it is a foreign write. Such a write is
-    // deliberately left to the settle (which lands within 120ms and commits the
-    // gesture) rather than honoured now: honouring it would yank the canvas to
-    // somewhere else under a moving finger, and a lost tap on Fit is the
-    // cheaper of the two. The paint below is that decision.
+    liveRef.current = resolveLive(gate.pending(), transform, liveRef.current)
     paint(liveRef.current)
   })
 
