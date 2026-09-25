@@ -1599,12 +1599,15 @@ Expected: FAIL — cannot resolve `./design-ui-state`.
 /// Lives in `pages/design/` rather than `lib/` so it can take the zoom bounds
 /// straight from `design-canvas`, the same way `canvas-view.ts` does.
 
-import Dexie, { type EntityTable } from "dexie"
+import Dexie, { type Table } from "dexie"
 
 import { DEVICE_PRESETS, DEFAULT_DEVICE_ID } from "@/lib/design-devices"
 import { MAX_SCALE, MIN_SCALE, type CanvasTransform } from "./design-canvas"
 import { type CanvasTool } from "./canvas-tools"
 import { type DesignTab } from "./design-tabs"
+
+/// The row identity: this user, in this project.
+export type DesignUIKey = [number, number]
 
 export type DesignUIState = {
   userId: number
@@ -1673,8 +1676,13 @@ export function parseUIState(raw: unknown, userId: number, projectId: number): D
 
 /// One table. The compound key is what makes "this user in this project" the
 /// identity, so a second project starts clean.
+///
+/// `Table<DesignUIState, DesignUIKey>` rather than the usual
+/// `EntityTable<T, "userId">` umbrella: `EntityTable<T, "userId" | "projectId">`
+/// distributes that union of prop names to `number`, so it would type the key as
+/// a bare id and let `get(4)` compile against a table whose real key is the pair.
 const db = new Dexie("taskflow_design_ui") as Dexie & {
-  canvas: EntityTable<DesignUIState, "userId" | "projectId">
+  canvas: Table<DesignUIState, DesignUIKey>
 }
 db.version(1).stores({ canvas: "[userId+projectId]" })
 
@@ -1703,7 +1711,7 @@ export async function writeUIState(state: DesignUIState): Promise<void> {
 }
 ```
 
-`EntityTable` requires Dexie ≥ 4 — installed in Task 4. If the local Dexie version's types disagree, fall back to `Table<DesignUIState, [number, number]>` from `dexie`; the runtime call is identical.
+Use `Table<DesignUIState, DesignUIKey>` (`DesignUIKey = [number, number]`), not the `EntityTable` umbrella — see the comment on the declaration for why the umbrella voids key type-safety here. Verified against `dexie.d.ts` (`IDType`'s naked type parameter distributes the prop-name union to `number`). The runtime call is identical either way.
 
 - [ ] **Step 4: Run to verify it passes**
 
