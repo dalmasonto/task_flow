@@ -71,6 +71,10 @@ const PICKER_RUNTIME: &str = r#"(() => {
   // entered as null — it is in another document — which is exactly the signal
   // `relatedTarget` gives us. Capture phase, like the listeners above, so a
   // page's own handler cannot swallow it.
+  //
+  // NOT verifiable under CDP: Chrome delivers no cross-frame pointer-leave, so
+  // this never fires there and the stale box survives in both the broken and
+  // fixed runtime — verify with a real pointer move (Firefox, or by hand).
   addEventListener('mouseout', (e) => { if (!e.relatedTarget) clear(); }, true);
 
   addEventListener('click', (e) => {

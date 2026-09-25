@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { boardKeyForSource } from "./design-canvas"
+import { boardKeyForSource } from "./design-frame-source"
 
 // Bug A, reported from the deployed app, with this console trace:
 //
