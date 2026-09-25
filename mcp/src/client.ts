@@ -494,6 +494,14 @@ export class TaskflowClient {
     });
   }
 
+  /** `GET /agents/design/layout` — how the pages are grouped and ordered. */
+  readDesignLayout(project: number): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/layout`, {
+      query: { project },
+      idempotent: true,
+    });
+  }
+
   /** `GET /agents/design/page?route=` — one page fragment + version. */
   readDesignPage(project: number, route: string): Promise<unknown> {
     return this.request("GET", `${API_PREFIX}/agents/design/page`, {

@@ -299,6 +299,60 @@ impl TestResponse {
     }
 }
 
+/// Seed an agent + ACTIVE credential for `project` directly, returning
+/// `(agent_id, raw_key)`. Uses the same hashing scheme as `link_agent`
+/// (`sha256(raw)` stored, prefix indexed), so the key is a real credential as
+/// far as `RequireAgent` is concerned.
+pub async fn seed_agent(project: i64, display_name: &str) -> (i64, String) {
+    use taskflow_agents::agent_auth::hash_key;
+    use taskflow_agents::models::{
+        TaskflowAgent, TaskflowAgentCredential, TaskflowAgentStatus, TaskflowCredentialStatus,
+    };
+    use umbral::orm::ForeignKey;
+
+    let n = seq();
+    let agent = TaskflowAgent::objects()
+        .create(TaskflowAgent {
+            id: 0,
+            project: ForeignKey::new(project),
+            display_name: display_name.to_string(),
+            identifier: format!("design-agent-{n}"),
+            fingerprint: None,
+            project_root: None,
+            taskflow_file_path: None,
+            runtime: Some("test".into()),
+            version: None,
+            status: TaskflowAgentStatus::Offline,
+            linked_by: None,
+            linked_user_label: None,
+            last_seen_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("seed agent");
+
+    let raw_key = format!("tfk_test{random}_{random}", random = format!("{n:08x}"));
+    let prefix = format!("tfk_test{random}", random = format!("{n:08x}"));
+    TaskflowAgentCredential::objects()
+        .create(TaskflowAgentCredential {
+            id: 0,
+            project: ForeignKey::new(project),
+            agent: Some(ForeignKey::new(agent.id)),
+            issued_by: None,
+            name: format!("test key {n}"),
+            key_prefix: prefix,
+            key_hash: hash_key(&raw_key),
+            status: TaskflowCredentialStatus::Active,
+            expires_at: None,
+            revoked_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("seed credential");
+
+    (agent.id, raw_key)
+}
+
 /// The canonical sample artifacts Phase 1 acceptance renders: one token file,
 /// one component, two linked page fragments.
 pub fn sample_tokens() -> String {

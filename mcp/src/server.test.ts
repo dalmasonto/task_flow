@@ -95,6 +95,12 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.calls.push("listTasks");
       return [];
     }
+    async readDesignLayout(project: number) {
+      // The project is recorded, not just the call: a layout read that reached
+      // the wrong project would answer with somebody else's board.
+      harness.calls.push(`readDesignLayout:${project}`);
+      return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
+    }
   }
   return { ...actual, TaskflowClient: FakeClient };
 });
@@ -477,6 +483,45 @@ describe("update_task", () => {
 
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toMatch(/Nothing to update/);
+  });
+});
+
+describe("design_read_layout", () => {
+  // The gap this tool closes is not a missing endpoint — it is an agent not
+  // knowing the arrangement is something it CAN ask about, having only ever
+  // seen design_list_components' flat, group-less, order-less array. So the
+  // description is load-bearing rather than decorative, and these assertions
+  // are on it rather than on the wiring alone.
+  it("is registered, and says it answers the grouping and the order", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_read_layout");
+
+    expect(tool, "design_read_layout must be registered").toBeDefined();
+    const description = tool?.description ?? "";
+    expect(description).toMatch(/group/i);
+    expect(description).toMatch(/order/i);
+    // It names the tool it is NOT, so an agent that already knows that one
+    // knows this is the different question.
+    expect(description).toMatch(/design_list_components/);
+    // And it does not offer a write, because there is not one.
+    expect(description).toMatch(/read-only/i);
+  });
+
+  it("reads the layout of THIS credential's project", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_read_layout",
+      // The harness defines two profiles, so an omitted one returns the
+      // ambiguity refusal before the tool body is reached.
+      arguments: { profile: "main" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    // The FakeClient's `whoami` reports project 2 — the project the tool must
+    // have resolved to before it asked for anything.
+    expect(harness.calls).toContain("readDesignLayout:2");
+    expect(JSON.stringify(result.content)).toMatch(/Auth/);
   });
 });
 

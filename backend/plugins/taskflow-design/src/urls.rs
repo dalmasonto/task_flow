@@ -76,6 +76,12 @@ pub fn router() -> Router {
             "/api/taskflow/agents/design/tokens",
             put(agent_views::write_tokens),
         )
+        // The layout is READ-ONLY here on purpose: an agent can see how the
+        // pages are grouped and ordered, and cannot rearrange someone's board.
+        .route(
+            "/api/taskflow/agents/design/layout",
+            get(agent_views::read_layout),
+        )
         .route(
             "/api/taskflow/agents/design/screenshot",
             get(agent_views::screenshot),

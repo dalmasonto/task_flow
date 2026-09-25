@@ -157,13 +157,55 @@ pub async fn get_manifest(
     ))))
 }
 
-/// The manifest's route paths — the set a layout document is allowed to name.
-/// Built from the same files `get_manifest` reads, so the two can never
-/// disagree about which pages exist.
-async fn known_routes(project_id: i64) -> Vec<String> {
+/// The project's manifest, built from the same files `get_manifest` reads, so
+/// nothing derived here can disagree with what that route serves.
+async fn manifest_for(project_id: i64) -> manifest::DesignManifest {
     let files = store::list_files(project_id).await;
-    let manifest = manifest::build(project_id, &files, 0);
-    manifest.routes.iter().map(|r| r.path.clone()).collect()
+    let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
+    manifest::build(project_id, &files, revision)
+}
+
+/// The manifest's route paths — the set a layout document is allowed to name.
+async fn known_routes(project_id: i64) -> Vec<String> {
+    manifest_for(project_id)
+        .await
+        .routes
+        .iter()
+        .map(|r| r.path.clone())
+        .collect()
+}
+
+/// The project's arrangement, and the manifest it was read against: the ONE
+/// loader behind the operator read (`get_layout`) and the agent read
+/// (`agent_views::read_layout`), so a document can never be filtered against
+/// one set of pages and reported against another.
+///
+/// Forgiving, like every read of this document (`layout_doc.rs`'s asymmetry).
+/// A project that has never been arranged reads `default_doc()`; a stored
+/// document that will not parse (hand-edited, or written by a build with a
+/// different shape) degrades to the default rather than failing the read — the
+/// alternative is a canvas that cannot load and no way for the operator to
+/// repair it from the UI; and a document naming pages this project no longer
+/// has is served with those routes filtered out, never refused.
+pub(crate) async fn load_layout(
+    project_id: i64,
+) -> Result<(layout_doc::LayoutDoc, manifest::DesignManifest), StatusCode> {
+    let m = manifest_for(project_id).await;
+    let known: Vec<String> = m.routes.iter().map(|r| r.path.clone()).collect();
+
+    let stored = DesignLayout::objects()
+        .filter(design_layout::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // `layout_json` is the source of truth for `view` too; the same-named
+    // column is a denormalised copy for admin filtering, never read back here.
+    let doc = stored
+        .and_then(|row| layout_doc::parse(&row.layout_json).ok())
+        .unwrap_or_else(layout_doc::default_doc);
+
+    Ok((layout_doc::filter_to_known(doc, &known), m))
 }
 
 /// `GET /api/design/{project}/layout` — the shared arrangement.
@@ -178,21 +220,8 @@ pub async fn get_layout(
     Path(project_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_member(user_id, project_id).await?;
-    let known = known_routes(project_id).await;
-
-    let stored = DesignLayout::objects()
-        .filter(design_layout::PROJECT.eq(project_id))
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // `layout_json` is the source of truth for `view` too; the same-named
-    // column is a denormalised copy for admin filtering, never read back here.
-    let doc = stored
-        .and_then(|row| layout_doc::parse(&row.layout_json).ok())
-        .unwrap_or_else(layout_doc::default_doc);
-
-    Ok(Json(layout_doc::to_value(&layout_doc::filter_to_known(doc, &known))))
+    let (doc, _manifest) = load_layout(project_id).await?;
+    Ok(Json(layout_doc::to_value(&doc)))
 }
 
 /// `PUT /api/design/{project}/layout` — replace the arrangement.

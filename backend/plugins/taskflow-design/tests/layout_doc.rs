@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
-    default_doc, filter_to_known, parse, to_json_string, to_value, validate, LayoutDoc, LayoutGroup,
-    MAX_GROUPS, MAX_LABEL,
+    default_doc, filter_to_known, panel_sections, parse, resolve_route_order, to_json_string,
+    to_value, validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
 };
 use taskflow_design::models::DesignView;
 
@@ -215,6 +215,117 @@ fn validate_trims_labels_and_refuses_bad_ones() {
     let mut ghost = doc(DesignView::Rows, vec![]);
     ghost.page_labels.insert("/nope".into(), "Gone".into());
     assert!(validate(ghost, &known()).is_err());
+}
+
+// The FLOW, resolved. `route_order` is sparse by nature — a page added after
+// the document was written is not in it, and the read has just dropped the pages
+// that are gone — so "the order the pages are presented in" is not the stored
+// array. The client has resolved this since the pages panel landed
+// (`resolveRouteOrder`); these are the server's half of that rule, which the
+// agent read needs before it can answer at all.
+#[test]
+fn the_flow_is_the_stored_order_then_every_page_it_does_not_name() {
+    let d = LayoutDoc {
+        view: DesignView::Rows,
+        route_order: vec!["/signup".into()],
+        groups: vec![],
+        page_labels: HashMap::new(),
+    };
+    // `/login` is named and comes first; `/` and `/signup` are appended in the
+    // order the manifest arrived in, because the stored flow never named them.
+    assert_eq!(resolve_route_order(&d, &known()), vec!["/signup", "/", "/login"]);
+}
+
+#[test]
+fn the_flow_is_a_permutation_of_the_pages_that_exist() {
+    // Total and lossless, including the two states a stored flow is in by
+    // accident: an entry for a page that is gone (dropped) and a page named
+    // twice (first-wins, the rule `validate` stores by).
+    let d = LayoutDoc {
+        view: DesignView::Rows,
+        route_order: vec!["/gone".into(), "/login".into(), "/login".into(), "/".into()],
+        groups: vec![],
+        page_labels: HashMap::new(),
+    };
+    let flow = resolve_route_order(&d, &known());
+    assert_eq!(flow, vec!["/login", "/", "/signup"]);
+    let mut sorted = flow.clone();
+    sorted.sort();
+    let mut pages = known();
+    pages.sort();
+    assert_eq!(sorted, pages, "every page exactly once: {flow:?}");
+}
+
+#[test]
+fn an_empty_flow_falls_back_to_the_manifest_order() {
+    // A fresh project has no stored order at all, and that must read as the
+    // pages in their manifest order rather than as nothing.
+    assert_eq!(resolve_route_order(&default_doc(), &known()), known());
+}
+
+// The panel's two halves. What the agent must be able to see is the arrangement
+// as the operator sees it, and the panel reaches it through two transformations
+// the raw document does not express: a group's pages are read in FLOW order (its
+// own array is assignment order), and the pages no group claims are listed as
+// their own section — a partition, so nothing is listed twice and nothing
+// vanishes.
+#[test]
+fn a_groups_pages_are_listed_in_flow_order_not_array_order() {
+    let d = LayoutDoc {
+        view: DesignView::Groups,
+        // The flow says /signup then /login; the group's own array says the
+        // opposite, which is the order the pages were assigned in.
+        route_order: vec!["/signup".into(), "/login".into(), "/".into()],
+        groups: vec![group("g1", "Auth", &["/login", "/signup"])],
+        page_labels: HashMap::new(),
+    };
+    let (groups, ungrouped) = panel_sections(&d, &known());
+    assert_eq!(groups[0].routes, vec!["/signup".to_string(), "/login".to_string()]);
+    assert_eq!(groups[0].name, "Auth", "the name travels with the group");
+    assert_eq!(ungrouped, vec!["/".to_string()]);
+}
+
+#[test]
+fn the_two_halves_partition_the_pages_even_when_both_states_are_broken() {
+    // Two states a hand-edited document can be in and the panel still has to
+    // draw: a page two groups claim, and a group whose only page is gone.
+    let d = LayoutDoc {
+        view: DesignView::Groups,
+        route_order: vec![],
+        groups: vec![
+            group("g1", "Auth", &["/login", "/gone"]),
+            group("g2", "Again", &["/login"]),
+            group("g3", "Empty", &[]),
+        ],
+        page_labels: HashMap::new(),
+    };
+    let (groups, ungrouped) = panel_sections(&d, &known());
+    assert_eq!(groups[0].routes, vec!["/login".to_string()], "the FIRST group claims it");
+    assert!(groups[1].routes.is_empty(), "and the second does not double-list it");
+    assert!(groups[2].routes.is_empty(), "an empty group keeps its section");
+    assert_eq!(groups.len(), 3, "no group is dropped");
+    assert_eq!(ungrouped, vec!["/".to_string(), "/signup".to_string()]);
+
+    let listed: Vec<String> = groups
+        .iter()
+        .flat_map(|g| g.routes.iter().cloned())
+        .chain(ungrouped.iter().cloned())
+        .collect();
+    let mut sorted = listed.clone();
+    sorted.sort();
+    assert_eq!(sorted, known(), "every page listed exactly once: {listed:?}");
+}
+
+#[test]
+fn a_named_flow_only_reorders_pages_the_project_still_has() {
+    // The read path end to end, over the two functions together: the document
+    // arrived filtered (`filter_to_known`), and the flow it resolves to names no
+    // page that is gone.
+    let mut d = doc(DesignView::Groups, vec![group("g1", "Auth", &["/login", "/gone"])]);
+    d.route_order = vec!["/gone".into(), "/login".into()];
+    let filtered = filter_to_known(d, &known());
+    let flow = resolve_route_order(&filtered, &known());
+    assert_eq!(flow, vec!["/login", "/", "/signup"]);
 }
 
 #[test]

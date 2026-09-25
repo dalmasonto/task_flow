@@ -15,6 +15,7 @@ use serde_json::json;
 use umbral::web::{IntoResponse, Json, Path, Query, Response, StatusCode};
 use taskflow_agents::agent_auth::RequireAgent;
 
+use crate::layout_doc;
 use crate::manifest;
 use crate::models::{CommentStatus, DesignComment, DesignFileKind, design_comment};
 use crate::store::{self, WriteOutcome};
@@ -209,6 +210,84 @@ pub async fn read_component(
         }))),
         None => Err(StatusCode::NOT_FOUND),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentLayoutQuery {
+    /// The tool's `project` argument; must equal the credential's project.
+    pub project: i64,
+}
+
+/// `GET /api/taskflow/agents/design/layout` — how the project's pages are
+/// ARRANGED: the named groups with their pages, the flow, and the name each page
+/// is listed under.
+///
+/// This is the one thing `design_list_components` cannot answer. That tool
+/// returns the registry as a flat `{file, path, title}` array in the manifest's
+/// own sequence, so an agent could see WHICH pages exist and had no way to see
+/// how they are grouped or in what order they flow — the arrangement is not
+/// derivable from the registry, at any price.
+///
+/// READ ONLY, deliberately. The operator's `PUT /api/design/{project}/layout`
+/// stays the only way the arrangement changes: arranging someone's board is a
+/// curatorial act, and the write has a contract change to make first (it is
+/// last-write-wins, with no `base_version` to hand back).
+///
+/// The document comes from `views::load_layout` — the SAME loader the operator
+/// read uses, so the forgiving rules are one implementation rather than two, and
+/// a document naming a page that has since been deleted is served with that
+/// route filtered out rather than refused.
+pub async fn read_layout(
+    RequireAgent(agent): RequireAgent,
+    Query(q): Query<AgentLayoutQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    authorized_project(&agent, q.project)?;
+    let (doc, m) = crate::views::load_layout(agent.project_id).await?;
+    let paths: Vec<String> = m.routes.iter().map(|r| r.path.clone()).collect();
+    let flow = layout_doc::resolve_route_order(&doc, &paths);
+    let (groups, ungrouped) = layout_doc::panel_sections(&doc, &paths);
+
+    // Every page in flow order, named the way the panel names it: a page's
+    // label if it has one, else the manifest's own title. The route is the key
+    // everything else here uses, so it is carried on the entry rather than left
+    // to the reader to match up by position.
+    let pages: Vec<serde_json::Value> = flow
+        .iter()
+        .map(|route| {
+            let entry = m.routes.iter().find(|r| &r.path == route);
+            let title = entry.map(|r| r.title.clone()).unwrap_or_else(|| route.clone());
+            json!({
+                "route": route,
+                "name": doc.page_labels.get(route).cloned().unwrap_or_else(|| title.clone()),
+                "title": title,
+                "path": entry.map(|r| r.file.clone()).unwrap_or_default(),
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "project": agent.project_id,
+        "view": doc.view,
+        "flow": flow,
+        "groups": groups,
+        "ungrouped": ungrouped,
+        "page_labels": doc.page_labels,
+        "pages": pages,
+        "revision": m.revision,
+        // Written for an agent that arrived here from `design_list_components`
+        // and has no idea what a "view" or a "flow" is: say what each field
+        // answers, and which part of this is the answer to the question it came
+        // with.
+        "note": "The arrangement as the Pages panel lists it. `groups` are the \
+                 named groups, each with its pages in `flow` order — that order \
+                 is the project's presentation order, and the canvas draws in it \
+                 too. `ungrouped` is every page no group claims: every page \
+                 appears exactly once, in a group or there. `pages` names each \
+                 page the way the panel does (its label if it has one, else the \
+                 manifest title). `view` is the canvas arrangement \
+                 (rows/bands/groups) and the grouping reads the same in all \
+                 three. Read-only: arranging pages is the operator's."
+    })))
 }
 
 // ---------------------------------------------------------------------------
