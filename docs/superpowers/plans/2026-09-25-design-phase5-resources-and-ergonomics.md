@@ -2060,7 +2060,11 @@ export function removeSelection(list: SelectionState[], index: number): { list: 
 
 - [ ] **10. A note on the lint baseline, so the next reader is not misled.** The baseline is **27 errors / 1 warning**, but a bare `npx eslint .` during a concurrent task's round can read **29/1**, because a neighbour's *untracked* new module contributes two errors before it is finished with. Measure per-file against the committed baseline rather than trusting a single repo-wide number taken mid-round.
 
+- [ ] **11. `setPageLabel` measures in UTF-16 units too** (Task 20's fix round, found while fixing `createGroup`'s). `design-layout.ts` counts a page label with `.length` while the server counts `chars().count()` (`layout_doc.rs:143`) — the same *client stricter than the server* shape, and now the only one left in that file. Same one-line fix, same boundary test shape: a multi-code-unit name at the limit that passes under `.length` and fails under `[...name].length`.
+
 - [ ] **8. Verify and commit.** `cd v2_fe && npx tsc -b && npm test && npx eslint <touched files>`, and `cd backend && cargo test --workspace`. Baseline: **27 errors / 1 warning** on lint. **Do not run `npm run build`**, and do not push — publishing is on hold pending the user's local testing.
+
+  ⚠️ **Commit with `git commit -- <explicit paths>`, not `git add <paths> && git commit`.** Several agents share this worktree and therefore share the git **index**, so `git add X && git commit` commits whatever else another agent had staged at that moment. That is not hypothetical: it happened — a controller docs commit swept in a concurrent agent's `git rm`, producing a commit whose tree does not compile (`group-name.ts` deleted while `pages-panel.tsx` still imports it). The pathspec form ignores the rest of the index and cannot do that.
 
 ---
 
