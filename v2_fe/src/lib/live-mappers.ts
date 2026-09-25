@@ -1273,6 +1273,38 @@ export function findDesignRoomChat(
 }
 
 
+/// Unread messages for `currentUser` in THE design room — the channel MARKED
+/// `is_design` — or 0 when this project has no design room.
+///
+/// Why this exists: the design room is deliberately kept out of
+/// `mapLiveChannelChats` (ruling 3), and every unread badge in the app — the two
+/// the Agents page draws and the dock's switcher — is fed by that function's
+/// `unread`. So a design message raises no badge anywhere, and the surface that
+/// would show it is the design page the user is not looking at. This is the
+/// count the app shell puts on the Design nav entry instead.
+///
+/// The same marker predicate `findDesignRoomChat` selects by, in its cheap form,
+/// because this runs in the shell on every workspace change: building every
+/// channel's chat (members, messages) to read one number is the wrong cost there.
+/// The COUNTER is not a second implementation — it is `channelUnreadCount`, the
+/// one the chat badges use, so "read" means the same thing on every surface and
+/// the same read-cursor write clears all of them.
+///
+/// 0 is the honest answer in three different states: no design room yet (the
+/// backend creates one with the project, on `link_agent` and in a boot backfill,
+/// so "not yet" is transient), not signed in (the counter needs a cursor owner),
+/// and the room's own cursor is already past everything in it.
+export function designRoomUnreadCount(
+  workspace: TaskflowWorkspace,
+  currentUser: AuthUser | null
+): number {
+  const designRoom = workspace.agentChannels.find(
+    (channel) => channel.is_design && !channel.archived
+  )
+  return designRoom ? channelUnreadCount(workspace, designRoom.id, currentUser) : 0
+}
+
+
 /// A direct message has one participant on each side — you and exactly one other
 /// person or agent. More than that is a group conversation wearing a DM's name.
 export const DIRECT_CHANNEL_PARTICIPANTS = 2

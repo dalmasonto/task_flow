@@ -63,7 +63,7 @@ import { TaskDetailSheet } from "@/components/task-sheet"
 import { overlayTaskDetail, pruneTaskDetail } from "@/lib/task-detail-overlay"
 import { InvitesPage } from "@/pages/invites"
 import { LandingPage } from "@/pages/landing"
-import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, PROJECT_ROOM_PLACEHOLDER_ID, countOnlineAgents, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
+import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, PROJECT_ROOM_PLACEHOLDER_ID, countOnlineAgents, designRoomUnreadCount, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
 import { ReviewsPage } from "@/pages/reviews"
 import { TaskSessionDock } from "@/components/session-dock"
 import { WorkspaceDialog } from "@/components/workspace-dialog"
@@ -352,6 +352,30 @@ function App() {
       : tasks.filter((task) => task.status === "review").length
   const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : []
   const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
+  // The design room's unread count, for the sidebar's Design entry. A design
+  // message is invisible to every other badge in the app: the design room is
+  // deliberately not an ordinary conversation (`mapLiveChannelChats` excludes
+  // it), so the Agents list and the dock's switcher — the two surfaces that
+  // carry an unread badge — have no row to hang one on. Without this, an agent's
+  // design post became visible ONLY by opening the design page, which is also
+  // what marks it read.
+  //
+  // Same counter as those badges (`channelUnreadCount`, through
+  // `designRoomUnreadCount`), so visiting the design page clears this exactly as
+  // the chat badges clear, and it reads the same messages off the same cursor.
+  //
+  // It is as good as the loaded slice, which is the honest boundary: on a route
+  // that has not fetched the chat slice it reads 0, because neither the design
+  // room's channel row nor its messages are there to resolve. That is NOT a
+  // regression — the badge it replaces (the project room's, on the Agents page
+  // and the dock) came out of `mapLiveChannelChats` and needed exactly the same
+  // two things — so the surfaces that showed a design post before are the
+  // surfaces that show it now, and loading messages app-wide to widen them is the
+  // ~1.2 MB the slices exist to avoid.
+  const designUnread = useMemo(
+    () => (activeLiveWorkspace ? designRoomUnreadCount(activeLiveWorkspace, currentUser) : 0),
+    [activeLiveWorkspace, currentUser]
+  )
   const sidebarProjects = workspaceProjects.map((project) => ({
     ...project,
     // The summary's count is the TRUE total (envelope count), so use it for every
@@ -2183,6 +2207,7 @@ function App() {
         currentUser={currentUser}
         pendingReviews={pendingReviews}
         pendingInvites={pendingInvites}
+        designUnread={designUnread}
         myInviteCount={myInviteCount}
         onlineAgents={activeProject?.agentsOnline ?? 0}
         onProjectChange={handleProjectChange}

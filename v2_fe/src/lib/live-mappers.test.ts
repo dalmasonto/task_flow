@@ -3,6 +3,7 @@ import {
   PROJECT_ROOM_PLACEHOLDER_ID,
   channelUnreadCount,
   countOnlineAgents,
+  designRoomUnreadCount,
   findDesignRoomChat,
   findPublicRoomChat,
   formatFullDate,
@@ -549,5 +550,62 @@ describe("channelUnreadCount — the watermark is per room", () => {
 
     expect(channelUnreadCount(workspace, 17, me)).toBe(1)
     expect(channelUnreadCount(workspace, 1, me)).toBe(2)
+  })
+})
+
+
+describe("designRoomUnreadCount — the badge the design room has no chat row for", () => {
+  // The design room is excluded from `mapLiveChannelChats`, and every unread
+  // badge in the app is fed by that function's `unread` — so this count is the
+  // only thing that can tell the user a design message arrived while they were
+  // somewhere else. It is the same counter the chat badges use (`channelUnreadCount`),
+  // pointed at the room by its MARKER.
+  const me = { id: 4, username: "dalmas" } as unknown as AuthUser
+  const cursors = [
+    { channel: 1, member_kind: "user", member_user: 4, last_read_message: 100 },
+  ]
+  // Titled so that no assertion here can be satisfied by matching a TITLE. The
+  // shared `designRoomRow` is titled "Design room", which is right for the tests
+  // that assert the markers are read — but a title match resolves those too, and
+  // this count is the one the app shell puts on the Design nav entry.
+  const wipRoom = room(17, "WIP scratch", { isDesign: true })
+  function workspace(rooms = [projectRoomRow, wipRoom], messages = [messageRow(100, 1), messageRow(200, 17), messageRow(201, 17)]) {
+    return { ...channelWorkspace(rooms, messages), channelReadCursors: cursors } as unknown as TaskflowWorkspace
+  }
+
+  it("counts the design room's unread, not the project room's", () => {
+    // Two design messages, and the project room's cursor (100) says its own is
+    // already read — so a count that read the wrong room, or the whole project,
+    // cannot answer 2.
+    expect(designRoomUnreadCount(workspace(), me)).toBe(2)
+  })
+
+  it("is 0 once the design room's own cursor is past its newest message", () => {
+    // What opening the design page does: the rail marks the DESIGN room read, so
+    // the badge goes away without touching the project room's watermark.
+    const read = {
+      ...workspace(),
+      channelReadCursors: [
+        ...cursors,
+        { channel: 17, member_kind: "user", member_user: 4, last_read_message: 201 },
+      ],
+    } as unknown as TaskflowWorkspace
+    expect(designRoomUnreadCount(read, me)).toBe(0)
+    expect(channelUnreadCount(read, 1, me)).toBe(0)
+  })
+
+  it("is 0 when the project has no design room", () => {
+    expect(designRoomUnreadCount(workspace([projectRoomRow], [messageRow(100, 1)]), me)).toBe(0)
+  })
+
+  it("is 0 for a reader with no user, since no cursor is theirs", () => {
+    expect(designRoomUnreadCount(workspace(), null)).toBe(0)
+  })
+
+  it("ignores a user's room that is merely titled Design room", () => {
+    // By MARKER. A room a human named "Design room" is not the design room, and
+    // counting its messages would put a design badge on ordinary chat.
+    const impostor = room(9, "Design room")
+    expect(designRoomUnreadCount(workspace([impostor], [messageRow(300, 9)]), me)).toBe(0)
   })
 })

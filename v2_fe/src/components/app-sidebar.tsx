@@ -34,6 +34,14 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   currentUser: AuthUser | null
   pendingReviews: number
   pendingInvites: number
+  /// Unread design messages in the active project's design room. The design room
+  /// is not an ordinary conversation — it is excluded from the chat lists — so
+  /// there is no chat row anywhere to carry its unread badge, and without this
+  /// number a design message from an agent is only visible by opening the design
+  /// page (which is also what marks it read). Required, not optional: every
+  /// caller must decide where the count comes from, and `tsc` is what notices
+  /// when one passes nothing.
+  designUnread: number
   /// The signed-in user's own invite inbox count (not the active project's
   /// outgoing invites) — shown on the account-facing NavUser badge only.
   myInviteCount: number
@@ -52,6 +60,7 @@ export function AppSidebar({
   currentUser,
   pendingReviews,
   pendingInvites,
+  designUnread,
   myInviteCount,
   onlineAgents,
   onProjectChange,
@@ -97,6 +106,9 @@ export function AppSidebar({
       title: "Design",
       url: "/dashboard/design",
       icon: <PenToolIcon />,
+      // The design room's unread count is the ONLY place a design message is
+      // announced outside the design page — see `designUnread` above.
+      badge: designUnread ? String(designUnread) : undefined,
       onSelect: closeMobileSidebar,
     },
     {
