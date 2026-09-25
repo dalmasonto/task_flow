@@ -416,7 +416,16 @@ export function DesignSurfacePage({
   // close button, sitting at the row's origin. Row `y` comes straight out of
   // `artboards` (every board in a row shares it) rather than recomputing the
   // gutter math here, so it can never drift from what actually rendered.
+  //
+  // ROWS ONLY. The overlay anchors at the arrangement's origin (`left: 0`) and
+  // puts each page at its row's `y` — a thing that only exists in `rows`, where
+  // every page is a row of its own. In `bands`/`groups` every page's first
+  // board shares the FIRST band's `y`, so the whole set would land on one point
+  // and draw on top of itself, leaving only the topmost close button hittable.
+  // Nothing is lost by hiding it: `ArtboardHeader` already labels each board
+  // with its route, and the Pages panel carries the same close affordance.
   const rowHeaders = useMemo(() => {
+    if (layout.view !== "rows") return null
     const rowY = new Map<string, number>()
     for (const b of artboards) if (!rowY.has(b.route)) rowY.set(b.route, b.y)
     return (
@@ -446,7 +455,7 @@ export function DesignSurfacePage({
         })}
       </>
     )
-  }, [artboards, openRoutes, manifest, closeRoute])
+  }, [artboards, openRoutes, manifest, closeRoute, layout.view])
 
   const paletteItems: PaletteItem[] = useMemo(() => {
     if (!manifest) return []
