@@ -16,6 +16,7 @@ Six items the user raised while Phase 4 was executing. One of them (item 4) is a
 | 4 | Page-content edits don't reach the canvas live | **FIXED in Phase 4** (commit `b855a4d`) |
 | 5 | After the Pan tool, returning to Select leaves the page frozen until clicked | **Bug — root cause NOT found** |
 | 6 | User-managed external resource sets (fonts + companion links) per project | New, architectural |
+| 7 | Navigating **between pages inside one device frame** — links, and back/forward | New, medium |
 
 ## Goals
 
@@ -28,7 +29,7 @@ Six items the user raised while Phase 4 was executing. One of them (item 4) is a
 
 ## Non-goals
 
-No change to the arrangement document's shape, the token pipeline, the chat rail, or the component registry. No font *hosting* — only linking. No per-link scheduling/ordering UI beyond set order.
+No change to the arrangement document's shape, the token pipeline, the chat rail, or the component registry. No font *hosting* — only linking. No per-link scheduling/ordering UI beyond set order. §F does not add canvas-level back/forward buttons (the frame's own history is what an agent's page element drives) and does not turn a navigated view into a new board.
 
 ## Key decisions (from the user)
 
@@ -120,6 +121,28 @@ Five actions become real, in the ⋯ menu `ArtboardHeader` already has (`design-
 - **Composition:** `composer.rs` emits the enabled sets' tags into the shell `<head>`, in set order, **before** the page's own stylesheet so a page can override. The same emission feeds the `page.html` export, so a downloaded page carries its fonts.
 - **CSP:** widen the sandbox policy to `script-src`/`style-src`/`font-src` gaining `https:` (scheme source) alongside the existing jsDelivr entries. Rationale to record in the code: the sandbox is a **separate origin with no cookies**, its token is short-lived and read-only for one project's design pages, and the links are supplied by the project's own members — so the marginal capability is bounded, while `javascript:`/`data:` stay refused.
 - **UI:** a section in the existing **Tokens** tab (the project-look surface), not a new tab: list sets, toggle each, edit a set's links, add from a pasted block. A "paste Google Fonts `<link>` tags" affordance is worth having — the user's own example is three tags, and parsing them is the difference between a five-second action and a fiddly one.
+
+### §F — Navigating inside a device (item 7)
+
+**The problem is narrower than it looks.** Every frame already loads through a sandbox URL of the form `/s/{token}{route}`, so the renderer can already serve any page at any route. What fails is that a plain `<a href="/app">` inside a frame resolves against the **sandbox origin**, producing `{sandbox}/app` — not a valid sandbox URL. So a page's own links go nowhere.
+
+**The fix is a compose-time rewrite**, and the precedent already exists: `composer.rs` has a `rewrite_hrefs` pass doing exactly this kind of rewriting for styles, components and assets. Extend it so an href naming a **known route** becomes the sandbox URL for that route.
+
+**Back and forward then come free, which is the whole point.** That rewrite turns the click into a real navigation *inside the frame*, and an iframe has its own session history — so the browser's back/forward work and an agent-written `history.back()` simply functions. No new machinery, no interception runtime. This is why the user's own guess ("enabling back and forward navigation in the render devices") was right.
+
+Rules, because a blanket rewrite would break pages:
+
+- Rewrite only hrefs that **match a route in the manifest**. A path-shaped href that is not a page is left alone — rewriting it would turn a dead link into a differently-dead one.
+- Leave `http(s)://`, protocol-relative `//`, `mailto:`, `tel:`, `#fragment` and `target="_blank"` untouched. Only same-origin site paths are in scope.
+- The rewrite carries the sandbox token, so it must run where the token is known — the same place the existing rewrite already runs.
+
+**Navigation is transient view state, never arrangement state** (the user's choice):
+
+- The frame reports its current route to the parent on load and on navigation; a board whose frame has navigated **shows the route it is actually displaying** in its header, with a reset control that returns it to the board's own route.
+- **The canvas layout never reflows.** Boards stay keyed `route@device`; clicking a link must not add, remove or move anything.
+- Comment pins stay anchored to the board's own `pagePath`. A pin is a note about a page, and the board is still that page's board — but this is exactly why the header must not silently keep claiming the old route while a different page is displayed.
+
+**Agents must be told.** The user asked for this explicitly: the agent-facing context should document that a plain `<a href="/route">` is the correct way to link between pages, and that `history.back()` works for a back control. Without that, an agent will keep avoiding cross-page links because they did not work.
 
 ## Publish order (unchanged, and now wider)
 
