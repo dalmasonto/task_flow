@@ -154,10 +154,11 @@ export function DesignSurfacePage({
   }, [refreshComments])
 
   // Design realtime: file writes remount artboards; comment updates refresh
-  // pins. These ride the ONE app-level SSE stream (App.tsx) and are fanned out
-  // here via the design-realtime bus. Opening a second EventSource for this page
-  // would hold an HTTP/1.1 slot for its whole life and wedge realtime app-wide
-  // (see ProfilePage.tsx) — which is exactly why chat stopped autoloading here.
+  // pins; a layout change means another viewer re-arranged the canvas. These
+  // ride the ONE app-level SSE stream (App.tsx) and are fanned out here via the
+  // design-realtime bus. Opening a second EventSource for this page would hold
+  // an HTTP/1.1 slot for its whole life and wedge realtime app-wide (see
+  // ProfilePage.tsx) — which is exactly why chat stopped autoloading here.
   useEffect(() => {
     if (!projectId) return
     return onDesignRealtimeEvent((event) => {
@@ -165,6 +166,14 @@ export function DesignSurfacePage({
         setContentEpoch((e) => e + 1)
       } else if (event.table === taskflowTables.designComments) {
         refreshComments()
+      } else if (event.table === taskflowTables.designLayout) {
+        // The arrangement is SHARED (view + groups), so adopt the other
+        // viewer's copy. Only `layout` is replaced: the viewport half of the
+        // state — open pages, devices, transform, tool, tab, theme — is
+        // per-user and deliberately left alone. Last write wins, matching
+        // `PUT .../layout`; a failed read leaves the current arrangement up
+        // rather than blanking the canvas.
+        void fetchLayout(projectId).then(setLayout).catch(() => null)
       }
     })
   }, [projectId, refreshComments])

@@ -31,7 +31,7 @@ use taskflow_agents::models::{
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
     TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview, TaskflowTerminalInput,
 };
-use taskflow_design::models::{DesignComment, DesignFile};
+use taskflow_design::models::{DesignComment, DesignFile, DesignLayout};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
 };
@@ -66,6 +66,7 @@ const PROJECT_INVITES: &str = "project_invites";
 const API_ENDPOINTS: &str = "api_endpoints";
 const DESIGN_FILES: &str = "design_files";
 const DESIGN_COMMENTS: &str = "design_comments";
+const DESIGN_LAYOUT: &str = "design_layout";
 const PRESENCE: &str = "presence";
 
 // The chat tables carry NO projected fields — see the `expose` calls below for
@@ -279,17 +280,22 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowChannelReadCursor>(Expose::to_group_with(|ev| {
             group_for(READ_CURSORS, &ev.instance)
         }))
-        // Design Surface: file writes (agent or operator) and comment updates
-        // ping their project groups; `GET /api/design/{project}/events` serves
-        // exactly these two groups to members. Files are id-only — the chrome
-        // refetches content + recomputes the manifest over REST, so a stale
-        // projection can never render. Comments are projected inline: pins and
-        // status badges render straight from the event, and a comment row is
-        // already readable by every project member over REST.
+        // Design Surface: file writes (agent or operator), comment updates and
+        // arrangement changes ping their project groups; `GET
+        // /api/design/{project}/events` serves exactly these three groups to
+        // members. Files are id-only — the chrome refetches content +
+        // recomputes the manifest over REST, so a stale projection can never
+        // render. Comments are projected inline: pins and status badges render
+        // straight from the event, and a comment row is already readable by
+        // every project member over REST. The layout is id-only too, and
+        // deliberately so: it is a SHARED project-level document (not a
+        // per-viewer one), and the client adopts it by refetching, which keeps
+        // the per-user viewport half of its state untouched.
         .expose::<DesignFile>(Expose::to_group_with(|ev| group_for(DESIGN_FILES, &ev.instance)))
         .expose::<DesignComment>(
             Expose::to_group_with(|ev| group_for(DESIGN_COMMENTS, &ev.instance)),
         )
+        .expose::<DesignLayout>(Expose::to_group_with(|ev| group_for(DESIGN_LAYOUT, &ev.instance)))
 }
 
 /// `project:{id}:{suffix}` for a row carrying a `project` FK, else the
@@ -403,6 +409,7 @@ const ALL_SUFFIXES: &[&str] = &[
     API_ENDPOINTS,
     DESIGN_FILES,
     DESIGN_COMMENTS,
+    DESIGN_LAYOUT,
     PRESENCE,
 ];
 

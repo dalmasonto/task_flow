@@ -645,10 +645,10 @@ impl Drop for StreamGuard {
 /// caller's membership, so the caller can never ask for another project's
 /// stream and no group-policy widening is required.
 ///
-/// Events ride the `design_files` / `design_comments` model groups (the app's
-/// realtime wiring exposes those models); each frame ships under the single
-/// `u` envelope type with `{"c","e","d"}` data, matching every other client in
-/// this app.
+/// Events ride the `design_files` / `design_comments` / `design_layout` model
+/// groups (the app's realtime wiring exposes those models); each frame ships
+/// under the single `u` envelope type with `{"c","e","d"}` data, matching every
+/// other client in this app.
 pub async fn design_events(
     RequireAuth(user_id): RequireAuth<i64>,
     Path(project_id): Path<i64>,
@@ -663,6 +663,7 @@ pub async fn design_events(
     let mut groups = HashSet::new();
     groups.insert(format!("project:{project_id}:design_files"));
     groups.insert(format!("project:{project_id}:design_comments"));
+    groups.insert(format!("project:{project_id}:design_layout"));
 
     let registry = Realtime::registry();
     let (conn_id, rx) = registry

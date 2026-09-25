@@ -878,7 +878,11 @@ function App() {
         // its own — a second EventSource wedges realtime app-wide). They carry
         // no row we store centrally, so fan them out to the design surface and
         // skip the table dispatch below.
-        if (event.table === taskflowTables.designFiles || event.table === taskflowTables.designComments) {
+        if (
+          event.table === taskflowTables.designFiles ||
+          event.table === taskflowTables.designComments ||
+          event.table === taskflowTables.designLayout
+        ) {
           emitDesignRealtimeEvent(event)
           return
         }

@@ -54,9 +54,10 @@ export const taskflowTables = {
   taskReviews: "taskflow_task_review",
   agentPrompts: "taskflow_agent_prompt",
   // Design Surface rows live in their own tables and ride their own groups;
-  // the design page listens for these two directly.
+  // the design page listens for these three directly.
   designFiles: "design_file",
   designComments: "design_comment",
+  designLayout: "design_layout",
 } as const
 
 /// Group suffixes are a contract with backend/src/realtime.rs — short labels,
@@ -83,6 +84,7 @@ const realtimeGroupSuffixes = {
   [taskflowTables.agentPrompts]: "prompts",
   [taskflowTables.designFiles]: "design_files",
   [taskflowTables.designComments]: "design_comments",
+  [taskflowTables.designLayout]: "design_layout",
 } as const satisfies Record<Exclude<RealtimeTableName, typeof taskflowTables.projects>, string>
 
 export const taskflowGroups = {
@@ -170,6 +172,7 @@ type RealtimeTableName =
   | typeof taskflowTables.agentPrompts
   | typeof taskflowTables.designFiles
   | typeof taskflowTables.designComments
+  | typeof taskflowTables.designLayout
 
 export type TaskflowRealtimeEvent = {
   table: RealtimeTableName
@@ -203,6 +206,7 @@ const projectScopedRealtimeTables = [
   // table, no row refetch).
   taskflowTables.designFiles,
   taskflowTables.designComments,
+  taskflowTables.designLayout,
 ] satisfies RealtimeTableName[]
 
 /// Tables whose events carry the whole row (projected in backend/src/realtime.rs)
