@@ -1939,16 +1939,16 @@ Tests: an empty or whitespace-only query returns everything; a query matching a 
 - Modify: `v2_fe/src/pages/design/design-inspector.tsx`
 - Possibly `v2_fe/src/pages/design/DesignSurfacePage.tsx` (the wiring of `onFocus`)
 
-**Candidate items, to be confirmed by reading rather than taken on faith:**
+**Candidate items, confirmed by reading rather than assumed:**
 
-- **The comment's route label renders but its click is inert.** `CommentsListSection` takes an `onFocus` prop (`:261`, `:269`) and renders the label as a button (`:355-360`), but nothing passes `onFocus` — `design-inspector.tsx:51` and `:102` render the section with `projectId` only, and `DesignSurfacePage.tsx:711-717` renders `DesignInspector` without it. That is a **dead control**: it looks clickable and does nothing. Task 14 made it newly visible, and this phase has closed several of this class.
-- **"Select the right component."** Clicking in a frame selects the innermost element, and component granularity is chosen afterwards via the scope toggle. Before changing that, **decide it with the user** — the honest options are (a) leave element-level selection and make the ancestor breadcrumb clickable so you can walk up to the component, or (b) snap the click to the nearest `[data-component]` host. Option (a) is a smaller change and keeps element-level precision available; do not guess between them — ask, and say in your report what you asked.
+- **The comment's route label renders but its click is inert.** `CommentsListSection` takes an `onFocus` prop (`:261`, `:269`) and renders the label as a button (`:355-360`), but nothing passes `onFocus` — `design-inspector.tsx:51` and `:102` render the section with `projectId` only, and `DesignSurfacePage.tsx:711-717` renders `DesignInspector` without it. It looks clickable and does nothing.
+- **The ancestor breadcrumb has the same defect, and it is the answer to "select the right component".** `design-inspector.tsx:63-80` renders each crumb as a `<button>` with `title="Widen selection to {crumb}"`, under a comment that reads *"Breadcrumb — every crumb widens the selection upward."* **There is no `onClick`.** So the mechanism for reaching a component from an element was designed, labelled, and never wired. **No design decision is needed here — the UI already declares the intent; the handler is missing.** Wire the crumbs to widen the selection, which keeps element-level precision available instead of replacing it with snap-to-component.
+  - The one thing to work out: `ancestors` currently carries **labels only** (`composer.rs:63-65` builds it from `dataset.component || tagName`), and widening needs a *path* per ancestor, not a label. The frame already computes `pathTo(el)` for the clicked element, so the natural extension is to send the ancestors' paths alongside their labels and rebuild a `SelectionState` from the chosen crumb. That means a small change to the picker runtime — **which Task 15's fix round is editing right now**, so this task waits for it rather than racing it in the same file.
 - **The pins are new.** Task 14 made `CommentPins` render for the first time; verify a pin click reaches its board and that the numbering reads sensibly alongside the palette entries.
 
 - [ ] **Step 1: Read, then list.** Before editing, write down what you found — which controls are dead, which already work, and anything the list above got wrong.
-- [ ] **Step 2: Fix the dead controls you can confirm**, one at a time, each with a test where the repo's pure-function convention allows one.
-- [ ] **Step 3: Ask about the selection-granularity question** rather than choosing silently, and record the answer.
-- [ ] **Step 4: Verify and commit.** `cd v2_fe && npx tsc -b && npm test`, **not the build**, lint delta zero.
+- [ ] **Step 2: Fix the dead controls you can confirm**, one at a time, each with a test where the repo's pure-function convention allows one. The two confirmed ones are the crumbs and `onFocus`; if the breadcrumb widening needs a `SelectionState` rebuilt from a crumb, extract that rebuild as a pure function and test it — it is exactly the kind of transformation that silently produces a comment pinned to the wrong element.
+- [ ] **Step 3: Verify and commit.** `cd v2_fe && npx tsc -b && npm test`, **not the build**, lint delta zero.
 
 ---
 
