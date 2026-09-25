@@ -308,24 +308,46 @@ describe("design devices", () => {
     )
   })
 
-  it("layoutGroups: a band steps by the PRECEDING device, not its own and not the first", () => {
+  it("layoutGroups: bands step by the PRECEDING device — a three-device chain", () => {
     const groups = [{ id: "g1", name: "Auth", routes: ["/login"] }]
-    // Same boards, devices reversed: bp-sm (900px tall) leads now, so the
-    // laptop band below starts at bp-sm's step. Laptop is the SHORTER device
-    // (800px), so a band advancing by its own height, or by the first band's
-    // step repeated, lands on a different number and fails.
-    const boards = layoutGroups(["/", "/login"], ["bp-sm", "laptop"], groups)
-    const bpRow = boards.filter((b) => b.deviceId === "bp-sm")
-    const laptopRow = boards.filter((b) => b.deviceId === "laptop")
-    expect(bpRow).toHaveLength(2)
-    expect(laptopRow).toHaveLength(2)
+    // Three devices, deliberately not in the natural order. Three, not two,
+    // because with two the second band's PRECEDING device IS the first device,
+    // so "advance by the first band's step" cannot be told apart from "advance
+    // by the preceding band's step" in any two-device fixture. The middle band
+    // is what makes the difference observable, and its device is the one the
+    // real "Responsive review" tuple uses.
+    const devices = ["bp-sm", "ipad-mini", "laptop"]
+    const boards = layoutGroups(["/", "/login"], devices, groups)
 
-    // The reorder really took effect: the leading band is still at the top.
+    const band = (id: string) => boards.filter((b) => b.deviceId === id)
+    const [bpRow, ipadRow, laptopRow] = devices.map((id) => band(id))
+    // Every band is non-empty, so the per-band assertions below cannot pass
+    // vacuously on an empty array.
+    for (const row of [bpRow, ipadRow, laptopRow]) expect(row).toHaveLength(2)
+
+    const step = (id: string) => HEADER_H + boardHeight(deviceById(id)) + GUTTER
+    const steps = devices.map(step)
+    // The three steps are pairwise distinct, so no band can land on the right
+    // offset by reusing another's. If the preset table ever changes so two of
+    // them coincide, the assertions below stop discriminating — fail loudly
+    // here instead.
+    expect(new Set(steps).size).toBe(3)
+
+    // The leading band is at the top; each later band stacks on the steps ABOVE
+    // it: 0, step0, step0 + step1. Band 2 is the discriminator — asserting the
+    // running sum separately from band 1 is what fails an implementation that
+    // reuses the first band's step for every band after the first.
     for (const b of bpRow) expect(b.y).toBe(0)
+    for (const b of ipadRow) expect(b.y).toBe(steps[0])
+    for (const b of laptopRow) expect(b.y).toBe(steps[0] + steps[1])
 
-    const bpStep = HEADER_H + boardHeight(deviceById("bp-sm")) + GUTTER
-    for (const b of laptopRow) expect(b.y).toBe(bpStep)
-    expect(HEADER_H + boardHeight(deviceById("laptop")) + GUTTER).not.toBe(bpStep)
+    // Named explicitly, so the failure mode stays pinned even if a future
+    // preset change made step1 vanish: the third band must NOT sit one step in.
+    expect(laptopRow[0].y).not.toBe(steps[0])
+    // ...and it is not stepped by its OWN device either — laptop is the
+    // shortest of the three, so its own step is the smallest number here.
+    expect(steps[2]).toBeLessThan(steps[1])
+    expect(steps[2]).not.toBe(steps[0] + steps[1])
   })
 
   it("layoutGroups is deterministic", () => {
