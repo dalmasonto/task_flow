@@ -99,11 +99,25 @@ fn is_safe_url(url: &str) -> bool {
     // more than the parser does is not extra strictness — it is a hole: a
     // leading NBSP survives into the emitted value, the browser finds no
     // scheme there, and resolves the whole thing as a RELATIVE url, which is
-    // the bare-path case above under a different spelling. The predicate below
-    // is the parser's own strip, so what is checked here is what the browser
-    // sees — for every character but U+0000, which the tokenizer rewrites to
-    // U+FFFD before any of this runs; `validate` refuses a url containing it
-    // rather than stripping it, keeping this claim literally true.
+    // the bare-path case above under a different spelling. So the predicate
+    // below is the parser's own strip, and the guarantee it buys is scoped to
+    // the SCHEME: for anything it accepts the value begins literally with
+    // `https://`, and no later stage can alter those first eight characters —
+    // every rewrite between here and a request either happens past index 8 or
+    // is a deletion that cannot reach back into them.
+    //
+    // Two stages do diverge from the URL parser, and nothing here claims
+    // otherwise. The HTML tokenizer normalises newlines BEFORE tokenizing, so
+    // an interior CR is already gone when the URL parser's own strip runs; and
+    // it decodes character references in attribute values, so `&amp;` is
+    // reinterpreted. Both are scheme-preserving, and `&` is escaped wherever
+    // these values are emitted, so neither becomes a live difference.
+    //
+    // U+0000 is the one character that CAN change the head: the tokenizer
+    // rewrites it to U+FFFD before the URL parser's own strip sees it, so this
+    // predicate cannot account for it. `validate` therefore refuses any url
+    // containing one (see the containment check below) rather than leaving it
+    // to the strip.
     let u = url.trim_matches(|c: char| c <= ' ').to_ascii_lowercase();
     u.starts_with("https://") && !u.starts_with("https://javascript:")
 }
