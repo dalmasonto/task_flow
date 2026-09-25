@@ -971,7 +971,7 @@ fn an_attribute_breaking_url_is_escaped_not_executed() {
 // job is to fail on the WRONG code, "the assertions hold on the current code" is
 // not verification.
 #[test]
-fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
+fn the_widening_reaches_the_fetch_directives_and_stops_there() {
     // Pin the boundary in both directions — the three directives that MUST carry
     // a scheme source, and the four that must not move at all.
     let csp = composer::sandbox_csp("token");
@@ -1653,10 +1653,24 @@ Images, video and motion
 
 - [ ] **Step 1: Extend the CSP test first**
 
-`tests/resources.rs` already has `the_widening_reaches_the_three_fetch_directives_and_stops_there`, which parses the CSP into a directive map and asserts exact values per directive. Follow its shape exactly: add the two new directives to the loop that requires the `https:` scheme source, and add `media-src`'s exact value to the block that pins the directives which must not move.
+`tests/resources.rs` already has `the_widening_reaches_the_fetch_directives_and_stops_there`, which parses the CSP into a directive map and asserts exact values per directive. Follow its shape: **keep its existing loop exactly as it is** — it asserts *both* that each directive carries the `https:` scheme source *and* that it still carries `https://cdn.jsdelivr.net`. **Do not replace it with a single five-directive loop.** The scheme-source assertion alone would not notice the jsdelivr origin disappearing from `style-src`, and no other test covers that.
 
 ```rust
-    for directive in ["script-src", "style-src", "font-src", "img-src", "media-src"] {
+    // Unchanged — the ORIGINAL loop, kept for the reason above.
+    for directive in ["script-src", "style-src", "font-src"] {
+        let value = directives.get(directive).copied().unwrap_or_default();
+        assert!(
+            value.split_whitespace().any(|src| src == "https:"),
+            "{directive} must allow any https origin for a webfont to load: {csp}"
+        );
+        assert!(
+            value.split_whitespace().any(|src| src == "https://cdn.jsdelivr.net"),
+            "{directive} must keep the jsdelivr origin it already had: {csp}"
+        );
+    }
+
+    // The two new load directives, held to the same rule.
+    for directive in ["img-src", "media-src"] {
         let value = directives.get(directive).copied().unwrap_or_default();
         assert!(
             value.split_whitespace().any(|src| src == "https:"),
@@ -1669,6 +1683,8 @@ Images, video and motion
     assert_eq!(directives.get("img-src").copied(), Some("'self' data: blob: https:"));
     assert_eq!(directives.get("media-src").copied(), Some("'self' data: blob: https:"));
 ```
+
+An earlier draft of this step carried the five-directive loop *as* the replacement, and the implementer kept the original instead — proven by mutation: under the replacement, dropping jsdelivr from `style-src` fails nothing. That is recorded here because the next person editing this test will otherwise make the same simplification for the same plausible reason.
 
 The existing `connect-src` assertion must keep passing unchanged — it stays `'self' https://cdn.jsdelivr.net`, and that is the point of the next step's comment.
 
