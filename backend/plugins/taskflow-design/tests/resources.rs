@@ -270,8 +270,14 @@ fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
     // already in the CSP via `https://cdn.jsdelivr.net`, so it cannot see the
     // change at all, and it would equally pass if `connect-src` had been
     // widened by mistake. This one pins the boundary in both directions — the
-    // three directives that must carry a scheme source, and the four that must
-    // not move.
+    // directives that must carry a scheme source, and the ones that must not
+    // move.
+    //
+    // "three" in the name is historical: `script-src`, `style-src` and
+    // `font-src` were the count for the font widening, and §G added two more
+    // (`img-src`, `media-src`) alongside them. The name is left alone because
+    // the plan and this task's brief both identify the test by it; the loops
+    // below are the count that matters.
     let csp = composer::sandbox_csp("token");
     let directives: HashMap<&str, &str> = csp
         .split(';')
@@ -279,6 +285,7 @@ fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
         .map(|(name, value)| (name, value.trim()))
         .collect();
 
+    // The three a webfont needs, each keeping the jsdelivr origin it had.
     for directive in ["script-src", "style-src", "font-src"] {
         let value = directives.get(directive).copied().unwrap_or_default();
         assert!(
@@ -291,11 +298,33 @@ fn the_widening_reaches_the_three_fetch_directives_and_stops_there() {
         );
     }
 
+    // §G's two: an external image is fetched under `img-src` (also CSS
+    // background-image and sprite sheets); a `<video>`/`<audio>` source under
+    // `media-src`, which did not exist before this change — `default-src
+    // 'self'` governed it, so every external source was refused. Same scheme
+    // source as the three above, and deliberately NOT jsdelivr: neither of
+    // these ever had it, and adding one would be a new host, not a widening.
+    for directive in ["img-src", "media-src"] {
+        let value = directives.get(directive).copied().unwrap_or_default();
+        assert!(
+            value.split_whitespace().any(|src| src == "https:"),
+            "{directive} must allow any https origin, or the design layer cannot show a real image: {csp}"
+        );
+    }
+
+    // The same two pinned as exact values, which is what makes them able to
+    // fail on a BROADER value and not merely on a missing one: `https:` here is
+    // a SCHEME SOURCE, not `*`, so plain `http:` stays refused, and `data:` and
+    // `blob:` stay because inline content is what the design layer already had.
+    assert_eq!(directives.get("img-src").copied(), Some("'self' data: blob: https:"));
+    assert_eq!(directives.get("media-src").copied(), Some("'self' data: blob: https:"));
+
     // Unchanged, and asserted as values rather than as substrings so a widened
     // `connect-src` (which would let agent-authored JS POST the operator's
-    // localhost and intranet anywhere) cannot slip through.
+    // localhost and intranet anywhere) cannot slip through. It is the one
+    // directive the Lottie case tempts a reader to widen, and the doc comment
+    // on `sandbox_csp` records why it does not need to be.
     assert_eq!(directives.get("default-src").copied(), Some("'self'"));
-    assert_eq!(directives.get("img-src").copied(), Some("'self' data: blob:"));
     assert_eq!(directives.get("connect-src").copied(), Some("'self' https://cdn.jsdelivr.net"));
     assert_eq!(directives.get("form-action").copied(), Some("'none'"));
     assert_eq!(directives.get("base-uri").copied(), Some("'none'"));
@@ -390,4 +419,67 @@ async fn enabled_links_reach_both_the_composed_page_and_the_download() {
          sandbox head — placing them after it silently stops a page overriding a webfont: \
          {downloaded}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The other half of the widening: the sandbox URL IS the credential
+// (`/s/{token}/…`), and every external subresource request carries it in
+// `Referer`. Widening `font-src` already sent the token to the font origins;
+// widening `img-src`/`media-src` sends it to every image and video host any
+// page references, which is what makes the header part of this change rather
+// than polish. `no-store` and `noindex` are already set on these responses —
+// `Referrer-Policy: no-referrer` is what makes that intent true for
+// subresources.
+//
+// Tested through the real route because `apply_sandbox_headers` is private, and
+// it lives in THIS file rather than beside `phase1_storage_composer.rs`'s
+// header assertions because it is the same change as the CSP above: the two are
+// read together, and a reader who widened the policy here is the one who needs
+// to know the token must not travel with it.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_responses_never_hand_the_token_to_a_subresource() {
+    let app = support::TestApp::new().await;
+    let (user, project_id) = app.create_member_with_project().await;
+
+    for (path, content) in [
+        ("pages/index.html", "<main><h1>Referrer</h1></main>".to_string()),
+        ("components/app-header.js", support::sample_header_component()),
+    ] {
+        let res = app
+            .put_json_as(
+                user.id,
+                &format!("/api/design/{project_id}/file"),
+                &serde_json::json!({ "path": path, "content": content }),
+            )
+            .await;
+        assert_eq!(res.status(), 201, "seed write of {path} failed: {}", res.text());
+    }
+
+    let token = taskflow_design::sandbox::mint(project_id);
+
+    // BOTH routes that call `apply_sandbox_headers` — the composed page and the
+    // component preview. The header belongs to that shared helper: an
+    // implementation that set it inside one handler would leave the other route
+    // leaking, and a test that checked only the page route could not tell.
+    for path in [
+        format!("/s/{token}/"),
+        format!("/s/{token}/preview/app-header"),
+    ] {
+        let res = app.get_sandbox(&path).await;
+        assert_eq!(res.status(), 200, "sandbox serve of {path} failed: {}", res.text());
+        // The sibling header it is added beside: proof this is the sandbox
+        // header block and not some other 200 response.
+        assert_eq!(
+            res.header("x-robots-tag").as_deref(),
+            Some("noindex"),
+            "precondition — this response should be the sandbox header block: {path}"
+        );
+        assert_eq!(
+            res.header("referrer-policy").as_deref(),
+            Some("no-referrer"),
+            "the sandbox token must not reach an external subresource as a Referer: {path}"
+        );
+    }
 }

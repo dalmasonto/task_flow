@@ -457,26 +457,51 @@ pub fn compose_export_document(
 /// internal network from inside their browser. Inline scripts are allowed
 /// because the composer's own picker/state scripts are inline by design.
 ///
-/// `script-src`, `style-src` and `font-src` allow any `https:` origin — those
-/// three and no others. They are the directives a project's external resources
-/// need, because a webfont is fetched by the RENDERER: a stylesheet arrives
-/// under `style-src`, the font file it names under `font-src`, and a companion
-/// script under `script-src`. `connect-src` is deliberately NOT widened even
-/// though it looks like the same kind of change — a font is not fetched by
-/// `fetch()`, so widening it would buy nothing and would hand agent-authored JS
-/// a channel to POST the operator's localhost and intranet to any https host.
+/// `script-src`, `style-src`, `font-src`, `img-src` and `media-src` allow any
+/// `https:` origin — those five and no others. They are the directives a
+/// project's external resources need, because such a resource is fetched by the
+/// RENDERER and never by `fetch()`: a stylesheet arrives under `style-src`, the
+/// font file it names under `font-src`, a companion script under `script-src`,
+/// an `<img>` (or a CSS `background-image`, or a sprite sheet) under `img-src`,
+/// and a `<video>`/`<audio>` source under `media-src`.
+///
+/// `https:` here is a SCHEME SOURCE, not `*`: plain `http:` stays refused, and
+/// `data:` and `blob:` stay because inline content is what the design layer
+/// already had. `media-src` is new here and is seeded with those same three for
+/// the same reason. Unlike a font, an image or a video is DECLARED nowhere —
+/// the page's own markup names it, and `validate_page_fragment` has no
+/// attribute-level url rules at all — so such a url reaches the browser with no
+/// manifest entry, no editor and no scheme check behind it. This policy is the
+/// whole of its boundary, which is exactly why it names the scheme and not `*`.
+///
+/// `connect-src` is deliberately NOT widened, and Lottie is not a reason to
+/// widen it. A Lottie animation has two independent blockers, and neither is
+/// `img-src`: a page fragment may not contain `<script src` at all (the
+/// validator refuses that marker), and a Lottie player `fetch()`es its
+/// animation JSON, which lands under `connect-src`. It is deliverable anyway
+/// WITHOUT touching this directive — the player loads inside a COMPONENT, whose
+/// JS the composer inlines as an inline script and which `script-src https:`
+/// already permits from any https origin, and the animation JSON lives under
+/// `assets/`, which the sandbox serves same-origin, so `connect-src 'self'`
+/// covers that fetch. Widening this one would buy Lottie nothing and would hand
+/// agent-authored JS a channel to POST the operator's localhost and intranet to
+/// any https host.
+///
 /// `form-action`, `base-uri` and `frame-ancestors` stay as they were.
 ///
 /// The widening is bounded by three things together, and each is load-bearing.
 /// The sandbox is a separate origin with no cookies behind a short-lived
 /// read-only token, so a page that misbehaves with what it loads reaches
-/// nothing of the operator's beyond the project it is already rendering. The
-/// links come from the project's own members through the normal write path, not
-/// from the page being rendered — the page validator refuses `<script src`, so
-/// a page cannot add one for itself. And `resources::validate` refuses any url
-/// that is not `https:`, which is what makes `https:` a safe thing to name
-/// here: `javascript:` and `data:` can never reach an emitted attribute in the
-/// first place.
+/// nothing of the operator's beyond the project it is already rendering. Every
+/// value in play is written by the project's own members through the normal
+/// write path — the manifest's links, and the urls a page writes into its own
+/// markup for an image or a video, alike — and a page cannot add a resource
+/// DECLARATION for itself: the validator refuses `<script src`. And the scheme
+/// is what bounds those values: `resources::validate` refuses any manifest url
+/// that is not `https:`, so `javascript:` and a `data:` document can never
+/// reach an emitted attribute in the first place, while a url written straight
+/// into page markup is not scheme-checked by anything — for those, the scheme
+/// source named here is the only thing refusing plain `http:`.
 ///
 /// `style-src` and `font-src` also still allow jsdelivr explicitly. That adds no
 /// new host to the trust boundary: jsdelivr is already permitted for
@@ -486,14 +511,17 @@ pub fn compose_export_document(
 /// Before the `https:` widening, `style-src 'self'` silently refused every
 /// external webfont — the `<link>` stayed in the DOM, the browser dropped the
 /// request, and the page fell back to the system stack with nothing visible in
-/// the page to say so.
+/// the page to say so. `media-src` is spelled out here for the same reason it
+/// did not exist before: until it does, `default-src 'self'` governs a
+/// `<video>`, so an external source is refused the same silent way.
 pub fn sandbox_csp(token: &str) -> String {
     let _ = token;
     format!(
         "default-src 'self'; \
          script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https:; \
          style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https:; \
-         img-src 'self' data: blob:; \
+         img-src 'self' data: blob: https:; \
+         media-src 'self' data: blob: https:; \
          font-src 'self' data: https://cdn.jsdelivr.net https:; \
          connect-src 'self' https://cdn.jsdelivr.net; \
          form-action 'none'; \

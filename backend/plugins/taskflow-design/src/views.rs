@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, REFERRER_POLICY};
 use http::HeaderValue;
 use serde::Deserialize;
 use serde_json::json;
@@ -691,14 +691,26 @@ pub async fn design_events(
 
 /// Apply the sandbox response headers: tight CSP (connect-src self + Tailwind
 /// CDN only — without it agent-authored JS could fetch the operator's
-/// localhost; `script-src`/`style-src`/`font-src` additionally allow any
-/// `https:` origin for the project's external resources — see
-/// [`composer::sandbox_csp`]), no-store (tokens outlive nothing), noindex.
+/// localhost; `script-src`/`style-src`/`font-src`/`img-src`/`media-src`
+/// additionally allow any `https:` origin for the project's external resources
+/// — see [`composer::sandbox_csp`]), no-store (tokens outlive nothing), noindex,
+/// and no-referrer.
+///
+/// `referrer-policy: no-referrer` is not polish. The sandbox URL IS the
+/// credential (`/s/{token}/…`), and every external subresource request carries
+/// it in `Referer`: allowing a webfont already sent it to the font origins, and
+/// allowing images and media sends it to every image and video host any page
+/// references. `no-store` and `noindex` already say this response must not be
+/// kept or indexed; this header is what makes that true for its subresources.
+///
+/// Both sandbox routes go through here — the composed page and the component
+/// preview — so a header added here is a header added to both.
 fn apply_sandbox_headers(response: &mut Response, token: &str) {
     let headers = response.headers_mut();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert("x-robots-tag", HeaderValue::from_static("noindex"));
+    headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
     if let Ok(csp) = composer::sandbox_csp(token).parse() {
         headers.insert("content-security-policy", csp);
     }
