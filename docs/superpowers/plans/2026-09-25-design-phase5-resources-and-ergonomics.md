@@ -1965,6 +1965,8 @@ Tests: an empty or whitespace-only query returns everything; a query matching a 
 
 Not specified further here on purpose: write this task once the fonts feature has been verified on a real stack, so it can be scoped against how webfont loading actually behaves rather than how it is expected to.
 
+**Status 2026-09-25: blocked on the user, and honestly so.** *(Added during execution.)* The condition above is a **real** dependency, not ceremony: the font feature's backend half is merged and unit-tested, but **nothing in this phase has been browser-verified** — no implementer has run the built app, because the user asked to test locally themselves and publishing is on hold. So the one input this task needs (how a webfont URL actually loads, fails and falls back in the frame *and* in the chrome) does not exist yet. Writing it now would mean scoping it against an expectation, which is exactly what the paragraph above forbids. It waits for the user's local testing, and if their answer is "the fonts are fine", this task becomes writable immediately.
+
 ---
 
 ### Task 20: Group creation through a real dialog
@@ -2318,6 +2320,8 @@ export function resolveActiveProject(
 **Why a second batch and not more items in Task 22:** Task 22's brief was cut before these arrived, and it is already mid-round. Adding to a brief that is being worked is how items get silently dropped; a named second batch keeps the record unambiguous. Same shape as Task 22: small, non-blocking, each from a review whose task **passed** (Task 23: approved, 0 Critical, 0 Important).
 
 **Files:** `v2_fe/src/pages/design/pages-order.ts`, `pages-panel.tsx`, and their tests; plus whatever the sweep below finds.
+
+> ⚠️ **Run this task LAST among the remaining ones, and locate everything by symbol rather than by line.** *(Added 2026-09-25.)* Its items were written by four separate reviews at four different commits, and **every file it touches has moved since** — Task 26 is reworking `pages-panel.tsx` and `pages-order.ts` right now, and Task 28 restructures `App.tsx`. The citations below (`pages-panel.tsx:300`, `design-devices.ts:315`, `DesignSurfacePage.tsx:280`, `design-canvas.tsx:85-89`, `DesignSurfacePage.tsx:606`, and the `composer.rs` block in item 7) were accurate **at the commits their reviewers read**, which is not the tree you will open. This is not a small hazard for *this* task in particular: it is 15 items whose whole job is correcting statements that are slightly wrong about code that has since moved, and an implementer who trusts a coordinate will "fix" a line that no longer says what the finding described. If a cited line and the finding disagree, **the finding is probably still right and the coordinate is not** — find the code it describes, fix that, and note the drift in your report.
 
 - [ ] **1. `GroupedPages.ungrouped` has no production consumer, and its doc says the panel draws it** (Task 23's review, Minor 1). The panel renders `sections.groups` only (`pages-panel.tsx:300`); `ungrouped` is read by tests alone. Both its type doc ("…then the tail") and the `claimed`-not-stored rationale ("a page whose group is gone must be listed, not hidden") describe a rendered tail that **no longer exists** — the flat list is what guarantees nothing vanishes now. **Keep the field** (the partition invariant is worth having) and restate the doc as what it is: the sections' complement, computed for the partition the tests pin, no longer drawn.
 
