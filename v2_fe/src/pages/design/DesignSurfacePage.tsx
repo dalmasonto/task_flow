@@ -86,12 +86,22 @@ import { toolForKey, type CanvasTool } from "./canvas-tools"
 import { CommentPins, DesignInspector } from "./design-inspector"
 import { boardForComment, commentRoute } from "./design-comments"
 import { sanitizeSelection, widenSelection, pinNumber, type SelectionState } from "./design-selection"
+import {
+  addSelection,
+  removeSelection,
+  replaceSelection,
+  type SelectionList,
+} from "./selection-list"
 import { CommandPalette, type PaletteItem } from "./design-palette"
 import { nextDesignTab, type DesignTab } from "./design-tabs"
 import { readUIState, writeUIState } from "./design-ui-state"
 import { shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 import { PagesPanel } from "./pages-panel"
+
+/** A selection plus the board it was captured on — the key the canvas overlay
+ *  draws its rect against and the frame `design:flash` posts into. */
+type PickedSelection = SelectionState & { boardKey: string }
 
 export function DesignSurfacePage({
   projectId,
@@ -128,7 +138,24 @@ export function DesignSurfacePage({
    *  surface, because the surface owns the actions. */
   const [boardEpochs, setBoardEpochs] = useState<Map<string, number>>(new Map())
   const [comments, setComments] = useState<DesignComment[]>([])
-  const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
+  /** Every selection on the canvas, plus which row of them is active. The
+   *  ACTIVE one is "the selection" for every other surface in this file — the
+   *  canvas overlay, the chat rail's context chip, the Inspector's breadcrumb
+   *  and its comment form — and the list operations that maintain it (the
+   *  dedupe, a removal, and the active index after either) live in
+   *  `selection-list`, where they are unit-tested.
+   *
+   *  A selection can be captured on ANY page open on the canvas, so the board it
+   *  came from travels with it: the overlay rect is drawn in that board's
+   *  coordinates, and `design:flash` resolves the path inside that frame. It is
+   *  not re-derivable from the route, which is open on several devices at once. */
+  const [selections, setSelections] = useState<SelectionList<PickedSelection>>({
+    list: [],
+    active: -1,
+  })
+  // The active row, or nothing to inspect. `-1` is the empty list's active
+  // index (see `selection-list`), and this line is the only place it is read.
+  const selection = selections.active >= 0 ? (selections.list[selections.active] ?? null) : null
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   // Which pages are open on the canvas — one ROW per open route. Seeded to
   // every route once per project (see the hydration effect below); after that,
@@ -408,7 +435,9 @@ export function DesignSurfacePage({
     (raw: Record<string, unknown>, board: Artboard) => {
       const clean = sanitizeSelection(raw, board.route, deviceById(board.deviceId).id)
       if (!clean) return
-      setSelection({ ...clean, boardKey: board.key })
+      // A second click on an element that is already selected re-activates its
+      // row instead of adding a twin (`addSelection` decides which).
+      setSelections((current) => addSelection(current.list, { ...clean, boardKey: board.key }))
       setPicking(false)
     },
     [],
@@ -419,18 +448,45 @@ export function DesignSurfacePage({
     return { rect: selection.rect, boardKey: selection.boardKey }
   }, [selection])
 
-  // Re-anchor the selection to a breadcrumb crumb (`widenSelection` decides
-  // what that means; index 0 is the outermost ancestor). The board is kept
-  // deliberately: the crumb's path is only resolvable inside the frame it was
-  // captured in — it is the selector `design:flash` queries and the anchor the
-  // comment saves — so widening must not move the comment to another board.
-  const handleWiden = useCallback((index: number) => {
-    setSelection((current) => {
-      if (!current) return current
-      const widened = widenSelection(current, index)
-      return widened ? { ...widened, boardKey: current.boardKey } : current
+  // Re-anchor the ACTIVE selection to a breadcrumb crumb (`widenSelection`
+  // decides what that means; index 0 is the outermost ancestor). The board is
+  // kept deliberately: the crumb's path is only resolvable inside the frame it
+  // was captured in — it is the selector `design:flash` queries and the anchor
+  // the comment saves — so widening must not move the comment to another board.
+  // `replaceSelection` keeps the row where it is in the list, and drops the row
+  // it now duplicates rather than leaving two rows for one element.
+  const handleWiden = useCallback((crumb: number) => {
+    setSelections((current) => {
+      const row = current.list[current.active]
+      if (!row) return current
+      const widened = widenSelection(row, crumb)
+      if (!widened) return current
+      return replaceSelection(current.list, current.active, { ...widened, boardKey: row.boardKey })
     })
   }, [])
+
+  // Make a row from the Inspector's list the active one. This is the same
+  // operation a canvas click is — an equivalent row is re-activated, never
+  // duplicated — and the canvas follows it: the overlay rect is drawn from the
+  // ACTIVE selection, so switching to a row captured on another page without
+  // going there would put the mark where the human cannot see it.
+  const handleActivateSelection = useCallback(
+    (index: number) => {
+      setSelections((current) => {
+        const row = current.list[index]
+        return row ? addSelection(current.list, row) : current
+      })
+      const row = selections.list[index]
+      if (row) focusBoard(row.boardKey, transform)
+    },
+    [selections, transform],
+  )
+
+  const handleRemoveSelection = useCallback((index: number) => {
+    setSelections((current) => removeSelection(current, index))
+  }, [])
+
+  const handleClearSelections = useCallback(() => setSelections({ list: [], active: -1 }), [])
 
   // "Take me there" for a comment row or a palette entry: one function, so the
   // two surfaces cannot drift into focusing different boards. (The pin has its
@@ -663,7 +719,11 @@ export function DesignSurfacePage({
               onRefreshWorkspace={onRefreshWorkspace}
               onComposeTask={onComposeTask}
               contextChip={contextChip}
-              onClearContextChip={() => setSelection(null)}
+              // The chip carries the ACTIVE selection, so its ✕ drops that one
+              // row and leaves the rest of the list standing — clearing every
+              // selection from a control that names one would lose picks the
+              // human never asked to lose.
+              onClearContextChip={() => handleRemoveSelection(selections.active)}
             />
           ) : (
             <EmptyCanvas message={"Loading design conversation…"} />
@@ -732,10 +792,17 @@ export function DesignSurfacePage({
 
             <TabsContent value="inspect">
               <DesignInspector
-                selection={selection}
+                selections={selections.list}
+                activeIndex={selections.active}
                 manifest={manifest}
                 projectId={projectId}
-                onDeselect={() => setSelection(null)}
+                labelFor={labelFor}
+                // The live list (SSE + a refetch on create), which is what the
+                // per-row "already commented" badges are counted from.
+                comments={comments}
+                onActivate={handleActivateSelection}
+                onRemove={handleRemoveSelection}
+                onClear={handleClearSelections}
                 onCommentCreated={() => refreshComments()}
                 onWiden={handleWiden}
                 onFocusComment={focusComment}

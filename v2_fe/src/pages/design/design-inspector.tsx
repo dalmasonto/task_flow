@@ -22,6 +22,7 @@ import {
   type CommentScope,
 } from "@/lib/design-api"
 import { type SelectionState, pinNumber } from "./design-selection"
+import { commentsForSelection, selectionName } from "./selection-list"
 import { boardsForComment, commentResolutionNote, commentRoute } from "./design-comments"
 
 // ---------------------------------------------------------------------------
@@ -29,30 +30,52 @@ import { boardsForComment, commentResolutionNote, commentRoute } from "./design-
 // ---------------------------------------------------------------------------
 
 export function DesignInspector({
-  selection,
+  selections,
+  activeIndex,
   manifest,
   projectId,
-  onDeselect,
+  labelFor,
+  comments,
+  onActivate,
+  onRemove,
+  onClear,
   onCommentCreated,
   onWiden,
   onFocusComment,
 }: {
-  selection: SelectionState | null
+  /** Every selection made on the canvas, in the order they were picked. */
+  selections: SelectionState[]
+  /** Which of them the form below edits — an index into `selections`. */
+  activeIndex: number
   manifest: DesignManifest | null
   projectId: number
-  onDeselect: () => void
+  /** A page's display name, resolved by the CALLER through `pageLabel` (the
+   *  same resolver the canvas and the comment rows use, so a renamed page
+   *  cannot read one way here and another way everywhere else). */
+  labelFor: (route: string) => string
+  /** Every comment on the project — the per-row "already commented" badge. */
+  comments: DesignComment[]
+  onActivate: (index: number) => void
+  onRemove: (index: number) => void
+  /** Drop every selection (the panel's ✕). */
+  onClear: () => void
   onCommentCreated: (comment: DesignComment) => void
-  /** Re-anchor the selection to the crumb at this index (see `widenSelection`). */
+  /** Re-anchor the ACTIVE selection to the crumb at this index (see
+   *  `widenSelection`). */
   onWiden?: (index: number) => void
   /** Take the canvas to where a comment was captured. */
   onFocusComment?: (comment: DesignComment) => void
 }) {
-  if (!selection) {
+  // `-1` is the empty list's active index, so this read is the one place that
+  // convention is resolved: no index, no active row, no form.
+  const active = selections[activeIndex] ?? null
+  if (!active) {
     return (
       <div className="flex h-full flex-col overflow-y-auto">
         <PanelTitle>Inspector</PanelTitle>
         <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-          Hit <code>C</code> and click any element to select it. <code>Esc</code> deselects.
+          Hit <code>C</code> and click any element to select it — pick as many as
+          you like, on as many pages. Each one gets its own comment.
         </p>
         <CommentsListSection projectId={projectId} onFocus={onFocusComment} />
       </div>
@@ -60,23 +83,38 @@ export function DesignInspector({
   }
 
   // Keyed by the selection: a new selection remounts the form with fresh
-  // scope/body state — no setState-in-effect reset dance.
-  const formKey = `${selection.route}|${selection.elementPath}|${selection.component ?? ""}`
-  const crumbs = selection.ancestors.length ? selection.ancestors : [selection.tag]
+  // scope/body state — no setState-in-effect reset dance. Which selection that
+  // is follows the ACTIVE row, so switching rows in the list above re-targets
+  // the form the same way picking a new element does.
+  const formKey = `${active.route}|${active.elementPath}|${active.component ?? ""}`
+  const crumbs = active.ancestors.length ? active.ancestors : [active.tag]
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PanelTitle onClose={onDeselect}>Inspector</PanelTitle>
+      <PanelTitle onClose={onClear}>Inspector</PanelTitle>
 
-      {/* Breadcrumb — every crumb widens the selection upward. The LAST crumb is
-          the selection itself, so it is current state, not a control; the ones
-          before it widen to that ancestor. A crumb is only offered as a button
-          when the frame sent its path (`ancestorPaths`) — a label alone cannot
-          be turned back into an element, so a button there would be the dead
-          control this breadcrumb used to be. */}
+      {/* The selections, one row each. Rendered for a single selection too: the
+          row is the only place the PANEL says which page the selection is on
+          (the breadcrumb below is element ancestry, which is a different
+          question), and the list is how the human learns they can pick more. */}
+      <SelectionRows
+        selections={selections}
+        activeIndex={activeIndex}
+        labelFor={labelFor}
+        comments={comments}
+        onActivate={onActivate}
+        onRemove={onRemove}
+      />
+
+      {/* Breadcrumb — every crumb widens the ACTIVE selection upward. The LAST
+          crumb is the selection itself, so it is current state, not a control;
+          the ones before it widen to that ancestor. A crumb is only offered as
+          a button when the frame sent its path (`ancestorPaths`) — a label
+          alone cannot be turned back into an element, so a button there would
+          be the dead control this breadcrumb used to be. */}
       <nav className="flex flex-wrap items-center gap-x-1 px-3 py-2 text-[11px]">
         {crumbs.map((crumb, i) => {
           const current = i === crumbs.length - 1
-          const canWiden = !current && !!onWiden && !!selection.ancestorPaths[i]
+          const canWiden = !current && !!onWiden && !!active.ancestorPaths[i]
           const crumbClass = cn(
             "rounded px-1",
             current ? "bg-accent/10 font-semibold text-accent" : "text-muted-foreground",
@@ -106,24 +144,131 @@ export function DesignInspector({
 
       <CommentForm
         key={formKey}
-        selection={selection}
+        selection={active}
         manifest={manifest}
         projectId={projectId}
         onCreated={onCommentCreated}
       />
 
-      {selection.snippet ? (
+      {active.snippet ? (
         <details className="mx-3 mt-3 rounded-lg border">
           <summary className="cursor-pointer px-2 py-1.5 text-xs text-muted-foreground">
             Captured HTML
           </summary>
           <pre className="overflow-x-auto px-2 pb-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-            {selection.snippet}
+            {active.snippet}
           </pre>
         </details>
       ) : null}
 
       <CommentsListSection projectId={projectId} onFocus={onFocusComment} />
+    </div>
+  )
+}
+
+/// One row per selection: which page it is on, what was selected, whether it
+/// has a comment yet, and how to make it active or drop it.
+///
+/// The route is on EVERY row because a selection can be captured on any page
+/// open on the canvas, and a list of component names with no page beside them
+/// cannot be mapped — `nav` names a dozen different components without it,
+/// which is the whole reason several selections across pages were asked for.
+/// The label is resolved through `labelFor` (the caller's `pageLabel`) and the
+/// raw path rides beside it: the label is what the human recognises, the path
+/// is what the agent is sent and what the canvas row headers show.
+///
+/// The badge is a count, not a second list: the point is to see at a glance
+/// which rows are already covered. `comments` is the project's live list (the
+/// page fetches it and refreshes it on create/SSE), and the match is by route
+/// AND element path — see `commentsForSelection`, which is also where the
+/// comment row's own field spellings are read.
+function SelectionRows({
+  selections,
+  activeIndex,
+  labelFor,
+  comments,
+  onActivate,
+  onRemove,
+}: {
+  selections: SelectionState[]
+  activeIndex: number
+  labelFor: (route: string) => string
+  comments: DesignComment[]
+  onActivate: (index: number) => void
+  onRemove: (index: number) => void
+}) {
+  // Index-aligned with `selections`, and recomputed when either input changes
+  // rather than on every render: panning the canvas re-renders this page on
+  // each pointermove, and the join is a scan of every comment per row. (Same
+  // reason `CommentPins` memoizes its parse.)
+  const counts = useMemo(
+    () => selections.map((selection) => commentsForSelection(comments, selection).length),
+    [comments, selections],
+  )
+
+  return (
+    <div className="mx-3 mt-2 space-y-0.5 rounded-lg border bg-card p-1">
+      {selections.map((selection, i) => {
+        const isActive = i === activeIndex
+        const count = counts[i] ?? 0
+        return (
+          <div
+            // The row's identity, not its position: `selection-list` keeps one
+            // row per (route, elementPath), so this is unique — and removing a
+            // row from the middle must not re-key the rows below it.
+            key={`${selection.route}|${selection.elementPath}`}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-1.5 py-1",
+              isActive ? "bg-accent/10" : "hover:bg-muted",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onActivate(i)}
+              aria-current={isActive ? "true" : undefined}
+              title={isActive ? "The selection being commented on" : "Comment on this selection"}
+              className="min-w-0 flex-1 text-left"
+            >
+              <span className="flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    "truncate text-xs",
+                    isActive ? "font-medium text-accent" : "text-foreground/80",
+                  )}
+                >
+                  {selectionName(selection)}
+                </span>
+                {count > 0 ? (
+                  // Neutral on purpose. The panel's coloured pills are comment
+                  // STATUSES (amber open, blue sent, emerald addressed) a few
+                  // inches below this row, and this count is of comments in any
+                  // status at all — borrowing one of those colours would say
+                  // something the badge does not mean. The number is the
+                  // signal; the title spells it out.
+                  <span
+                    className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-medium text-foreground/70"
+                    title={`${count} comment${count === 1 ? "" : "s"} on this selection`}
+                  >
+                    {count}
+                  </span>
+                ) : null}
+              </span>
+              <span className="mt-0.5 flex items-baseline gap-1 text-[10px] text-muted-foreground">
+                <span className="truncate">{labelFor(selection.route)}</span>
+                <span className="truncate font-mono opacity-70">{selection.route}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemove(i)}
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Remove this selection"
+            >
+              ✕
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -267,7 +412,10 @@ export function PanelTitle({ children, onClose }: { children: React.ReactNode; o
     <div className="flex shrink-0 items-center justify-between border-b px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
       {children}
       {onClose ? (
-        <button onClick={onClose} className="rounded p-0.5 hover:bg-muted" title="Deselect (Esc)">
+        // The Inspector's ✕, which now clears the WHOLE selection list (each
+        // row has its own ✕ for one) — and not Esc, which only leaves picking
+        // mode. The old title promised a shortcut that never existed.
+        <button onClick={onClose} className="rounded p-0.5 hover:bg-muted" title="Clear all selections">
           ✕
         </button>
       ) : null}
