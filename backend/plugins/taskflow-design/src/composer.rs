@@ -9,6 +9,7 @@
 //! rewriting of internal links, and the overlay `state` hook screenshots use.
 
 use crate::manifest::DesignManifest;
+use crate::resources::ResourceLink;
 
 /// The picker runtime, injected verbatim into every composed document. This is
 /// SYSTEM-owned: it is never read from a design row, so agents cannot alter or
@@ -215,6 +216,45 @@ pub fn compose_body_fragment(token: &str, page_path: &str, fragment: &str) -> St
     crate::primitives::expand_primitives(&annotated)
 }
 
+/// The project's enabled external resources as tags for the document head.
+/// Emitted BEFORE the page's own stylesheet so a page can override a webfont,
+/// and only for enabled sets — a disabled set contributes nothing.
+///
+/// Takes the slice rather than the manifest so it stays pure: the caller (the
+/// manifest, or a test) supplies exactly the links to emit.
+///
+/// ESCAPING IS LOAD-BEARING HERE, not hygiene. `resources::validate` treats a
+/// url as opaque, so it accepts one containing a quote, and this document runs
+/// scripts — an unescaped `href="https://ok.example/x" onload="…"` would close
+/// the attribute and execute. Every interpolated value goes through [`esc`],
+/// and EVERY ATTRIBUTE IS DOUBLE-QUOTED because `esc` escapes `"` but NOT `'`:
+/// a single-quoted attribute here would let a quote in a url break out with
+/// `esc` powerless to stop it. The scheme refusal that keeps `javascript:` out
+/// of these values is [`crate::resources::validate`]'s, which the manifest runs
+/// before this ever sees a link.
+pub fn resources_tags(links: &[(bool, ResourceLink)]) -> String {
+    let mut out = String::new();
+    for (is_script, link) in links {
+        if *is_script {
+            if let Some(src) = &link.script {
+                out.push_str(&format!(
+                    "<script src=\"{}\"{}></script>\n",
+                    esc(src),
+                    if link.is_async { " async" } else { "" }
+                ));
+            }
+        } else if let (Some(rel), Some(href)) = (&link.rel, &link.href) {
+            out.push_str(&format!(
+                "<link rel=\"{}\" href=\"{}\"{}>\n",
+                esc(rel),
+                esc(href),
+                if link.crossorigin { " crossorigin" } else { "" }
+            ));
+        }
+    }
+    out
+}
+
 /// Compose the full document for one route.
 ///
 /// * `token`     — the sandbox read token for this project
@@ -235,6 +275,11 @@ pub fn compose_document(
     state: Option<&str>,
 ) -> String {
     let annotated = compose_body_fragment(token, page_path, fragment);
+
+    // The project's external resources (a webfont and its companion links) land
+    // in the head before the page's own stylesheet, so a page can override a
+    // webfont. Empty — and so invisible — for a project that has none.
+    let resources = resources_tags(&manifest.resources);
 
     let mut component_tags = String::new();
     for c in &manifest.components {
@@ -295,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {{
     }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
+  {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css">
   {component_tags}<script>{PICKER_RUNTIME}</script>
   {state_script}
 </head>
@@ -366,12 +411,17 @@ pub fn compose_export_body(fragment: &str) -> String {
 ///   (escaped) rather than linked.
 /// * `components`   — `(name, js_source)` pairs; each is inlined as its own
 ///   `<script>` (escaped) rather than `src=`'d.
+/// * `resources`    — the manifest's `resources` pairs, the project's external
+///   links. Passed as the slice (not the manifest) to keep this function pure.
+///   They travel with the download on purpose: a font that renders in the
+///   artboard but is missing from `page.html` would be a silent surprise.
 pub fn compose_export_document(
     page_path: &str,
     fragment: &str,
     theme: &str,
     tokens_css: &str,
     components: &[(String, String)],
+    resources: &[(bool, ResourceLink)],
 ) -> String {
     let _ = page_path;
     let body = compose_export_body(fragment);
@@ -384,6 +434,7 @@ pub fn compose_export_document(
     }
 
     let safe_tokens_css = escape_for_inline_style(tokens_css);
+    let resource_tags = resources_tags(resources);
 
     format!(
         r#"<!doctype html>
@@ -392,7 +443,7 @@ pub fn compose_export_document(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <style>{safe_tokens_css}</style>
+  {resource_tags}<style>{safe_tokens_css}</style>
   {component_scripts}</head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
 {body}
@@ -406,24 +457,44 @@ pub fn compose_export_document(
 /// internal network from inside their browser. Inline scripts are allowed
 /// because the composer's own picker/state scripts are inline by design.
 ///
-/// `style-src` and `font-src` also allow jsdelivr so a page can load a web font.
-/// This adds no new host to the trust boundary: jsdelivr is already permitted for
+/// `script-src`, `style-src` and `font-src` allow any `https:` origin — those
+/// three and no others. They are the directives a project's external resources
+/// need, because a webfont is fetched by the RENDERER: a stylesheet arrives
+/// under `style-src`, the font file it names under `font-src`, and a companion
+/// script under `script-src`. `connect-src` is deliberately NOT widened even
+/// though it looks like the same kind of change — a font is not fetched by
+/// `fetch()`, so widening it would buy nothing and would hand agent-authored JS
+/// a channel to POST the operator's localhost and intranet to any https host.
+/// `form-action`, `base-uri` and `frame-ancestors` stay as they were.
+///
+/// The widening is bounded by three things together, and each is load-bearing.
+/// The sandbox is a separate origin with no cookies behind a short-lived
+/// read-only token, so a page that misbehaves with what it loads reaches
+/// nothing of the operator's beyond the project it is already rendering. The
+/// links come from the project's own members through the normal write path, not
+/// from the page being rendered — the page validator refuses `<script src`, so
+/// a page cannot add one for itself. And `resources::validate` refuses any url
+/// that is not `https:`, which is what makes `https:` a safe thing to name
+/// here: `javascript:` and `data:` can never reach an emitted attribute in the
+/// first place.
+///
+/// `style-src` and `font-src` also still allow jsdelivr explicitly. That adds no
+/// new host to the trust boundary: jsdelivr is already permitted for
 /// `script-src`, the strongest capability here, so allowing a stylesheet and a
 /// font from that same origin grants nothing an agent could not already do.
 ///
-/// Before this, `style-src 'self'` silently refused every external webfont — the
-/// `<link>` stayed in the DOM, the browser dropped the request, and the page fell
-/// back to the system stack with nothing visible in the page to say so. Fonts now
-/// come from Fontsource, e.g.
-/// `https://cdn.jsdelivr.net/npm/@fontsource/inter@5/latin-400.css`.
+/// Before the `https:` widening, `style-src 'self'` silently refused every
+/// external webfont — the `<link>` stayed in the DOM, the browser dropped the
+/// request, and the page fell back to the system stack with nothing visible in
+/// the page to say so.
 pub fn sandbox_csp(token: &str) -> String {
     let _ = token;
     format!(
         "default-src 'self'; \
-         script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
-         style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; \
+         script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https:; \
+         style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https:; \
          img-src 'self' data: blob:; \
-         font-src 'self' data: https://cdn.jsdelivr.net; \
+         font-src 'self' data: https://cdn.jsdelivr.net https:; \
          connect-src 'self' https://cdn.jsdelivr.net; \
          form-action 'none'; \
          base-uri 'none'; \
@@ -471,6 +542,7 @@ mod tests {
             "light",
             ":root { --accent: #6366f1; }",
             &[("app-header".to_string(), "customElements.define('app-header', class {});".to_string())],
+            &[],
         );
         assert!(doc.contains("<style>:root { --accent: #6366f1; }</style>"));
         assert!(!doc.contains("href=\"/s/"));

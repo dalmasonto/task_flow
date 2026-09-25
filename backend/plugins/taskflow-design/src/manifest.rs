@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::models::{DesignFile, DesignFileKind};
+use crate::resources::{self, ResourceLink};
 use crate::tokens::{TokensDoc, category_to_var_name};
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +68,12 @@ pub struct DesignManifest {
     /// Monotonic stamp bumped on every accepted write so consumers can cheaply
     /// detect "manifest changed" without diffing.
     pub revision: i64,
+    /// The project's external resources — web fonts and their companion links —
+    /// as `(is_script, link)` pairs, in document order, from ENABLED sets only.
+    /// Derived from the `styles/resources.json` row by the same forgiving read
+    /// as the tokens above; a project with no such row (most of them) composes
+    /// exactly as it did before this field existed.
+    pub resources: Vec<(bool, ResourceLink)>,
 }
 
 /// The route a page file serves: `pages/index.html` → `/`, else `/<stem>`.
@@ -233,12 +240,30 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
             parse_token_groups(&tokens_css)
         });
 
+    // Absent, unparseable, or invalid: no links, page composes normally. The
+    // read path is forgiving by design — a bad resource document must never
+    // stop a page from rendering, because the page is the thing being worked on.
+    //
+    // `validate` runs BEFORE `enabled_links`, and that order is the security
+    // property, not a formality: it is why `composer::resources_tags` can
+    // ESCAPE its values instead of FILTERING them. A document carrying a
+    // refused url — `javascript:`, a bare path, a scheme-relative `//host` —
+    // contributes no links at all, so the composer never holds one.
+    let resources = files
+        .iter()
+        .find(|f| f.path == resources::RESOURCES_PATH)
+        .and_then(|f| resources::parse(&f.content).ok())
+        .and_then(|d| resources::validate(d).ok())
+        .map(|d| resources::enabled_links(&d).into_iter().map(|(s, l)| (s, l.clone())).collect())
+        .unwrap_or_default();
+
     DesignManifest {
         project: project_id,
         routes,
         components,
         tokens,
         revision,
+        resources,
     }
 }
 
@@ -340,6 +365,73 @@ mod tests {
             updated_by: "test".to_string(),
             created_at: None,
             updated_at: None,
+        }
+    }
+
+    fn resource_file(content: &str) -> DesignFile {
+        DesignFile {
+            id: 0,
+            project: ForeignKey::new(1),
+            kind: DesignFileKind::Token,
+            path: resources::RESOURCES_PATH.to_string(),
+            content: content.to_string(),
+            version: 1,
+            updated_by: "test".to_string(),
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn page_file(path: &str) -> DesignFile {
+        DesignFile {
+            kind: DesignFileKind::Page,
+            path: path.to_string(),
+            content: "<main>x</main>".to_string(),
+            ..resource_file("")
+        }
+    }
+
+    #[test]
+    fn enabled_sets_reach_the_manifest_and_disabled_ones_do_not() {
+        let doc = r#"{"version":1,"sets":[
+            {"id":"on","name":"On","enabled":true,
+             "links":[{"rel":"preconnect","href":"https://fonts.googleapis.com"},
+                      {"rel":"stylesheet","href":"https://fonts.googleapis.com/css2?family=Inter&display=swap"}]},
+            {"id":"off","name":"Off","enabled":false,
+             "links":[{"rel":"stylesheet","href":"https://example.com/off.css"}]}
+        ]}"#;
+        let files = vec![page_file("pages/index.html"), resource_file(doc)];
+        let m = build(1, &files, 0);
+        let hrefs: Vec<_> = m.resources.iter().map(|(_, l)| l.href.as_deref()).collect();
+        assert_eq!(m.resources.len(), 2, "only the enabled set contributes: {hrefs:?}");
+        assert!(m.resources.iter().all(|(is_script, _)| !*is_script));
+        assert!(hrefs.contains(&Some("https://fonts.googleapis.com")), "{hrefs:?}");
+        assert!(
+            !hrefs.contains(&Some("https://example.com/off.css")),
+            "a disabled set must not contribute: {hrefs:?}"
+        );
+    }
+
+    #[test]
+    fn a_document_with_a_dangerous_scheme_contributes_nothing() {
+        // The end-to-end half of the scheme rule: `validate` refuses the whole
+        // document, the forgiving read collapses it to no links, and the emitter
+        // therefore has nothing dangerous to escape.
+        let doc = r#"{"version":1,"sets":[{"id":"a","name":"A","enabled":true,
+            "links":[{"rel":"stylesheet","href":"javascript:alert(1)"}]}]}"#;
+        let m = build(1, &[page_file("pages/index.html"), resource_file(doc)], 0);
+        assert!(m.resources.is_empty(), "a refused document yields no links");
+    }
+
+    #[test]
+    fn an_absent_or_unparseable_resource_row_contributes_nothing() {
+        for doc in [None, Some("{ not json")] {
+            let mut files = vec![page_file("pages/index.html")];
+            if let Some(c) = doc {
+                files.push(resource_file(c));
+            }
+            let m = build(1, &files, 0);
+            assert!(m.resources.is_empty(), "forgiving read: {doc:?}");
         }
     }
 

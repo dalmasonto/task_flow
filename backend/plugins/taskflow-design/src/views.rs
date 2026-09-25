@@ -691,7 +691,9 @@ pub async fn design_events(
 
 /// Apply the sandbox response headers: tight CSP (connect-src self + Tailwind
 /// CDN only — without it agent-authored JS could fetch the operator's
-/// localhost), no-store (tokens outlive nothing), noindex.
+/// localhost; `script-src`/`style-src`/`font-src` additionally allow any
+/// `https:` origin for the project's external resources — see
+/// [`composer::sandbox_csp`]), no-store (tokens outlive nothing), noindex.
 fn apply_sandbox_headers(response: &mut Response, token: &str) {
     let headers = response.headers_mut();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
@@ -1021,12 +1023,19 @@ pub async fn export_page_html(
         })
         .collect();
 
+    // The project's external resources (web fonts and their companion links),
+    // derived the SAME way the sandbox document derives them — `manifest::build`'s
+    // forgiving read of `styles/resources.json` — so the download cannot drift
+    // from the artboard: a font that renders in the preview ships in page.html.
+    let resources = manifest::build(project_id, &files, 0).resources;
+
     let html = composer::compose_export_document(
         &page_path,
         &page_file.content,
         "light",
         &tokens_css,
         &components,
+        &resources,
     );
 
     let filename = safe_filename_for_route(&normalized);
