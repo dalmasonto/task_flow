@@ -829,7 +829,16 @@ pub fn validate(doc: ResourcesDoc) -> Result<ResourcesDoc, String> {
             if !link.is_script {
                 let rel = link.rel.as_deref().unwrap_or("").trim().to_ascii_lowercase();
                 if !ALLOWED_REL.contains(&rel.as_str()) {
-                    return Err(format!("\"{rel}\" is not an allowed link relation"));
+                    // Enumerate from the constant, never a hardcoded list: the
+                    // first version of this message named no alternatives at
+                    // all, so a user who wrote a relation that is not allowed
+                    // (or whose relation was dropped from the set) had no way to
+                    // learn what to write instead. The set and the sentence that
+                    // describes it are now one source.
+                    return Err(format!(
+                        "\"{rel}\" is not an allowed link relation; use one of: {}",
+                        ALLOWED_REL.join(", ")
+                    ));
                 }
             }
             links.push(link);
