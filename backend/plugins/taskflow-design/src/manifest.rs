@@ -592,7 +592,7 @@ mod tests {
     /// struct is a different case and is NOT excluded: `put_file`'s
     /// `"file": row` is a `DesignFile` and `rejection_response`'s
     /// `"errors": verdict.errors` is a `Vec<ValidationError>`, both
-    /// struct-decided, both serialised here.
+    /// struct-decided, both emitted by the server.
     #[test]
     fn the_mirrored_shapes_serialise_under_the_key_names_the_frontend_declares() {
         let json = serde_json::json!({
@@ -692,8 +692,10 @@ mod tests {
         // while the endpoint sent `page_path`. Seventeen keys, no `rename_all`,
         // so the wire is the column names. Only `resolution_note` is pinned
         // anywhere else on the wire (`phase3_agent_surface.rs`), and
-        // `design-comments.test.ts` pins the CLIENT helpers against a CLIENT
-        // fixture — which is exactly the gap this closes.
+        // `design-comments.test.ts` pins the CLIENT helpers against the wire
+        // they read — hand-typed JSON through the real `readJson` — so what is
+        // left to this test is the SERVER's side of the same shape. That is the
+        // gap it closes.
         let comment = DesignComment {
             id: 1,
             project: ForeignKey::new(1),

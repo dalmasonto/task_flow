@@ -7,7 +7,7 @@
 
 mod support;
 
-use serde_json::{Value, json};
+use serde_json::json;
 use support::TestApp;
 
 /// Seed an agent + ACTIVE credential directly, returning the raw key. Uses the
@@ -19,7 +19,6 @@ async fn seed_agent(
     use taskflow_agents::agent_auth::hash_key;
     use taskflow_agents::models::{
         TaskflowAgent, TaskflowAgentCredential, TaskflowAgentStatus, TaskflowCredentialStatus,
-        taskflow_agent_credential,
     };
     use umbral::orm::ForeignKey;
 
@@ -74,10 +73,6 @@ async fn setup_app() -> (TestApp, i64, i64, i64, String) {
     let (agent_id, key) = seed_agent(project, "Designer").await;
     let _ = user;
     (app, project, user.id, agent_id, key)
-}
-
-fn ctx_body(project: i64) -> Value {
-    json!({ "project": project })
 }
 
 #[tokio::test(flavor = "multi_thread")]
