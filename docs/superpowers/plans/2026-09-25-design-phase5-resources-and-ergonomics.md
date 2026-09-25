@@ -2358,6 +2358,52 @@ export function resolveActiveProject(
 
 ---
 
+### Task 31: The final whole-branch fix wave — everything parked to it
+
+**Why this task exists, and why it is written now.** *(Added 2026-09-25.)* From Task 7 onward, reviews kept parking small findings to "the final whole-branch fix wave", several with the phrase *"with the exact fix recorded so it cannot be lost"*. **They were recorded in the ledger, and the ledger is git-ignored scratch.** So the record existed only where `git clean -fdx` deletes it, for items explicitly filed *because they must not be lost*. This task is that record, in the committed plan, written the moment the gap was noticed rather than at the end when the details would be gone.
+
+**This is the single fix wave after the final whole-branch review**, per the process. It is not a hardening batch like Task 30 — Task 30 is minors from *approved* tasks; this is the residue that reviews deliberately left open, including **one item a re-review marked open rather than as breakage**, which is why Task 13 is not marked complete-with-nothing-outstanding.
+
+**Files:** mostly backend (`composer.rs`, `views.rs`, `resources.rs`, `manifest.rs`, `tests/`), a few `v2_fe` one-liners. **Locate everything by symbol** — these were written at many different commits and the tree has moved under all of them.
+
+**The items with a real fix:**
+
+- [ ] **1. A duplicated emission would be invisible to the whole suite** (Task 7, parked as the first of two "to the fix wave"). The ordering assertion catches a **move** but not a **duplicate**, and neither half of the test counts tags: `find` returns the first occurrence, which stays before `<style>` under duplication. The reviewer checked the entire suite and found every other assertion is either `contains` or head-equality *between* the two documents — which a consistently duplicated emission preserves. So a duplicated `<script src>` emission would be **invisible everywhere**, and the reviewer called the mistake "empirically plausible" on the strength of the implementer's own first mutation being exactly that. **Fix: one `html.matches(preconnect).count() == 1` in either half.**
+
+- [ ] **2. Nothing pins the serialised key `variablesDark` on the wire — and the general form is worth more than the instance** (Task 14, parked to the wave). `manifest.rs`'s own test asserts the dark override on the *struct*, and `phase1_storage_composer.rs` pins `usedOn`/`usageCount` on the manifest JSON — but **no test asserts the serialised key**, which is exactly why the wrong spelling could sit there and why the sweep could only be done by reading the Rust. This is the **fourth** instance in the phase of the TS type not mirroring the wire (the design-api rows, `DesignComment`, `DesignManifest.resources`, and now `variablesDark`). **Fix the instance with one assertion, and consider the general form: a Rust test pinning the serialised key names of the shapes the frontend mirrors** — which would have caught `variables_dark` **and** `affected_routes` together. If you take only one item from this task, take this one.
+
+- [ ] **3. A stored document containing `preload` loses every link in it, silently** (Task 7, parked as the second of two). Tightening the allowlist means `manifest.rs`'s collapse-to-empty drops the whole link set. **Exposure is nil** — no fixture, seed or test document anywhere contains `preload`, the editor that could create one is Task 8 and does not exist yet, `deploy-backend.yml` is manual-trigger only, and the publish is held. The reviewer's judgment, which I adopted: *"correct trade, not a defect; shipping a second silent no-op to protect a document population that does not exist would be the worse call."* **Fix: one release-note line in the plan.** Do not change the behaviour.
+
+- [ ] **4. Task 13's Fix 6 and its two Minors, parked OPEN** (Task 13). Reason at the time: Task 15 was editing `composer.rs` in the same regions, so a round 2 would have put two writers in one file and dragged Task 15's diff into Task 13's review range. Cost of the deferral, recorded then: **a comment string that does not grep, and two sentences slightly broader than the code** — no behaviour, no reachability, nothing a user can hit. The specifics are in `task-13-report.md` and `review-…` in the phase workspace; **read them before applying**, since this is the one parked item a re-review marked open rather than as new breakage.
+
+- [ ] **5. A comment claiming more about Chrome than it can** (Task 15). The "Chrome delivers no cross-frame pointer-leave" comment reads as a claim about production Chrome rather than about Chrome-under-CDP. The lead-in already says "NOT verifiable under CDP", so the instruction is safe, but **a two-word scope would remove the ambiguity** — and this phase has now had six comments whose stated reason outlived or overstated its subject.
+
+- [ ] **6. `pages-order.ts`'s flip instruction names an identifier that does not exist there** (Task 16). It names `byPath`, which lives only in `pages-panel.tsx` — a literal flip would hit an undefined identifier. **Fix: name the real binding.**
+
+- [ ] **7. The render test's `not.toContain` would miss a `placeholder` bypass — and an earlier ruling of mine was wrong about this.** *(Corrected 2026-09-25.)* Task 22 asked me to rule on a "test-strength descriptor" that seemed to map to no brief item, and I ruled it was noise. **It was not noise — it is this parked Task 16 item**, and it is real: `pages-panel.test.ts`'s `not.toContain(">Settings<")` is text-shaped, while `pages-panel.tsx` feeds the resolved name into `placeholder={name}`, so a bypass through the attribute is invisible to it. It fell outside Task 22's file list (`pages-panel.*`), which is why it could not be acted on there. **Fix belongs here**, with the rest of the panel work. **A "no `LabelInput` mounts in that test, so no live bypass is demonstrable" caveat applies** — so first make it demonstrable, then pin it; a test that cannot fail for the thing it names is this phase's single most-repeated defect, and adding one *about* test strength would be an unusually poor joke.
+
+- [ ] **8. A removed-group renumbering case is untested, and one test proves nothing another does not** (Task 16). Its test 6 proves nothing test 1 does not, which means **the removed-group renumbering with a live group present is untested** — and a two-group fixture separates them with the existing mutations. **Fix: add the fixture and the case.**
+
+- [ ] **9. Two report nits that outlive their task** (Task 20). The boundary test's comment claims "every expectation passes under `[...name].length` and fails under `.length`", **which is literally false for three measure-insensitive expectations** (the direction is still proven, so the conclusion stands and only the claim is wrong); and the report says `24 passed` where the number is `25`. Fix the comment; note the report number the way this phase notes report errors.
+
+- [ ] **10. Two pre-existing observations from Task 21's review.** `CommentsListSection`'s self-fetch path is now **unreachable** — both callers pass `comments`, so `localComments` and its effect can never run. It is deliberate, so **either delete it or say in a comment that it is a fallback with no caller**; dead code that looks live is worse than either. And a plan document still references the **removed `onCommentCreated` prop** — find it and fix it.
+
+- [ ] **11. `views.rs` builds a whole manifest to read one field** (Task 7, twice parked). It is pure and DB-free, so this is **cost and clarity, not correctness**. The suggested shape is a `manifest::resources_from(files)` helper. Apply it only if it is genuinely small; say so either way.
+
+**Recorded as NO ACTION, so nobody re-proposes them** — the second half of what "parked" has to mean:
+
+- `pub(crate)` on `resources_tags` (Task 7): **not viable.** The reviewer proposed it without checking that `tests/resources.rs` is a separate crate calling it directly, so `pub(crate)` would not compile there — and the doc comment already states the precondition it was meant to enforce.
+- The two `mod support;` harness warnings (Task 7): the report's "adds no new warnings" was overstated, but the suggested remedy (**delete them**) is **unsafe** — `support/mod.rs` is compiled per test target, and an import unused in one target may be used in another. Leave them.
+- Untrimmed `rel`/`href`/`name`/`id` and the absent component test (Task 8): harmless (the server trims names and ids, strips the url, and HTML tokenises `rel` as a whitespace-separated list), and the missing component test is the repo's own convention.
+- `composer.rs`'s `let _ = token;` in `sandbox_csp`, and `esc`'s `'`-gap (Task 7). The gap is already documented at the code; both are pre-existing.
+- The `ResourceLink` null-vs-absent asymmetry (Task 14): invisible, and no reader distinguishes them.
+- The `CommentScope`/`CommentStatus` citation ranges (Task 14): the same omission shape the round was correcting, but **the claim itself is correct**.
+- A report quote dropping a commit subject's tail (Task 15), and the `\u0000` join / `|` React key separator assumption (Task 21): pre-existing, unreachable for the frame's grammar, but the "bit-identical" argument rests on it — so it is worth a comment, not a change.
+
+- [ ] **12. Verify and commit.** Per file touched, not repo-wide: `cargo test --workspace` for the backend (**`--workspace` is mandatory — a bare `cargo test` in `backend/` silently omits every plugin crate**), and `npx tsc -b && npm test && npx eslint <files>` for `v2_fe`. Baseline **27 errors / 1 warning**, measured per file. **No build, no push** unless the user has lifted the hold by then. Commit with `git commit -F <msg> -- <paths>`; `git add` exact paths first if you create a file.
+
+---
+
 ## Deferred / not in this plan
 
 Items 1–7 are all now planned above. The following remain deliberately out.
