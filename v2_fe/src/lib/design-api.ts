@@ -78,8 +78,15 @@ export type TokenGroup = {
   variables: [string, string][]
   /// Dark-mode overrides, as `(name, dark value)` pairs. A Rust tuple
   /// serialises as a JSON array — `[string, string]`, not `{0, 1}` — and the
-  /// server OMITS this field when nothing in the group has one.
-  variables_dark?: [string, string][]
+  /// server OMITS this field when nothing in the group has one
+  /// (`skip_serializing_if = "Vec::is_empty"`).
+  ///
+  /// camelCase despite the snake_case OF THE RUST FIELD: the key on the wire is
+  /// decided by `TokenGroup`'s CONTAINER attribute (`manifest.rs:42-43`,
+  /// `rename_all = "camelCase"`), not by the field's own name (`:58`). Read the
+  /// container before trusting a spelling — that is the check that catches this
+  /// class, and the one that missed here.
+  variablesDark?: [string, string][]
 }
 
 /// Mirrors the backend's `TokensDoc` (styles/tokens.json) exactly: a flat
@@ -134,7 +141,7 @@ export type DesignComment = {
   project: number
   /// Snake_case, and these are COLUMN names: an ORM model with no `rename_all`
   /// (the backend's phase3 test reads `resolution_note` off this very endpoint,
-  /// `tests/phase3_agent_surface.rs:294`). Read one through the other spelling
+  /// `tests/phase3_agent_surface.rs:298`). Read one through the other spelling
   /// and it is `undefined` — no error, a blank label and a click that does
   /// nothing — so the reads live in `design-comments.ts`, where a wire-shaped
   /// test can reach them.

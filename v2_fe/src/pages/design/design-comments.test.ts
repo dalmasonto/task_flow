@@ -35,7 +35,7 @@ const jsonRes = (body: unknown) =>
 
 /// One comment as `/api/design/{id}/comments` sends it. `resolution_note` is
 /// the backend's own spelling, read straight off that endpoint by its phase3
-/// test (`backend/plugins/taskflow-design/tests/phase3_agent_surface.rs:294`).
+/// test (`backend/plugins/taskflow-design/tests/phase3_agent_surface.rs:298`).
 async function fetchComments(overrides: Record<string, unknown> = {}): Promise<DesignComment[]> {
   return readJson<DesignComment[]>(
     jsonRes([
