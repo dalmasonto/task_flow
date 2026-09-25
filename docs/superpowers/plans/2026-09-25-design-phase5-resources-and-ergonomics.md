@@ -1661,7 +1661,7 @@ Images, video and motion
 
 - [ ] **Step 1: Extend the CSP test first**
 
-`tests/resources.rs` already has `the_widening_reaches_the_fetch_directives_and_stops_there`, which parses the CSP into a directive map and asserts exact values per directive. Follow its shape: **keep its existing loop exactly as it is** — it asserts *both* that each directive carries the `https:` scheme source *and* that it still carries `https://cdn.jsdelivr.net`. **Do not replace it with a single five-directive loop.** The scheme-source assertion alone would not notice the jsdelivr origin disappearing from `style-src`, and no other test covers that.
+`tests/resources.rs` already has the CSP test — now named `the_widening_covers_the_five_resource_directives_and_stops_at_connect_src` (it was `…_reaches_the_three_fetch_directives_and_stops_there` before this task added two). It parses the policy into a directive map and asserts values per directive. **As shipped, all five directives are pinned exactly** — the original three gained exact pins in this task's fix round, because until then they were checked by token membership only and a *broadened* value (`script-src … https: *`) passed both tests. Extend it in that shape.
 
 ```rust
     // Unchanged — the ORIGINAL loop, kept for the reason above.
@@ -1711,7 +1711,9 @@ media-src 'self' data: blob: https:; \
 
 Keep `default-src 'self'`, `connect-src 'self' https://cdn.jsdelivr.net`, `form-action 'none'`, `base-uri 'none'` and `frame-ancestors *` **byte-identical**.
 
-Then add `Referrer-Policy: no-referrer` in `apply_sandbox_headers`, beside the existing `x-robots-tag`. **This is not polish.** The sandbox URL *is* the credential (`/s/{token}/…`), and every external subresource request carries it in `Referer`: the font widening already leaks the token to the font origins, and widening images would leak it to every image host a page references. The response already sets `no-store` and `noindex`, so this is the header that makes the intent already expressed there true for subresources.
+Then add `Referrer-Policy: no-referrer`. **As shipped it is set by a helper, `apply_token_response_headers`, called by `apply_sandbox_headers` and by both branches of `serve_file`** — the file route needed it too, since a `url(https://…)` inside a served stylesheet is governed by *that* response's headers, and a legacy hand-authored `styles/tokens.css` row can carry one.
+
+**The reason, corrected — the first version of this step overstated it.** It said the font widening "already leaks the token to the font origins" and that images would leak it "to every image host a page references". Neither was true: the framework's default security-headers layer (`vendor/umbral-core/src/app.rs:1925-1945`) already set `strict-origin-when-cross-origin` with `set_if_absent`, and under that default a cross-origin request carries the **origin only** — no path, no token. The honest reason to set the header is that `no-referrer` is strictly stronger than that default, and a secret living in a URL should not have its safety decided by a framework or browser default. See the spec's §G correction for the full note.
 
 - [ ] **Step 4: Record the reasoning, including why `connect-src` was NOT widened**
 
