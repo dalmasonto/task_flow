@@ -1473,13 +1473,25 @@ git commit -m "fix(design): only rewrite hrefs that match a real route, and stop
 // showing a DIFFERENT page than the board was created for, and the chrome must
 // not keep claiming the old one.
 var announce = function () { parent.postMessage({ type: 'design:route', path: location.pathname }, '*') }
-addEventListener('load', announce)
+// `pageshow`, NOT `load`. A Back or Forward that the browser satisfies from the
+// back/forward cache restores the document WITHOUT firing `load` — and a Back is
+// precisely the interaction this whole task exists for, so `load` would leave
+// the header claiming the old route at the one moment it matters. `pageshow`
+// fires on a normal load as well (with `persisted: false`), so it subsumes
+// `load` rather than supplementing it.
+addEventListener('pageshow', announce)
+// A same-document history change (pushState/replaceState) fires neither of the
+// above; an agent-authored page that routes in JS would otherwise go unreported.
 addEventListener('popstate', announce)
 ```
 
 The path is the sandbox path (`/s/{token}/app`), so strip the `/s/{token}` prefix before reporting — report `/app`, and `/` for the bare sandbox root.
 
+The event choice is load-bearing rather than stylistic, and there is a reason to prefer `pageshow` over the `load` it replaces beyond correctness: `pageshow` fires *after* `load` on a normal navigation too, so a frame reports once per navigation either way, but only `pageshow` covers the restore path.
+
 - [ ] **Step 2: Track it per board.** `DesignCanvas` keeps `Map<boardKey, string>` of reported routes, updated from the existing message listener (which already validates `event.source` against a board before trusting anything — keep that discipline: **only accept a route from a frame that maps to a known board**, and ignore anything else).
+
+  **There are two `message` listeners in this tree and only one of them validates the source.** The one to extend is `design-canvas.tsx:228`, which matches the sender against a board (`(b) => b.key === (event.source as Window | null)?.name`) — that is the discipline to keep. The other (`design-canvas.tsx:690`) handles `design:ready` with **no** source check at all. A route report is navigational state derived from a frame's URL, so it belongs with the validated listener; adding it to the unvalidated one would let any window on the page move a board's header.
 
 - [ ] **Step 3: Render it.** `ArtboardHeader` shows the board's own route normally. When the reported route differs, it shows the current one distinctly (e.g. `→ /app`) plus a **reset** control that returns the frame to the board's route by remounting it — the same per-board epoch mechanism Task 4 built, so a reset reloads one frame and nothing else.
 

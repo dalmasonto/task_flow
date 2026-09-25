@@ -124,7 +124,13 @@ Five actions become real, in the ⋯ menu `ArtboardHeader` already has (`design-
 
 ### §F — Navigating inside a device (item 7)
 
-**The problem is narrower than it looks.** Every frame already loads through a sandbox URL of the form `/s/{token}{route}`, so the renderer can already serve any page at any route. What fails is that a plain `<a href="/app">` inside a frame resolves against the **sandbox origin**, producing `{sandbox}/app` — not a valid sandbox URL. So a page's own links go nowhere.
+**The problem is narrower than it looks.** Every frame already loads through a sandbox URL of the form `/s/{token}{route}`, so the renderer can already serve any page at any route.
+
+> **Correction (2026-09-25, found while executing Task 10).** The text here originally read: *"What fails is that a plain `<a href="/app">` inside a frame resolves against the **sandbox origin**, producing `{sandbox}/app` — not a valid sandbox URL. So a page's own links go nowhere."* **That is false, and has been since an earlier phase.** `compose_body_fragment` (`composer.rs:212-216`) already runs `rewrite_hrefs(fragment, "/s/{token}")` over every page body, and its doc comment says as much — so `<a href="/app">` already becomes `/s/{token}/app`, the click is already a real navigation, and the frame already has the session history that makes `history.back()` work. The mechanism this section describes as missing already exists.
+>
+> What Task 10 actually fixes are the three defects that pass does have: it rewrites **any** path-shaped href (so `/not-a-page` becomes a 404 wearing a plausible URL), it **breaks `mailto:` and `tel:`** by pushing them down its relative branch, and it ignores `target="_blank"`. Because the pass already handles route-shaped hrefs, a newly added parallel pass would have been dead code whose tests passed while the served page was unchanged — so Task 10 extends `rewrite_hrefs` in place and tests through `compose_body_fragment`, the function the server calls.
+>
+> The export keeps its current behaviour: `compose_export_body` deliberately does not rewrite hrefs (*"a portable export must carry no sandbox-only cruft"*), and rewriting there would stamp the short-lived sandbox token into a file the user downloads and may share.
 
 **The fix is a compose-time rewrite**, and the precedent already exists: `composer.rs` has a `rewrite_hrefs` pass doing exactly this kind of rewriting for styles, components and assets. Extend it so an href naming a **known route** becomes the sandbox URL for that route.
 
