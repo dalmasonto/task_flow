@@ -41,6 +41,32 @@ cargo run -- showmigrations
 cargo run -- makemigrations
 ```
 
+### Create a superuser in Docker (on the server)
+
+The Dockerfile's `ENTRYPOINT` is the `backend` binary, so management commands
+run as subcommands of the `web` service. SSH in and `cd` to the deploy directory
+(where `docker-compose.yml` lives), then:
+
+```bash
+# Interactive — prompts for username, email, then password (no echo, twice):
+docker compose run --rm web createsuperuser
+
+# Non-interactive (CI / scripted) — password comes from the env var:
+docker compose run --rm \
+  -e UMBRAL_SUPERUSER_PASSWORD='your-strong-password' \
+  web createsuperuser --username admin --email admin@example.com --noinput
+
+# Reusing the already-running container instead of a throwaway one.
+# NOTE: `exec` bypasses CMD but still runs under the ENTRYPOINT, so the
+# `backend` before `createsuperuser` is REQUIRED here:
+docker compose exec web backend createsuperuser
+```
+
+`docker compose run` keeps the `backend` entrypoint and appends the subcommand,
+brings up the `postgres` dependency if it isn't running, and (with `--rm`) cleans
+up afterward. It does not publish port 10002, so it won't collide with the live
+`web`. The new account lands with `is_active = is_staff = is_superuser = true`.
+
 ## Styling
 
 The pages use Tailwind, compiled to `static/css/app.css` and served by the
