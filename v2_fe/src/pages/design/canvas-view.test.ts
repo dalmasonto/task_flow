@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest"
 import { fitTransform } from "./canvas-view"
 import { MIN_SCALE, MAX_SCALE } from "./design-canvas"
 
-// "iphone-se": 375x667 — see lib/design-devices.ts.
+// "iphone-se": 375x667 — see lib/design-devices.ts. A card is NOT the bare
+// device: it is a HEADER_H (30px) header above a bezel-wrapped board, so the
+// fitted footprint is deliberately wider and taller than the device.
 const DEVICE_ID = "iphone-se"
-const DEVICE_W = 375
-const DEVICE_H = 667
+const CARD_W = 401 // 375 + 12 + 12 bezel + 2 x 1px border
+const CARD_H = 743 // 30 header + (667 + 24 + 20 bezel + 2 x 1px border)
+/** Screen-space gutter `fitTransform` keeps clear — `DEFAULT_PADDING`. */
+const PADDING = 48
 
 describe("fitTransform", () => {
   it("centers the bounding box in the viewport when the scale is unclamped", () => {
@@ -18,10 +22,12 @@ describe("fitTransform", () => {
 
     const t = fitTransform(boards, viewport)
 
-    // Bounding box: [0, 875] x [0, 667] (second board starts at x=500 and is
-    // DEVICE_W wide).
-    const bboxW = 500 + DEVICE_W
-    const bboxH = DEVICE_H
+    // Bounding box: [0, 500 + CARD_W] x [0, CARD_H] — the second card starts
+    // at x=500 and is CARD_W wide. Measuring the bare device (375x667) here
+    // would put the box's center 12px left and 15px above where it belongs,
+    // which is what makes this assertion the one that catches both terms.
+    const bboxW = 500 + CARD_W
+    const bboxH = CARD_H
     const centerWorldX = bboxW / 2
     const centerWorldY = bboxH / 2
 
@@ -36,7 +42,7 @@ describe("fitTransform", () => {
     expect(t.scale).toBeLessThanOrEqual(MAX_SCALE)
   })
 
-  it("fits every board's bounding box within the viewport (with tolerance for padding)", () => {
+  it("fits every card's footprint inside the padded viewport", () => {
     const boards = [
       { x: 0, y: 0, deviceId: DEVICE_ID },
       { x: 500, y: 200, deviceId: DEVICE_ID },
@@ -48,15 +54,17 @@ describe("fitTransform", () => {
     for (const board of boards) {
       const corners = [
         [board.x, board.y],
-        [board.x + DEVICE_W, board.y + DEVICE_H],
+        [board.x + CARD_W, board.y + CARD_H],
       ]
       for (const [wx, wy] of corners) {
         const sx = t.x + wx * t.scale
         const sy = t.y + wy * t.scale
-        expect(sx).toBeGreaterThanOrEqual(-1)
-        expect(sx).toBeLessThanOrEqual(viewport.w + 1)
-        expect(sy).toBeGreaterThanOrEqual(-1)
-        expect(sy).toBeLessThanOrEqual(viewport.h + 1)
+        // The gutter is the point: a box fitted to the bare device would let
+        // the header hang past the bottom padding.
+        expect(sx).toBeGreaterThanOrEqual(PADDING - 1)
+        expect(sx).toBeLessThanOrEqual(viewport.w - PADDING + 1)
+        expect(sy).toBeGreaterThanOrEqual(PADDING - 1)
+        expect(sy).toBeLessThanOrEqual(viewport.h - PADDING + 1)
       }
     }
   })

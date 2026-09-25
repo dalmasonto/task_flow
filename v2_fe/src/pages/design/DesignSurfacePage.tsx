@@ -6,11 +6,14 @@ import { useNavigate } from "react-router-dom"
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
+  ColumnsIcon,
   CrosshairIcon,
   HandIcon,
+  LayoutGridIcon,
   MonitorSmartphoneIcon,
   MoonIcon,
   MousePointer2Icon,
+  RowsIcon,
   ScanIcon,
   SunIcon,
   XIcon,
@@ -36,7 +39,9 @@ import { Button } from "@/components/ui/button"
 import {
   fetchDesignComments,
   fetchDesignManifest,
+  fetchLayout,
   fetchSandboxToken,
+  saveLayout,
   type ComponentEntry,
   type DesignComment,
   type DesignManifest,
@@ -55,13 +60,20 @@ import {
   DEFAULT_DEVICE_ID,
   DEVICE_PRESETS,
   DEVICE_GROUP_LABELS,
+  HEADER_H,
   RESPONSIVE_REVIEW_DEVICES,
   artboardKey,
+  boardsForView,
   deviceById,
-  layoutRows,
   type Artboard,
   type DeviceGroup,
 } from "@/lib/design-devices"
+import {
+  CANVAS_VIEWS,
+  DEFAULT_LAYOUT,
+  type CanvasView,
+  type LayoutDoc,
+} from "@/lib/design-layout"
 import {
   DesignCanvas,
   MAX_SCALE,
@@ -75,6 +87,8 @@ import { CommentPins, DesignInspector } from "./design-inspector"
 import { sanitizeSelection, type SelectionState } from "./design-selection"
 import { CommandPalette, type PaletteItem } from "./design-palette"
 import { nextDesignTab, type DesignTab } from "./design-tabs"
+import { readUIState, writeUIState } from "./design-ui-state"
+import { shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 
 export function DesignSurfacePage({
@@ -109,14 +123,27 @@ export function DesignSurfacePage({
   const [selection, setSelection] = useState<(SelectionState & { boardKey: string }) | null>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   // Which pages are open on the canvas — one ROW per open route. Seeded to
-  // every route once per project (see the manifest-load effect below); after
-  // that, purely user-driven (PagePicker / PagesPanel / row close button).
+  // every route once per project (see the hydration effect below); after that,
+  // purely user-driven (PagePicker / PagesPanel / row close button).
   const [openRoutes, setOpenRoutes] = useState<string[]>([])
   const seededProjectRef = useRef<number | null>(null)
-  // Artboards are DERIVED, never stored: `layoutRows` is pure, so the same
-  // (openRoutes, deviceIds) always produces the same boards in the same
+  /** The SHARED arrangement (view + groups). Server-owned; see `design-layout`. */
+  const [layout, setLayout] = useState<LayoutDoc>(DEFAULT_LAYOUT)
+  /** False until the per-user viewport has been read from Dexie. Writes are
+   *  suppressed until then so a blank first render cannot overwrite it. */
+  const hydratedRef = useRef(false)
+  /** Which project that read was for. The id survives a manifest refetch (so
+   *  hydration stays once-per-project) while `hydratedRef` only flips once the
+   *  read FINISHED — together they are the hydration guard and the write gate,
+   *  and both are cleared on a project change (see the manifest-load effect). */
+  const hydratedProjectRef = useRef<number | null>(null)
+  // Artboards are DERIVED, never stored: `boardsForView` is pure, so the same
+  // (layout, openRoutes, deviceIds) always produces the same boards in the same
   // `route@device`-keyed shape DesignCanvas/selection/pins already expect.
-  const artboards = useMemo(() => layoutRows(openRoutes, deviceIds), [openRoutes, deviceIds])
+  const artboards = useMemo(
+    () => boardsForView(layout, openRoutes, deviceIds),
+    [layout, openRoutes, deviceIds],
+  )
 
   const refreshComments = useCallback(() => {
     if (!projectId) return
@@ -143,23 +170,28 @@ export function DesignSurfacePage({
     })
   }, [projectId, refreshComments])
 
-  // --- load manifest + token ------------------------------------------------
+  // --- load manifest + token + shared layout --------------------------------
   useEffect(() => {
     if (!projectId) return
+    // Nothing has been read or seeded for a freshly-loaded project, and the
+    // write gate starts shut. Clearing that state HERE — this effect is
+    // declared above the hydration and persistence effects, so the clears land
+    // before either of them runs in this same commit — is what keeps an A→B
+    // switch from writing A's viewport into B's record.
+    hydratedRef.current = false
+    hydratedProjectRef.current = null
     let cancelled = false
-    Promise.all([fetchDesignManifest(projectId), fetchSandboxToken(projectId)])
-      .then(([m, token]) => {
+    Promise.all([
+      fetchDesignManifest(projectId),
+      fetchSandboxToken(projectId),
+      fetchLayout(projectId),
+    ])
+      .then(([m, token, doc]) => {
         if (cancelled) return
         setManifest(m)
         setSandboxToken(token)
+        setLayout(doc)
         setError(null)
-        // Open every route once per project. After that, openRoutes is
-        // purely user-driven, so re-fetching the same project's manifest
-        // (e.g. on a file-change refresh) never fights the human's picks.
-        if (seededProjectRef.current !== projectId) {
-          seededProjectRef.current = projectId
-          setOpenRoutes(m.routes.map((route) => route.path))
-        }
       })
       .catch((err: Error) => !cancelled && setError(err.message))
     return () => {
@@ -181,6 +213,80 @@ export function DesignSurfacePage({
     setRightTab((current) => nextDesignTab(hadSelectionRef.current, current, hasSelection) as DesignTab)
     hadSelectionRef.current = hasSelection
   }, [selection])
+
+  // --- hydrate the per-user viewport, then seed if nothing was stored -------
+  // Runs at most ONCE per project. Without the guard the effect would re-run
+  // whenever `manifest` changes identity and overwrite the user's live edits
+  // with the (debounced, therefore stale) stored copy.
+  useEffect(() => {
+    if (!projectId || !currentUser || !manifest) return
+    // The manifest can be one project behind: a switch renders once with the
+    // previous project's manifest still in state, and seeding from THAT would
+    // open the wrong project's pages under the new project's id.
+    if (manifest.project !== projectId) return
+    if (hydratedProjectRef.current === projectId) return
+    hydratedProjectRef.current = projectId
+    let cancelled = false
+    ;(async () => {
+      const stored = await readUIState(currentUser.id, projectId)
+      if (cancelled) return
+
+      if (stored) {
+        setOpenRoutes(stored.openRoutes)
+        setDeviceIds(stored.deviceIds)
+        setTransform(stored.transform)
+        setCanvasTool(stored.canvasTool)
+        setRightTab(stored.rightTab)
+        setTheme(stored.theme)
+      }
+      // "Already seeded" is per PROJECT, not a global flag — switching projects
+      // must seed the new project's manifest rather than read the old one's.
+      const alreadySeeded = seededProjectRef.current === projectId
+      if (shouldSeedRoutes(stored, alreadySeeded)) {
+        setOpenRoutes(manifest.routes.map((r) => r.path))
+      }
+      seededProjectRef.current = projectId
+      hydratedRef.current = true
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, currentUser, manifest])
+
+  // --- persist the viewport (debounced: panning fires on every pointermove) --
+  useEffect(() => {
+    if (!projectId || !currentUser || !hydratedRef.current) return
+    const timer = window.setTimeout(() => {
+      void writeUIState({
+        userId: currentUser.id,
+        projectId,
+        openRoutes,
+        deviceIds,
+        transform,
+        canvasTool,
+        rightTab,
+        theme,
+        updatedAt: Date.now(),
+      })
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [projectId, currentUser, openRoutes, deviceIds, transform, canvasTool, rightTab, theme])
+
+  // The server decides validity, so a rejected save is surfaced rather than
+  // swallowed — otherwise the toolbar would show a view the project does not
+  // actually have.
+  const updateLayout = useCallback(
+    (next: LayoutDoc) => {
+      const previous = layout
+      setLayout(next)
+      if (!projectId) return
+      saveLayout(projectId, next).catch((err: Error) => {
+        setLayout(previous)
+        setError(err.message)
+      })
+    },
+    [layout, projectId],
+  )
 
   // --- keyboard shortcuts (§9.7) --------------------------------------------
   useEffect(() => {
@@ -239,15 +345,17 @@ export function DesignSurfacePage({
   }, [])
 
   // Swap in the three review devices for whatever pages are already open, and
-  // fit the new (wider) grid into view.
+  // fit the new (wider) grid into view. Fits the arrangement actually on
+  // screen — fitting a rows-shaped box while the canvas shows bands or groups
+  // would frame the wrong thing.
   const responsiveReview = useCallback(() => {
     if (!openRoutes.length) return
     const nextDeviceIds = [...RESPONSIVE_REVIEW_DEVICES]
     setDeviceIds(nextDeviceIds)
     const el = canvasContainerRef.current
     const viewport = el ? { w: el.clientWidth, h: el.clientHeight } : { w: 1200, h: 800 }
-    setTransform(fitTransform(layoutRows(openRoutes, nextDeviceIds), viewport))
-  }, [openRoutes])
+    setTransform(fitTransform(boardsForView(layout, openRoutes, nextDeviceIds), viewport))
+  }, [openRoutes, layout])
 
   const handleSelect = useCallback(
     (raw: Record<string, unknown>, board: Artboard) => {
@@ -321,7 +429,7 @@ export function DesignSurfacePage({
             <div
               key={`row-header:${route}`}
               className="absolute flex items-center gap-2 text-xs text-zinc-300"
-              style={{ left: 0, top: y - 28 }}
+              style={{ left: 0, top: y - HEADER_H }}
             >
               <span className="font-semibold text-zinc-100">{title}</span>
               <span className="font-mono text-[11px] text-zinc-500">{route}</span>
@@ -397,6 +505,8 @@ export function DesignSurfacePage({
         />
 
         <DevicePicker deviceIds={deviceIds} onChange={setDeviceIds} />
+
+        <ViewPicker view={layout.view} onChange={(view) => updateLayout({ ...layout, view })} />
 
         <ZoomControl
           transform={transform}
@@ -778,6 +888,35 @@ function DevicePicker({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/// Which arrangement the canvas renders. The pick is SHARED (it is a fact about
+/// the project, not about this browser), so it goes through `updateLayout` and
+/// the server rather than the per-user viewport record.
+function ViewPicker({ view, onChange }: { view: CanvasView; onChange: (v: CanvasView) => void }) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-md border p-0.5">
+      {CANVAS_VIEWS.map((v) => (
+        <Button
+          key={v.id}
+          variant={view === v.id ? "default" : "ghost"}
+          size="icon-sm"
+          title={`${v.label} — ${v.hint}`}
+          aria-label={v.label}
+          aria-pressed={view === v.id}
+          onClick={() => onChange(v.id)}
+        >
+          {v.id === "rows" ? (
+            <RowsIcon className="size-3.5" />
+          ) : v.id === "bands" ? (
+            <ColumnsIcon className="size-3.5" />
+          ) : (
+            <LayoutGridIcon className="size-3.5" />
+          )}
+        </Button>
+      ))}
+    </div>
   )
 }
 
