@@ -255,9 +255,13 @@ pub struct AgentLayoutQuery {
 ///
 /// The arrangement is readable here and writable at the same path by
 /// `write_layout`, whose body is an OPERATION rather than a document — the
-/// contract change this read was waiting on (it is no longer last-write-wins:
-/// the row carries a `version`). The warning below still binds: this response
-/// is the panel's view, lossy in both directions, and must never be PUT back.
+/// contract change this read was waiting on. The AGENT write is no longer
+/// last-write-wins: the row carries a `version`, and a supplied stale one is
+/// refused rather than applied. The operator's save still always wins and
+/// merely moves that number, so a conflict is a thing an agent can be told
+/// about, never a thing the human's own save can hit. The warning below still
+/// binds: this response is the panel's view, lossy in both directions, and
+/// must never be PUT back.
 ///
 /// The document comes from `views::load_layout` — the SAME loader the operator
 /// read uses, so the forgiving rules are one implementation rather than two, and
@@ -266,9 +270,9 @@ pub struct AgentLayoutQuery {
 ///
 /// # This response is NOT the document, and must never be PUT back as one
 ///
-/// Whoever writes the layout WRITE tool (the next piece of work on this
-/// surface): this response is the panel's view of the arrangement, not the
-/// stored document, and the difference is lossy in both directions.
+/// An agent writing the layout: this response is the panel's view of the
+/// arrangement, not the stored document, and the difference is lossy in both
+/// directions.
 ///   * a group's `routes` here are in FLOW order; the stored array is
 ///     ASSIGNMENT order, which `validate` stores by (`assignRoute` appends) and
 ///     this read never reveals. `layout_doc.rs::panel_sections` says why.

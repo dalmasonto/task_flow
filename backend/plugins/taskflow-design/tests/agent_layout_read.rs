@@ -340,7 +340,7 @@ async fn the_layout_write_takes_an_operation_and_not_a_document() {
     });
 
     let put = app
-        .put_as_agent(&key, &agent_layout_path(project), document.clone())
+        .put_as_agent(&key, &agent_layout_path(project), document)
         .await;
     assert!(
         put.status() >= 400,
