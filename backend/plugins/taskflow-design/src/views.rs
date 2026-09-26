@@ -393,7 +393,7 @@ pub(crate) fn conflict_response(row: &crate::models::DesignFile) -> Response {
 }
 
 /// The layout's 409: the same shape `conflict_response` uses for a file.
-pub fn conflict_response_values(current_version: i64, doc: serde_json::Value) -> Response {
+pub(crate) fn conflict_response_values(current_version: i64, doc: serde_json::Value) -> Response {
     (
         StatusCode::CONFLICT,
         Json(json!({

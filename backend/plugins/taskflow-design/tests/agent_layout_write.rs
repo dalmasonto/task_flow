@@ -82,12 +82,34 @@ async fn a_deleted_page_does_not_wedge_future_writes() {
     let group_id = created["changed"]["groups"][0].as_str().unwrap().to_string();
 
     // Arrange /b into that group, then delete /b behind the document's back.
-    app.put_as_agent(
-        &key,
-        &layout_path(project),
-        json!({ "project": project, "op": { "reorder_page": { "route": "/b", "group_id": group_id } } }),
-    )
-    .await;
+    // The response is ASSERTED, not merely awaited: had this write failed, /b
+    // would never have been in the stored document, and every assertion below
+    // would pass while exercising nothing at all.
+    let arranged = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "reorder_page": { "route": "/b", "group_id": group_id } } }),
+        )
+        .await;
+    assert_eq!(
+        arranged.status(),
+        200,
+        "the premise: /b has to be IN the document before it can go stale: {}",
+        arranged.text()
+    );
+    // An existing row is UPDATED, so this is the other half of the version
+    // arithmetic the create in `created` above never reaches. Both halves are
+    // asserted: the number the caller is handed, and the number the row now
+    // carries — a response that reported a bump the UPDATE never made would
+    // leave every later `base_version` comparison wrong.
+    assert_eq!(
+        arranged.json()["version"],
+        2,
+        "the second write bumps the version to 2"
+    );
+    let updated_row = app.latest_layout_row(project).await;
+    assert_eq!(updated_row.version, 2, "and that is what the row carries now");
     app.delete_page_row(project, "pages/b.html").await;
 
     // A fresh, unrelated write must still succeed.
@@ -100,14 +122,31 @@ async fn a_deleted_page_does_not_wedge_future_writes() {
         .await;
     assert_eq!(res.status(), 200, "a dead route must not block an edit: {}", res.text());
 
-    let after = app.get_as_agent(&key, &layout_path(project)).await.json();
-    let named: Vec<String> = after["flow"]
+    // The dead route is gone from what is STORED, not merely from what is
+    // served. The read resolves `flow` over the already-filtered document, so a
+    // route the manifest no longer has cannot appear there whether or not this
+    // write pruned it — an assertion against the served view can never fail.
+    let stored: serde_json::Value =
+        serde_json::from_str(&app.latest_layout_row(project).await.layout_json)
+            .expect("the stored document parses");
+    let named: Vec<&str> = stored["routeOrder"]
         .as_array()
-        .unwrap()
+        .expect("routeOrder")
         .iter()
-        .map(|v| v.as_str().unwrap().to_string())
+        .map(|v| v.as_str().unwrap())
         .collect();
-    assert!(!named.contains(&"/b".to_string()), "and the dead route is gone: {named:?}");
+    assert!(!named.contains(&"/b"), "the stored flow prunes the dead route: {stored}");
+    let claimed: Vec<&str> = stored["groups"]
+        .as_array()
+        .expect("groups")
+        .iter()
+        .flat_map(|g| g["routes"].as_array().expect("a group's routes").iter())
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(
+        !claimed.contains(&"/b"),
+        "and no stored group still claims it — the prune is in what is SAVED: {stored}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -206,4 +245,56 @@ async fn bad_arguments_are_refused_with_a_reason() {
         .as_str()
         .unwrap_or_default()
         .contains("ghost"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reorder_page_that_asks_for_nothing_is_refused() {
+    // Spec §6's cases: `group_id` alone appends to that group, `position` alone
+    // moves the page within its section, both does both — and NEITHER asks for
+    // nothing, which is refused rather than quietly re-appending the page to
+    // the section it is already in and reporting success.
+    //
+    // Refused by the HANDLER, not only by the tool schema: a schema is a
+    // client-side courtesy, and a direct call must not get a different answer.
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+
+    // A real row, so that "nothing was written" has something to be true of and
+    // the 400 cannot be a first-write refusal wearing this test's clothes.
+    let first = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await;
+    assert_eq!(first.status(), 200, "{}", first.text());
+    let before = app.latest_layout_row(project).await;
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "reorder_page": { "route": "/a" } } }),
+        )
+        .await;
+    assert_eq!(res.status(), 400, "{}", res.text());
+    assert!(
+        res.json()["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("group_id"),
+        "the refusal says what is missing: {}",
+        res.text()
+    );
+
+    let after = app.latest_layout_row(project).await;
+    assert_eq!(
+        after.layout_json, before.layout_json,
+        "and nothing was written, not even the same document back"
+    );
+    assert_eq!(
+        after.version, before.version,
+        "nor bumped, which a write that changed nothing would still have done"
+    );
 }

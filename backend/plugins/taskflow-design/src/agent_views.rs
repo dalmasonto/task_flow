@@ -972,6 +972,17 @@ pub async fn write_layout(
                     }
                 }
                 LayoutOp::ReorderPage { route, group_id, position } => {
+                    // Spec §6: `group_id` alone appends to that group, `position`
+                    // alone moves the page within its section, both does both —
+                    // and NEITHER asks for nothing at all. Refused here, in the
+                    // handler, rather than only in the tool schema: a schema is
+                    // a client-side courtesy, and a direct call would otherwise
+                    // re-append the page to its own section and report success.
+                    if group_id.is_none() && position.is_none() {
+                        return Ok(LayoutOutcome::Invalid(
+                            "reorder_page needs a group_id, a position, or both".to_string(),
+                        ));
+                    }
                     match layout_doc::place_page(doc, &known, route, group_id.as_deref(), *position)
                     {
                         Ok(next) => next,
@@ -1021,11 +1032,41 @@ pub async fn write_layout(
                             StatusCode::INTERNAL_SERVER_ERROR
                         })?;
                     if updated == 0 {
-                        // Slipped past the lock. Report the current row rather
-                        // than pretending the write landed.
-                        return Ok(LayoutOutcome::Conflict {
-                            current: row.version,
-                            doc: layout_doc::to_value(&validated),
+                        // Slipped past the lock. Report what is STORED now — not
+                        // the version this write tried from, which this outcome
+                        // has just proved stale, and not the document it meant to
+                        // store, which never landed. A caller told to merge has to
+                        // merge against reality.
+                        let fresh = DesignLayout::objects()
+                            .filter(design_layout::PROJECT.eq(project_id))
+                            .first()
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|row| {
+                                layout_doc::parse(&row.layout_json).ok().map(|doc| {
+                                    (
+                                        row.version,
+                                        layout_doc::to_value(&layout_doc::filter_to_known(
+                                            doc, &known,
+                                        )),
+                                    )
+                                })
+                            });
+                        return Ok(match fresh {
+                            Some((version, doc)) => LayoutOutcome::Conflict {
+                                current: version,
+                                doc,
+                            },
+                            // The re-read failed, the row is gone, or its bytes
+                            // will not parse: there is nothing truer to report, so
+                            // this falls back to the version the write tried from
+                            // and the document it meant to store. Both are stale,
+                            // and neither pretends to be the stored row.
+                            None => LayoutOutcome::Conflict {
+                                current: row.version,
+                                doc: layout_doc::to_value(&validated),
+                            },
                         });
                     }
                 }
