@@ -116,6 +116,132 @@ pub fn move_group(doc: LayoutDoc, group_id: &str, position: usize) -> Result<Lay
     Ok(LayoutDoc { groups, ..doc })
 }
 
+/// Place `route` into a group and/or at a position.
+///
+/// Membership lives in a group's `routes`; position lives in the global
+/// `route_order`. This writes both, so "move it and put it here" is one call
+/// rather than two that can half-succeed (spec §6).
+///
+/// `position` is 1-based WITHIN THE RESULTING SECTION — the numbering the Pages
+/// panel shows, not an index into the flow, which is global and sparse and
+/// which no reader ever sees. `len + 1` is the append slot; anything outside
+/// `1..=len + 1` is refused rather than clamped. A position not asked for at all
+/// joins the section at its end, which is the slot `assignRoute` appends to.
+///
+/// The flow comes back MATERIALISED (spec §4 D6): `route_order` names every page
+/// afterwards. Behaviourally invisible — `resolve_route_order` already appends
+/// an unnamed page — but it means a placement expresses the whole arrangement
+/// rather than part of it, which is what makes a position mean anything.
+///
+/// A placement touches exactly two sections: the one the page LEFT and the one
+/// it JOINED. A third section's numbering cannot move, because its members'
+/// relative order in the flow is untouched by inserting a page that is not one
+/// of them — worth stating because the opposite is an easy thing to believe
+/// about a global flow, and `placing_a_page_leaves_other_sections_alone` pins
+/// it. Within the two affected sections, the other pages DO renumber.
+pub fn place_page(
+    doc: LayoutDoc,
+    known_routes: &[String],
+    route: &str,
+    group_id: Option<&str>,
+    position: Option<usize>,
+) -> Result<LayoutDoc, String> {
+    if !known_routes.iter().any(|r| r == route) {
+        return Err(format!("\"{route}\" is not a page in this project"));
+    }
+    if let Some(gid) = group_id {
+        if !doc.groups.iter().any(|g| g.id == gid) {
+            return Err(format!("no group with id \"{gid}\""));
+        }
+    }
+
+    // The section the route lands in: the named group, else whatever claims it
+    // today, else ungrouped. Read from the ORIGINAL document, before the
+    // membership edit below, because that is what "its current section" means.
+    let target: Option<String> = match group_id {
+        Some(gid) => Some(gid.to_string()),
+        None => doc
+            .groups
+            .iter()
+            .find(|g| g.routes.iter().any(|r| r == route))
+            .map(|g| g.id.clone()),
+    };
+
+    // The flow, resolved before the membership edit: a position is applied to
+    // the arrangement the caller is looking at, not to the stored array, which
+    // names only the pages the document was last written with.
+    let mut flow = resolve_route_order(&doc, known_routes);
+    flow.retain(|r| r != route);
+
+    // Membership: exactly one group claims a route. A route two groups claim
+    // displays under the first only (`panel_sections`), so leaving it in both
+    // would store a claim no reader ever shows.
+    let mut groups = doc.groups;
+    for group in groups.iter_mut() {
+        group.routes.retain(|r| r != route);
+    }
+    if let Some(gid) = &target {
+        if let Some(group) = groups.iter_mut().find(|g| &g.id == gid) {
+            // Assignment order — `assignRoute` appends, and position is carried
+            // by the flow, not by this array.
+            group.routes.push(route.to_string());
+        }
+    }
+
+    let in_section = |candidate: &str, groups: &[LayoutGroup]| -> bool {
+        match &target {
+            Some(gid) => groups
+                .iter()
+                .any(|g| &g.id == gid && g.routes.iter().any(|r| r == candidate)),
+            None => !groups.iter().any(|g| g.routes.iter().any(|r| r == candidate)),
+        }
+    };
+
+    // Indices in `flow` of the pages already in the target section, in order.
+    let section: Vec<usize> = flow
+        .iter()
+        .enumerate()
+        .filter(|&(_, candidate)| in_section(candidate, &groups))
+        .map(|(i, _)| i)
+        .collect();
+
+    let len = section.len();
+    let at = match position {
+        // No position asked for: join at the end of the section.
+        None => len,
+        Some(0) => {
+            return Err(format!(
+                "position 0 is out of range: positions start at 1, so 1..={} is valid",
+                len + 1
+            ))
+        }
+        Some(p) if p > len + 1 => {
+            return Err(format!(
+                "position {p} is out of range: this section holds {len} page(s), so 1..={} is valid",
+                len + 1
+            ))
+        }
+        Some(p) => p - 1,
+    };
+
+    // `at < len` sits the route immediately before the page currently holding
+    // that slot. `at == len` (the append slot) sits it immediately after the
+    // last member, or at the end of the flow when the section is empty.
+    let insert_at = if at < len {
+        section[at]
+    } else {
+        section.last().map(|i| i + 1).unwrap_or(flow.len())
+    };
+    flow.insert(insert_at, route.to_string());
+
+    Ok(LayoutDoc {
+        view: doc.view,
+        route_order: flow,
+        groups,
+        page_labels: doc.page_labels,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayoutGroup {
     pub id: String,

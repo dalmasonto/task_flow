@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
     create_group, default_doc, filter_to_known, mint_group_id, move_group, page_name,
-    panel_sections, parse, rename_group, resolve_route_order, to_json_string, to_value, validate,
-    LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
+    panel_sections, parse, place_page, rename_group, resolve_route_order, to_json_string, to_value,
+    validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
 };
 use taskflow_design::models::DesignView;
 
@@ -623,4 +623,252 @@ fn move_group_refuses_an_unknown_id() {
         err.contains("nope"),
         "an empty document names the id too: {err}"
     );
+}
+
+// `place_page`, the write that moves a page BETWEEN sections and orders it
+// within the one it lands in. It is the only write here that touches both halves
+// of the document at once — membership lives in a group's `routes`, the position
+// lives in the global flow — and both review risks of this task live in that
+// pairing:
+//
+//  * a route two groups claim lists under the FIRST of them (`panel_sections`),
+//    so a document that leaves a second claim behind stores a claim no reader
+//    ever shows; and
+//  * `position` is 1-based within the RESULTING SECTION — the numbering the
+//    Pages panel shows — while storage keeps ONE flow for the whole project, so
+//    the same number is a different flow index in a different section.
+//
+// A position outside the section, and a position that is not a position at all
+// (0), are REFUSED rather than clamped: a clamped placement lands somewhere the
+// caller did not ask for, which is worse than a sentence it can read and repeat.
+
+/// The fixture the positional cases share: a flow over four pages where g1
+/// claims the first two, so the ungrouped section is `/c /d` — and g2 is empty,
+/// so a page can be moved into a group without landing in the section it left.
+fn placed_doc() -> LayoutDoc {
+    doc_with_flow(
+        &["/a", "/b", "/c", "/d"],
+        vec![group("g1", "One", &["/a", "/b"]), group("g2", "Two", &[])],
+    )
+}
+
+#[test]
+fn place_page_moves_a_page_into_a_group() {
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let after = place_page(placed_doc(), &known_routes, "/c", Some("g1"), None).expect("places");
+    assert_eq!(after.groups[0].routes.len(), 3, "g1 now claims three pages");
+    assert!(after.groups[0].routes.contains(&"/c".to_string()));
+
+    let (groups, ungrouped) = panel_sections(&after, &known_routes);
+    let listed: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
+    assert_eq!(listed, vec!["/a", "/b", "/c"], "appended: no position asked for");
+    assert_eq!(ungrouped, vec!["/d".to_string()]);
+}
+
+#[test]
+fn place_page_removes_the_route_from_whatever_claimed_it() {
+    // Review Focus 3: the panel shows a doubly-claimed route under the FIRST
+    // group only, so a document claiming it twice displays it once — a
+    // discrepancy nothing else would catch.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let after = place_page(placed_doc(), &known_routes, "/a", Some("g2"), None).expect("places");
+    let claims: Vec<&str> = after
+        .groups
+        .iter()
+        .filter(|g| g.routes.iter().any(|r| r == "/a"))
+        .map(|g| g.id.as_str())
+        .collect();
+    assert_eq!(claims.len(), 1, "claimed exactly once: {claims:?}");
+    assert_eq!(claims[0], "g2");
+
+    // And what the panel draws, which is what the leftover claim would have
+    // hidden: g1 down to the page it still holds, /a under g2 alone, and the
+    // ungrouped section untouched by any of it.
+    let (groups, ungrouped) = panel_sections(&after, &known_routes);
+    let one: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
+    let two: Vec<&str> = groups[1].routes.iter().map(String::as_str).collect();
+    assert_eq!(one, vec!["/b"], "the section it left gave the page up");
+    assert_eq!(two, vec!["/a"], "and the section it joined is the one that lists it");
+    assert_eq!(ungrouped, vec!["/c".to_string(), "/d".to_string()]);
+}
+
+#[test]
+fn place_page_puts_the_route_at_the_requested_position_in_its_section() {
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    // /d is the only ungrouped page; move it into g1 at position 1.
+    let after = place_page(placed_doc(), &known_routes, "/d", Some("g1"), Some(1)).expect("places");
+    let (groups, _) = panel_sections(&after, &known_routes);
+    let listed: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
+    assert_eq!(listed, vec!["/d", "/a", "/b"], "lands first, displacing the rest");
+}
+
+#[test]
+fn place_page_reorders_within_the_current_section_when_no_group_is_given() {
+    // /c and /d are ungrouped. Put /d first without touching membership.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let before = placed_doc();
+    let after = place_page(before, &known_routes, "/d", None, Some(1)).expect("places");
+    let (_, ungrouped) = panel_sections(&after, &known_routes);
+    assert_eq!(ungrouped, vec!["/d".to_string(), "/c".to_string()]);
+    assert_eq!(after.groups[0].routes.len(), 2, "membership untouched");
+}
+
+#[test]
+fn place_page_reorders_within_a_named_group_the_page_is_already_in() {
+    // The caller names the group the page is already in — the sibling of the
+    // ungrouped case above, and what a "put /b first in g1" call looks like. The
+    // page LEAVES the section before the slot is read, so its own membership is
+    // not one of the positions: g1 holds /a /b, so a placement of /b offers
+    // 1..=2 and no third. A write that counted the page as still in place would
+    // offer a slot the resulting section does not have.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let after = place_page(placed_doc(), &known_routes, "/b", Some("g1"), Some(1)).expect("places");
+    let (groups, _) = panel_sections(&after, &known_routes);
+    let listed: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
+    assert_eq!(listed, vec!["/b", "/a"], "to the front of the group it was already in");
+
+    let err = place_page(placed_doc(), &known_routes, "/b", Some("g1"), Some(3)).unwrap_err();
+    assert!(err.contains("1..=2"), "two members, so two slots: {err}");
+}
+
+#[test]
+fn place_page_appends_past_the_last_member() {
+    // Review Focus 4: `len + 1` is the append slot and is legal. Anything
+    // beyond it is refused rather than clamped — a clamped placement lands
+    // somewhere the caller did not ask for, which is worse than a re-read.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let after = place_page(placed_doc(), &known_routes, "/d", Some("g1"), Some(3)).expect("places");
+    let (groups, _) = panel_sections(&after, &known_routes);
+    let listed: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
+    assert_eq!(listed, vec!["/a", "/b", "/d"]);
+}
+
+#[test]
+fn place_page_refuses_a_position_beyond_the_append_slot() {
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let before = placed_doc();
+    // g1 currently holds two pages, so 1..=3 is the valid range.
+    let err = place_page(before.clone(), &known_routes, "/c", Some("g1"), Some(4)).unwrap_err();
+    assert!(err.contains("1..=3"), "names the valid range: {err}");
+    let err_zero = place_page(before, &known_routes, "/c", Some("g1"), Some(0)).unwrap_err();
+    assert!(err_zero.contains("1..=3"), "1-based, so 0 is out: {err_zero}");
+}
+
+#[test]
+fn place_page_refuses_an_unknown_route_or_group() {
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let err = place_page(placed_doc(), &known_routes, "/nope", None, None).unwrap_err();
+    assert!(err.contains("/nope"), "names the route: {err}");
+    let err = place_page(placed_doc(), &known_routes, "/c", Some("ghost"), None).unwrap_err();
+    assert!(err.contains("ghost"), "names the group: {err}");
+}
+
+#[test]
+fn placing_a_page_leaves_other_sections_alone() {
+    // It is tempting to think a global flow means a placement ripples outward
+    // through every section's numbering. It does not: a section's numbering is
+    // that section's members in flow order, and inserting a page that is not a
+    // member cannot reorder them. A placement touches the section it LEFT and
+    // the section it JOINED — never a third. Pinned because the opposite is an
+    // easy thing to believe and a hard thing to notice.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d", "/e"]);
+    let before = doc_with_flow(
+        &["/a", "/b", "/c", "/d", "/e"],
+        vec![group("g1", "One", &["/a", "/b"]), group("g3", "Three", &["/e"])],
+    );
+    let after = place_page(before, &known_routes, "/c", Some("g1"), Some(1)).expect("places");
+
+    let (groups, ungrouped) = panel_sections(&after, &known_routes);
+    let three: Vec<&str> = groups
+        .iter()
+        .find(|g| g.id == "g3")
+        .expect("g3 survives")
+        .routes
+        .iter()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(three, vec!["/e"], "a section the write never named is untouched");
+    assert_eq!(ungrouped, vec!["/d".to_string()], "and only the vacated section lost a page");
+}
+
+#[test]
+fn placing_a_page_keeps_the_flow_a_permutation() {
+    // The invariant the whole document rests on: every page exactly once.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let after = place_page(placed_doc(), &known_routes, "/d", Some("g1"), Some(2)).expect("places");
+    let mut sorted = after.route_order.clone();
+    sorted.sort();
+    let mut expected = known_routes.clone();
+    expected.sort();
+    assert_eq!(sorted, expected, "no page dropped and none duplicated");
+}
+
+#[test]
+fn place_page_positions_within_the_section_not_the_global_flow() {
+    // Review Focus 4, the half the cases above cannot see. Every section they
+    // place into sits at the HEAD of the flow — the pages preceding those
+    // sections are none — so the same `position` happens to be the same flow
+    // index, and a write that read it as an index into the flow would pass all
+    // of them. Here the target section starts three pages in, and the two
+    // readings disagree by exactly those three.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d", "/e"]);
+    let before = doc_with_flow(
+        &["/a", "/b", "/c", "/d", "/e"],
+        vec![group("g1", "One", &["/a", "/b"]), group("g2", "Two", &["/d", "/e"])],
+    );
+    // The SLOT the route lands in is what separates the two readings, so the
+    // position asked for is an interior one: /d holds the second slot of the
+    // flow, and that is not where the second page of g2's section goes.
+    let after = place_page(before, &known_routes, "/c", Some("g2"), Some(2)).expect("places");
+
+    let (groups, ungrouped) = panel_sections(&after, &known_routes);
+    let two: Vec<&str> = groups
+        .iter()
+        .find(|g| g.id == "g2")
+        .expect("g2 survives")
+        .routes
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let one: Vec<&str> = groups
+        .iter()
+        .find(|g| g.id == "g1")
+        .expect("g1 survives")
+        .routes
+        .iter()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        two,
+        vec!["/d", "/c", "/e"],
+        "second in its own section, which starts three pages into the flow"
+    );
+    assert_eq!(one, vec!["/a", "/b"], "and the section it left is untouched");
+    assert!(ungrouped.is_empty(), "every page is claimed now: {ungrouped:?}");
+}
+
+#[test]
+fn place_page_materialises_a_sparse_flow_over_every_page() {
+    // The stored flow is SPARSE — a page added after the document was written is
+    // not in it, so it names one page of the four the project has — and the
+    // write comes back naming every page (spec §4 D6). `placed_doc`'s flow is
+    // already complete, so the cases above cannot see this: leaving
+    // `route_order` as it was found would pass every one of them, and a position
+    // against a half-named arrangement would mean nothing.
+    let known_routes = known_of(&["/a", "/b", "/c", "/d"]);
+    let before = doc_with_flow(&["/b"], vec![group("g1", "One", &["/a", "/b"])]);
+    // Resolves to /b /a /c /d, so g1's section is /b /a and /c lands first.
+    let after = place_page(before, &known_routes, "/c", Some("g1"), Some(1)).expect("places");
+    assert_eq!(
+        after.route_order,
+        vec!["/c", "/b", "/a", "/d"],
+        "the whole arrangement, not the stored half of it"
+    );
+
+    // And the panel draws that flow: g1's three pages in the order the write
+    // stored, not the order the group's own array holds.
+    let (groups, ungrouped) = panel_sections(&after, &known_routes);
+    let listed: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
+    assert_eq!(listed, vec!["/c", "/b", "/a"]);
+    assert_eq!(ungrouped, vec!["/d".to_string()]);
 }
