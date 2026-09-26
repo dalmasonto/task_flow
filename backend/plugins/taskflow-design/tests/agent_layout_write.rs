@@ -298,3 +298,231 @@ async fn a_reorder_page_that_asks_for_nothing_is_refused() {
         "nor bumped, which a write that changed nothing would still have done"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The version, end to end
+//
+// The number `read_layout` hands out is the number a write's `base_version` is
+// checked against: the layout ROW's own version, not the manifest's `revision`
+// (which is `max(design_file.version)` and answers a different question), and
+// 0 while no row exists — the base a project's first arrangement is written
+// from. Review Focus 5 lives here: an agent that never read must never be
+// blocked, and one that did read must be TOLD when someone moved the board
+// under it.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_read_reports_the_layouts_own_version() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+    // Save the same page again, so the manifest's `revision` — the max of the
+    // FRAGMENT versions — sits at 2, deliberately NOT where the layout row's
+    // own version will be. With the two at the same number, an assertion that
+    // they differ would pass on a read that had confused them; with a real gap
+    // between them it fails on exactly that confusion.
+    seed_page(&app, project, user, "pages/a.html", "A, saved again").await;
+
+    // Nobody has arranged anything yet.
+    let fresh = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(
+        fresh["revision"], 2,
+        "the premise: the manifest's own number is not the layout's: {fresh}"
+    );
+    assert_eq!(fresh["version"], 0, "no row yet, so 0 is the base to write from");
+
+    // Asserted, not merely awaited: a write that failed would leave the read
+    // below reporting 0 and this test would say "the version is wrong" about a
+    // write that never landed.
+    let created = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await;
+    assert_eq!(created.status(), 200, "{}", created.text());
+    assert_eq!(created.json()["version"], 1);
+
+    let after = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(after["version"], 1);
+    assert_ne!(
+        after["version"], after["revision"],
+        "the manifest revision is a different number and must not be mistaken for this one"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stale_base_version_is_refused_with_the_current_document() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+
+    let first = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await
+        .json();
+    let stale = first["version"].as_i64().unwrap();
+
+    // Someone else moves the board on.
+    let second = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "Two" } } }),
+        )
+        .await;
+    assert_eq!(
+        second.status(),
+        200,
+        "the premise: the board has to have moved on for `stale` to be stale: {}",
+        second.text()
+    );
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "base_version": stale,
+                "op": { "create_group": { "name": "Three" } }
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 409, "{}", res.text());
+    let body = res.json();
+    assert_eq!(body["error"], "version_conflict");
+    assert_eq!(body["current_version"], stale + 1);
+    // TWO groups, so this is the LIVE document and not the caller's stale view
+    // (one group) and not the document the refused write meant to store (three).
+    // `groups` is spelled the same in both casings, so the assertion does not
+    // depend on the response's camelCase convention.
+    assert_eq!(
+        body["current_document"]["groups"].as_array().map(|g| g.len()),
+        Some(2),
+        "the current document comes back so a caller can merge rather than guess"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_omitted_base_version_never_conflicts() {
+    // Review Focus 5, and the whole point of D1: an agent that never read is
+    // never blocked. Ten writes in a row, none of them sending a version.
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+
+    for n in 0..10 {
+        let res = app
+            .put_as_agent(
+                &key,
+                &layout_path(project),
+                json!({ "project": project, "op": { "create_group": { "name": format!("G{n}") } } }),
+            )
+            .await;
+        assert_eq!(res.status(), 200, "write {n}: {}", res.text());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_round_trip_base_version_is_accepted() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+
+    // Hand back exactly what the read handed out — with NO row stored yet, so
+    // the base is 0.
+    let read = app.get_as_agent(&key, &layout_path(project)).await.json();
+    let version = read["version"].as_i64().unwrap();
+    assert_eq!(version, 0, "the premise: nothing has been arranged yet: {read}");
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "base_version": version,
+                "op": { "create_group": { "name": "One" } }
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "the version the read just handed out is current: {}", res.text());
+
+    // And the same round trip over a row that NOW EXISTS — the shape the two
+    // 409 cases exercise. Read, hand the number straight back, expect 200.
+    // Without this the file has no case where a supplied base is ACCEPTED
+    // against a stored row, and an implementation that refused every supplied
+    // `base_version` the moment a row existed would pass every other test here.
+    let read = app.get_as_agent(&key, &layout_path(project)).await.json();
+    let version = read["version"].as_i64().unwrap();
+    assert_eq!(version, 1, "the premise: the write above created the row: {read}");
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "base_version": version,
+                "op": { "create_group": { "name": "Two" } }
+            }),
+        )
+        .await;
+    assert_eq!(
+        res.status(),
+        200,
+        "and a version read from a row that exists is current too: {}",
+        res.text()
+    );
+    assert_eq!(res.json()["version"], 2, "so the write lands, one past the base");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_operator_save_makes_a_held_version_stale() {
+    // The operator sends no version and always wins, but their save must move
+    // the number or an agent holding an old one would never be told.
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+
+    let first = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await
+        .json();
+    let held = first["version"].as_i64().unwrap();
+
+    // The operator's own save, on the operator's own route, with the shape the
+    // panel sends. No version, because the human looking at the board always
+    // wins — the assertion is only that it was accepted.
+    let op = app
+        .put_json_as(
+            user,
+            &format!("/api/design/{project}/layout"),
+            &json!({
+                "view": "groups",
+                "routeOrder": ["/a"],
+                "groups": [{ "id": "goperator", "name": "Operator", "routes": ["/a"] }],
+                "pageLabels": {}
+            }),
+        )
+        .await;
+    assert_eq!(op.status(), 200, "{}", op.text());
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "base_version": held,
+                "op": { "create_group": { "name": "Two" } }
+            }),
+        )
+        .await;
+    assert_eq!(res.status(), 409, "the operator's save moved the number: {}", res.text());
+}

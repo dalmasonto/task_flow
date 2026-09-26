@@ -286,7 +286,7 @@ pub async fn read_layout(
     Query(q): Query<AgentLayoutQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     authorized_project(&agent, q.project)?;
-    let (doc, m) = crate::views::load_layout(agent.project_id).await?;
+    let (doc, m, version) = crate::views::load_layout(agent.project_id).await?;
     let paths: Vec<String> = m.routes.iter().map(|r| r.path.clone()).collect();
     let flow = layout_doc::resolve_route_order(&doc, &paths);
     let (groups, ungrouped) = layout_doc::panel_sections(&doc, &paths);
@@ -334,6 +334,14 @@ pub async fn read_layout(
         "ungrouped": ungrouped,
         "page_labels": doc.page_labels,
         "pages": pages,
+        // Two different numbers answering two different questions, and the one
+        // to hand BACK is `version`: the layout row's own, `0` while nothing
+        // has been arranged, and what a write's `base_version` is compared
+        // against (a mismatch is a 409 carrying the current document).
+        // `revision` is `max(design_file.version)` — the fragment revision the
+        // canvas reloads on — and says nothing about the arrangement, so it is
+        // never a base for one: do not round-trip it.
+        "version": version,
         "revision": m.revision,
         // Written for an agent that arrived here from `design_list_components`
         // and has no idea what a "view" or a "flow" is: say what each field

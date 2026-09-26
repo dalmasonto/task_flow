@@ -175,10 +175,17 @@ pub(crate) async fn known_routes(project_id: i64) -> Vec<String> {
         .collect()
 }
 
-/// The project's arrangement, and the manifest it was read against: the ONE
-/// loader behind the operator read (`get_layout`) and the agent read
-/// (`agent_views::read_layout`), so a document can never be filtered against
-/// one set of pages and reported against another.
+/// The project's arrangement, the manifest it was read against, and the layout
+/// ROW's own version: the ONE loader behind the operator read (`get_layout`)
+/// and the agent read (`agent_views::read_layout`), so a document can never be
+/// filtered against one set of pages and reported against another.
+///
+/// The version is the row's own, `0` when there is no row yet — the base a
+/// project's first arrangement is written from. It rides along because the row
+/// is read HERE anyway: a second query for the same number could only disagree
+/// with this one. It is NOT the manifest's `revision`, which is
+/// `max(design_file.version)` — the fragment revision the canvas reloads on,
+/// a different number answering a different question, so never swap the two.
 ///
 /// Forgiving, like every read of this document (`layout_doc.rs`'s asymmetry).
 /// A project that has never been arranged reads `default_doc()`; a stored
@@ -189,7 +196,7 @@ pub(crate) async fn known_routes(project_id: i64) -> Vec<String> {
 /// has is served with those routes filtered out, never refused.
 pub(crate) async fn load_layout(
     project_id: i64,
-) -> Result<(layout_doc::LayoutDoc, manifest::DesignManifest), StatusCode> {
+) -> Result<(layout_doc::LayoutDoc, manifest::DesignManifest, i64), StatusCode> {
     let m = manifest_for(project_id).await;
     let known: Vec<String> = m.routes.iter().map(|r| r.path.clone()).collect();
 
@@ -199,13 +206,19 @@ pub(crate) async fn load_layout(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // The row's own version, taken from the row read above rather than fetched
+    // again. `0` for a project nobody has arranged: the number its first
+    // arrangement is written from, so a reader can hand this straight back as a
+    // `base_version` whether or not anything has been arranged.
+    let version = stored.as_ref().map(|row| row.version).unwrap_or(0);
+
     // `layout_json` is the source of truth for `view` too; the same-named
     // column is a denormalised copy for admin filtering, never read back here.
     let doc = stored
         .and_then(|row| layout_doc::parse(&row.layout_json).ok())
         .unwrap_or_else(layout_doc::default_doc);
 
-    Ok((layout_doc::filter_to_known(doc, &known), m))
+    Ok((layout_doc::filter_to_known(doc, &known), m, version))
 }
 
 /// `GET /api/design/{project}/layout` — the shared arrangement.
@@ -220,7 +233,7 @@ pub async fn get_layout(
     Path(project_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_member(user_id, project_id).await?;
-    let (doc, _manifest) = load_layout(project_id).await?;
+    let (doc, _manifest, _version) = load_layout(project_id).await?;
     Ok(Json(layout_doc::to_value(&doc)))
 }
 
