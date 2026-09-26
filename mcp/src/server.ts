@@ -1003,6 +1003,30 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       ),
   };
 
+  // Shared by the layout writes. Optional on purpose: omitted, the server works
+  // from the version it currently holds, so an agent that never read is never
+  // blocked. Supply one (from design_read_layout's `version`) to be TOLD when
+  // someone else moved the board instead of writing over them.
+  const baseVersionArg = {
+    base_version: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        "The layout version you read. Optional: omit and the write applies to the current board. Supply it to get a 409 instead of overwriting a change you have not seen.",
+      ),
+  };
+
+  // The same fact again in each tool's DESCRIPTION, because the two answer
+  // different questions: the argument's schema can say the field is optional,
+  // but not that omitting it is the ORDINARY case — an agent that has not read
+  // the board has to be able to tell that it may still write.
+  const baseVersionNote =
+    "`base_version` is optional and omitting it is the normal case: the write then applies " +
+    "to the board as it stands, so an agent that never read is never blocked. Supply " +
+    "design_read_layout's `version` to be told (409, with the current arrangement) instead " +
+    "of overwriting a change you have not seen.";
+
   async function resolveDesignProject(
     client: TaskflowClient,
     project?: number,
@@ -1049,7 +1073,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_read_layout",
-    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. Read-only: arranging the board is the operator's, and there is no tool that writes it.",
+    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. `view` is the canvas arrangement (rows/bands/groups) and the grouping reads the same in all three. `version` is THIS arrangement's version — hand it to a layout write as `base_version` to be told if someone rearranged the board under you. (Note `revision` next to it is a different number: the manifest's, which moves when a page changes.) Arrange the board with design_create_group, design_update_group, design_reorder_group and design_reorder_page, which take an operation — never PUT a document built from this response back, because this is the panel's view and not the stored form.",
     // The arrangement is one document per project, so there is nothing to
     // select: a route or a group id would be an argument this read has no use
     // for. The description says so as well, because a schema shows only what is
@@ -1062,6 +1086,159 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
         return ok(await client.readDesignLayout(await resolveDesignProject(client, project)));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // ---- Arranging the board --------------------------------------------------
+  // The four writes take an OPERATION, tagged by which edit it is, and never a
+  // document: design_read_layout is the panel's view and comes back lossy, so a
+  // document rebuilt from it would store something the reader never saw. Each
+  // operation says what to change and nothing else, which is what makes these
+  // safe to apply to a board the caller has not read — and why `base_version`
+  // can be optional rather than mandatory.
+
+  server.tool(
+    "design_create_group",
+    "Add a named page group to the project's arrangement — the Pages panel's groups, which decide how screens are sectioned. The name must be non-blank, at most 40 characters, and not already used in THIS project (names are compared case-insensitively; another project may use the same name). Returns the new group's id in `changed.groups`; put pages in it with design_reorder_page. " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      name: z.string().describe("The group name."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, name, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: { create_group: { name } },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_update_group",
+    "Rename one page group. Membership and order are untouched, so a rename can never empty a group or move a page — putting pages somewhere is design_reorder_page's job, and a group is emptied by moving its pages out, never by renaming it. `group_id` comes from design_read_layout, or from the id design_create_group returned in `changed.groups`. The name must be non-blank, at most 40 characters, and not already used in this project (as with design_create_group). " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      group_id: z.string().describe("The id of the group to rename, from design_read_layout."),
+      name: z.string().describe("The new name."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, group_id, name, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: { update_group: { group_id, name } },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_reorder_group",
+    "Move one page group to a 1-based SLOT in the group list: `position` is an ABSOLUTE slot (1 is the first group), not a delta to shift by. It is a MOVE, not a swap — the groups between the old slot and the new one slide along and keep their relative order. Out of range is REFUSED with a 400 naming the valid range, never clamped, because a clamped move lands somewhere nobody asked for; the Pages panel does clamp a drag, so a slot the panel would have quietly accepted is an error here, and the range comes back in the error for the retry. `group_id` and the group count come from design_read_layout. " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      group_id: z.string().describe("The id of the group to move, from design_read_layout."),
+      position: z.number().int().describe("The 1-based slot to move it to — absolute, not a delta."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, group_id, position, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: { reorder_group: { group_id, position } },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // `registerTool`, not `tool`, for one reason: `server.tool` takes a raw SHAPE,
+  // which is a record of independent field schemas and cannot carry a rule that
+  // spans two fields. "At least one of group_id / position" is exactly that kind
+  // of rule, and the backend refuses a call with neither — so without a refined
+  // object schema the MCP would send every such call to a 400 it can predict.
+  // The published wire shape is identical either way (same flat `properties`),
+  // so this changes nothing an agent sees except that the mistake is refused
+  // before the write leaves.
+  server.registerTool(
+    "design_reorder_page",
+    {
+      description:
+        "Place a page into a group and/or at a 1-based position within that section — the numbering the Pages panel shows, NOT an index into the flow, which is global and sparse and which no reader ever sees. At least one of `group_id` or `position` is required: naming neither asks for nothing and is refused. Passing only `group_id` APPENDS the page to that group's section, so a page you merely want IN a group lands at the end of it — pass `position` as well to choose the slot. Passing only `position` reorders the page within the section that already holds it. Both together do both in one write, which is how a page moves between groups as a single edit rather than two that can half-succeed. `position` is 1..=the number of pages in the resulting section plus one (its append slot); out of range is refused, not clamped. Moving a page renumbers the section it left and the one it joined; other sections are unaffected, because their members keep their relative order in the flow. The response's `changed.routes` names every page whose visible position moved, and always the page you named. " +
+        baseVersionNote,
+      inputSchema: z
+        .object({
+          route: z.string().min(1).describe("The page's route, e.g. '/settings'."),
+          group_id: z
+            .string()
+            .optional()
+            .describe("The group to place it in; omit to keep the section that holds it."),
+          position: z
+            .number()
+            .int()
+            .optional()
+            .describe("The 1-based slot within the resulting section; omit to append to it."),
+          ...designProjectArg,
+          ...profileArg,
+          ...baseVersionArg,
+        })
+        // The backend's own message, so the two refusals tell the same story.
+        .refine((v) => v.group_id !== undefined || v.position !== undefined, {
+          message: "reorder_page needs a group_id, a position, or both.",
+        }),
+    },
+    async ({ route, group_id, position, project, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: {
+              reorder_page: {
+                route,
+                ...(group_id === undefined ? {} : { group_id }),
+                ...(position === undefined ? {} : { position }),
+              },
+            },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
       } catch (err) {
         return fail(err);
       }

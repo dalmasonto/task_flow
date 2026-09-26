@@ -18,6 +18,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const harness = vi.hoisted(() => ({
   /** Ordered log of the collaborator calls each tool makes. */
   calls: [] as string[],
+  /**
+   * The payload of each arrangement write the tools sent — the tagged operation
+   * and any `base_version` — as JSON.
+   */
+  layoutOps: [] as string[],
+  /**
+   * The KEYS of that same payload. `JSON.stringify` DROPS a key whose value is
+   * `undefined`, so a write carrying `base_version: undefined` and a write
+   * carrying no `base_version` at all serialise to identical bytes; only the
+   * own keys tell them apart, and the difference is the whole point of an
+   * argument the route reads as `Option<i64>`.
+   */
+  layoutOpKeys: [] as string[][],
   agents: [] as Array<{
     id: number;
     display_name: string;
@@ -100,6 +113,17 @@ vi.mock("./client.js", async (importOriginal) => {
       // the wrong project would answer with somebody else's board.
       harness.calls.push(`readDesignLayout:${project}`);
       return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
+    }
+    async writeLayoutOp(input: { project: number; op: unknown; base_version?: number }) {
+      // The project is asserted through `calls` — it is resolved from `whoami`
+      // and handed in, not chosen here — and the REST is recorded for the shape
+      // assertions: an operation carrying a key nobody asked for would
+      // round-trip through the backend and never be seen otherwise.
+      const { project, ...payload } = input;
+      harness.calls.push(`writeLayoutOp:${project}`);
+      harness.layoutOps.push(JSON.stringify(payload));
+      harness.layoutOpKeys.push(Object.keys(payload));
+      return { ok: true, version: 2, changed: { groups: ["g1"], routes: [] } };
     }
     async deleteDesignComponent(project: number, name: string, reason: string) {
       // Every argument is recorded: a delete that dropped the reason would be
@@ -280,6 +304,8 @@ const LIVE_MAIN = {
 
 beforeEach(() => {
   harness.calls.length = 0;
+  harness.layoutOps.length = 0;
+  harness.layoutOpKeys.length = 0;
   harness.agents = [];
   harness.listAgentsFails = false;
   harness.registered.length = 0;
@@ -522,8 +548,11 @@ describe("design_read_layout", () => {
     // It names the tool it is NOT, so an agent that already knows that one
     // knows this is the different question.
     expect(description).toMatch(/design_list_components/);
-    // And it does not offer a write, because there is not one.
-    expect(description).toMatch(/read-only/i);
+    // It points at the write tools rather than claiming there are none. This
+    // sentence used to read "there is no tool that writes it", which is exactly
+    // the kind of prose that goes stale silently.
+    expect(description).toMatch(/design_create_group/);
+    expect(description).not.toMatch(/no tool that writes it/i);
   });
 
   it("reads the layout of THIS credential's project", async () => {
@@ -668,5 +697,110 @@ describe("create_task", () => {
 
     const props = Object.keys(create?.inputSchema.properties ?? {});
     expect(props).toEqual(expect.arrayContaining(["title", "files", "notes"]));
+  });
+});
+
+describe("layout write tools", () => {
+  // These go over the REAL transport like every other case in this file — the
+  // parts that go wrong are the parts a helper test cannot see, and for these
+  // tools that is the SHAPE of the operation object that reaches the client.
+
+  it("registers all four", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const names = tools.tools.map((t) => t.name);
+    for (const name of [
+      "design_create_group",
+      "design_update_group",
+      "design_reorder_group",
+      "design_reorder_page",
+    ]) {
+      expect(names, `${name} must be registered`).toContain(name);
+    }
+  });
+
+  it("says the version is optional, because omitting it is the normal case", async () => {
+    // An agent that never read must not be told it has to read first.
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_reorder_page");
+    const description = tool?.description ?? "";
+    expect(description).toMatch(/base_version/i);
+    expect(description).toMatch(/optional|omit/i);
+  });
+
+  it("sends an operation and nothing else", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_create_group",
+      arguments: { profile: "main", name: "Player" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(harness.calls).toContain("writeLayoutOp:2");
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      op: { create_group: { name: "Player" } },
+    });
+  });
+
+  it("forwards a supplied base_version untouched", async () => {
+    const client = await connectedClient();
+    await client.callTool({
+      name: "design_reorder_group",
+      arguments: { profile: "main", group_id: "g1", position: 2, base_version: 7 },
+    });
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      base_version: 7,
+      op: { reorder_group: { group_id: "g1", position: 2 } },
+    });
+  });
+
+  it("names reorder_page's fields the way the route expects", async () => {
+    // This is the one operation with optional fields INSIDE it, and the only
+    // place a field name can go wrong silently: serde IGNORES a field it does
+    // not know, so a `position` sent under any other name arrives as "no
+    // position asked for" — the page is appended instead of placed, and the
+    // write reports success for an edit nobody asked for.
+    const client = await connectedClient();
+    await client.callTool({
+      name: "design_reorder_page",
+      arguments: { profile: "main", route: "/settings", position: 2 },
+    });
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      op: { reorder_page: { route: "/settings", position: 2 } },
+    });
+  });
+
+  it("omits base_version entirely rather than sending null", async () => {
+    // `null` would fail the route's `Option<i64>` deserialisation differently
+    // from an absent key, so "not supplied" has to mean "key absent" — and the
+    // KEYS are the only place that shows. `JSON.stringify` drops a key whose
+    // value is `undefined`, so a tool that passed `base_version: undefined`
+    // would serialise byte-for-byte like one that passed nothing, and an
+    // assertion on the parsed JSON would pass either way and pin nothing.
+    const client = await connectedClient();
+    await client.callTool({
+      name: "design_update_group",
+      arguments: { profile: "main", group_id: "g1", name: "X" },
+    });
+    expect(harness.layoutOpKeys.at(-1)).toEqual(["op"]);
+  });
+
+  it("refuses a reorder_page that names neither a group nor a position", async () => {
+    // The backend answers this with a 400, so a schema that let it through
+    // would send every such call to a refusal it already knows the answer to.
+    // The refusal is in the ARGUMENTS, which is where an agent can be told
+    // early, and the message names what is missing.
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_reorder_page",
+      arguments: { profile: "main", route: "/settings" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/group_id/);
+    expect(JSON.stringify(result.content)).toMatch(/position/);
+    // And nothing was written: the refusal came before the client was reached,
+    // so there is no operation for the backend to reject.
+    expect(harness.layoutOps).toHaveLength(0);
   });
 });
