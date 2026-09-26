@@ -16,13 +16,15 @@ use umbral::web::{IntoResponse, Json, Path, Query, Response, StatusCode};
 use umbral_realtime::Realtime;
 use taskflow_agents::agent_auth::RequireAgent;
 
-use crate::layout_doc;
+use crate::layout_doc::{self, LayoutDoc};
 use crate::manifest;
-use crate::models::{CommentStatus, DesignComment, DesignFileKind, design_comment};
+use crate::models::{
+    CommentStatus, DesignComment, DesignFileKind, DesignLayout, design_comment, design_layout,
+};
 use crate::store::{self, WriteOutcome};
 use crate::tokens::{TokensDoc, css_to_tokens_json, tokens_json_to_css};
 use crate::validation;
-use crate::views::{conflict_response, project_locks, rejection_response};
+use crate::views::{conflict_response, conflict_response_values, project_locks, rejection_response};
 
 /// The project the agent may act on: its own credential's project. Any other
 /// value in the request is a refusal, not a routing hint.
@@ -834,6 +836,296 @@ async fn agent_write(
         WriteOutcome::Rejected(v) => Ok(rejection_response(&v)),
         WriteOutcome::Conflict(row) => Ok(conflict_response(&row)),
     }
+}
+
+/// The four arrangement edits an agent may make.
+///
+/// One enum on one route because these are four edits to ONE resource — the
+/// document — not four resources. Never a document in, either: the read
+/// response is the panel's view and is lossy in both directions, so a payload
+/// that PUT it back would silently reorder every group by the flow
+/// (`agent_views.rs` read_layout, "This response is NOT the document").
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutOp {
+    /// Add an empty group. The name rules live in `validate`.
+    CreateGroup { name: String },
+    /// Rename one group. Membership is `ReorderPage`'s job.
+    UpdateGroup { group_id: String, name: String },
+    /// Move a group to a 1-based slot in the group list.
+    ReorderGroup { group_id: String, position: usize },
+    /// Move a page into a group and/or to a 1-based position in its section.
+    ReorderPage {
+        route: String,
+        #[serde(default)]
+        group_id: Option<String>,
+        #[serde(default)]
+        position: Option<usize>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentLayoutWrite {
+    pub project: i64,
+    #[serde(default)]
+    pub base_version: Option<i64>,
+    pub op: LayoutOp,
+}
+
+/// What one write did, resolved inside the lock so the response can be built
+/// without holding it.
+enum LayoutOutcome {
+    Written {
+        version: i64,
+        groups: Vec<String>,
+        routes: Vec<String>,
+    },
+    Conflict {
+        current: i64,
+        doc: serde_json::Value,
+    },
+    Invalid(String),
+}
+
+/// `PUT /api/taskflow/agents/design/layout` — the agent's arrangement write.
+///
+/// Read-modify-write inside the project lock, exactly as the operator's
+/// `put_layout` does, so an agent's edit and the operator's save cannot
+/// interleave.
+///
+/// It begins from the SERVED view (`filter_to_known`), not the stored row.
+/// `validate` REJECTS a route the manifest no longer has, while `load_layout`
+/// FILTERS one out; a write that started from the raw row would therefore fail
+/// forever the moment a page was deleted, naming a page nobody can see. That
+/// asymmetry is deliberate on both sides — see `layout_doc`'s module docs — and
+/// this is the composition that respects it.
+///
+/// A row that exists but will not PARSE is a 500 and nothing is written. The
+/// read's fallback to `default_doc()` is right for a read and catastrophic
+/// here: it would persist `default + op` and discard the real arrangement.
+pub async fn write_layout(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentLayoutWrite>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, input.project)?;
+    let project_id = agent.project_id;
+    let by = format!("{} ({})", agent.display_name, agent.agent_id);
+    let known = crate::views::known_routes(project_id).await;
+
+    let outcome = crate::views::project_locks()
+        .with_lock(project_id, || async {
+            let existing = DesignLayout::objects()
+                .filter(design_layout::PROJECT.eq(project_id))
+                .first()
+                .await
+                .map_err(|err| {
+                    eprintln!("design layout read: {err}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            let current_version = existing.as_ref().map(|row| row.version).unwrap_or(0);
+
+            let stored = match existing.as_ref() {
+                Some(row) => layout_doc::parse(&row.layout_json).map_err(|err| {
+                    eprintln!(
+                        "design layout write refused: the stored document will not parse: {err}"
+                    );
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?,
+                None => layout_doc::default_doc(),
+            };
+            let doc = layout_doc::filter_to_known(stored, &known);
+
+            // A supplied base that does not match is refused; an OMITTED base
+            // is the normal case and simply proceeds at the current version,
+            // which is what makes the tool safe for an agent that never read.
+            if let Some(base) = input.base_version {
+                if base != current_version {
+                    return Ok(LayoutOutcome::Conflict {
+                        current: current_version,
+                        doc: layout_doc::to_value(&doc),
+                    });
+                }
+            }
+
+            let before_doc = doc.clone();
+            let mut minted: Option<String> = None;
+
+            // Matched by REFERENCE: `input.op` is read again below to say what
+            // changed, and matching by value would move it out from under that.
+            let next = match &input.op {
+                LayoutOp::CreateGroup { name } => {
+                    let (next, id) = layout_doc::create_group(doc, name);
+                    minted = Some(id);
+                    next
+                }
+                LayoutOp::UpdateGroup { group_id, name } => {
+                    match layout_doc::rename_group(doc, group_id, name) {
+                        Ok(next) => next,
+                        Err(message) => return Ok(LayoutOutcome::Invalid(message)),
+                    }
+                }
+                LayoutOp::ReorderGroup { group_id, position } => {
+                    match layout_doc::move_group(doc, group_id, *position) {
+                        Ok(next) => next,
+                        Err(message) => return Ok(LayoutOutcome::Invalid(message)),
+                    }
+                }
+                LayoutOp::ReorderPage { route, group_id, position } => {
+                    match layout_doc::place_page(doc, &known, route, group_id.as_deref(), *position)
+                    {
+                        Ok(next) => next,
+                        Err(message) => return Ok(LayoutOutcome::Invalid(message)),
+                    }
+                }
+            };
+
+            // Note the `return Ok(...)`: the closure's error type is
+            // `StatusCode`, and a rule failure is a 400 with `validate`'s or the
+            // operation's own message, not a 500. `?` cannot do this conversion,
+            // so every fallible step is matched explicitly.
+            let validated = match layout_doc::validate(next, &known) {
+                Ok(doc) => doc,
+                Err(message) => return Ok(LayoutOutcome::Invalid(message)),
+            };
+
+            let json = layout_doc::to_json_string(&validated);
+            if json.len() > 65536 {
+                return Ok(LayoutOutcome::Invalid(
+                    "the arrangement is too large to store".to_string(),
+                ));
+            }
+
+            let next_version = current_version + 1;
+            match existing.as_ref() {
+                Some(row) => {
+                    let updated = DesignLayout::objects()
+                        .filter(
+                            design_layout::ID.eq(row.id) & design_layout::VERSION.eq(row.version),
+                        )
+                        .update_values(
+                            json!({
+                                "view": validated.view,
+                                "layout_json": json,
+                                "updated_by": by,
+                                "updated_at": chrono::Utc::now(),
+                                "version": next_version,
+                            })
+                            .as_object()
+                            .cloned()
+                            .unwrap_or_default(),
+                        )
+                        .await
+                        .map_err(|err| {
+                            eprintln!("design layout agent update: {err}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+                    if updated == 0 {
+                        // Slipped past the lock. Report the current row rather
+                        // than pretending the write landed.
+                        return Ok(LayoutOutcome::Conflict {
+                            current: row.version,
+                            doc: layout_doc::to_value(&validated),
+                        });
+                    }
+                }
+                None => {
+                    DesignLayout::objects()
+                        .create(DesignLayout {
+                            id: 0,
+                            project: umbral::orm::ForeignKey::new(project_id),
+                            view: validated.view,
+                            layout_json: json,
+                            version: 1,
+                            updated_by: by,
+                            created_at: None,
+                            updated_at: None,
+                        })
+                        .await
+                        .map_err(|err| {
+                            eprintln!("design layout agent create: {err}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+                }
+            }
+
+            // A create reports the id it minted; the other three report the
+            // group the caller named, since that is what was asked about.
+            let changed_groups: Vec<String> = match (&minted, &input.op) {
+                (Some(id), _) => vec![id.clone()],
+                (None, LayoutOp::UpdateGroup { group_id, .. })
+                | (None, LayoutOp::ReorderGroup { group_id, .. }) => vec![group_id.clone()],
+                (None, LayoutOp::ReorderPage { group_id, .. }) => {
+                    group_id.iter().cloned().collect()
+                }
+                (None, LayoutOp::CreateGroup { .. }) => Vec::new(),
+            };
+
+            // Which pages changed VISIBLE position. A positional diff of the raw
+            // flow would flag pages whose global index moved while nothing a
+            // reader can see changed — and a placement materialises the flow
+            // (D6), so that is most of them. Compare each page's 1-based index
+            // WITHIN ITS SECTION instead, which is the numbering the panel
+            // shows: that is what "did anything move?" means.
+            let section_index = |doc: &LayoutDoc| {
+                let (groups, ungrouped) = layout_doc::panel_sections(doc, &known);
+                let mut map: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for group in groups {
+                    for (index, route) in group.routes.into_iter().enumerate() {
+                        map.insert(route, index + 1);
+                    }
+                }
+                for (index, route) in ungrouped.into_iter().enumerate() {
+                    map.insert(route, index + 1);
+                }
+                map
+            };
+            let before_positions = section_index(&before_doc);
+            let after_positions = section_index(&validated);
+            let mut changed_routes: Vec<String> = after_positions
+                .iter()
+                .filter(|(route, position)| before_positions.get(*route) != Some(*position))
+                .map(|(route, _)| route.clone())
+                .collect();
+            // A page that changed SECTION but happened to keep its index would
+            // not show up above, and it is the very page the caller named.
+            if let LayoutOp::ReorderPage { route, .. } = &input.op {
+                if !changed_routes.contains(route) {
+                    changed_routes.push(route.clone());
+                }
+            }
+            changed_routes.sort();
+
+            // The type is named at the tail so the earlier `return`s resolve:
+            // the closure's error side is `StatusCode` (same turbofish idiom as
+            // `views.rs::put_layout`), which is what makes a rule failure a 400
+            // and a broken row a 500 without either being inferred.
+            Ok::<LayoutOutcome, StatusCode>(LayoutOutcome::Written {
+                version: next_version,
+                groups: changed_groups,
+                routes: changed_routes,
+            })
+        })
+        .await?;
+
+    Ok(match outcome {
+        LayoutOutcome::Written { version, groups, routes } => (
+            StatusCode::OK,
+            Json(json!({
+                "ok": true,
+                "version": version,
+                "changed": { "groups": groups, "routes": routes },
+            })),
+        )
+            .into_response(),
+        LayoutOutcome::Conflict { current, doc } => conflict_response_values(current, doc),
+        LayoutOutcome::Invalid(message) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "invalid_operation", "message": message })),
+        )
+            .into_response(),
+    })
 }
 
 #[derive(Debug, Deserialize)]

@@ -319,6 +319,34 @@ impl TestApp {
             .expect("layout query")
             .expect("a layout row")
     }
+
+    /// Drop a page row directly, standing in for "the operator deleted a page while
+    /// the arrangement still named it".
+    pub async fn delete_page_row(&self, project: i64, path: &str) {
+        use taskflow_design::models::{DesignFile, design_file};
+        DesignFile::objects()
+            .filter(design_file::PROJECT.eq(project) & design_file::PATH.eq(path))
+            .delete()
+            .await
+            .expect("delete the page");
+    }
+
+    /// Force the stored document to arbitrary bytes, standing in for a row written
+    /// by a build with a different shape.
+    pub async fn write_layout_json(&self, project: i64, raw: &str) {
+        use taskflow_design::models::{DesignLayout, design_layout};
+        let row = DesignLayout::objects()
+            .filter(design_layout::PROJECT.eq(project))
+            .first()
+            .await
+            .expect("layout query")
+            .expect("a layout row");
+        DesignLayout::objects()
+            .filter(design_layout::ID.eq(row.id))
+            .update_values(json!({ "layout_json": raw }).as_object().cloned().unwrap_or_default())
+            .await
+            .expect("force layout json");
+    }
 }
 
 pub struct TestResponse {

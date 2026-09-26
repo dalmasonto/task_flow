@@ -166,7 +166,7 @@ async fn manifest_for(project_id: i64) -> manifest::DesignManifest {
 }
 
 /// The manifest's route paths — the set a layout document is allowed to name.
-async fn known_routes(project_id: i64) -> Vec<String> {
+pub(crate) async fn known_routes(project_id: i64) -> Vec<String> {
     manifest_for(project_id)
         .await
         .routes
@@ -387,6 +387,21 @@ pub(crate) fn conflict_response(row: &crate::models::DesignFile) -> Response {
             "current_version": row.version,
             "current_content": row.content,
             "updated_by": row.updated_by,
+        })),
+    )
+        .into_response()
+}
+
+/// The layout's 409: the same shape `conflict_response` uses for a file.
+pub fn conflict_response_values(current_version: i64, doc: serde_json::Value) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "ok": false,
+            "error": "version_conflict",
+            "message": "Someone else rearranged this board after your read. Re-read, merge and retry.",
+            "current_version": current_version,
+            "current_document": doc,
         })),
     )
         .into_response()
