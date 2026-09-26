@@ -253,10 +253,11 @@ pub struct AgentLayoutQuery {
 /// how they are grouped or in what order they flow — the arrangement is not
 /// derivable from the registry, at any price.
 ///
-/// READ ONLY, deliberately. The operator's `PUT /api/design/{project}/layout`
-/// stays the only way the arrangement changes: arranging someone's board is a
-/// curatorial act, and the write has a contract change to make first (it is
-/// last-write-wins, with no `base_version` to hand back).
+/// The arrangement is readable here and writable at the same path by
+/// `write_layout`, whose body is an OPERATION rather than a document — the
+/// contract change this read was waiting on (it is no longer last-write-wins:
+/// the row carries a `version`). The warning below still binds: this response
+/// is the panel's view, lossy in both directions, and must never be PUT back.
 ///
 /// The document comes from `views::load_layout` — the SAME loader the operator
 /// read uses, so the forgiving rules are one implementation rather than two, and
@@ -361,7 +362,10 @@ pub async fn read_layout(
                  here, and on `path` against its `routes`. `view` is the canvas \
                  arrangement \
                  (rows/bands/groups) and the grouping reads the same in all \
-                 three. Read-only: arranging pages is the operator's."
+                 three. Arrange it with the layout write tools, which take an \
+                 operation — never PUT a document built from this response \
+                 back, because this is the panel's view and not the stored \
+                 form."
     })))
 }
 

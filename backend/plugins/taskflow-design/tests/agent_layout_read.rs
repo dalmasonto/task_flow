@@ -308,52 +308,76 @@ async fn an_agent_cannot_read_another_projects_layout() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_layout_read_is_not_a_write_surface() {
-    // Ruling 1/4: read-only, and the URL is the reason rather than the doc.
-    // The agent route exists for GET; a PUT to it is not routed at all, so an
-    // agent that tries to arrange the board is refused by the router rather
-    // than by a validator it could learn its way around.
+async fn the_layout_write_takes_an_operation_and_not_a_document() {
+    // This test used to assert the layout had NO write surface at all. That
+    // changed deliberately: an agent may now arrange the board through
+    // `PUT .../design/layout`, whose body is an OPERATION. What survives is the
+    // narrower guarantee that mattered — this read is the panel's view and is
+    // lossy in both directions, so a document built from it can never be PUT
+    // back, because the route does not accept a document.
     let (app, project, user, key) = app_with_agent().await;
     seed_page(&app, project, user, "pages/index.html", "Dashboard").await;
 
-    // A body that would be OBSERVABLE if it were stored: a named group with a
-    // real page in it. An empty document would read back as an empty document
-    // whether or not the write happened, which is a status assertion wearing a
-    // second assertion's clothes.
-    let hijack = json!({
+    // GET is unchanged.
+    let read = app.get_as_agent(&key, &agent_layout_path(project)).await;
+    assert_eq!(read.status(), 200, "{}", read.text());
+
+    // A document PUT at the read's own path is refused: the body must be an
+    // operation, so the lossy read response can never be round-tripped into
+    // storage. It is written in the STORED spelling (`routeOrder`,
+    // `pageLabels`) for the same reason it is observable — a document-typed
+    // route would be typed to accept exactly this, so a route that had grown
+    // document-accepting would accept this body and fail the assertion below.
+    // A named group holding a real page, because an empty document would read
+    // back as an empty document whether or not the write happened, which is a
+    // status assertion wearing a second assertion's clothes.
+    let document = json!({
+        "project": project,
         "view": "groups",
         "routeOrder": ["/"],
-        "groups": [{ "id": "g1", "name": "Hijacked", "routes": ["/"] }]
+        "groups": [{ "id": "g1", "name": "FromDocument", "routes": ["/"] }],
+        "pageLabels": {}
     });
 
     let put = app
-        .put_as_agent(&key, &agent_layout_path(project), hijack.clone())
+        .put_as_agent(&key, &agent_layout_path(project), document.clone())
         .await;
     assert!(
         put.status() >= 400,
-        "there is no agent-writeable layout route: {}",
+        "a document is not an operation, so it is refused: {}",
         put.text()
     );
 
-    // And nothing changed — the read is what proves it, since a 4xx that had
-    // stored the body on its way out would look identical from the status.
-    let res = app.get_as_agent(&key, &agent_layout_path(project)).await;
-    assert_eq!(res.status(), 200);
-    let v = res.json();
-    assert_eq!(v["groups"], json!([]), "the refused write left no group: {v}");
-    assert!(
-        !v["groups"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|g| g["name"] == "Hijacked"),
-        "the refused document is not readable back: {v}"
+    // And nothing changed — this is what carries the weight, since the exact
+    // code is axum's extractor to choose (a 422 for a body that will not
+    // deserialise, a 400 for one that will not parse) and a 4xx that had stored
+    // the body on its way out would look identical from the status alone. The
+    // body above WOULD be readable back if it had been stored, so an empty
+    // `groups` here is a real claim about the refused write and not a property
+    // of a fresh project.
+    let after = app.get_as_agent(&key, &agent_layout_path(project)).await;
+    assert_eq!(after.status(), 200);
+    let v = after.json();
+    assert_eq!(
+        v["groups"],
+        json!([]),
+        "the refused document created no group: {v}"
     );
 
-    // That those two assertions have teeth is shown by the same body through a
-    // route that DOES write: the operator's. This is the positive control for
-    // the negative above — the payload is not merely unobservable by accident.
-    put_layout(&app, user, project, hijack).await;
-    let after = app.get_as_agent(&key, &agent_layout_path(project)).await;
-    assert_eq!(after.json()["groups"][0]["name"], "Hijacked");
+    // Positive control: the same credential, at the same path, with a real
+    // OPERATION, is accepted — without this the test could not tell "the route
+    // refuses documents" from "the route is broken".
+    let ok = app
+        .put_as_agent(
+            &key,
+            &agent_layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await;
+    assert_eq!(ok.status(), 200, "{}", ok.text());
+
+    // And the accepted operation has consequences, so the 200 above cannot be a
+    // route that accepts everything and stores nothing.
+    let arranged = app.get_as_agent(&key, &agent_layout_path(project)).await;
+    assert_eq!(arranged.json()["groups"][0]["name"], "One");
 }
