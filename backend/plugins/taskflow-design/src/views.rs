@@ -267,6 +267,11 @@ pub async fn put_layout(
                                 "layout_json": json,
                                 "updated_by": by,
                                 "updated_at": chrono::Utc::now(),
+                                // No predicate on this write: the operator is
+                                // looking at the board and their save wins. The
+                                // number still moves so an agent holding an
+                                // older one is told rather than clobbering.
+                                "version": row.version + 1,
                             })
                             .as_object()
                             .cloned()
@@ -285,6 +290,7 @@ pub async fn put_layout(
                             project: umbral::orm::ForeignKey::new(project_id),
                             view: doc.view,
                             layout_json: json,
+                            version: 1,
                             updated_by: by,
                             created_at: None,
                             updated_at: None,

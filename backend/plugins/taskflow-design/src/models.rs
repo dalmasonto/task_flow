@@ -193,6 +193,11 @@ pub struct DesignLayout {
     /// oversized reject is still inspectable in the admin.
     #[umbral(string, max_length = 65_536, widget = "textarea")]
     pub layout_json: String,
+    /// Bumped by every write to this row. An agent may hand a read version back
+    /// as `base_version` to be told when someone else moved the arrangement
+    /// under it; the operator sends none and always wins. See `spec §4 D1`.
+    #[umbral(default = "1")]
+    pub version: i64,
     #[umbral(string, max_length = 120)]
     pub updated_by: String,
     #[umbral(noedit, auto_now_add)]

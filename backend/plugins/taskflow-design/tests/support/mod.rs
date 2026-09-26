@@ -307,6 +307,18 @@ impl TestApp {
             inner: self.client.get(path).await,
         }
     }
+
+    /// The project's layout row as stored. Panics if there is none — every caller
+    /// here has already saved one.
+    pub async fn latest_layout_row(&self, project: i64) -> taskflow_design::models::DesignLayout {
+        use taskflow_design::models::{DesignLayout, design_layout};
+        DesignLayout::objects()
+            .filter(design_layout::PROJECT.eq(project))
+            .first()
+            .await
+            .expect("layout query")
+            .expect("a layout row")
+    }
 }
 
 pub struct TestResponse {
