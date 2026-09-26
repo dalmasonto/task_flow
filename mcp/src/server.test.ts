@@ -803,4 +803,28 @@ describe("layout write tools", () => {
     // so there is no operation for the backend to reject.
     expect(harness.layoutOps).toHaveLength(0);
   });
+
+  it("refuses a position below 1 on both reorder tools", async () => {
+    // `position` is 1-based and the backend reads it as `usize`, so a negative
+    // never reaches the range check that names the valid range: it fails
+    // deserialisation at the extractor and the agent is told about a type
+    // instead of about the slot. Refused in the ARGUMENTS, where the answer is
+    // about the number it sent.
+    const client = await connectedClient();
+    for (const call of [
+      {
+        name: "design_reorder_group",
+        arguments: { profile: "main", group_id: "g1", position: -1 },
+      },
+      {
+        name: "design_reorder_page",
+        arguments: { profile: "main", route: "/settings", position: -1 },
+      },
+    ]) {
+      const result = await client.callTool(call);
+      expect(result.isError, call.name).toBe(true);
+    }
+    // Neither write left: both were refused before the client was reached.
+    expect(harness.layoutOps).toHaveLength(0);
+  });
 });

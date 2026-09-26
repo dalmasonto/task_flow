@@ -1159,12 +1159,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_reorder_group",
-    "Move one page group to a 1-based SLOT in the group list: `position` is an ABSOLUTE slot (1 is the first group), not a delta to shift by. It is a MOVE, not a swap — the groups between the old slot and the new one slide along and keep their relative order. Out of range is REFUSED with a 400 naming the valid range, never clamped, because a clamped move lands somewhere nobody asked for; the Pages panel does clamp a drag, so a slot the panel would have quietly accepted is an error here, and the range comes back in the error for the retry. `group_id` and the group count come from design_read_layout. " +
+    "Move one page group to a 1-based SLOT in the group list: `position` is an ABSOLUTE slot (1 is the first group), not a delta to shift by. It is a MOVE, not a swap — the groups between the old slot and the new one slide along and keep their relative order. Out of range is REFUSED, never clamped, because a clamped move lands somewhere nobody asked for: a slot past the last group comes back as a 400 naming the valid range, and a slot below 1 is refused before the call is sent. The Pages panel does clamp a drag, so a slot it would have quietly accepted is an error here. `group_id` and the group count come from design_read_layout. " +
       baseVersionNote,
     {
       ...designProjectArg,
       group_id: z.string().describe("The id of the group to move, from design_read_layout."),
-      position: z.number().int().describe("The 1-based slot to move it to — absolute, not a delta."),
+      position: z.number().int().min(1).describe("The 1-based slot to move it to — absolute, not a delta."),
       ...profileArg,
       ...baseVersionArg,
     },
@@ -1198,7 +1198,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     "design_reorder_page",
     {
       description:
-        "Place a page into a group and/or at a 1-based position within that section — the numbering the Pages panel shows, NOT an index into the flow, which is global and sparse and which no reader ever sees. At least one of `group_id` or `position` is required: naming neither asks for nothing and is refused. Passing only `group_id` APPENDS the page to that group's section, so a page you merely want IN a group lands at the end of it — pass `position` as well to choose the slot. Passing only `position` reorders the page within the section that already holds it. Both together do both in one write, which is how a page moves between groups as a single edit rather than two that can half-succeed. `position` is 1..=the number of pages in the resulting section plus one (its append slot); out of range is refused, not clamped. Moving a page renumbers the section it left and the one it joined; other sections are unaffected, because their members keep their relative order in the flow. The response's `changed.routes` names every page whose visible position moved, and always the page you named. " +
+        "Place a page into a group and/or at a 1-based position within that section — the numbering the Pages panel shows, NOT an index into the flow, which is global and sparse and which no reader ever sees. At least one of `group_id` or `position` is required: naming neither asks for nothing and is refused. Passing only `group_id` APPENDS the page to that group's section, so a page you merely want IN a group lands at the end of it — pass `position` as well to choose the slot. Passing only `position` reorders the page within the section that already holds it. Both together do both in one write, which is how a page moves between groups as a single edit rather than two that can half-succeed. `position` is 1..=the number of pages in the resulting section (its append slot); out of range is refused, not clamped. Moving a page renumbers the section it left and the one it joined; other sections are unaffected, because their members keep their relative order in the flow. The response's `changed.routes` names every page whose visible position moved, and always the page you named. " +
         baseVersionNote,
       inputSchema: z
         .object({
@@ -1210,6 +1210,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           position: z
             .number()
             .int()
+            .min(1)
             .optional()
             .describe("The 1-based slot within the resulting section; omit to append to it."),
           ...designProjectArg,
