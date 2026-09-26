@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
-    create_group, default_doc, filter_to_known, mint_group_id, page_name, panel_sections, parse,
-    rename_group, resolve_route_order, to_json_string, to_value, validate, LayoutDoc, LayoutGroup,
-    MAX_GROUPS, MAX_LABEL,
+    create_group, default_doc, filter_to_known, mint_group_id, move_group, page_name,
+    panel_sections, parse, rename_group, resolve_route_order, to_json_string, to_value, validate,
+    LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
 };
 use taskflow_design::models::DesignView;
 
@@ -545,4 +545,82 @@ fn rename_group_refuses_an_unknown_id() {
     let err =
         rename_group(doc_with_flow(&["/"], vec![group("g1", "A", &[])]), "nope", "B").unwrap_err();
     assert!(err.contains("nope"), "the message names the id: {err}");
+}
+
+// `move_group`, the write that reorders the groups instead of editing one. The
+// panel's group arrows are a MOVE (`design-layout.ts:209`): the group is removed
+// and inserted at the slot it was sent to, which slides the groups in between
+// one place the other way — so "put this group third" means third, to the agent
+// and to the operator alike. Slots are 1-based, and one outside the list is
+// REFUSED rather than clamped: a clamped move lands somewhere the caller did not
+// ask for, which is worse than a sentence it can read and call again.
+//
+// No group in these cases claims a page, so their flow is empty: `move_group`
+// reads the group list and nothing else.
+
+#[test]
+fn move_group_moves_rather_than_swaps() {
+    // A fresh three-group document per call: the function takes the document by
+    // value, and one case's move must not be the next case's input.
+    let three = || vec![group("g1", "A", &[]), group("g2", "B", &[]), group("g3", "C", &[])];
+
+    // The panel's `moveGroup` is a move: the group at the target index is
+    // displaced, not exchanged. Agent and operator must agree.
+    let before = doc_with_flow(&[], three());
+    let after = move_group(before, "g1", 2).expect("moves");
+    let order: Vec<&str> = after.groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(order, vec!["B", "A", "C"], "A moves to slot 2; B slides up");
+
+    // Neighbours cannot tell a move from a swap — B first and A second either
+    // way — so a slot that is NOT adjacent is what pins it: A takes the slot C
+    // held and C slides up, where swapping the two ends would have left C in A's
+    // old slot. The last slot is a slot like any other (the range is 1..=len),
+    // so the insert lands at the end of the shortened list rather than past it.
+    let after = move_group(doc_with_flow(&[], three()), "g1", 3).expect("moves");
+    let order: Vec<&str> = after.groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(order, vec!["B", "C", "A"], "A moves to slot 3; B and C slide up");
+
+    // And upwards, where the groups the group passes slide DOWN instead: the
+    // group lands IN the slot it was given rather than one place short of it,
+    // and the first slot is a slot like any other.
+    let after = move_group(doc_with_flow(&[], three()), "g3", 1).expect("moves");
+    let order: Vec<&str> = after.groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(order, vec!["C", "A", "B"], "C moves to slot 1; A and B slide down");
+}
+
+#[test]
+fn move_group_to_the_same_place_is_a_no_op() {
+    let before = doc_with_flow(&[], vec![group("g1", "A", &[]), group("g2", "B", &[])]);
+    let after = move_group(before.clone(), "g1", 1).expect("moves");
+    assert_eq!(after.groups, before.groups);
+}
+
+#[test]
+fn move_group_refuses_a_position_outside_the_list() {
+    let before = doc_with_flow(&[], vec![group("g1", "A", &[]), group("g2", "B", &[])]);
+    let err = move_group(before.clone(), "g1", 3).unwrap_err();
+    assert!(err.contains("1..=2"), "names the valid range: {err}");
+    assert!(move_group(before.clone(), "g1", 0)
+        .unwrap_err()
+        .contains("1..=2"));
+    // Refused, not clamped: a clamp would have returned a document with the group
+    // parked at an end, so the `.unwrap_err()` above is the assertion — and the
+    // input the caller still holds is the one it passed.
+    assert_eq!(before.groups.len(), 2);
+}
+
+#[test]
+fn move_group_refuses_an_unknown_id() {
+    let err = move_group(doc_with_flow(&[], vec![group("g1", "A", &[])]), "nope", 1).unwrap_err();
+    assert!(err.contains("nope"), "names the id: {err}");
+
+    // The id is settled BEFORE the slot, as `find`/`findIndex` settle it in the
+    // panel: an unknown id is reported as an unknown id even here, where no slot
+    // could have been valid either, so the sentence is about the thing the
+    // caller actually got wrong.
+    let err = move_group(doc_with_flow(&[], vec![]), "nope", 1).unwrap_err();
+    assert!(
+        err.contains("nope"),
+        "an empty document names the id too: {err}"
+    );
 }

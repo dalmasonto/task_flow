@@ -90,6 +90,32 @@ pub fn rename_group(doc: LayoutDoc, group_id: &str, name: &str) -> Result<Layout
     Ok(LayoutDoc { groups, ..doc })
 }
 
+/// Move one group to a 1-based slot in the group list.
+///
+/// A MOVE, not a swap: removing then inserting displaces the groups between,
+/// which is what the panel's `moveGroup` does (`design-layout.ts:209`) and what
+/// "put this group third" means to a person.
+///
+/// A slot outside `1..=len` is refused rather than clamped, because a clamped
+/// move lands somewhere the caller did not ask for — and a caller told the range
+/// can re-read and ask for a slot that exists.
+pub fn move_group(doc: LayoutDoc, group_id: &str, position: usize) -> Result<LayoutDoc, String> {
+    let mut groups = doc.groups;
+    let from = groups
+        .iter()
+        .position(|g| g.id == group_id)
+        .ok_or_else(|| format!("no group with id \"{group_id}\""))?;
+    let len = groups.len();
+    if position < 1 || position > len {
+        return Err(format!(
+            "position {position} is out of range: there are {len} group(s), so 1..={len} is valid"
+        ));
+    }
+    let group = groups.remove(from);
+    groups.insert(position - 1, group);
+    Ok(LayoutDoc { groups, ..doc })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayoutGroup {
     pub id: String,
