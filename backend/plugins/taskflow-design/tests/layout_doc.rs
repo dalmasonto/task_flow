@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
-    default_doc, filter_to_known, page_name, panel_sections, parse, resolve_route_order,
-    to_json_string, to_value, validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
+    create_group, default_doc, filter_to_known, mint_group_id, page_name, panel_sections, parse,
+    rename_group, resolve_route_order, to_json_string, to_value, validate, LayoutDoc, LayoutGroup,
+    MAX_GROUPS, MAX_LABEL,
 };
 use taskflow_design::models::DesignView;
 
@@ -18,8 +19,27 @@ fn known() -> Vec<String> {
     ["/", "/login", "/signup"].iter().map(|s| s.to_string()).collect()
 }
 
+// A manifest of the case's choosing. `known()` is the one most cases use; the
+// write operations are about the routes they name, so the cases below say
+// exactly which pages exist rather than borrowing three that they do not.
+fn known_of(routes: &[&str]) -> Vec<String> {
+    routes.iter().map(|s| s.to_string()).collect()
+}
+
 fn doc(view: DesignView, groups: Vec<LayoutGroup>) -> LayoutDoc {
     LayoutDoc { view, route_order: vec!["/".into()], groups, page_labels: HashMap::new() }
+}
+
+// A document with a flow of the case's choosing, where `doc()` hardcodes `["/"]`
+// and every existing case is written against that. Only the flow a document
+// resolves to needs this; the group operations read the group list alone.
+fn doc_with_flow(flow: &[&str], groups: Vec<LayoutGroup>) -> LayoutDoc {
+    LayoutDoc {
+        view: DesignView::Groups,
+        route_order: flow.iter().map(|s| s.to_string()).collect(),
+        groups,
+        page_labels: HashMap::new(),
+    }
 }
 
 #[test]
@@ -459,4 +479,70 @@ fn filter_drops_labels_for_vanished_routes() {
     let out = filter_to_known(d, &known());
     assert_eq!(out.page_labels.len(), 1);
     assert_eq!(out.page_labels["/login"], "Sign in");
+}
+
+// The group write operations. `create_group` and `rename_group` read the group
+// list and nothing else — not the flow, not the manifest — so what a NAME may be
+// is settled in `validate` alone, and these cases pin the rest: the id a group
+// gets, and which parts of the document a write is allowed to touch.
+
+#[test]
+fn a_minted_id_is_a_g_and_does_not_collide() {
+    let existing = vec!["gabc".to_string(), "gdef".to_string()];
+    let id = mint_group_id(&existing);
+    assert!(id.starts_with('g'), "same family as the panel's: {id}");
+    assert_eq!(id.len(), 13, "g + 12 base36 chars: {id}");
+    assert!(
+        id[1..].chars().all(|c| c.is_ascii_digit() || ('a'..='z').contains(&c)),
+        "lowercase base36 only: {id}"
+    );
+    assert!(!existing.contains(&id), "and not already taken");
+}
+
+#[test]
+fn minted_ids_differ_across_calls() {
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..64 {
+        assert!(seen.insert(mint_group_id(&[])), "two draws collided");
+    }
+}
+
+#[test]
+fn create_group_appends_an_empty_group_and_returns_its_id() {
+    let (doc, id) = create_group(doc_with_flow(&["/"], vec![]), "  Player  ");
+    assert_eq!(doc.groups.len(), 1);
+    assert_eq!(doc.groups[0].id, id);
+    assert_eq!(doc.groups[0].name, "Player", "the name is trimmed");
+    assert!(doc.groups[0].routes.is_empty(), "a new group holds nothing");
+}
+
+#[test]
+fn create_group_refuses_through_validate_not_here() {
+    // The rules live in `validate` and nowhere else, so this function does not
+    // duplicate them — the caller validates the result. A duplicate name is
+    // therefore still produced here and refused there.
+    //
+    // The flow names the one page the manifest has, so `validate` has nothing
+    // else it could object to: the error below is the name and not a stale route.
+    let (doc, _) = create_group(doc_with_flow(&["/a"], vec![group("g1", "Player", &[])]), "player");
+    assert_eq!(doc.groups.len(), 2);
+    let err =
+        validate(doc, &known_of(&["/a"])).expect_err("refused by validate, case-insensitively");
+    assert!(err.contains("already used"), "and refused for the name: {err}");
+}
+
+#[test]
+fn rename_group_changes_only_the_name() {
+    let before = doc_with_flow(&["/a"], vec![group("g1", "Old", &["/a"])]);
+    let after = rename_group(before.clone(), "g1", "New").expect("renames");
+    assert_eq!(after.groups[0].name, "New");
+    assert_eq!(after.groups[0].routes, vec!["/a".to_string()], "membership untouched");
+    assert_eq!(after.route_order, before.route_order);
+}
+
+#[test]
+fn rename_group_refuses_an_unknown_id() {
+    let err =
+        rename_group(doc_with_flow(&["/"], vec![group("g1", "A", &[])]), "nope", "B").unwrap_err();
+    assert!(err.contains("nope"), "the message names the id: {err}");
 }

@@ -23,6 +23,73 @@ pub const MAX_GROUP_NAME: usize = 40;
 pub const MAX_LABEL: usize = 40;
 const MAX_GROUP_ID: usize = 64;
 
+/// The id alphabet for minted group ids: lowercase base36, so an id is a single
+/// URL-safe token with nothing to escape.
+const ID_ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+/// 36^12 is a shade under 2^63, so one `u64` of entropy fills an id exactly.
+const GROUP_ID_DIGITS: usize = 12;
+
+/// Mint a group id not already present in `existing`.
+///
+/// The panel mints its own as `g{time36}{seq36}` (`design-layout.ts:91`) from a
+/// clock and a module-level counter, neither of which a server has. Uniqueness
+/// is per-project only (spec §4 D3), so a random draw checked against this
+/// document's ids is enough, and the `g` prefix keeps a minted id in the same
+/// family as one the panel made.
+pub fn mint_group_id(existing: &[String]) -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+
+    loop {
+        // `RandomState` is seeded per process from the OS, so this is not a
+        // predictable counter — and it needs no dependency the plugin lacks.
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_usize(existing.len());
+        let mut n = hasher.finish();
+
+        let mut id = String::with_capacity(1 + GROUP_ID_DIGITS);
+        id.push('g');
+        for _ in 0..GROUP_ID_DIGITS {
+            id.push(ID_ALPHABET[(n % 36) as usize] as char);
+            n /= 36;
+        }
+
+        if !existing.iter().any(|e| e == &id) {
+            return id;
+        }
+    }
+}
+
+/// Append a new empty group. Returns the document and the minted id.
+///
+/// The name rules — non-blank, length, uniqueness, the group cap — live in
+/// `validate` and are deliberately NOT duplicated here, so create and rename
+/// refuse a bad name through exactly the code that refuses it on the operator
+/// route. A caller must validate the result before storing it.
+pub fn create_group(doc: LayoutDoc, name: &str) -> (LayoutDoc, String) {
+    let existing: Vec<String> = doc.groups.iter().map(|g| g.id.clone()).collect();
+    let id = mint_group_id(&existing);
+    let mut groups = doc.groups;
+    groups.push(LayoutGroup {
+        id: id.clone(),
+        name: name.trim().to_string(),
+        routes: Vec::new(),
+    });
+    (LayoutDoc { groups, ..doc }, id)
+}
+
+/// Rename one group. Membership and order are untouched — moving pages is
+/// `place_page`'s job, so a rename can never empty a group by accident.
+pub fn rename_group(doc: LayoutDoc, group_id: &str, name: &str) -> Result<LayoutDoc, String> {
+    let mut groups = doc.groups;
+    let group = groups
+        .iter_mut()
+        .find(|g| g.id == group_id)
+        .ok_or_else(|| format!("no group with id \"{group_id}\""))?;
+    group.name = name.trim().to_string();
+    Ok(LayoutDoc { groups, ..doc })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayoutGroup {
     pub id: String,
