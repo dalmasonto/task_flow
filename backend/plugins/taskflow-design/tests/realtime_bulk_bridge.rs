@@ -230,3 +230,80 @@ async fn retiring_a_component_broadcasts_a_delete_to_the_project_group() {
          refetches over REST"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_rearrangement_broadcasts_to_the_project_group() {
+    // The bridge covers `bulk_post_save:design_layout`, which is what any
+    // `update_values` on the row fires. An agent's write must reach the same
+    // group the operator's does: the panel watches this group, and an agent
+    // that rearranged the board would otherwise leave every viewer looking at a
+    // stale one until they reloaded — the exact silence the bridge was built to
+    // end, reintroduced through the newer of the two write routes.
+    let app = TestApp::new_with_realtime().await;
+    let (user, project) = app.create_member_with_project().await;
+    let (_agent_id, key) = support::seed_agent(project, "Builder").await;
+    let group = format!("project:{project}:design_layout");
+
+    // One real page, through the operator file route, so the manifest has a
+    // route a layout document may name.
+    let seeded = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project}/file"),
+            &json!({ "path": "pages/a.html", "content": "<main class=\"p-4\">A</main>" }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 201, "{}", seeded.text());
+
+    let path = format!("/api/taskflow/agents/design/layout?project={project}");
+
+    // The first write CREATES the row, which belongs to `Expose`, not the
+    // bridge — so it is deliberately outside the watch below.
+    let created = app
+        .put_as_agent(
+            &key,
+            &path,
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await;
+    assert_eq!(created.status(), 200, "{}", created.text());
+
+    let mut rx = watch(&group).await;
+
+    // The second write takes the agent route's UPDATE branch — the same
+    // `update_values` the operator's `put_layout` runs, and the half that used
+    // to be silent.
+    let second = app
+        .put_as_agent(
+            &key,
+            &path,
+            json!({ "project": project, "op": { "create_group": { "name": "Two" } } }),
+        )
+        .await;
+    assert_eq!(second.status(), 200, "{}", second.text());
+
+    let row = DesignLayout::objects()
+        .filter(design_layout::PROJECT.eq(project))
+        .first()
+        .await
+        .expect("read the layout row")
+        .expect("the first write created one");
+
+    let events = drain(&mut rx);
+    assert_eq!(
+        events.len(),
+        1,
+        "one broadcast per agent re-arrangement, not one per field: {events:?}"
+    );
+    let (channel, event, data) = &events[0];
+    assert_eq!(
+        channel, &group,
+        "an agent's write must land on the group the panel already watches"
+    );
+    assert_eq!(event, "updated", "an update, not a create");
+    assert_eq!(
+        data,
+        &json!({ "id": row.id }),
+        "id-only, the same projection the operator's write emits"
+    );
+}
