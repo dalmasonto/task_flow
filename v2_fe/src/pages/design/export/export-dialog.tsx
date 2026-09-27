@@ -116,6 +116,7 @@ export function ExportDialog({
   labelFor,
   projectId,
   sandboxToken,
+  getSandboxToken,
   projectName,
   theme,
   defaultDeviceId,
@@ -129,6 +130,9 @@ export function ExportDialog({
   labelFor: (route: string) => string
   projectId: number | null
   sandboxToken: string | null
+  /// A fresh token on demand (`lib/sandbox-token.ts`): the export asks per
+  /// screen, because a token lives ten minutes and an export can run longer.
+  getSandboxToken: () => Promise<string>
   projectName: string
   theme: "light" | "dark"
   defaultDeviceId: string
@@ -208,7 +212,7 @@ export function ExportDialog({
           items,
           device,
           projectId,
-          sandboxToken,
+          getSandboxToken,
           theme,
           dress: exportDress(deviceId, dressStyle),
           radius,

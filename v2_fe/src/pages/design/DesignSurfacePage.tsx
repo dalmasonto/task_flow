@@ -2,6 +2,8 @@
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+
+import { sandboxTokenIsFresh, sandboxTokenSource } from "@/lib/sandbox-token"
 import { useNavigate } from "react-router-dom"
 import {
   ChevronDownIcon,
@@ -162,6 +164,38 @@ export function DesignSurfacePage({
   const [trashState, setTrashState] = useState<{ project: number; files: TrashedDesignFile[] } | null>(null)
   const trash = trashState && trashState.project === projectId ? trashState.files : []
   const [sandboxToken, setSandboxToken] = useState<string | null>(null)
+  // The ONE place a token is minted. A token lives ten minutes
+  // (`lib/sandbox-token.ts`), and a canvas left open, an export of a hundred
+  // screens or a single download near the end of that window all outlive
+  // one — so everything that composes a sandbox URL asks the source, which
+  // answers the token it has while that is fresh and mints ahead of the
+  // expiry otherwise. Every mint lands in state, and the boards remount onto
+  // it (an expected remount: see `design-route.ts` on `frameSrc`).
+  const tokenSource = useMemo(
+    () => (projectId ? sandboxTokenSource(null, () => fetchSandboxToken(projectId), undefined, setSandboxToken) : null),
+    [projectId],
+  )
+  const getSandboxToken = useCallback(
+    () => (tokenSource ? tokenSource() : Promise.reject(new Error("No project is open."))),
+    [tokenSource],
+  )
+  // Keep the canvas's own token ahead of its expiry, so a board's links keep
+  // answering through a long sitting. Checked on a short tick and whenever the
+  // tab comes back into view — a tab left in the background for an hour has a
+  // token long dead by the time anyone looks at it.
+  useEffect(() => {
+    if (!tokenSource) return
+    const check = () => {
+      if (document.visibilityState !== "visible") return
+      if (sandboxToken && !sandboxTokenIsFresh(sandboxToken)) void tokenSource().catch(() => null)
+    }
+    const timer = window.setInterval(check, 30_000)
+    document.addEventListener("visibilitychange", check)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", check)
+    }
+  }, [tokenSource, sandboxToken])
   const [error, setError] = useState<string | null>(null)
   const [transform, setTransform] = useState<CanvasTransform>({ x: 40, y: 40, scale: 0.6 })
   const [deviceIds, setDeviceIds] = useState<string[]>([DEFAULT_DEVICE_ID])
@@ -364,7 +398,7 @@ export function DesignSurfacePage({
     let cancelled = false
     Promise.all([
       fetchDesignManifest(projectId),
-      fetchSandboxToken(projectId),
+      getSandboxToken(),
       fetchLayout(projectId),
     ])
       .then(([m, token, doc]) => {
@@ -385,7 +419,7 @@ export function DesignSurfacePage({
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, getSandboxToken])
 
   const [paletteOpen, setPaletteOpen] = useState(false)
   // #507: the export dialog.
@@ -628,7 +662,7 @@ export function DesignSurfacePage({
             label,
             device: deviceById(deviceId),
             projectId,
-            sandboxToken,
+            getSandboxToken,
             theme: theme === "dark" ? "dark" : "light",
             // "Download w Frame" wears what the canvas shows: the classic
             // bezel when Classic is on, the device frame otherwise.
@@ -640,7 +674,7 @@ export function DesignSurfacePage({
         // for one failed download.
         .catch((err: Error) => setCanvasNotice({ text: err.message, tone: "error" }))
     },
-    [sandboxToken, projectId, theme, frameMode],
+    [sandboxToken, projectId, getSandboxToken, theme, frameMode],
   )
 
   const restorePage = useCallback(
@@ -666,9 +700,13 @@ export function DesignSurfacePage({
       const board = artboards.find((b) => b.key === key)
       if (!board) return
       // The sandbox URL is the same origin-isolated render the frame shows.
-      window.open(sandboxUrl(sandboxToken, board.route), "_blank", "noopener")
+      // A fresh token first: the one in state may be minutes from dead, and
+      // the tab would open on an empty 404. The source answers in a microtask
+      // when the token is fresh, and a quick mint otherwise — both inside the
+      // click's activation window, so the popup is not blocked.
+      void getSandboxToken().then((token) => window.open(sandboxUrl(token, board.route), "_blank", "noopener"))
     },
-    [sandboxToken, artboards],
+    [sandboxToken, getSandboxToken, artboards],
   )
 
   const handleDuplicateBoard = useCallback(
@@ -1261,6 +1299,7 @@ export function DesignSurfacePage({
         labelFor={labelFor}
         projectId={projectId}
         sandboxToken={sandboxToken}
+        getSandboxToken={getSandboxToken}
         projectName={project?.name ?? "Design"}
         theme={theme === "dark" ? "dark" : "light"}
         defaultDeviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}

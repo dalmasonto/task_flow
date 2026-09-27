@@ -33,7 +33,9 @@ export type ExportOptions = {
   device: DevicePreset
   /// The project the pages belong to: the export's image proxy is per project.
   projectId: number
-  sandboxToken: string
+  /// A FRESH sandbox token, asked for per screen: a token lives ten minutes
+  /// and a long export outlives one (`lib/sandbox-token.ts`).
+  getSandboxToken: () => Promise<string>
   theme: "light" | "dark"
   /// What each screen is dressed in (see `ExportDress`).
   dress: ExportDress
@@ -168,8 +170,13 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
       }
     }
     window.addEventListener("message", onMessage)
-    frame.src = sandboxUrl(opts.sandboxToken, route)
-    document.body.appendChild(frame)
+    opts
+      .getSandboxToken()
+      .then((token) => {
+        frame.src = sandboxUrl(token, route)
+        document.body.appendChild(frame)
+      })
+      .catch((err: unknown) => done(() => reject(err instanceof Error ? err : new Error(String(err)))))
   })
 }
 
@@ -364,7 +371,7 @@ type Dressed = { item: ExportItem; picture: Picture }
 /// page, for the board menu's single-screen download.
 export async function renderScreen(
   route: string,
-  opts: Pick<ExportOptions, "device" | "projectId" | "sandboxToken" | "theme" | "dress" | "radius" | "fullPage">,
+  opts: Pick<ExportOptions, "device" | "projectId" | "getSandboxToken" | "theme" | "dress" | "radius" | "fullPage">,
 ): Promise<CaptureResult> {
   const shot = await capturePage(route, opts as ExportOptions)
   const { missingImages } = shot
@@ -388,14 +395,14 @@ export async function downloadScreen(input: {
   label: string
   device: DevicePreset
   projectId: number
-  sandboxToken: string
+  getSandboxToken: () => Promise<string>
   theme: "light" | "dark"
   dress: ExportDress
 }): Promise<void> {
   const picture = await renderScreen(input.route, {
     device: input.device,
     projectId: input.projectId,
-    sandboxToken: input.sandboxToken,
+    getSandboxToken: input.getSandboxToken,
     theme: input.theme,
     dress: input.dress,
     radius: 8,
