@@ -55,8 +55,14 @@ impl DesignFileKind {
 /// One authored file. `version` is monotonic per `(project, path)`; writes may
 /// carry a `base_version` and are rejected with 409 when stale so concurrent
 /// agents re-read and retry instead of silently clobbering each other.
+///
+/// #501: soft-deleted. A trashed page keeps its row with `deleted_at` set, and
+/// umbral hides it from every default query — the manifest, the sandbox, the
+/// caps and the reads all see it as gone — until it is restored. See
+/// `store::trash_file` for the three places the soft path is deliberately NOT
+/// taken.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
-#[umbral(unique_together = [["project", "path"]])]
+#[umbral(unique_together = [["project", "path"]], soft_delete)]
 pub struct DesignFile {
     pub id: i64,
     #[umbral(on_delete = "cascade")]
@@ -81,6 +87,10 @@ pub struct DesignFile {
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]
     pub updated_at: Option<DateTime<Utc>>,
+    /// #501: when the file was trashed; null while it is live. Set only by
+    /// `store::trash_file`, cleared only by `store::restore_file`.
+    #[umbral(noedit)]
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// How far a comment's change should reach. `component` edits the shared

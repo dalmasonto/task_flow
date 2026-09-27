@@ -609,6 +609,14 @@ export class TaskflowClient {
     });
   }
 
+  /** `DELETE /agents/design/page` — #501: move a page to the trash. The
+   *  operator can restore it; it is not a hard delete. */
+  trashDesignPage(project: number, route: string, reason: string): Promise<unknown> {
+    return this.request("DELETE", `${API_PREFIX}/agents/design/page`, {
+      body: { project, route, reason },
+    });
+  }
+
   /** `PUT /agents/design/asset` — one image under `assets/`, or the external
    *  resources document `styles/resources.json`. Content is text; raster bytes
    *  are `data:<mime>;base64,<payload>`. */

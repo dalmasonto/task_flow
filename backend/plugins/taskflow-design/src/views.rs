@@ -462,6 +462,104 @@ pub async fn put_file(
     }
 }
 
+// ---------------------------------------------------------------------------
+// #501: the page trash. Operator routes here; the agent's DELETE is
+// `agent_views::trash_page`. Both go through `trash_page_by_route`.
+// ---------------------------------------------------------------------------
+
+/// Trash the page serving `route`, under the project lock, and announce it.
+/// `Err(NOT_FOUND)` for a route with no live page, `Err(BAD_REQUEST)` for a
+/// route no page file could serve.
+pub(crate) async fn trash_page_by_route(
+    project_id: i64,
+    route: &str,
+) -> Result<(String, i64), StatusCode> {
+    let path = manifest::page_path_for_route(route).ok_or(StatusCode::BAD_REQUEST)?;
+    let lock_path = path.clone();
+    let id = project_locks()
+        .with_lock(project_id, || async move { store::trash_file(project_id, &lock_path).await })
+        .await
+        .ok_or(StatusCode::NOT_FOUND)?;
+    // Sent by the writer, after the lock: the ORM's delete payload has no
+    // `project` to route by (backend/src/realtime.rs, DESIGN_FILES). Id-only;
+    // the chrome refetches the manifest, which no longer lists the page.
+    Realtime::to_group(signals::files_group(project_id))
+        .send("deleted", &json!({ "id": id }))
+        .await;
+    Ok((path, id))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PageRouteQuery {
+    pub route: String,
+}
+
+/// `DELETE /api/design/{project}/page?route=/x` — the operator trashes a page.
+/// Restorable from `GET .../trash` + `POST .../trash/restore`.
+pub async fn trash_page(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Query(query): Query<PageRouteQuery>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let (path, _) = trash_page_by_route(project_id, &query.route).await?;
+    Ok((StatusCode::OK, Json(json!({ "ok": true, "trashed": path, "route": query.route }))).into_response())
+}
+
+/// `GET /api/design/{project}/trash` — trashed files, most recent first. The
+/// content is left out: the list is for choosing what to restore.
+pub async fn list_trash(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let rows: Vec<serde_json::Value> = store::list_trashed(project_id)
+        .await
+        .into_iter()
+        .map(|row| {
+            json!({
+                "path": row.path,
+                "route": manifest::route_for_page(&row.path),
+                "kind": row.kind,
+                "updated_by": row.updated_by,
+                "deleted_at": row.deleted_at,
+                "bytes": row.content.len(),
+            })
+        })
+        .collect();
+    Ok((StatusCode::OK, Json(json!({ "files": rows }))).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RestoreInput {
+    pub path: String,
+}
+
+/// `POST /api/design/{project}/trash/restore` `{path}` — bring a trashed file
+/// back. 404 when it is not in the trash; the caps' own 400 when restoring
+/// would breach one.
+pub async fn restore_trashed(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<RestoreInput>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let path = input.path.clone();
+    let outcome = project_locks()
+        .with_lock(project_id, || async move { store::restore_file(project_id, &path).await })
+        .await;
+    match outcome {
+        Ok(id) => {
+            Realtime::to_group(signals::files_group(project_id))
+                .send("updated", &json!({ "id": id }))
+                .await;
+            Ok((StatusCode::OK, Json(json!({ "ok": true, "restored": input.path }))).into_response())
+        }
+        Err(store::RestoreError::NotInTrash) => Err(StatusCode::NOT_FOUND),
+        Err(store::RestoreError::Rejected(v)) => Ok(rejection_response(&v)),
+    }
+}
+
 /// Routes whose rendered output depends on `path`: the file's own route for a
 /// page, EVERY route for tokens, or the routes using a component. Powers the
 /// "`app-header updated; N routes changed`" response line and the chrome's

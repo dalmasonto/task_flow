@@ -173,6 +173,7 @@ async fn ui_accordion_primitive_expands_during_compose() {
             updated_by: "operator:seed".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         })
         .await
         .expect("seed tokens.css");
@@ -189,6 +190,7 @@ async fn ui_accordion_primitive_expands_during_compose() {
             updated_by: "operator:seed".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         })
         .await
         .expect("seed page with ui-accordion");

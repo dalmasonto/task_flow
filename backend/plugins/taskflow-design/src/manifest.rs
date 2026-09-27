@@ -394,6 +394,7 @@ mod tests {
             updated_by: "test".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         }
     }
 
@@ -408,6 +409,7 @@ mod tests {
             updated_by: "test".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         }
     }
 
@@ -676,13 +678,14 @@ mod tests {
         // `DesignFile` — the ORM row itself, served on its own by `get_file`
         // and embedded as `"file": row` in every accepted write
         // (`views::put_file`). `design-api.ts`'s `DesignFileRow` mirrors it, and
-        // `updated_by` is the second snake_case pair this test pins. Nine keys,
-        // no `rename_all`: every one of them is the field as written.
+        // `updated_by` is the second snake_case pair this test pins. Ten keys,
+        // no `rename_all`: every one of them is the field as written —
+        // `deleted_at` (#501, the page trash) is always null on a live row.
         assert_eq!(
             keys(&serde_json::to_value(&files[0]).unwrap()),
             [
-                "content", "created_at", "id", "kind", "path", "project", "updated_at",
-                "updated_by", "version"
+                "content", "created_at", "deleted_at", "id", "kind", "path", "project",
+                "updated_at", "updated_by", "version"
             ]
         );
 

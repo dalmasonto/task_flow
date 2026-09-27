@@ -666,6 +666,48 @@ pub async fn delete_component(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AgentTrashPageInput {
+    pub project: i64,
+    pub route: String,
+    pub reason: String,
+}
+
+/// `DELETE /api/taskflow/agents/design/page` — #501: move a page to the trash.
+///
+/// A TRASH, not a delete: the row stays, soft-deleted, and the operator can
+/// restore it from the Pages panel. Like retiring a component it needs a real
+/// `reason` — the operator reads it in the activity trail — but unlike one it
+/// is never refused for being in use: nothing references a page by name.
+pub async fn trash_page(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentTrashPageInput>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, input.project)?;
+    if input.reason.trim().len() < 8 {
+        return Ok(tokens_validation_error(
+            "missing-reason",
+            "design_delete_page requires a real `reason`: why should this page go?".to_string(),
+        ));
+    }
+    let (path, _) = crate::views::trash_page_by_route(agent.project_id, input.route.trim()).await?;
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "trashed": path,
+            "route": input.route,
+            "note": format!(
+                "{} moved to the trash. It no longer renders or appears in the manifest; the \
+                 operator can restore it from the Pages panel. Writing a new page at {} \
+                 discards the trashed copy.",
+                input.route, input.route
+            ),
+        })),
+    )
+        .into_response())
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AgentWriteAssetInput {
     pub project: i64,
     /// `assets/<name>`, or a bare `<name>` meaning `assets/<name>`. The one

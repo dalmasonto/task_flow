@@ -876,3 +876,41 @@ describe("every open/close box writes through the setter that owns the state", (
     expect(source).toContain("onChange={() => onOpenRoutesChange(bulk.next)}")
   })
 })
+
+// #501: the page trash. Rendered with the trash props the render helper above
+// leaves out, so every earlier case still pins the panel WITHOUT them.
+describe("the page trash", () => {
+  const renderWithTrash = (trash: { path: string; route: string | null }[]) =>
+    renderToStaticMarkup(
+      createElement(PagesPanel, {
+        manifest: manifest(MANIFEST),
+        openRoutes: ["/"],
+        onToggleRoute: () => {},
+        onOpenRoutesChange: () => {},
+        layout: layout({}),
+        onLayoutChange: () => {},
+        onTrashPage: () => {},
+        onRestore: () => {},
+        trash: trash.map((file) => ({ ...file, kind: "page" as const, updated_by: "x", deleted_at: null, bytes: 1 })),
+      }),
+    )
+
+  it("gives every page row a trash control, and draws no Trash section while it is empty", () => {
+    const html = renderWithTrash([])
+    for (const entry of MANIFEST) {
+      expect(html).toContain(`aria-label="Move ${entry.path} to the trash"`)
+    }
+    expect(headings(html)).toEqual(["Groups", "Ungrouped"])
+  })
+
+  it("lists trashed pages LAST, each with its own Restore", () => {
+    const html = renderWithTrash([{ path: "pages/draft.html", route: "/draft" }])
+    expect(headings(html)).toEqual(["Groups", "Ungrouped", "Trash"])
+    expect(html).toContain('aria-label="Restore /draft"')
+    expect(html.indexOf(">Ungrouped<")).toBeLessThan(html.indexOf(">Trash<"))
+  })
+
+  it("draws no trash control when the caller gives no way to trash", () => {
+    expect(render(layout({}))).not.toContain("to the trash")
+  })
+})

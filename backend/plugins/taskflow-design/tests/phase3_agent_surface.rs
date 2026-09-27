@@ -648,6 +648,7 @@ async fn legacy_tokens_css_only_project_context_derives_json_without_a_write() {
             updated_by: "operator".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         })
         .await
         .expect("seed legacy tokens.css");
@@ -686,6 +687,7 @@ async fn agent_write_tokens_css_migrates_legacy_project_to_json_row() {
             updated_by: "operator".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         })
         .await
         .expect("seed legacy tokens.css");

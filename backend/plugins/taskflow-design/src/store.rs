@@ -154,6 +154,14 @@ pub async fn write_file(
         .ok()
         .flatten();
 
+    // #501: a NEW file at a path whose previous file sits in the trash. The
+    // trashed row still holds the unique `(project, path)` slot, so the create
+    // below would fail; writing a fresh page where a trashed one was is the
+    // caller choosing the new content, so the trashed copy is purged for good.
+    if existing.is_none() {
+        purge_trashed(project_id, path).await;
+    }
+
     if let Some(row) = existing.as_ref() {
         if let Some(base) = base_version {
             if row.version != base {
@@ -239,6 +247,7 @@ pub async fn write_file(
                     updated_by: updated_by.to_string(),
                     created_at: None,
                     updated_at: None,
+                    deleted_at: None,
                 })
                 .await;
             match created {
@@ -272,8 +281,12 @@ pub async fn write_file(
 /// exactly one `customElements.define` matching the filename, so an empty
 /// component file is a REJECTED write, not a retired one.
 pub async fn delete_file(project_id: i64, path: &str) -> bool {
+    // HARD, not the model's soft default (#501): retiring a component is not
+    // trashing it — there is no component trash to restore from, and a soft
+    // row would keep holding its `(project, path)` slot.
     DesignFile::objects()
         .filter(design_file::PROJECT.eq(project_id) & design_file::PATH.eq(path))
+        .hard_delete()
         .delete()
         .await
         .map(|removed| removed > 0)
@@ -297,4 +310,126 @@ pub async fn load_file(project_id: i64, path: &str) -> Option<DesignFile> {
         .await
         .ok()
         .flatten()
+}
+
+/// #501: how many trashed files a project keeps. Trashed rows count toward no
+/// cap (the caps are about what renders), so without a bound of their own a
+/// write-then-trash loop would grow the table forever. Past this, trashing a
+/// file purges the oldest trashed one.
+pub const MAX_TRASHED_FILES: usize = 50;
+
+/// Hard-delete the trashed row at `path`, if there is one.
+async fn purge_trashed(project_id: i64, path: &str) {
+    let _ = DesignFile::objects()
+        .only_deleted()
+        .filter(design_file::PROJECT.eq(project_id) & design_file::PATH.eq(path))
+        .hard_delete()
+        .delete()
+        .await;
+}
+
+/// The project's trashed files, most recently trashed first.
+pub async fn list_trashed(project_id: i64) -> Vec<DesignFile> {
+    let mut rows = DesignFile::objects()
+        .only_deleted()
+        .filter(design_file::PROJECT.eq(project_id))
+        .fetch()
+        .await
+        .unwrap_or_default();
+    rows.sort_by(|a, b| b.deleted_at.cmp(&a.deleted_at));
+    rows
+}
+
+/// #501: move one live file to the trash, returning its row id — `None` when
+/// no live file has that path. Runs inside the caller's project lock, like
+/// every other write here. The ORM's soft `delete()` sets `deleted_at`; from
+/// then on every default query skips the row.
+///
+/// Callers send the realtime event themselves: the ORM's delete payload has no
+/// `project` to route it by (see `backend/src/realtime.rs`, DESIGN_FILES).
+pub async fn trash_file(project_id: i64, path: &str) -> Option<i64> {
+    let row = load_file(project_id, path).await?;
+    let trashed = DesignFile::objects()
+        .filter(design_file::ID.eq(row.id))
+        .delete()
+        .await
+        .unwrap_or(0);
+    if trashed == 0 {
+        return None;
+    }
+    // Keep the trash bounded: purge the oldest past the cap.
+    let trash = list_trashed(project_id).await;
+    for old in trash.iter().skip(MAX_TRASHED_FILES) {
+        let _ = DesignFile::objects()
+            .only_deleted()
+            .filter(design_file::ID.eq(old.id))
+            .hard_delete()
+            .delete()
+            .await;
+    }
+    Some(row.id)
+}
+
+/// Why a restore did not happen.
+pub enum RestoreError {
+    /// Nothing in the trash has that path.
+    NotInTrash,
+    /// Restoring would breach a cap that a NEW file would have to meet.
+    Rejected(validation::Validation),
+}
+
+/// #501: bring a trashed file back, returning its row id. It is checked
+/// against the same file-count and size caps a new file meets, since to every
+/// reader it is one. No live file can hold its path: a write to a trashed
+/// path purges the trashed copy first (`write_file`), so "restore over a newer
+/// page" cannot arise.
+pub async fn restore_file(project_id: i64, path: &str) -> Result<i64, RestoreError> {
+    let row = DesignFile::objects()
+        .only_deleted()
+        .filter(design_file::PROJECT.eq(project_id) & design_file::PATH.eq(path))
+        .first()
+        .await
+        .ok()
+        .flatten()
+        .ok_or(RestoreError::NotInTrash)?;
+    if count_files(project_id).await >= validation::MAX_FILES_PER_PROJECT {
+        return Err(RestoreError::Rejected(validation::Validation::pass().fail(
+            validation::ValidationError {
+                line: 0,
+                rule: "file-count-cap",
+                message: format!(
+                    "This project already holds {} design files; restoring would exceed the cap.",
+                    validation::MAX_FILES_PER_PROJECT
+                ),
+                found: None,
+                suggest: None,
+            },
+        )));
+    }
+    if total_bytes(project_id).await + row.content.len() > validation::MAX_PROJECT_BYTES {
+        return Err(RestoreError::Rejected(validation::Validation::pass().fail(
+            validation::ValidationError {
+                line: 0,
+                rule: "project-size-cap",
+                message: "Restoring this file would exceed the 4 MB per-project cap.".into(),
+                found: None,
+                suggest: None,
+            },
+        )));
+    }
+    let restored = DesignFile::objects()
+        .only_deleted()
+        .filter(design_file::ID.eq(row.id))
+        .update_values(
+            json!({ "deleted_at": serde_json::Value::Null, "updated_at": chrono::Utc::now() })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .await
+        .unwrap_or(0);
+    if restored == 0 {
+        return Err(RestoreError::NotInTrash);
+    }
+    Ok(row.id)
 }

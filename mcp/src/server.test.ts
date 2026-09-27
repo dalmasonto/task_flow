@@ -125,6 +125,10 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.layoutOpKeys.push(Object.keys(payload));
       return { ok: true, version: 2, changed: { groups: ["g1"], routes: [] } };
     }
+    async trashDesignPage(project: number, route: string, reason: string) {
+      harness.calls.push(`trashDesignPage:${project}:${route}:${reason}`);
+      return { ok: true, trashed: "pages/x.html" };
+    }
     async deleteDesignComponent(project: number, name: string, reason: string) {
       // Every argument is recorded: a delete that dropped the reason would be
       // accepted by the backend and never seen here, and a delete aimed at the
@@ -783,6 +787,26 @@ describe("layout write tools", () => {
     expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
       op: { reorder_page: { route: "/settings", position: 2 } },
     });
+  });
+
+  it("#501: design_delete_page trashes by route and carries the reason", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_delete_page",
+      arguments: { profile: "main", route: "/draft", reason: "superseded by /settings" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(harness.calls).toContain("trashDesignPage:2:/draft:superseded by /settings");
+  });
+
+  it("#501: design_delete_page refuses a missing reason before sending", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_delete_page",
+      arguments: { profile: "main", route: "/draft", reason: "no" },
+    });
+    expect(result.isError).toBe(true);
+    expect(harness.calls.some((c) => c.startsWith("trashDesignPage:") && c.endsWith(":no"))).toBe(false);
   });
 
   it("#501: design_delete_group sends a delete_group op", async () => {

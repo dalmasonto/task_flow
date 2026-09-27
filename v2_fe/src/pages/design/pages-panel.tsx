@@ -103,7 +103,7 @@
 /// event, which is not a Select's job. It is hidden behind the name until the
 /// name is clicked (`PageName` below), which is what the sketch asks for.
 
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
 import { useId, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -124,7 +124,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { DesignManifest } from "@/lib/design-api"
+import type { DesignManifest, TrashedDesignFile } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
 import {
   assignRoute,
@@ -171,6 +171,9 @@ export function PagesPanel({
   onOpenRoutesChange,
   layout,
   onLayoutChange,
+  onTrashPage,
+  trash = [],
+  onRestore,
 }: {
   manifest: DesignManifest | null
   openRoutes: string[]
@@ -188,6 +191,13 @@ export function PagesPanel({
   onOpenRoutesChange: (routes: string[]) => void
   layout: LayoutDoc
   onLayoutChange: (next: LayoutDoc) => void
+  /// #501: move a page to the trash. Absent, the rows draw no trash control.
+  onTrashPage?: (route: string) => void
+  /// #501: the project's trashed PAGES (non-page files are left out by the
+  /// caller), and how to bring one back. The Trash section is drawn only when
+  /// there is something in it.
+  trash?: TrashedDesignFile[]
+  onRestore?: (path: string) => void
 }) {
   const routes = manifest?.routes ?? []
 
@@ -416,6 +426,19 @@ export function PagesPanel({
             ))}
           </SelectContent>
         </Select>
+        {/* #501: one click, no confirm — the page goes to the Trash section
+            below, where Restore brings it back, so nothing here is final. */}
+        {onTrashPage ? (
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+            aria-label={`Move ${page.route} to the trash`}
+            title="Move to trash"
+            onClick={() => onTrashPage(page.route)}
+          >
+            <Trash2Icon className="size-3" />
+          </button>
+        ) : null}
       </li>
     )
   }
@@ -569,6 +592,32 @@ export function PagesPanel({
           <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
         )}
       </div>
+      {/* #501: the trash, LAST and only when non-empty. A trashed page renders
+          nowhere else, so this is the one place it can be brought back. */}
+      {trash.length ? (
+        <div className="flex flex-col">
+          <h3 className={cn(SECTION_HEADING, "border-t")}>Trash</h3>
+          <ul className="flex flex-col pl-1">
+            {trash.map((file) => (
+              <li key={file.path} className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
+                <Trash2Icon className="size-3 shrink-0" aria-hidden />
+                <span className="min-w-0 flex-1 truncate font-mono">{file.route ?? file.path}</span>
+                {onRestore ? (
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 hover:text-foreground"
+                    aria-label={`Restore ${file.route ?? file.path}`}
+                    onClick={() => onRestore(file.path)}
+                  >
+                    <RotateCcwIcon className="size-3" />
+                    Restore
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {/* Mounted, not mounted-and-open: the dialog renders nothing until it is
           open, and holding its `open` here is what lets `addGroup` close it. */}
       <NewGroupDialog

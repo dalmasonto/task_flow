@@ -37,12 +37,16 @@ import { Button } from "@/components/ui/button"
 import {
   fetchDesignComments,
   fetchDesignManifest,
+  fetchDesignTrash,
   fetchLayout,
   fetchSandboxToken,
+  restoreDesignFile,
   saveLayout,
+  trashDesignPage,
   type ComponentEntry,
   type DesignComment,
   type DesignManifest,
+  type TrashedDesignFile,
   sandboxUrl,
 } from "@/lib/design-api"
 import { ResourceEditor } from "@/pages/design/resource-editor"
@@ -124,6 +128,10 @@ export function DesignSurfacePage({
 }) {
   const navigate = useNavigate()
   const [manifest, setManifest] = useState<DesignManifest | null>(null)
+  // #501: the project's trashed PAGES, for the Pages panel's Trash section.
+  // Keyed by project so a list read for the previous project is never shown.
+  const [trashState, setTrashState] = useState<{ project: number; files: TrashedDesignFile[] } | null>(null)
+  const trash = trashState && trashState.project === projectId ? trashState.files : []
   const [sandboxToken, setSandboxToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [transform, setTransform] = useState<CanvasTransform>({ x: 40, y: 40, scale: 0.6 })
@@ -251,6 +259,13 @@ export function DesignSurfacePage({
             if (!cancelled) setManifest(m)
           })
           .catch(() => null)
+        // A trash or a restore is a file event too, and the Trash section
+        // lists exactly what the manifest stopped (or started) listing.
+        void fetchDesignTrash(projectId)
+          .then((files) => {
+            if (!cancelled) setTrashState({ project: projectId, files: files.filter((file) => file.route != null) })
+          })
+          .catch(() => null)
       }, 300)
     }
     const unsubscribe = onDesignRealtimeEvent((event) => {
@@ -306,6 +321,13 @@ export function DesignSurfacePage({
         setError(null)
       })
       .catch((err: Error) => !cancelled && setError(err.message))
+    // #501: best-effort — a trash that cannot load is an empty section, not a
+    // broken canvas.
+    void fetchDesignTrash(projectId)
+      .then((files) => {
+        if (!cancelled) setTrashState({ project: projectId, files: files.filter((file) => file.route != null) })
+      })
+      .catch(() => null)
     return () => {
       cancelled = true
     }
@@ -494,6 +516,26 @@ export function DesignSurfacePage({
       if (willOpen) focusBoard(artboardKey(route, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
     },
     [openRoutes, openRoute, deviceIds, transform],
+  )
+
+  // #501: trash a page from the panel. The board closes at once (its page is
+  // about to stop rendering); the manifest and the Trash section follow from
+  // the file event the server sends, so nothing is patched in by hand.
+  const trashPage = useCallback(
+    (route: string) => {
+      if (!projectId) return
+      setOpenRoutes((current) => current.filter((r) => r !== route))
+      trashDesignPage(projectId, route).catch((err: Error) => setError(err.message))
+    },
+    [projectId],
+  )
+
+  const restorePage = useCallback(
+    (path: string) => {
+      if (!projectId) return
+      restoreDesignFile(projectId, path).catch((err: Error) => setError(err.message))
+    },
+    [projectId],
   )
 
   const closeRoute = useCallback((route: string) => {
@@ -978,6 +1020,9 @@ export function DesignSurfacePage({
                 onOpenRoutesChange={setOpenRoutes}
                 layout={layout}
                 onLayoutChange={updateLayout}
+                onTrashPage={trashPage}
+                trash={trash}
+                onRestore={restorePage}
               />
             </TabsContent>
           </Tabs>

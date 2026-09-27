@@ -1448,6 +1448,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   server.tool(
+    "design_delete_page",
+    "Move one page (screen) to the TRASH — for a screen that is unwanted, a failed draft, or superseded. It stops rendering and drops out of the manifest, the canvas and the Pages panel at once, but it is NOT destroyed: the operator can restore it from the Pages panel's trash. Requires `reason` (at least 8 characters), which the operator reads when deciding whether to restore. Writing a NEW page at the same route later (design_write_page) discards the trashed copy for good. To remove a GROUP rather than a page, use design_delete_group — that keeps every page.",
+    {
+      route: z.string().min(1).describe("The page's route, e.g. '/settings' ('/' is the index page)."),
+      reason: z.string().min(8).describe("Why this page should go."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ route, reason, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.trashDesignPage(await resolveDesignProject(client, project), route, reason));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
     "design_write_asset",
     "Write one file that is NOT a page, a component or the token scale. Two shapes: `assets/<name>` — an image file (`.svg`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.ico`; a bare name like 'logo.svg' means assets/logo.svg) — or `styles/resources.json`, the external-resources document naming the project's web fonts and external script links, which design_write_tokens does NOT write. THIS is where a webfont is loaded: its enabled sets go into the head of EVERY page, so a typeface is one token (typography.font-sans) plus this one file — never a <link> per page. Shape: {\"version\":1,\"sets\":[{\"id\":\"font\",\"name\":\"Font\",\"enabled\":true,\"links\":[{\"rel\":\"preconnect\",\"href\":\"https://cdn.jsdelivr.net\",\"crossorigin\":true},{\"rel\":\"stylesheet\",\"href\":\"https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css\"}]}]} (https only; rel stylesheet/preconnect/dns-prefetch). design_get_tokens returns the current document and its version in `resources`. The operator often manages its sets from the panel: when it exists, change only what you need (usually `enabled` flags) and keep every other set as is. Content is TEXT, exactly like every other design write: an SVG goes in as its own markup, and raster bytes as `data:<image/png>;base64,<payload>`, which the server decodes when the file is served. An asset is served from the sandbox origin at `/s/{token}/f/assets/<name>` with its own content type — but nothing rewrites an `src=` into a sandbox URL the way links are rewritten, so a page cannot point at it by a relative path: for an image a page shows today use an https URL or a data: URI inside the fragment. Caps unchanged: 128 KB per file (rule `size-cap`), and a NEW file must also fit the project's 200-file / 4 MB budget. Pass base_version only when replacing an existing file.",
     {

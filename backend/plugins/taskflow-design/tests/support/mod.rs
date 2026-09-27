@@ -233,6 +233,14 @@ impl TestApp {
         }
     }
 
+    /// #501: an operator DELETE with no body (the page trash takes `?route=`).
+    pub async fn delete_as(&self, user_id: i64, path: &str) -> TestResponse {
+        self.set_auth(user_id);
+        TestResponse {
+            inner: self.client.delete(path).await,
+        }
+    }
+
     /// Agent-authed variants: `Authorization: Agent <key>` is the whole
     /// identity, exactly as the MCP client presents it.
     fn set_agent_auth(&self, key: &str) {

@@ -4,7 +4,7 @@
 //! origin serves `/s/{token}/...`. Map each path to a handler in `views.rs` so
 //! this file reads as the single index of everything the plugin serves.
 
-use umbral::web::{Router, get, patch, post, put};
+use umbral::web::{Router, delete, get, patch, post, put};
 
 use crate::{agent_views, views};
 
@@ -29,6 +29,10 @@ pub fn router() -> Router {
             post(views::create_screenshot),
         )
         .route("/api/design/{project}/files", get(views::list_files))
+        // #501: the page trash — trash by route, list, restore by path.
+        .route("/api/design/{project}/page", delete(views::trash_page))
+        .route("/api/design/{project}/trash", get(views::list_trash))
+        .route("/api/design/{project}/trash/restore", post(views::restore_trashed))
         .route("/api/design/{project}/file", get(views::get_file).put(views::put_file))
         .route(
             "/api/design/{project}/tokens.css",
@@ -67,7 +71,13 @@ pub fn router() -> Router {
             "/api/taskflow/agents/design/context",
             get(agent_views::context),
         )
-        .route("/api/taskflow/agents/design/page", get(agent_views::read_page).put(agent_views::write_page))
+        .route(
+            "/api/taskflow/agents/design/page",
+            get(agent_views::read_page)
+                .put(agent_views::write_page)
+                // #501: trash, not a hard delete — see `agent_views::trash_page`.
+                .delete(agent_views::trash_page),
+        )
         // The registry resource keeps all three verbs on one path: read it,
         // replace it, retire it. DELETE refuses while a page still references
         // the component and names the routes — see `agent_views::delete_component`.

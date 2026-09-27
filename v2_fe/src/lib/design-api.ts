@@ -214,6 +214,43 @@ export async function fetchDesignManifest(projectId: number): Promise<DesignMani
   return readJson(res)
 }
 
+/// #501: one trashed file, as `GET /api/design/{project}/trash` lists it.
+/// `route` is null for a non-page file.
+export type TrashedDesignFile = {
+  path: string
+  route: string | null
+  kind: DesignFileKind
+  updated_by: string
+  deleted_at: string | null
+  bytes: number
+}
+
+/// #501: move a page to the trash. Restorable; not a hard delete.
+export async function trashDesignPage(projectId: number, route: string): Promise<void> {
+  const res = await designFetch(`/api/design/${projectId}/page?route=${encodeURIComponent(route)}`, {
+    method: "DELETE",
+  })
+  if (!res.ok) throw new Error(`Could not move ${route} to the trash (${res.status}).`)
+}
+
+/// #501: the project's trash, most recently trashed first.
+export async function fetchDesignTrash(projectId: number): Promise<TrashedDesignFile[]> {
+  const res = await designFetch(`/api/design/${projectId}/trash`)
+  if (!res.ok) throw new Error(`Could not load the trash (${res.status}).`)
+  const body = await readJson<{ files: TrashedDesignFile[] }>(res)
+  return body.files ?? []
+}
+
+/// #501: restore a trashed file. A cap the restore would breach comes back as
+/// the validator's message.
+export async function restoreDesignFile(projectId: number, path: string): Promise<void> {
+  const res = await designFetch(`/api/design/${projectId}/trash/restore`, jsonInit("POST", { path }))
+  if (res.ok) return
+  if (res.status === 404) throw new Error(`${path} is no longer in the trash.`)
+  const body = await readJson<{ errors?: { message?: string }[] }>(res).catch(() => null)
+  throw new Error(body?.errors?.[0]?.message ?? `Could not restore ${path} (${res.status}).`)
+}
+
 /// Free-text prompt from §9.6's bottom bar. Delivered through the same DM
 /// channel; the optional selection rides along so "this" resolves to an
 /// element instead of a shrug.

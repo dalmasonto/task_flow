@@ -120,6 +120,7 @@ async fn seed_component(project: i64, name: &str) -> DesignFile {
             updated_by: "test".to_string(),
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         })
         .await
         .expect("seed design file")
