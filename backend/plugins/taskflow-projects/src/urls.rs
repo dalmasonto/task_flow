@@ -31,6 +31,10 @@ pub fn router() -> Router {
         )
         // Invite accept/decline — token in the path, caller from the auth token.
         .route(
+            "/api/taskflow/projects/{project}/invites/{invite}/revoke",
+            post(views::revoke_invite),
+        )
+        .route(
             "/api/taskflow/projects/invites/{token}/accept",
             post(views::accept_invite),
         )

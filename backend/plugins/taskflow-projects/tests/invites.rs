@@ -404,3 +404,71 @@ async fn mine_returns_only_callers_pending_unexpired_invites() {
     assert_eq!(arr[0]["invite_token"], json!(mine_token));
     assert_eq!(arr[0]["project_name"].is_string(), true);
 }
+
+// --- revoke -----------------------------------------------------------------
+
+async fn invite_id(token: &str) -> i64 {
+    use taskflow_projects::models::{TaskflowProjectInvite, taskflow_project_invite};
+    TaskflowProjectInvite::objects()
+        .filter(taskflow_project_invite::INVITE_TOKEN.eq(token))
+        .first()
+        .await
+        .expect("query invite")
+        .expect("invite exists")
+        .id
+}
+
+#[tokio::test]
+async fn owner_revokes_pending_invite_and_it_is_idempotent() {
+    let app = TestApp::new().await;
+    let owner = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(project, owner.id, TaskflowProjectRole::Owner, TaskflowMembershipStatus::Active).await;
+    let id = invite_id(&seed_invite(project, "x@example.test", TaskflowInviteStatus::Pending, None).await).await;
+    let path = format!("/api/taskflow/projects/{project}/invites/{id}/revoke");
+
+    let res = app.post_as(owner.id, &path).await;
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.json()["status"], json!("revoked"));
+
+    let again = app.post_as(owner.id, &path).await;
+    assert_eq!(again.status(), 200);
+    assert_eq!(again.json()["status"], json!("revoked"));
+}
+
+#[tokio::test]
+async fn developer_cannot_revoke_invite() {
+    let app = TestApp::new().await;
+    let dev = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(project, dev.id, TaskflowProjectRole::Developer, TaskflowMembershipStatus::Active).await;
+    let id = invite_id(&seed_invite(project, "x@example.test", TaskflowInviteStatus::Pending, None).await).await;
+
+    let res = app.post_as(dev.id, &format!("/api/taskflow/projects/{project}/invites/{id}/revoke")).await;
+    assert_eq!(res.status(), 403);
+}
+
+#[tokio::test]
+async fn cannot_revoke_another_projects_invite_through_own_project() {
+    let app = TestApp::new().await;
+    let owner = app.create_user().await;
+    let mine = seed_project().await;
+    let theirs = seed_project().await;
+    seed_member(mine, owner.id, TaskflowProjectRole::Owner, TaskflowMembershipStatus::Active).await;
+    let id = invite_id(&seed_invite(theirs, "x@example.test", TaskflowInviteStatus::Pending, None).await).await;
+
+    let res = app.post_as(owner.id, &format!("/api/taskflow/projects/{mine}/invites/{id}/revoke")).await;
+    assert_eq!(res.status(), 404);
+}
+
+#[tokio::test]
+async fn accepted_invite_cannot_be_revoked() {
+    let app = TestApp::new().await;
+    let owner = app.create_user().await;
+    let project = seed_project().await;
+    seed_member(project, owner.id, TaskflowProjectRole::Owner, TaskflowMembershipStatus::Active).await;
+    let id = invite_id(&seed_invite(project, "x@example.test", TaskflowInviteStatus::Accepted, None).await).await;
+
+    let res = app.post_as(owner.id, &format!("/api/taskflow/projects/{project}/invites/{id}/revoke")).await;
+    assert_eq!(res.status(), 409);
+}

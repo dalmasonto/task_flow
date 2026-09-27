@@ -247,6 +247,35 @@ fn role_rank(role: TaskflowProjectRole) -> u8 {
     }
 }
 
+/// The caller's rank in a project, when they may manage its invites — else 403.
+///
+/// Authorization is membership, not identity — EXCEPT for a superuser, who is
+/// granted the top rank outright rather than being read from the membership
+/// table (there may be no row for them in this project at all). Everyone else
+/// must be an ACTIVE owner or admin OF THIS PROJECT, read from the table and
+/// never trusted from the request.
+async fn invite_manager_rank(is_superuser: bool, user_id: i64, project_id: i64) -> Result<u8, StatusCode> {
+    if is_superuser {
+        return Ok(role_rank(TaskflowProjectRole::Owner));
+    }
+    let caller_member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(project_id)
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq("active"),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+    let rank = role_rank(caller_member.role);
+    // Only owners and admins may manage invites at all.
+    if rank < role_rank(TaskflowProjectRole::Admin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(rank)
+}
+
 /// How long a freshly minted invite stays valid.
 const INVITE_TTL_DAYS: i64 = 14;
 
@@ -296,34 +325,7 @@ pub async fn create_invite(
     }
 
     let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
-
-    // Authorization is membership, not identity — EXCEPT for a superuser, who
-    // is granted the top rank outright rather than being read from the
-    // membership table (there may be no row for them in this project at all).
-    // Everyone else must be an ACTIVE member OF THIS PROJECT, read from the
-    // table and never trusted from the request. Absent → 403 (a non-member,
-    // non-superuser cannot invite).
-    let caller_rank = if identity.is_superuser {
-        role_rank(TaskflowProjectRole::Owner)
-    } else {
-        let caller_member = TaskflowProjectMember::objects()
-            .filter(
-                taskflow_project_member::PROJECT.eq(project_id)
-                    & taskflow_project_member::USER.eq(user_id)
-                    & taskflow_project_member::STATUS.eq("active"),
-            )
-            .first()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::FORBIDDEN)?;
-
-        let rank = role_rank(caller_member.role);
-        // Only owners and admins may invite at all.
-        if rank < role_rank(TaskflowProjectRole::Admin) {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        rank
-    };
+    let caller_rank = invite_manager_rank(identity.is_superuser, user_id, project_id).await?;
 
     // Cap the invited role at the caller's own level: an admin cannot mint an
     // owner (owner-rank 4 > admin-rank 3 → 403). A superuser is capped at
@@ -610,6 +612,43 @@ pub async fn decline_invite(
             Ok(Json(saved))
         }
         // Accepted / Revoked / Expired can't be declined.
+        _ => Err(StatusCode::CONFLICT),
+    }
+}
+
+/// `POST /api/taskflow/projects/{project}/invites/{invite}/revoke`
+///
+/// Withdraws a pending invite, so its recipient can no longer accept it. Only
+/// the project's owners and admins (or a superuser) may, and the invite must
+/// belong to THAT project — the path's project is what the caller's rank is
+/// checked against, so it cannot be used to reach another project's invites.
+/// Idempotent: revoking a revoked invite returns 200. An invite that was
+/// already accepted, declined or has expired cannot be revoked (409).
+pub async fn revoke_invite(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path((project_id, invite_id)): Path<(i64, i64)>,
+) -> Result<Json<TaskflowProjectInvite>, StatusCode> {
+    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
+    invite_manager_rank(identity.is_superuser, user_id, project_id).await?;
+
+    let invite = TaskflowProjectInvite::objects()
+        .filter(taskflow_project_invite::ID.eq(invite_id) & taskflow_project_invite::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    match invite.status {
+        TaskflowInviteStatus::Revoked => Ok(Json(invite)),
+        TaskflowInviteStatus::Pending => {
+            let mut updated = invite;
+            updated.status = TaskflowInviteStatus::Revoked;
+            let saved = TaskflowProjectInvite::objects()
+                .save(updated)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(Json(saved))
+        }
         _ => Err(StatusCode::CONFLICT),
     }
 }
