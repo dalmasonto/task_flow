@@ -40,6 +40,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ExportDialog } from "./export/export-dialog"
+import { frameFor } from "./export/export-plan"
 
 /// #508: React Flow is loaded only when someone opens the Flow view.
 const FlowCanvas = lazy(() => import("./flow/flow-canvas").then((m) => ({ default: m.FlowCanvas })))
@@ -346,6 +347,9 @@ export function DesignSurfacePage({
   const [paletteOpen, setPaletteOpen] = useState(false)
   // #507: the export dialog.
   const [exportOpen, setExportOpen] = useState(false)
+  // A short status over the canvas (a single-screen download in progress, or
+  // why it failed). Cleared by the action that set it, or dismissed.
+  const [canvasNotice, setCanvasNotice] = useState<{ text: string; tone: "info" | "error" } | null>(null)
 
   // #509: the chat rail and the right panel can be closed. Wide screens start
   // with both open, beside the canvas; below `lg` they start closed and open
@@ -559,6 +563,31 @@ export function DesignSurfacePage({
       trashDesignPage(projectId, route).catch((err: Error) => setError(err.message))
     },
     [projectId],
+  )
+
+  // One board's screen as a PNG, from the board's ⋯ menu — the export
+  // pipeline for a single page, loaded only when first used.
+  const downloadBoardImage = useCallback(
+    (route: string, label: string, deviceId: string, withFrame: boolean) => {
+      if (!sandboxToken) return
+      setCanvasNotice({ text: `Preparing ${label}…`, tone: "info" })
+      void import("./export/export-run")
+        .then(({ downloadScreen }) =>
+          downloadScreen({
+            route,
+            label,
+            device: deviceById(deviceId),
+            sandboxToken,
+            theme: theme === "dark" ? "dark" : "light",
+            frame: withFrame ? frameFor(deviceId) : null,
+          }),
+        )
+        .then(() => setCanvasNotice(null))
+        // NOT `setError`: that replaces the whole canvas, which is far too much
+        // for one failed download.
+        .catch((err: Error) => setCanvasNotice({ text: err.message, tone: "error" }))
+    },
+    [sandboxToken, theme],
   )
 
   const restorePage = useCallback(
@@ -999,6 +1028,20 @@ export function DesignSurfacePage({
 
         {/* MIDDLE: the canvas (unchanged). */}
         <main ref={canvasContainerRef} className="relative min-w-0 flex-1">
+          {canvasNotice ? (
+            <div
+              role="status"
+              className={cn(
+                "absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 px-4 py-1.5 text-xs shadow-lg",
+                canvasNotice.tone === "error" && "border-rose-300 text-rose-700 dark:text-rose-300",
+              )}
+            >
+              {canvasNotice.text}
+              <button type="button" aria-label="Dismiss" className="text-muted-foreground hover:text-foreground" onClick={() => setCanvasNotice(null)}>
+                <XIcon className="size-3.5" />
+              </button>
+            </div>
+          ) : null}
           {error ? (
             <EmptyCanvas message={error} />
           ) : manifest && manifest.routes.length === 0 ? (
@@ -1041,6 +1084,8 @@ export function DesignSurfacePage({
               onOpenBoard={handleOpenBoard}
               onDuplicateBoard={handleDuplicateBoard}
               onRemoveBoard={handleRemoveBoard}
+              onDownloadImage={downloadBoardImage}
+              onDeletePage={trashPage}
               selection={selectionOverlay}
               pins={pinLayer}
               onSelect={handleSelect}

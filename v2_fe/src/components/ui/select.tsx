@@ -90,10 +90,25 @@ function SelectItem({
   )
 }
 
+function SelectGroup(props: SelectPrimitive.Group.Props) {
+  return <SelectPrimitive.Group {...props} />
+}
+
+function SelectGroupLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) {
+  return (
+    <SelectPrimitive.GroupLabel
+      className={cn("px-2 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
 export {
   SelectRoot as Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
+  SelectGroup,
+  SelectGroupLabel,
 }

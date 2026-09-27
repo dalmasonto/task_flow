@@ -8,6 +8,16 @@
 import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import type { DesignManifest } from "@/lib/design-api"
 import { DEVICE_GROUP_LABELS, DEVICE_PRESETS, deviceById } from "@/lib/design-devices"
@@ -25,8 +35,33 @@ const SCOPES: { kind: ScopeKind; label: string }[] = [
 ]
 
 const fieldLabel = "text-xs font-medium uppercase tracking-wide text-muted-foreground"
-const selectClass =
-  "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+
+/// The device list as Base UI's Select wants it: `items` maps each value to the
+/// label its trigger shows (without it the trigger would print the raw id).
+const DEVICE_ITEMS = DEVICE_PRESETS.map((d) => ({ value: d.id, label: `${d.label} · ${d.width}×${d.height}` }))
+
+/// A row with a checkbox and its text, the whole row clickable.
+function CheckRow({
+  checked,
+  onChange,
+  disabled,
+  children,
+  aside,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+  children: React.ReactNode
+  aside?: React.ReactNode
+}) {
+  return (
+    <label className={cn("flex cursor-pointer items-center gap-2.5 text-sm", disabled && "cursor-not-allowed opacity-50")}>
+      <Checkbox checked={checked} disabled={disabled} onCheckedChange={(value) => onChange(value === true)} />
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {aside}
+    </label>
+  )
+}
 
 export function ExportDialog({
   open,
@@ -166,32 +201,28 @@ export function ExportDialog({
             {scopeKind === "groups" ? (
               <div className="grid gap-1 rounded-lg border p-2">
                 {layout.groups.map((group) => (
-                  <label key={group.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-3.5 accent-foreground"
-                      checked={groupIds.includes(group.id)}
-                      onChange={() => setGroupIds((ids) => toggle(ids, group.id))}
-                    />
+                  <CheckRow
+                    key={group.id}
+                    checked={groupIds.includes(group.id)}
+                    onChange={() => setGroupIds((ids) => toggle(ids, group.id))}
+                    aside={<span className="text-xs text-muted-foreground">{group.routes.length}</span>}
+                  >
                     {group.name}
-                    <span className="ml-auto text-xs text-muted-foreground">{group.routes.length}</span>
-                  </label>
+                  </CheckRow>
                 ))}
               </div>
             ) : null}
             {scopeKind === "pick" ? (
               <div className="grid max-h-44 gap-1 overflow-y-auto rounded-lg border p-2">
                 {routes.map((route) => (
-                  <label key={route.path} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-3.5 accent-foreground"
-                      checked={picked.includes(route.path)}
-                      onChange={() => setPicked((list) => toggle(list, route.path))}
-                    />
-                    <span className="truncate">{labelFor(route.path)}</span>
-                    <span className="ml-auto font-mono text-[11px] text-muted-foreground">{route.path}</span>
-                  </label>
+                  <CheckRow
+                    key={route.path}
+                    checked={picked.includes(route.path)}
+                    onChange={() => setPicked((list) => toggle(list, route.path))}
+                    aside={<span className="font-mono text-[11px] text-muted-foreground">{route.path}</span>}
+                  >
+                    {labelFor(route.path)}
+                  </CheckRow>
                 ))}
               </div>
             ) : null}
@@ -200,52 +231,71 @@ export function ExportDialog({
             </p>
           </section>
 
-          <section className="grid gap-3">
-            <label className="space-y-1.5">
-              <span className={fieldLabel}>Device</span>
-              <select
-                className={selectClass}
-                value={deviceId}
-                disabled={running}
-                onChange={(event) => setDeviceId(event.target.value)}
-              >
-                {(Object.keys(DEVICE_GROUP_LABELS) as (keyof typeof DEVICE_GROUP_LABELS)[]).map((group) => (
-                  <optgroup key={group} label={DEVICE_GROUP_LABELS[group]}>
-                    {DEVICE_PRESETS.filter((d) => d.group === group).map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.label} ({d.width}×{d.height})
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className={fieldLabel}>Format</span>
-              <select
-                className={selectClass}
-                value={format}
-                disabled={running}
-                onChange={(event) => setFormat(event.target.value as "pdf" | "png")}
-              >
-                <option value="pdf">PDF ({screensPerPage(device)} screens per page)</option>
-                <option value="png">PNG images (.zip)</option>
-              </select>
-            </label>
+          <section className="space-y-2">
+            <p className={fieldLabel}>Export as</p>
+            {/* Two formats, side by side — a choice this central is not hidden
+                in a dropdown. */}
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Export format">
+              {(
+                [
+                  { id: "pdf", title: "PDF document", hint: `${screensPerPage(device)} screens per page, with a cover` },
+                  { id: "png", title: "Images", hint: "One PNG per screen, in a .zip" },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={format === option.id}
+                  disabled={running}
+                  onClick={() => setFormat(option.id)}
+                  className={cn(
+                    "rounded-lg border p-3 text-left transition disabled:opacity-50",
+                    format === option.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "hover:bg-muted",
+                  )}
+                >
+                  <span className="block text-sm font-medium">{option.title}</span>
+                  <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                </button>
+              ))}
+            </div>
           </section>
 
-          <section className="space-y-2">
-            <label className={cn("flex items-center gap-2 text-sm", !frame && "opacity-50")}>
-              <input
-                type="checkbox"
-                className="size-3.5 accent-foreground"
-                checked={withFrame && !!frame}
-                disabled={!frame || running}
-                onChange={(event) => setWithFrame(event.target.checked)}
-              />
+          <section className="space-y-1.5">
+            <p className={fieldLabel}>Device</p>
+            <Select
+              value={deviceId}
+              items={DEVICE_ITEMS}
+              disabled={running}
+              onValueChange={(value) => typeof value === "string" && setDeviceId(value)}
+            >
+              <SelectTrigger aria-label="Device">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(DEVICE_GROUP_LABELS) as (keyof typeof DEVICE_GROUP_LABELS)[]).map((group) => (
+                  <SelectGroup key={group}>
+                    <SelectGroupLabel>{DEVICE_GROUP_LABELS[group]}</SelectGroupLabel>
+                    {DEVICE_PRESETS.filter((d) => d.group === group).map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.label} · {d.width}×{d.height}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </section>
+
+          <section className="space-y-2.5">
+            <CheckRow
+              checked={withFrame && !!frame}
+              disabled={!frame || running}
+              onChange={setWithFrame}
+              aside={!frame ? <span className="text-xs text-muted-foreground">not for breakpoints</span> : null}
+            >
               Show a device frame
-              {!frame ? <span className="text-xs text-muted-foreground">(not for breakpoints)</span> : null}
-            </label>
+            </CheckRow>
             {!(withFrame && frame) ? (
               <label className="flex items-center gap-3 text-sm">
                 <span className="shrink-0">Corner radius</span>
@@ -257,22 +307,15 @@ export function ExportDialog({
                   value={radius}
                   disabled={running}
                   onChange={(event) => setRadius(Number(event.target.value))}
-                  className="flex-1 accent-foreground"
+                  className="flex-1 accent-primary"
                   aria-label="Corner radius"
                 />
                 <span className="w-10 text-right font-mono text-xs text-muted-foreground">{radius}px</span>
               </label>
             ) : null}
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-3.5 accent-foreground"
-                checked={fullPage}
-                disabled={running}
-                onChange={(event) => setFullPage(event.target.checked)}
-              />
+            <CheckRow checked={fullPage} disabled={running} onChange={setFullPage}>
               Whole page length (not just the first screen)
-            </label>
+            </CheckRow>
           </section>
 
           {running ? (

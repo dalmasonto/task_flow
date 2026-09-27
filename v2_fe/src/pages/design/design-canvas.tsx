@@ -27,7 +27,20 @@ import {
   EllipsisIcon,
   ClipboardCopyIcon,
   DownloadIcon,
+  ImageDownIcon,
+  SmartphoneIcon,
+  Trash2Icon,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { frameFor } from "./export/export-plan"
 
 import {
   DEVICE_PRESETS,
@@ -43,6 +56,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -138,6 +152,12 @@ export type DesignCanvasProps = {
   onDuplicateBoard: (key: string, deviceId: string) => void
   /** Close this board's route from the canvas — the page, everywhere. */
   onRemoveBoard: (route: string) => void
+  /** Download this board's screen as a PNG, bare or in its device's frame.
+   *  Absent: the menu offers no download. */
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  /** Move this board's PAGE to the trash (after the menu's confirm dialog).
+   *  Absent: the menu offers no delete. */
+  onDeletePage?: (route: string) => void
   /** Current chrome-side selection (world-space overlay). */
   selection?: {
     rect: { x: number; y: number; w: number; h: number }
@@ -177,6 +197,8 @@ export const DesignCanvas = memo(function DesignCanvas({
   onOpenBoard,
   onDuplicateBoard,
   onRemoveBoard,
+  onDownloadImage,
+  onDeletePage,
   selection,
   pins,
 }: DesignCanvasProps) {
@@ -497,6 +519,8 @@ export const DesignCanvas = memo(function DesignCanvas({
               onOpenBoard={onOpenBoard}
               onDuplicateBoard={onDuplicateBoard}
               onRemoveBoard={onRemoveBoard}
+              onDownloadImage={onDownloadImage}
+              onDeletePage={onDeletePage}
               sandboxToken={sandboxToken}
               projectId={projectId}
               panMode={spaceDown || canvasTool === "pan"}
@@ -569,6 +593,8 @@ const ArtboardCard = memo(function ArtboardCard({
   onOpenBoard,
   onDuplicateBoard,
   onRemoveBoard,
+  onDownloadImage,
+  onDeletePage,
   sandboxToken,
   projectId,
   panMode,
@@ -594,6 +620,8 @@ const ArtboardCard = memo(function ArtboardCard({
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
   onRemoveBoard: (route: string) => void
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  onDeletePage?: (route: string) => void
   sandboxToken: string | null
   projectId: number | null
   /** Pan tool active or Space held: the iframe must not swallow the drag that
@@ -638,6 +666,8 @@ const ArtboardCard = memo(function ArtboardCard({
         onOpenBoard={onOpenBoard}
         onDuplicateBoard={onDuplicateBoard}
         onRemoveBoard={onRemoveBoard}
+        onDownloadImage={onDownloadImage}
+        onDeletePage={onDeletePage}
       />
       <div className="overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
         <DeviceChrome device={device}>
@@ -685,6 +715,8 @@ export function ArtboardHeader({
   onOpenBoard,
   onDuplicateBoard,
   onRemoveBoard,
+  onDownloadImage,
+  onDeletePage,
 }: {
   /** This board's `route@device` key — what the per-board actions are keyed by
    *  (`route` alone is not unique: one route renders once per device). */
@@ -717,7 +749,16 @@ export function ArtboardHeader({
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
   onRemoveBoard: (route: string) => void
+  /** Download this screen as a PNG — bare, or in the board's device frame. */
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  /** Trash this page; only ever called from the confirm dialog below. */
+  onDeletePage?: (route: string) => void
 }) {
+  /// The delete confirmation. Held here, beside the menu that opens it: the
+  /// menu closes on the click, and the dialog must outlive it.
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  /// The open-source frame this board's device wears, or null (breakpoints).
+  const frame = frameFor(device.id)
   const copyHtml = async () => {
     if (projectId == null) return
     try {
@@ -867,8 +908,64 @@ export function ArtboardHeader({
             <XIcon className="size-3.5" />
             Remove
           </DropdownMenuItem>
+          {onDownloadImage ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onDownloadImage(route, label, device.id, false)}>
+                <ImageDownIcon className="size-3.5" />
+                Download image
+              </DropdownMenuItem>
+              {/* A breakpoint is a width, not a device: there is no honest
+                  frame to draw, and the row says so rather than hiding. */}
+              <DropdownMenuItem
+                disabled={!frame}
+                onClick={() => frame && onDownloadImage(route, label, device.id, true)}
+              >
+                <SmartphoneIcon className="size-3.5" />
+                <span className="flex-1">Download with frame</span>
+                {!frame ? <span className="text-[10px] text-muted-foreground">no frame</span> : null}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {onDeletePage ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
+                <Trash2Icon className="size-3.5" />
+                Delete page…
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {onDeletePage ? (
+        <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <DialogContent showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>Delete “{label}”?</DialogTitle>
+              <DialogDescription>
+                The page {route} leaves the canvas, the Pages panel and every export, at every device. It goes
+                to the Trash at the bottom of the Pages panel, where you can restore it.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                autoFocus
+                onClick={() => {
+                  setConfirmDelete(false)
+                  onDeletePage(route)
+                }}
+              >
+                Delete page
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   )
 }

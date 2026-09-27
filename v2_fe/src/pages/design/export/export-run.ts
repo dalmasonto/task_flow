@@ -222,15 +222,47 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
 
 type Dressed = { item: ExportItem; picture: Picture }
 
+/// One screen, pictured and dressed: the same pipeline an export runs per
+/// page, for the board menu's single-screen download.
+export async function renderScreen(
+  route: string,
+  opts: Pick<ExportOptions, "device" | "sandboxToken" | "theme" | "frame" | "radius" | "fullPage">,
+): Promise<Picture> {
+  const shot = await capturePage(route, opts as ExportOptions)
+  return opts.frame ? inDeviceFrame(shot, opts.frame) : roundAndShadow(shot, opts.radius)
+}
+
+/// #507 follow-up: download ONE board's screen as a PNG, bare (rounded
+/// corners) or in its device's frame.
+export async function downloadScreen(input: {
+  route: string
+  label: string
+  device: DevicePreset
+  sandboxToken: string
+  theme: "light" | "dark"
+  frame: string | null
+}): Promise<void> {
+  const picture = await renderScreen(input.route, {
+    device: input.device,
+    sandboxToken: input.sandboxToken,
+    theme: input.theme,
+    frame: input.frame,
+    radius: 18,
+    fullPage: false,
+  })
+  const blob = await (await fetch(picture.dataUrl)).blob()
+  const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "screen"
+  saveBlob(blob, `${slug(input.label)}-${slug(input.device.label)}${input.frame ? "-framed" : ""}.png`)
+}
+
 async function captureAll(opts: ExportOptions): Promise<Dressed[]> {
   const out: Dressed[] = []
   const total = opts.items.length
   for (const item of opts.items) {
     if (opts.isCancelled()) throw new ExportCancelled()
     opts.onProgress(out.length, total, `Rendering ${item.label}`)
-    const shot = await capturePage(item.route, opts)
+    const picture = await renderScreen(item.route, opts)
     if (opts.isCancelled()) throw new ExportCancelled()
-    const picture = opts.frame ? await inDeviceFrame(shot, opts.frame) : await roundAndShadow(shot, opts.radius)
     out.push({ item, picture })
   }
   opts.onProgress(total, total, opts.format === "pdf" ? "Laying out the PDF" : "Packing the images")
@@ -253,80 +285,84 @@ async function buildZip(dressed: Dressed[]): Promise<Blob> {
 }
 
 // --- the PDF -----------------------------------------------------------------
+//
+// Three kinds of page: a dark COVER with a fanned hero of the first screens, an
+// OVERVIEW contact sheet of every screen (the document's table of contents),
+// then the SCREEN pages at 4 (phones) or 2 (larger) per page.
 
-const INK = [15, 23, 42] as const // slate-900
-const MUTED = [100, 116, 139] as const // slate-500
-const RULE = [226, 232, 240] as const // slate-200
-const ACCENT = [37, 99, 235] as const // blue-600
+type Rgb = readonly [number, number, number]
+const INK: Rgb = [15, 23, 42] // slate-900
+const MUTED: Rgb = [100, 116, 139] // slate-500
+const FAINT: Rgb = [148, 163, 184] // slate-400
+const RULE: Rgb = [226, 232, 240] // slate-200
+const CARD: Rgb = [248, 250, 252] // slate-50
+const ACCENT: Rgb = [79, 70, 229] // indigo-600
+const ACCENT_SOFT: Rgb = [224, 231, 255] // indigo-100
+const NIGHT: Rgb = [11, 16, 32] // the cover
+const NIGHT_TEXT: Rgb = [203, 213, 225] // slate-300
+const NIGHT_CHIP: Rgb = [30, 41, 59] // slate-800
+
+type Pdf = InstanceType<(typeof import("jspdf"))["jsPDF"]>
+
+/// One line of text in at most `width` mm at the CURRENT font: whole if it
+/// fits, otherwise cut with an ellipsis. (`splitTextToSize` would wrap at a
+/// word and keep only "Components" of "Components Demo".)
+function fitText(doc: Pdf, text: string, width: number): string {
+  if (doc.getTextWidth(text) <= width) return text
+  let cut = text
+  while (cut.length > 1 && doc.getTextWidth(cut + "…") > width) cut = cut.slice(0, -1)
+  return cut.trimEnd() + "…"
+}
+
+/// The overview's grid: tall screens four across, wide ones two.
+function overviewGrid(aspect: number) {
+  const cols = aspect < 1 ? 4 : 2
+  const areaW = 210 - PAGE_MARGIN.side * 2
+  const gap = 6
+  const cardW = (areaW - gap * (cols - 1)) / cols
+  const thumbW = cardW - 8
+  const thumbH = Math.min(thumbW / aspect, aspect < 1 ? 78 : 60)
+  const cardH = thumbH + 8 + 16
+  // First overview page loses room to its title block.
+  const firstTop = 52
+  const nextTop = 26
+  const bottom = 297 - PAGE_MARGIN.bottom - 6
+  const rowsFirst = Math.max(1, Math.floor((bottom - firstTop + gap) / (cardH + gap)))
+  const rowsNext = Math.max(1, Math.floor((bottom - nextTop + gap) / (cardH + gap)))
+  return { cols, gap, cardW, cardH, thumbH, firstTop, nextTop, rowsFirst, rowsNext }
+}
+
+function overviewPageCount(count: number, aspect: number): number {
+  const g = overviewGrid(aspect)
+  const first = g.cols * g.rowsFirst
+  return count <= first ? 1 : 1 + Math.ceil((count - first) / (g.cols * g.rowsNext))
+}
 
 async function buildPdf(dressed: Dressed[], opts: ExportOptions): Promise<Blob> {
-  const { jsPDF } = await import("jspdf")
+  const { jsPDF, GState } = await import("jspdf")
   // Every dressed picture of one export shares a size; plan the grid from it.
   const aspect = dressed.length ? dressed[0].picture.width / dressed[0].picture.height : opts.device.width / opts.device.height
   const perPage = screensPerPage(opts.device)
   const setup = bestPageSetup(aspect, perPage)
-  const pages = Math.ceil(dressed.length / perPage)
-  const totalPages = pages + 1 // + the cover
+  const screenPages = Math.ceil(dressed.length / perPage)
+  const overviewPages = overviewPageCount(dressed.length, aspect)
+  const firstScreenPage = 1 + overviewPages + 1
+  const totalPages = firstScreenPage - 1 + screenPages
+  const pageOf = (index: number) => firstScreenPage + Math.floor(index / perPage)
   const date = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
   const deviceLine = `${opts.device.label} · ${opts.device.width}×${opts.device.height}`
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true })
   doc.setProperties({ title: `${opts.projectName} — design`, subject: deviceLine, creator: "TaskFlow" })
 
-  // Cover: what this is, for which device, and a contents list that says on
-  // which page each screen is.
-  const coverW = 210
-  doc.setFillColor(...ACCENT)
-  doc.rect(0, 0, coverW, 6, "F")
-  doc.setTextColor(...MUTED)
-  doc.setFont("helvetica", "normal")
-  doc.setFontSize(10)
-  doc.text("DESIGN SCREENS", 20, 34, { charSpace: 0.6 })
-  doc.setTextColor(...INK)
-  doc.setFont("helvetica", "bold")
-  doc.setFontSize(28)
-  const title = doc.splitTextToSize(opts.projectName, coverW - 40) as string[]
-  doc.text(title, 20, 48)
-  let y = 48 + title.length * 11
-  doc.setFont("helvetica", "normal")
-  doc.setFontSize(12)
-  doc.setTextColor(...MUTED)
-  doc.text(`${deviceLine}   ·   ${dressed.length} screen${dressed.length === 1 ? "" : "s"}   ·   ${opts.scopeLabel}`, 20, y)
-  doc.text(date, 20, y + 7)
-  y += 20
-  doc.setDrawColor(...RULE)
-  doc.line(20, y, coverW - 20, y)
-  y += 10
-  doc.setFontSize(10)
-  let lastGroup: string | null | undefined
-  for (const [index, { item }] of dressed.entries()) {
-    if (y > 280) {
-      doc.setTextColor(...MUTED)
-      doc.text(`… and ${dressed.length - index} more`, 20, y)
-      break
-    }
-    if (item.group !== lastGroup) {
-      lastGroup = item.group
-      doc.setFont("helvetica", "bold")
-      doc.setTextColor(...MUTED)
-      doc.text((item.group ?? "Ungrouped").toUpperCase(), 20, y, { charSpace: 0.4 })
-      y += 6
-    }
-    doc.setFont("helvetica", "normal")
-    doc.setTextColor(...INK)
-    doc.text(`${item.n}.  ${item.label}`, 24, y)
-    doc.setTextColor(...MUTED)
-    doc.text(item.route, 120, y)
-    doc.text(String(2 + Math.floor(index / perPage)), coverW - 20, y, { align: "right" })
-    y += 6
-  }
-  footer(doc, 1, totalPages, coverW, 297)
+  drawCover(doc, dressed, opts, { date, deviceLine, aspect, GState })
+  drawOverview(doc, dressed, opts, { aspect, pageOf, totalPages })
 
-  // Screen pages.
-  for (let page = 0; page < pages; page++) {
+  for (let page = 0; page < screenPages; page++) {
     doc.addPage("a4", setup.orientation)
     const slice = dressed.slice(page * perPage, (page + 1) * perPage)
-    header(doc, opts.projectName, deviceLine, setup.pageW)
+    const groups = [...new Set(slice.map((d) => d.item.group).filter((g): g is string => !!g))]
+    header(doc, opts.projectName, deviceLine, setup.pageW, groups)
     for (const [index, { item, picture }] of slice.entries()) {
       const origin = slotOrigin(setup, index)
       const x = origin.x + (setup.slotW - setup.imageW) / 2
@@ -334,43 +370,235 @@ async function buildPdf(dressed: Dressed[], opts: ExportOptions): Promise<Blob> 
       // caption pinned to the slot's foot drifts away from a short image.
       const yImg = origin.y + (setup.slotH - (setup.imageH + CAPTION_H)) / 2
       doc.addImage(picture.dataUrl, "PNG", x, yImg, setup.imageW, setup.imageH, undefined, "FAST")
-      // Caption: number and name, then the route, centred under the image.
       const cx = origin.x + setup.slotW / 2
-      const cy = yImg + setup.imageH + 5
+      const cy = yImg + setup.imageH + 5.5
+      // "03" in the accent, then the name — the number is how the overview
+      // and a conversation about the document refer to a screen.
+      const num = String(item.n).padStart(2, "0")
       doc.setFont("helvetica", "bold")
       doc.setFontSize(9.5)
+      const name = fitText(doc, item.label, setup.slotW - 12)
+      const numW = doc.getTextWidth(num + "  ")
+      const nameW = doc.getTextWidth(name)
+      const start = cx - (numW + nameW) / 2
+      doc.setTextColor(...ACCENT)
+      doc.text(num, start, cy)
       doc.setTextColor(...INK)
-      const name = doc.splitTextToSize(`${item.n}. ${item.label}`, setup.slotW)[0] as string
-      doc.text(name, cx, cy, { align: "center" })
+      doc.text(name, start + numW, cy)
       doc.setFont("helvetica", "normal")
-      doc.setFontSize(8)
+      doc.setFontSize(7.8)
       doc.setTextColor(...MUTED)
       const sub = item.group ? `${item.route}  ·  ${item.group}` : item.route
-      doc.text(doc.splitTextToSize(sub, setup.slotW)[0] as string, cx, cy + 4.2, { align: "center" })
+      doc.text(fitText(doc, sub, setup.slotW), cx, cy + 4.3, { align: "center" })
     }
-    footer(doc, page + 2, totalPages, setup.pageW, setup.pageH)
+    footer(doc, firstScreenPage + page, totalPages, setup.pageW, setup.pageH)
   }
   return doc.output("blob")
 }
 
-type Pdf = InstanceType<(typeof import("jspdf"))["jsPDF"]>
+/// The cover: a full-bleed night page, soft colour glows, the title, a row of
+/// fact chips, and the first screens fanned out as the hero.
+function drawCover(
+  doc: Pdf,
+  dressed: Dressed[],
+  opts: ExportOptions,
+  meta: { date: string; deviceLine: string; aspect: number; GState: (typeof import("jspdf"))["GState"] },
+) {
+  const W = 210
+  const H = 297
+  doc.setFillColor(...NIGHT)
+  doc.rect(0, 0, W, H, "F")
+  // Glows: big translucent discs, layered, for depth without an image.
+  const glow = (x: number, y: number, r: number, rgb: Rgb, opacity: number) => {
+    doc.saveGraphicsState()
+    doc.setGState(new meta.GState({ opacity }))
+    doc.setFillColor(...rgb)
+    doc.circle(x, y, r, "F")
+    doc.restoreGraphicsState()
+  }
+  glow(186, 24, 70, [99, 102, 241], 0.22)
+  glow(200, 60, 40, [168, 85, 247], 0.18)
+  glow(10, 250, 90, [14, 165, 233], 0.12)
+  glow(110, 300, 60, [99, 102, 241], 0.14)
 
-function header(doc: Pdf, project: string, device: string, pageW: number) {
+  // Wordmark.
+  doc.setFillColor(...ACCENT)
+  doc.roundedRect(20, 22, 7, 7, 1.6, 1.6, "F")
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(10)
+  doc.setTextColor(255, 255, 255)
+  doc.text("TaskFlow", 30, 27.4)
+  doc.setFont("helvetica", "normal")
+  doc.setTextColor(...FAINT)
+  doc.text("Design review", W - 20, 27.4, { align: "right" })
+
+  // Title block.
+  doc.setFontSize(9)
+  doc.setTextColor(165, 180, 252) // indigo-300
+  doc.text("DESIGN SCREENS", 20, 52, { charSpace: 1.2 })
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(34)
+  doc.setTextColor(255, 255, 255)
+  const title = doc.splitTextToSize(opts.projectName, W - 40) as string[]
+  doc.text(title.slice(0, 2), 20, 66)
+  let y = 66 + Math.min(title.length, 2) * 13
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(12.5)
+  doc.setTextColor(...NIGHT_TEXT)
+  doc.text(`${dressed.length} screen${dressed.length === 1 ? "" : "s"}, shown on ${opts.device.label}.`, 20, y)
+  y += 9
+
+  // Fact chips.
+  let x = 20
+  doc.setFontSize(8.5)
+  for (const chip of [meta.deviceLine, opts.scopeLabel, meta.date]) {
+    const w = doc.getTextWidth(chip) + 8
+    if (x + w > W - 20) break
+    doc.setFillColor(...NIGHT_CHIP)
+    doc.roundedRect(x, y, w, 7, 3.5, 3.5, "F")
+    doc.setTextColor(...NIGHT_TEXT)
+    doc.text(chip, x + 4, y + 4.8)
+    x += w + 3
+  }
+
+  // Hero: up to three screens, the middle one forward and larger.
+  const hero = dressed.slice(0, 3).map((d) => d.picture)
+  const top = y + 20
+  const bottom = H - 24
+  const boxH = bottom - top
+  const tall = meta.aspect < 1
+  const centreH = tall ? boxH : Math.min(boxH * 0.72, (W - 40) / meta.aspect)
+  const centreW = centreH * meta.aspect
+  const sideScale = 0.8
+  const place = (pic: Picture, cx: number, cy: number, scale: number) => {
+    const w = centreW * scale
+    const h = centreH * scale
+    doc.addImage(pic.dataUrl, "PNG", cx - w / 2, cy - h / 2, w, h, undefined, "FAST")
+  }
+  const midY = top + boxH / 2
+  const spread = tall ? centreW * 0.78 : centreW * 0.34
+  if (hero.length >= 3) {
+    place(hero[1], W / 2 - spread, midY + (tall ? 10 : 18), sideScale)
+    place(hero[2], W / 2 + spread, midY + (tall ? 10 : 18), sideScale)
+  } else if (hero.length === 2) {
+    place(hero[1], W / 2 + spread * 0.6, midY + 10, sideScale)
+  }
+  if (hero[0]) place(hero[0], hero.length === 2 ? W / 2 - spread * 0.4 : W / 2, midY, 1)
+
+  doc.setFontSize(8)
+  doc.setTextColor(...FAINT)
+  doc.text("Made with TaskFlow", 20, H - 10)
+  doc.text(`1`, W - 20, H - 10, { align: "right" })
+}
+
+/// The overview: every screen as a card — thumbnail, number, name, route and
+/// the page it is printed on. This is the document's table of contents.
+function drawOverview(
+  doc: Pdf,
+  dressed: Dressed[],
+  opts: ExportOptions,
+  ctx: { aspect: number; pageOf: (index: number) => number; totalPages: number },
+) {
+  const g = overviewGrid(ctx.aspect)
+  let index = 0
+  let pageNo = 2
+  let first = true
+  while (index < dressed.length || first) {
+    doc.addPage("a4", "portrait")
+    let top = g.nextTop
+    if (first) {
+      doc.setFillColor(...ACCENT)
+      doc.rect(0, 0, 210, 3, "F")
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(22)
+      doc.setTextColor(...INK)
+      doc.text("Overview", PAGE_MARGIN.side, 26)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(10)
+      doc.setTextColor(...MUTED)
+      doc.text(`Every screen in this document, in order. ${opts.device.label}.`, PAGE_MARGIN.side, 34)
+      top = g.firstTop
+    } else {
+      header(doc, opts.projectName, "Overview", 210, [])
+    }
+    const rows = first ? g.rowsFirst : g.rowsNext
+    for (let slot = 0; slot < g.cols * rows && index < dressed.length; slot++, index++) {
+      const { item, picture } = dressed[index]
+      const col = slot % g.cols
+      const row = Math.floor(slot / g.cols)
+      const x = PAGE_MARGIN.side + col * (g.cardW + g.gap)
+      const y = top + row * (g.cardH + g.gap)
+      doc.setFillColor(...CARD)
+      doc.setDrawColor(...RULE)
+      doc.roundedRect(x, y, g.cardW, g.cardH, 3, 3, "FD")
+      // Thumbnail, fitted and centred in its well.
+      const wellW = g.cardW - 8
+      const scale = Math.min(wellW / picture.width, g.thumbH / picture.height)
+      const tw = picture.width * scale
+      const th = picture.height * scale
+      doc.addImage(picture.dataUrl, "PNG", x + 4 + (wellW - tw) / 2, y + 4 + (g.thumbH - th) / 2, tw, th, undefined, "FAST")
+      // Number chip + page.
+      const ty = y + 4 + g.thumbH + 5.5
+      doc.setFillColor(...ACCENT_SOFT)
+      doc.roundedRect(x + 4, ty - 3.6, 8, 5, 1.5, 1.5, "F")
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(7)
+      doc.setTextColor(...ACCENT)
+      doc.text(String(item.n).padStart(2, "0"), x + 8, ty, { align: "center" })
+      // The name gets the card's width; the page reference rides on the
+      // route line below it, where a long name cannot squeeze it out.
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(8.5)
+      doc.setTextColor(...INK)
+      doc.text(fitText(doc, item.label, g.cardW - 18), x + 14, ty)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(7)
+      const pageRef = `p. ${ctx.pageOf(index)}`
+      doc.setTextColor(...FAINT)
+      doc.text(pageRef, x + g.cardW - 4, ty + 5.5, { align: "right" })
+      doc.setTextColor(...MUTED)
+      const sub = item.group ? `${item.route} · ${item.group}` : item.route
+      doc.text(fitText(doc, sub, g.cardW - 12 - doc.getTextWidth(pageRef)), x + 4, ty + 5.5)
+    }
+    footer(doc, pageNo, ctx.totalPages, 210, 297)
+    pageNo++
+    first = false
+  }
+}
+
+function header(doc: Pdf, project: string, right: string, pageW: number, groups: string[]) {
+  doc.setFillColor(...ACCENT)
+  doc.roundedRect(PAGE_MARGIN.side, 8.6, 4, 4, 1, 1, "F")
   doc.setFont("helvetica", "bold")
   doc.setFontSize(9)
   doc.setTextColor(...INK)
-  doc.text(project, PAGE_MARGIN.side, 12)
+  doc.text(project, PAGE_MARGIN.side + 6.5, 12)
+  // The groups on this page, as chips beside the title.
+  let x = PAGE_MARGIN.side + 6.5 + doc.getTextWidth(project) + 5
   doc.setFont("helvetica", "normal")
+  doc.setFontSize(7.5)
+  for (const group of groups) {
+    const w = doc.getTextWidth(group) + 6
+    if (x + w > pageW / 2 + 40) break
+    doc.setFillColor(...ACCENT_SOFT)
+    doc.roundedRect(x, 8.3, w, 5, 2.5, 2.5, "F")
+    doc.setTextColor(...ACCENT)
+    doc.text(group, x + 3, 11.8)
+    x += w + 2
+  }
+  doc.setFontSize(8.5)
   doc.setTextColor(...MUTED)
-  doc.text(device, pageW - PAGE_MARGIN.side, 12, { align: "right" })
+  doc.text(right, pageW - PAGE_MARGIN.side, 12, { align: "right" })
   doc.setDrawColor(...RULE)
-  doc.line(PAGE_MARGIN.side, 15, pageW - PAGE_MARGIN.side, 15)
+  doc.line(PAGE_MARGIN.side, 16, pageW - PAGE_MARGIN.side, 16)
 }
 
 function footer(doc: Pdf, page: number, total: number, pageW: number, pageH: number) {
+  doc.setDrawColor(...RULE)
+  doc.line(PAGE_MARGIN.side, pageH - 13, pageW - PAGE_MARGIN.side, pageH - 13)
   doc.setFont("helvetica", "normal")
-  doc.setFontSize(8)
-  doc.setTextColor(...MUTED)
+  doc.setFontSize(7.5)
+  doc.setTextColor(...FAINT)
   doc.text("Made with TaskFlow", PAGE_MARGIN.side, pageH - 8)
   doc.text(`${page} / ${total}`, pageW - PAGE_MARGIN.side, pageH - 8, { align: "right" })
 }
