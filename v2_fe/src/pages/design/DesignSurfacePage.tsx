@@ -12,6 +12,7 @@ import {
   HandIcon,
   LayoutGridIcon,
   MessageSquareIcon,
+  SmartphoneIcon,
   MonitorSmartphoneIcon,
   PanelRightIcon,
   MoonIcon,
@@ -41,6 +42,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ExportDialog } from "./export/export-dialog"
 import { frameFor } from "./export/export-plan"
+import { setCanvasFrames } from "@/lib/design-frames"
 import { flowPositions, type FlowDoc } from "./flow/flow-layout"
 import {
   fetchDesignComments,
@@ -233,12 +235,38 @@ export function DesignSurfacePage({
   // `layout` carries the flow, so an explicit reorder is in these deps and
   // redraws the boards in the new sequence — which is the point of the feature,
   // and the one edit allowed to move them (see `boardsForView`).
+  // Device frames on/off (the toolbar's Frames toggle), per viewer. Set into
+  // the board-size rules BEFORE the boards are derived, and listed in their
+  // deps, so turning frames off re-lays the canvas at the outline sizes.
+  const [framesOn, setFramesOn] = useState(() => {
+    try {
+      return window.localStorage.getItem("taskflow.design.frames") !== "0"
+    } catch {
+      return true
+    }
+  })
+  setCanvasFrames(framesOn)
+  const toggleFrames = () => {
+    setFramesOn((on) => {
+      try {
+        window.localStorage.setItem("taskflow.design.frames", on ? "0" : "1")
+      } catch {
+        /* a convenience — the toggle still works for this visit */
+      }
+      return !on
+    })
+  }
+
   const artboards = useMemo(
     () =>
       layout.view === "flow"
         ? flowBoards(layout, openRoutes, deviceIds[0] ?? DEFAULT_DEVICE_ID)
         : boardsForView(layout, openRoutes, deviceIds),
-    [layout, openRoutes, deviceIds],
+    // `framesOn` changes every board's size (see `setCanvasFrames`).
+    // `framesOn` is read through `setCanvasFrames`, not in this body, so the
+    // hooks lint cannot see why it is here: it changes every board's size.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layout, openRoutes, deviceIds, framesOn],
   )
 
   const refreshComments = useCallback(() => {
@@ -915,6 +943,17 @@ export function DesignSurfacePage({
         />
 
         <DevicePicker deviceIds={deviceIds} onChange={setDeviceIds} />
+
+        <Button
+          variant={framesOn ? "secondary" : "ghost"}
+          size="sm"
+          aria-pressed={framesOn}
+          title={framesOn ? "Showing device frames — switch to plain outlines" : "Showing plain outlines — switch to device frames"}
+          onClick={toggleFrames}
+        >
+          <SmartphoneIcon className="size-4" />
+          Frames
+        </Button>
 
         <ViewPicker view={layout.view} onChange={(view) => updateLayout({ ...layout, view })} />
 

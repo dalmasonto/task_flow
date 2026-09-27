@@ -1,3 +1,12 @@
+/* The open-source device frames (devices.css, MIT), in a layer of their own
+   between Tailwind's reset (`base`) and its utilities. Unlayered, they beat
+   every layered rule: devices.css sets `display: block` on everything inside
+   a frame, which silently disabled `flex` (and our corner overrides) inside
+   every frame. Above `base`, so the reset cannot zero the frames' own padding
+   and borders; below `utilities`, so a utility class still means what it
+   says inside a frame. */
+@layer theme, base, devices, components, utilities;
+@import "devices.css/dist/devices.min.css" layer(devices);
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -193,6 +202,38 @@
 
   .scrollbar-y::-webkit-scrollbar-thumb:hover {
     background-color: color-mix(in oklch, var(--primary) 48%, transparent);
+  }
+
+  /* Phone frames with tighter corners. devices.css draws them at the
+     marketing-render radius (the iPhone 14 Pro body is 68px), which reads
+     as bulbous on a canvas of screens. Scoped to `.tf-frame`, so the canvas
+     and the exports (both add it) look the same, and nothing else changes. */
+  .tf-frame.device-iphone-14-pro .device-frame {
+    border-radius: 46px;
+  }
+
+  .tf-frame.device-iphone-14-pro .device-screen {
+    border-radius: 28px;
+  }
+
+  .tf-frame.device-iphone-8 .device-frame {
+    border-radius: 46px;
+  }
+
+  .tf-frame.device-galaxy-s8 .device-frame {
+    border-radius: 38px;
+  }
+
+  .tf-frame.device-galaxy-s8 .device-screen {
+    border-radius: 22px;
+  }
+
+  .tf-frame.device-google-pixel-6-pro .device-frame {
+    border-radius: 22px;
+  }
+
+  .tf-frame.device-google-pixel-6-pro .device-screen {
+    border-radius: 18px;
   }
 
   /* #508: a Flow link's dashes travel from source to target. The offset

@@ -16,7 +16,6 @@
 ///   converted to canvas coordinates.
 
 import "@xyflow/react/dist/style.css"
-import "devices.css/dist/devices.min.css"
 import {
   Background,
   BackgroundVariant,
@@ -60,7 +59,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { frameFor } from "./export/export-plan"
-import { canvasFrame, framedViewportHeight } from "@/lib/design-frames"
+import { canvasFrame, framedViewportHeight, statusBarHtml, statusBarStyle } from "@/lib/design-frames"
 import { EdgeEditor } from "./flow/edge-editor"
 import { FloatingEdge } from "./flow/floating-edge"
 import { linkPages, linkProblem, placePage, relabel, unlink, type FlowDoc } from "./flow/flow-layout"
@@ -73,7 +72,6 @@ import {
   boardContentOrigin,
   boardHeight,
   boardWidth,
-  chromeStyleForGroup,
   deviceById,
   rotateDecisionFor,
 } from "@/lib/design-devices"
@@ -765,9 +763,11 @@ const ArtboardCard = memo(function ArtboardCard({
           // A real device wears its open-source frame; a breakpoint width is
           // no device and keeps the plain chrome.
           return canvasFrame(device) ? (
-            <FramedBoard device={device}>{page}</FramedBoard>
+            <FramedBoard device={device} theme={theme}>
+              {page}
+            </FramedBoard>
           ) : (
-            <DeviceChrome device={device}>{page}</DeviceChrome>
+            <OutlineBoard device={device}>{page}</OutlineBoard>
           )
         })()}
       </div>
@@ -1057,29 +1057,46 @@ export function ArtboardHeader({
   )
 }
 
-/// Physical device chrome, per group (`chromeStyleForGroup`, pure + tested):
-/// phones get a notch/home-indicator inset, tablets a thinner bezel + camera
-/// dot, laptops a light browser-chrome top bar, breakpoints stay a plain
-/// rectangle. All of it is decorative padding/border around the true-size
-/// iframe — nothing here resizes the iframe or touches canvas zoom. Phones
-/// additionally expose --safe-top/--safe-bottom into the document.
+
+/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
+/// (IntersectionObserver margin) → mount, and it stays mounted. A static
+/// placeholder keeps the canvas free of holes while unmounted. Frames are never
+/// released, so a long session on a large canvas costs one live document per
+/// board seen: that is the accepted price of keeping pages comparable side by
+/// side, not an oversight.
 /// A board in its REAL device frame (devices.css, MIT). The frame is scaled so
 /// its screen is exactly `device.width` wide, and the page inside is scaled
 /// back so it renders 1:1 — its breakpoints honest, its text the usual size,
 /// and a position it reports needing only `boardContentOrigin`'s offset. The
 /// screen's status-bar strip (under a notch or Dynamic Island) stays clear.
-export function FramedBoard({ device, children }: { device: DevicePreset; children: React.ReactNode }) {
+export function FramedBoard({
+  device,
+  theme,
+  children,
+}: {
+  device: DevicePreset
+  theme: string
+  children: React.ReactNode
+}) {
   const framed = canvasFrame(device)
   if (!framed) return <>{children}</>
   const { frame, metrics: m, scale: k } = framed
+  const dark = theme === "dark"
   return (
     <div className="relative" style={{ width: Math.round(m.w * k), height: Math.round(m.h * k) }}>
       <div
-        className={`device device-${frame}`}
+        className={`tf-frame device device-${frame}`}
         style={{ position: "absolute", top: 0, left: 0, transform: `scale(${k})`, transformOrigin: "top left" }}
       >
         <div className="device-frame">
-          <div className="device-screen" style={{ position: "relative", overflow: "hidden", background: "#fff" }}>
+          <div
+            className="device-screen"
+            style={{ position: "relative", overflow: "hidden", background: dark ? "#0a0a0a" : "#ffffff" }}
+          >
+            {/* The strip a notch or Dynamic Island sits in, drawn as the status
+                bar a real phone shows there — in the page's theme, so it reads
+                as part of the device rather than a gap above the page. */}
+            {m.statusBar ? <StatusBar frame={frame} width={m.screenW} height={m.statusBar} dark={dark} /> : null}
             <div
               style={{
                 position: "absolute",
@@ -1106,63 +1123,34 @@ export function FramedBoard({ device, children }: { device: DevicePreset; childr
   )
 }
 
-export function DeviceChrome({
-  device,
-  children,
-}: {
-  device: DevicePreset
-  children: React.ReactNode
-}) {
-  const chrome = chromeStyleForGroup(device.group)
-  const { padding, safeArea } = chrome
+/// The device's own status bar (see `statusBarHtml`: each phone lays it out as
+/// its platform does). Static, trusted markup built in `lib/design-frames` —
+/// the export draws the very same string.
+function StatusBar({ frame, width, height, dark }: { frame: string; width: number; height: number; dark: boolean }) {
+  const style = statusBarStyle(frame)
+  if (!style) return null
   return (
     <div
-      className="relative border border-zinc-700/80 bg-black shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)]"
-      style={
-        {
-          borderRadius: chrome.outerRadius,
-          paddingTop: padding.top,
-          paddingRight: padding.right,
-          paddingBottom: padding.bottom,
-          paddingLeft: padding.left,
-          ...(safeArea
-            ? { "--safe-top": `${safeArea.top}px`, "--safe-bottom": `${safeArea.bottom}px` }
-            : {}),
-        } as React.CSSProperties
-      }
+      aria-hidden
+      className="absolute top-0 left-0"
+      dangerouslySetInnerHTML={{ __html: statusBarHtml(style, width, height, dark ? "#f5f5f5" : "#0a0a0a") }}
+    />
+  )
+}
+
+/// A frameless board: the page in a 1px, softly rounded outline — what every
+/// board is with frames off, and what a breakpoint width always is.
+export function OutlineBoard({ device, children }: { device: DevicePreset; children: React.ReactNode }) {
+  return (
+    <div
+      className="overflow-hidden rounded-[18px] border border-zinc-700/80 bg-white shadow-[0_18px_50px_-12px_rgba(0,0,0,0.85)]"
+      style={{ width: device.width + 2, height: device.height + 2 }}
     >
-      {chrome.notch ? (
-        <div className="absolute top-2 left-1/2 h-4 w-24 -translate-x-1/2 rounded-full bg-zinc-900 ring-1 ring-zinc-800" />
-      ) : null}
-      {chrome.homeIndicator ? (
-        <div className="absolute bottom-1.5 left-1/2 h-1 w-28 -translate-x-1/2 rounded-full bg-zinc-700" />
-      ) : null}
-      {chrome.cameraDot ? (
-        <div className="absolute top-1.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-zinc-800 ring-1 ring-zinc-600/60" />
-      ) : null}
-      {chrome.topBar ? (
-        <div
-          className="absolute top-0 left-0 right-0 flex h-[22px] items-center gap-1.5 bg-zinc-900 px-3"
-          style={{ borderTopLeftRadius: chrome.outerRadius, borderTopRightRadius: chrome.outerRadius }}
-        >
-          <span className="size-2 rounded-full bg-zinc-700" />
-          <span className="size-2 rounded-full bg-zinc-700" />
-          <span className="size-2 rounded-full bg-zinc-700" />
-        </div>
-      ) : null}
-      <div className="overflow-hidden bg-zinc-950" style={{ borderRadius: chrome.innerRadius }}>
-        {children}
-      </div>
+      {children}
     </div>
   )
 }
 
-/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
-/// (IntersectionObserver margin) → mount, and it stays mounted. A static
-/// placeholder keeps the canvas free of holes while unmounted. Frames are never
-/// released, so a long session on a large canvas costs one live document per
-/// board seen: that is the accepted price of keeping pages comparable side by
-/// side, not an oversight.
 /// Memoised for the same reason as `ArtboardCard` above, one level down: a
 /// board that re-renders for its own reasons (the header's menus, `panMode`)
 /// must not drag a live iframe's element tree with it. Every prop is a

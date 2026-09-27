@@ -146,81 +146,6 @@ export const DEVICE_GROUP_LABELS: Record<DeviceGroup, string> = {
   breakpoint: "Tailwind breakpoint",
 }
 
-/// Pure, size-agnostic decorative chrome tokens for `DeviceChrome`. Never
-/// touches the iframe's true `width`×`height` — this only describes the
-/// bezel drawn AROUND it (padding is bezel thickness, not a resize).
-export type ChromeStyle = {
-  /** Outer bezel corner radius (px). 0 = plain rectangle (breakpoints). */
-  outerRadius: number
-  /** Inner (screen cut-out) corner radius (px). */
-  innerRadius: number
-  /** Bezel thickness per side (px) — decorative padding around the iframe. */
-  padding: { top: number; right: number; bottom: number; left: number }
-  /** Phone-style notch pill at the top. */
-  notch: boolean
-  /** Phone-style home-indicator bar at the bottom. */
-  homeIndicator: boolean
-  /** Tablet-style front camera dot, centered at the top. */
-  cameraDot: boolean
-  /** Laptop-style browser-chrome top bar (traffic-light dots). */
-  topBar: boolean
-  /** `--safe-top`/`--safe-bottom` CSS vars to expose to the iframe content,
-   * or null when the device has no safe-area insets to simulate. */
-  safeArea: { top: number; bottom: number } | null
-}
-
-export function chromeStyleForGroup(group: DeviceGroup): ChromeStyle {
-  switch (group) {
-    case "phone":
-      return {
-        outerRadius: 44,
-        innerRadius: 32,
-        padding: { top: 24, right: 12, bottom: 20, left: 12 },
-        notch: true,
-        homeIndicator: true,
-        cameraDot: false,
-        topBar: false,
-        safeArea: { top: 24, bottom: 20 },
-      }
-    case "tablet":
-      // Thinner, uniform bezel — no notch, just a small front camera dot.
-      return {
-        outerRadius: 24,
-        innerRadius: 14,
-        padding: { top: 14, right: 14, bottom: 14, left: 14 },
-        notch: false,
-        homeIndicator: false,
-        cameraDot: true,
-        topBar: false,
-        safeArea: null,
-      }
-    case "laptop":
-      // Light-touch: a subtle browser-chrome top bar, flush sides/bottom.
-      return {
-        outerRadius: 10,
-        innerRadius: 4,
-        padding: { top: 22, right: 0, bottom: 0, left: 0 },
-        notch: false,
-        homeIndicator: false,
-        cameraDot: false,
-        topBar: true,
-        safeArea: null,
-      }
-    case "breakpoint":
-    default:
-      // Abstract widths, not devices — keep the plain rectangle.
-      return {
-        outerRadius: 0,
-        innerRadius: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        notch: false,
-        homeIndicator: false,
-        cameraDot: false,
-        topBar: false,
-        safeArea: null,
-      }
-  }
-}
 
 /// An artboard: one route rendered at one device size. Position is derived,
 /// not persisted — the `layout*` functions recompute x/y from the open routes
@@ -255,27 +180,23 @@ export const GUTTER = 140
  *  this one's frame. */
 export const HEADER_H = 30
 
-/** The 1px border `DeviceChrome` draws around the bezel. */
-const CHROME_BORDER = 1
 
-/** How wide a board actually renders. A real device wears its open-source
- *  frame, scaled so the frame's screen is the device's CSS width
- *  (`lib/design-frames`); a breakpoint width keeps the plain chrome — the
- *  iframe's true device px plus the decorative bezel and border around it.
+/** How wide a board actually renders. With frames on, a real device wears its
+ *  open-source frame, scaled so the frame's screen is the device's CSS width
+ *  (`lib/design-frames`); otherwise — frames off, or a breakpoint width, which
+ *  is no device — the page sits in a 1px rounded outline.
  *  Every layout engine spaces boards by this, so it must be what renders. */
 export function boardWidth(device: DevicePreset): number {
   const framed = canvasFrame(device)
   if (framed) return Math.round(framed.metrics.w * framed.scale)
-  const padding = chromeStyleForGroup(device.group).padding
-  return device.width + padding.left + padding.right + CHROME_BORDER * 2
+  return device.width + OUTLINE_BORDER * 2
 }
 
 /** How tall a board actually renders (see `boardWidth`). */
 export function boardHeight(device: DevicePreset): number {
   const framed = canvasFrame(device)
   if (framed) return Math.round(framed.metrics.h * framed.scale)
-  const padding = chromeStyleForGroup(device.group).padding
-  return device.height + padding.top + padding.bottom + CHROME_BORDER * 2
+  return device.height + OUTLINE_BORDER * 2
 }
 
 /** Where the PAGE's top-left sits inside a board (header included), in canvas
@@ -288,9 +209,12 @@ export function boardContentOrigin(device: DevicePreset): { x: number; y: number
     const { metrics, scale } = framed
     return { x: metrics.screenX * scale, y: HEADER_H + (metrics.screenY + metrics.statusBar) * scale }
   }
-  const padding = chromeStyleForGroup(device.group).padding
-  return { x: CHROME_BORDER + padding.left, y: HEADER_H + CHROME_BORDER + padding.top }
+  return { x: OUTLINE_BORDER, y: HEADER_H + OUTLINE_BORDER }
 }
+
+/** The border of a frameless board (`OutlineBoard`): the page in a 1px,
+ *  softly rounded outline — frames off, or a breakpoint width. */
+export const OUTLINE_BORDER = 1
 
 /// Today's arrangement: one ROW per page, one COLUMN per selected device.
 /// PURE: same inputs always produce the same boards, in the same order, so

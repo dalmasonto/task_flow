@@ -8,7 +8,6 @@ import {
   boardHeight,
   boardWidth,
   boardsForView,
-  chromeStyleForGroup,
   deviceById,
   landscapeId,
   landscapeVariant,
@@ -197,62 +196,6 @@ describe("design devices", () => {
     expect(board.deviceId).toBe("pixel-8")
   })
 
-  describe("chromeStyleForGroup", () => {
-    it("phones get a notch + home indicator + safe-area insets", () => {
-      const chrome = chromeStyleForGroup("phone")
-      expect(chrome.notch).toBe(true)
-      expect(chrome.homeIndicator).toBe(true)
-      expect(chrome.cameraDot).toBe(false)
-      expect(chrome.topBar).toBe(false)
-      expect(chrome.safeArea).toEqual({ top: 24, bottom: 20 })
-      expect(chrome.outerRadius).toBeGreaterThan(0)
-    })
-
-    it("tablets get a thinner uniform bezel with a camera dot, no notch", () => {
-      const tablet = chromeStyleForGroup("tablet")
-      const phone = chromeStyleForGroup("phone")
-      expect(tablet.notch).toBe(false)
-      expect(tablet.homeIndicator).toBe(false)
-      expect(tablet.cameraDot).toBe(true)
-      expect(tablet.topBar).toBe(false)
-      expect(tablet.safeArea).toBeNull()
-      // Uniform on all four sides.
-      expect(tablet.padding.top).toBe(tablet.padding.right)
-      expect(tablet.padding.right).toBe(tablet.padding.bottom)
-      expect(tablet.padding.bottom).toBe(tablet.padding.left)
-      // Thinner than the phone's bezel, and less round.
-      expect(tablet.padding.top).toBeLessThan(phone.padding.top)
-      expect(tablet.outerRadius).toBeLessThan(phone.outerRadius)
-      expect(tablet.outerRadius).toBeGreaterThan(0)
-    })
-
-    it("laptops get a light top bar only, flush sides/bottom", () => {
-      const chrome = chromeStyleForGroup("laptop")
-      expect(chrome.topBar).toBe(true)
-      expect(chrome.notch).toBe(false)
-      expect(chrome.homeIndicator).toBe(false)
-      expect(chrome.cameraDot).toBe(false)
-      expect(chrome.safeArea).toBeNull()
-      expect(chrome.padding.top).toBeGreaterThan(0)
-      expect(chrome.padding.right).toBe(0)
-      expect(chrome.padding.bottom).toBe(0)
-      expect(chrome.padding.left).toBe(0)
-    })
-
-    it("breakpoints stay a plain rectangle — no bezel at all", () => {
-      const chrome = chromeStyleForGroup("breakpoint")
-      expect(chrome).toEqual({
-        outerRadius: 0,
-        innerRadius: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        notch: false,
-        homeIndicator: false,
-        cameraDot: false,
-        topBar: false,
-        safeArea: null,
-      })
-    })
-  })
 
   it("layoutGroups: groups are vertical columns, ungrouped flows right in one row", () => {
     const groups = [
@@ -660,9 +603,9 @@ describe("landscape variants", () => {
   it("deviceById resolves a variant, and board metrics follow it", () => {
     const v = deviceById("iphone-16-pro:landscape")
     expect(v.width).toBe(852)
-    // Portrait: 393 + 12 + 12 + 2. Landscape swaps the WIDTH, so the sides are
-    // the same padding but the number is now the preset's height.
-    expect(boardWidth(v)).toBe(852 + 12 + 12 + 2)
+    // The devices.css frames are portrait, so a rotated phone is drawn in the
+    // plain outline — its width is the preset's height plus the 1px border.
+    expect(boardWidth(v)).toBe(852 + 2)
   })
 
   it("landscapeId is stable and reversible", () => {

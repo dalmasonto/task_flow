@@ -44,7 +44,7 @@ export type FrameMetrics = {
 
 export const FRAME_METRICS: Record<string, FrameMetrics> = {
   "iphone-14-pro": { w: 428, h: 868, screenX: 20, screenY: 20, screenW: 390, screenH: 830, statusBar: 44 },
-  "iphone-8": { w: 419, h: 871, screenX: 22, screenY: 102, screenW: 375, screenH: 667, statusBar: 0 },
+  "iphone-8": { w: 419, h: 871, screenX: 22, screenY: 102, screenW: 375, screenH: 667, statusBar: 20 },
   "google-pixel-6-pro": { w: 404, h: 862, screenX: 14, screenY: 20, screenW: 376, screenH: 816, statusBar: 26 },
   "galaxy-s8": { w: 380, h: 828, screenX: 10, screenY: 53, screenW: 360, screenH: 740, statusBar: 20 },
   "ipad-pro": { w: 560, h: 778, screenX: 27, screenY: 27, screenW: 506, screenH: 724, statusBar: 0 },
@@ -52,9 +52,25 @@ export const FRAME_METRICS: Record<string, FrameMetrics> = {
   imac: { w: 640, h: 540, screenX: 16, screenY: 16, screenW: 608, screenH: 342, statusBar: 0 },
 }
 
+/// Whether the canvas draws device frames at all — the toolbar's Frames
+/// toggle. A module setting rather than a parameter because every board-size
+/// rule (`boardWidth`, `boardHeight`, the layout engines, fit) reads it; the
+/// surface sets it before deriving its boards and lists it in their memo deps.
+/// Off, every board is the page in a plain rounded outline.
+let framesEnabled = true
+
+export function setCanvasFrames(on: boolean): void {
+  framesEnabled = on
+}
+
+export function canvasFramesEnabled(): boolean {
+  return framesEnabled
+}
+
 /// A device's frame and the scale that makes the frame's screen exactly as
-/// wide as the device — or null for a device with no frame.
+/// wide as the device — or null when frames are off or the device has none.
 export function canvasFrame(device: DevicePreset): { frame: string; metrics: FrameMetrics; scale: number } | null {
+  if (!framesEnabled) return null
   const frame = frameFor(device.id)
   const metrics = frame ? FRAME_METRICS[frame] : undefined
   if (!frame || !metrics) return null
@@ -68,4 +84,48 @@ export function framedViewportHeight(device: DevicePreset): number {
   const f = canvasFrame(device)
   if (!f) return device.height
   return Math.round((f.metrics.screenH - f.metrics.statusBar) * f.scale)
+}
+
+/// How a device lays out its status bar — each follows its platform:
+/// - `ios-island`: time left; signal, Wi-Fi, battery right (Dynamic Island).
+/// - `ios-classic`: signal and Wi-Fi left, time centred, battery right (the
+///   home-button iPhones, iPhone SE).
+/// - `android`: time left; Wi-Fi, signal and battery with its percentage right.
+export type StatusBarStyle = "ios-island" | "ios-classic" | "android"
+
+const STATUS_STYLE: Record<string, StatusBarStyle> = {
+  "iphone-14-pro": "ios-island",
+  "iphone-8": "ios-classic",
+  "google-pixel-6-pro": "android",
+  "galaxy-s8": "android",
+}
+
+export function statusBarStyle(frame: string): StatusBarStyle | null {
+  return STATUS_STYLE[frame] ?? null
+}
+
+const signal = (ink: string) =>
+  `<svg width="18" height="12" viewBox="0 0 18 12" fill="${ink}"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="6" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>`
+const wifi = (ink: string) =>
+  `<svg width="16" height="12" viewBox="0 0 16 12" fill="${ink}"><path d="M8 11.5 10.4 9a3.4 3.4 0 0 0-4.8 0Z"/><path d="M8 5.2a6.6 6.6 0 0 1 4.6 1.9l1.3-1.3a8.4 8.4 0 0 0-11.8 0l1.3 1.3A6.6 6.6 0 0 1 8 5.2Z"/><path d="M8 1.6c2.8 0 5.3 1.1 7.2 2.9L16 3.6A12 12 0 0 0 0 3.6l.8.9A10.2 10.2 0 0 1 8 1.6Z"/></svg>`
+const iosBattery = (ink: string) =>
+  `<svg width="26" height="12" viewBox="0 0 26 12" fill="none"><rect x="0.5" y="0.5" width="22" height="11" rx="3" stroke="${ink}" opacity="0.4"/><rect x="2" y="2" width="17" height="8" rx="1.6" fill="${ink}"/><rect x="24" y="4" width="1.5" height="4" rx="0.7" fill="${ink}" opacity="0.5"/></svg>`
+const androidBattery = (ink: string) =>
+  `<svg width="9" height="14" viewBox="0 0 9 14" fill="${ink}"><rect x="2.5" y="0" width="4" height="1.6" rx="0.5"/><rect x="0" y="1.4" width="9" height="12.6" rx="1.4"/></svg>`
+
+/// The status bar a device shows, as self-contained HTML (inline styles only,
+/// so no stylesheet — devices.css's included — can re-lay it out). The canvas
+/// and the export both render exactly this, so the two cannot drift.
+export function statusBarHtml(style: StatusBarStyle, width: number, height: number, ink: string): string {
+  const row = "display:flex;align-items:center"
+  const base = `${row};justify-content:space-between;box-sizing:border-box;width:${width}px;height:${height}px;color:${ink};font-family:'Inter Variable',Inter,system-ui,sans-serif;font-weight:600;letter-spacing:-0.01em;white-space:nowrap`
+  switch (style) {
+    case "ios-island":
+      return `<div style="${base};padding:0 30px 0 36px;font-size:15px"><span>9:41</span><span style="${row};gap:6px">${signal(ink)}${wifi(ink)}${iosBattery(ink)}</span></div>`
+    case "ios-classic":
+      // Smaller, and three-part: the time is centred between the two sides.
+      return `<div style="${base};padding:0 6px;font-size:12px"><span style="${row};gap:4px;flex:1">${signal(ink)}${wifi(ink)}</span><span>9:41</span><span style="${row};justify-content:flex-end;gap:4px;flex:1">100%${iosBattery(ink)}</span></div>`
+    case "android":
+      return `<div style="${base};padding:0 18px;font-size:13px;font-weight:500"><span>9:41</span><span style="${row};gap:6px">${wifi(ink)}${signal(ink)}<span style="${row};gap:3px">100%${androidBattery(ink)}</span></span></div>`
+  }
 }

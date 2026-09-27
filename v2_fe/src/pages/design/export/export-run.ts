@@ -10,9 +10,9 @@
 /// export dialog, so jsPDF, JSZip, the frames' CSS and the DOM rasteriser load
 /// when someone exports, never with the app.
 
-import "devices.css/dist/devices.min.css"
 
 import { sandboxUrl } from "@/lib/design-api"
+import { statusBarHtml, statusBarStyle } from "@/lib/design-frames"
 import type { DevicePreset } from "@/lib/design-devices"
 import {
   CAPTION_H,
@@ -172,6 +172,12 @@ async function topColor(src: string): Promise<string> {
   return `rgb(${r}, ${g}, ${b})`
 }
 
+/// Whether a CSS rgb() colour is dark (perceived luminance under half).
+function isDark(rgb: string): boolean {
+  const [r, g, b] = (rgb.match(/\d+/g) ?? ["255", "255", "255"]).map(Number)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128
+}
+
 /// A screenshot inside an open-source device frame (devices.css, MIT). The
 /// frame is real DOM in THIS document, rasterised with the screenshot as its
 /// screen, at a scale that keeps the screenshot's own resolution.
@@ -180,13 +186,15 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
   const holder = document.createElement("div")
   Object.assign(holder.style, { position: "fixed", left: "-20000px", top: "0", padding: "24px", background: "transparent" })
   holder.innerHTML = `
-    <div class="device device-${frame}">
+    <div class="tf-frame device device-${frame}">
       <div class="device-frame"><img class="device-screen" alt="" /></div>
       <div class="device-stripe"></div><div class="device-header"></div>
       <div class="device-sensors"></div><div class="device-btns"></div>
       <div class="device-power"></div><div class="device-home"></div>
     </div>`
   const img = holder.querySelector("img")!
+  const top = await topColor(shot.dataUrl)
+  const metrics = FRAME_METRICS[frame]
   // The frame's screen has its own proportions; cover it from the top, the
   // part of a page a viewer looks at first.
   Object.assign(img.style, {
@@ -194,9 +202,18 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
     objectPosition: "top",
     boxSizing: "border-box",
     // The status-bar strip a notch or Dynamic Island sits in stays clear.
-    paddingTop: `${FRAME_METRICS[frame]?.statusBar ?? 0}px`,
-    background: await topColor(shot.dataUrl),
+    paddingTop: `${metrics?.statusBar ?? 0}px`,
+    background: top,
   })
+  // ...and shows the status bar a real phone draws there, as the canvas does:
+  // light ink on a dark page, dark ink on a light one.
+  const barStyle = statusBarStyle(frame)
+  if (metrics?.statusBar && barStyle) {
+    const bar = document.createElement("div")
+    bar.innerHTML = statusBarHtml(barStyle, metrics.screenW, metrics.statusBar, isDark(top) ? "#f5f5f5" : "#0a0a0a")
+    Object.assign(bar.style, { position: "absolute", left: `${metrics.screenX}px`, top: `${metrics.screenY}px`, zIndex: "2" })
+    holder.querySelector(".device")!.appendChild(bar)
+  }
   img.src = shot.dataUrl
   document.body.appendChild(holder)
   try {
