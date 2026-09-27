@@ -27,6 +27,7 @@ mod media_access;
 mod realtime;
 mod realtime_auth;
 mod seed;
+mod validation;
 mod views;
 mod widgets;
 
@@ -85,6 +86,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let settings = Settings::from_env()?;
     let pool = umbral::db::connect(&settings.database_url).await?;
+
+    // Declared-length enforcement. `#[umbral(string, max_length = N)]` emits a
+    // `varchar(N)` column, but the ORM validates nothing against it — so an
+    // over-long value reaches Postgres, raises SQLSTATE 22001, and surfaces as
+    // an opaque 500 instead of a 400 naming the field. Registering a cleaner is
+    // the app-side stopgap; see `src/validation.rs` for the full story and for
+    // the upstream gap this is waiting on. Must run before the app serves.
+    validation::install();
 
     let mut builder = App::builder();
 
