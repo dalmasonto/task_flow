@@ -8,6 +8,7 @@ import {
   ChevronLeftIcon,
   ColumnsIcon,
   CrosshairIcon,
+  DownloadIcon,
   HandIcon,
   LayoutGridIcon,
   MessageSquareIcon,
@@ -37,6 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { ExportDialog } from "./export/export-dialog"
 import {
   fetchDesignComments,
   fetchDesignManifest,
@@ -337,6 +339,8 @@ export function DesignSurfacePage({
   }, [projectId])
 
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // #507: the export dialog.
+  const [exportOpen, setExportOpen] = useState(false)
 
   // #509: the chat rail and the right panel can be closed. Wide screens start
   // with both open, beside the canvas; below `lg` they start closed and open
@@ -896,6 +900,16 @@ export function DesignSurfacePage({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            title="Export the screens as a PDF or images"
+            disabled={!manifest || manifest.routes.length === 0}
+            onClick={() => setExportOpen(true)}
+          >
+            <DownloadIcon className="size-4" />
+            Export
+          </Button>
           <Button variant="outline" size="sm" onClick={responsiveReview}>
             Responsive review
           </Button>
@@ -1108,6 +1122,18 @@ export function DesignSurfacePage({
       {paletteOpen ? (
         <CommandPalette onClose={() => setPaletteOpen(false)} items={paletteItems} />
       ) : null}
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        manifest={manifest}
+        layout={layout}
+        openRoutes={openRoutes}
+        labelFor={labelFor}
+        sandboxToken={sandboxToken}
+        projectName={project?.name ?? "Design"}
+        theme={theme === "dark" ? "dark" : "light"}
+        defaultDeviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
+      />
     </section>
   )
 }

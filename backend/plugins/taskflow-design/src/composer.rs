@@ -134,6 +134,32 @@ const PICKER_RUNTIME: &str = r#"(() => {
       document.documentElement.style.cursor = on ? 'crosshair' : '';
       if (!on) clear(); }
     if (m.type === 'design:theme') document.documentElement.dataset.theme = m.theme;
+    // #507: the design export. The chrome asks THIS document to picture itself
+    // — rendering happens where the page's own fonts, styles and components
+    // resolve, which a cross-origin parent could never read. The library comes
+    // from jsdelivr, which the sandbox CSP already allows for scripts. The
+    // reply echoes the request id so concurrent exports cannot cross.
+    if (m.type === 'design:capture') {
+      const id = m.id;
+      (async () => {
+        try {
+          const lib = await import('https://cdn.jsdelivr.net/npm/modern-screenshot@4.7.0/+esm');
+          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          const root = document.documentElement;
+          const width = innerWidth;
+          const height = m.fullPage ? Math.max(root.scrollHeight, innerHeight) : innerHeight;
+          const bg = getComputedStyle(document.body).backgroundColor;
+          const dataUrl = await lib.domToPng(root, {
+            width, height,
+            scale: Math.min(Math.max(Number(m.scale) || 1, 1), 3),
+            backgroundColor: bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#ffffff',
+          });
+          parent.postMessage({ type: 'design:captured', id, dataUrl, width, height }, '*');
+        } catch (err) {
+          parent.postMessage({ type: 'design:captured', id, error: String(err && err.message || err) }, '*');
+        }
+      })();
+    }
     if (m.type === 'design:flash') {
       try {
         const target = m.elementPath ? document.querySelector(m.elementPath)
@@ -978,6 +1004,17 @@ mod tests {
             escaped.contains("<\\/script"),
             "escaping should neutralize via a backslash before the slash: {escaped}"
         );
+    }
+
+    #[test]
+    fn the_page_runtime_answers_an_export_capture() {
+        // #507: the chrome's exporter posts `design:capture` and waits for a
+        // `design:captured` carrying the same id. Pinned so a runtime edit
+        // cannot silently drop the export's only way to picture a page.
+        assert!(PICKER_RUNTIME.contains("m.type === 'design:capture'"));
+        assert!(PICKER_RUNTIME.contains("type: 'design:captured', id, dataUrl"));
+        assert!(PICKER_RUNTIME.contains("cdn.jsdelivr.net/npm/modern-screenshot@"));
+        assert!(!PICKER_RUNTIME.to_ascii_lowercase().contains("</script"));
     }
 
     #[test]
