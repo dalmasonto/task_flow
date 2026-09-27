@@ -1080,6 +1080,22 @@ export async function sendTerminalKey(agentId: number, key: string): Promise<voi
   }
 }
 
+/// #180: type one line into an agent's terminal and submit it — a `/command`
+/// or a prompt, exactly as written, not wrapped as a chat message. Same route
+/// and gate as `sendTerminalKey`; the server refuses blank text, text over 1000
+/// characters, and any control character.
+export async function sendTerminalText(agentId: number, text: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}/terminal-input`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ text }),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not send the command (${response.status}).`))
+  }
+}
+
 /// Record a human review decision on a task. The backend writes the review row,
 /// transitions the task, and posts the report-back message to the agent. Bearer-
 /// authed as the human caller. `bodyMarkdown` is the optional review note.

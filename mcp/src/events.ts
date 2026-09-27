@@ -97,10 +97,12 @@ export interface MessageTarget {
 }
 
 /** A terminal key the dashboard sent, projected on the realtime event. `agent`
- *  is the target pane's agent; `keys` is one tmux key name. */
+ *  is the target pane's agent; `keys` is one tmux key name — or empty, when
+ *  `text` carries a line to type and submit instead (#180). */
 export interface TerminalKeyEvent {
   agent: number;
   keys: string;
+  text?: string | null;
 }
 
 export interface EventStreamOptions {
@@ -340,7 +342,11 @@ export function handleFrame(
   if (envelope.c?.endsWith(":terminal_inputs")) {
     const row = envelope.d as Partial<TerminalKeyEvent> | undefined;
     if (row && typeof row.agent === "number" && typeof row.keys === "string") {
-      void options.onTerminalKey?.({ agent: row.agent, keys: row.keys });
+      void options.onTerminalKey?.({
+        agent: row.agent,
+        keys: row.keys,
+        text: typeof row.text === "string" ? row.text : null,
+      });
     }
     return;
   }

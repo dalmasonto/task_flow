@@ -565,8 +565,17 @@ pub struct TaskflowTerminalInput {
     pub agent: ForeignKey<TaskflowAgent>,
     /// One tmux key NAME — a digit or a named navigation key. Validated against
     /// an allowlist at the endpoint; never a literal string or a control combo.
+    /// Empty when the row carries `text` instead.
     #[umbral(string, max_length = 16)]
     pub keys: String,
+    /// #180: a line of text to type into the pane and submit — a `/command` or
+    /// a prompt, exactly as the human wrote it. Printable characters only
+    /// (validated at the endpoint), so it cannot smuggle a control key. Null
+    /// for a key row. Kept apart from `keys` so an MCP that predates it sees an
+    /// empty key, which its allowlist refuses, rather than text it would
+    /// misread as a key name.
+    #[umbral(string, max_length = 1000)]
+    pub text: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

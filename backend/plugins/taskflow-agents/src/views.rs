@@ -4329,25 +4329,47 @@ fn is_allowed_terminal_key(key: &str) -> bool {
     )
 }
 
+/// #180: the longest line the dashboard may type into a pane. Matches the
+/// column's `max_length`; a command or a short prompt fits with room to spare.
+const MAX_TERMINAL_TEXT_CHARS: usize = 1000;
+
+/// #180: a line the dashboard may type into a pane — non-blank, within the cap,
+/// and printable only. A newline would submit early and an ESC would read as
+/// the Escape key, so any control character is a 400 rather than something to
+/// strip: the human should see their text refused, not silently altered.
+fn is_allowed_terminal_text(text: &str) -> bool {
+    !text.trim().is_empty()
+        && text.chars().count() <= MAX_TERMINAL_TEXT_CHARS
+        && !text.chars().any(char::is_control)
+}
+
+/// Exactly one of `key` (a named key to press) or `text` (a line to type and
+/// submit, #180).
 #[derive(Debug, Deserialize)]
 pub struct TerminalKeyInput {
-    pub key: String,
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 /// `POST /api/taskflow/agents/{agent}/terminal-input` (human-authed) — send ONE
-/// key to an agent's terminal. Recording the row broadcasts it on the project's
-/// `terminal_inputs` realtime group; the target agent's MCP mirror types it into
-/// its tmux pane (other agents ignore it — the `agent` id is projected on the
-/// event). Member-gated on the agent's project; a key outside the allowlist is a
-/// 400 so no control combo can reach a pane.
+/// key, or one line of text (#180), to an agent's terminal. Recording the row
+/// broadcasts it on the project's `terminal_inputs` realtime group; the target
+/// agent's MCP mirror types it into its tmux pane (other agents ignore it — the
+/// `agent` id is projected on the event). Member-gated on the agent's project;
+/// a key outside the allowlist, text with a control character, or a body with
+/// both or neither is a 400, so no control combo can reach a pane.
 pub async fn send_terminal_key(
     RequireAuth(user_id): RequireAuth<i64>,
     Path(agent_id): Path<i64>,
     Json(input): Json<TerminalKeyInput>,
 ) -> Result<Response, StatusCode> {
-    if !is_allowed_terminal_key(&input.key) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+    let (keys, text) = match (input.key, input.text) {
+        (Some(key), None) if is_allowed_terminal_key(&key) => (key, None),
+        (None, Some(text)) if is_allowed_terminal_text(&text) => (String::new(), Some(text)),
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
 
     let agent = TaskflowAgent::objects()
         .get(taskflow_agent::ID.eq(agent_id))
@@ -4372,7 +4394,8 @@ pub async fn send_terminal_key(
             id: 0,
             project: agent.project.clone(),
             agent: ForeignKey::new(agent.id),
-            keys: input.key,
+            keys,
+            text,
             created_at: None,
         })
         .await
@@ -4981,4 +5004,43 @@ pub async fn consume_realtime_ticket(plaintext: &str) -> Option<i64> {
     used.used_at = Some(now);
     let _ = TaskflowRealtimeTicket::objects().save(used).await;
     Some(user_id)
+}
+
+#[cfg(test)]
+mod terminal_input_tests {
+    use super::{is_allowed_terminal_key, is_allowed_terminal_text, MAX_TERMINAL_TEXT_CHARS};
+
+    // #180: the text path is how a `/command` reaches a pane, so it is exactly
+    // as strict about control characters as the key allowlist is about combos.
+    #[test]
+    fn a_slash_command_or_a_prompt_line_is_allowed() {
+        assert!(is_allowed_terminal_text("/compact"));
+        assert!(is_allowed_terminal_text("/model opus — and a note with ünïcode"));
+    }
+
+    #[test]
+    fn blank_text_is_refused() {
+        assert!(!is_allowed_terminal_text(""));
+        assert!(!is_allowed_terminal_text("   "));
+    }
+
+    #[test]
+    fn a_control_character_is_refused_not_stripped() {
+        // A newline would submit early; ESC reads as the Escape key; C-c is \x03.
+        assert!(!is_allowed_terminal_text("/clear\nrm -rf"));
+        assert!(!is_allowed_terminal_text("x\u{1b}[2J"));
+        assert!(!is_allowed_terminal_text("\u{3}"));
+    }
+
+    #[test]
+    fn the_cap_is_in_characters_not_bytes() {
+        assert!(is_allowed_terminal_text(&"é".repeat(MAX_TERMINAL_TEXT_CHARS)));
+        assert!(!is_allowed_terminal_text(&"a".repeat(MAX_TERMINAL_TEXT_CHARS + 1)));
+    }
+
+    #[test]
+    fn the_key_allowlist_still_refuses_an_empty_key() {
+        // What an MCP that predates `text` sees on a text row.
+        assert!(!is_allowed_terminal_key(""));
+    }
 }

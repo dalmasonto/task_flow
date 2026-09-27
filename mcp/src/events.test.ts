@@ -38,8 +38,17 @@ describe("handleFrame", () => {
       onMessage,
       onTerminalKey,
     });
-    expect(onTerminalKey).toHaveBeenCalledWith({ agent: 5, keys: "Up" });
+    expect(onTerminalKey).toHaveBeenCalledWith({ agent: 5, keys: "Up", text: null });
     expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("#180: carries a typed line through as `text`, with an empty key", () => {
+    const onTerminalKey = vi.fn();
+    handleFrame(
+      frame({ c: "project:1:terminal_inputs", e: "created", d: { agent: 5, keys: "", text: "/compact" } }),
+      { onMessage: vi.fn(), onTerminalKey },
+    );
+    expect(onTerminalKey).toHaveBeenCalledWith({ agent: 5, keys: "", text: "/compact" });
   });
 
   it("ignores a terminal_inputs frame missing agent or keys", () => {

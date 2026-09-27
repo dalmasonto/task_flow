@@ -352,6 +352,34 @@ export async function notifyPane(
 }
 
 /**
+ * #180: type a line the human wrote in the dashboard — a `/command` or a
+ * prompt — and submit it with ONE Enter.
+ *
+ * Not {@link notifyPane}: that re-presses Enter twice to beat Codex's paste
+ * chip on ~1KB notices, which is harmless on a chat notice but not here. A
+ * command like `/model` opens a picker, and a second Enter would choose an
+ * option the human never picked. The line is short (the backend caps it at
+ * 1000 characters), so the single, delayed Enter is enough.
+ *
+ * The backend already refuses control characters; `sanitizeForPane` is the
+ * second line of defence, so nothing can submit early or press Escape.
+ */
+export async function typeLineToPane(
+  text: string,
+  target?: string,
+  deps: NotifyPaneDeps = {},
+): Promise<void> {
+  const exec = deps.exec ?? ((args: string[]) => run("tmux", args));
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const base = target ? ["-t", target] : [];
+  const line = sanitizeForPane(text, 1000);
+  if (!line) return;
+  await exec(["send-keys", ...base, "-l", line]);
+  await sleep(SUBMIT_ENTER_DELAY_MS);
+  await exec(["send-keys", ...base, "Enter"]);
+}
+
+/**
  * Send ONE key to a pane, by tmux key NAME (not literally).
  *
  * Answering a prompt means pressing keys, not typing text: "Right" must arrive

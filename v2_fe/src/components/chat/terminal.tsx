@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { MessageSquareIcon, TerminalIcon, XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { sendTerminalKey } from "@/lib/taskflow-api"
+import { sendTerminalKey, sendTerminalText } from "@/lib/taskflow-api"
 import { type AgentTerminalSessionView } from "@/lib/workspace-view"
-import { useLayoutEffect, useMemo, useRef, useState, type UIEvent } from "react"
+import { useLayoutEffect, useMemo, useRef, useState, type FormEvent, type UIEvent } from "react"
 
 
 export function AgentTerminalPanel({
@@ -98,16 +99,52 @@ const TERMINAL_KEYS: { label: string; key: string; wide?: boolean }[] = [
 ]
 
 
+/// #180: the longest line the server accepts (`MAX_TERMINAL_TEXT_CHARS`).
+const MAX_TERMINAL_TEXT = 1000
+
 export function TerminalKeypad({ agentId, disabled }: { agentId: number; disabled?: boolean }) {
   const [error, setError] = useState<string | null>(null)
+  // #180: a line typed straight into the pane — `/compact`, `/model`, or a
+  // prompt — submitted as keystrokes, NOT posted as a chat message.
+  const [line, setLine] = useState("")
+  const [sending, setSending] = useState(false)
   const press = (key: string) => {
     setError(null)
     void sendTerminalKey(agentId, key).catch((err) =>
       setError(err instanceof Error ? err.message : "Could not send the key.")
     )
   }
+  const submitLine = (event: FormEvent) => {
+    event.preventDefault()
+    const text = line.trim()
+    if (!text || sending) return
+    setError(null)
+    setSending(true)
+    sendTerminalText(agentId, text)
+      // Cleared only once the server has it, so a refused line stays editable.
+      .then(() => setLine(""))
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not send the command."))
+      .finally(() => setSending(false))
+  }
   return (
     <div className="shrink-0 border-t bg-background/70 px-3 py-2">
+      <form onSubmit={submitLine} className="mb-2 flex items-center gap-2">
+        <span className="font-mono text-xs text-muted-foreground" aria-hidden>
+          ›
+        </span>
+        <Input
+          value={line}
+          onChange={(event) => setLine(event.target.value)}
+          disabled={disabled}
+          maxLength={MAX_TERMINAL_TEXT}
+          placeholder={disabled ? "No live terminal" : "Type into the terminal, e.g. /compact"}
+          aria-label="Type a command into the agent's terminal"
+          className="flex-1 font-mono text-xs md:text-xs"
+        />
+        <Button type="submit" size="sm" variant="outline" disabled={disabled || sending || !line.trim()}>
+          Send
+        </Button>
+      </form>
       <div className="flex flex-wrap gap-1">
         {TERMINAL_KEYS.map((entry) => (
           <button
@@ -130,7 +167,7 @@ export function TerminalKeypad({ agentId, disabled }: { agentId: number; disable
         <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{error}</p>
       ) : disabled ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          Keys send once this agent has a live terminal mirror.
+          Keys and commands send once this agent has a live terminal mirror.
         </p>
       ) : null}
     </div>

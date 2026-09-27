@@ -35,6 +35,7 @@ const tmux = vi.hoisted(() => {
     notifyPane: vi.fn(async () => {}),
     sendKeySteps: vi.fn(async () => {}),
     sendKeyToPane: vi.fn(async () => {}),
+    typeLineToPane: vi.fn(async () => {}),
     stopMirror,
     startMirrorLoop: vi.fn(() => stopMirror),
     detectTmuxPane: vi.fn(async (): Promise<string | null> => null),
@@ -304,6 +305,36 @@ describe("#132: prompt answers replay only into the asking agent's pane", () => 
     startAgentRuntime(contextFor("%4", client), () => {});
     await events.options?.onPromptAnswered!(answered(null));
     expect(tmux.sendKeySteps).not.toHaveBeenCalled();
+  });
+});
+
+describe("#180: a typed line from the dashboard terminal", () => {
+  beforeEach(() => {
+    tmux.typeLineToPane.mockClear();
+    tmux.sendKeyToPane.mockClear();
+  });
+
+  it("types THIS agent's line into its pane, not as a key", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onTerminalKey!({ agent: PROFILE.agentId, keys: "", text: "/compact" } as never);
+    expect(tmux.typeLineToPane).toHaveBeenCalledWith("/compact", "%4");
+    expect(tmux.sendKeyToPane).not.toHaveBeenCalled();
+  });
+
+  it("ignores another agent's line", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onTerminalKey!({ agent: PROFILE.agentId + 1, keys: "", text: "/compact" } as never);
+    expect(tmux.typeLineToPane).not.toHaveBeenCalled();
+  });
+
+  it("still presses a plain key the old way", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onTerminalKey!({ agent: PROFILE.agentId, keys: "Enter", text: null } as never);
+    expect(tmux.sendKeyToPane).toHaveBeenCalledWith("Enter", "%4");
+    expect(tmux.typeLineToPane).not.toHaveBeenCalled();
   });
 });
 

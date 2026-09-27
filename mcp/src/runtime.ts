@@ -24,6 +24,7 @@ import {
   notifyPane,
   sendKeySteps,
   sendKeyToPane,
+  typeLineToPane,
   startMirrorLoop,
 } from "./tmux.js";
 import { createSerialQueue } from "./pane-queue.js";
@@ -304,6 +305,18 @@ export function startAgentRuntime(
       // No pane, nothing to send the key to.
       if (!pane) return;
       if (input.agent !== profile.agentId) return;
+      // #180: a line the human typed (a `/command` or a prompt) — typed
+      // literally and submitted with one Enter.
+      if (input.text) {
+        const text = input.text;
+        try {
+          await paneQueue(() => typeLineToPane(text, pane));
+          log(`terminal text (${text.length} chars) → pane ${pane}`);
+        } catch (err) {
+          log(`could not type terminal text (${(err as Error).message.split("\n")[0]})`);
+        }
+        return;
+      }
       try {
         await paneQueue(() => sendKeyToPane(input.keys, pane));
         log(`terminal key "${input.keys}" → pane ${pane}`);

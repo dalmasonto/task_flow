@@ -205,6 +205,33 @@ describe("notifyPane submit pacing", () => {
   });
 });
 
+import { typeLineToPane } from "./tmux.js";
+
+describe("typeLineToPane (#180)", () => {
+  // A `/model` command opens a picker: notifyPane's retry Enters would choose
+  // an option nobody picked. Exactly ONE Enter, after the settle pause.
+  it("types the line literally and presses Enter exactly once", async () => {
+    const log: string[] = [];
+    await typeLineToPane("/model", "%7", {
+      exec: async (args) => void log.push(args.join(" ")),
+      sleep: async (ms) => void log.push(`sleep:${ms}`),
+    });
+    expect(log).toEqual(["send-keys -t %7 -l /model", `sleep:${SUBMIT_ENTER_DELAY_MS}`, "send-keys -t %7 Enter"]);
+  });
+
+  it("strips control characters, and types nothing for a line that is only controls", async () => {
+    const log: string[] = [];
+    const deps = {
+      exec: async (args: string[]) => void log.push(args.join(" ")),
+      sleep: async () => {},
+    };
+    await typeLineToPane("\u001b[2J\n", "%7", deps);
+    expect(log).toEqual([]);
+    await typeLineToPane("/clear\nrm", "%7", deps);
+    expect(log[0]).toBe("send-keys -t %7 -l /clear rm");
+  });
+});
+
 import { sendKeySteps } from "./tmux.js";
 
 describe("sendKeySteps", () => {

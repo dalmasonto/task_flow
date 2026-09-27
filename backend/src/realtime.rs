@@ -110,9 +110,10 @@ const PROMPT_FIELDS: &[&str] = &[
 ];
 
 /// A terminal key: the target `agent` (so a mirror can tell if a broadcast key is
-/// for it) and the `keys` name to press. Projected inline — a key is a transient
-/// signal, not something to refetch, and it carries no secret.
-const TERMINAL_INPUT_FIELDS: &[&str] = &["id", "project", "agent", "keys", "created_at"];
+/// for it) and the `keys` name to press — or, #180, the `text` line to type and
+/// submit. Projected inline — a key is a transient signal, not something to
+/// refetch, and it carries no secret.
+const TERMINAL_INPUT_FIELDS: &[&str] = &["id", "project", "agent", "keys", "text", "created_at"];
 
 /// The whole activity row. Complete, not a subset, for the same reason as
 /// sessions: the frontend replaces its stored copy with the event payload, so an
