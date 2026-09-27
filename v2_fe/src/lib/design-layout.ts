@@ -5,8 +5,7 @@
 /// depend on it one-way; the layout *engines* live there.
 
 /// #508: `flow` is the user-flow canvas (pages as nodes, `edges` as arrows,
-/// `positions` pinning each node). It is storable and round-trips, but is not
-/// yet in `CANVAS_VIEWS`: the toolbar entry lands with its renderer.
+/// `positions` pinning each node), drawn by `pages/design/flow/flow-canvas`.
 export type CanvasView = "rows" | "bands" | "groups" | "flow"
 
 export type LayoutGroup = { id: string; name: string; routes: string[] }
@@ -51,6 +50,7 @@ export const CANVAS_VIEWS: { id: CanvasView; label: string; hint: string }[] = [
   { id: "rows", label: "Rows", hint: "One row per page, a column per device" },
   { id: "bands", label: "Bands", hint: "One band per device, its pages across" },
   { id: "groups", label: "Groups", hint: "Named groups as columns, the rest flow right" },
+  { id: "flow", label: "Flow", hint: "A user flow: drag screens, link them with arrows" },
 ]
 
 const VIEW_IDS: CanvasView[] = ["rows", "bands", "groups", "flow"]

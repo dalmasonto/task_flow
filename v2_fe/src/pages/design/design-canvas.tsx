@@ -879,7 +879,7 @@ export function ArtboardHeader({
 /// rectangle. All of it is decorative padding/border around the true-size
 /// iframe — nothing here resizes the iframe or touches canvas zoom. Phones
 /// additionally expose --safe-top/--safe-bottom into the document.
-function DeviceChrome({
+export function DeviceChrome({
   device,
   children,
 }: {
@@ -942,7 +942,7 @@ function DeviceChrome({
 /// primitive or a string here, so a shallow compare is exact — and the one prop
 /// that MUST re-render it, `epoch`, is the whole inventory of "this frame's
 /// document has changed".
-const LazyFrame = memo(function LazyFrame({
+export const LazyFrame = memo(function LazyFrame({
   src,
   width,
   height,

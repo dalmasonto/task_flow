@@ -1,7 +1,7 @@
 /// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   ChevronDownIcon,
@@ -19,6 +19,7 @@ import {
   RowsIcon,
   ScanIcon,
   SunIcon,
+  WorkflowIcon,
   XIcon,
   ZoomInIcon,
   ZoomOutIcon,
@@ -39,6 +40,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ExportDialog } from "./export/export-dialog"
+
+/// #508: React Flow is loaded only when someone opens the Flow view.
+const FlowCanvas = lazy(() => import("./flow/flow-canvas").then((m) => ({ default: m.FlowCanvas })))
 import {
   fetchDesignComments,
   fetchDesignManifest,
@@ -81,6 +85,7 @@ import {
   DEFAULT_LAYOUT,
   filterRouteOrder,
   pageLabel,
+  resolveRouteOrder,
   type CanvasView,
   type LayoutDoc,
 } from "@/lib/design-layout"
@@ -873,13 +878,18 @@ export function DesignSurfacePage({
 
         <ViewPicker view={layout.view} onChange={(view) => updateLayout({ ...layout, view })} />
 
+        {/* The Flow view brings its own zoom, fit and pan (React Flow's
+            controls), so the board canvas's tools step aside there. */}
+        {layout.view !== "flow" ? (
         <ZoomControl
           transform={transform}
           onChange={setTransform}
           boards={artboards}
           viewportRef={canvasContainerRef}
         />
+        ) : null}
 
+        {layout.view !== "flow" ? (
         <div className="flex items-center gap-1 rounded-md border p-0.5">
           <Button
             variant={canvasTool === "select" ? "default" : "ghost"}
@@ -898,6 +908,7 @@ export function DesignSurfacePage({
             <HandIcon className="size-4" />
           </Button>
         </div>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           <Button
@@ -997,6 +1008,21 @@ export function DesignSurfacePage({
                 " — or write styles/tokens.css and pages/index.html by hand."
               }
             />
+          ) : layout.view === "flow" ? (
+            <Suspense fallback={<EmptyCanvas message="Loading the flow…" />}>
+              <FlowCanvas
+                routes={resolveRouteOrder(layout, openRoutes)}
+                doc={layout}
+                // The flow's edits are layout edits: the same save, the same
+                // realtime echo, the same filter against deleted pages.
+                onDocChange={(next) => updateLayout(next as LayoutDoc)}
+                deviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
+                sandboxToken={sandboxToken}
+                theme={theme}
+                contentEpoch={contentEpoch}
+                labelFor={labelFor}
+              />
+            </Suspense>
           ) : (
             <DesignCanvas
               artboards={artboards}
@@ -1427,6 +1453,8 @@ function ViewPicker({ view, onChange }: { view: CanvasView; onChange: (v: Canvas
             <RowsIcon className="size-3.5" />
           ) : v.id === "bands" ? (
             <ColumnsIcon className="size-3.5" />
+          ) : v.id === "flow" ? (
+            <WorkflowIcon className="size-3.5" />
           ) : (
             <LayoutGridIcon className="size-3.5" />
           )}
