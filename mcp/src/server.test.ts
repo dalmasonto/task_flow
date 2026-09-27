@@ -659,6 +659,19 @@ describe("design_delete_component", () => {
   });
 });
 
+describe("webfont guidance", () => {
+  it("steers a webfont to styles/resources.json, never a per-page <link>", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const desc = (name: string) => tools.tools.find((t) => t.name === name)?.description ?? "";
+    expect(desc("design_write_asset")).toMatch(/head of EVERY page/);
+    expect(desc("design_write_asset")).toMatch(/@fontsource-variable\/inter@5\/index\.css/);
+    expect(desc("design_write_page")).toMatch(/Do NOT put a webfont <link>/);
+    expect(desc("design_write_tokens")).toMatch(/typography\.font-sans/);
+    expect(desc("design_get_tokens")).toMatch(/`resources`/);
+  });
+});
+
 describe("design_write_asset", () => {
   it("is registered, and names both writable shapes", async () => {
     const client = await connectedClient();

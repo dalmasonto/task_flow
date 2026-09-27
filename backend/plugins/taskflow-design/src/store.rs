@@ -118,11 +118,34 @@ pub async fn write_file(
     updated_by: &str,
 ) -> WriteOutcome {
     let components = current_components(project_id).await;
-    let verdict = validation::validate_write(path, content, &components);
+    let mut verdict = validation::validate_write(path, content, &components);
     if !verdict.ok {
         return WriteOutcome::Rejected(verdict);
     }
     let kind = DesignFileKind::for_path(path).expect("validated path implies kind");
+    if kind == DesignFileKind::Page {
+        // A page that carries its own webfont `<link>` is accepted but told
+        // where that link belongs — and whether the project already loads it
+        // globally, in which case the page's copy is a pure duplicate.
+        let resources_row = DesignFile::objects()
+            .filter(
+                design_file::PROJECT.eq(project_id)
+                    & design_file::PATH.eq(crate::resources::RESOURCES_PATH),
+            )
+            .first()
+            .await
+            .ok()
+            .flatten();
+        let enabled = crate::manifest::resources_from(resources_row.as_slice());
+        let hrefs: Vec<&str> = enabled
+            .iter()
+            .filter(|(is_script, _)| !is_script)
+            .filter_map(|(_, l)| l.href.as_deref())
+            .collect();
+        verdict
+            .warnings
+            .extend(validation::page_resource_link_warnings(content, &hrefs));
+    }
 
     let existing = DesignFile::objects()
         .filter(design_file::PROJECT.eq(project_id) & design_file::PATH.eq(path))

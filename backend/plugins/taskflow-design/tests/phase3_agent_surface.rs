@@ -293,6 +293,109 @@ async fn context_serves_the_link_back_and_media_guidance() {
     ] {
         assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
     }
+
+    // Webfonts: loaded once from styles/resources.json, never per page — the
+    // gap that turned one typeface switch into 48 page rewrites.
+    for needle in [
+        "Web fonts (one global change, never per page)",
+        "typography.font-sans",
+        "styles/resources.json",
+        "design_write_asset",
+        "@fontsource-variable/inter@5/index.css",
+        "Do NOT put a webfont <link>",
+        "page-resource-link",
+        "zero page edits",
+    ] {
+        assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
+    }
+    // A project with no resources document says so plainly.
+    assert!(v["resources"].is_null(), "no document yet: {}", v["resources"]);
+}
+
+/// The guide's own example document is accepted verbatim by the resources
+/// validator — copying it must never earn a rejection.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_guides_webfont_example_is_a_valid_resources_document() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+    let ctx = app
+        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
+        .await;
+    let guide = ctx.json()["guide"].as_str().unwrap().to_string();
+    let start = guide.find("{\"version\":1,\"sets\"").expect("example present");
+    let end = start + guide[start..].find("]}]}").expect("example closes") + 4;
+    let example: String = guide[start..end].split_whitespace().collect::<Vec<_>>().join("");
+    let res = app
+        .put_as_agent(
+            key.as_str(),
+            AGENT_ASSET,
+            json!({ "project": project, "path": "styles/resources.json", "content": example }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+
+    // And the context now reports it, with the version to replace it by.
+    let ctx = app
+        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
+        .await;
+    let r = &ctx.json()["resources"];
+    assert_eq!(r["path"], "styles/resources.json", "{r}");
+    assert_eq!(r["version"], 1, "{r}");
+    assert_eq!(r["doc"]["sets"][0]["links"][1]["rel"], "stylesheet", "{r}");
+}
+
+/// A page carrying its own webfont link is ACCEPTED (warning, not rejection),
+/// told to move it; once the same href is in resources.json, the page's copy
+/// is named a duplicate — and the composed page loads it from the head anyway.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_webfont_link_warns_and_becomes_a_duplicate_once_global() {
+    let (app, project, _user, _agent, key) = setup_app().await;
+    let href = "https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css";
+    let html = format!("<link rel=\"stylesheet\" href=\"{href}\">\n<main>home</main>");
+
+    let res = app
+        .put_as_agent(key.as_str(), AGENT_PAGE, json!({ "project": project, "route": "/", "html": html }))
+        .await;
+    assert_eq!(res.status(), 201, "a warning never blocks the write: {}", res.text());
+    let body = res.json();
+    let w = body["warnings"].as_array().expect("warnings array");
+    assert_eq!(w.len(), 1, "{body}");
+    assert_eq!(w[0]["rule"], "page-resource-link");
+    assert!(w[0]["message"].as_str().unwrap().contains("styles/resources.json"), "{body}");
+
+    let doc = json!({ "version": 1, "sets": [{ "id": "font", "name": "Font", "enabled": true,
+        "links": [{ "rel": "stylesheet", "href": href }] }] }).to_string();
+    let res = app
+        .put_as_agent(key.as_str(), AGENT_ASSET,
+            json!({ "project": project, "path": "styles/resources.json", "content": doc }))
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+
+    let page = app
+        .get_as_agent(key.as_str(), &format!("/api/taskflow/agents/design/page?project={project}&route=/"))
+        .await
+        .json();
+    let res = app
+        .put_as_agent(key.as_str(), AGENT_PAGE, json!({
+            "project": project, "route": "/", "html": html, "base_version": page["version"],
+        }))
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    let body = res.json();
+    assert!(body["warnings"][0]["message"].as_str().unwrap().contains("duplicates"), "{body}");
+
+    // The clean page — no link at all — is warning-free and still gets the font
+    // from the composed head.
+    let res = app
+        .put_as_agent(key.as_str(), AGENT_PAGE, json!({
+            "project": project, "route": "/", "html": "<main>home</main>",
+        }))
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert!(res.json()["warnings"].as_array().map_or(true, |a| a.is_empty()), "{}", res.text());
+    let token = taskflow_design::sandbox::mint(project);
+    let composed = app.get_sandbox(&format!("/s/{token}/")).await.text();
+    let head = &composed[..composed.find("</head>").unwrap()];
+    assert!(head.contains(href), "the font loads from the head: {head}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

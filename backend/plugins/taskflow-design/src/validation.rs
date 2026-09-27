@@ -813,6 +813,93 @@ pub fn validate_resources(content: &str) -> Validation {
     }
 }
 
+/// The value of attribute `name` in a start tag's attribute text, unquoted.
+/// Double-, single- and un-quoted values are all read; the name match is
+/// case-insensitive and on a word boundary, so `href` never matches `data-href`.
+fn attr_value(attrs: &str, name: &str) -> Option<String> {
+    let lower = attrs.to_ascii_lowercase();
+    let mut scan = 0usize;
+    while let Some(rel) = lower[scan..].find(name) {
+        let start = scan + rel;
+        let end = start + name.len();
+        scan = end;
+        let before_ok = start == 0
+            || lower[..start].ends_with(|c: char| c.is_ascii_whitespace() || c == '/');
+        let rest = lower[end..].trim_start();
+        if !before_ok || !rest.starts_with('=') {
+            continue;
+        }
+        // Offsets into `attrs` line up with `lower` (ASCII-only lowering).
+        let value_start = attrs.len() - rest.len() + 1;
+        let value = attrs[value_start..].trim_start();
+        return Some(match value.chars().next() {
+            Some(q @ ('"' | '\'')) => {
+                let body = &value[1..];
+                body[..body.find(q).unwrap_or(body.len())].to_string()
+            }
+            _ => value
+                .split(|c: char| c.is_ascii_whitespace() || c == '>')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('/')
+                .to_string(),
+        });
+    }
+    None
+}
+
+/// Warnings — never rejections — for a PAGE fragment that loads its own
+/// external `<link>` (a webfont stylesheet and its preconnects, typically).
+///
+/// A `<link>` in a body fragment works, which is exactly the trap: it loads
+/// for that one page only, so a project that writes its webfont that way ends
+/// up carrying the same three lines in every page, and a typeface change
+/// becomes an edit per page. The project-wide home for such a link is
+/// `styles/resources.json`, whose enabled sets the composer emits into the
+/// head of EVERY page. So each such link draws a warning pointing there, and
+/// one that is already in an enabled resource set is called out as a
+/// duplicate that can simply be deleted.
+///
+/// `enabled_hrefs` is the href of every `<link>` the project's enabled
+/// resource sets already emit (see `manifest::resources_from`). Only the `rel`
+/// values the resources document itself accepts are flagged — anything else
+/// is not something it could carry, so pointing there would not help.
+pub fn page_resource_link_warnings(content: &str, enabled_hrefs: &[&str]) -> Vec<ValidationWarning> {
+    let mut out = Vec::new();
+    for_each_tag(content, |name, attrs, offset| {
+        if name != "link" {
+            return;
+        }
+        let rel = attr_value(attrs, "rel").unwrap_or_default().trim().to_ascii_lowercase();
+        if !crate::resources::ALLOWED_REL.contains(&rel.as_str()) {
+            return;
+        }
+        let href = attr_value(attrs, "href").unwrap_or_default();
+        let href = href.trim();
+        if href.is_empty() {
+            return;
+        }
+        let line = line_of(content, offset);
+        let message = if enabled_hrefs.iter().any(|h| h.trim() == href) {
+            format!(
+                "line {line}: <link rel=\"{rel}\" href=\"{href}\"> duplicates a link that \
+                 styles/resources.json already loads into the head of every page. Delete it \
+                 from this page — it is redundant here."
+            )
+        } else {
+            format!(
+                "line {line}: <link rel=\"{rel}\" href=\"{href}\"> loads an external resource \
+                 for this ONE page only. A webfont (and its preconnect) belongs in \
+                 styles/resources.json — written once with design_write_asset — which puts it \
+                 in the head of every page, so a typeface change is the font-sans token plus \
+                 that one file, never an edit per page. Move it there and drop it from the page."
+            )
+        };
+        out.push(ValidationWarning { rule: "page-resource-link", message });
+    });
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------

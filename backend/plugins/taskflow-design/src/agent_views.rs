@@ -72,7 +72,8 @@ pub struct AgentContextQuery {
 
 /// The authoring guidance that is true of the sandbox but is not derivable
 /// from the manifest: how a page links to another page, how a back control is
-/// written, and what a page may load from outside the sandbox.
+/// written, what a page may load from outside the sandbox, and where a
+/// webfont is loaded (once, from `styles/resources.json`, never per page).
 ///
 /// It is served from HERE because this response is what the agent receives:
 /// `design_get_tokens` and `design_list_components` both return it, and the
@@ -123,6 +124,27 @@ Images, video and motion
   resources.json. That data counts against the 128 KB per-file cap on the
   component itself, so keep the animation small: a larger one is refused
   outright (rule `size-cap`), and there is nowhere else to put it.
+
+Web fonts (one global change, never per page)
+  The page font is the `typography.font-sans` token (design_write_tokens):
+  it becomes --font-sans, the whole document's default family. The font FILE
+  is loaded ONCE for every page from styles/resources.json, which the server
+  emits into the head of every page, before the tokens. Write it with
+  design_write_asset (path "styles/resources.json"), e.g. for Inter:
+      {"version":1,"sets":[{"id":"font","name":"Font","enabled":true,
+        "links":[
+          {"rel":"preconnect","href":"https://cdn.jsdelivr.net","crossorigin":true},
+          {"rel":"stylesheet","href":"https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css"}
+        ]}]}
+  Links must be https, with rel stylesheet, preconnect or dns-prefetch.
+  The `resources` field of this response shows the current document and its
+  version (pass it as base_version when you replace it).
+
+  Do NOT put a webfont <link> (or its preconnect) in a page fragment: it
+  loads for that one page only, so changing the typeface becomes an edit per
+  page. A page write that carries one is accepted with a warning (rule
+  `page-resource-link`). To switch typeface: change font-sans in the tokens
+  and the stylesheet href in resources.json — two writes, zero page edits.
 "#;
 
 /// `GET /api/taskflow/agents/design/context` — everything `design_get_tokens`
@@ -140,6 +162,22 @@ pub async fn context(
     let tokens_doc = resolve_tokens_doc(&files);
     let tokens_css = tokens_json_to_css(&tokens_doc);
     let tokens_json = serde_json::to_value(&tokens_doc).unwrap_or_else(|_| json!({}));
+    // The external-resources document as stored (webfonts live here, not in
+    // pages — see the guide), with its version for a `base_version` replace.
+    // `null` when the project has none yet. The raw row is parsed leniently:
+    // an agent needs to SEE a document the manifest refused in order to fix it.
+    let resources = files
+        .iter()
+        .find(|f| f.path == crate::resources::RESOURCES_PATH)
+        .map(|f| {
+            json!({
+                "path": f.path,
+                "version": f.version,
+                "doc": serde_json::from_str::<serde_json::Value>(&f.content)
+                    .unwrap_or_else(|_| json!(f.content)),
+            })
+        })
+        .unwrap_or(serde_json::Value::Null);
 
     Ok(Json(json!({
         "tokens_css": tokens_css,
@@ -149,6 +187,7 @@ pub async fn context(
         "routes": manifest::to_json(&m)["routes"],
         "revision": revision,
         "primitives": crate::primitives::catalog(),
+        "resources": resources,
         "guide": AUTHORING_GUIDE,
         "note": "Always call design_get_tokens before your first design write: colour and \
                  spacing MUST come from this scale."

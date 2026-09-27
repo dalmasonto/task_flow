@@ -602,3 +602,58 @@ async fn the_file_route_never_hands_the_token_to_a_subresource() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Page fragments that carry their own webfont <link>
+// ---------------------------------------------------------------------------
+
+use taskflow_design::validation::page_resource_link_warnings;
+
+const FONTSOURCE: &str = "https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css";
+
+/// The exact shape a project ended up with in 48 pages: a preconnect plus the
+/// Fontsource stylesheet at the top of every fragment. Both lines warn, both
+/// point at resources.json, and neither is a rejection (this is a warning list).
+#[test]
+fn a_page_webfont_link_warns_and_points_at_the_resources_document() {
+    let page = format!(
+        "<link rel=\"preconnect\" href=\"https://cdn.jsdelivr.net\" crossorigin>\n\
+         <link rel=\"stylesheet\" href=\"{FONTSOURCE}\">\n<main>hi</main>"
+    );
+    let w = page_resource_link_warnings(&page, &[]);
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w.iter().all(|w| w.rule == "page-resource-link"));
+    assert!(w.iter().all(|w| w.message.contains("styles/resources.json")), "{w:?}");
+    assert!(w[1].message.contains("line 2"), "{w:?}");
+    assert!(w[1].message.contains(FONTSOURCE), "{w:?}");
+    assert!(!w[1].message.contains("duplicates"), "not loaded globally yet: {w:?}");
+}
+
+#[test]
+fn a_page_link_already_in_an_enabled_set_is_called_a_duplicate() {
+    let page = format!("<link rel='stylesheet' href='{FONTSOURCE}' /><main>hi</main>");
+    let w = page_resource_link_warnings(&page, &[FONTSOURCE]);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].message.contains("duplicates"), "{w:?}");
+    assert!(w[0].message.contains("Delete it"), "{w:?}");
+}
+
+/// Only what the resources document could carry is flagged: an `icon` link, a
+/// link with no href, an `<a href>` and a `data-href` are not webfont loaders.
+#[test]
+fn unrelated_links_and_attributes_do_not_warn() {
+    let page = "<link rel=\"icon\" href=\"https://x.example/i.png\">\
+                <link rel=\"stylesheet\">\
+                <a rel=\"stylesheet\" href=\"https://x.example/a.css\">a</a>\
+                <div data-rel=\"stylesheet\" data-href=\"https://x.example/b.css\"></div>\
+                <main>hi</main>";
+    assert!(page_resource_link_warnings(page, &[]).is_empty());
+}
+
+#[test]
+fn rel_and_href_are_read_case_insensitively_and_unquoted() {
+    let page = "<LINK REL=Stylesheet HREF=https://x.example/f.css><main></main>";
+    let w = page_resource_link_warnings(page, &["https://x.example/f.css"]);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].message.contains("duplicates"), "{w:?}");
+}
