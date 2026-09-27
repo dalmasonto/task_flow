@@ -129,6 +129,7 @@ import { cn } from "@/lib/utils"
 import {
   assignRoute,
   createGroup,
+  removeGroup,
   groupNameProblem,
   groupOf,
   MAX_GROUPS,
@@ -209,6 +210,11 @@ export function PagesPanel({
   /// Whether the New group dialog is open. Held here, not inside it: the button
   /// that opens it is the panel's, and so is the `createGroup` call below.
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+
+  /// The group the Delete group dialog is asking about, or null when closed.
+  /// Deleting removes the GROUPING only: `removeGroup` leaves its pages in the
+  /// Ungrouped section, in their flow order, so no screen is lost.
+  const [groupToDelete, setGroupToDelete] = useState<{ id: string; name: string; pages: number } | null>(null)
 
   /// Manifest entries by path, for the row's title fallback.
   const byPath = new Map(routes.map((entry) => [entry.path, entry]))
@@ -521,6 +527,15 @@ export function PagesPanel({
           >
             <ChevronDownIcon className="size-3" />
           </button>
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+            aria-label={`Delete group ${section.name}`}
+            title="Delete group"
+            onClick={() => setGroupToDelete({ id: section.id, name: section.name, pages: section.pages.length })}
+          >
+            <Trash2Icon className="size-3" />
+          </button>
         </div>
         {/* The group's pages, as a list of their own: the nesting the user asked
             for is a nesting here, not only a heading above a run of rows.
@@ -626,6 +641,32 @@ export function PagesPanel({
         onOpenChange={setGroupDialogOpen}
         onCreate={addGroup}
       />
+      <Dialog open={groupToDelete !== null} onOpenChange={(open) => !open && setGroupToDelete(null)}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete group “{groupToDelete?.name}”?</DialogTitle>
+            <DialogDescription>
+              {groupToDelete?.pages
+                ? `Its ${groupToDelete.pages === 1 ? "page is" : `${groupToDelete.pages} pages are`} not deleted — ${groupToDelete.pages === 1 ? "it moves" : "they move"} to Ungrouped, keeping ${groupToDelete.pages === 1 ? "its" : "their"} order.`
+                : "The group is empty, so nothing else changes."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" size="sm" />}>Cancel</DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (groupToDelete) onLayoutChange(removeGroup(layout, groupToDelete.id))
+                setGroupToDelete(null)
+              }}
+            >
+              Delete group
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

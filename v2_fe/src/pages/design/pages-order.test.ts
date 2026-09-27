@@ -281,10 +281,8 @@ describe("groupedPages", () => {
   // with no row to close it, and its siblings fall into the ungrouped section
   // without ever having been ungrouped.
   //
-  // Stated plainly, because it bounds what this is worth: `removeGroup` has NO
-  // CALLER today (`git grep removeGroup v2_fe/src` → `lib/design-layout.ts`'s
-  // definition and its own unit tests, nothing else). This is coverage of an
-  // unwired contract, not a live bug — group delete is still unbuilt.
+  // `removeGroup` is live: the Pages panel's Delete group button calls it, so
+  // this guards a real path, not an unwired contract.
   it("keeps the FIRST group when the second of two is removed", () => {
     const grouped = layout([
       { id: "g1", name: "Auth", routes: ["/login", "/signup"] },
