@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "@/lib/auth-api"
-import { AlertCircleIcon, BotIcon, CheckIcon, ClipboardCheckIcon, Clock3Icon, CopyIcon, FileJsonIcon, GitBranchIcon, LinkIcon, LockIcon, RotateCcwIcon, ShieldCheckIcon, TerminalIcon, UsersIcon } from "lucide-react"
+import { BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GithubNeedsConnectError, fetchGithubProjectStatus, linkAgent, linkGithubProject, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Input } from "@/components/ui/input"
 import { Link } from "react-router-dom"
@@ -8,38 +9,57 @@ import { PageShell } from "@/components/layout"
 import { cn } from "@/lib/utils"
 import { type Project } from "@/lib/workspace-view"
 import { formatLiveDate, isSessionLive, liveId } from "@/lib/live-mappers"
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
+import { PROFILE_PATTERN, profileOf } from "@/lib/agent-profile"
 
+/// The install one-liners, as the MCP README and docs give them.
+const INSTALL_SCRIPT = "curl -fsSL https://raw.githubusercontent.com/dalmasonto/task_flow/main/scripts/install.sh | sh"
+const INSTALL_NPM = "npm install -g @dalmasonto/taskflow-mcp && taskflow init"
 
 export function ApiBasePage({
   project,
   workspace,
   onContract,
-  onUpdateProject,
 }: {
   project: Project
   workspace: TaskflowWorkspace | null
   onContract: () => void
-  onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
+  onUpdateProject?: (event: FormEvent<HTMLFormElement>) => void
 }) {
-  const sessions = workspace?.agentSessions ?? []
-  const credentials = workspace?.agentCredentials ?? []
-  const agents = workspace?.agents ?? []
-  // Same liveness rule as the roster and the terminal: a session row that says
-  // connected but stopped heartbeating is a dead process, not a live session.
-  const apiLivenessNow = useLivenessNow()
-  const connectedSessions = sessions.filter((session) => isSessionLive(session, apiLivenessNow)).length
-  const expiredSessions = sessions.filter((session) => session.status === "expired").length
-  // "Not live" MINUS the expired ones, which get their own card — otherwise an
-  // expired session is counted twice and the three numbers stop summing.
-  const disconnectedSessions = sessions.filter(
-    (session) => !isSessionLive(session, apiLivenessNow) && session.status !== "expired"
-  ).length
-  const activeKeys = credentials.filter((credential) => credential.status === "active").length
-  const restBase = "/api"
-  const realtimeBase = "/realtime"
+  const agents = useMemo(() => workspace?.agents ?? [], [workspace?.agents])
   const numericProjectId = liveId(project.id)
+  // Agents linked from this page, shown at once: the roster in `workspace` is
+  // the core load's and is not refetched by a link, so without these a new
+  // agent would not appear until a reload.
+  const [justLinked, setJustLinked] = useState<{ agent: TaskflowWorkspace["agents"][number]; keyPrefix: string }[]>([])
+  const projectAgents = useMemo(() => {
+    if (numericProjectId == null) return []
+    const known = agents.filter((agent) => agent.project === numericProjectId)
+    const extra = justLinked
+      .map((entry) => entry.agent)
+      .filter((agent) => agent.project === numericProjectId && !known.some((k) => k.id === agent.id))
+    return [...known, ...extra]
+  }, [agents, justLinked, numericProjectId])
+  const credentials = useMemo(
+    () => [
+      ...(workspace?.agentCredentials ?? []),
+      ...justLinked.map((entry, index) => ({
+        id: -1 - index,
+        project: entry.agent.project,
+        agent: entry.agent.id,
+        issued_by: null,
+        name: "",
+        key_prefix: entry.keyPrefix,
+        key_hash: "",
+        status: "active" as const,
+        expires_at: null,
+        revoked_at: null,
+        created_at: null,
+      })),
+    ],
+    [workspace?.agentCredentials, justLinked]
+  )
 
   const [ghStatus, setGhStatus] = useState<GithubProjectStatus | null>(null)
   const [ghRepoInput, setGhRepoInput] = useState("")
@@ -65,62 +85,52 @@ export function ApiBasePage({
   return (
     <PageShell
       eyebrow={project.name}
-      title="API Base"
-      description="Configure the live API target, link coding agents, and inspect agent session identity."
+      title="Connect agents"
+      description="Install the TaskFlow MCP, link a coding agent to this project, and see every agent you have linked."
       actions={
-        <Button size="sm" onClick={onContract}>
+        <Button size="sm" variant="outline" onClick={onContract}>
           <FileJsonIcon />
           API Contract
         </Button>
       }
     >
-      <div className="grid gap-3 lg:grid-cols-3">
-        <InfoCard icon={<GitBranchIcon />} title="API base" value={project.apiBase} />
-        <InfoCard icon={<UsersIcon />} title="Members" value={`${project.members} collaborators`} />
-        <InfoCard icon={<BotIcon />} title="Agents" value={`${project.agentsOnline} online`} />
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <InstallCard />
+        <LinkAgentCard
+          projectId={numericProjectId}
+          projectAgents={projectAgents}
+          onLinked={(linked) =>
+            setJustLinked((current) => [
+              ...current,
+              {
+                agent: {
+                  id: linked.agent_id,
+                  project: linked.project,
+                  display_name: linked.display_name,
+                  identifier: linked.identifier,
+                  fingerprint: null,
+                  project_root: null,
+                  taskflow_file_path: null,
+                  runtime: null,
+                  version: null,
+                  status: "offline" as const,
+                  linked_by: null,
+                  linked_user_label: null,
+                  last_seen_at: null,
+                  created_at: null,
+                },
+                keyPrefix: linked.key.slice(0, 16),
+              },
+            ])
+          }
+        />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <InfoCard icon={<TerminalIcon />} title="Connected sessions" value={`${connectedSessions} live`} />
-        <InfoCard icon={<Clock3Icon />} title="Disconnected sessions" value={`${disconnectedSessions} idle`} />
-        <InfoCard icon={<AlertCircleIcon />} title="Expired sessions" value={`${expiredSessions} expired`} />
-        <InfoCard icon={<LockIcon />} title="Active keys" value={`${activeKeys} active`} />
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <form className="rounded-lg border bg-card p-4 shadow-sm" onSubmit={onUpdateProject}>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <FileJsonIcon className="size-4 text-primary" />
-            Runtime API
-          </div>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            The base URL agents and the dashboard use to reach this project's REST and realtime endpoints.
-          </p>
-          <div className="mt-4 grid gap-3">
-            <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Base URL</span>
-              <Input name="default_api_base_url" defaultValue={project.apiBase || restBase} />
-            </label>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button size="sm" type="submit">
-              <CheckIcon />
-              Save API Base
-            </Button>
-            <Button variant="outline" size="sm" type="button" onClick={onContract}>
-              <FileJsonIcon />
-              View Contract
-            </Button>
-          </div>
-        </form>
-
-        <LinkAgentCard projectId={numericProjectId} />
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <AgentSessionsTable sessions={sessions} agents={agents} credentials={credentials} />
-        <AgentIdentityPanel project={project} agents={agents} />
-      </div>
+      <AgentsList
+        agents={projectAgents}
+        sessions={workspace?.agentSessions ?? []}
+        credentials={credentials}
+      />
 
       <section className="rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -264,12 +274,62 @@ export function ApiBasePage({
           </>
         )}
       </section>
-
-      <DeveloperEndpoints projectId={project.id} restBase={restBase} realtimeBase={realtimeBase} />
     </PageShell>
   )
 }
 
+/// Step 1: get the MCP onto the machine. `taskflow init` then registers it with
+/// the coding agent (Claude Code, Codex, Gemini CLI, Cursor, opencode).
+function InstallCard() {
+  return (
+    <section className="rounded-lg border bg-card p-4 shadow-sm">
+      <StepTitle n={1} icon={<TerminalIcon className="size-4 text-primary" />}>
+        Install the TaskFlow MCP
+      </StepTitle>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        One command installs it and runs <code className="rounded bg-muted px-1 py-0.5 text-xs">taskflow init</code>,
+        which sets it up in Claude Code, Codex, Gemini CLI, Cursor or opencode for you.
+      </p>
+      <Tabs defaultValue="script" className="mt-3">
+        <TabsList>
+          <TabsTrigger value="script">macOS / Linux</TabsTrigger>
+          <TabsTrigger value="npm">npm (any OS)</TabsTrigger>
+        </TabsList>
+        <TabsContent value="script">
+          <CommandLine command={INSTALL_SCRIPT} />
+        </TabsContent>
+        <TabsContent value="npm">
+          <CommandLine command={INSTALL_NPM} />
+        </TabsContent>
+      </Tabs>
+      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+        Then link an agent (step 2), save its credential in your repo (step 3), restart the agent, and ask it to call{" "}
+        <code className="rounded bg-muted px-1 py-0.5">whoami</code>.
+      </p>
+    </section>
+  )
+}
+
+function StepTitle({ n, icon, children }: { n: number; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-semibold">
+      <span className="inline-flex size-5 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+        {n}
+      </span>
+      {icon}
+      {children}
+    </div>
+  )
+}
+
+function CommandLine({ command }: { command: string }) {
+  return (
+    <div className="mt-2 flex items-center gap-2 rounded-lg border bg-background p-2">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs">{command}</code>
+      <CopyButton value={command} />
+    </div>
+  )
+}
 
 /// Copies `value` to the clipboard and briefly flips to a "Copied" state so the
 /// user gets feedback. Falls back silently if the Clipboard API is unavailable.
@@ -302,16 +362,46 @@ export function CopyButton({ value, label = "Copy", className }: { value: string
 }
 
 
-/// The real "link a coding agent" flow. Collects a display name + profile, calls
-/// `linkAgent` with the NUMERIC project id, then shows the one-time key and a
-/// ready-to-paste `.taskflow.json` snippet. `projectId` is null when the FE
-/// project has no resolvable numeric id (not yet synced) — the form is disabled.
-export function LinkAgentCard({ projectId }: { projectId: number | null }) {
+/// Steps 2 and 3: mint a credential, then save it. The key is shown ONCE, so the
+/// saving instructions live right here with it.
+///
+/// What to save depends on the repo: a project whose other agents already sit in
+/// a `.taskflow.json` needs only the NEW profile added to that file's `profiles`;
+/// the first agent needs the whole file. Both are offered, and the one that fits
+/// this project is shown first.
+export function LinkAgentCard({
+  projectId,
+  projectAgents,
+  onLinked,
+}: {
+  projectId: number | null
+  projectAgents: TaskflowWorkspace["agents"]
+  /// Called with each new link, so the page can list the agent at once.
+  onLinked?: (linked: LinkAgentResult) => void
+}) {
+  const usedProfiles = useMemo(
+    () => new Map(projectAgents.map((agent) => [profileOf(agent.identifier), agent.display_name])),
+    [projectAgents]
+  )
   const [displayName, setDisplayName] = useState("")
-  const [profile, setProfile] = useState("main")
+  const [profile, setProfile] = useState("")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<LinkAgentResult | null>(null)
+  /// Whether the project already had agents when this one was linked — decides
+  /// which save form is shown first.
+  const [hadAgents, setHadAgents] = useState(false)
+
+  // The first agent is `main` (the profile the MCP picks by default); later
+  // ones must be named.
+  const suggested = usedProfiles.has("main") ? "" : "main"
+  const effectiveProfile = (profile || suggested).trim()
+  const profileProblem = !effectiveProfile
+    ? "Name the profile, e.g. reviewer."
+    : !PROFILE_PATTERN.test(effectiveProfile)
+      ? "Lowercase letters, numbers, - and _ only (e.g. main, reviewer)."
+      : null
+  const profileTakenBy = usedProfiles.get(effectiveProfile)
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -321,136 +411,149 @@ export function LinkAgentCard({ projectId }: { projectId: number | null }) {
         return
       }
       const name = displayName.trim()
-      const role = profile.trim() || "main"
       if (!name) {
         setError("Enter a display name for the agent.")
+        return
+      }
+      if (profileProblem) {
+        setError(profileProblem)
         return
       }
       setPending(true)
       setError(null)
       try {
-        const linked = await linkAgent({ project: projectId, display_name: name, profile: role })
+        setHadAgents(projectAgents.length > 0)
+        const linked = await linkAgent({ project: projectId, display_name: name, profile: effectiveProfile })
         setResult(linked)
+        onLinked?.(linked)
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Could not link the agent.")
       } finally {
         setPending(false)
       }
     },
-    [projectId, displayName, profile]
+    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked]
   )
 
   const handleReset = useCallback(() => {
     setResult(null)
     setError(null)
     setDisplayName("")
-    setProfile("main")
+    setProfile("")
   }, [])
 
-  const snippet = result
-    ? JSON.stringify(
-        {
-          // The BACKEND origin, not this page's. An agent runs headless and must
-          // not depend on the frontend being up — and in dev those differ: the
-          // app is served by Vite (:5173) which proxies /api to the backend
-          // (:8000), so emitting `window.location.origin` would route every agent
-          // call through the dev server. `API_BASE_URL` is the real backend when
-          // configured; falling back to the page origin covers the same-origin
-          // deployment where they are genuinely the same host.
-          server: API_BASE_URL || window.location.origin,
-          project: result.project,
-          default_profile: "main",
-          profiles: {
-            [result.profile]: {
-              agent_id: result.taskflow_profile.agent_id,
-              key: result.taskflow_profile.key,
-              display_name: result.taskflow_profile.display_name,
-            },
-          },
-        },
-        null,
-        2
-      )
-    : ""
+  // The BACKEND origin, not this page's: an agent runs headless and must not
+  // depend on the frontend being up (in dev the app is Vite on :5173, proxying
+  // /api to :8000). `API_BASE_URL` is the real backend when configured; the page
+  // origin covers a same-origin deployment.
+  const server = API_BASE_URL || window.location.origin
+  const entry = result
+    ? {
+        agent_id: result.taskflow_profile.agent_id,
+        key: result.taskflow_profile.key,
+        display_name: result.taskflow_profile.display_name,
+      }
+    : null
+  const profileSnippet = result && entry ? `"${result.profile}": ${JSON.stringify(entry, null, 2)}` : ""
+  const fileSnippet =
+    result && entry
+      ? JSON.stringify(
+          { server, project: result.project, default_profile: result.profile, profiles: { [result.profile]: entry } },
+          null,
+          2
+        )
+      : ""
 
   return (
     <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <BotIcon className="size-4 text-primary" />
-        Link a coding agent
-      </div>
-
       {result ? (
-        <div className="mt-3 space-y-3">
-          <p className="text-sm leading-6 text-muted-foreground">
-            Linked <span className="font-semibold text-foreground">{result.display_name}</span> as{" "}
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{result.identifier}</code> (profile{" "}
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{result.profile}</code>).
+        <div className="space-y-3">
+          <StepTitle n={3} icon={<KeyRoundIcon className="size-4 text-primary" />}>
+            Save the credential in your repo
+          </StepTitle>
+          <p className="flex items-start gap-2 text-sm leading-6 text-muted-foreground">
+            <CheckCircle2Icon className="mt-1 size-4 shrink-0 text-emerald-600" />
+            <span>
+              Linked <span className="font-semibold text-foreground">{result.display_name}</span> as profile{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{result.profile}</code>.
+            </span>
           </p>
-
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-amber-800">
-              <LockIcon className="size-3.5" />
-              Copy this key now — it is shown only once and cannot be recovered.
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md bg-background px-2 py-1.5 font-mono text-xs">
-                {result.key}
-              </code>
-              <CopyButton value={result.key} label="Copy key" />
-            </div>
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+            <LockIcon className="size-3.5 shrink-0" />
+            The key below is shown once and cannot be recovered — save it now.
           </div>
 
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">.taskflow.json</span>
-              <CopyButton value={snippet} label="Copy snippet" />
-            </div>
-            <pre className="mt-1.5 overflow-x-auto rounded-lg border bg-background p-3 font-mono text-xs leading-5">
-              {snippet}
-            </pre>
-          </div>
+          <Tabs defaultValue={hadAgents ? "entry" : "file"}>
+            <TabsList>
+              <TabsTrigger value="entry">Add to existing .taskflow.json</TabsTrigger>
+              <TabsTrigger value="file">New .taskflow.json</TabsTrigger>
+            </TabsList>
+            <TabsContent value="entry" className="space-y-2">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Paste this inside <code className="rounded bg-muted px-1 py-0.5">"profiles"</code> in the{" "}
+                <code className="rounded bg-muted px-1 py-0.5">.taskflow.json</code> your other agents already use (add a
+                comma after the previous profile).
+              </p>
+              <Snippet value={profileSnippet} />
+            </TabsContent>
+            <TabsContent value="file" className="space-y-2">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Save this as <code className="rounded bg-muted px-1 py-0.5">.taskflow.json</code> in the repo root and add
+                it to <code className="rounded bg-muted px-1 py-0.5">.gitignore</code> — it holds a secret.
+              </p>
+              <Snippet value={fileSnippet} />
+            </TabsContent>
+          </Tabs>
 
           <p className="text-xs leading-5 text-muted-foreground">
-            Save this as <code className="rounded bg-muted px-1 py-0.5">.taskflow.json</code> in your repo root and add
-            it to <code className="rounded bg-muted px-1 py-0.5">.gitignore</code> (it holds a secret). The MCP/agent
-            uses the <code className="rounded bg-muted px-1 py-0.5">main</code> profile by default; link a{" "}
-            <code className="rounded bg-muted px-1 py-0.5">reviewer</code> profile the same way to add that role.
+            With several profiles in one file, start each agent with{" "}
+            <code className="rounded bg-muted px-1 py-0.5">TASKFLOW_PROFILE={result.profile}</code>, or it will ask which
+            one it is on first use.
           </p>
-
           <Button type="button" variant="outline" size="sm" onClick={handleReset}>
             <RotateCcwIcon />
-            Link another
+            Link another agent
           </Button>
         </div>
       ) : (
-        <form className="mt-3 space-y-3" onSubmit={handleSubmit}>
+        <form className="space-y-3" onSubmit={handleSubmit}>
+          <StepTitle n={2} icon={<BotIcon className="size-4 text-primary" />}>
+            Link a coding agent
+          </StepTitle>
           <p className="text-sm leading-6 text-muted-foreground">
-            Mint a per-agent credential for this project. The role you pick is the profile key written into{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">.taskflow.json</code>.
+            Creates the agent's identity in this project and a key for it.
           </p>
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Display name</span>
             <Input
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="Builder"
+              placeholder="e.g. Claude (builder)"
+              maxLength={80}
               disabled={pending}
             />
+            <span className="text-xs text-muted-foreground">How it appears in chat, on tasks and in activity.</span>
           </label>
           <label className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Profile</span>
             <Input
               value={profile}
-              onChange={(event) => setProfile(event.target.value)}
-              placeholder="main"
-              list="taskflow-agent-profiles"
+              onChange={(event) => setProfile(event.target.value.toLowerCase())}
+              placeholder={suggested || "e.g. reviewer"}
+              maxLength={32}
+              spellCheck={false}
+              autoCapitalize="off"
               disabled={pending}
+              aria-invalid={profile !== "" && !!profileProblem}
+              className="font-mono"
             />
-            <datalist id="taskflow-agent-profiles">
-              <option value="main" />
-              <option value="reviewer" />
-            </datalist>
+            <span className={cn("text-xs", profile !== "" && profileProblem ? "text-rose-600" : "text-muted-foreground")}>
+              {profile !== "" && profileProblem
+                ? profileProblem
+                : profileTakenBy
+                  ? `Already used by ${profileTakenBy} — pick another name to keep both in one .taskflow.json.`
+                  : "The identity's key inside .taskflow.json. The first agent is usually main."}
+            </span>
           </label>
           {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
           <Button type="submit" size="sm" disabled={pending || projectId == null}>
@@ -463,247 +566,100 @@ export function LinkAgentCard({ projectId }: { projectId: number | null }) {
   )
 }
 
-
-/// The genuinely useful REST/realtime entrypoints, collapsed by default so the
-/// page reads as a settings surface rather than an endpoint dump.
-export function DeveloperEndpoints({
-  projectId,
-  restBase,
-  realtimeBase,
-}: {
-  projectId: string
-  restBase: string
-  realtimeBase: string
-}) {
+function Snippet({ value }: { value: string }) {
   return (
-    <details className="group rounded-lg border bg-card p-4 shadow-sm">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
-        <LinkIcon className="size-4 text-primary" />
-        Developer endpoints
-        <span className="ml-auto text-xs font-normal text-muted-foreground">Show</span>
-      </summary>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <IntegrationLink label="OpenAPI schema" value="/openapi/openapi.json" />
-        <IntegrationLink label="Projects REST" value={`${restBase}/taskflow_project/`} />
-        <IntegrationLink label="Tasks REST" value={`${restBase}/taskflow_task/?project=${projectId}`} />
-        <IntegrationLink label="Agents REST" value={`${restBase}/taskflow_agent/?project=${projectId}`} />
-        <IntegrationLink label="Realtime runtime" value={`${realtimeBase}/client.js`} />
-        <IntegrationLink label="Realtime SSE" value={`${realtimeBase}/sse`} />
-      </div>
-    </details>
+    <div className="relative">
+      <pre className="max-h-72 overflow-auto rounded-lg border bg-background p-3 pr-24 font-mono text-xs leading-5">{value}</pre>
+      <CopyButton value={value} className="absolute top-2 right-2" />
+    </div>
   )
 }
 
-
-export function AgentSessionsTable({
-  sessions,
+/// Every agent linked to this project: who it is, whether it is online, and
+/// what credential it holds — the page's answer to "which agents do I have?".
+export function AgentsList({
   agents,
+  sessions,
   credentials,
 }: {
-  sessions: TaskflowWorkspace["agentSessions"]
   agents: TaskflowWorkspace["agents"]
+  sessions: TaskflowWorkspace["agentSessions"]
   credentials: TaskflowWorkspace["agentCredentials"]
 }) {
+  const now = useLivenessNow()
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <TerminalIcon className="size-4 text-primary" />
-            Agent Sessions
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Live sessions from taskflow_agent_session, with each agent's stable identifier and the credential prefix it authenticated with.
-          </p>
-        </div>
-      </div>
-      {sessions.length === 0 ? (
-        <div className="p-8 text-center text-sm text-muted-foreground">
-          No agent sessions yet. Connected agents will appear here once they link to this project.
-        </div>
-      ) : (
-        <div className="scrollbar-y overflow-x-auto">
-          <table className="w-full min-w-[1080px] border-collapse text-sm">
-            <thead className="bg-muted/55 text-xs text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-semibold">Agent</th>
-                <th className="px-4 py-2.5 text-left font-semibold">Stable identifier</th>
-                <th className="px-4 py-2.5 text-left font-semibold">Credential</th>
-                <th className="px-4 py-2.5 text-left font-semibold">Linked by</th>
-                <th className="px-4 py-2.5 text-left font-semibold">Session</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((session) => {
-                const agent = agents.find((candidate) => candidate.id === session.agent)
-                const credential =
-                  credentials.find((item) => item.agent === session.agent && item.status === "active") ??
-                  credentials.find((item) => item.agent === session.agent)
-                const linkedBy =
-                  agent?.linked_user_label ??
-                  (session.connected_by != null ? `User #${session.connected_by}` : "Unlinked")
-                return (
-                  <tr key={session.id} className="border-t">
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-                          <BotIcon className="size-4" />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium">{agent?.display_name ?? `Agent #${session.agent}`}</p>
-                            <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", agentSessionStatusClass(session.status))}>
-                              {session.status}
-                            </span>
-                          </div>
-                          <p className="mt-1 max-w-[16rem] truncate text-xs text-muted-foreground">
-                            {agent?.runtime ? `${agent.runtime}${agent.version ? ` · ${agent.version}` : ""}` : "Runtime not reported"}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{agent?.identifier ?? "—"}</code>
-                      <p className="mt-2 max-w-[16rem] truncate text-xs text-muted-foreground">
-                        {agent?.taskflow_file_path ?? agent?.project_root ?? "No marker file recorded"}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      {credential ? (
-                        <>
-                          <code className="rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold text-primary ring-1 ring-primary/20">
-                            {credential.key_prefix}
-                          </code>
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            {credential.name} · {credential.status}
-                          </p>
-                        </>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No credential linked</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <p className="font-medium">{linkedBy}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatLiveDate(session.connected_at, "—")}</p>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{session.session_identifier}</code>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {[session.host, session.pid != null ? `pid ${session.pid}` : null].filter(Boolean).join(" · ") || "No host reported"}
-                        {" · "}
-                        {formatLiveDate(session.last_seen_at ?? session.connected_at, "—")}
-                      </p>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  )
-}
-
-
-export function AgentIdentityPanel({ project, agents }: { project: Project; agents: TaskflowWorkspace["agents"] }) {
-  const agent = agents[0]
-  const identity = agent
-    ? {
-        project_id: agent.project,
-        display_name: agent.display_name,
-        agent_identifier: agent.identifier,
-        fingerprint: agent.fingerprint,
-        status: agent.status,
-        runtime: agent.runtime,
-        version: agent.version,
-        linked_by: agent.linked_user_label,
-        project_root: agent.project_root,
-        taskflow_file_path: agent.taskflow_file_path,
-        last_seen_at: agent.last_seen_at,
-        api_base: project.apiBase,
-      }
-    : null
-
-  return (
-    <aside className="space-y-3">
-      <section className="rounded-lg border bg-card p-4 shadow-sm">
+    <section className="rounded-lg border bg-card shadow-sm">
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <FileJsonIcon className="size-4 text-primary" />
-          Identity Handshake
+          <BotIcon className="size-4 text-primary" />
+          Agents in this project
         </div>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Every agent writes a project-local identity marker before it can join sessions, channels, tasks, or activity.
+        <span className="text-xs text-muted-foreground">
+          {agents.length} linked · {agents.filter((a) => sessions.some((s) => s.agent === a.id && isSessionLive(s, now))).length} online
+        </span>
+      </div>
+      {agents.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          No agents yet. Link one above — it appears here as soon as it is created.
         </p>
-        <div className="mt-4 rounded-lg border bg-background p-3">
-          {identity ? (
-            <code className="block whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
-              {JSON.stringify(identity, null, 2)}
-            </code>
-          ) : (
-            <p className="text-xs leading-5 text-muted-foreground">
-              No agents connected yet. Once an agent links to this project, its identity marker shows up here.
-            </p>
-          )}
-        </div>
-      </section>
-
-      <section className="rounded-lg border bg-card p-4 shadow-sm">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <ShieldCheckIcon className="size-4 text-primary" />
-          Link Rules
-        </div>
-        <div className="mt-4 space-y-3">
-          <IdentityRule title="Display name is human readable" detail="It can be reused across sessions, so the stable identifier decides identity." />
-          <IdentityRule title="Identifier survives restarts" detail="Returning agents should resume the same identity instead of creating duplicates." />
-          <IdentityRule title="Credential prefix is safe to show" detail="Only the key prefix and label are ever displayed — the full key is never surfaced in the UI." />
-          <IdentityRule title="Credentials are scoped" detail="Keys are issued per project and can be rotated or revoked without touching the agent identity." />
-          <IdentityRule title="Linked by is explicit" detail="Every agent records the human or owner that connected it to the project." />
-        </div>
-      </section>
-    </aside>
-  )
-}
-
-
-export function IdentityRule({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="rounded-lg bg-muted/55 p-3">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <p className="mt-1 text-sm leading-5 text-muted-foreground">{detail}</p>
-    </div>
-  )
-}
-
-
-function agentSessionStatusClass(status: TaskflowWorkspace["agentSessions"][number]["status"]) {
-  if (status === "connected") return "bg-emerald-100 text-emerald-800 ring-emerald-200"
-  if (status === "expired") return "bg-rose-100 text-rose-800 ring-rose-200"
-  return "bg-slate-100 text-slate-700 ring-slate-200"
-}
-
-
-export function IntegrationLink({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-muted/60 p-2.5">
-      <div className="flex items-center gap-2 text-xs font-semibold">
-        <LinkIcon className="size-3.5 text-primary" />
-        {label}
-      </div>
-      <p className="mt-1 break-all text-[0.72rem] leading-4 text-muted-foreground">{value}</p>
-    </div>
-  )
-}
-
-
-export function InfoCard({ icon, title, value }: { icon: React.ReactNode; title: string; value: string }) {
-  return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <span className="text-primary">{icon}</span>
-        {title}
-      </div>
-      <p className="mt-2 text-sm text-muted-foreground">{value}</p>
+      ) : (
+        <ul className="divide-y">
+          {agents.map((agent) => {
+            const live = sessions.filter((s) => s.agent === agent.id && isSessionLive(s, now))
+            const lastSeen = [agent.last_seen_at, ...sessions.filter((s) => s.agent === agent.id).map((s) => s.last_seen_at)]
+              .filter((v): v is string => !!v)
+              .sort()
+              .pop()
+            const keys = credentials.filter((c) => c.agent === agent.id)
+            const active = keys.find((c) => c.status === "active")
+            const profile = profileOf(agent.identifier)
+            return (
+              <li key={agent.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <BotIcon className="size-4" />
+                  <span
+                    className={cn(
+                      "absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-card",
+                      live.length ? "bg-emerald-500" : "bg-zinc-400"
+                    )}
+                    title={live.length ? "Online" : "Offline"}
+                  />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate font-medium">{agent.display_name}</span>
+                    {profile ? (
+                      <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{profile}</code>
+                    ) : null}
+                    <span className={cn("text-xs", live.length ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+                      {live.length ? `Online${live.length > 1 ? ` · ${live.length} sessions` : ""}` : "Offline"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {[
+                      lastSeen ? `Last seen ${formatLiveDate(lastSeen, "—")}` : "Never connected",
+                      agent.linked_user_label ? `linked by ${agent.linked_user_label}` : null,
+                      agent.project_root,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <div className="text-right text-xs">
+                  {active ? (
+                    <span className="inline-flex items-center gap-1 font-mono text-muted-foreground" title="Active key (prefix)">
+                      <KeyRoundIcon className="size-3.5" />
+                      {active.key_prefix}…
+                    </span>
+                  ) : (
+                    <span className="text-rose-600">No active key</span>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }

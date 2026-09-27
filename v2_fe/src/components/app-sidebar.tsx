@@ -18,13 +18,13 @@ import {
 } from "@/components/ui/sidebar"
 import {
   ActivityIcon,
-  FileJsonIcon,
   ImageIcon,
   KanbanSquareIcon,
   LayoutDashboardIcon,
   MessageSquareIcon,
   PenToolIcon,
   ShieldCheckIcon,
+  PlugIcon,
   UserRoundPlusIcon,
 } from "lucide-react"
 
@@ -139,9 +139,9 @@ export function AppSidebar({
       onSelect: closeMobileSidebar,
     },
     {
-      title: "API Base",
+      title: "Connect agents",
       url: "/dashboard/api",
-      icon: <FileJsonIcon />,
+      icon: <PlugIcon />,
       onSelect: closeMobileSidebar,
     },
   ]
