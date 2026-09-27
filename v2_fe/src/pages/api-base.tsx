@@ -280,6 +280,13 @@ export function ApiBasePage({
 
 /// Step 1: get the MCP onto the machine. `taskflow init` then registers it with
 /// the coding agent (Claude Code, Codex, Gemini CLI, Cursor, opencode).
+/// The app's tabs mark the active tab with a faint underline — fine for a
+/// page's sections, but these tabs are a CHOICE (which OS, which file), so they
+/// read as a segmented control: the active option is a raised chip.
+const SEGMENTED_LIST = "w-fit gap-1 rounded-lg border-0 bg-muted p-1"
+const SEGMENTED_TRIGGER =
+  "rounded-md px-3 py-1.5 text-sm font-medium normal-case tracking-normal after:hidden data-[active]:bg-background data-[active]:text-foreground data-[active]:shadow-sm"
+
 function InstallCard() {
   return (
     <section className="rounded-lg border bg-card p-4 shadow-sm">
@@ -291,14 +298,14 @@ function InstallCard() {
         which sets it up in Claude Code, Codex, Gemini CLI, Cursor or opencode for you.
       </p>
       <Tabs defaultValue="script" className="mt-3">
-        <TabsList>
-          <TabsTrigger value="script">macOS / Linux</TabsTrigger>
-          <TabsTrigger value="npm">npm (any OS)</TabsTrigger>
+        <TabsList className={SEGMENTED_LIST}>
+          <TabsTrigger value="script" className={SEGMENTED_TRIGGER}>macOS / Linux</TabsTrigger>
+          <TabsTrigger value="npm" className={SEGMENTED_TRIGGER}>npm (any OS)</TabsTrigger>
         </TabsList>
-        <TabsContent value="script">
+        <TabsContent value="script" className="mt-3">
           <CommandLine command={INSTALL_SCRIPT} />
         </TabsContent>
-        <TabsContent value="npm">
+        <TabsContent value="npm" className="mt-3">
           <CommandLine command={INSTALL_NPM} />
         </TabsContent>
       </Tabs>
@@ -484,11 +491,11 @@ export function LinkAgentCard({
           </div>
 
           <Tabs defaultValue={hadAgents ? "entry" : "file"}>
-            <TabsList>
-              <TabsTrigger value="entry">Add to existing .taskflow.json</TabsTrigger>
-              <TabsTrigger value="file">New .taskflow.json</TabsTrigger>
+            <TabsList className={SEGMENTED_LIST}>
+              <TabsTrigger value="entry" className={SEGMENTED_TRIGGER}>Add to existing .taskflow.json</TabsTrigger>
+              <TabsTrigger value="file" className={SEGMENTED_TRIGGER}>New .taskflow.json</TabsTrigger>
             </TabsList>
-            <TabsContent value="entry" className="space-y-2">
+            <TabsContent value="entry" className="mt-3 space-y-2">
               <p className="text-xs leading-5 text-muted-foreground">
                 Paste this inside <code className="rounded bg-muted px-1 py-0.5">"profiles"</code> in the{" "}
                 <code className="rounded bg-muted px-1 py-0.5">.taskflow.json</code> your other agents already use (add a
@@ -496,7 +503,7 @@ export function LinkAgentCard({
               </p>
               <Snippet value={profileSnippet} />
             </TabsContent>
-            <TabsContent value="file" className="space-y-2">
+            <TabsContent value="file" className="mt-3 space-y-2">
               <p className="text-xs leading-5 text-muted-foreground">
                 Save this as <code className="rounded bg-muted px-1 py-0.5">.taskflow.json</code> in the repo root and add
                 it to <code className="rounded bg-muted px-1 py-0.5">.gitignore</code> — it holds a secret.
