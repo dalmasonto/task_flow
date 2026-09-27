@@ -6,11 +6,21 @@ import { Input } from "@/components/ui/input"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { ProjectFormError } from "@/lib/taskflow-api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { inviteTypeOptions, priorityOptions, projectStatusOptions, reviewDecisionOptions, statusOptions, syncModeOptions, type ColumnId, type DialogMode, type Priority, type Project, type Task } from "@/lib/workspace-view"
+import { priorityOptions, projectStatusOptions, reviewDecisionOptions, statusOptions, syncModeOptions, type ColumnId, type DialogMode, type Priority, type Project, type Task } from "@/lib/workspace-view"
 import { slugifyProjectName } from "@/lib/live-mappers"
 import { type TaskflowAgent, type TaskflowProjectMember } from "@/api/client"
 import { useState, type FormEvent } from "react"
 
+
+/// The roles an invite can grant, highest first. The server refuses a role
+/// above the inviter's own.
+const INVITE_ROLES = [
+  { value: "owner", label: "Owner", detail: "Everything, including the project itself" },
+  { value: "admin", label: "Admin", detail: "Manage people and settings" },
+  { value: "developer", label: "Developer", detail: "Work on tasks, agents and code" },
+  { value: "reviewer", label: "Reviewer", detail: "Review and decide on tasks" },
+  { value: "viewer", label: "Viewer", detail: "Read-only" },
+] as const
 
 export function WorkspaceDialog({
   mode,
@@ -119,7 +129,7 @@ export function WorkspaceDialog({
     "project-info": "Project Info",
     "new-task": "Create Task",
     "edit-task": "Edit Task",
-    invite: "Invite User Or Agent",
+    invite: "Invite someone",
     "api-contract": "API Contract",
     "review-decision": "Human Review",
   }
@@ -369,34 +379,27 @@ export function WorkspaceDialog({
 
         {mode === "invite" ? (
           <form className="space-y-4 p-5" onSubmit={(event) => void runSubmit(event, onCreateInvite)}>
-            <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
-              <FormField label="Email or agent name">
-                <Input name="recipient" required placeholder="teammate@example.com" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Email">
+                <Input name="recipient" type="email" required placeholder="teammate@example.com" />
               </FormField>
-              <FormField label="Type">
-                <SelectField name="type" defaultValue="user" options={inviteTypeOptions} />
+              <FormField label="Name (optional)">
+                <Input name="display_name" placeholder="How they appear in the project" />
               </FormField>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className={choiceClass}>
-                <input type="radio" name="role" defaultChecked value="owner" />
-                <span>Owner</span>
-                <small>Full project control</small>
-              </label>
-              <label className={choiceClass}>
-                <input type="radio" name="role" value="developer" />
-                <span>Developer</span>
-                <small>Tasks, agents, code</small>
-              </label>
-              <label className={choiceClass}>
-                <input type="radio" name="role" value="viewer" />
-                <span>Viewer</span>
-                <small>Read-only context</small>
-              </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {INVITE_ROLES.map((role) => (
+                <label key={role.value} className={choiceClass}>
+                  <input type="radio" name="role" value={role.value} defaultChecked={role.value === "developer"} />
+                  <span>{role.label}</span>
+                  <small>{role.detail}</small>
+                </label>
+              ))}
             </div>
-            <FormField label="Message">
-              <textarea name="message" className={textareaClass} placeholder="Add context for the invite." />
-            </FormField>
+            <p className="text-xs leading-5 text-muted-foreground">
+              They accept from their own Invitations page after signing in with this email. Invites expire after 14 days.
+              Coding agents don't need an invite — link them on Connect agents.
+            </p>
             <DialogFormError message={formError} />
             <DialogActions onClose={onClose} submitLabel="Send Invite" submitIcon={<UserRoundPlusIcon />} submitting={submitting} />
           </form>

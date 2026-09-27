@@ -1,182 +1,257 @@
 import { Button } from "@/components/ui/button"
-import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { PageShell } from "@/components/layout"
-import { UserRoundPlusIcon } from "lucide-react"
+import { MailIcon, PlugIcon, UserRoundPlusIcon, UsersIcon } from "lucide-react"
+import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
+import { formatLiveDate } from "@/lib/live-mappers"
+import { type AuthUser } from "@/lib/auth-api"
 import { type InviteRecord, type Project } from "@/lib/workspace-view"
+import { type TaskflowProjectInviteRole, type TaskflowProjectMember } from "@/api/client"
+import { useState } from "react"
 
+/// Who is in the project, and who has been asked in. Coding agents are not
+/// here: they are linked, not invited (Connect agents).
+export function InvitesPage({
+  project,
+  members,
+  invites,
+  currentUser,
+  onInvite,
+  onRevoke,
+}: {
+  project: Project
+  members: TaskflowProjectMember[]
+  invites: InviteRecord[]
+  currentUser: AuthUser | null
+  onInvite: () => void
+  onRevoke: (inviteId: string) => Promise<void>
+}) {
+  const me = currentUser ? members.find((member) => member.user === currentUser.id) : undefined
+  // The server is the authority (it refuses a revoke from anyone else); this
+  // only decides whether to offer the buttons.
+  const canManage = !!currentUser?.is_superuser || (me?.status === "active" && (me.role === "owner" || me.role === "admin"))
 
-export function InvitesPage({ project, invites, onInvite }: { project: Project; invites: InviteRecord[]; onInvite: () => void }) {
-  const pendingCount = invites.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
-  const acceptedCount = invites.filter((invite) => invite.status === "Accepted").length
-  const agentInviteCount = invites.filter((invite) => invite.type === "Agent").length
-  const expiringCount = invites.filter((invite) => invite.expires.includes("left")).length
+  const pending = invites.filter((invite) => invite.status === "Pending")
+  const past = invites.filter((invite) => invite.status !== "Pending")
+  const people = [...members].sort(
+    (a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.display_name.localeCompare(b.display_name),
+  )
 
   return (
     <PageShell
-      eyebrow="Access"
-      title="Invites"
-      description="Invite humans and agents into project channels, reviews, API scopes, and activity history with explicit access."
+      eyebrow={project.name}
+      title="Members & invites"
+      description="Everyone who can open this project, and the people you have invited."
       actions={
-        <Button size="sm" onClick={onInvite}>
-          <UserRoundPlusIcon />
-          New Invite
-        </Button>
+        canManage ? (
+          <Button size="sm" onClick={onInvite}>
+            <UserRoundPlusIcon />
+            Invite someone
+          </Button>
+        ) : null
       }
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <AccessMetric label="Pending" value={String(pendingCount)} detail="Awaiting acceptance or auth" />
-        <AccessMetric label="Accepted" value={String(acceptedCount)} detail="Active project members" />
-        <AccessMetric label="Agent invites" value={String(agentInviteCount)} detail={`${project.agentsOnline} agents online`} />
-        <AccessMetric label="Expiring" value={String(expiringCount)} detail="Links with time remaining" />
-      </div>
+      <div className="space-y-3">
+        {pending.length ? (
+          <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+            <SectionHeader icon={<MailIcon className="size-4 text-primary" />} title="Pending invites" count={pending.length} />
+            <ul className="divide-y">
+              {pending.map((invite) => (
+                <PendingInviteRow key={invite.id} invite={invite} canManage={canManage} onRevoke={onRevoke} />
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-            <div>
-              <h2 className="text-sm font-semibold">Invite Requests</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {invites.length} access requests for {project.name}.
-              </p>
-            </div>
-            <Button size="sm" onClick={onInvite}>
-              <UserRoundPlusIcon />
-              Invite
-            </Button>
-          </div>
-          <div className="scrollbar-y overflow-x-auto">
-            <table className="w-full min-w-[980px] border-collapse text-sm">
-              <thead className="bg-muted/55 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold">Recipient</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Role</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Scope</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Status</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Lifecycle</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invites.map((invite) => (
-                  <tr key={invite.id} className="border-t">
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary ring-1 ring-primary/20">
-                          {invite.type === "Agent" ? "AI" : invite.recipient.slice(0, 2).toUpperCase()}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{invite.recipient}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{invite.type} · requested by {invite.requestedBy}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", inviteRoleClass(invite.role))}>
-                        {invite.role}
-                      </span>
-                    </td>
-                    <td className="max-w-[15rem] px-4 py-3 align-top">
-                      <MarkdownRenderer
-                        content={invite.scope}
-                        compact
-                        className="[&_p]:truncate"
-                      />
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold ring-1", inviteStatusClass(invite.status))}>
-                        {invite.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <MarkdownRenderer
-                        content={invite.lastEvent}
-                        compact
-                        className="[&_p]:text-sm"
-                      />
-                      <p className="mt-1 text-xs text-muted-foreground">Sent {invite.sent} · {invite.expires}</p>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {invites.length === 0 ? (
-            <div className="border-t p-8 text-center text-sm text-muted-foreground">
-              No invites have been created for this project yet.
-            </div>
-          ) : null}
+          <SectionHeader icon={<UsersIcon className="size-4 text-primary" />} title="Members" count={people.length} />
+          {people.length ? (
+            <ul className="divide-y">
+              {people.map((member) => (
+                <li key={member.id} className="flex items-center gap-3 px-4 py-3">
+                  <Initials name={member.display_name} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 truncate text-sm font-medium">
+                      {member.display_name}
+                      {currentUser && member.user === currentUser.id ? (
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">You</span>
+                      ) : null}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {member.email ?? "No email"}
+                      {member.joined_at ? ` · joined ${formatLiveDate(member.joined_at, "")}` : ""}
+                    </p>
+                  </div>
+                  {member.status !== "active" ? (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground capitalize">{member.status}</span>
+                  ) : null}
+                  <RoleChip role={member.role} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="p-6 text-center text-sm text-muted-foreground">No members yet.</p>
+          )}
         </section>
 
-        <aside className="space-y-3">
-          <section className="rounded-lg border bg-card p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <UserRoundPlusIcon className="size-4 text-primary" />
-              How invites work
-            </div>
-            <div className="mt-4 space-y-3">
-              <InviteFlowStep index="1" title="Invite is created" detail="A pending invite stores the recipient email, role, token, and expiry." />
-              <InviteFlowStep index="2" title="Recipient accepts" detail="The invited person signs in and accepts from their Invitations page, which activates their membership." />
-            </div>
-            <div className="mt-4 space-y-2 border-t pt-4">
-              <InviteRole title="Owner" detail="Manage API base, access, and project settings." />
-              <InviteRole title="Developer" detail="Claim tasks, work with agents, and update task state." />
-              <InviteRole title="Viewer" detail="Read board, logs, reviews, and activity without editing." />
-            </div>
-          </section>
-        </aside>
+        {!pending.length && canManage ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+            <span>No invites waiting. Invite a teammate by email — they accept after signing in.</span>
+            <Button size="sm" variant="outline" onClick={onInvite}>
+              <UserRoundPlusIcon />
+              Invite someone
+            </Button>
+          </div>
+        ) : null}
+
+        {past.length ? (
+          <details className="group overflow-hidden rounded-lg border bg-card shadow-sm">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold">
+              Past invites
+              <span className="text-xs font-normal text-muted-foreground">
+                {past.length} · <span className="group-open:hidden">show</span>
+                <span className="hidden group-open:inline">hide</span>
+              </span>
+            </summary>
+            <ul className="divide-y border-t">
+              {past.map((invite) => (
+                <li key={invite.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{invite.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Sent by {invite.invitedBy} · {invite.sent}
+                      {invite.status === "Accepted" && invite.acceptedAt ? ` · accepted ${invite.acceptedAt}` : ""}
+                    </p>
+                  </div>
+                  <RoleChip role={invite.role} />
+                  <span className={cn("w-20 rounded-full px-2 py-0.5 text-center text-xs font-semibold ring-1", STATUS_CLASS[invite.status])}>
+                    {invite.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
+        <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          <PlugIcon className="size-3.5" />
+          <span>
+            Coding agents don't need an invite —{" "}
+            <Link to="/dashboard/api" className="font-medium text-primary hover:underline">
+              link them on Connect agents
+            </Link>
+            .
+          </span>
+        </p>
       </div>
     </PageShell>
   )
 }
 
+function PendingInviteRow({
+  invite,
+  canManage,
+  onRevoke,
+}: {
+  invite: InviteRecord
+  canManage: boolean
+  onRevoke: (inviteId: string) => Promise<void>
+}) {
+  // Two-step revoke, as the task sheet's delete: the first click arms it.
+  const [armed, setArmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-export function AccessMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+  const revoke = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await onRevoke(invite.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not revoke the invite.")
+      setArmed(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <section className="rounded-lg border bg-card p-4 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
-    </section>
-  )
-}
-
-
-export function InviteFlowStep({ index, title, detail }: { index: string; title: string; detail: string }) {
-  return (
-    <div className="flex gap-3">
-      <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary ring-1 ring-primary/20">
-        {index}
-      </span>
-      <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <p className="mt-1 text-sm leading-5 text-muted-foreground">{detail}</p>
+    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <Initials name={invite.name} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{invite.email}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          Invited by {invite.invitedBy} · {invite.sent}
+          {invite.timeLeft ? ` · ${invite.timeLeft}` : ""}
+        </p>
+        {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
       </div>
-    </div>
+      <RoleChip role={invite.role} />
+      {canManage ? (
+        armed ? (
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="destructive" disabled={busy} onClick={revoke}>
+              {busy ? "Revoking…" : "Revoke"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setArmed(false)}>
+              Keep
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setArmed(true)}>
+            Revoke
+          </Button>
+        )
+      ) : null}
+    </li>
   )
 }
 
-
-export function InviteRole({ title, detail }: { title: string; detail: string }) {
+function SectionHeader({ icon, title, count }: { icon: React.ReactNode; title: string; count: number }) {
   return (
-    <div className="rounded-lg bg-muted/55 p-3">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      <p className="mt-1 text-sm leading-5 text-muted-foreground">{detail}</p>
+    <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-semibold">
+      {icon}
+      {title}
+      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{count}</span>
     </div>
   )
 }
 
-
-function inviteStatusClass(status: InviteRecord["status"]) {
-  if (status === "Accepted") return "bg-emerald-100 text-emerald-800 ring-emerald-200"
-  if (status === "Pending") return "bg-amber-100 text-amber-800 ring-amber-200"
-  if (status === "Needs auth") return "bg-sky-100 text-sky-800 ring-sky-200"
-  if (status === "Revoked") return "bg-rose-100 text-rose-800 ring-rose-200"
-  return "bg-slate-100 text-slate-700 ring-slate-200"
+function Initials({ name }: { name: string }) {
+  const initials =
+    name
+      .split(/[\s@._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]!.toUpperCase())
+      .join("") || "?"
+  return (
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary ring-1 ring-primary/20">
+      {initials}
+    </span>
+  )
 }
 
+const ROLE_ORDER: TaskflowProjectInviteRole[] = ["owner", "admin", "developer", "reviewer", "viewer"]
 
-function inviteRoleClass(role: InviteRecord["role"]) {
-  if (role === "Owner") return "bg-primary/10 text-primary ring-primary/20"
-  if (role === "Developer") return "bg-emerald-100 text-emerald-800 ring-emerald-200"
-  return "bg-slate-100 text-slate-700 ring-slate-200"
+function RoleChip({ role }: { role: TaskflowProjectInviteRole }) {
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold capitalize ring-1", ROLE_CLASS[role])}>{role}</span>
+  )
+}
+
+const ROLE_CLASS: Record<TaskflowProjectInviteRole, string> = {
+  owner: "bg-primary/10 text-primary ring-primary/20",
+  admin: "bg-violet-100 text-violet-800 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30",
+  developer: "bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
+  reviewer: "bg-sky-100 text-sky-800 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/30",
+  viewer: "bg-muted text-muted-foreground ring-border",
+}
+
+const STATUS_CLASS: Record<InviteRecord["status"], string> = {
+  Pending: "bg-amber-100 text-amber-800 ring-amber-200",
+  Accepted: "bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
+  Declined: "bg-muted text-muted-foreground ring-border",
+  Expired: "bg-muted text-muted-foreground ring-border",
+  Revoked: "bg-rose-100 text-rose-800 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30",
 }

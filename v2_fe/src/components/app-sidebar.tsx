@@ -132,7 +132,7 @@ export function AppSidebar({
       onSelect: closeMobileSidebar,
     },
     {
-      title: "Invites",
+      title: "Members",
       url: "/dashboard/invites",
       icon: <UserRoundPlusIcon />,
       badge: pendingInvites ? String(pendingInvites) : undefined,

@@ -4,7 +4,7 @@ import { formatEstimateMinutes } from "@/lib/tasks"
 import { isPending, type PendingAttachment } from "@/lib/message-store"
 import { parseDesignRef, stripDesignRef } from "@/lib/design-ref"
 import { API_BASE_URL, type AuthUser } from "@/lib/auth-api"
-import { type TaskflowAgent, type TaskflowAgentMessage, type TaskflowAgentMessagePriority, type TaskflowAgentSession, type TaskflowMessageAttachment, type TaskflowProjectInviteRole, type TaskflowProjectInviteStatus, type TaskflowProjectMember, type TaskflowTaskPriority, type TaskflowTaskRelationKind, type TaskflowTaskReviewDecision, type TaskflowTaskStatus } from "@/api/client"
+import { type TaskflowAgent, type TaskflowAgentMessage, type TaskflowAgentMessagePriority, type TaskflowAgentSession, type TaskflowMessageAttachment, type TaskflowProjectInviteRole, type TaskflowProjectMember, type TaskflowTaskPriority, type TaskflowTaskRelationKind, type TaskflowTaskReviewDecision, type TaskflowTaskStatus } from "@/api/client"
 import { type TaskflowProjectSummary, type TaskflowRealtimeEvent, type TaskflowWorkspace } from "@/lib/taskflow-api"
 
 
@@ -861,88 +861,61 @@ export function toLiveMessagePriority(priority: MessagePriority): TaskflowAgentM
 }
 
 
-export function mapLiveInviteRole(role: TaskflowProjectInviteRole): InviteRecord["role"] {
-  if (role === "owner" || role === "admin") return "Owner"
-  if (role === "viewer") return "Viewer"
-  return "Developer"
-}
-
-
 export function toLiveInviteRole(role: string): TaskflowProjectInviteRole {
-  if (role === "owner") return "owner"
-  if (role === "viewer") return "viewer"
-  return "developer"
+  return role === "owner" || role === "admin" || role === "reviewer" || role === "viewer" ? role : "developer"
 }
 
 
-export function mapLiveInviteStatus(status: TaskflowProjectInviteStatus): InviteRecord["status"] {
-  if (status === "accepted") return "Accepted"
-  if (status === "expired") return "Expired"
-  if (status === "revoked") return "Revoked"
-  return "Pending"
+/// An invite's status as the page shows it. A pending invite whose window has
+/// passed reads as expired: it can no longer be accepted, whatever the row says.
+export function mapLiveInviteStatus(invite: TaskflowWorkspace["invites"][number], now = Date.now()): InviteRecord["status"] {
+  if (invite.status === "accepted") return "Accepted"
+  if (invite.status === "declined") return "Declined"
+  if (invite.status === "revoked") return "Revoked"
+  if (invite.status === "expired") return "Expired"
+  const expiresAt = invite.expires_at ? new Date(invite.expires_at).getTime() : NaN
+  return !Number.isNaN(expiresAt) && expiresAt <= now ? "Expired" : "Pending"
 }
 
 
-export function formatInviteWindow(invite: TaskflowWorkspace["invites"][number]) {
-  const status = mapLiveInviteStatus(invite.status)
-  if (status === "Accepted") return "Accepted"
-  if (status === "Revoked") return "Revoked"
-  if (status === "Expired") return "Expired"
-  if (!invite.expires_at) return "No expiry"
-
-  const expiresAt = new Date(invite.expires_at)
-  if (Number.isNaN(expiresAt.getTime())) return "No expiry"
-
-  const remainingMs = expiresAt.getTime() - Date.now()
-  if (remainingMs <= 0) return "Expired"
-
-  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000))
-  if (remainingDays <= 1) return "24h left"
-  return `${remainingDays}d left`
+/// How long a pending invite has left ("12d left", "under a day left"), or null
+/// when it has no expiry or is no longer pending.
+export function inviteTimeLeft(invite: TaskflowWorkspace["invites"][number], now = Date.now()): string | null {
+  if (mapLiveInviteStatus(invite, now) !== "Pending" || !invite.expires_at) return null
+  const remainingMs = new Date(invite.expires_at).getTime() - now
+  if (Number.isNaN(remainingMs)) return null
+  const days = Math.ceil(remainingMs / (24 * 60 * 60 * 1000))
+  return days <= 1 ? "under a day left" : `${days}d left`
 }
 
 
+/// Invites from before agents were linked on Connect agents: an "agent" was
+/// invited by a made-up address. They grant nothing, so the page hides them.
 export function isAgentInviteEmail(email: string) {
   return email.toLowerCase().endsWith("@agents.taskflow.local")
 }
 
 
-export function normalizeAgentInviteEmail(recipient: string) {
-  if (recipient.includes("@")) return recipient.toLowerCase()
-  return `${slugifyProjectName(recipient)}@agents.taskflow.local`
-}
-
-
-export function mapLiveInvites(workspace: TaskflowWorkspace, currentUser: AuthUser | null): InviteRecord[] {
-  return workspace.invites.map((invite) => {
-    const type = isAgentInviteEmail(invite.email) ? "Agent" : "Human"
-    const recipient = invite.display_name || (type === "Agent" ? invite.email.replace(/@agents\.taskflow\.local$/i, "") : invite.email)
-    const status = mapLiveInviteStatus(invite.status)
-    const requestedBy =
-      currentUser && invite.invited_by === currentUser.id
-        ? currentUser.username
-        : invite.invited_by
-          ? `User #${invite.invited_by}`
-          : "System"
-
-    return {
+/// The project's invites for the Invites page, newest first — people only.
+export function mapLiveInvites(workspace: TaskflowWorkspace, currentUser: AuthUser | null, now = Date.now()): InviteRecord[] {
+  const nameOfUser = (userId: number | null) => {
+    if (userId == null) return "Someone"
+    if (currentUser && userId === currentUser.id) return "you"
+    return workspace.members.find((member) => member.user === userId)?.display_name ?? `User #${userId}`
+  }
+  return workspace.invites
+    .filter((invite) => !isAgentInviteEmail(invite.email))
+    .map((invite) => ({
       id: String(invite.id),
-      recipient,
-      type,
-      role: mapLiveInviteRole(invite.role),
-      scope: `Project: **${workspace.project.name}**\n\nAccess activates only after identity verification.`,
-      status,
-      requestedBy,
-      sent: formatLiveDate(invite.created_at, "Live"),
-      expires: formatInviteWindow(invite),
-      lastEvent:
-        status === "Accepted"
-          ? `Accepted ${formatLiveDate(invite.accepted_at, "recently")}. Project membership should be active.`
-          : status === "Pending"
-            ? "Invite is pending. The recipient must authenticate before access is activated."
-            : `Invite is ${status.toLowerCase()} and no longer grants access.`,
-    }
-  })
+      email: invite.email,
+      name: invite.display_name?.trim() || invite.email.split("@")[0] || invite.email,
+      role: invite.role,
+      status: mapLiveInviteStatus(invite, now),
+      invitedBy: nameOfUser(invite.invited_by),
+      sent: formatLiveDate(invite.created_at, "just now"),
+      timeLeft: inviteTimeLeft(invite, now),
+      acceptedAt: invite.accepted_at ? formatLiveDate(invite.accepted_at, "") : null,
+    }))
 }
 
 

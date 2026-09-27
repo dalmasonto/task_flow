@@ -42,7 +42,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -63,8 +63,8 @@ import { TaskDetailSheet } from "@/components/task-sheet"
 import { overlayTaskDetail, pruneTaskDetail } from "@/lib/task-detail-overlay"
 import { InvitesPage } from "@/pages/invites"
 import { LandingPage } from "@/pages/landing"
-import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, PROJECT_ROOM_PLACEHOLDER_ID, countOnlineAgents, designRoomUnreadCount, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, normalizeAgentInviteEmail, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
-import { ReviewsPage } from "@/pages/reviews"
+import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, PROJECT_ROOM_PLACEHOLDER_ID, countOnlineAgents, designRoomUnreadCount, formatLiveDate, getRunningLiveTaskSession, liveId, mapLiveActivityEvents, mapLiveDirectChats, mapLiveInvites, mapLivePriority, mapLiveProjectRow, mapLiveProjects, mapLiveReviews, mapLiveStatus, mapLiveTasks, mergeProjectTasks, realtimeEventRowId, removeById, reorderTasks, slugifyProjectName, toLiveInviteRole, toLivePriority, toLiveStatus, upsertById, upsertCapped, type ReviewFeedItem } from "@/lib/live-mappers"
+import { ReviewsPage, type ReviewChoice } from "@/pages/reviews"
 import { TaskSessionDock } from "@/components/session-dock"
 import { WorkspaceDialog } from "@/components/workspace-dialog"
 import { columns, nextStatus, previousStatus, type ActivityEvent, type AuthGateStatus, type ColumnId, type DialogMode, type DropTarget, type Priority, type Project, type Task } from "@/lib/workspace-view"
@@ -361,7 +361,7 @@ function App() {
       ? projectReviewCounts[activeLiveProjectId]
       : tasks.filter((task) => task.status === "review").length
   const projectInviteRecords = activeLiveWorkspace ? mapLiveInvites(activeLiveWorkspace, currentUser) : []
-  const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending" || invite.status === "Needs auth").length
+  const pendingInvites = projectInviteRecords.filter((invite) => invite.status === "Pending").length
   // The design room's unread count, for the sidebar's Design entry. A design
   // message is invisible to every other badge in the app: the design room is
   // deliberately not an ordinary conversation (`mapLiveChannelChats` excludes
@@ -1698,13 +1698,9 @@ function App() {
     const recipient = String(formData.get("recipient") ?? "").trim()
     if (!recipient) return
 
-    const inviteType = String(formData.get("type") ?? "user")
     const role = String(formData.get("role") ?? "developer")
-    const email = inviteType === "agent" ? normalizeAgentInviteEmail(recipient) : recipient.toLowerCase()
-    const displayName =
-      inviteType === "agent"
-        ? recipient
-        : String(formData.get("display_name") ?? "").trim() || recipient.split("@")[0] || recipient
+    const email = recipient.toLowerCase()
+    const displayName = String(formData.get("display_name") ?? "").trim() || recipient.split("@")[0] || recipient
 
     const invite = await createTaskflowProjectInvite(projectId, {
       email,
@@ -2173,13 +2169,22 @@ function App() {
     event.preventDefault()
     if (!reviewTask) return
     const formData = new FormData(event.currentTarget)
-    const decision = String(formData.get("decision") ?? "approve")
-    const note = String(formData.get("note") ?? "").trim()
+    // A failure is already surfaced as the sync error; nothing more to do here.
+    decideReview(reviewTask.id, String(formData.get("decision") ?? "approve") as ReviewChoice, String(formData.get("note") ?? "")).catch(() => {})
+    setDialogMode(null)
+    setReviewTaskId(null)
+  }
+
+  /// Record a human review decision on a task — from the decision dialog or
+  /// the Reviews page's sheet. Resolves once the server has it, and rejects
+  /// with the reason when it could not be saved, so a caller can say so.
+  async function decideReview(taskId: string, decision: ReviewChoice, rawNote: string): Promise<void> {
+    const note = rawNote.trim()
     const next = decision === "approve" ? "done" : decision === "changes" ? "in_progress" : "blocked"
 
     setTasks((currentTasks) =>
       currentTasks.map((task) =>
-        task.id === reviewTask.id
+        task.id === taskId
           ? {
               ...task,
               status: next,
@@ -2192,25 +2197,27 @@ function App() {
           : task
       )
     )
-    const reviewTaskIdNumber = liveId(reviewTask.id)
+    const reviewTaskIdNumber = liveId(taskId)
     if (usesLiveApi && reviewTaskIdNumber) {
-      const onError = (error: unknown) =>
-        setLiveSyncError(umbralErrorMessage(error, "Could not persist the review decision."))
-      // approve/changes are real review DECISIONS: the review endpoint records the
-      // review row, transitions the task, and posts the report-back to the agent.
-      // "blocked" is a plain status change, not a review — keep the direct update.
-      if (decision === "approve" || decision === "changes") {
-        void submitTaskReview(
-          reviewTaskIdNumber,
-          decision === "approve" ? "approved" : "changes_requested",
-          note || undefined
-        ).catch(onError)
-      } else {
-        void updateTaskflowTask(reviewTaskIdNumber, { status: toLiveStatus(next) }).catch(onError)
+      try {
+        // approve/changes are real review DECISIONS: the review endpoint records the
+        // review row, transitions the task, and posts the report-back to the agent.
+        // "blocked" is a plain status change, not a review — keep the direct update.
+        if (decision === "approve" || decision === "changes") {
+          await submitTaskReview(
+            reviewTaskIdNumber,
+            decision === "approve" ? "approved" : "changes_requested",
+            note || undefined
+          )
+        } else {
+          await updateTaskflowTask(reviewTaskIdNumber, { status: toLiveStatus(next) })
+        }
+      } catch (error) {
+        const message = umbralErrorMessage(error, "Could not persist the review decision.")
+        setLiveSyncError(message)
+        throw new Error(message, { cause: error })
       }
     }
-    setDialogMode(null)
-    setReviewTaskId(null)
   }
 
   async function handleLogout() {
@@ -2590,10 +2597,12 @@ function App() {
                 activeProject ? (
                   <ReviewsPage
                     tasks={projectTasks.filter((task) => task.status === "review")}
+                    allTasks={projectTasks}
                     reviews={reviewFeed}
-                    onReview={(taskId) => {
-                      setReviewTaskId(taskId)
-                      setDialogMode("review-decision")
+                    onDecide={decideReview}
+                    onOpenTask={(taskId) => {
+                      const id = liveId(taskId)
+                      if (id) openTaskById(id)
                     }}
                   />
                 ) : (
@@ -2627,7 +2636,19 @@ function App() {
               path="/dashboard/invites"
               element={
                 activeProject ? (
-                  <InvitesPage project={activeProject} invites={projectInviteRecords} onInvite={() => setDialogMode("invite")} />
+                  <InvitesPage
+                    project={activeProject}
+                    members={activeLiveWorkspace?.members ?? []}
+                    invites={projectInviteRecords}
+                    currentUser={currentUser}
+                    onInvite={() => setDialogMode("invite")}
+                    onRevoke={async (inviteId) => {
+                      const projectId = liveId(activeProject.id)
+                      if (!projectId) return
+                      const invite = await revokeTaskflowProjectInvite(projectId, Number(inviteId))
+                      applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, invites: upsertById(workspace.invites, invite) }))
+                    }}
+                  />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
                 )

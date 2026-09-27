@@ -1491,6 +1491,27 @@ export type CreateInviteInput = {
   display_name?: string | null
 }
 
+/// Withdraw a pending invite (owners and admins only). Returns the updated
+/// row; realtime delivers it too.
+export async function revokeTaskflowProjectInvite(projectId: number, inviteId: number): Promise<TaskflowProjectInvite> {
+  const token = getStoredToken()
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}/invites/${inviteId}/revoke`, {
+    method: "POST",
+    credentials: "include",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "Only the project's owners and admins can revoke invites."
+        : response.status === 409
+          ? "This invite is no longer pending."
+          : `Could not revoke the invite (${response.status}).`
+    )
+  }
+  return readJson(response)
+}
+
 export async function createTaskflowProjectInvite(
   projectId: number,
   input: CreateInviteInput

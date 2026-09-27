@@ -1,4 +1,4 @@
-import { type TaskflowTaskReviewDecision } from "@/api/client"
+import { type TaskflowProjectInviteRole, type TaskflowTaskReviewDecision } from "@/api/client"
 import { AlertCircleIcon, CheckCircle2Icon, CircleDotIcon, PlayIcon, ShieldCheckIcon } from "lucide-react"
 
 export const PROJECT_ROOM_TITLE = "Project room"
@@ -214,15 +214,17 @@ export type AgentTerminalSessionView = {
 
 export type InviteRecord = {
   id: string
-  recipient: string
-  type: "Human" | "Agent"
-  role: "Owner" | "Developer" | "Viewer"
-  scope: string
-  status: "Pending" | "Accepted" | "Expired" | "Needs auth" | "Revoked"
-  requestedBy: string
+  email: string
+  /// The display name given when inviting, else the email's local part.
+  name: string
+  role: TaskflowProjectInviteRole
+  status: "Pending" | "Accepted" | "Declined" | "Expired" | "Revoked"
+  /// Who sent it — "you" for the viewer.
+  invitedBy: string
   sent: string
-  expires: string
-  lastEvent: string
+  /// How long a pending invite has left, else null.
+  timeLeft: string | null
+  acceptedAt: string | null
 }
 
 
@@ -332,12 +334,6 @@ export const projectStatusOptions = [
   { value: "active", label: "Active" },
   { value: "paused", label: "Paused" },
   { value: "archived", label: "Archived" },
-]
-
-
-export const inviteTypeOptions = [
-  { value: "user", label: "User" },
-  { value: "agent", label: "Agent" },
 ]
 
 
