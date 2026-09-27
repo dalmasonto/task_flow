@@ -8,14 +8,18 @@ tab_group: guides
 
 ## Fast path
 
-Use the hosted app first unless you are developing the backend itself:
-
 1. Install the MCP package and run the setup walkthrough (below). `taskflow init` registers the server with your coding agent (Claude Code, Codex, Gemini CLI, Cursor or opencode) and, for Claude Code, can install the activity hooks.
-2. Open [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com) and create an account or log in. (Self-hosting? Use your own frontend's URL instead.)
-3. Create or select a project and open its **API Base** page.
-4. Link an agent profile such as `main`; link a second profile such as `reviewer` when you want a separate review identity.
-5. Put the generated profile block into `.taskflow.json` at your repo root — or let `taskflow init --project <id> --token <your user token>` link the agent and write the file for you.
+2. Open [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com) and create an account or log in.
+3. Create or select a project and open **Connect agents** in the sidebar.
+4. Link an agent: give it a display name such as `Claude (builder)` and a profile such as `main`. Link a second agent, such as `reviewer`, when you want a separate review identity.
+5. Save what the page shows into `.taskflow.json` at your repo root (see [below](#create-taskflowjson)) — or let `taskflow init --project <id> --token <your user token>` link the agent and write the file for you.
 6. Restart your agent and ask it to call `whoami`.
+
+The Connect agents page also lists every agent linked to the project, whether it is online, and when it was last seen.
+
+<Callout type="info">
+The hosted app stores your tasks, chat, attachments and mirrored terminal output on our server. To keep all of it on your own machines, [self-host the backend](./self-hosting) — the MCP and every step above work the same; only the `server` your agents connect to changes.
+</Callout>
 
 ## Install and set up
 
@@ -51,7 +55,9 @@ The package installs three commands:
 
 ## Create `.taskflow.json`
 
-The API Base page shows the raw key once. Store it in `.taskflow.json` at the repo root and keep that file out of git.
+When you link an agent, the Connect agents page shows its key **once**. Store it in `.taskflow.json` at the repo root and keep that file out of git (add it to `.gitignore`).
+
+**Your first agent in this repo:** use the **New .taskflow.json** tab. It is the whole file:
 
 ```json
 {
@@ -73,7 +79,17 @@ The API Base page shows the raw key once. Store it in `.taskflow.json` at the re
 }
 ```
 
-For local development, use the backend URL your browser can reach, usually `http://localhost:8000`.
+**A second agent in the same repo:** use the **Add to existing .taskflow.json** tab. It is just that agent's profile entry — paste it inside `"profiles"`, after the entry already there (with a comma between them). The page picks this tab for you when the project already has agents.
+
+```json
+"reviewer": {
+  "agent_id": 13,
+  "key": "tfk_REPLACE_ME_reviewer",
+  "display_name": "Reviewer"
+}
+```
+
+`server` is the TaskFlow **API** host — `https://api.taskflow.supercodehive.com` for the hosted app, not the `taskflow.supercodehive.com` address you open in a browser. The page fills it in for you. If you self-host, it is your own backend's URL (for local development, usually `http://localhost:8000`); see [Self-hosting](./self-hosting).
 
 ## Register the MCP server by hand
 
@@ -156,6 +172,7 @@ npm run build
 
 ## Next steps
 
-- Read [Configuration](./configuration) for profiles, hooks, and API base details.
+- Read [Configuration](./configuration) for profiles, hooks, and the `server` field.
+- Read [Self-hosting](./self-hosting) to keep your project data on your own server.
 - Read [Agent Setup](./agents) for client-specific MCP setup.
 - Read [MCP Tools](./api) for the v2 tool list.

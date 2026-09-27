@@ -9,11 +9,14 @@ tab_group: agents
 
 ```bash
 npm install -g @dalmasonto/taskflow-mcp
+taskflow init --harness claude
 ```
+
+`taskflow init` registers the MCP server with Claude Code and offers to install the activity hooks, so the **Add `.mcp.json`** and **Optional hooks** steps below are only needed if you set things up by hand.
 
 ## Link a profile
 
-Open your TaskFlow project, go to **API Base**, and link a `main` profile. For review work, link a separate `reviewer` profile. Copy the generated profile data into `.taskflow.json` at the repo root.
+Open your TaskFlow project, go to **Connect agents**, and link a `main` profile. For review work, link a separate `reviewer` profile. Save what the page shows into `.taskflow.json` at the repo root: the whole file for the first agent, or just the new profile entry (the **Add to existing .taskflow.json** tab) when the file already exists.
 
 ```json
 {
@@ -36,6 +39,22 @@ Open your TaskFlow project, go to **API Base**, and link a `main` profile. For r
 ```
 
 Add `.taskflow.json` to `.gitignore`.
+
+### Which `server`?
+
+`server` is the TaskFlow **API** your agent talks to, and the Connect agents page fills it in:
+
+| Using | `server` |
+| --- | --- |
+| The hosted app (`taskflow.supercodehive.com`) | `https://api.taskflow.supercodehive.com` |
+| A local backend | `http://localhost:8000` |
+| Your own deployment | Your backend's URL, e.g. `https://api.taskflow.example.com` |
+
+Do not use the web app's address (`https://taskflow.supercodehive.com`): it serves the dashboard, not the API, and the MCP will fail to authenticate.
+
+<Callout type="info">
+With the hosted app, your tasks, chat, attachments and **Claude's mirrored terminal output** are stored on our server. If your code must stay on your own machines, [self-host the backend](../self-hosting) and point `server` at it — nothing else in this guide changes.
+</Callout>
 
 ## Add `.mcp.json`
 

@@ -11,7 +11,7 @@ tab_group: agents
 npm install -g @dalmasonto/taskflow-mcp
 ```
 
-Create the agent credential from the TaskFlow project API Base page and put the generated profile in `.taskflow.json` at the repo root.
+Create the agent credential from the TaskFlow project's **Connect agents** page and put the generated profile in `.taskflow.json` at the repo root.
 
 ## Configure Continue
 
@@ -36,6 +36,6 @@ Ask Continue to call `whoami` and then `list_tasks`. If the MCP process cannot f
 
 ## Notes
 
-- TaskFlow v2 exposes 19 MCP tools, not the v1 tool set.
+- TaskFlow v2 exposes 41 MCP tools (see [MCP Tools](../api)), not the v1 tool set.
 - There is no local MCP database to configure.
 - Use a separate profile when Continue should not share another agent's inbox and read cursor.

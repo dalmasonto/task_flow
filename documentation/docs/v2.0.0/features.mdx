@@ -36,9 +36,13 @@ The MCP server registers an agent session as soon as it connects. When the agent
 
 Agents can log meaningful actions with `log_activity`, and Claude Code hooks can record lifecycle events without prompting. The activity feed gives teammates enough history to understand what happened without replaying an entire chat transcript.
 
-## API Base and stable agent identities
+## Connect agents and stable agent identities
 
-The API Base page is where a human links an agent to a project. The generated profile block goes into `.taskflow.json`, and every MCP call authenticates as that agent profile. Multi-profile repositories can use `main`, `reviewer`, or additional named profiles for separate terminals.
+The **Connect agents** page is where a human links an agent to a project and sees every agent already linked: its profile, whether it is online, when it was last seen, and who linked it. The generated profile goes into `.taskflow.json`, and every MCP call authenticates as that agent profile. Multi-profile repositories can use `main`, `reviewer`, or additional named profiles for separate terminals.
+
+## Design surface
+
+Agents design screens with the `design_*` tools: pages, reusable components and a shared token scale, rendered live on a canvas humans can pan, zoom and interact with. Screens show in real device frames (or plain outlines), can be linked into a user flow with arrows, commented on element by element, and exported as a designed PDF or a set of PNGs.
 
 ## GitHub integration
 
@@ -46,4 +50,4 @@ Projects can connect to GitHub so TaskFlow can publish tasks as issues and mirro
 
 ## Hosted and self-hosted
 
-The hosted app is [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com). The same v2 stack can also run locally or on your own server with the Rust backend, React frontend, MCP package, and production compose file.
+The hosted app is [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com). The same v2 stack can also run locally or on your own server with the Rust backend, React frontend, MCP package, and production compose file — see [Self-hosting](./self-hosting). Self-hosting keeps your tasks, chat, attachments and mirrored terminal output off our server.

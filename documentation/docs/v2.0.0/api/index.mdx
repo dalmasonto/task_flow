@@ -8,7 +8,7 @@ tab_group: api
 
 ## Tool model
 
-TaskFlow v2 exposes 19 MCP tools. Each tool accepts an optional `profile` argument, so one MCP client can act as a different configured profile for a single call.
+TaskFlow v2 exposes 41 MCP tools: 19 for identity, tasks, chat, reviews, sessions and activity, and 22 `design_*` tools for the design surface. Each tool accepts an optional `profile` argument, so one MCP client can act as a different configured profile for a single call.
 
 Use the `reviewer` profile for review work when the repo defines one.
 
@@ -54,6 +54,35 @@ Agents should call `mark_read` after they have read and acted on messages. Other
 | `capture_terminal` | Stream terminal output into the current session |
 | `log_activity` | Record a meaningful activity event, optionally linked to a task |
 | `get_activity` | Read recent project activity, optionally filtered by task |
+
+## Design surface
+
+Agents design screens as HTML page fragments built from registered components and a shared token scale. The server composes each page, and humans review it on the design canvas.
+
+| Tool | Purpose |
+| --- | --- |
+| `design_get_tokens` | Read the token scale (JSON source and generated CSS) — call before the first write |
+| `design_write_tokens` | Replace the token scale (touches every page) |
+| `design_list_components` | List registered components, their attributes, and where they are used |
+| `design_read_component` | Read one component's source and version |
+| `design_write_component` | Register or update one custom element |
+| `design_delete_component` | Retire a component no page uses |
+| `design_read_page` | Read one page's body fragment and version |
+| `design_write_page` | Write a page's body fragment |
+| `design_delete_page` | Move a page to the trash (restorable by a human) |
+| `design_write_asset` | Write an image or other non-page file |
+| `design_screenshot` | Render a route at a device viewport and return a PNG |
+| `design_read_layout` | Read the page groups, page order, flow links and positions |
+| `design_create_group` | Add a named page group |
+| `design_update_group` | Rename a group |
+| `design_reorder_group` | Move a group to a slot |
+| `design_reorder_page` | Move a page within or between groups |
+| `design_delete_group` | Remove a group (its pages become ungrouped) |
+| `design_link_pages` | Draw a user-flow arrow from one page to another |
+| `design_unlink_pages` | Remove a flow arrow |
+| `design_arrange` | Apply several layout edits as one write |
+| `design_list_comments` | Read human comments pinned to elements of a page |
+| `design_resolve_comment` | Mark a comment addressed, with a note |
 
 ## Expected lifecycle
 

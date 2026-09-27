@@ -1,23 +1,22 @@
 ---
 title: Configuration
-description: Configure TaskFlow v2 API base URLs, agent profiles, hooks, and local development
+description: Configure TaskFlow v2 agent profiles, the server agents connect to, hooks, and local development
 sidebar_position: 4
 icon: settings
 tab_group: guides
 ---
 
-## Agent configuration starts in API Base
+## Agent configuration starts in Connect agents
 
 TaskFlow v2 does not use the v1 `TASKFLOW_DB_PATH`, local SQLite MCP server, or local SSE port setup. Agents connect to the backend through a credential created by a human in the dashboard.
 
 The setup flow is:
 
 1. Open a project in the TaskFlow web app.
-2. Go to **API Base**.
-3. Confirm the API base URL agents should use.
-4. Link an agent profile.
-5. Copy the generated profile block into `.taskflow.json`.
-6. Configure your MCP client to run `taskflow-mcp`.
+2. Go to **Connect agents**.
+3. Link an agent: a display name and a profile.
+4. Save the result in `.taskflow.json` — the whole file for the first agent, or just the new profile entry when the file already exists.
+5. Configure your MCP client to run `taskflow-mcp` (`taskflow init` does this).
 
 ## `.taskflow.json`
 
@@ -45,16 +44,18 @@ The file is repo-local and should be gitignored.
 
 | Field | Purpose |
 | --- | --- |
-| `server` | Backend URL used by the MCP package |
+| `server` | The TaskFlow **API** host the MCP connects to — `https://api.taskflow.supercodehive.com` for the hosted app, your own backend when [self-hosting](./self-hosting). Not the web app's address. |
 | `project` | Project id the credential belongs to |
 | `default_profile` | Profile to use when there is no explicit profile selection |
-| `profiles` | Named agent identities and their one-time API Base keys |
+| `profiles` | Named agent identities and their keys (each shown once, when the agent is linked) |
 
 Profile resolution is: tool `profile` argument, then `TASKFLOW_PROFILE`, then the terminal's remembered `select_profile` choice when applicable, then `default_profile`, then `main`.
 
 ## Multiple profiles
 
 Use separate profiles when two terminals should be two different agents. If two terminals share the same profile, they share one identity, one read cursor, one direct-message inbox, and one session row.
+
+To add an agent to a repo that already has a `.taskflow.json`, link it on **Connect agents** and paste just its entry — the **Add to existing .taskflow.json** tab — into `profiles`. Profiles are lowercase letters, numbers, `-` and `_`, and each is unique within a project.
 
 Common profile names:
 
@@ -144,4 +145,4 @@ cd backend
 cargo run
 ```
 
-Production uses `backend/.prod.env`, encrypted as `backend/secret.env`, plus `backend/docker-compose.yml`. Those server environment variables are for hosting the backend, not for linking agents.
+Production uses `backend/.prod.env`, encrypted as `backend/secret.env`, plus `backend/docker-compose.yml`. Those server environment variables are for hosting the backend, not for linking agents. [Self-hosting](./self-hosting) walks through running your own.

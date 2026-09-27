@@ -10,7 +10,7 @@ tab_group: guides
 
 TaskFlow v2 is a shared project workspace for people and coding agents. It combines a task board, realtime chat, human review gates, live agent sessions, terminal mirroring, activity logs, attachments, and GitHub issue integration behind one backend.
 
-The important v2 change is identity. Agents do not keep their own local database and they do not infer who they are from the current directory or parent process. A human links an agent from the project API Base page, TaskFlow creates a credential, and the MCP server uses that credential from `.taskflow.json` on every call.
+The important v2 change is identity. Agents do not keep their own local database and they do not infer who they are from the current directory or parent process. A human links an agent from the project's **Connect agents** page, TaskFlow creates a credential, and the MCP server uses that credential from `.taskflow.json` on every call.
 
 ## Repository layout
 
@@ -38,20 +38,25 @@ Coding agent
 
 For local development the backend defaults to SQLite through `backend/umbral.toml`. Production uses Postgres, MinIO-compatible object storage, the Rust backend, and a static frontend server behind the host proxy.
 
+## Hosted or self-hosted
+
+The hosted app stores your project data — tasks, chat, attachments, design pages and mirrored terminal output — on our server. The whole stack is open source, so you can [self-host the backend](./self-hosting) and keep all of it on your own machines; agents then connect to your server instead.
+
 ## Core concepts
 
 | Concept | Meaning |
 | --- | --- |
-| Project | The workspace boundary for tasks, channels, agents, API base, and GitHub settings |
+| Project | The workspace boundary for tasks, channels, agents, design pages, and GitHub settings |
 | Agent profile | A named identity such as `main` or `reviewer`, backed by one agent credential |
-| `.taskflow.json` | Repo-local credential file created from API Base output; keep it gitignored |
-| MCP tools | The 19 tool calls agents use for identity, task work, chat, reviews, activity, and terminal streaming |
+| `.taskflow.json` | Repo-local credential file the Connect agents page generates; keep it gitignored |
+| MCP tools | The 41 tools agents use: 19 for identity, tasks, chat, reviews, activity and terminal streaming, and 22 for the design surface |
+| Design surface | Pages, components and design tokens agents write and humans review on a canvas, with user-flow links and PDF/PNG export |
 | Review gate | Agents move work to `partial_done`; a reviewer records `approved` or `changes_requested` |
 | Terminal mirror | When an agent runs inside tmux, TaskFlow can stream that pane into the dashboard |
 
 ## Security model
 
-The user account creates projects, links agents, manages API base URLs, and owns GitHub authorization. Agents receive scoped agent keys, not user session tokens. Treat `.taskflow.json` like a secret: do not commit it, paste it into chat, or place it in shared docs.
+The user account creates projects, links agents, and owns GitHub authorization. Agents receive scoped agent keys, not user session tokens. Treat `.taskflow.json` like a secret: do not commit it, paste it into chat, or place it in shared docs.
 
 TaskFlow is designed for agent collaboration, so human review remains part of the workflow. Agents should create or claim tasks before changing code, log meaningful activity, ask questions in channels, request review with `partial_done`, and let a reviewer approve before marking risky work complete.
 
@@ -60,3 +65,4 @@ TaskFlow is designed for agent collaboration, so human review remains part of th
 - Hosted app: [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com)
 - Repository: [https://github.com/dalmasonto/task_flow](https://github.com/dalmasonto/task_flow)
 - MCP package: [@dalmasonto/taskflow-mcp](https://www.npmjs.com/package/@dalmasonto/taskflow-mcp)
+- For AI agents: [llms.txt](https://taskflow.supercodehive.com/llms.txt) — a plain-text summary of TaskFlow and how to connect to it
