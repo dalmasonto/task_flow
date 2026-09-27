@@ -195,6 +195,24 @@
     background-color: color-mix(in oklch, var(--primary) 48%, transparent);
   }
 
+  /* #508: a Flow link's dashes travel from source to target. The offset
+     moves by exactly two dash periods (18 + 12) so the loop is seamless. */
+  .flow-edge-live {
+    animation: flow-edge-dash 1.4s linear infinite;
+  }
+
+  @keyframes flow-edge-dash {
+    to {
+      stroke-dashoffset: -60;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flow-edge-live {
+      animation: none;
+    }
+  }
+
   /* #509: a strip that scrolls sideways (the design toolbar on a phone)
      without drawing a scrollbar under its buttons. */
   .scrollbar-none {

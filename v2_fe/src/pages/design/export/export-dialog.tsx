@@ -9,6 +9,8 @@ import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Slider } from "@/components/ui/slider"
 import {
   Select,
   SelectContent,
@@ -92,7 +94,11 @@ export function ExportDialog({
   const [picked, setPicked] = useState<string[]>([])
   const [deviceId, setDeviceId] = useState(defaultDeviceId)
   const [withFrame, setWithFrame] = useState(false)
-  const [radius, setRadius] = useState(18)
+  // Subtle by default: a screenshot's corners, not a device's.
+  const [radius, setRadius] = useState(8)
+  // The document's title: the project's name unless the operator says
+  // otherwise for this export.
+  const [title, setTitle] = useState(projectName)
   const [fullPage, setFullPage] = useState(false)
   const [format, setFormat] = useState<"pdf" | "png">("pdf")
   const [progress, setProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
@@ -143,12 +149,12 @@ export function ExportDialog({
           radius,
           fullPage,
           format,
-          projectName,
+          projectName: title.trim() || projectName,
           scopeLabel,
           onProgress: (done, total, phase) => setProgress({ done, total, phase }),
           isCancelled: () => cancelled.current,
         })
-        saveBlob(blob, exportFileName(projectName, deviceId, format === "pdf" ? "pdf" : "zip"))
+        saveBlob(blob, exportFileName(title.trim() || projectName, deviceId, format === "pdf" ? "pdf" : "zip"))
         onOpenChange(false)
       } catch (err) {
         if (!(err instanceof ExportCancelled)) throw err
@@ -231,6 +237,17 @@ export function ExportDialog({
             </p>
           </section>
 
+          <label className="block space-y-1.5">
+            <span className={fieldLabel}>Document title</span>
+            <Input
+              value={title}
+              maxLength={80}
+              disabled={running}
+              placeholder={projectName}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+
           <section className="space-y-2">
             <p className={fieldLabel}>Export as</p>
             {/* Two formats, side by side — a choice this central is not hidden
@@ -299,15 +316,14 @@ export function ExportDialog({
             {!(withFrame && frame) ? (
               <label className="flex items-center gap-3 text-sm">
                 <span className="shrink-0">Corner radius</span>
-                <input
-                  type="range"
+                <Slider
                   min={0}
-                  max={48}
-                  step={2}
+                  max={32}
+                  step={1}
                   value={radius}
                   disabled={running}
-                  onChange={(event) => setRadius(Number(event.target.value))}
-                  className="flex-1 accent-primary"
+                  onValueChange={(value) => setRadius(Array.isArray(value) ? value[0] : value)}
+                  className="flex-1"
                   aria-label="Corner radius"
                 />
                 <span className="w-10 text-right font-mono text-xs text-muted-foreground">{radius}px</span>

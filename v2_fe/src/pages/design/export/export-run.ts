@@ -16,6 +16,7 @@ import { sandboxUrl } from "@/lib/design-api"
 import type { DevicePreset } from "@/lib/design-devices"
 import {
   CAPTION_H,
+  FRAME_METRICS,
   PAGE_MARGIN,
   bestPageSetup,
   screenFileName,
@@ -157,16 +158,6 @@ async function roundAndShadow(shot: Picture, radiusCss: number): Promise<Picture
   return { dataUrl: canvas.toDataURL("image/png"), width: canvas.width / scale, height: canvas.height / scale }
 }
 
-/// How far below a frame's top edge a page starts, in the frame's own CSS px:
-/// the status-bar strip that a notch or Dynamic Island sits in. A real phone
-/// keeps it clear, and a screenshot laid under the island loses its header.
-const STATUS_BAR: Record<string, number> = {
-  "iphone-14-pro": 44,
-  "iphone-14": 40,
-  "iphone-x": 40,
-  "google-pixel-6-pro": 26,
-  "galaxy-s8": 20,
-}
 
 /// The screenshot's top-left colour — what the status-bar strip is filled
 /// with, so the page appears to run up under it.
@@ -202,7 +193,8 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
     objectFit: "cover",
     objectPosition: "top",
     boxSizing: "border-box",
-    paddingTop: `${STATUS_BAR[frame] ?? 0}px`,
+    // The status-bar strip a notch or Dynamic Island sits in stays clear.
+    paddingTop: `${FRAME_METRICS[frame]?.statusBar ?? 0}px`,
     background: await topColor(shot.dataUrl),
   })
   img.src = shot.dataUrl
@@ -247,7 +239,7 @@ export async function downloadScreen(input: {
     sandboxToken: input.sandboxToken,
     theme: input.theme,
     frame: input.frame,
-    radius: 18,
+    radius: 8,
     fullPage: false,
   })
   const blob = await (await fetch(picture.dataUrl)).blob()

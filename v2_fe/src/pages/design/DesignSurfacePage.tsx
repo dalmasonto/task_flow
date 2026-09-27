@@ -1,7 +1,7 @@
 /// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   ChevronDownIcon,
@@ -41,9 +41,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ExportDialog } from "./export/export-dialog"
 import { frameFor } from "./export/export-plan"
-
-/// #508: React Flow is loaded only when someone opens the Flow view.
-const FlowCanvas = lazy(() => import("./flow/flow-canvas").then((m) => ({ default: m.FlowCanvas })))
+import { flowPositions, type FlowDoc } from "./flow/flow-layout"
 import {
   fetchDesignComments,
   fetchDesignManifest,
@@ -80,6 +78,8 @@ import {
   deviceById,
   type Artboard,
   type DeviceGroup,
+  boardWidth,
+  boardHeight,
 } from "@/lib/design-devices"
 import {
   CANVAS_VIEWS,
@@ -92,6 +92,7 @@ import {
 } from "@/lib/design-layout"
 import {
   DesignCanvas,
+  FOCUS_BOARD_EVENT,
   MAX_SCALE,
   MIN_SCALE,
   ZOOM_STEP,
@@ -233,7 +234,10 @@ export function DesignSurfacePage({
   // redraws the boards in the new sequence — which is the point of the feature,
   // and the one edit allowed to move them (see `boardsForView`).
   const artboards = useMemo(
-    () => boardsForView(layout, openRoutes, deviceIds),
+    () =>
+      layout.view === "flow"
+        ? flowBoards(layout, openRoutes, deviceIds[0] ?? DEFAULT_DEVICE_ID)
+        : boardsForView(layout, openRoutes, deviceIds),
     [layout, openRoutes, deviceIds],
   )
 
@@ -495,6 +499,13 @@ export function DesignSurfacePage({
       })
     },
     [layout, projectId, manifest],
+  )
+
+  // #508: what the canvas's Flow view edits — the layout itself, saved the
+  // way every layout edit is.
+  const flowEditor = useMemo(
+    () => ({ doc: layout, onDocChange: (next: FlowDoc) => updateLayout(next as LayoutDoc) }),
+    [layout, updateLayout],
   )
 
   // --- keyboard shortcuts (§9.7) --------------------------------------------
@@ -907,18 +918,13 @@ export function DesignSurfacePage({
 
         <ViewPicker view={layout.view} onChange={(view) => updateLayout({ ...layout, view })} />
 
-        {/* The Flow view brings its own zoom, fit and pan (React Flow's
-            controls), so the board canvas's tools step aside there. */}
-        {layout.view !== "flow" ? (
         <ZoomControl
           transform={transform}
           onChange={setTransform}
           boards={artboards}
           viewportRef={canvasContainerRef}
         />
-        ) : null}
 
-        {layout.view !== "flow" ? (
         <div className="flex items-center gap-1 rounded-md border p-0.5">
           <Button
             variant={canvasTool === "select" ? "default" : "ghost"}
@@ -937,7 +943,6 @@ export function DesignSurfacePage({
             <HandIcon className="size-4" />
           </Button>
         </div>
-        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           <Button
@@ -1051,21 +1056,6 @@ export function DesignSurfacePage({
                 " — or write styles/tokens.css and pages/index.html by hand."
               }
             />
-          ) : layout.view === "flow" ? (
-            <Suspense fallback={<EmptyCanvas message="Loading the flow…" />}>
-              <FlowCanvas
-                routes={resolveRouteOrder(layout, openRoutes)}
-                doc={layout}
-                // The flow's edits are layout edits: the same save, the same
-                // realtime echo, the same filter against deleted pages.
-                onDocChange={(next) => updateLayout(next as LayoutDoc)}
-                deviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
-                sandboxToken={sandboxToken}
-                theme={theme}
-                contentEpoch={contentEpoch}
-                labelFor={labelFor}
-              />
-            </Suspense>
           ) : (
             <DesignCanvas
               artboards={artboards}
@@ -1086,6 +1076,10 @@ export function DesignSurfacePage({
               onRemoveBoard={handleRemoveBoard}
               onDownloadImage={downloadBoardImage}
               onDeletePage={trashPage}
+              // The Flow view: links between screens, draggable screens. Every
+              // edit is a layout edit — the same save, realtime echo and
+              // deleted-page filter as any other.
+              flow={layout.view === "flow" ? flowEditor : undefined}
               selection={selectionOverlay}
               pins={pinLayer}
               onSelect={handleSelect}
@@ -1210,11 +1204,19 @@ export function DesignSurfacePage({
 }
 
 function focusBoard(key: string, transform: CanvasTransform) {
-  requestAnimationFrame(() => {
-    const el = document.querySelector(`[data-artboard-key="${CSS.escape(key)}"]`)
-    el?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" })
-    void transform
-  })
+  // The canvas owns the viewport (React Flow); ask it to frame the board.
+  // A frame later, so a board opened in the same click has mounted.
+  requestAnimationFrame(() => window.dispatchEvent(new CustomEvent(FOCUS_BOARD_EVENT, { detail: key })))
+  void transform
+}
+
+/// #508: the Flow view's boards — each open page ONCE, at the first selected
+/// device (links join pages, not sizes), placed where the flow says.
+function flowBoards(layout: LayoutDoc, openRoutes: string[], deviceId: string): Artboard[] {
+  const device = deviceById(deviceId)
+  const routes = resolveRouteOrder(layout, openRoutes)
+  const at = flowPositions(routes, layout, { w: boardWidth(device), h: HEADER_H + boardHeight(device) })
+  return routes.map((route) => ({ key: artboardKey(route, deviceId), route, deviceId, x: at[route].x, y: at[route].y }))
 }
 
 // ---------------------------------------------------------------------------

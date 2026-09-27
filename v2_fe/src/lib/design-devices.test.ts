@@ -4,6 +4,7 @@ import {
   GUTTER,
   HEADER_H,
   artboardKey,
+  boardContentOrigin,
   boardHeight,
   boardWidth,
   boardsForView,
@@ -72,13 +73,13 @@ describe("design devices", () => {
 
     for (const b of row0) expect(b.y).toBe(0)
 
-    // Columns step by the board's REAL width — device px plus its bezel — not
-    // by the bare iframe width. A phone is 26px wider than `width` claims.
+    // Columns step by the board's REAL width — its device frame, scaled so the
+    // screen is the device's width — not by the bare iframe width.
     const row0Iphone = row0.find((b) => b.deviceId === "iphone-16-pro")!
     const row0Laptop = row0.find((b) => b.deviceId === "laptop")!
     expect(row0Iphone.x).toBe(0)
     expect(row0Laptop.x).toBe(boardWidth(iphone) + GUTTER)
-    expect(boardWidth(iphone)).toBe(393 + 12 + 12 + 2)
+    expect(boardWidth(iphone)).toBe(Math.round(428 * (393 / 390)))
 
     // The next row clears the tallest board AND its header, which renders
     // above the board and so is not covered by the board's own height.
@@ -91,14 +92,21 @@ describe("design devices", () => {
     expect(row1.find((b) => b.deviceId === "laptop")!.key).toBe("/about@laptop")
   })
 
-  it("boardWidth/boardHeight count the bezel and the 1px border", () => {
-    // Phone bezel is 12 left + 12 right; tablet is 14 all round.
-    expect(boardWidth(deviceById("iphone-16-pro"))).toBe(393 + 24 + 2)
-    expect(boardHeight(deviceById("iphone-16-pro"))).toBe(852 + 44 + 2)
-    expect(boardWidth(deviceById("ipad-mini"))).toBe(744 + 28 + 2)
-    // Laptops and breakpoints are flush on the sides.
-    expect(boardWidth(deviceById("laptop"))).toBe(1280 + 0 + 2)
+  it("a real device's board is its frame, scaled so the screen is the device's width", () => {
+    // devices.css: the iPhone 14 Pro frame is 428×868 around a 390px screen.
+    const k = 393 / 390
+    expect(boardWidth(deviceById("iphone-16-pro"))).toBe(Math.round(428 * k))
+    expect(boardHeight(deviceById("iphone-16-pro"))).toBe(Math.round(868 * k))
+    // The MacBook frame (740×434, 600px screen) scaled up to a 1280px laptop.
+    expect(boardWidth(deviceById("laptop"))).toBe(Math.round(740 * (1280 / 600)))
+    // The page's origin inside the board: under the header, at the screen,
+    // below the status bar the Dynamic Island sits in.
+    expect(boardContentOrigin(deviceById("iphone-16-pro"))).toEqual({ x: 20 * k, y: HEADER_H + (20 + 44) * k })
+  })
+
+  it("a breakpoint width keeps the plain chrome: bezel plus the 1px border", () => {
     expect(boardWidth(deviceById("bp-sm"))).toBe(640 + 0 + 2)
+    expect(boardContentOrigin(deviceById("bp-sm")).y).toBeGreaterThan(HEADER_H)
   })
 
   it("layoutBands: one band per device, its pages across, next device below", () => {

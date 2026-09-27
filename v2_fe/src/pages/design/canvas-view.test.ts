@@ -4,11 +4,12 @@ import { fitTransform } from "./canvas-view"
 import { MIN_SCALE, MAX_SCALE } from "./design-canvas"
 
 // "iphone-se": 375x667 — see lib/design-devices.ts. A card is NOT the bare
-// device: it is a HEADER_H (30px) header above a bezel-wrapped board, so the
-// fitted footprint is deliberately wider and taller than the device.
+// device: it is a HEADER_H (30px) header above the device's frame (devices.css
+// iPhone 8: 419x871 around a 375px screen, so scale 1), so the fitted footprint
+// is deliberately wider and taller than the device.
 const DEVICE_ID = "iphone-se"
-const CARD_W = 401 // 375 + 12 + 12 bezel + 2 x 1px border
-const CARD_H = 743 // 30 header + (667 + 24 + 20 bezel + 2 x 1px border)
+const CARD_W = 419
+const CARD_H = 30 + 871
 /** Screen-space gutter `fitTransform` keeps clear — `DEFAULT_PADDING`. */
 const PADDING = 48
 

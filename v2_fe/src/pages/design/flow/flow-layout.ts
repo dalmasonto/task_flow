@@ -17,7 +17,7 @@ export type FlowDoc = {
 
 /// Horizontal and vertical breathing room between auto-placed pages, in the
 /// canvas's own pixels (a node is a device at 1:1 plus its header).
-export const COLUMN_GAP = 160
+export const COLUMN_GAP = 300
 export const ROW_GAP = 90
 
 /// Where every route sits: its saved position if it has one, otherwise an

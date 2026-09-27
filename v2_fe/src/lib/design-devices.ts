@@ -1,3 +1,4 @@
+import { canvasFrame } from "./design-frames"
 import { resolveRouteOrder, type LayoutDoc, type LayoutGroup } from "./design-layout"
 
 /// Device presets for the design canvas (§9.3).
@@ -257,19 +258,38 @@ export const HEADER_H = 30
 /** The 1px border `DeviceChrome` draws around the bezel. */
 const CHROME_BORDER = 1
 
-/** How wide a board actually renders: the iframe's true device px plus the
- *  decorative bezel and border around it. Phone bezels are 12px a side, so a
- *  phone board is 26px wider than `device.width` — the old layout maths used
- *  the bare width and quietly overlapped neighbours. */
+/** How wide a board actually renders. A real device wears its open-source
+ *  frame, scaled so the frame's screen is the device's CSS width
+ *  (`lib/design-frames`); a breakpoint width keeps the plain chrome — the
+ *  iframe's true device px plus the decorative bezel and border around it.
+ *  Every layout engine spaces boards by this, so it must be what renders. */
 export function boardWidth(device: DevicePreset): number {
+  const framed = canvasFrame(device)
+  if (framed) return Math.round(framed.metrics.w * framed.scale)
   const padding = chromeStyleForGroup(device.group).padding
   return device.width + padding.left + padding.right + CHROME_BORDER * 2
 }
 
 /** How tall a board actually renders (see `boardWidth`). */
 export function boardHeight(device: DevicePreset): number {
+  const framed = canvasFrame(device)
+  if (framed) return Math.round(framed.metrics.h * framed.scale)
   const padding = chromeStyleForGroup(device.group).padding
   return device.height + padding.top + padding.bottom + CHROME_BORDER * 2
+}
+
+/** Where the PAGE's top-left sits inside a board (header included), in canvas
+ *  px — what turns a position a frame reports (a picked element, a comment's
+ *  anchor) into a place on the canvas. The page renders 1:1 in both the frame
+ *  and the chrome, so this is an offset only. */
+export function boardContentOrigin(device: DevicePreset): { x: number; y: number } {
+  const framed = canvasFrame(device)
+  if (framed) {
+    const { metrics, scale } = framed
+    return { x: metrics.screenX * scale, y: HEADER_H + (metrics.screenY + metrics.statusBar) * scale }
+  }
+  const padding = chromeStyleForGroup(device.group).padding
+  return { x: CHROME_BORDER + padding.left, y: HEADER_H + CHROME_BORDER + padding.top }
 }
 
 /// Today's arrangement: one ROW per page, one COLUMN per selected device.

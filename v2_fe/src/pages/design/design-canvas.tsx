@@ -15,7 +15,26 @@
 /// * Selection rects arriving from the sandbox are divided by scale when
 ///   converted to canvas coordinates.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import "@xyflow/react/dist/style.css"
+import "devices.css/dist/devices.min.css"
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Panel,
+  Position,
+  ReactFlow,
+  ViewportPortal,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeProps,
+  type ReactFlowInstance,
+} from "@xyflow/react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   MaximizeIcon,
   RotateCwIcon,
@@ -41,11 +60,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { frameFor } from "./export/export-plan"
+import { canvasFrame, framedViewportHeight } from "@/lib/design-frames"
+import { EdgeEditor } from "./flow/edge-editor"
+import { FloatingEdge } from "./flow/floating-edge"
+import { linkPages, linkProblem, placePage, relabel, unlink, type FlowDoc } from "./flow/flow-layout"
 
 import {
   DEVICE_PRESETS,
   type Artboard,
   type DevicePreset,
+  HEADER_H,
+  boardContentOrigin,
+  boardHeight,
   boardWidth,
   chromeStyleForGroup,
   deviceById,
@@ -71,8 +97,6 @@ import {
   sameFrameReport,
   type FrameReport,
 } from "./design-route"
-import { createSettleGate } from "./settle-gate"
-import { gridDotOpacity, resolveLive, transformCss } from "./canvas-paint"
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./canvas-zoom"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
@@ -158,6 +182,10 @@ export type DesignCanvasProps = {
   /** Move this board's PAGE to the trash (after the menu's confirm dialog).
    *  Absent: the menu offers no delete. */
   onDeletePage?: (route: string) => void
+  /** #508: the Flow view. Present, the canvas draws the layout's links
+   *  between screens, lets screens be dragged (positions persist) and links be
+   *  drawn, named and removed. Absent, it is a board canvas. */
+  flow?: { doc: FlowDoc; onDocChange: (next: FlowDoc) => void }
   /** Current chrome-side selection (world-space overlay). */
   selection?: {
     rect: { x: number; y: number; w: number; h: number }
@@ -199,42 +227,16 @@ export const DesignCanvas = memo(function DesignCanvas({
   onRemoveBoard,
   onDownloadImage,
   onDeletePage,
+  flow,
   selection,
   pins,
 }: DesignCanvasProps) {
-  const surfaceRef = useRef<HTMLDivElement>(null)
-  /** The panning layer the transform is applied to, and the dot grid whose fade
-   *  follows the zoom. During a gesture both are written DIRECTLY (see the live
-   *  transform below) instead of being re-rendered. */
-  const layerRef = useRef<HTMLDivElement>(null)
-  const gridRef = useRef<HTMLDivElement>(null)
-  const panningRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
-  /** The LIVE transform: what the canvas is showing right now. Mid-gesture it
-   *  deliberately runs ahead of the `transform` prop, which carries only the
-   *  COMMITTED value — the gap between the two is what keeps a two-finger pan
-   *  from re-rendering this component (and every board under it) 60–120 times a
-   *  second. */
-  const liveRef = useRef<CanvasTransform>(transform)
-  /** The settle gate (see `settle-gate.ts`). Created once, and its commit is
-   *  re-SET on every render rather than captured at creation, because the timer
-   *  that fires it outlives the render that armed it. Setting it here, in a
-   *  layout effect, is also the only shape the hooks lint allows: it refuses to
-   *  let a ref-reading closure escape into a function called during render. */
-  const [gate] = useState(() => createSettleGate<CanvasTransform>({ settleMs: GESTURE_SETTLE_MS }))
-  useLayoutEffect(() => {
-    gate.setCommit(onTransformChange)
-  })
-  // A pending settle must not outlive the canvas — the timer would otherwise
-  // call `onTransformChange` for a surface that has moved on. That cancel DROPS
-  // a pending transform with it: a pan abandoned by unmounting (navigating away,
-  // switching project) within 120ms of its last event is never committed, so its
-  // last position is never persisted. Deliberate and bounded — the loss is one
-  // gesture's tail, and committing after unmount would push a value into a
-  // surface that is gone — but it is the one place this change can LOSE a value
-  // rather than merely defer one.
-  useEffect(() => () => gate.cancel(), [gate])
+  const rfRef = useRef<ReactFlowInstance<BoardNodeType, Edge> | null>(null)
+  /// True while React Flow is running a gesture: the committed `transform`
+  /// prop is then behind what is on screen, and must not be pushed back into
+  /// the viewport (that would snap the canvas back under a moving hand).
+  const movingRef = useRef(false)
   const [spaceDown, setSpaceDown] = useState(false)
-  const [isPanning, setIsPanning] = useState(false)
   /** Where to deliver a route report for each board on the canvas, registered
    *  by the board itself as it mounts (`ArtboardCard`) and dropped as it
    *  unmounts. The canvas ROUTES a report; the board KEEPS it — and that split
@@ -268,72 +270,39 @@ export const DesignCanvas = memo(function DesignCanvas({
     ? artboards.find((b) => b.key === selection.boardKey)
     : undefined
 
-  // --- pan + zoom ----------------------------------------------------------
-  const clampScale = useCallback((s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s)), [])
 
-  // A gesture PAINTS the transform and only COMMITS it once the events stop.
-  // Committing costs a re-render of this component and every board under it —
-  // each with a live iframe — and that is the whole of the cost, which is why it
-  // cannot happen per event. (It is NOT a second, per-event cost on the wire:
-  // the surface's viewport persist effect has a debounce of its own at 400ms, so
-  // the events re-armed its timer and the write landed once, after the gesture
-  // settled, either way. An earlier version of this comment claimed an
-  // IndexedDB write behind every event; nothing in Dexie was ever doing that.)
-  // The maths is untouched: the handlers below read `liveRef.current` where they
-  // used to read the `transform` prop, and nothing else about them moved.
+  // --- viewport -------------------------------------------------------------
+  // React Flow runs every gesture itself (drag the background, two-finger
+  // scroll, pinch, Ctrl/⌘+scroll, its own +/−/fit controls) and this component
+  // COMMITS the viewport when a gesture ends — the surface persists it, and the
+  // toolbar's zoom % and Fit read it. A change from OUTSIDE (Fit, the toolbar
+  // zoom, a stored viewport arriving) is pushed into React Flow, unless a
+  // gesture is in flight.
+  useEffect(() => {
+    const rf = rfRef.current
+    if (!rf || movingRef.current) return
+    const v = rf.getViewport()
+    if (
+      Math.abs(v.x - transform.x) > 0.5 ||
+      Math.abs(v.y - transform.y) > 0.5 ||
+      Math.abs(v.zoom - transform.scale) > 0.0005
+    ) {
+      void rf.setViewport({ x: transform.x, y: transform.y, zoom: transform.scale })
+    }
+  }, [transform])
 
-  /** Exactly what the JSX below would have written for this value — same two
-   *  helpers, so the two cannot drift — minus the render of the whole subtree. */
-  const paint = useCallback((t: CanvasTransform) => {
-    const layer = layerRef.current
-    if (layer) layer.style.transform = transformCss(t)
-    const grid = gridRef.current
-    if (grid) grid.style.opacity = String(gridDotOpacity(t.scale))
+  // "Show me this board" from anywhere on the surface (the Pages panel, the
+  // palette, a comment): React Flow frames that node.
+  useEffect(() => {
+    const onFocus = (event: Event) => {
+      const key = (event as CustomEvent<string>).detail
+      const rf = rfRef.current
+      if (!rf || !key) return
+      void rf.fitView({ nodes: [{ id: key }], duration: 350, padding: 0.35, maxZoom: Math.max(rf.getZoom(), 0.6) })
+    }
+    window.addEventListener(FOCUS_BOARD_EVENT, onFocus)
+    return () => window.removeEventListener(FOCUS_BOARD_EVENT, onFocus)
   }, [])
-
-  /** One gesture event: show it now, commit it if the gestures stop. */
-  const push = useCallback(
-    (next: CanvasTransform) => {
-      liveRef.current = next
-      paint(next)
-      gate.push(next)
-    },
-    [gate, paint],
-  )
-
-  // On EVERY render, and as a LAYOUT effect so the correction lands before the
-  // browser paints. React writes this render's `transform` prop onto the layer
-  // itself; while a gesture is in flight that prop is the value from BEFORE the
-  // gesture, so without the correction below any unrelated re-render (a Space
-  // press, a comment arriving over SSE) would snap the canvas back to where the
-  // gesture started and hold it there until the settle — the glitch this task
-  // exists to remove.
-  //
-  // WHICH value is the truth is `resolveLive`'s one call, and it is tested there
-  // as a rule rather than walked through here. What that rule costs, plainly: a
-  // foreign write arriving mid-gesture is not honoured now, it is left to the
-  // settle (within ~120ms, which commits the gesture). That is the right trade —
-  // the alternative is the canvas jumping under a moving finger, and the
-  // gesture's accumulator (the pan anchor, the wheel's live scale) continuing
-  // from a position the hand never chose — but the loss is not always the cheap
-  // one, so both cases are named rather than implied:
-  //
-  //   * The window is not reliably 120ms. macOS momentum wheel events keep
-  //     arriving after the fingers leave the trackpad, so `pending()` stays true
-  //     through the inertial tail — and a keyboard +/- zoom or a Fit click that
-  //     lands inside that tail is swallowed with it.
-  //   * The same rule can swallow a HYDRATION write (the stored viewport's
-  //     `setTransform` on mount), losing a saved view rather than a tap. It
-  //     needs the Dexie read to land inside a gesture window, so it is unlikely.
-  //
-  // If a user ever reports "Fit sometimes does nothing", the refinement is to
-  // distinguish gesture KINDS rather than to honour everything: a pointer-held
-  // drag must never yield (a finger is on the canvas), while a wheel tail with
-  // no pointer down may `cancel()` the gate and adopt the external write.
-  useLayoutEffect(() => {
-    liveRef.current = resolveLive(gate.pending(), transform, liveRef.current)
-    paint(liveRef.current)
-  })
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -349,68 +318,6 @@ export const DesignCanvas = memo(function DesignCanvas({
       window.removeEventListener("keyup", up)
     }
   }, [])
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    // Space+drag or middle-button pans in any mode; a plain primary-button
-    // drag also pans while the Pan tool is active. Everything else (Select
-    // mode, plain drag) falls through so clicks/picks reach the artboards.
-    if (!(spaceDown || e.button === 1 || (canvasTool === "pan" && e.button === 0))) return
-    e.preventDefault()
-    ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-    // The anchor is the LIVE position, not the committed one: a drag begun
-    // inside a wheel gesture's settle window must start from where the canvas
-    // actually is, not from where it was two gestures ago.
-    const live = liveRef.current
-    panningRef.current = { x: e.clientX, y: e.clientY, ox: live.x, oy: live.y }
-    setIsPanning(true)
-  }
-  const onPointerMove = (e: React.PointerEvent) => {
-    const p = panningRef.current
-    if (!p) return
-    const live = liveRef.current
-    push({ ...live, x: p.ox + (e.clientX - p.x), y: p.oy + (e.clientY - p.y) })
-  }
-  const onPointerUp = () => {
-    panningRef.current = null
-    setIsPanning(false)
-    // A drag has an END, unlike a wheel stream: commit on it rather than
-    // making the human wait out the settle window. A drag that never moved
-    // pushes nothing, so this is a no-op for a click.
-    gate.flush()
-  }
-
-  // Cmd/Ctrl+scroll zooms toward the cursor; plain two-finger scroll pans
-  // (trackpad). Zoom range 25%–200%. Both compute from the LIVE transform and
-  // hand the result to `push`, which paints it now and commits it when the
-  // events stop — the arithmetic below is exactly what it always was.
-  useEffect(() => {
-    const el = surfaceRef.current
-    if (!el) return
-    const onWheel = (e: WheelEvent) => {
-      const live = liveRef.current
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault()
-        const rect = el.getBoundingClientRect()
-        const cx = e.clientX - rect.left
-        const cy = e.clientY - rect.top
-        const next = clampScale(live.scale * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP))
-        // Keep the point under the cursor fixed while scaling.
-        const ratio = next / live.scale
-        push({
-          scale: next,
-          x: cx - (cx - live.x) * ratio,
-          y: cy - (cy - live.y) * ratio,
-        })
-      } else if (!e.shiftKey && Math.abs(e.deltaX) + Math.abs(e.deltaY) > 0) {
-        // Two-finger pan (trackpad). Shift+scroll leaves vertical scrolling to
-        // the browser for mouse users.
-        e.preventDefault()
-        push({ ...live, x: live.x - e.deltaX, y: live.y - e.deltaY })
-      }
-    }
-    el.addEventListener("wheel", onWheel, { passive: false })
-    return () => el.removeEventListener("wheel", onWheel)
-  }, [clampScale, push])
 
   // --- messages from frames -------------------------------------------------
   useEffect(() => {
@@ -463,91 +370,258 @@ export const DesignCanvas = memo(function DesignCanvas({
     }
   }, [picking, theme])
 
+  // --- nodes and (Flow view) links ------------------------------------------
+  const panMode = spaceDown || canvasTool === "pan"
+  const inFlow = !!flow
+  const nodes: BoardNodeType[] = useMemo(
+    () =>
+      artboards.map((board) => {
+        const device = deviceById(board.deviceId)
+        return {
+          id: board.key,
+          type: "board",
+          position: { x: board.x, y: board.y },
+          width: boardWidth(device),
+          height: HEADER_H + boardHeight(device),
+          draggable: inFlow,
+          selectable: inFlow,
+          connectable: inFlow,
+          dragHandle: ".board-drag",
+          // React Flow turns pointer events OFF for a node that is neither
+          // draggable, selectable nor connectable — every board outside the
+          // Flow view. A board is a live page to scroll, click and pick in,
+          // so they stay on.
+          style: { pointerEvents: "all" },
+          data: {
+            board,
+            label: labelFor(board.route),
+            // This frame's generation, computed ONCE: it is both what remounts
+            // the iframe (`LazyFrame`'s key) and half of what expires the route
+            // the frame last reported, and two spellings of it could disagree.
+            epoch: contentEpoch + (boardEpochs.get(board.key) ?? 0),
+            registerReport: registerBoardReport,
+            theme,
+            picking,
+            deviceIds,
+            onReloadBoard,
+            onOpenBoard,
+            onDuplicateBoard,
+            onRemoveBoard,
+            onDownloadImage,
+            onDeletePage,
+            sandboxToken,
+            projectId,
+            panMode,
+            inFlow,
+          },
+        }
+      }),
+    [
+      artboards, labelFor, contentEpoch, boardEpochs, registerBoardReport, theme, picking, deviceIds,
+      onReloadBoard, onOpenBoard, onDuplicateBoard, onRemoveBoard, onDownloadImage, onDeletePage,
+      sandboxToken, projectId, panMode, inFlow,
+    ],
+  )
+
+  /// Flow view: the node standing for each route (one device, so one node).
+  const keyOfRoute = useMemo(() => new Map(artboards.map((b) => [b.route, b.key])), [artboards])
+  const routeOfKey = useMemo(() => new Map(artboards.map((b) => [b.key, b.route])), [artboards])
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null)
+  const [linkProblemText, setLinkProblemText] = useState<string | null>(null)
+  const edges: Edge[] = useMemo(() => {
+    if (!flow) return []
+    return (flow.doc.edges ?? [])
+      .filter((e) => keyOfRoute.has(e.from) && keyOfRoute.has(e.to))
+      .map((e) => {
+        const on = selectedEdge === e.id
+        return {
+          id: e.id,
+          source: keyOfRoute.get(e.from)!,
+          target: keyOfRoute.get(e.to)!,
+          // Drawn between the facing sides of the two screens — see
+          // `flow/floating-edge.tsx` for why fixed handles tangled.
+          type: "floating",
+          label: e.label,
+          selected: on,
+          style: { strokeWidth: on ? 9 : 6, stroke: on ? "var(--primary)" : "#6366f1", strokeDasharray: "18 12" },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: on ? "var(--primary)" : "#6366f1" },
+        }
+      })
+  }, [flow, keyOfRoute, selectedEdge])
+
+  const connect = (c: Connection) => {
+    if (!flow || !c.source || !c.target) return
+    const from = routeOfKey.get(c.source)
+    const to = routeOfKey.get(c.target)
+    if (!from || !to) return
+    const why = linkProblem(flow.doc, from, to)
+    setLinkProblemText(why)
+    if (!why) flow.onDocChange(linkPages(flow.doc, from, to))
+  }
+  const currentEdge = flow ? (flow.doc.edges ?? []).find((e) => e.id === selectedEdge) ?? null : null
+
   return (
     <div
-      ref={surfaceRef}
-      className="relative h-full w-full overflow-hidden bg-[#0b0b0f] select-none"
-      style={{
-        cursor:
-          spaceDown || canvasTool === "pan"
-            ? isPanning
-              ? "grabbing"
-              : "grab"
-            : "default",
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      className="relative h-full w-full bg-[#0b0b0f] select-none"
       data-testid="design-canvas-surface"
     >
-      {/* Dot grid fades out below 50% zoom — a plotting surface, not a page.
-          `gridDotOpacity` is shared with the gesture-time paint above. */}
-      <div
-        ref={gridRef}
-        aria-hidden
-        className="absolute inset-0 transition-opacity duration-200"
-        style={{
-          backgroundImage: "radial-gradient(circle, #27272a 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-          opacity: gridDotOpacity(transform.scale),
+      <ReactFlow<BoardNodeType, Edge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
+        onInit={(instance) => {
+          rfRef.current = instance
+          void instance.setViewport({ x: transform.x, y: transform.y, zoom: transform.scale })
         }}
-      />
-      <div
-        ref={layerRef}
-        className="absolute top-0 left-0 origin-top-left"
-        style={{
-          transform: transformCss(transform),
-          willChange: "transform",
+        onMoveStart={() => {
+          movingRef.current = true
         }}
+        onMoveEnd={(_, v) => {
+          movingRef.current = false
+          onTransformChange({ x: v.x, y: v.y, scale: v.zoom })
+        }}
+        minZoom={MIN_SCALE}
+        maxZoom={MAX_SCALE}
+        // Trackpad: two fingers pan, pinch zooms; a mouse wheel pans, and
+        // Ctrl/⌘+wheel zooms toward the cursor. Over a screen, the wheel scrolls
+        // THAT PAGE — the frame gets its own events.
+        panOnScroll
+        zoomOnScroll={false}
+        zoomOnPinch
+        zoomActivationKeyCode={["Meta", "Control"]}
+        panOnDrag={canvasTool === "pan" ? true : [0, 1]}
+        selectionOnDrag={false}
+        nodesDraggable={inFlow}
+        nodesConnectable={inFlow}
+        elementsSelectable={inFlow}
+        onNodeDragStop={(_, node) => {
+          const route = routeOfKey.get(node.id)
+          if (flow && route) flow.onDocChange(placePage(flow.doc, route, node.position))
+        }}
+        onConnect={connect}
+        onEdgeClick={(_, edge) => setSelectedEdge(edge.id)}
+        onPaneClick={() => setSelectedEdge(null)}
+        onEdgesDelete={(deleted) => {
+          if (!flow) return
+          let next = flow.doc
+          for (const e of deleted) next = unlink(next, e.id)
+          flow.onDocChange(next)
+          setSelectedEdge(null)
+        }}
+        deleteKeyCode={inFlow ? ["Backspace", "Delete"] : null}
+        connectionLineStyle={{ strokeWidth: 6, stroke: "#6366f1" }}
+        proOptions={{ hideAttribution: true }}
+        colorMode="dark"
+        style={{ cursor: panMode ? "grab" : undefined }}
       >
-        {artboards.map((board) => {
-          // This frame's generation, computed ONCE: it is both what remounts
-          // the iframe (`LazyFrame`'s key) and half of what expires the route
-          // the frame last reported, and two spellings of it could disagree.
-          const epoch = contentEpoch + (boardEpochs.get(board.key) ?? 0)
-          return (
-            <ArtboardCard
-              key={board.key}
-              board={board}
-              label={labelFor(board.route)}
-              epoch={epoch}
-              registerReport={registerBoardReport}
-              theme={theme}
-              picking={picking}
-              deviceIds={deviceIds}
-              onReloadBoard={onReloadBoard}
-              onOpenBoard={onOpenBoard}
-              onDuplicateBoard={onDuplicateBoard}
-              onRemoveBoard={onRemoveBoard}
-              onDownloadImage={onDownloadImage}
-              onDeletePage={onDeletePage}
-              sandboxToken={sandboxToken}
-              projectId={projectId}
-              panMode={spaceDown || canvasTool === "pan"}
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#27272a" />
+        <Controls showInteractive={false} position="bottom-left" />
+        <MiniMap
+          pannable
+          zoomable
+          position="bottom-right"
+          nodeColor="#3f3f46"
+          nodeBorderRadius={10}
+          maskColor="rgba(0, 0, 0, 0.55)"
+          style={{ background: "#18181b" }}
+        />
+        <ViewportPortal>
+          {/* Selection rect: chrome-owned, drawn over the frame at the captured
+              rect. ~120ms ease-out; direct manipulation stays unanimated. */}
+          {selection && selectionBoard ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute z-10 border-2 border-accent transition-all duration-[120ms] ease-out"
+              style={{
+                // The rect is in the PAGE's px; the page sits at the board's
+                // content origin (under the header, inside the frame).
+                left: selectionBoard.x + boardContentOrigin(deviceById(selectionBoard.deviceId)).x + selection.rect.x,
+                top: selectionBoard.y + boardContentOrigin(deviceById(selectionBoard.deviceId)).y + selection.rect.y,
+                width: selection.rect.w,
+                height: selection.rect.h,
+                boxShadow: "0 0 0 1px rgba(255,255,255,0.35)",
+              }}
             />
-          )
-        })}
-        {/* Selection rect: chrome-owned, drawn over the frame at the captured
-            rect. ~120ms ease-out; direct manipulation stays unanimated. */}
-        {selection && selectionBoard ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute z-10 border-2 border-accent transition-all duration-[120ms] ease-out"
-            style={{
-              left: selectionBoard.x + selection.rect.x,
-              top: selectionBoard.y + selection.rect.y,
-              width: selection.rect.w,
-              height: selection.rect.h,
-              boxShadow: "0 0 0 1px rgba(255,255,255,0.35)",
-            }}
-          />
+          ) : null}
+          {/* Comment pins live in world space so pan/zoom carry them for free. */}
+          {pins ? pins : null}
+        </ViewportPortal>
+        {inFlow ? (
+          <Panel position="bottom-center">
+            <div className="max-w-md rounded-lg border border-zinc-700 bg-zinc-900/95 px-3 py-2 text-center text-xs text-zinc-300 shadow-sm">
+              Drag a screen by its title. Drag from a screen's right dot to another's left dot to link them; click a link to
+              name or remove it.
+              {linkProblemText ? <p className="mt-1 text-rose-300">{linkProblemText}</p> : null}
+            </div>
+          </Panel>
         ) : null}
-        {/* Comment pins live in world space so pan/zoom carry them for free. */}
-        {pins ? pins : null}
-      </div>
+        {flow && currentEdge ? (
+          <Panel position="top-right">
+            <EdgeEditor
+              key={currentEdge.id}
+              title={`${labelFor(currentEdge.from)} → ${labelFor(currentEdge.to)}`}
+              label={currentEdge.label ?? ""}
+              onSave={(label) => flow.onDocChange(relabel(flow.doc, currentEdge.id, label))}
+              onDelete={() => {
+                flow.onDocChange(unlink(flow.doc, currentEdge.id))
+                setSelectedEdge(null)
+              }}
+              onClose={() => setSelectedEdge(null)}
+            />
+          </Panel>
+        ) : null}
+      </ReactFlow>
     </div>
   )
 })
+
+/// Ask the canvas to frame one board (the Pages panel, the palette, a
+/// comment). An event, not a prop: the callers are all over the surface, and
+/// the viewport belongs to React Flow.
+export const FOCUS_BOARD_EVENT = "design:focus-board"
+
+type BoardNodeData = {
+  board: Artboard
+  label: string
+  epoch: number
+  registerReport: (key: string, sink: (report: FrameReport) => void) => () => void
+  theme: string
+  picking: boolean
+  deviceIds: string[]
+  onReloadBoard: (key: string) => void
+  onOpenBoard: (key: string) => void
+  onDuplicateBoard: (key: string, deviceId: string) => void
+  onRemoveBoard: (route: string) => void
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  onDeletePage?: (route: string) => void
+  sandboxToken: string | null
+  projectId: number | null
+  panMode: boolean
+  inFlow: boolean
+}
+type BoardNodeType = Node<BoardNodeData, "board">
+
+/// A React Flow node that IS an artboard: the same header, menu and live frame
+/// every view draws — plus, in the Flow view, the dots links are dragged from.
+const BoardNode = memo(function BoardNode({ data }: NodeProps<BoardNodeType>) {
+  const device = deviceById(data.board.deviceId)
+  const mid = HEADER_H + boardHeight(device) / 2
+  return (
+    <>
+      <ArtboardCard {...data} />
+      {data.inFlow ? (
+        <>
+          <Handle type="target" position={Position.Left} className="!h-5 !w-5 !border-2 !border-white !bg-indigo-500" style={{ top: mid }} />
+          <Handle type="source" position={Position.Right} className="!h-5 !w-5 !border-2 !border-white !bg-indigo-500" style={{ top: mid }} />
+        </>
+      ) : null}
+    </>
+  )
+})
+
+const NODE_TYPES = { board: BoardNode }
+const EDGE_TYPES = { floating: FloatingEdge }
 
 // ---------------------------------------------------------------------------
 // Artboards
@@ -599,6 +673,8 @@ const ArtboardCard = memo(function ArtboardCard({
   projectId,
   panMode,
 }: {
+  /** Flow view: the header becomes the drag handle (ignored elsewhere). */
+  inFlow?: boolean
   board: Artboard
   /** The page's resolved display name (see `labelFor`). */
   label: string
@@ -648,11 +724,9 @@ const ArtboardCard = memo(function ArtboardCard({
   const strayRoute = divergedRoute(board.route, reportedRoute(report, epoch, sandboxToken))
 
   return (
-    <div
-      className="absolute"
-      style={{ left: board.x, top: board.y }}
-      data-artboard-key={board.key}
-    >
+    // Positioned by its React Flow node, which is placed at (board.x, board.y).
+    <div data-artboard-key={board.key}>
+      <div className="board-drag">
       <ArtboardHeader
         boardKey={board.key}
         route={board.route}
@@ -669,22 +743,33 @@ const ArtboardCard = memo(function ArtboardCard({
         onDownloadImage={onDownloadImage}
         onDeletePage={onDeletePage}
       />
-      <div className="overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
-        <DeviceChrome device={device}>
-          {src ? (
+      </div>
+      {/* `nodrag`: the page is for using — scroll it, pick in it — never for
+          dragging the node by. */}
+      <div className="nodrag nowheel overflow-visible" style={panMode ? { pointerEvents: "none" } : undefined}>
+        {(() => {
+          const frameHeight = framedViewportHeight(device)
+          const page = src ? (
             <LazyFrame
               src={src}
               width={device.width}
-              height={device.height}
+              height={frameHeight}
               name={board.key}
               theme={theme}
               picking={picking}
               epoch={epoch}
             />
           ) : (
-            <FrameError width={device.width} height={device.height} reason="No sandbox token — reload the surface." />
-          )}
-        </DeviceChrome>
+            <FrameError width={device.width} height={frameHeight} reason="No sandbox token — reload the surface." />
+          )
+          // A real device wears its open-source frame; a breakpoint width is
+          // no device and keeps the plain chrome.
+          return canvasFrame(device) ? (
+            <FramedBoard device={device}>{page}</FramedBoard>
+          ) : (
+            <DeviceChrome device={device}>{page}</DeviceChrome>
+          )
+        })()}
       </div>
     </div>
   )
@@ -816,7 +901,7 @@ export function ArtboardHeader({
           </span>
           <button
             type="button"
-            className="shrink-0 rounded p-1 text-amber-300 hover:bg-zinc-800"
+            className="nopan nodrag shrink-0 rounded p-1 text-amber-300 hover:bg-zinc-800"
             title={`Show ${route} again`}
             aria-label={`Show ${route} again`}
             onClick={() => onReloadBoard(boardKey)}
@@ -826,7 +911,7 @@ export function ArtboardHeader({
         </>
       ) : null}
       <button
-        className="ml-auto shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        className="nopan nodrag ml-auto shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
         title="Copy HTML"
         disabled={projectId == null}
         onClick={copyHtml}
@@ -834,7 +919,7 @@ export function ArtboardHeader({
         <ClipboardCopyIcon className="size-3.5" />
       </button>
       <button
-        className="shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+        className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
         title="Download"
         disabled={projectId == null}
         onClick={downloadHtml}
@@ -844,7 +929,9 @@ export function ArtboardHeader({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <button className="shrink-0 rounded p-1 hover:bg-zinc-800" title="More actions" />
+            // `nopan nodrag`: React Flow must not take this press as the start
+            // of a pan or a node drag, or the menu never opens.
+            <button className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800" title="More actions" />
           }
         >
           <EllipsisIcon className="size-3.5" />
@@ -976,6 +1063,49 @@ export function ArtboardHeader({
 /// rectangle. All of it is decorative padding/border around the true-size
 /// iframe — nothing here resizes the iframe or touches canvas zoom. Phones
 /// additionally expose --safe-top/--safe-bottom into the document.
+/// A board in its REAL device frame (devices.css, MIT). The frame is scaled so
+/// its screen is exactly `device.width` wide, and the page inside is scaled
+/// back so it renders 1:1 — its breakpoints honest, its text the usual size,
+/// and a position it reports needing only `boardContentOrigin`'s offset. The
+/// screen's status-bar strip (under a notch or Dynamic Island) stays clear.
+export function FramedBoard({ device, children }: { device: DevicePreset; children: React.ReactNode }) {
+  const framed = canvasFrame(device)
+  if (!framed) return <>{children}</>
+  const { frame, metrics: m, scale: k } = framed
+  return (
+    <div className="relative" style={{ width: Math.round(m.w * k), height: Math.round(m.h * k) }}>
+      <div
+        className={`device device-${frame}`}
+        style={{ position: "absolute", top: 0, left: 0, transform: `scale(${k})`, transformOrigin: "top left" }}
+      >
+        <div className="device-frame">
+          <div className="device-screen" style={{ position: "relative", overflow: "hidden", background: "#fff" }}>
+            <div
+              style={{
+                position: "absolute",
+                top: m.statusBar,
+                left: 0,
+                width: device.width,
+                height: framedViewportHeight(device),
+                transform: `scale(${1 / k})`,
+                transformOrigin: "top left",
+              }}
+            >
+              {children}
+            </div>
+          </div>
+        </div>
+        <div className="device-stripe" />
+        <div className="device-header" />
+        <div className="device-sensors" />
+        <div className="device-btns" />
+        <div className="device-power" />
+        <div className="device-home" />
+      </div>
+    </div>
+  )
+}
+
 export function DeviceChrome({
   device,
   children,

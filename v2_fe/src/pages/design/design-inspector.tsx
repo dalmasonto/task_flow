@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { type Artboard } from "@/lib/design-devices"
+import { boardContentOrigin, deviceById, type Artboard } from "@/lib/design-devices"
 import {
   type DesignComment,
   type DesignManifest,
@@ -691,8 +691,10 @@ export function CommentPins({
               selectedPinId === comment.id && "ring-2 ring-white ring-offset-2 ring-offset-accent",
             )}
             style={{
-              left: board.x + rect.x + rect.w,
-              top: board.y + rect.y,
+              // The anchor is in the PAGE's px: offset by where the page sits
+              // inside its board (header, frame or bezel).
+              left: board.x + boardContentOrigin(deviceById(board.deviceId)).x + rect.x + rect.w,
+              top: board.y + boardContentOrigin(deviceById(board.deviceId)).y + rect.y,
             }}
           >
             {pinNumber(comment.id)}

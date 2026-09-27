@@ -62,25 +62,8 @@ export function exportItems(
   }))
 }
 
-/// The open-source frame (devices.css, MIT) a device wears, or null where no
-/// honest frame exists — a Tailwind breakpoint is a width, not a device.
-const FRAMES: Record<string, string> = {
-  "iphone-se": "iphone-8",
-  "iphone-16-pro": "iphone-14-pro",
-  "iphone-16-pro-max": "iphone-14-pro",
-  "pixel-8": "google-pixel-6-pro",
-  "galaxy-s24": "galaxy-s8",
-  "ipad-mini": "ipad-pro",
-  "ipad-pro-11": "ipad-pro",
-  "ipad-pro-13": "ipad-pro",
-  laptop: "macbook-pro",
-  "laptop-l": "macbook-pro",
-  desktop: "imac",
-}
-
-export function frameFor(deviceId: string): string | null {
-  return FRAMES[deviceId] ?? null
-}
+// The frames are shared with the canvas (`lib/design-frames`).
+export { FRAME_METRICS, frameFor } from "@/lib/design-frames"
 
 /// Phones print four to a page; everything larger prints two (the owner's
 /// call: a laptop layout needs the room).
