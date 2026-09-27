@@ -195,6 +195,16 @@
     background-color: color-mix(in oklch, var(--primary) 48%, transparent);
   }
 
+  /* #509: a strip that scrolls sideways (the design toolbar on a phone)
+     without drawing a scrollbar under its buttons. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   .chat-thread-bg {
     background-color: color-mix(in oklch, var(--muted) 68%, var(--background));
     background-image:

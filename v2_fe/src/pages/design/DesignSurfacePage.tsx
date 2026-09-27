@@ -10,7 +10,9 @@ import {
   CrosshairIcon,
   HandIcon,
   LayoutGridIcon,
+  MessageSquareIcon,
   MonitorSmartphoneIcon,
+  PanelRightIcon,
   MoonIcon,
   MousePointer2Icon,
   RowsIcon,
@@ -34,6 +36,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   fetchDesignComments,
   fetchDesignManifest,
@@ -334,6 +337,25 @@ export function DesignSurfacePage({
   }, [projectId])
 
   const [paletteOpen, setPaletteOpen] = useState(false)
+
+  // #509: the chat rail and the right panel can be closed. Wide screens start
+  // with both open, beside the canvas; below `lg` they start closed and open
+  // as overlays over the canvas, one at a time. The choice is a per-viewer
+  // convenience, so it lives in localStorage (per breakpoint class), never in
+  // the shared UI-state record.
+  const [chatOpen, setChatOpen] = useState(() => readPanelPref("chat"))
+  const [panelOpen, setPanelOpen] = useState(() => readPanelPref("panel"))
+  const togglePanel = (which: "chat" | "panel") => {
+    const set = which === "chat" ? setChatOpen : setPanelOpen
+    const other = which === "chat" ? setPanelOpen : setChatOpen
+    set((open) => {
+      const next = !open
+      writePanelPref(which, next)
+      // Two overlays would cover the whole canvas on a phone.
+      if (next && !isWideScreen()) other(false)
+      return next
+    })
+  }
 
   // Right panel tab: defaults to Pages, and auto-switches to Inspect the
   // moment an element is picked on the canvas (a newly-appeared selection) —
@@ -817,12 +839,24 @@ export function DesignSurfacePage({
   return (
     <section className="flex h-full min-h-0 flex-col bg-background">
       {/* Toolbar */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+      {/* The toolbar scrolls sideways rather than wrapping or clipping on a
+          narrow screen; every control keeps its size (`*:shrink-0`). */}
+      <header className="scrollbar-none flex h-14 shrink-0 items-center gap-3 overflow-x-auto border-b px-2 sm:px-4 [&>*]:shrink-0">
         <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard/board")}>
           <ChevronLeftIcon className="size-4" />
-          Back
+          <span className="hidden sm:inline">Back</span>
         </Button>
-        <span className="text-sm font-semibold">Design</span>
+        <Button
+          variant={chatOpen ? "secondary" : "ghost"}
+          size="icon"
+          title={chatOpen ? "Hide design chat" : "Show design chat"}
+          aria-label={chatOpen ? "Hide design chat" : "Show design chat"}
+          aria-pressed={chatOpen}
+          onClick={() => togglePanel("chat")}
+        >
+          <MessageSquareIcon className="size-4" />
+        </Button>
+        <span className="hidden text-sm font-semibold md:inline">Design</span>
 
         <PagePicker
           routes={manifest?.routes ?? []}
@@ -881,12 +915,37 @@ export function DesignSurfacePage({
             <CrosshairIcon className="size-4" />
             {picking ? "Picking…" : "Pick"}
           </Button>
+          <Button
+            variant={panelOpen ? "secondary" : "ghost"}
+            size="icon"
+            title={panelOpen ? "Hide side panel" : "Show side panel"}
+            aria-label={panelOpen ? "Hide side panel" : "Show side panel"}
+            aria-pressed={panelOpen}
+            onClick={() => togglePanel("panel")}
+          >
+            <PanelRightIcon className="size-4" />
+          </Button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* LEFT: the design chat rail — the reusable chat, filtered to design. */}
-        <aside className="flex w-[380px] shrink-0 flex-col border-r">
+      <div className="relative flex min-h-0 flex-1">
+        {/* LEFT: the design chat rail — the reusable chat, filtered to design.
+            Beside the canvas on wide screens; an overlay below `lg`. */}
+        <aside
+          className={cn(
+            "min-h-0 flex-col border-r bg-background",
+            "absolute inset-y-0 left-0 z-30 w-[min(380px,100%)] shadow-2xl lg:static lg:z-auto lg:w-[380px] lg:shrink-0 lg:shadow-none",
+            chatOpen ? "flex" : "hidden",
+          )}
+        >
+          {/* #509: an overlay needs its own way out — the toolbar toggle can
+              be scrolled out of view on a phone. */}
+          <div className="flex shrink-0 items-center justify-between border-b px-3 py-1 lg:hidden">
+            <span className="text-xs font-medium text-muted-foreground">Design chat</span>
+            <Button variant="ghost" size="icon-sm" aria-label="Close design chat" onClick={() => togglePanel("chat")}>
+              <XIcon className="size-4" />
+            </Button>
+          </div>
           {project ? (
             <DesignChatRail
               project={project}
@@ -953,7 +1012,18 @@ export function DesignSurfacePage({
             tabs. Auto-switches to Inspect when an element is picked on the
             canvas (see the `rightTab` effect above); otherwise the human's
             chosen tab is never fought over. */}
-        <aside className="hidden min-h-0 w-[380px] shrink-0 flex-col border-l lg:flex">
+        <aside
+          className={cn(
+            "min-h-0 flex-col border-l bg-background",
+            "absolute inset-y-0 right-0 z-30 w-[min(380px,100%)] shadow-2xl lg:static lg:z-auto lg:w-[380px] lg:shrink-0 lg:shadow-none",
+            panelOpen ? "flex" : "hidden",
+          )}
+        >
+          <div className="flex shrink-0 justify-end border-b px-2 py-1 lg:hidden">
+            <Button variant="ghost" size="icon-sm" aria-label="Close side panel" onClick={() => togglePanel("panel")}>
+              <XIcon className="size-4" />
+            </Button>
+          </div>
           <Tabs
             value={rightTab}
             onValueChange={(value) => setRightTab(value as DesignTab)}
@@ -1503,4 +1573,33 @@ function EmptyCanvas({ message }: { message: string }) {
       </div>
     </div>
   )
+}
+
+
+/// #509: the `lg` breakpoint, where the side panels stop being overlays.
+function isWideScreen(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(min-width: 1024px)").matches === true
+}
+
+/// #509: the stored open/closed choice for a side panel, per breakpoint class,
+/// defaulting to open on a wide screen and closed on a narrow one. Storage can
+/// throw (private mode, blocked site data) and must never break the page.
+function readPanelPref(which: "chat" | "panel"): boolean {
+  const wide = isWideScreen()
+  try {
+    const stored = window.localStorage.getItem(`taskflow.design.${which}.${wide ? "wide" : "narrow"}`)
+    if (stored === "1") return true
+    if (stored === "0") return false
+  } catch {
+    /* fall through to the default */
+  }
+  return wide
+}
+
+function writePanelPref(which: "chat" | "panel", open: boolean): void {
+  try {
+    window.localStorage.setItem(`taskflow.design.${which}.${isWideScreen() ? "wide" : "narrow"}`, open ? "1" : "0")
+  } catch {
+    /* a convenience, not state — ignore */
+  }
 }
