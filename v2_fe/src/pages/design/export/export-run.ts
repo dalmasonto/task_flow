@@ -12,6 +12,7 @@
 
 
 import { sandboxUrl } from "@/lib/design-api"
+import { inlineFontCss } from "./font-inline"
 import { statusBarHtml, statusBarStyle } from "@/lib/design-frames"
 import type { ChromeStyle, DevicePreset } from "@/lib/design-devices"
 import {
@@ -87,8 +88,26 @@ function capturePage(route: string, opts: ExportOptions): Promise<Picture> {
       // Only THIS frame's messages: every artboard on the canvas speaks the
       // same protocol.
       if (event.source !== frame.contentWindow) return
-      const data = event.data as { type?: string; id?: string; dataUrl?: string; error?: string; width?: number; height?: number }
+      const data = event.data as {
+        type?: string
+        id?: string
+        dataUrl?: string
+        error?: string
+        width?: number
+        height?: number
+        sheets?: unknown
+        faces?: unknown
+      }
       if (!data || typeof data !== "object") return
+      // The page's webfonts, fetched here and handed back inline (see
+      // `font-inline.ts`). Only for the capture this frame was asked for.
+      if (data.type === "design:font-sources" && data.id === id) {
+        const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
+        void inlineFontCss({ sheets: strings(data.sheets), faces: strings(data.faces) })
+          .catch(() => "")
+          .then((cssText) => frame.contentWindow?.postMessage({ type: "design:font-css", id, cssText }, "*"))
+        return
+      }
       if (data.type === "design:ready" && !asked) {
         asked = true
         frame.contentWindow?.postMessage({ type: "design:theme", theme: opts.theme }, "*")

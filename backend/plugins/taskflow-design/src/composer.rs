@@ -127,6 +127,46 @@ const PICKER_RUNTIME: &str = r#"(() => {
     { type: 'design:size', h: document.documentElement.scrollHeight }, '*'));
   ro.observe(document.documentElement);
 
+  // #507 follow-up: the export's font sources (see `design:capture`).
+  // `sheets` are stylesheets whose text the chrome must fetch (cross-origin
+  // links this document cannot read, and @imports); `faces` are @font-face
+  // rules already readable here whose font files are remote.
+  const fontSources = () => {
+    const sheets = new Set();
+    const faces = [];
+    const abs = (url, base) => { try { return new URL(url, base).href; } catch (_) { return null; } };
+    const walk = (rules, base) => {
+      for (const rule of rules) {
+        if (rule.type === CSSRule.IMPORT_RULE) {
+          const href = abs(rule.href, base);
+          if (href) sheets.add(href);
+        } else if (rule.type === CSSRule.FONT_FACE_RULE) {
+          faces.push(rule.cssText.replace(/url\((['"]?)([^'")]+)\1\)/g,
+            (raw, q, url) => url.startsWith('data:') ? raw : 'url("' + (abs(url, base) || url) + '")'));
+        } else if (rule.cssRules) {
+          walk(rule.cssRules, base);
+        }
+      }
+    };
+    for (const sheet of document.styleSheets) {
+      let rules = null;
+      try { rules = sheet.cssRules; } catch (_) { rules = null; }
+      if (rules) walk(rules, sheet.href || location.href);
+      else if (sheet.href) sheets.add(sheet.href);
+    }
+    return { sheets: [...sheets].filter((u) => u.startsWith('https:')), faces };
+  };
+  const fontWaits = new Map();
+  const askForFonts = (id) => {
+    const { sheets, faces } = fontSources();
+    if (!sheets.length && !faces.length) return Promise.resolve('');
+    return new Promise((resolve) => {
+      fontWaits.set(id, resolve);
+      parent.postMessage({ type: 'design:font-sources', id, sheets, faces }, '*');
+      setTimeout(() => { if (fontWaits.has(id)) { fontWaits.delete(id); resolve(''); } }, 15000);
+    });
+  };
+
   addEventListener('message', (e) => {
     const m = e.data;
     if (!m || typeof m !== 'object') return;
@@ -139,12 +179,26 @@ const PICKER_RUNTIME: &str = r#"(() => {
     // resolve, which a cross-origin parent could never read. The library comes
     // from jsdelivr, which the sandbox CSP already allows for scripts. The
     // reply echoes the request id so concurrent exports cannot cross.
+    //
+    // Webfonts are the one thing this document cannot picture on its own. The
+    // capture draws the page as an SVG image, and an image loads nothing, so
+    // every font must be INLINED — but a cross-origin stylesheet's rules are
+    // unreadable here, and the font files are refused by this document's
+    // `connect-src` (deliberately tight: see `sandbox_csp`). So the runtime
+    // only DISCOVERS its font sources and asks the chrome, which fetches them
+    // outside the sandbox and answers with CSS whose fonts are data: URLs.
+    // No answer in time means the capture goes ahead with the fonts it has.
+    if (m.type === 'design:font-css' && fontWaits.has(m.id)) {
+      fontWaits.get(m.id)(typeof m.cssText === 'string' ? m.cssText : '');
+      fontWaits.delete(m.id);
+    }
     if (m.type === 'design:capture') {
       const id = m.id;
       (async () => {
         try {
           const lib = await import('https://cdn.jsdelivr.net/npm/modern-screenshot@4.7.0/+esm');
           if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          const fontCss = await askForFonts(id);
           const root = document.documentElement;
           const width = innerWidth;
           const height = m.fullPage ? Math.max(root.scrollHeight, innerHeight) : innerHeight;
@@ -153,6 +207,7 @@ const PICKER_RUNTIME: &str = r#"(() => {
             width, height,
             scale: Math.min(Math.max(Number(m.scale) || 1, 1), 3),
             backgroundColor: bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#ffffff',
+            ...(fontCss ? { font: { cssText: fontCss } } : {}),
           });
           parent.postMessage({ type: 'design:captured', id, dataUrl, width, height }, '*');
         } catch (err) {
@@ -1013,6 +1068,12 @@ mod tests {
         // cannot silently drop the export's only way to picture a page.
         assert!(PICKER_RUNTIME.contains("m.type === 'design:capture'"));
         assert!(PICKER_RUNTIME.contains("type: 'design:captured', id, dataUrl"));
+        // The export's fonts: the runtime asks the chrome for its font
+        // sources and captures with the CSS it gets back, because this
+        // document's `connect-src` cannot fetch a remote font itself.
+        assert!(PICKER_RUNTIME.contains("type: 'design:font-sources', id, sheets, faces"));
+        assert!(PICKER_RUNTIME.contains("m.type === 'design:font-css'"));
+        assert!(PICKER_RUNTIME.contains("font: { cssText: fontCss }"));
         assert!(PICKER_RUNTIME.contains("cdn.jsdelivr.net/npm/modern-screenshot@"));
         assert!(!PICKER_RUNTIME.to_ascii_lowercase().contains("</script"));
     }
