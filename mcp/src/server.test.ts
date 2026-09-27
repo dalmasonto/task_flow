@@ -920,3 +920,90 @@ describe("layout write tools", () => {
     expect(harness.layoutOps).toHaveLength(0);
   });
 });
+
+describe("#508 user-flow tools", () => {
+  it("registers design_link_pages and design_unlink_pages, and explains the flow", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const names = tools.tools.map((t) => t.name);
+    expect(names).toContain("design_link_pages");
+    expect(names).toContain("design_unlink_pages");
+    const link = tools.tools.find((t) => t.name === "design_link_pages");
+    expect(link?.description ?? "").toMatch(/Flow canvas/);
+    expect(link?.description ?? "").toMatch(/new user/);
+    const read = tools.tools.find((t) => t.name === "design_read_layout");
+    expect(read?.description ?? "").toMatch(/edges/);
+    expect(read?.description ?? "").toMatch(/positions/);
+  });
+
+  it("design_link_pages sends a link_pages op, omitting an absent label", async () => {
+    const client = await connectedClient();
+    const labelled = await client.callTool({
+      name: "design_link_pages",
+      arguments: { profile: "main", from: "/welcome", to: "/signup", label: "new user" },
+    });
+    expect(labelled.isError).toBeFalsy();
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      op: { link_pages: { from: "/welcome", to: "/signup", label: "new user" } },
+    });
+    await client.callTool({
+      name: "design_link_pages",
+      arguments: { profile: "main", from: "/welcome", to: "/login" },
+    });
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      op: { link_pages: { from: "/welcome", to: "/login" } },
+    });
+  });
+
+  it("design_unlink_pages sends by edge_id or by from+to, and refuses a mix", async () => {
+    const client = await connectedClient();
+    await client.callTool({ name: "design_unlink_pages", arguments: { profile: "main", edge_id: "e1" } });
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({ op: { unlink_pages: { edge_id: "e1" } } });
+    await client.callTool({
+      name: "design_unlink_pages",
+      arguments: { profile: "main", from: "/a", to: "/b" },
+    });
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      op: { unlink_pages: { from: "/a", to: "/b" } },
+    });
+
+    const before = harness.layoutOps.length;
+    for (const args of [{}, { edge_id: "e1", from: "/a", to: "/b" }, { from: "/a" }]) {
+      const result = await client.callTool({ name: "design_unlink_pages", arguments: { profile: "main", ...args } });
+      expect(result.isError, JSON.stringify(args)).toBe(true);
+    }
+    expect(harness.layoutOps.length).toBe(before);
+  });
+
+  it("design_arrange accepts the four flow ops in the route's wire shape", async () => {
+    const client = await connectedClient();
+    const ops = [
+      { link_pages: { from: "/welcome", to: "/signup", label: "new user" } },
+      { unlink_pages: { edge_id: "e1" } },
+      { unlink_pages: { from: "/a", to: "/b" } },
+      { update_link: { edge_id: "e2", label: "existing user" } },
+      { update_link: { edge_id: "e2" } },
+      { place_page: { route: "/welcome", x: 0, y: -120.5 } },
+    ];
+    const result = await client.callTool({ name: "design_arrange", arguments: { profile: "main", ops } });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({ ops });
+  });
+
+  it("design_arrange refuses malformed flow ops before sending (strict shapes)", async () => {
+    const client = await connectedClient();
+    const before = harness.layoutOps.length;
+    for (const op of [
+      { link_pages: { from: "/a" } },
+      { link_pages: { from: "/a", to: "/b", lable: "typo" } },
+      { unlink_pages: { edge_id: "e1", from: "/a", to: "/b" } },
+      { place_page: { route: "/a", x: 1 } },
+      { place_page: { route: "/a", x: "1", y: 2 } },
+      { update_link: { label: "x" } },
+    ]) {
+      const result = await client.callTool({ name: "design_arrange", arguments: { profile: "main", ops: [op] } });
+      expect(result.isError, JSON.stringify(op)).toBe(true);
+    }
+    expect(harness.layoutOps.length).toBe(before);
+  });
+});

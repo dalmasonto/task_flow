@@ -187,7 +187,13 @@ export type DesignLayoutOp =
   | { update_group: { group_id: string; name: string } }
   | { reorder_group: { group_id: string; position: number } }
   | { reorder_page: { route: string; group_id?: string; position?: number } }
-  | { delete_group: { group_id: string } };
+  | { delete_group: { group_id: string } }
+  // #508: the user flow — arrows between pages on the Flow canvas, and each
+  // page's fixed node position there.
+  | { link_pages: { from: string; to: string; label?: string } }
+  | { unlink_pages: { edge_id: string } | { from: string; to: string } }
+  | { update_link: { edge_id: string; label?: string } }
+  | { place_page: { route: string; x: number; y: number } };
 
 export class TaskflowClient {
   private readonly server: string;

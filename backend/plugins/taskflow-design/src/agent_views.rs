@@ -382,6 +382,11 @@ pub async fn read_layout(
         "ungrouped": ungrouped,
         "page_labels": doc.page_labels,
         "pages": pages,
+        // #508: the user flow. Arrows between pages by route, in creation
+        // order, and each pinned page's canvas position. Both are the stored
+        // fields verbatim (after dropping pages that are gone).
+        "edges": doc.edges,
+        "positions": doc.positions,
         // Two different numbers answering two different questions, and the one
         // to hand BACK is `version`: the layout row's own, `0` while nothing
         // has been arranged, and what a write's `base_version` is compared
@@ -408,8 +413,13 @@ pub async fn read_layout(
                  so the two tools do NOT agree on that word: match on `route` \
                  here, and on `path` against its `routes`. `view` is the canvas \
                  arrangement \
-                 (rows/bands/groups) and the grouping reads the same in all \
-                 three. Arrange it with the layout write tools, which take an \
+                 (rows/bands/groups/flow) and the grouping reads the same in \
+                 every one; `flow` is the user-flow canvas. `edges` is the user flow drawn as arrows on the Flow \
+                 canvas: each `{id, from, to, label?}` says a user goes from \
+                 route `from` to route `to` (the label names the path, e.g. \
+                 \"new user\" / \"existing user\"). `positions` maps a route \
+                 to its fixed `{x, y}` node on that canvas; an unlisted page is \
+                 auto-placed. Arrange it with the layout write tools, which take an \
                  operation — never PUT a document built from this response \
                  back, because this is the panel's view and not the stored \
                  form."
@@ -965,6 +975,32 @@ pub enum LayoutOp {
     },
     /// #501: remove a group; its pages fall back to Ungrouped, none is deleted.
     DeleteGroup { group_id: String },
+    /// #508: draw a flow arrow `from → to` ("the user goes from here to
+    /// there"), optionally labelled ("new user"). Mints the edge id.
+    LinkPages {
+        from: String,
+        to: String,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// #508: remove a flow arrow, named by `edge_id` OR by `from` + `to`.
+    UnlinkPages {
+        #[serde(default)]
+        edge_id: Option<String>,
+        #[serde(default)]
+        from: Option<String>,
+        #[serde(default)]
+        to: Option<String>,
+    },
+    /// #508: relabel a flow arrow; an absent, null or blank label clears it.
+    UpdateLink {
+        edge_id: String,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// #508: pin a page's node at `(x, y)` on the Flow canvas. Not to be
+    /// confused with `ReorderPage`, which moves a page in the LIST.
+    PlacePage { route: String, x: f64, y: f64 },
 }
 
 impl LayoutOp {
@@ -976,6 +1012,10 @@ impl LayoutOp {
             LayoutOp::ReorderGroup { .. } => "reorder_group",
             LayoutOp::ReorderPage { .. } => "reorder_page",
             LayoutOp::DeleteGroup { .. } => "delete_group",
+            LayoutOp::LinkPages { .. } => "link_pages",
+            LayoutOp::UnlinkPages { .. } => "unlink_pages",
+            LayoutOp::UpdateLink { .. } => "update_link",
+            LayoutOp::PlacePage { .. } => "place_page",
         }
     }
 }
@@ -998,23 +1038,32 @@ pub struct AgentLayoutWrite {
     pub ops: Option<Vec<LayoutOp>>,
 }
 
-/// Apply one op to `doc`, returning the next document and — for a create — the
-/// id it minted. Every rule failure is the op's own message, for a 400.
+/// What one op touched beyond what the op itself names: the group id a create
+/// minted, and the flow edge a link op minted or resolved (#508).
+#[derive(Default)]
+struct OpEffect {
+    minted_group: Option<String>,
+    edge: Option<String>,
+}
+
+/// Apply one op to `doc`, returning the next document and its `OpEffect`.
+/// Every rule failure is the op's own message, for a 400.
 fn apply_layout_op(
     doc: LayoutDoc,
     known: &[String],
     op: &LayoutOp,
-) -> Result<(LayoutDoc, Option<String>), String> {
+) -> Result<(LayoutDoc, OpEffect), String> {
+    let none = |next: LayoutDoc| (next, OpEffect::default());
     match op {
         LayoutOp::CreateGroup { name } => {
             let (next, id) = layout_doc::create_group(doc, name);
-            Ok((next, Some(id)))
+            Ok((next, OpEffect { minted_group: Some(id), edge: None }))
         }
         LayoutOp::UpdateGroup { group_id, name } => {
-            layout_doc::rename_group(doc, group_id, name).map(|next| (next, None))
+            layout_doc::rename_group(doc, group_id, name).map(none)
         }
         LayoutOp::ReorderGroup { group_id, position } => {
-            layout_doc::move_group(doc, group_id, *position).map(|next| (next, None))
+            layout_doc::move_group(doc, group_id, *position).map(none)
         }
         LayoutOp::ReorderPage { route, group_id, position } => {
             // Spec §6: `group_id` alone appends to that group, `position`
@@ -1027,10 +1076,26 @@ fn apply_layout_op(
                 return Err("reorder_page needs a group_id, a position, or both".to_string());
             }
             layout_doc::place_page(doc, known, route, group_id.as_deref(), *position)
-                .map(|next| (next, None))
+                .map(none)
         }
         LayoutOp::DeleteGroup { group_id } => {
-            layout_doc::delete_group(doc, group_id).map(|next| (next, None))
+            layout_doc::delete_group(doc, group_id).map(none)
+        }
+        LayoutOp::LinkPages { from, to, label } => {
+            let (next, id) = layout_doc::link_pages(doc, known, from, to, label.as_deref())?;
+            Ok((next, OpEffect { minted_group: None, edge: Some(id) }))
+        }
+        LayoutOp::UnlinkPages { edge_id, from, to } => {
+            let id = layout_doc::find_edge(&doc, edge_id.as_deref(), from.as_deref(), to.as_deref())?;
+            let next = layout_doc::unlink_pages(doc, &id)?;
+            Ok((next, OpEffect { minted_group: None, edge: Some(id) }))
+        }
+        LayoutOp::UpdateLink { edge_id, label } => {
+            let next = layout_doc::update_link(doc, edge_id, label.as_deref())?;
+            Ok((next, OpEffect { minted_group: None, edge: Some(edge_id.clone()) }))
+        }
+        LayoutOp::PlacePage { route, x, y } => {
+            layout_doc::set_position(doc, known, route, *x, *y).map(none)
         }
     }
 }
@@ -1042,6 +1107,8 @@ enum LayoutOutcome {
         version: i64,
         groups: Vec<String>,
         routes: Vec<String>,
+        edges: Vec<String>,
+        positions: Vec<String>,
     },
     Conflict {
         current: i64,
@@ -1136,11 +1203,17 @@ pub async fn write_layout(
             let batched = ops.len() > 1;
             let mut next = doc;
             let mut minted: Vec<String> = Vec::new();
+            let mut changed_edges: Vec<String> = Vec::new();
             for (index, op) in ops.iter().enumerate() {
                 match apply_layout_op(next, &known, op) {
-                    Ok((doc, id)) => {
+                    Ok((doc, effect)) => {
                         next = doc;
-                        minted.extend(id);
+                        minted.extend(effect.minted_group);
+                        if let Some(edge) = effect.edge {
+                            if !changed_edges.contains(&edge) {
+                                changed_edges.push(edge);
+                            }
+                        }
                     }
                     Err(message) => {
                         return Ok(LayoutOutcome::Invalid(if batched {
@@ -1280,6 +1353,10 @@ pub async fn write_layout(
                     | LayoutOp::ReorderGroup { group_id, .. }
                     | LayoutOp::DeleteGroup { group_id } => Some(group_id.clone()),
                     LayoutOp::ReorderPage { group_id, .. } => group_id.clone(),
+                    LayoutOp::LinkPages { .. }
+                    | LayoutOp::UnlinkPages { .. }
+                    | LayoutOp::UpdateLink { .. }
+                    | LayoutOp::PlacePage { .. } => None,
                 };
                 if let Some(id) = named {
                     if !changed_groups.contains(&id) {
@@ -1326,6 +1403,18 @@ pub async fn write_layout(
             }
             changed_routes.sort();
 
+            // #508: the pages whose canvas position a `place_page` set, in op
+            // order, each once. Kept apart from `routes`, which is the LIST
+            // numbering — a canvas placement never moves a page in the list.
+            let mut changed_positions: Vec<String> = Vec::new();
+            for op in ops.iter() {
+                if let LayoutOp::PlacePage { route, .. } = op {
+                    if !changed_positions.contains(route) {
+                        changed_positions.push(route.clone());
+                    }
+                }
+            }
+
             // The type is named at the tail so the earlier `return`s resolve:
             // the closure's error side is `StatusCode` (same turbofish idiom as
             // `views.rs::put_layout`), which is what makes a rule failure a 400
@@ -1334,17 +1423,24 @@ pub async fn write_layout(
                 version: next_version,
                 groups: changed_groups,
                 routes: changed_routes,
+                edges: changed_edges,
+                positions: changed_positions,
             })
         })
         .await?;
 
     Ok(match outcome {
-        LayoutOutcome::Written { version, groups, routes } => (
+        LayoutOutcome::Written { version, groups, routes, edges, positions } => (
             StatusCode::OK,
             Json(json!({
                 "ok": true,
                 "version": version,
-                "changed": { "groups": groups, "routes": routes },
+                "changed": {
+                    "groups": groups,
+                    "routes": routes,
+                    "edges": edges,
+                    "positions": positions,
+                },
             })),
         )
             .into_response(),

@@ -25,8 +25,8 @@ export type DesignCommentStatus = "open" | "sent" | "addressed" | "dismissed";
 /** `token` = Token, `component` = Component, `page` = Page, `asset` = Asset */
 export type DesignFileKind = "token" | "component" | "page" | "asset";
 
-/** `rows` = Rows, `bands` = Bands, `groups` = Groups */
-export type DesignLayoutView = "rows" | "bands" | "groups";
+/** `rows` = Rows, `bands` = Bands, `groups` = Groups, `flow` = Flow */
+export type DesignLayoutView = "rows" | "bands" | "groups" | "flow";
 
 /** `project` = Project, `task` = Task, `direct` = Direct, `incident` = Incident, `group` = Group */
 export type TaskflowAgentChannelKind = "project" | "task" | "direct" | "incident" | "group";

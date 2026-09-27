@@ -185,6 +185,9 @@ pub enum DesignView {
     Rows,
     Bands,
     Groups,
+    /// #508: the user-flow canvas — pages as nodes, `edges` drawn as arrows,
+    /// `positions` pinning each node.
+    Flow,
 }
 
 /// The project's canvas arrangement — one row per project (unique together on

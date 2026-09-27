@@ -12,7 +12,7 @@
 //!     names, and refusing to serve it would wedge the client against a
 //!     document it has no way to repair.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,15 @@ pub const MAX_GROUPS: usize = 24;
 pub const MAX_GROUP_NAME: usize = 40;
 pub const MAX_LABEL: usize = 40;
 const MAX_GROUP_ID: usize = 64;
+/// #508: the most flow edges one document may hold. A user flow over a design
+/// board is tens of arrows; the cap only bounds a runaway writer.
+pub const MAX_EDGES: usize = 400;
+/// #508: an edge label ("new user", "existing user") — the same cap as a group
+/// name, for the same reason: it is drawn inline on the canvas.
+pub const MAX_EDGE_LABEL: usize = 40;
+/// #508: canvas coordinates are clamped to ±this. Far beyond any real board, and
+/// small enough that no renderer's arithmetic gets near precision trouble.
+pub const MAX_COORD: f64 = 100_000.0;
 
 /// The id alphabet for minted group ids: lowercase base36, so an id is a single
 /// URL-safe token with nothing to escape.
@@ -37,6 +46,34 @@ const GROUP_ID_DIGITS: usize = 12;
 /// document's ids is enough, and the `g` prefix keeps a minted id in the same
 /// family as one the panel made.
 pub fn mint_group_id(existing: &[String]) -> String {
+    mint_id('g', existing)
+}
+
+/// #508: mint a flow-edge id: `e<n>`, where `n` is one more than the largest
+/// `n` of any existing id spelled exactly `e` + ASCII digits (ids of any other
+/// spelling are ignored), starting at `e1`.
+///
+/// Deterministic on purpose, unlike group ids: the operator's UI mints edges
+/// CLIENT-side and PUTs the whole document, and the same rule on both sides
+/// means either writer, starting from the document it holds, picks an id no
+/// edge in that document has. (A deleted top id can be reused by the next
+/// link — ids are unique within a document, not forever.)
+pub fn mint_edge_id(existing: &[String]) -> String {
+    let max = existing
+        .iter()
+        .filter_map(|id| {
+            let digits = id.strip_prefix('e')?;
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            digits.parse::<u64>().ok()
+        })
+        .max()
+        .unwrap_or(0);
+    format!("e{}", max.saturating_add(1))
+}
+
+fn mint_id(prefix: char, existing: &[String]) -> String {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
 
@@ -48,7 +85,7 @@ pub fn mint_group_id(existing: &[String]) -> String {
         let mut n = hasher.finish();
 
         let mut id = String::with_capacity(1 + GROUP_ID_DIGITS);
-        id.push('g');
+        id.push(prefix);
         for _ in 0..GROUP_ID_DIGITS {
             id.push(ID_ALPHABET[(n % 36) as usize] as char);
             n /= 36;
@@ -257,12 +294,137 @@ pub fn place_page(
     };
     flow.insert(insert_at, route.to_string());
 
-    Ok(LayoutDoc {
-        view: doc.view,
-        route_order: flow,
-        groups,
-        page_labels: doc.page_labels,
-    })
+    Ok(LayoutDoc { route_order: flow, groups, ..doc })
+}
+
+// ---------------------------------------------------------------------------
+// #508: the user flow — arrows between pages, and where each page sits
+// ---------------------------------------------------------------------------
+
+/// Add an arrow `from → to`. Returns the document and the minted edge id.
+///
+/// The route, self-loop and duplicate checks are made HERE as well as in
+/// `validate` so an agent gets a sentence about the link it asked for rather
+/// than a document-level one; `validate` still runs over the result and is the
+/// rule's enforcement for the operator's PUT. The label's rules (trim, blank is
+/// no label, length) live in `validate` only.
+pub fn link_pages(
+    doc: LayoutDoc,
+    known_routes: &[String],
+    from: &str,
+    to: &str,
+    label: Option<&str>,
+) -> Result<(LayoutDoc, String), String> {
+    for route in [from, to] {
+        if !known_routes.iter().any(|r| r == route) {
+            return Err(format!("\"{route}\" is not a page in this project"));
+        }
+    }
+    if from == to {
+        return Err(format!("a page cannot link to itself (\"{from}\")"));
+    }
+    if let Some(existing) = doc.edges.iter().find(|e| e.from == from && e.to == to) {
+        return Err(format!(
+            "\"{from}\" already links to \"{to}\" (edge \"{}\"); use update_link to relabel it",
+            existing.id
+        ));
+    }
+    if doc.edges.len() >= MAX_EDGES {
+        return Err(format!("at most {MAX_EDGES} flow links are allowed"));
+    }
+    let existing: Vec<String> = doc.edges.iter().map(|e| e.id.clone()).collect();
+    let id = mint_edge_id(&existing);
+    let mut edges = doc.edges;
+    edges.push(FlowEdge {
+        id: id.clone(),
+        from: from.to_string(),
+        to: to.to_string(),
+        label: label.map(str::to_string),
+    });
+    Ok((LayoutDoc { edges, ..doc }, id))
+}
+
+/// Resolve an edge by id, or by its `(from, to)` pair — the two ways a caller
+/// can name one. Exactly one of the two must be given.
+pub fn find_edge(
+    doc: &LayoutDoc,
+    edge_id: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<String, String> {
+    match (edge_id, from, to) {
+        (Some(id), None, None) => doc
+            .edges
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| e.id.clone())
+            .ok_or_else(|| format!("no flow link with id \"{id}\"")),
+        (None, Some(from), Some(to)) => doc
+            .edges
+            .iter()
+            .find(|e| e.from == from && e.to == to)
+            .map(|e| e.id.clone())
+            .ok_or_else(|| format!("\"{from}\" does not link to \"{to}\"")),
+        _ => Err("name the link by `edge_id`, or by both `from` and `to` (one way, not both)".into()),
+    }
+}
+
+/// Remove one arrow. An unknown id is refused, like `delete_group`.
+pub fn unlink_pages(doc: LayoutDoc, edge_id: &str) -> Result<LayoutDoc, String> {
+    let mut edges = doc.edges;
+    let before = edges.len();
+    edges.retain(|e| e.id != edge_id);
+    if edges.len() == before {
+        return Err(format!("no flow link with id \"{edge_id}\""));
+    }
+    Ok(LayoutDoc { edges, ..doc })
+}
+
+/// Relabel one arrow; `None` (or a blank label, which `validate` normalises to
+/// `None`) clears it.
+pub fn update_link(doc: LayoutDoc, edge_id: &str, label: Option<&str>) -> Result<LayoutDoc, String> {
+    let mut edges = doc.edges;
+    let edge = edges
+        .iter_mut()
+        .find(|e| e.id == edge_id)
+        .ok_or_else(|| format!("no flow link with id \"{edge_id}\""))?;
+    edge.label = label.map(str::to_string);
+    Ok(LayoutDoc { edges, ..doc })
+}
+
+/// Pin a page's node on the Flow canvas. Coordinates are clamped by `validate`;
+/// a non-finite one is refused there.
+pub fn set_position(
+    doc: LayoutDoc,
+    known_routes: &[String],
+    route: &str,
+    x: f64,
+    y: f64,
+) -> Result<LayoutDoc, String> {
+    if !known_routes.iter().any(|r| r == route) {
+        return Err(format!("\"{route}\" is not a page in this project"));
+    }
+    let mut positions = doc.positions;
+    positions.insert(route.to_string(), FlowPosition { x, y });
+    Ok(LayoutDoc { positions, ..doc })
+}
+
+/// #508: one arrow of the user flow — "from this screen the user goes there".
+/// Directed; `label` names the path ("new user", "existing user").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowEdge {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// #508: a page node's fixed place on the Flow canvas, in canvas units.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FlowPosition {
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -273,7 +435,8 @@ pub struct LayoutGroup {
     pub routes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Not `Eq`: `positions` holds floats.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LayoutDoc {
     #[serde(default)]
@@ -287,6 +450,15 @@ pub struct LayoutDoc {
     /// renamed, which is why every reader must fall back to the manifest title.
     #[serde(default)]
     pub page_labels: HashMap<String, String>,
+    /// #508: the user flow's arrows, in creation order. Absent in a document
+    /// written before #508, hence the default.
+    #[serde(default)]
+    pub edges: Vec<FlowEdge>,
+    /// #508: route → fixed node position on the Flow canvas. A page with no
+    /// entry is placed by the client's own auto-layout. Ordered so the stored
+    /// bytes are stable across writes.
+    #[serde(default)]
+    pub positions: BTreeMap<String, FlowPosition>,
 }
 
 /// What a project has before anyone has arranged anything: today's view, every
@@ -297,6 +469,8 @@ pub fn default_doc() -> LayoutDoc {
         route_order: Vec::new(),
         groups: Vec::new(),
         page_labels: HashMap::new(),
+        edges: Vec::new(),
+        positions: BTreeMap::new(),
     }
 }
 
@@ -388,7 +562,62 @@ pub fn validate(doc: LayoutDoc, known_routes: &[String]) -> Result<LayoutDoc, St
         page_labels.insert(route, label);
     }
 
-    Ok(LayoutDoc { view: doc.view, route_order, groups, page_labels })
+    // #508: the flow. Same stance as groups — a stale route is refused, not
+    // dropped — plus the graph's own rules: no self-loop, one arrow per
+    // directed pair, unique ids.
+    if doc.edges.len() > MAX_EDGES {
+        return Err(format!("at most {MAX_EDGES} flow links are allowed"));
+    }
+    let mut edge_ids: HashSet<String> = HashSet::new();
+    let mut pairs: HashSet<(String, String)> = HashSet::new();
+    let mut edges = Vec::with_capacity(doc.edges.len());
+    for edge in doc.edges {
+        let id = edge.id.trim().to_string();
+        if id.is_empty() || id.chars().count() > MAX_GROUP_ID {
+            return Err("a flow link needs a non-empty id of at most 64 characters".into());
+        }
+        if !edge_ids.insert(id.clone()) {
+            return Err(format!("the flow link id \"{id}\" is used twice"));
+        }
+        for route in [&edge.from, &edge.to] {
+            if !known.contains(route.as_str()) {
+                return Err(format!("\"{route}\" is not a page in this project"));
+            }
+        }
+        if edge.from == edge.to {
+            return Err(format!("a page cannot link to itself (\"{}\")", edge.from));
+        }
+        if !pairs.insert((edge.from.clone(), edge.to.clone())) {
+            return Err(format!("\"{}\" already links to \"{}\"", edge.from, edge.to));
+        }
+        let label = match edge.label.map(|l| l.trim().to_string()) {
+            Some(l) if l.is_empty() => None,
+            Some(l) if l.chars().count() > MAX_EDGE_LABEL => {
+                return Err(format!("a flow link label is limited to {MAX_EDGE_LABEL} characters"));
+            }
+            other => other,
+        };
+        edges.push(FlowEdge { id, from: edge.from, to: edge.to, label });
+    }
+
+    let mut positions = BTreeMap::new();
+    for (route, pos) in doc.positions {
+        if !known.contains(route.as_str()) {
+            return Err(format!("\"{route}\" is not a page in this project"));
+        }
+        if !pos.x.is_finite() || !pos.y.is_finite() {
+            return Err(format!("the position of \"{route}\" must be finite numbers"));
+        }
+        positions.insert(
+            route,
+            FlowPosition {
+                x: pos.x.clamp(-MAX_COORD, MAX_COORD),
+                y: pos.y.clamp(-MAX_COORD, MAX_COORD),
+            },
+        );
+    }
+
+    Ok(LayoutDoc { view: doc.view, route_order, groups, page_labels, edges, positions })
 }
 
 /// The presentation order — the FLOW — resolved over the pages the project
@@ -484,7 +713,9 @@ pub fn page_name(doc: &LayoutDoc, route: &str, title: &str) -> String {
 
 /// Forgiving read path: drop routes the manifest no longer has, keep the group
 /// (a grouping is a decision about the project, and one deleted page is not
-/// grounds to throw it away).
+/// grounds to throw it away). A flow link touching a gone page goes with it —
+/// an arrow with a missing end has nothing to draw — as does the page's
+/// position, so a trashed page never wedges the next write.
 pub fn filter_to_known(doc: LayoutDoc, known_routes: &[String]) -> LayoutDoc {
     let known: HashSet<&str> = known_routes.iter().map(String::as_str).collect();
     LayoutDoc {
@@ -504,6 +735,16 @@ pub fn filter_to_known(doc: LayoutDoc, known_routes: &[String]) -> LayoutDoc {
             .collect(),
         page_labels: doc
             .page_labels
+            .into_iter()
+            .filter(|(route, _)| known.contains(route.as_str()))
+            .collect(),
+        edges: doc
+            .edges
+            .into_iter()
+            .filter(|e| known.contains(e.from.as_str()) && known.contains(e.to.as_str()))
+            .collect(),
+        positions: doc
+            .positions
             .into_iter()
             .filter(|(route, _)| known.contains(route.as_str()))
             .collect(),

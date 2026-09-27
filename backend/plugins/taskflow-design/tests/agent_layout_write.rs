@@ -841,3 +841,262 @@ async fn a_body_with_both_op_and_ops_or_neither_is_refused() {
         assert_eq!(res.status(), 400, "{body} → {}", res.text());
     }
 }
+
+// ---------------------------------------------------------------------------
+// #508: the user flow — link_pages / unlink_pages / update_link / place_page
+// ---------------------------------------------------------------------------
+
+async fn write_op(app: &TestApp, key: &str, project: i64, op: serde_json::Value) -> support::TestResponse {
+    app.put_as_agent(key, &layout_path(project), json!({ "project": project, "op": op })).await
+}
+
+async fn two_pages() -> (TestApp, i64, i64, String) {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+    seed_page(&app, project, user, "pages/b.html", "B").await;
+    (app, project, user, key)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn link_pages_mints_an_edge_the_read_reports() {
+    let (app, project, _user, key) = two_pages().await;
+    let res = write_op(
+        &app,
+        &key,
+        project,
+        json!({ "link_pages": { "from": "/a", "to": "/b", "label": " new user " } }),
+    )
+    .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let body = res.json();
+    let id = body["changed"]["edges"][0].as_str().expect("the minted edge id").to_string();
+    assert_eq!(id, "e1", "edge ids are e<n>: {body}");
+    assert_eq!(body["changed"]["positions"], json!([]));
+
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(
+        doc["edges"],
+        json!([{ "id": id, "from": "/a", "to": "/b", "label": "new user" }]),
+        "{doc}"
+    );
+    assert_eq!(doc["positions"], json!({}));
+
+    // The operator read carries the same stored fields.
+    let operator = app.get_as(_user, &format!("/api/design/{project}/layout")).await.json();
+    assert_eq!(operator["edges"][0]["id"], id.as_str(), "{operator}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn link_pages_refuses_duplicates_self_loops_and_unknown_routes() {
+    let (app, project, _user, key) = two_pages().await;
+    let ok = write_op(&app, &key, project, json!({ "link_pages": { "from": "/a", "to": "/b" } })).await;
+    assert_eq!(ok.status(), 200, "{}", ok.text());
+
+    for (op, needle) in [
+        (json!({ "link_pages": { "from": "/a", "to": "/b" } }), "already links"),
+        (json!({ "link_pages": { "from": "/a", "to": "/a" } }), "itself"),
+        (json!({ "link_pages": { "from": "/a", "to": "/nope" } }), "not a page"),
+        (json!({ "link_pages": { "from": "/b", "to": "/a", "label": "x".repeat(41) } }), "limited"),
+    ] {
+        let res = write_op(&app, &key, project, op.clone()).await;
+        assert_eq!(res.status(), 400, "{op} → {}", res.text());
+        let message = res.json()["message"].as_str().unwrap_or_default().to_string();
+        assert!(message.contains(needle), "{op} → {message}");
+    }
+    // The reverse direction is a different arrow.
+    let back = write_op(&app, &key, project, json!({ "link_pages": { "from": "/b", "to": "/a" } })).await;
+    assert_eq!(back.status(), 200, "{}", back.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_link_and_unlink_pages_by_id_or_pair() {
+    let (app, project, user, key) = two_pages().await;
+    seed_page(&app, project, user, "pages/c.html", "C").await;
+    let ab = write_op(&app, &key, project, json!({ "link_pages": { "from": "/a", "to": "/b" } }))
+        .await
+        .json()["changed"]["edges"][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ac = write_op(&app, &key, project, json!({ "link_pages": { "from": "/a", "to": "/c" } }))
+        .await
+        .json()["changed"]["edges"][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let relabel = write_op(
+        &app,
+        &key,
+        project,
+        json!({ "update_link": { "edge_id": ab, "label": "existing user" } }),
+    )
+    .await;
+    assert_eq!(relabel.status(), 200, "{}", relabel.text());
+    assert_eq!(relabel.json()["changed"]["edges"], json!([ab]));
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["edges"][0]["label"], "existing user", "{doc}");
+
+    let clear = write_op(&app, &key, project, json!({ "update_link": { "edge_id": ab } })).await;
+    assert_eq!(clear.status(), 200, "{}", clear.text());
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert!(doc["edges"][0].get("label").is_none(), "a cleared label is absent: {doc}");
+
+    // By pair: reports the id it resolved.
+    let by_pair = write_op(&app, &key, project, json!({ "unlink_pages": { "from": "/a", "to": "/c" } })).await;
+    assert_eq!(by_pair.status(), 200, "{}", by_pair.text());
+    assert_eq!(by_pair.json()["changed"]["edges"], json!([ac]));
+
+    // By id.
+    let by_id = write_op(&app, &key, project, json!({ "unlink_pages": { "edge_id": ab } })).await;
+    assert_eq!(by_id.status(), 200, "{}", by_id.text());
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["edges"], json!([]), "{doc}");
+
+    for op in [
+        json!({ "unlink_pages": { "edge_id": ab } }),
+        json!({ "unlink_pages": {} }),
+        json!({ "unlink_pages": { "from": "/a" } }),
+        json!({ "update_link": { "edge_id": "e-ghost", "label": "x" } }),
+    ] {
+        let res = write_op(&app, &key, project, op.clone()).await;
+        assert_eq!(res.status(), 400, "{op} → {}", res.text());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn place_page_pins_a_canvas_position() {
+    let (app, project, _user, key) = two_pages().await;
+    let res = write_op(&app, &key, project, json!({ "place_page": { "route": "/a", "x": 120.5, "y": -40 } })).await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let body = res.json();
+    assert_eq!(body["changed"]["positions"], json!(["/a"]), "{body}");
+    assert_eq!(body["changed"]["routes"], json!([]), "a canvas placement moves nothing in the list");
+
+    let far = write_op(&app, &key, project, json!({ "place_page": { "route": "/b", "x": 1e12, "y": 0 } })).await;
+    assert_eq!(far.status(), 200, "{}", far.text());
+
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["positions"]["/a"], json!({ "x": 120.5, "y": -40.0 }), "{doc}");
+    assert_eq!(doc["positions"]["/b"]["x"], json!(100000.0), "clamped: {doc}");
+
+    let ghost = write_op(&app, &key, project, json!({ "place_page": { "route": "/nope", "x": 0, "y": 0 } })).await;
+    assert_eq!(ghost.status(), 400, "{}", ghost.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_flow_batch_is_all_or_nothing() {
+    let (app, project, user, key) = two_pages().await;
+    seed_page(&app, project, user, "pages/c.html", "C").await;
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "ops": [
+                { "link_pages": { "from": "/a", "to": "/b", "label": "new user" } },
+                { "link_pages": { "from": "/a", "to": "/c", "label": "existing user" } },
+                { "place_page": { "route": "/a", "x": 0, "y": 0 } },
+                { "place_page": { "route": "/b", "x": 300, "y": -100 } },
+                { "place_page": { "route": "/c", "x": 300, "y": 100 } },
+            ] }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let body = res.json();
+    assert_eq!(body["version"], 1, "one stored version: {body}");
+    assert_eq!(body["changed"]["edges"].as_array().unwrap().len(), 2, "{body}");
+    assert_eq!(body["changed"]["positions"], json!(["/a", "/b", "/c"]), "{body}");
+
+    let bad = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "ops": [
+                { "link_pages": { "from": "/b", "to": "/c" } },
+                { "link_pages": { "from": "/a", "to": "/b" } },
+            ] }),
+        )
+        .await;
+    assert_eq!(bad.status(), 400, "{}", bad.text());
+    let message = bad.json()["message"].as_str().unwrap_or_default().to_string();
+    assert!(message.contains("ops[1] (link_pages)"), "{message}");
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["edges"].as_array().unwrap().len(), 2, "the first op did not land: {doc}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trashed_page_drops_its_edges_and_position_without_wedging_writes() {
+    let (app, project, user, key) = two_pages().await;
+    seed_page(&app, project, user, "pages/c.html", "C").await;
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "ops": [
+                { "link_pages": { "from": "/a", "to": "/b" } },
+                { "link_pages": { "from": "/b", "to": "/c" } },
+                { "place_page": { "route": "/b", "x": 10, "y": 10 } },
+                { "place_page": { "route": "/c", "x": 20, "y": 20 } },
+            ] }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+
+    app.delete_page_row(project, "pages/b.html").await;
+
+    // The read no longer shows anything touching /b.
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["edges"], json!([]), "{doc}");
+    assert_eq!(doc["positions"], json!({ "/c": { "x": 20.0, "y": 20.0 } }), "{doc}");
+
+    // An unrelated write still lands, and prunes /b from what is STORED.
+    let next = write_op(&app, &key, project, json!({ "link_pages": { "from": "/a", "to": "/c" } })).await;
+    assert_eq!(next.status(), 200, "a dead route must not block an edit: {}", next.text());
+    let stored = app.latest_layout_row(project).await.layout_json;
+    assert!(!stored.contains("\"/b\""), "the stored flow prunes the dead route: {stored}");
+
+    // And the operator can save back what their read served.
+    let served = app.get_as(user, &format!("/api/design/{project}/layout")).await.json();
+    let put = app.put_json_as(user, &format!("/api/design/{project}/layout"), &served).await;
+    assert_eq!(put.status(), 200, "{}", put.text());
+    assert_eq!(put.json()["edges"].as_array().unwrap().len(), 1, "the operator save keeps the flow");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_operator_save_round_trips_edges_and_positions() {
+    let (app, project, user, key) = two_pages().await;
+    let doc = json!({
+        "view": "flow",
+        "routeOrder": [],
+        "groups": [],
+        "pageLabels": {},
+        "edges": [{ "id": "eop1", "from": "/a", "to": "/b", "label": "go" }],
+        "positions": { "/a": { "x": 1.5, "y": 2.0 } }
+    });
+    let put = app.put_json_as(user, &format!("/api/design/{project}/layout"), &doc).await;
+    assert_eq!(put.status(), 200, "{}", put.text());
+    let read = app.get_as(user, &format!("/api/design/{project}/layout")).await.json();
+    assert_eq!(read["edges"], doc["edges"], "{read}");
+    assert_eq!(read["positions"], doc["positions"], "{read}");
+    assert_eq!(read["view"], "flow", "the fourth canvas view is storable: {read}");
+    assert!(app.latest_layout_row(project).await.layout_json.contains("\"view\":\"flow\""));
+
+    // An agent link minted over an operator-minted id keeps to e<n>: `eop1`
+    // is not e+digits, so it is ignored and the next id is e1.
+    let linked = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "link_pages": { "from": "/b", "to": "/a" } } }),
+        )
+        .await;
+    assert_eq!(linked.status(), 200, "{}", linked.text());
+    assert_eq!(linked.json()["changed"]["edges"], json!(["e1"]));
+    let agent_read = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(agent_read["view"], "flow", "{agent_read}");
+
+    let self_loop = json!({ "view": "rows", "edges": [{ "id": "e1", "from": "/a", "to": "/a" }] });
+    let bad = app.put_json_as(user, &format!("/api/design/{project}/layout"), &self_loop).await;
+    assert_eq!(bad.status(), 400, "{}", bad.text());
+}

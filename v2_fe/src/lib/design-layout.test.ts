@@ -5,6 +5,7 @@ import {
   MAX_GROUP_NAME,
   MAX_LABEL,
   normalizeLayout,
+  nextEdgeId,
   createGroup,
   groupNameProblem,
   assignRoute,
@@ -896,5 +897,77 @@ describe("moveRouteInSection", () => {
     const before = JSON.stringify(doc)
     moveRouteInSection(doc, "/settings", -1, PAGES5)
     expect(JSON.stringify(doc)).toBe(before)
+  })
+})
+
+// #508: the user flow. The operator's save PUTs the WHOLE document, so any
+// field `normalizeLayout` dropped would be deleted on the server by the next
+// human edit of anything — an agent's arrows wiped by a group rename.
+describe("#508 flow edges and positions survive the read → edit → save round trip", () => {
+  const served = {
+    view: "rows",
+    routeOrder: ["/", "/login"],
+    groups: [],
+    pageLabels: {},
+    edges: [
+      { id: "e1", from: "/", to: "/signup", label: "new user" },
+      { id: "e2", from: "/", to: "/login" },
+    ],
+    positions: { "/": { x: 0, y: 0 }, "/login": { x: 320.5, y: -80 } },
+  }
+
+  it("normalizeLayout carries edges and positions through verbatim", () => {
+    const doc = normalizeLayout(served)
+    expect(doc.edges).toEqual(served.edges)
+    expect(doc.positions).toEqual(served.positions)
+  })
+
+  it("an unrelated edit, then the save-path filter, still sends them", () => {
+    let doc = normalizeLayout(served)
+    doc = createGroup(doc, "Auth").doc
+    doc = setPageLabel(doc, "/", "Home")
+    doc = moveRoute(doc, "/login", -1, PAGES)
+    // What `updateLayout` hands `saveLayout`, serialised as the PUT body.
+    const body = JSON.parse(JSON.stringify(filterRouteOrder(doc, PAGES)))
+    expect(body.edges).toEqual(served.edges)
+    expect(body.positions).toEqual(served.positions)
+  })
+
+  it("the save-path filter drops arrows and positions naming a page that is gone", () => {
+    const doc = normalizeLayout(served)
+    const filtered = filterRouteOrder(doc, ["/", "/login"])
+    expect(filtered.edges).toEqual([{ id: "e2", from: "/", to: "/login" }])
+    expect(filtered.positions).toEqual(served.positions)
+    const noLogin = filterRouteOrder(doc, ["/", "/signup"])
+    expect(noLogin.positions).toEqual({ "/": { x: 0, y: 0 } })
+  })
+
+  it("a pre-#508 document normalises exactly as before, and malformed entries are dropped", () => {
+    expect(normalizeLayout({ view: "rows", routeOrder: [], groups: [], pageLabels: {} })).toEqual(DEFAULT_LAYOUT)
+    const doc = normalizeLayout({
+      ...served,
+      edges: [{ id: "e1", from: "/" }, "nope", { id: "e3", from: "/", to: "/login", label: "  " }],
+      positions: { "/": { x: "1", y: 2 }, "/login": { x: 1, y: 2 }, "/signup": null },
+    })
+    expect(doc.edges).toEqual([{ id: "e3", from: "/", to: "/login" }])
+    expect(doc.positions).toEqual({ "/login": { x: 1, y: 2 } })
+  })
+})
+
+describe("#508 flow view and edge ids", () => {
+  it("accepts the flow view", () => {
+    expect(normalizeLayout({ view: "flow" }).view).toBe("flow")
+  })
+
+  it("nextEdgeId is e + one past the largest numeric suffix, like the server", () => {
+    const withIds = (ids: string[]): LayoutDoc => ({
+      ...DEFAULT_LAYOUT,
+      edges: ids.map((id) => ({ id, from: "/", to: "/login" })),
+    })
+    expect(nextEdgeId(DEFAULT_LAYOUT)).toBe("e1")
+    expect(nextEdgeId(withIds(["e1", "e2"]))).toBe("e3")
+    expect(nextEdgeId(withIds(["e7", "e2"]))).toBe("e8")
+    expect(nextEdgeId(withIds(["eabc", "x9", "e", "e-4", "e3x"]))).toBe("e1")
+    expect(nextEdgeId(withIds(["e009", "gfoo"]))).toBe("e10")
   })
 })

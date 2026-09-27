@@ -4,9 +4,20 @@
 /// Deliberately free of any device/preset import so `design-devices.ts` can
 /// depend on it one-way; the layout *engines* live there.
 
-export type CanvasView = "rows" | "bands" | "groups"
+/// #508: `flow` is the user-flow canvas (pages as nodes, `edges` as arrows,
+/// `positions` pinning each node). It is storable and round-trips, but is not
+/// yet in `CANVAS_VIEWS`: the toolbar entry lands with its renderer.
+export type CanvasView = "rows" | "bands" | "groups" | "flow"
 
 export type LayoutGroup = { id: string; name: string; routes: string[] }
+
+/// #508: one arrow of the user flow — "from this screen the user goes there".
+/// Directed; `label` names the path ("new user" / "existing user"). Ids are
+/// minted as `nextEdgeId` spells them, the same rule the server uses.
+export type FlowEdge = { id: string; from: string; to: string; label?: string }
+
+/// #508: a page node's fixed place on the Flow canvas, in canvas units.
+export type FlowPosition = { x: number; y: number }
 
 export type LayoutDoc = {
   view: CanvasView
@@ -18,6 +29,15 @@ export type LayoutDoc = {
   /// blank, so every reader must fall back to the manifest title — that is
   /// what `pageLabel` is for.
   pageLabels: Record<string, string>
+  /// #508: the user flow's arrows. OPTIONAL on this type so every document
+  /// literal written before #508 still builds, but the server always sends it —
+  /// and because the operator's save PUTs the WHOLE document back,
+  /// `normalizeLayout` must carry it through, or a human save would silently
+  /// wipe every link an agent drew.
+  edges?: FlowEdge[]
+  /// #508: route → fixed node position on the Flow canvas; a page with no entry
+  /// is auto-placed. Same round-trip rule as `edges`.
+  positions?: Record<string, FlowPosition>
 }
 
 export const DEFAULT_LAYOUT: LayoutDoc = { view: "rows", routeOrder: [], groups: [], pageLabels: {} }
@@ -33,7 +53,7 @@ export const CANVAS_VIEWS: { id: CanvasView; label: string; hint: string }[] = [
   { id: "groups", label: "Groups", hint: "Named groups as columns, the rest flow right" },
 ]
 
-const VIEW_IDS: CanvasView[] = ["rows", "bands", "groups"]
+const VIEW_IDS: CanvasView[] = ["rows", "bands", "groups", "flow"]
 
 const asStrings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []
@@ -67,7 +87,47 @@ export function normalizeLayout(raw: unknown): LayoutDoc {
       if (typeof label === "string" && label.trim()) pageLabels[route] = label
     }
   }
-  return { view, routeOrder: asStrings(obj.routeOrder), groups, pageLabels }
+  const doc: LayoutDoc = { view, routeOrder: asStrings(obj.routeOrder), groups, pageLabels }
+  // #508: carried only when the server sent them, so a pre-#508 document
+  // normalises to exactly what it did before. Malformed entries are dropped
+  // (the server would refuse them on the next save anyway).
+  if (Array.isArray(obj.edges)) {
+    doc.edges = obj.edges.flatMap((e): FlowEdge[] => {
+      if (!e || typeof e !== "object") return []
+      const c = e as Record<string, unknown>
+      if (typeof c.id !== "string" || typeof c.from !== "string" || typeof c.to !== "string") return []
+      const edge: FlowEdge = { id: c.id, from: c.from, to: c.to }
+      if (typeof c.label === "string" && c.label.trim()) edge.label = c.label
+      return [edge]
+    })
+  }
+  const rawPositions = obj.positions
+  if (rawPositions && typeof rawPositions === "object" && !Array.isArray(rawPositions)) {
+    const positions: Record<string, FlowPosition> = {}
+    for (const [route, pos] of Object.entries(rawPositions as Record<string, unknown>)) {
+      if (!pos || typeof pos !== "object") continue
+      const { x, y } = pos as Record<string, unknown>
+      if (typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y)) {
+        positions[route] = { x, y }
+      }
+    }
+    doc.positions = positions
+  }
+  return doc
+}
+
+/// #508: the id for a new flow edge — `e<n>`, where `n` is one more than the
+/// largest `n` among ids spelled exactly `e` + digits (others are ignored),
+/// starting at `e1`. The SAME rule as the server's `layout_doc::mint_edge_id`,
+/// so an id minted here against the document in hand never collides with an
+/// edge in it, whichever side drew that edge.
+export function nextEdgeId(doc: LayoutDoc): string {
+  let max = 0
+  for (const edge of doc.edges ?? []) {
+    const m = /^e(\d+)$/.exec(edge.id)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `e${max + 1}`
 }
 
 /** The group a route belongs to, if any. */
@@ -289,6 +349,11 @@ export function setPageLabel(doc: LayoutDoc, route: string, label: string): Layo
 /// so nothing is dropped and the document comes back untouched: filtering
 /// against an empty list instead would wipe the user's flow on any save that
 /// happened to land before the manifest did.
+///
+/// #508: the flow's `edges` and `positions` name pages too, and `validate`
+/// refuses a stale one just as strictly, so they are cut down here by the same
+/// rule — an arrow with an end that is gone, and a gone page's position, are
+/// dropped — keeping this the one outgoing filter that makes a save writable.
 export function filterRouteOrder(doc: LayoutDoc, routes: string[] | null): LayoutDoc {
   if (!routes) return doc
   const known = new Set(routes)
@@ -299,7 +364,12 @@ export function filterRouteOrder(doc: LayoutDoc, routes: string[] | null): Layou
     seen.add(route)
     routeOrder.push(route)
   }
-  return { ...doc, routeOrder }
+  const next: LayoutDoc = { ...doc, routeOrder }
+  if (doc.edges) next.edges = doc.edges.filter((e) => known.has(e.from) && known.has(e.to))
+  if (doc.positions) {
+    next.positions = Object.fromEntries(Object.entries(doc.positions).filter(([route]) => known.has(route)))
+  }
+  return next
 }
 
 /// The order the pages are presented in: the stored flow first, then every page

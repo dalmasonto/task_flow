@@ -1085,7 +1085,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_read_layout",
-    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. `view` is the canvas arrangement (rows/bands/groups) and the grouping reads the same in all three. `version` is THIS arrangement's version — hand it to a layout write as `base_version` to be told if someone rearranged the board under you. (Note `revision` next to it is a different number: the manifest's, which moves when a page changes.) Arrange the board with design_create_group, design_update_group, design_reorder_group, design_reorder_page and design_delete_group — or several at once with design_arrange — which take operations — never PUT a document built from this response back, because this is the panel's view and not the stored form.",
+    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. `view` is the canvas arrangement (rows/bands/groups/flow — `flow` is the user-flow canvas) and the grouping reads the same in every one. `version` is THIS arrangement's version — hand it to a layout write as `base_version` to be told if someone rearranged the board under you. (Note `revision` next to it is a different number: the manifest's, which moves when a page changes.) It also returns the USER FLOW drawn as arrows on the Flow canvas: `edges` is a list of `{id, from, to, label?}` — a user goes from route `from` to route `to`, and the optional label names the path (\"new user\" / \"existing user\") — and `positions` maps a route to its fixed `{x, y}` node on that canvas (an unlisted page is auto-placed). Arrange the board with design_create_group, design_update_group, design_reorder_group, design_reorder_page and design_delete_group; draw the flow with design_link_pages and design_unlink_pages — or several edits at once with design_arrange (which also takes update_link and place_page) — all of which take operations — never PUT a document built from this response back, because this is the panel's view and not the stored form.",
     // The arrangement is one document per project, so there is nothing to
     // select: a route or a group id would be an argument this read has no use
     // for. The description says so as well, because a schema shows only what is
@@ -1286,8 +1286,81 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
-  // #501: one op of a design_arrange batch — the same five edits the single
-  // tools make, in the route's own wire shape.
+  // ---- The user flow (#508) --------------------------------------------------
+  server.tool(
+    "design_link_pages",
+    "Draw a flow arrow from one page to another. The Flow canvas draws the project's USER FLOW: each link is a directed arrow saying a user goes from one screen to another (e.g. `/welcome` → `/signup` labelled \"new user\", `/welcome` → `/login` labelled \"existing user\"). " +
+      "Use it to show how a user moves between screens, including branches: link one screen to two others with different labels. `from` and `to` are routes (as design_read_layout's `pages[].route`); both must be pages in this project, a page cannot link to itself, and one arrow per direction (`/a`→`/b` and `/b`→`/a` are two different arrows; a second `/a`→`/b` is refused). `label` is optional, at most 40 characters. Returns the new link's id in `changed.edges` — keep it to relabel (design_arrange's update_link) or remove (design_unlink_pages) the arrow. " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      from: z.string().min(1).describe("The route the user starts on, e.g. \"/welcome\"."),
+      to: z.string().min(1).describe("The route the user goes to, e.g. \"/signup\"."),
+      label: z
+        .string()
+        .max(40)
+        .optional()
+        .describe("Optional short label for the path, e.g. \"new user\" or \"existing user\"."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, from, to, label, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: { link_pages: { from, to, ...(label === undefined ? {} : { label }) } },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_unlink_pages",
+    "Remove one flow arrow from the Flow canvas (the pages themselves are untouched). Name it by `edge_id` (from design_read_layout's `edges[].id`, or the id design_link_pages returned in `changed.edges`) OR by both `from` and `to` routes — one way, not both. An unknown link is refused rather than ignored. " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      edge_id: z.string().min(1).optional().describe("The link's id, from design_read_layout's `edges`."),
+      from: z.string().min(1).optional().describe("Instead of edge_id: the arrow's start route (with `to`)."),
+      to: z.string().min(1).optional().describe("Instead of edge_id: the arrow's end route (with `from`)."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, edge_id, from, to, base_version, profile }) => {
+      try {
+        const byId = edge_id !== undefined && from === undefined && to === undefined;
+        const byPair = edge_id === undefined && from !== undefined && to !== undefined;
+        if (!byId && !byPair) {
+          throw new Error("Name the link by `edge_id`, or by both `from` and `to` (one way, not both).");
+        }
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: { unlink_pages: byId ? { edge_id: edge_id! } : { from: from!, to: to! } },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // #501: one op of a design_arrange batch — the same edits the single
+  // tools make, in the route's own wire shape (plus #508's update_link and
+  // place_page, which exist only here).
+  const coord = z.number().finite();
   const layoutOpSchema = z.union([
     z.object({ create_group: z.object({ name: z.string() }).strict() }).strict(),
     z.object({ update_group: z.object({ group_id: z.string(), name: z.string() }).strict() }).strict(),
@@ -1309,11 +1382,34 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       })
       .strict(),
     z.object({ delete_group: z.object({ group_id: z.string() }).strict() }).strict(),
+    z
+      .object({
+        link_pages: z
+          .object({ from: z.string().min(1), to: z.string().min(1), label: z.string().max(40).optional() })
+          .strict(),
+      })
+      .strict(),
+    z
+      .object({
+        unlink_pages: z.union([
+          z.object({ edge_id: z.string().min(1) }).strict(),
+          z.object({ from: z.string().min(1), to: z.string().min(1) }).strict(),
+        ]),
+      })
+      .strict(),
+    z
+      .object({
+        update_link: z.object({ edge_id: z.string().min(1), label: z.string().max(40).optional() }).strict(),
+      })
+      .strict(),
+    z
+      .object({ place_page: z.object({ route: z.string().min(1), x: coord, y: coord }).strict() })
+      .strict(),
   ]);
 
   server.tool(
     "design_arrange",
-    "Apply SEVERAL arrangement edits as ONE write: `ops` is an ordered list, each item exactly one of {\"create_group\":{name}}, {\"update_group\":{group_id,name}}, {\"reorder_group\":{group_id,position}}, {\"reorder_page\":{route,group_id?,position?}}, {\"delete_group\":{group_id}} — the same rules as the single tools of those names. Use it to file many pages into groups, or reorder a whole section, in one call. The ops run in order, each on the result of the one before, and the batch is ALL OR NOTHING: if any op is refused, none is stored and the error names the failing index (`ops[2] (reorder_page) ...`). The whole batch is one version. A group created in the batch gets its id minted by the server, so a later op in the SAME batch cannot name it — create first, then arrange with the id from `changed.groups`. 1 to 100 ops; a one-item list behaves exactly like the single tool. " +
+    "Apply SEVERAL arrangement edits as ONE write: `ops` is an ordered list, each item exactly one of {\"create_group\":{name}}, {\"update_group\":{group_id,name}}, {\"reorder_group\":{group_id,position}}, {\"reorder_page\":{route,group_id?,position?}}, {\"delete_group\":{group_id}}, and for the USER FLOW on the Flow canvas (arrows showing how a user moves between screens): {\"link_pages\":{from,to,label?}}, {\"unlink_pages\":{edge_id} or {from,to}}, {\"update_link\":{edge_id,label?}} (relabel an arrow; omit label to clear it), {\"place_page\":{route,x,y}} (pin a page's node at canvas coordinates, clamped to ±100000; this is NOT reorder_page, which moves a page in the list) — the same rules as the single tools of those names. Use it to file many pages into groups, reorder a whole section, or lay out a whole flow (link the screens and place each node) in one call. Link ids are minted by the server and reported in `changed.edges`; placed routes in `changed.positions`. The ops run in order, each on the result of the one before, and the batch is ALL OR NOTHING: if any op is refused, none is stored and the error names the failing index (`ops[2] (reorder_page) ...`). The whole batch is one version. A group created in the batch gets its id minted by the server, so a later op in the SAME batch cannot name it — create first, then arrange with the id from `changed.groups`. 1 to 100 ops; a one-item list behaves exactly like the single tool. " +
       baseVersionNote,
     {
       ...designProjectArg,

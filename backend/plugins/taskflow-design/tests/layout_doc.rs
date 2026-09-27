@@ -1,9 +1,10 @@
-use std::collections::HashMap;
 
 use taskflow_design::layout_doc::{
+    mint_edge_id,
     create_group, default_doc, filter_to_known, mint_group_id, move_group, page_name,
     panel_sections, parse, place_page, rename_group, resolve_route_order, to_json_string, to_value,
-    validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL,
+    validate, LayoutDoc, LayoutGroup, MAX_GROUPS, MAX_LABEL, link_pages, unlink_pages, update_link,
+    set_position, find_edge, FlowEdge, FlowPosition, MAX_EDGES, MAX_EDGE_LABEL, MAX_COORD,
 };
 use taskflow_design::models::DesignView;
 
@@ -27,7 +28,7 @@ fn known_of(routes: &[&str]) -> Vec<String> {
 }
 
 fn doc(view: DesignView, groups: Vec<LayoutGroup>) -> LayoutDoc {
-    LayoutDoc { view, route_order: vec!["/".into()], groups, page_labels: HashMap::new() }
+    LayoutDoc { view, route_order: vec!["/".into()], groups, ..default_doc() }
 }
 
 // A document with a flow of the case's choosing, where `doc()` hardcodes `["/"]`
@@ -38,7 +39,7 @@ fn doc_with_flow(flow: &[&str], groups: Vec<LayoutGroup>) -> LayoutDoc {
         view: DesignView::Groups,
         route_order: flow.iter().map(|s| s.to_string()).collect(),
         groups,
-        page_labels: HashMap::new(),
+        ..default_doc()
     }
 }
 
@@ -249,7 +250,7 @@ fn the_flow_is_the_stored_order_then_every_page_it_does_not_name() {
         view: DesignView::Rows,
         route_order: vec!["/signup".into()],
         groups: vec![],
-        page_labels: HashMap::new(),
+        ..default_doc()
     };
     // `/login` is named and comes first; `/` and `/signup` are appended in the
     // order the manifest arrived in, because the stored flow never named them.
@@ -265,7 +266,7 @@ fn the_flow_is_a_permutation_of_the_pages_that_exist() {
         view: DesignView::Rows,
         route_order: vec!["/gone".into(), "/login".into(), "/login".into(), "/".into()],
         groups: vec![],
-        page_labels: HashMap::new(),
+        ..default_doc()
     };
     let flow = resolve_route_order(&d, &known());
     assert_eq!(flow, vec!["/login", "/", "/signup"]);
@@ -297,7 +298,7 @@ fn a_groups_pages_are_listed_in_flow_order_not_array_order() {
         // opposite, which is the order the pages were assigned in.
         route_order: vec!["/signup".into(), "/login".into(), "/".into()],
         groups: vec![group("g1", "Auth", &["/login", "/signup"])],
-        page_labels: HashMap::new(),
+        ..default_doc()
     };
     let (groups, ungrouped) = panel_sections(&d, &known());
     assert_eq!(groups[0].routes, vec!["/signup".to_string(), "/login".to_string()]);
@@ -317,7 +318,7 @@ fn the_two_halves_partition_the_pages_even_when_both_states_are_broken() {
             group("g2", "Again", &["/login"]),
             group("g3", "Empty", &[]),
         ],
-        page_labels: HashMap::new(),
+        ..default_doc()
     };
     let (groups, ungrouped) = panel_sections(&d, &known());
     assert_eq!(groups[0].routes, vec!["/login".to_string()], "the FIRST group claims it");
@@ -872,4 +873,180 @@ fn place_page_materialises_a_sparse_flow_over_every_page() {
     let listed: Vec<&str> = groups[0].routes.iter().map(String::as_str).collect();
     assert_eq!(listed, vec!["/c", "/b", "/a"]);
     assert_eq!(ungrouped, vec!["/d".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// #508: the user flow — edges between pages and fixed canvas positions
+// ---------------------------------------------------------------------------
+
+fn edge(id: &str, from: &str, to: &str, label: Option<&str>) -> FlowEdge {
+    FlowEdge { id: id.into(), from: from.into(), to: to.into(), label: label.map(Into::into) }
+}
+
+fn with_edges(edges: Vec<FlowEdge>) -> LayoutDoc {
+    LayoutDoc { edges, ..default_doc() }
+}
+
+#[test]
+fn edges_and_positions_round_trip_as_camel_case_json() {
+    let mut d = with_edges(vec![edge("e1", "/", "/login", Some("existing user"))]);
+    d.positions.insert("/".into(), FlowPosition { x: 10.5, y: -20.0 });
+    let json = to_json_string(&d);
+    assert!(json.contains(r#""edges":[{"id":"e1","from":"/","to":"/login","label":"existing user"}]"#), "{json}");
+    assert!(json.contains(r#""positions":{"/":{"x":10.5,"y":-20.0}}"#), "{json}");
+    assert_eq!(parse(&json).unwrap(), d);
+}
+
+#[test]
+fn a_document_written_before_the_flow_still_parses() {
+    let d = parse(r#"{"view":"rows","routeOrder":[],"groups":[]}"#).unwrap();
+    assert!(d.edges.is_empty());
+    assert!(d.positions.is_empty());
+}
+
+#[test]
+fn an_unlabelled_edge_omits_the_label_key() {
+    let json = to_json_string(&with_edges(vec![edge("e1", "/", "/login", None)]));
+    assert!(!json.contains("label"), "{json}");
+}
+
+#[test]
+fn validate_accepts_a_flow_and_normalises_labels() {
+    let d = with_edges(vec![
+        edge("e1", "/", "/login", Some("  existing user  ")),
+        edge("e2", "/", "/signup", Some("   ")),
+        // The reverse direction is a different arrow.
+        edge("e3", "/login", "/", None),
+    ]);
+    let out = validate(d, &known()).expect("a valid flow");
+    assert_eq!(out.edges[0].label.as_deref(), Some("existing user"));
+    assert_eq!(out.edges[1].label, None, "a blank label is no label");
+    assert_eq!(out.edges.len(), 3);
+}
+
+#[test]
+fn validate_refuses_bad_edges() {
+    let cases: Vec<(Vec<FlowEdge>, &str)> = vec![
+        (vec![edge("e1", "/", "/nope", None)], "not a page"),
+        (vec![edge("e1", "/ghost", "/", None)], "not a page"),
+        (vec![edge("e1", "/", "/", None)], "itself"),
+        (vec![edge("e1", "/", "/login", None), edge("e2", "/", "/login", Some("x"))], "already links"),
+        (vec![edge("e1", "/", "/login", None), edge("e1", "/", "/signup", None)], "used twice"),
+        (vec![edge("  ", "/", "/login", None)], "id"),
+        (vec![edge("e1", "/", "/login", Some(&"x".repeat(MAX_EDGE_LABEL + 1)))], "limited"),
+    ];
+    for (edges, needle) in cases {
+        let err = validate(with_edges(edges.clone()), &known()).expect_err(&format!("{edges:?}"));
+        assert!(err.contains(needle), "{err} should mention {needle}");
+    }
+}
+
+#[test]
+fn validate_caps_the_edge_count() {
+    let routes: Vec<String> = (0..30).map(|i| format!("/p{i}")).collect();
+    let mut edges = Vec::new();
+    'outer: for a in &routes {
+        for b in &routes {
+            if a != b {
+                edges.push(edge(&format!("e{}", edges.len()), a, b, None));
+                if edges.len() > MAX_EDGES {
+                    break 'outer;
+                }
+            }
+        }
+    }
+    let err = validate(with_edges(edges), &routes).unwrap_err();
+    assert!(err.contains("at most"), "{err}");
+}
+
+#[test]
+fn validate_clamps_positions_and_refuses_unknown_or_non_finite_ones() {
+    let mut d = default_doc();
+    d.positions.insert("/".into(), FlowPosition { x: 1e9, y: -1e9 });
+    d.positions.insert("/login".into(), FlowPosition { x: 12.25, y: 0.0 });
+    let out = validate(d, &known()).unwrap();
+    assert_eq!(out.positions["/"], FlowPosition { x: MAX_COORD, y: -MAX_COORD });
+    assert_eq!(out.positions["/login"], FlowPosition { x: 12.25, y: 0.0 });
+
+    let mut ghost = default_doc();
+    ghost.positions.insert("/nope".into(), FlowPosition { x: 0.0, y: 0.0 });
+    assert!(validate(ghost, &known()).unwrap_err().contains("not a page"));
+
+    let mut nan = default_doc();
+    nan.positions.insert("/".into(), FlowPosition { x: f64::NAN, y: 0.0 });
+    assert!(validate(nan, &known()).unwrap_err().contains("finite"));
+}
+
+#[test]
+fn filter_to_known_drops_edges_and_positions_touching_a_gone_page() {
+    let mut d = with_edges(vec![
+        edge("e1", "/", "/login", None),
+        edge("e2", "/gone", "/", None),
+        edge("e3", "/signup", "/gone", None),
+    ]);
+    d.positions.insert("/".into(), FlowPosition { x: 1.0, y: 2.0 });
+    d.positions.insert("/gone".into(), FlowPosition { x: 3.0, y: 4.0 });
+    let out = filter_to_known(d, &known());
+    assert_eq!(out.edges, vec![edge("e1", "/", "/login", None)]);
+    assert_eq!(out.positions.len(), 1);
+    assert!(out.positions.contains_key("/"));
+    // And the filtered document is writable, which is what keeps a trashed page
+    // from wedging every later write.
+    validate(out, &known()).expect("the served document validates");
+}
+
+#[test]
+fn link_pages_mints_a_unique_id_and_refuses_bad_links() {
+    let (d, id) = link_pages(default_doc(), &known(), "/", "/login", Some("existing user")).unwrap();
+    assert_eq!(id, "e1", "the first link in a document is e1");
+    assert_eq!(d.edges, vec![edge(&id, "/", "/login", Some("existing user"))]);
+
+    let (d2, id2) = link_pages(d.clone(), &known(), "/", "/signup", None).unwrap();
+    assert_eq!(id2, "e2");
+    assert_eq!(d2.edges.len(), 2);
+
+    assert!(link_pages(d.clone(), &known(), "/", "/login", None).unwrap_err().contains("already links"));
+    assert!(link_pages(d.clone(), &known(), "/", "/", None).unwrap_err().contains("itself"));
+    assert!(link_pages(d, &known(), "/", "/nope", None).unwrap_err().contains("not a page"));
+}
+
+#[test]
+fn unlink_update_and_find_edge() {
+    let d = with_edges(vec![edge("e1", "/", "/login", Some("a")), edge("e2", "/", "/signup", None)]);
+    assert_eq!(find_edge(&d, Some("e2"), None, None).unwrap(), "e2");
+    assert_eq!(find_edge(&d, None, Some("/"), Some("/login")).unwrap(), "e1");
+    assert!(find_edge(&d, Some("nope"), None, None).is_err());
+    assert!(find_edge(&d, None, Some("/login"), Some("/")).is_err(), "edges are directed");
+    assert!(find_edge(&d, Some("e1"), Some("/"), Some("/login")).is_err(), "one way, not both");
+    assert!(find_edge(&d, None, Some("/"), None).is_err());
+
+    let relabelled = update_link(d.clone(), "e2", Some("new user")).unwrap();
+    assert_eq!(relabelled.edges[1].label.as_deref(), Some("new user"));
+    let cleared = update_link(relabelled, "e2", None).unwrap();
+    assert_eq!(cleared.edges[1].label, None);
+    assert!(update_link(d.clone(), "ghost", None).is_err());
+
+    let removed = unlink_pages(d.clone(), "e1").unwrap();
+    assert_eq!(removed.edges, vec![edge("e2", "/", "/signup", None)]);
+    assert!(unlink_pages(d, "ghost").unwrap_err().contains("no flow link"));
+}
+
+#[test]
+fn set_position_pins_a_known_page_only() {
+    let d = set_position(default_doc(), &known(), "/login", 100.0, 200.0).unwrap();
+    assert_eq!(d.positions["/login"], FlowPosition { x: 100.0, y: 200.0 });
+    let moved = set_position(d, &known(), "/login", -5.0, 7.5).unwrap();
+    assert_eq!(moved.positions["/login"], FlowPosition { x: -5.0, y: 7.5 });
+    assert!(set_position(default_doc(), &known(), "/nope", 0.0, 0.0).is_err());
+}
+
+#[test]
+fn edge_ids_are_e_then_one_past_the_largest_numeric_suffix() {
+    let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(mint_edge_id(&[]), "e1");
+    assert_eq!(mint_edge_id(&ids(&["e1", "e2"])), "e3");
+    assert_eq!(mint_edge_id(&ids(&["e7", "e2"])), "e8", "the max, not the count");
+    // Ids of another spelling (a hand-built or legacy one) are ignored.
+    assert_eq!(mint_edge_id(&ids(&["eabc", "x9", "e", "e-4", "e3x"])), "e1");
+    assert_eq!(mint_edge_id(&ids(&["e009", "gfoo"])), "e10");
 }
