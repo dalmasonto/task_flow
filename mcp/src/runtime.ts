@@ -170,42 +170,34 @@ export function startAgentRuntime(
     }
   };
 
-  // On RE-connect, deliver anything that arrived while the stream was down.
-  // The live push is at-most-once and never redelivers, so a message sent
-  // during a backend/session restart would otherwise only surface via a
-  // manual check_messages — the "messages aren't coming" gap. Delivering
-  // unread (oldest first) closes it; already-delivered messages are past the
-  // read cursor, so they are not repeated.
-  const catchUpUnread = async () => {
-    // Nowhere to deliver, and `deliverMessageById` would drop every one of
-    // them anyway — so fetching the backlog is pure cost. `check_messages`
-    // still surfaces them on demand, which is the whole point of leaving
-    // them unread.
+  // On RE-connect, say how much arrived while the stream was down — but do NOT
+  // type it. The live push is at-most-once, so a message sent during a
+  // backend/session restart is only reachable through check_messages. Typing the
+  // whole backlog into the pane (the old behaviour) flooded a terminal the
+  // human was typing in (#383); one line naming the count lets the agent read
+  // them when it chooses. They stay unread, so check_messages' unread-first
+  // default surfaces exactly these.
+  const noticeUnread = async () => {
+    // Nowhere to type the notice, so counting the backlog is pure cost.
     if (!pane) return;
     try {
       const channels = await client.listChannels();
-      const ids: number[] = [];
+      let count = 0;
       for (const channel of channels) {
         const page = await client.listMessages({ channel: channel.id, unread: true });
-        for (const row of page.messages as Array<{ id?: number }>) {
-          if (typeof row.id === "number") ids.push(row.id);
-        }
+        count += (page.messages as unknown[]).length;
       }
-      ids.sort((a, b) => a - b);
-      if (ids.length) {
-        log(`reconnect catch-up — ${ids.length} missed message(s)`);
-      }
-      for (const id of ids) {
-        try {
-          // Through the gate: if a prompt is open, these queue too (and stay
-          // unread) rather than typing into the prompt.
-          await promptGate.onMessage(id);
-        } catch (err) {
-          log(`catch-up could not deliver ${id} (${(err as Error).message.split("\n")[0]})`);
-        }
-      }
+      if (!count) return;
+      log(`reconnect — ${count} unread message(s) left for check_messages`);
+      await paneQueue(() =>
+        notifyPane(
+          `[taskflow] ${count} unread message(s) arrived while disconnected — call check_messages when you are ready to read them.`,
+          pane,
+          true,
+        ),
+      );
     } catch (err) {
-      log(`reconnect catch-up failed (${(err as Error).message.split("\n")[0]})`);
+      log(`reconnect unread count failed (${(err as Error).message.split("\n")[0]})`);
     }
   };
 
@@ -218,12 +210,11 @@ export function startAgentRuntime(
     key: profile.key,
     log,
     // #127 barrier (awaited before any frame is parsed — see events.ts): hydrate
-    // this agent's open-prompt state first, so a live message or catch-up can't be
-    // typed into an already-open prompt; then, on a reconnect only, deliver what
-    // was missed while the stream was down.
+    // this agent's open-prompt state first, so a live message can't be typed into
+    // an already-open prompt; then, on a reconnect only, name what was missed.
     onConnected: async (isReconnect) => {
       await hydrateOpenPrompts();
-      if (isReconnect) await catchUpUnread();
+      if (isReconnect) await noticeUnread();
     },
     // The stream has failed to reconnect for a sustained stretch — tell the
     // agent its live feed is paused so it does not sit waiting on a dead stream.
@@ -242,7 +233,7 @@ export function startAgentRuntime(
       );
     },
     // Back after an outage the agent was told about: say so, so it knows live
-    // delivery has resumed (catchUpUnread has already replayed anything missed).
+    // delivery has resumed (noticeUnread has already named anything missed).
     onRecovered: async () => {
       if (!pane) return;
       await paneQueue(() =>
@@ -253,6 +244,12 @@ export function startAgentRuntime(
     onPromptAnswered: async (prompt) => {
       // No pane, no keyboard to replay the answer on.
       if (!pane) return;
+      // #132: the `:prompts` group is per-PROJECT, so every connected agent
+      // sees every answer. Replay only this agent's — otherwise one human answer
+      // is typed into every agent's terminal. Not filtered on `session`: the
+      // hook registers its own session row (`tmux:host:pane`), distinct from
+      // this runtime's, so the ids never match.
+      if (prompt.agent !== profile.agentId) return;
       // A prompt may carry SEVERAL questions, each with its own kind, and
       // the terminal shows them one at a time. stepsForPrompt replays them
       // in order and returns nothing at all for a half-answered set —

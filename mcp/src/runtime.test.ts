@@ -164,17 +164,14 @@ describe("message delivery without a pane", () => {
     expect(markRead).toEqual([{ channel: 3, id: 56 }]);
   });
 
-  it("leaves a pane-less catch-up unread too, so nothing is lost on reconnect", async () => {
+  it("leaves a pane-less reconnect's backlog unread, so nothing is lost", async () => {
     const { client, markRead } = fakeClient();
     startAgentRuntime(contextFor(null, client), () => {});
     await events.options?.onConnected!(true as never);
     expect(markRead).toEqual([]);
   });
 
-  it("fetches NOTHING on a pane-less reconnect — the backlog could not be delivered anyway", async () => {
-    // Without the early return this costs `unread · (1 + channels)` round-trips
-    // on every reconnect, forever, and throws every response away: the unread
-    // set never drains, because nothing may mark it read with no pane.
+  it("fetches NOTHING on a pane-less reconnect — there is nowhere to type the notice", async () => {
     const listChannels = vi.fn(async () => [{ id: 3 }]);
     const listMessages = vi.fn(async () => ({ messages: [] }));
     const client = { listChannels, listMessages, listOpenPrompts: vi.fn(async () => []), markRead: vi.fn(async () => ({})) } as never;
@@ -186,16 +183,38 @@ describe("message delivery without a pane", () => {
     expect(listMessages).not.toHaveBeenCalled();
   });
 
-  it("still catches up when there IS a pane — the skip is pane-specific, not a disable", async () => {
-    const listChannels = vi.fn(async () => [{ id: 3 }]);
-    const listMessages = vi.fn(async () => ({ messages: [] }));
-    const client = { listChannels, listMessages, listOpenPrompts: vi.fn(async () => []), markRead: vi.fn(async () => ({})) } as never;
-
+  it("#383: a reconnect NAMES the backlog in one line instead of typing every message", async () => {
+    const { client, markRead } = fakeClient();
     startAgentRuntime(contextFor("%4", client), () => {});
     await events.options?.onConnected!(true as never);
 
-    expect(listChannels).toHaveBeenCalledTimes(1);
-    expect(listMessages).toHaveBeenCalledTimes(1);
+    expect(tmux.notifyPane).toHaveBeenCalledTimes(1);
+    const line = tmux.notifyPane.mock.calls[0]?.[0] as unknown as string;
+    expect(line).toContain("1 unread message(s)");
+    expect(line).toContain("check_messages");
+    // The body is NOT typed, and nothing is marked read — the agent reads it
+    // when it chooses.
+    expect(line).not.toContain("does this survive without a pane?");
+    expect(markRead).toEqual([]);
+  });
+
+  it("#383: a reconnect with nothing unread types nothing", async () => {
+    const client = {
+      listChannels: async () => [{ id: 3 }],
+      listMessages: async () => ({ messages: [] }),
+      listOpenPrompts: async () => [],
+      markRead: vi.fn(async () => ({})),
+    } as never;
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onConnected!(true as never);
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
+  });
+
+  it("a FIRST connect types nothing — the notice is for reconnects only", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onConnected!(false as never);
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
   });
 
   it("#127: a hydrated open prompt queues an inbound message until it resolves", async () => {
@@ -220,18 +239,11 @@ describe("message delivery without a pane", () => {
     expect(tmux.notifyPane).toHaveBeenCalledTimes(1);
   });
 
-  it("#127: reconnect catch-up + a buffered live frame for the same id deliver only once", async () => {
+  it("#127: a live frame for an already-delivered id is not typed twice", async () => {
     const { client, markRead } = fakeClient();
     startAgentRuntime(contextFor("%4", client), () => {});
 
-    // Reconnect barrier: hydrate + catch-up delivers the one unread message (56).
-    await events.options?.onConnected!(true as never);
-    expect(tmux.notifyPane).toHaveBeenCalledTimes(1);
-    expect(markRead).toEqual([{ channel: 3, id: 56 }]);
-
-    // The buffered live `created` frame for the SAME message arrives after the
-    // barrier. resolveMessage fetches by id (not unread), so the catch-up markRead
-    // doesn't suppress it — dedup must, or it would be typed twice.
+    await events.options?.onMessage({ id: 56 } as never);
     await events.options?.onMessage({ id: 56 } as never);
     expect(tmux.notifyPane).toHaveBeenCalledTimes(1); // deduped — not typed twice
     expect(markRead).toEqual([{ channel: 3, id: 56 }]); // no second markRead
@@ -250,6 +262,48 @@ describe("message delivery without a pane", () => {
 
     await onMessage({ id: 56 }, "updated"); // edit — must bypass dedup
     expect(tmux.notifyPane).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("#132: prompt answers replay only into the asking agent's pane", () => {
+  // A one-question set, answered with option 2.
+  const answered = (agent: number | null) =>
+    ({
+      id: 900,
+      session: 12,
+      agent,
+      question: "Pick one",
+      kind: "set",
+      status: "answered",
+      answer: null,
+      answer_json: "[[2]]",
+      answered_by: 1,
+      options_json: JSON.stringify([
+        { question: "Pick one", kind: "single", options: [{ number: 1, label: "A" }, { number: 2, label: "B" }] },
+      ]),
+    }) as never;
+
+  beforeEach(() => tmux.sendKeySteps.mockClear());
+
+  it("presses the keys for THIS agent's prompt", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onPromptAnswered!(answered(PROFILE.agentId));
+    expect(tmux.sendKeySteps).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores another agent's answer — the group is project-wide", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onPromptAnswered!(answered(PROFILE.agentId + 1));
+    expect(tmux.sendKeySteps).not.toHaveBeenCalled();
+  });
+
+  it("ignores an answer that names no agent at all", async () => {
+    const { client } = fakeClient();
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onPromptAnswered!(answered(null));
+    expect(tmux.sendKeySteps).not.toHaveBeenCalled();
   });
 });
 
