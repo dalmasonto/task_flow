@@ -42,6 +42,12 @@ export function plainMentions(text: string): string {
   return text.replace(/\[@([^\]]*)\]\((?:agent|user|page):\S+?\)/g, "@$1")
 }
 
+/// A body as ONE line of plain text, for a quote: mentions as `@Name`, the
+/// markdown emphasis/code/heading marks dropped, whitespace collapsed.
+export function plainExcerpt(text: string): string {
+  return plainMentions(text).replace(/[*_`~#>]+/g, "").replace(/\s+/g, " ").trim()
+}
+
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /// Replace every `@Label` the picker inserted with its token. Longest label

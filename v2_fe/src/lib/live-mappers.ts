@@ -1,5 +1,5 @@
 import { columns, type ActivityEvent, type AgentAttachment, type AgentChatContext, type AgentMessage, type AgentTerminalSessionView, type ColumnId, type ConversationMember, type DropTarget, type InviteRecord, type MessagePriority, type Priority, type Project, type ReplyQuote, type Task, type TaskActivityItem, type TaskLink, type TaskRelation, type TaskSession, type TerminalLine } from "@/lib/workspace-view"
-import { plainMentions } from "@/lib/mention-tokens"
+import { plainExcerpt } from "@/lib/mention-tokens"
 import { formatEstimateMinutes } from "@/lib/tasks"
 import { isPending, type PendingAttachment } from "@/lib/message-store"
 import { parseDesignRef, stripDesignRef } from "@/lib/design-ref"
@@ -1052,7 +1052,7 @@ export function mapLiveChannelMessages(
     const parent = byId.get(parentId)
     if (!parent) return { id: String(parentId), from: "", excerpt: "", missing: true }
     const own = parent.sender_kind === "user" && currentUser != null && parent.sender_user === currentUser.id
-    const flat = plainMentions(stripDesignRef(parent.body_markdown)).replace(/\s+/g, " ").trim()
+    const flat = plainExcerpt(stripDesignRef(parent.body_markdown))
     return {
       id: String(parent.id),
       from: own ? "You" : parent.sender_label,

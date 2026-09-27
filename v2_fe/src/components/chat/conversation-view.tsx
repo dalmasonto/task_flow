@@ -11,7 +11,7 @@ import { appendDesignRef, type DesignRef } from "@/lib/design-ref"
 import { cn } from "@/lib/utils"
 import { composerEmojiGroups, messagePriorityOptions, type AgentMessage, type MessagePriority, type StagedFile, type TargetMember } from "@/lib/workspace-view"
 import { detectMention } from "@/lib/mention"
-import { encodeMentions, plainMentions, type PickedMention } from "@/lib/mention-tokens"
+import { encodeMentions, plainExcerpt, type PickedMention } from "@/lib/mention-tokens"
 import { PageMentionContext } from "@/lib/markdown-contexts"
 import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
 import { markChannelRead } from "@/lib/taskflow-api"
@@ -629,7 +629,7 @@ export function AgentsConversationView({
                   <span className="font-medium">
                     Replying to {replyingTo.from === "user" ? "yourself" : replyingTo.from}
                   </span>
-                  <span className="text-muted-foreground"> — {plainMentions(replyingTo.body).replace(/\s+/g, " ").slice(0, 120)}</span>
+                  <span className="text-muted-foreground"> — {plainExcerpt(replyingTo.body).slice(0, 120)}</span>
                 </span>
                 <button
                   type="button"

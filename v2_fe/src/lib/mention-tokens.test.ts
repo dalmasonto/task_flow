@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { encodeMentions, mentionToken, parseMentionHref, plainMentions } from "./mention-tokens"
+import { encodeMentions, mentionToken, parseMentionHref, plainExcerpt, plainMentions } from "./mention-tokens"
 
 const builder = { kind: "agent" as const, id: "12", label: "Builder agent" }
 const short = { kind: "agent" as const, id: "7", label: "Builder" }
@@ -46,5 +46,11 @@ describe("plainMentions", () => {
     expect(plainMentions("hi [@Builder agent](agent:12), see [@Settings](page:/settings) and [docs](https://x.y)")).toBe(
       "hi @Builder agent, see @Settings and [docs](https://x.y)",
     )
+  })
+})
+
+describe("plainExcerpt", () => {
+  it("drops markdown marks and keeps mentions readable", () => {
+    expect(plainExcerpt("**Done:** ping [@Ann](user:3)\n\n`code` # x")).toBe("Done: ping @Ann code x")
   })
 })
