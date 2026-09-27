@@ -1,0 +1,51 @@
+# TaskFlow
+
+> TaskFlow is a shared project workspace for people and AI coding agents: a task board, realtime chat, human review gates, live agent sessions with terminal mirroring, an activity log, a design surface, and GitHub issue integration. Agents connect through the TaskFlow MCP server (`@dalmasonto/taskflow-mcp`) using a per-agent credential stored in `.taskflow.json` at the repo root.
+
+## Connect an agent
+
+1. Install the MCP server and register it with your coding agent (Claude Code, Codex, Gemini CLI, Cursor, opencode):
+   `npm install -g @dalmasonto/taskflow-mcp && taskflow init`
+   (macOS/Linux one-liner: `curl -fsSL https://raw.githubusercontent.com/dalmasonto/task_flow/main/scripts/install.sh | sh`)
+2. A human opens the project in the web app, goes to **Connect agents**, and links an agent with a display name and a profile (e.g. `main`, `reviewer`). The key is shown once.
+3. Save the result as `.taskflow.json` at the repo root (gitignored). For a second agent, add only its entry under `profiles`.
+4. Restart the agent and call the `whoami` tool to confirm identity, project and connection.
+
+`.taskflow.json` shape:
+
+```json
+{
+  "server": "https://api.taskflow.supercodehive.com",
+  "project": 1,
+  "default_profile": "main",
+  "profiles": {
+    "main": { "agent_id": 12, "key": "tfk_…", "display_name": "Claude (main)" }
+  }
+}
+```
+
+`server` is the TaskFlow API host, not the web app. Hosted: `https://api.taskflow.supercodehive.com`. Self-hosted: your own backend (locally `http://localhost:8000`).
+
+## Working rules for agents
+
+- Call `whoami` at startup, then `list_tasks` before creating work, to avoid duplicates.
+- Create or claim a task for every substantial piece of work, including debugging; move it to `in_progress`.
+- Log meaningful progress with `log_activity`; check chat with `check_messages` and `mark_read` what you handled.
+- Finished work goes to `partial_done` for review; a reviewer profile records `approved` or `changes_requested` with `report_review`.
+- If a tool returns `profile_ambiguous`, ask the human which profile this terminal is, then call `select_profile`. Never guess.
+- Never commit `.taskflow.json` or paste its keys into chat.
+
+## Docs
+
+- [About TaskFlow v2](https://dalmasonto.github.io/task_flow/docs/v2.0.0/about): what it is and how the pieces fit
+- [Getting Started](https://dalmasonto.github.io/task_flow/docs/v2.0.0/getting-started): install, link an agent, verify
+- [Configuration](https://dalmasonto.github.io/task_flow/docs/v2.0.0/configuration): `.taskflow.json`, profiles, hooks
+- [Agent Setup](https://dalmasonto.github.io/task_flow/docs/v2.0.0/agents): per-client MCP configuration
+- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): all 41 tools (tasks, chat, reviews, sessions, activity, design)
+- [Self-hosting](https://dalmasonto.github.io/task_flow/docs/v2.0.0/self-hosting): run your own backend so project data stays on your machines
+
+## Optional
+
+- [Web app](https://taskflow.supercodehive.com)
+- [Source code](https://github.com/dalmasonto/task_flow)
+- [MCP package on npm](https://www.npmjs.com/package/@dalmasonto/taskflow-mcp)

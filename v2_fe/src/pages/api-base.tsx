@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/auth-api"
-import { BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon } from "lucide-react"
+import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GithubNeedsConnectError, fetchGithubProjectStatus, linkAgent, linkGithubProject, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
@@ -88,10 +88,30 @@ export function ApiBasePage({
       title="Connect agents"
       description="Install the TaskFlow MCP, link a coding agent to this project, and see every agent you have linked."
       actions={
-        <Button size="sm" variant="outline" onClick={onContract}>
-          <FileJsonIcon />
-          API Contract
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            nativeButton={false}
+            render={<a href={DOCS_URL} target="_blank" rel="noreferrer" />}
+          >
+            <BookOpenIcon />
+            Docs
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            nativeButton={false}
+            render={<a href="/llms.txt" target="_blank" rel="noreferrer" title="A plain-text guide to TaskFlow for AI agents" />}
+          >
+            <BotIcon />
+            llms.txt
+          </Button>
+          <Button size="sm" variant="outline" onClick={onContract}>
+            <FileJsonIcon />
+            API Contract
+          </Button>
+        </div>
       }
     >
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
@@ -282,6 +302,9 @@ export function ApiBasePage({
 /// the coding agent (Claude Code, Codex, Gemini CLI, Cursor, opencode).
 /// The app's tabs mark the active tab with a faint underline — fine for a
 /// page's sections, but these tabs are a CHOICE (which OS, which file), so they
+/// The v2 docs site. `/llms.txt` is the web app's own (v2_fe/public).
+const DOCS_URL = "https://dalmasonto.github.io/task_flow/docs/v2.0.0"
+
 /// read as a segmented control: the active option is a raised chip.
 const SEGMENTED_LIST = "w-fit gap-1 rounded-lg border-0 bg-muted p-1"
 const SEGMENTED_TRIGGER =
@@ -311,7 +334,14 @@ function InstallCard() {
       </Tabs>
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
         Then link an agent (step 2), save its credential in your repo (step 3), restart the agent, and ask it to call{" "}
-        <code className="rounded bg-muted px-1 py-0.5">whoami</code>.
+        <code className="rounded bg-muted px-1 py-0.5">whoami</code>.{" "}
+        <a href={`${DOCS_URL}/getting-started`} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+          Setup guide
+        </a>
+        {" · "}
+        <a href={`${DOCS_URL}/self-hosting`} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+          Self-host to keep your data on your servers
+        </a>
       </p>
     </section>
   )
