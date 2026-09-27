@@ -285,6 +285,15 @@ export async function fetchSandboxToken(projectId: number): Promise<string> {
   return body.token
 }
 
+/// One of a page's external images, fetched by the SERVER on the member's
+/// behalf for the export to inline (`pages/design/export/image-inline.ts`
+/// builds the path and reads the answer; `remote_fetch.rs` is the policy the
+/// server fetches under). Raw `Response`: the caller wants the bytes and
+/// their type, and a refusal is a status it maps, not an error it throws.
+export async function fetchDesignAsset(path: string): Promise<Response> {
+  return designFetch(path)
+}
+
 export async function fetchDesignFiles(projectId: number): Promise<DesignFileSummary[]> {
   const res = await designFetch(`/api/design/${projectId}/files`)
   if (!res.ok) throw new Error(`Could not list design files (${res.status}).`)

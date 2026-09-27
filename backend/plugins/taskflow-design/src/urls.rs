@@ -29,6 +29,10 @@ pub fn router() -> Router {
             post(views::create_screenshot),
         )
         .route("/api/design/{project}/files", get(views::list_files))
+        // The export's image proxy: fetch one of a page's external images
+        // server-side, under `remote_fetch`'s policy, for the capture to
+        // inline. See `views::fetch_asset`.
+        .route("/api/design/{project}/fetch-asset", get(views::fetch_asset))
         // #501: the page trash — trash by route, list, restore by path.
         .route("/api/design/{project}/page", delete(views::trash_page))
         .route("/api/design/{project}/trash", get(views::list_trash))

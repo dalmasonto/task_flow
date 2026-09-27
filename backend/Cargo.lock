@@ -3598,6 +3598,7 @@ dependencies = [
  "chrono",
  "hmac",
  "http",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -3611,6 +3612,7 @@ dependencies = [
  "umbral-auth",
  "umbral-realtime",
  "umbral-testing",
+ "url",
 ]
 
 [[package]]

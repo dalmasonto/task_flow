@@ -167,9 +167,65 @@ const PICKER_RUNTIME: &str = r#"(() => {
     });
   };
 
+  // The export's external images. The capture draws the page as an SVG
+  // image, so every <img> and CSS background has to be INLINED as a data:
+  // URL — and this document's `connect-src` refuses the fetch (deliberately:
+  // see `sandbox_csp`). The library asks `fetchFn` first for every image it
+  // needs; for an https url off this origin the runtime asks the chrome,
+  // which fetches it through the server (`/api/design/{project}/fetch-asset`)
+  // and answers with the data: URL. `false` means "fetch it yourself" — a
+  // same-origin asset or a jsdelivr file the policy already allows — and an
+  // answer that never comes, or comes as a refusal, leaves the library to
+  // its placeholder, which is what an unfetchable image was drawn as before.
+  // What an image the export cannot have is drawn AS: a neutral grey card
+  // with a picture glyph, sized by the element's own CSS like the image it
+  // stands in for. Visible on purpose — the library's own default is a 1×1
+  // transparent gif, which reads as a page with a hole in it, and a blank is
+  // indistinguishable from a page that never had an image there.
+  const IMAGE_PLACEHOLDER = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 120' preserveAspectRatio='xMidYMid slice'>" +
+    "<rect width='160' height='120' fill='#e5e7eb'/>" +
+    "<path d='M46 86l24-30 16 20 10-12 18 22z' fill='#9ca3af'/>" +
+    "<circle cx='106' cy='42' r='8' fill='#9ca3af'/></svg>");
+  const imageWaits = new Map();
+  let imageSeq = 0;
+  const fetchViaChrome = (id) => (url) => {
+    if (!/^https:\/\//i.test(url) || url.startsWith(location.origin + '/')) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const key = id + ':' + (++imageSeq);
+      imageWaits.set(key, resolve);
+      parent.postMessage({ type: 'design:fetch-image', id, key, url }, '*');
+      setTimeout(() => { if (imageWaits.has(key)) { imageWaits.delete(key); resolve(false); } }, 25000);
+    });
+  };
+
+  // A <video> is pictured as its poster. The library clones a video and
+  // waits for it to load; a `preload="none"` video (the poster-first kind a
+  // feed shows) never fires `loadeddata` or `error`, so the capture would
+  // hang until the chrome gave up on the screen. The swap is temporary and
+  // undone after the capture, so the live page keeps its player.
+  const swapVideosForPosters = () => {
+    const swapped = [];
+    for (const video of document.querySelectorAll('video')) {
+      const still = document.createElement('img');
+      still.alt = '';
+      still.src = video.poster || IMAGE_PLACEHOLDER;
+      still.className = video.className;
+      still.style.cssText = video.style.cssText;
+      video.replaceWith(still);
+      swapped.push({ still, video });
+    }
+    return () => { for (const { still, video } of swapped) still.replaceWith(video); };
+  };
+
   addEventListener('message', (e) => {
     const m = e.data;
     if (!m || typeof m !== 'object') return;
+    if (m.type === 'design:image-data' && imageWaits.has(m.key)) {
+      const ok = typeof m.dataUrl === 'string' && m.dataUrl.startsWith('data:');
+      imageWaits.get(m.key)(ok ? m.dataUrl : false);
+      imageWaits.delete(m.key);
+    }
     if (m.type === 'design:mode') { on = !!m.picking;
       document.documentElement.style.cursor = on ? 'crosshair' : '';
       if (!on) clear(); }
@@ -203,12 +259,20 @@ const PICKER_RUNTIME: &str = r#"(() => {
           const width = innerWidth;
           const height = m.fullPage ? Math.max(root.scrollHeight, innerHeight) : innerHeight;
           const bg = getComputedStyle(document.body).backgroundColor;
-          const dataUrl = await lib.domToPng(root, {
-            width, height,
-            scale: Math.min(Math.max(Number(m.scale) || 1, 1), 3),
-            backgroundColor: bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#ffffff',
-            ...(fontCss ? { font: { cssText: fontCss } } : {}),
-          });
+          const restoreVideos = swapVideosForPosters();
+          let dataUrl;
+          try {
+            dataUrl = await lib.domToPng(root, {
+              width, height,
+              scale: Math.min(Math.max(Number(m.scale) || 1, 1), 3),
+              backgroundColor: bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#ffffff',
+              fetchFn: fetchViaChrome(id),
+              fetch: { placeholderImage: IMAGE_PLACEHOLDER },
+              ...(fontCss ? { font: { cssText: fontCss } } : {}),
+            });
+          } finally {
+            restoreVideos();
+          }
           parent.postMessage({ type: 'design:captured', id, dataUrl, width, height }, '*');
         } catch (err) {
           parent.postMessage({ type: 'design:captured', id, error: String(err && err.message || err) }, '*');
@@ -1075,6 +1139,24 @@ mod tests {
         assert!(PICKER_RUNTIME.contains("m.type === 'design:font-css'"));
         assert!(PICKER_RUNTIME.contains("font: { cssText: fontCss }"));
         assert!(PICKER_RUNTIME.contains("cdn.jsdelivr.net/npm/modern-screenshot@"));
+        // The export's external images: the runtime hands every https image
+        // fetch to the chrome (which fetches through the server), because
+        // this document's `connect-src` refuses it and the capture would
+        // otherwise draw a placeholder.
+        assert!(PICKER_RUNTIME.contains("type: 'design:fetch-image', id, key, url"));
+        assert!(PICKER_RUNTIME.contains("m.type === 'design:image-data'"));
+        assert!(PICKER_RUNTIME.contains("fetchFn: fetchViaChrome(id)"));
+        // ...and an image it still cannot have is drawn as a VISIBLE
+        // placeholder card, never the library's invisible 1×1 default.
+        assert!(PICKER_RUNTIME.contains("fetch: { placeholderImage: IMAGE_PLACEHOLDER }"));
+        assert!(PICKER_RUNTIME.contains("data:image/svg+xml;charset=utf-8,"));
+        // A `<video>` is pictured as its poster. The library waits on a video
+        // it clones to load, and one with `preload=\"none\"` never does — the
+        // capture would hang until the chrome's timeout and the screen would
+        // be lost.
+        assert!(PICKER_RUNTIME.contains("querySelectorAll('video')"));
+        assert!(PICKER_RUNTIME.contains("still.replaceWith(video)"));
+        assert!(PICKER_RUNTIME.contains("still.src = video.poster || IMAGE_PLACEHOLDER"));
         assert!(!PICKER_RUNTIME.to_ascii_lowercase().contains("</script"));
     }
 

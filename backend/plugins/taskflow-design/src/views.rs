@@ -83,6 +83,56 @@ pub async fn mint_sandbox_token(
     Ok(Json(json!({ "token": sandbox::mint(project_id) })))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FetchAssetQuery {
+    pub url: String,
+}
+
+/// `GET /api/design/{project}/fetch-asset?url=…` — fetch one of a page's
+/// EXTERNAL images server-side and hand its bytes back, for the export to
+/// inline (see `remote_fetch.rs` for why the page and the chrome cannot, and
+/// for the bounds this fetch runs under).
+///
+/// Member-gated like every chrome route. The status says WHY a fetch was
+/// refused — the export skips the image either way, so this is for the person
+/// reading the network tab, not for the code: 400 for a url the policy will
+/// never fetch, 415 for a response that is not an image, 413 for one over the
+/// cap, and 502 for an upstream that did not answer well.
+pub async fn fetch_asset(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Query(query): Query<FetchAssetQuery>,
+) -> Result<Response, StatusCode> {
+    use crate::remote_fetch::{Refusal, fetch_image};
+    ensure_member(user_id, project_id).await?;
+    let fetched = fetch_image(&query.url).await.map_err(|refusal| match refusal {
+        Refusal::NotHttps
+        | Refusal::NoHost
+        | Refusal::LocalName
+        | Refusal::IpLiteral
+        | Refusal::PrivateAddress
+        | Refusal::Unresolvable => StatusCode::BAD_REQUEST,
+        Refusal::NotAnImage => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        Refusal::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+        Refusal::TooManyRedirects
+        | Refusal::BadRedirect
+        | Refusal::Upstream(_)
+        | Refusal::Network => StatusCode::BAD_GATEWAY,
+    })?;
+    let content_type =
+        HeaderValue::from_str(&fetched.content_type).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let mut response = fetched.bytes.into_response();
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, content_type);
+    // The bytes are exactly the upstream's, typed as it typed them; never let
+    // a browser second-guess that into something scriptable.
+    headers.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
+    // An export asks for each image once per page that shows it; a private
+    // cache keeps the second page's ask off the wire.
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, max-age=3600"));
+    Ok(response)
+}
+
 /// `GET /api/design/{project}/agents` — the project's agent roster, for the
 /// dispatch "Send to agent" picker. Read-only projection: id, name, status.
 pub async fn list_project_agents(

@@ -71,6 +71,42 @@ const DRESS_OPTIONS: { id: DressStyle; title: string; hint: string }[] = [
   { id: "none", title: "None", hint: "Rounded screenshot" },
 ]
 
+type ExportReport = {
+  total: number
+  missingImages: { item: { label: string; route: string }; urls: string[] }[]
+}
+
+/// The assets the export stood in for. Every screen is in the file; a screen
+/// whose picture shows a placeholder card where an image could not be
+/// fetched is named with the image urls, so the owner can see which host
+/// would not serve it.
+function ExportReportNote({ report }: { report: ExportReport }) {
+  const { total, missingImages } = report
+  const count = missingImages.reduce((n, m) => n + m.urls.length, 0)
+  return (
+    <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
+      <p className="font-medium text-amber-900 dark:text-amber-200">
+        Saved all {total} screen{total === 1 ? "" : "s"}. {count === 1 ? "One image" : `${count} images`} could not be fetched and{" "}
+        {count === 1 ? "shows" : "show"} as a placeholder:
+      </p>
+      <ul className="max-h-40 list-disc space-y-0.5 overflow-y-auto pl-5 text-xs text-amber-900/80 dark:text-amber-200/80">
+        {missingImages.map(({ item, urls }) => (
+          <li key={item.route}>
+            <span className="font-medium">{item.label}</span> ({item.route}):
+            <ul className="list-none pl-0">
+              {urls.map((u) => (
+                <li key={u} className="truncate" title={u}>
+                  {u}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function ExportDialog({
   open,
   onOpenChange,
@@ -78,6 +114,7 @@ export function ExportDialog({
   layout,
   openRoutes,
   labelFor,
+  projectId,
   sandboxToken,
   projectName,
   theme,
@@ -90,6 +127,7 @@ export function ExportDialog({
   layout: LayoutDoc
   openRoutes: string[]
   labelFor: (route: string) => string
+  projectId: number | null
   sandboxToken: string | null
   projectName: string
   theme: "light" | "dark"
@@ -122,6 +160,10 @@ export function ExportDialog({
   const [format, setFormat] = useState<"pdf" | "png">("pdf")
   const [progress, setProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /// The assets the last export stood in for, shown once it has saved: the
+  /// dialog stays open for it, because a closed dialog would say every
+  /// picture was whole when some carry a placeholder.
+  const [report, setReport] = useState<ExportReport | null>(null)
   const cancelled = useRef(false)
 
   const device = deviceById(deviceId)
@@ -154,16 +196,18 @@ export function ExportDialog({
           : "Selected pages"
 
   const start = async () => {
-    if (!sandboxToken || !items.length) return
+    if (!sandboxToken || projectId === null || !items.length) return
     cancelled.current = false
     setError(null)
+    setReport(null)
     setProgress({ done: 0, total: items.length, phase: "Starting" })
     try {
       const { runExport, saveBlob, ExportCancelled } = await import("./export-run")
       try {
-        const blob = await runExport({
+        const { blob, missingImages } = await runExport({
           items,
           device,
+          projectId,
           sandboxToken,
           theme,
           dress: exportDress(deviceId, dressStyle),
@@ -176,7 +220,11 @@ export function ExportDialog({
           isCancelled: () => cancelled.current,
         })
         saveBlob(blob, exportFileName(title.trim() || projectName, deviceId, format === "pdf" ? "pdf" : "zip"))
-        onOpenChange(false)
+        if (missingImages.length) {
+          setReport({ total: items.length, missingImages })
+        } else {
+          onOpenChange(false)
+        }
       } catch (err) {
         if (!(err instanceof ExportCancelled)) throw err
       }
@@ -387,6 +435,7 @@ export function ExportDialog({
             </div>
           ) : null}
           {error ? <p className="text-sm text-rose-600 dark:text-rose-300">{error}</p> : null}
+          {report ? <ExportReportNote report={report} /> : null}
           {!sandboxToken ? <p className="text-sm text-muted-foreground">Waiting for the design preview to load…</p> : null}
         </div>
 

@@ -33,6 +33,11 @@ tokio-stream = "0.1"
 http = "1"
 # Raster assets are stored base64-wrapped in the TEXT content column.
 base64 = "0.22"
+# The export's image proxy (`remote_fetch.rs`): the server fetches a page's
+# external images on a member's behalf, pinned to pre-checked public
+# addresses. Same TLS stack as taskflow-github.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2"
 
 [dev-dependencies]
 umbral-testing = "0.0.10"

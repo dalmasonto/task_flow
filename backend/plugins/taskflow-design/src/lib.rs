@@ -33,6 +33,7 @@ pub mod layout_doc;
 pub mod manifest;
 pub mod models;
 pub mod primitives;
+pub mod remote_fetch;
 pub mod resources;
 pub mod sandbox;
 pub mod screenshots;

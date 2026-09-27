@@ -13,6 +13,7 @@
 
 import { sandboxUrl } from "@/lib/design-api"
 import { inlineFontCss } from "./font-inline"
+import { inlineImage } from "./image-inline"
 import { statusBarHtml, statusBarStyle } from "@/lib/design-frames"
 import type { ChromeStyle, DevicePreset } from "@/lib/design-devices"
 import {
@@ -30,6 +31,8 @@ import {
 export type ExportOptions = {
   items: ExportItem[]
   device: DevicePreset
+  /// The project the pages belong to: the export's image proxy is per project.
+  projectId: number
   sandboxToken: string
   theme: "light" | "dark"
   /// What each screen is dressed in (see `ExportDress`).
@@ -47,6 +50,22 @@ export type ExportOptions = {
 
 type Picture = { dataUrl: string; width: number; height: number }
 
+/// What a capture could not have: the external images the server refused or
+/// failed to fetch. The screen still shows, with a placeholder card drawn
+/// where each one was (`composer.rs`, `IMAGE_PLACEHOLDER`).
+type CaptureResult = Picture & { missingImages: string[] }
+
+/// The export's result: the file, and the assets it stands in for. Every
+/// screen is in the file — an asset is the only thing an export goes
+/// without, and the dialog names each one so the owner knows which host
+/// would not serve it.
+export type ExportResult = {
+  blob: Blob
+  /// Screens whose picture has a placeholder for an image the server could
+  /// not fetch, with the urls.
+  missingImages: { item: ExportItem; urls: string[] }[]
+}
+
 export class ExportCancelled extends Error {}
 
 const CAPTURE_TIMEOUT_MS = 45_000
@@ -54,7 +73,7 @@ const CAPTURE_TIMEOUT_MS = 45_000
 /// Load `route` in a hidden iframe at the device's viewport and ask the page to
 /// picture itself. Resolves with a PNG data URL at up to 2× (a phone's 3× is
 /// more pixels than any PDF shows, and each one costs memory).
-function capturePage(route: string, opts: ExportOptions): Promise<Picture> {
+function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult> {
   const { device } = opts
   return new Promise((resolve, reject) => {
     const frame = document.createElement("iframe")
@@ -74,6 +93,7 @@ function capturePage(route: string, opts: ExportOptions): Promise<Picture> {
     })
     const id = `cap-${Math.random().toString(36).slice(2)}`
     let asked = false
+    const missingImages = new Set<string>()
     const done = (fn: () => void) => {
       clearTimeout(timer)
       window.removeEventListener("message", onMessage)
@@ -97,8 +117,22 @@ function capturePage(route: string, opts: ExportOptions): Promise<Picture> {
         height?: number
         sheets?: unknown
         faces?: unknown
+        key?: unknown
+        url?: unknown
       }
       if (!data || typeof data !== "object") return
+      // One of the page's external images, fetched through the server and
+      // handed back inline (see `image-inline.ts`). Only for this capture.
+      // A null answer is sent as such: the page then lets the library draw
+      // its placeholder rather than wait out its own timeout.
+      if (data.type === "design:fetch-image" && data.id === id && typeof data.key === "string" && typeof data.url === "string") {
+        const { key, url } = data
+        void inlineImage(opts.projectId, url).then((dataUrl) => {
+          if (!dataUrl) missingImages.add(url)
+          frame.contentWindow?.postMessage({ type: "design:image-data", key, dataUrl }, "*")
+        })
+        return
+      }
       // The page's webfonts, fetched here and handed back inline (see
       // `font-inline.ts`). Only for the capture this frame was asked for.
       if (data.type === "design:font-sources" && data.id === id) {
@@ -123,7 +157,12 @@ function capturePage(route: string, opts: ExportOptions): Promise<Picture> {
         if (data.error || !data.dataUrl?.startsWith("data:image/png")) {
           done(() => reject(new Error(`Could not picture ${route}: ${data.error ?? "no image"}`)))
         } else {
-          const picture = { dataUrl: data.dataUrl, width: data.width ?? device.width, height: data.height ?? device.height }
+          const picture = {
+            dataUrl: data.dataUrl,
+            width: data.width ?? device.width,
+            height: data.height ?? device.height,
+            missingImages: [...missingImages],
+          }
           done(() => resolve(picture))
         }
       }
@@ -325,17 +364,21 @@ type Dressed = { item: ExportItem; picture: Picture }
 /// page, for the board menu's single-screen download.
 export async function renderScreen(
   route: string,
-  opts: Pick<ExportOptions, "device" | "sandboxToken" | "theme" | "dress" | "radius" | "fullPage">,
-): Promise<Picture> {
+  opts: Pick<ExportOptions, "device" | "projectId" | "sandboxToken" | "theme" | "dress" | "radius" | "fullPage">,
+): Promise<CaptureResult> {
   const shot = await capturePage(route, opts as ExportOptions)
-  switch (opts.dress.kind) {
-    case "device":
-      return inDeviceFrame(shot, opts.dress.frame)
-    case "classic":
-      return inClassicChrome(shot, opts.dress.chrome)
-    case "none":
-      return roundAndShadow(shot, opts.radius)
-  }
+  const { missingImages } = shot
+  const dressed = await (() => {
+    switch (opts.dress.kind) {
+      case "device":
+        return inDeviceFrame(shot, opts.dress.frame)
+      case "classic":
+        return inClassicChrome(shot, opts.dress.chrome)
+      case "none":
+        return roundAndShadow(shot, opts.radius)
+    }
+  })()
+  return { ...dressed, missingImages }
 }
 
 /// #507 follow-up: download ONE board's screen as a PNG, bare (rounded
@@ -344,12 +387,14 @@ export async function downloadScreen(input: {
   route: string
   label: string
   device: DevicePreset
+  projectId: number
   sandboxToken: string
   theme: "light" | "dark"
   dress: ExportDress
 }): Promise<void> {
   const picture = await renderScreen(input.route, {
     device: input.device,
+    projectId: input.projectId,
     sandboxToken: input.sandboxToken,
     theme: input.theme,
     dress: input.dress,
@@ -361,24 +406,42 @@ export async function downloadScreen(input: {
   saveBlob(blob, `${slug(input.label)}-${slug(input.device.label)}${input.dress.kind === "none" ? "" : "-framed"}.png`)
 }
 
-async function captureAll(opts: ExportOptions): Promise<Dressed[]> {
-  const out: Dressed[] = []
+type Captured = Pick<ExportResult, "missingImages"> & { dressed: Dressed[] }
+
+/// Every screen, in order. A screen is never left out (the owner's rule: an
+/// asset the page cannot have is replaced, the page itself is not), so a
+/// capture that fails is tried once more — a page can miss its moment to a
+/// slow CDN or a busy tab — and a second failure fails the export, naming
+/// the screen, rather than saving a document with a page missing.
+async function captureAll(opts: ExportOptions): Promise<Captured> {
+  const dressed: Dressed[] = []
+  const missingImages: ExportResult["missingImages"] = []
   const total = opts.items.length
   for (const item of opts.items) {
     if (opts.isCancelled()) throw new ExportCancelled()
-    opts.onProgress(out.length, total, `Rendering ${item.label}`)
-    const picture = await renderScreen(item.route, opts)
+    opts.onProgress(dressed.length, total, `Rendering ${item.label}`)
+    let picture: CaptureResult
+    try {
+      picture = await renderScreen(item.route, opts)
+    } catch (err) {
+      if (err instanceof ExportCancelled || opts.isCancelled()) throw new ExportCancelled()
+      opts.onProgress(dressed.length, total, `Rendering ${item.label} (second try)`)
+      picture = await renderScreen(item.route, opts)
+    }
     if (opts.isCancelled()) throw new ExportCancelled()
-    out.push({ item, picture })
+    if (picture.missingImages.length) missingImages.push({ item, urls: picture.missingImages })
+    dressed.push({ item, picture })
   }
   opts.onProgress(total, total, opts.format === "pdf" ? "Laying out the PDF" : "Packing the images")
-  return out
+  return { dressed, missingImages }
 }
 
-/// The whole export: capture, dress, assemble. Resolves with the file to save.
-export async function runExport(opts: ExportOptions): Promise<Blob> {
-  const dressed = await captureAll(opts)
-  return opts.format === "pdf" ? buildPdf(dressed, opts) : buildZip(dressed)
+/// The whole export: capture, dress, assemble. Resolves with the file to save
+/// and the assets it stands in for.
+export async function runExport(opts: ExportOptions): Promise<ExportResult> {
+  const { dressed, missingImages } = await captureAll(opts)
+  const blob = opts.format === "pdf" ? await buildPdf(dressed, opts) : await buildZip(dressed)
+  return { blob, missingImages }
 }
 
 async function buildZip(dressed: Dressed[]): Promise<Blob> {

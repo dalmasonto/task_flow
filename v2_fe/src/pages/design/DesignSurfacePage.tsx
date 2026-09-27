@@ -619,7 +619,7 @@ export function DesignSurfacePage({
   // pipeline for a single page, loaded only when first used.
   const downloadBoardImage = useCallback(
     (route: string, label: string, deviceId: string, withFrame: boolean) => {
-      if (!sandboxToken) return
+      if (!sandboxToken || projectId === null) return
       setCanvasNotice({ text: `Preparing ${label}…`, tone: "info" })
       void import("./export/export-run")
         .then(({ downloadScreen }) =>
@@ -627,6 +627,7 @@ export function DesignSurfacePage({
             route,
             label,
             device: deviceById(deviceId),
+            projectId,
             sandboxToken,
             theme: theme === "dark" ? "dark" : "light",
             // "Download w Frame" wears what the canvas shows: the classic
@@ -639,7 +640,7 @@ export function DesignSurfacePage({
         // for one failed download.
         .catch((err: Error) => setCanvasNotice({ text: err.message, tone: "error" }))
     },
-    [sandboxToken, theme, frameMode],
+    [sandboxToken, projectId, theme, frameMode],
   )
 
   const restorePage = useCallback(
@@ -1258,6 +1259,7 @@ export function DesignSurfacePage({
         layout={layout}
         openRoutes={openRoutes}
         labelFor={labelFor}
+        projectId={projectId}
         sandboxToken={sandboxToken}
         projectName={project?.name ?? "Design"}
         theme={theme === "dark" ? "dark" : "light"}
