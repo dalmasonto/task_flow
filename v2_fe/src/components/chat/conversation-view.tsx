@@ -11,6 +11,8 @@ import { appendDesignRef, type DesignRef } from "@/lib/design-ref"
 import { cn } from "@/lib/utils"
 import { composerEmojiGroups, messagePriorityOptions, type AgentMessage, type MessagePriority, type StagedFile, type TargetMember } from "@/lib/workspace-view"
 import { detectMention } from "@/lib/mention"
+import { encodeMentions, plainMentions, type PickedMention } from "@/lib/mention-tokens"
+import { PageMentionContext } from "@/lib/markdown-contexts"
 import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
 import { markChannelRead } from "@/lib/taskflow-api"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type UIEvent } from "react"
@@ -47,8 +49,15 @@ export function AgentsConversationView({
   onClearContextChip,
   showDesignBadge = true,
   readCursorMessages,
+  pageMentions,
+  onOpenPage,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
+  /// #506: the design pages `@page:` can mention. Absent (every surface but the
+  /// design page), `@page:` lists nothing.
+  pageMentions?: { route: string; label: string }[]
+  /// #506: open a mentioned page — makes page chips in this thread clickable.
+  onOpenPage?: (route: string) => void
   contextChip?: { label: string; ref: DesignRef } | null
   onClearContextChip?: () => void
   showDesignBadge?: boolean
@@ -77,6 +86,9 @@ export function AgentsConversationView({
   // #29: the "To:" multi-select popover open state.
   const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
+  // #318: the entities the picker inserted into the draft, so the send can
+  // store them by id. Plain `@Name` text the picker did not insert stays text.
+  const [pickedMentions, setPickedMentions] = useState<PickedMention[]>([])
   // #317: the message the next send answers, shown above the composer.
   const [replyingTo, setReplyingTo] = useState<AgentMessage | null>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -165,25 +177,41 @@ export function AgentsConversationView({
     )
 
   // The room's targets matching the in-progress @mention (by display name),
-  // online or offline, so anyone can always be addressed.
-  const mentionMembers = mention
-    ? roomTargets.filter((t) => t.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
-    : []
+  // online or offline, so anyone can always be addressed. `@page:` switches the
+  // list to design pages (#506) where the surface supplies them.
+  const pageQuery = mention && /^page:/i.test(mention.query) ? mention.query.slice(5).toLowerCase() : null
+  const mentionMembers =
+    mention && pageQuery === null
+      ? roomTargets.filter((t) => t.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
+      : []
+  const mentionPages =
+    pageQuery !== null && pageMentions
+      ? pageMentions
+          .filter((p) => p.label.toLowerCase().includes(pageQuery) || p.route.toLowerCase().includes(pageQuery))
+          .slice(0, 8)
+      : []
 
-  const selectMention = (target: TargetMember) => {
+  /// Replace the in-progress `@query` with `@Label ` and remember what it names.
+  const insertMention = (picked: PickedMention) => {
     if (!mention) return
     const textarea = composerRef.current
     const caret = textarea?.selectionStart ?? draftMessage.length
-    const token = `@${target.name} `
+    const token = `@${picked.label} `
     const next = draftMessage.slice(0, mention.start) + token + draftMessage.slice(caret)
     pendingCaret.current = mention.start + token.length
     setDraftMessage(next)
+    setPickedMentions((prev) => [...prev, picked])
+    setMention(null)
+    textarea?.focus()
+  }
+
+  const selectMention = (target: TargetMember) => {
+    if (!mention) return
+    insertMention({ kind: target.kind, id: String(target.id), label: target.name })
     // Picking a member from the @ list both writes the mention and adds them as a
     // target: an agent gets pane delivery (on reconnect if offline), a user is
     // recorded as an addressed mention.
     addTarget(target)
-    setMention(null)
-    textarea?.focus()
   }
 
   // The terminal stays CLOSED by default and is opened on demand from the header
@@ -206,6 +234,7 @@ export function AgentsConversationView({
     setTargetPickerOpen(false)
     // A reply belongs to the conversation it was started in.
     setReplyingTo(null)
+    setPickedMentions([])
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
@@ -379,8 +408,9 @@ export function AgentsConversationView({
     // #Task8: the design rail appends the inspected element's encoded ref to
     // the body here; `is_design` itself is set by the rail's own
     // `onSendMessage` wiring (Task 9/10), keeping this component send-agnostic.
-    const outgoingBody =
-      isDesign && contextChip ? appendDesignRef(trimmedMessage, contextChip.ref) : trimmedMessage
+    // #318: the names the picker inserted become id tokens; nothing else does.
+    const encoded = encodeMentions(trimmedMessage, pickedMentions)
+    const outgoingBody = isDesign && contextChip ? appendDesignRef(encoded, contextChip.ref) : encoded
 
     onSendMessage(
       selectedChat,
@@ -391,6 +421,7 @@ export function AgentsConversationView({
       replyingTo && /^\d+$/.test(replyingTo.id) ? Number(replyingTo.id) : null
     )
     setReplyingTo(null)
+    setPickedMentions([])
     // Revoke the composer's own preview URLs; the optimistic bubble mints its
     // own from the same File objects, so these are no longer needed.
     for (const staged of stagedFiles) {
@@ -415,6 +446,8 @@ export function AgentsConversationView({
   const chatLabel = selectedChat.mode === "channel" ? "Group chat" : "DM"
 
   return (
+    // #506: page chips in this thread open the page where the surface can.
+    <PageMentionContext.Provider value={onOpenPage ?? null}>
     <section
       className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
       onDragEnter={handleDragEnter}
@@ -596,7 +629,7 @@ export function AgentsConversationView({
                   <span className="font-medium">
                     Replying to {replyingTo.from === "user" ? "yourself" : replyingTo.from}
                   </span>
-                  <span className="text-muted-foreground"> — {replyingTo.body.replace(/\s+/g, " ").slice(0, 120)}</span>
+                  <span className="text-muted-foreground"> — {plainMentions(replyingTo.body).replace(/\s+/g, " ").slice(0, 120)}</span>
                 </span>
                 <button
                   type="button"
@@ -622,6 +655,27 @@ export function AgentsConversationView({
             {/* #29: typing `@` surfaces everyone in the room — humans and agents,
                 online or offline — so anyone can be addressed by picking from a
                 list instead of typing a long, spaced handle by hand. */}
+            {mentionPages.length ? (
+              <div className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
+                <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Mention a page
+                </div>
+                {mentionPages.map((page) => (
+                  <button
+                    key={page.route}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      insertMention({ kind: "page", id: page.route, label: page.label })
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <span className="truncate">{page.label}</span>
+                    <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">{page.route}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {mentionMembers.length ? (
               <div className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
                 <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
@@ -878,5 +932,6 @@ export function AgentsConversationView({
         />
       ) : null}
     </section>
+    </PageMentionContext.Provider>
   )
 }

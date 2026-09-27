@@ -901,6 +901,12 @@ export function DesignSurfacePage({
               // selection from a control that names one would lose picks the
               // human never asked to lose.
               onClearContextChip={() => handleRemoveSelection(selections.active)}
+              pageMentions={(manifest?.routes ?? []).map((r) => ({ route: r.path, label: labelFor(r.path) }))}
+              onOpenPage={(route) => {
+                // #506: a page chip in the design chat opens that page's board.
+                openRoute(route)
+                focusBoard(artboardKey(route, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
+              }}
             />
           ) : (
             <EmptyCanvas message={"Loading design conversation…"} />
@@ -1068,6 +1074,8 @@ function DesignChatRail({
   onComposeTask,
   contextChip,
   onClearContextChip,
+  pageMentions,
+  onOpenPage,
 }: {
   project: Project
   liveWorkspace: TaskflowWorkspace | null
@@ -1077,6 +1085,9 @@ function DesignChatRail({
   onComposeTask: (body: string) => void
   contextChip: { label: string; ref: DesignRef } | null
   onClearContextChip: () => void
+  /// #506: the pages `@page:` offers, and how a page chip opens one.
+  pageMentions: { route: string; label: string }[]
+  onOpenPage: (route: string) => void
 }) {
   // The design room, SELECTED BY MARKER — never by the title "Design room", and
   // never by position. A project may hold any number of user-created rooms, and
@@ -1122,6 +1133,8 @@ function DesignChatRail({
       showDesignBadge={false}
       contextChip={contextChip}
       onClearContextChip={onClearContextChip}
+      pageMentions={pageMentions}
+      onOpenPage={onOpenPage}
       // No `readCursorMessages` override: that prop exists for a rail that
       // RENDERS a subset of a channel but must mark the whole of it read, and
       // there is no subset any more. The read cursor now advances over the design

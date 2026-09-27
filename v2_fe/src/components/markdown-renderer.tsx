@@ -1,10 +1,11 @@
 import { useContext, type ReactNode } from "react"
-import Markdown, { type Components } from "react-markdown"
+import Markdown, { defaultUrlTransform, type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 
 import { cn } from "@/lib/utils"
 import { splitTaskRefs } from "@/lib/task-refs"
-import { TaskChipContext, GithubRepoContext } from "@/lib/markdown-contexts"
+import { TaskChipContext, GithubRepoContext, PageMentionContext } from "@/lib/markdown-contexts"
+import { MENTION_URL, parseMentionHref, type MentionKind } from "@/lib/mention-tokens"
 
 /// Remark plugin: rewrite `TASK#<n>` inside text nodes into link nodes with a
 /// `#task-<n>` fragment url (which the URL sanitizer allows), so the `a`
@@ -113,6 +114,36 @@ function MessageChip({ message, children }: { message: number; children?: ReactN
   )
 }
 
+/// #318 / #506: a mention stored by identity — `[@Name](agent:12)`. Drawn as a
+/// highlighted chip whose tooltip says exactly who (or which page) it is, so
+/// two people with similar names are never confused. A page chip opens the page
+/// where the design surface provides a way to.
+function MentionChip({ kind, id, children }: { kind: MentionKind; id: string; children?: ReactNode }) {
+  const openPage = useContext(PageMentionContext)
+  const chipClass =
+    kind === "page"
+      ? "inline-flex items-center rounded-md bg-emerald-500/10 px-1 py-0.5 align-baseline text-[0.9em] font-medium text-emerald-700 ring-1 ring-emerald-500/25 dark:text-emerald-300"
+      : "inline-flex items-center rounded-md bg-primary/10 px-1 py-0.5 align-baseline text-[0.9em] font-medium text-primary ring-1 ring-primary/20"
+  const title = kind === "page" ? `Design page ${id}` : `${kind === "agent" ? "Agent" : "User"} #${id}`
+  if (kind === "page" && openPage) {
+    return (
+      <button type="button" className={cn(chipClass, "cursor-pointer hover:bg-emerald-500/20")} title={`Open ${id}`} onClick={() => openPage(id)}>
+        {children}
+      </button>
+    )
+  }
+  return (
+    <span className={chipClass} title={title} data-mention={`${kind}:${id}`}>
+      {children}
+    </span>
+  )
+}
+
+/// Keep mention URLs (`agent:`, `user:`, `page:`) — react-markdown's default
+/// transform would blank them as unknown protocols — and sanitise every other
+/// URL exactly as before.
+const urlTransform = (url: string) => (MENTION_URL.test(url) ? url : defaultUrlTransform(url))
+
 type MarkdownRendererProps = {
   content: string
   compact?: boolean
@@ -134,6 +165,8 @@ const markdownComponents: Components = {
     </blockquote>
   ),
   a: ({ children, href }) => {
+    const mention = parseMentionHref(href)
+    if (mention) return <MentionChip kind={mention.kind} id={mention.id}>{children}</MentionChip>
     const taskMatch = /^#task-(\d+)$/.exec(href ?? "")
     if (taskMatch) return <TaskChip taskId={Number(taskMatch[1])}>{children}</TaskChip>
     const issueMatch = /^#gh-issue-(\d+)$/.exec(href ?? "")
@@ -220,7 +253,7 @@ export function MarkdownRenderer({ content, compact, tone = "default", className
         className
       )}
     >
-      <Markdown remarkPlugins={[remarkGfm, remarkTaskChips]} components={markdownComponents} skipHtml>
+      <Markdown remarkPlugins={[remarkGfm, remarkTaskChips]} components={markdownComponents} urlTransform={urlTransform} skipHtml>
         {content}
       </Markdown>
     </div>

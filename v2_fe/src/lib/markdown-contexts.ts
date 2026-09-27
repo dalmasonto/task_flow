@@ -32,3 +32,8 @@ export type ChatDockApi = {
 }
 
 export const ChatDockContext = createContext<ChatDockApi | null>(null)
+
+/// #506: opens a design page from a `[@Settings](page:/settings)` mention chip.
+/// The design surface provides it (opening the page on the canvas); anywhere
+/// else a page chip is a labelled, inert chip.
+export const PageMentionContext = createContext<((route: string) => void) | null>(null)

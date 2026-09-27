@@ -680,7 +680,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "send_message",
-    "Send a chat message as this agent into a channel. Use list_channels to find channel ids. To ANSWER a specific message, pass its id as `reply_to` (the `message=` id in a delivered notice's ⟦ctx⟧ block, or `id` from check_messages): the reply is linked to it and shown quoted, so a thread stays readable when several conversations interleave. `reply_to` must be a message in the same channel.",
+    "Send a chat message as this agent into a channel. Use list_channels to find channel ids. To ANSWER a specific message, pass its id as `reply_to` (the `message=` id in a delivered notice's ⟦ctx⟧ block, or `id` from check_messages): the reply is linked to it and shown quoted, so a thread stays readable when several conversations interleave. `reply_to` must be a message in the same channel. To MENTION someone or a design page, write it by id so it renders as a chip and cannot be confused with a similar name: [@Name](agent:ID), [@Name](user:ID) (ids from list_agents / the ⟦ctx⟧ from= field), or [@Page name](page:/route). You will see mentions of you in the same form.",
     {
       channel: z.number().int().describe("Channel id to post in."),
       body: z.string().min(1).describe("Message body (markdown)."),
