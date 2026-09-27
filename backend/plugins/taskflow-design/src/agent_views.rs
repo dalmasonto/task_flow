@@ -139,6 +139,9 @@ Web fonts (one global change, never per page)
   Links must be https, with rel stylesheet, preconnect or dns-prefetch.
   The `resources` field of this response shows the current document and its
   version (pass it as base_version when you replace it).
+  The operator often manages these sets from the panel (enable, disable, add).
+  If the document already exists, change only what you need, typically the
+  `enabled` flags, and keep every other set exactly as it is.
 
   Do NOT put a webfont <link> (or its preconnect) in a page fragment: it
   loads for that one page only, so changing the typeface becomes an edit per
