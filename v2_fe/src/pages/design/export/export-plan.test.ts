@@ -4,6 +4,7 @@ import type { RouteEntry } from "@/lib/design-api"
 import { normalizeLayout } from "@/lib/design-layout"
 import { deviceById } from "@/lib/design-devices"
 import {
+  captureViewport,
   exportDress,
   A4,
   PAGE_MARGIN,
@@ -102,6 +103,26 @@ describe("frames and names (#507)", () => {
   it("names files so they sort in export order", () => {
     expect(exportFileName("TaskFlow v2", "iphone-16-pro", "pdf")).toBe("taskflow-v2-iphone-15-16-screens.pdf")
     expect(screenFileName({ route: "/", label: "Sign up!", group: null, n: 3 }, 12)).toBe("03-sign-up.png")
+  })
+})
+
+describe("captureViewport", () => {
+  it("is the device's own viewport for a bare or classic screenshot", () => {
+    const pixel = deviceById("pixel-8")
+    expect(captureViewport(pixel, { kind: "none" })).toEqual({ width: 412, height: 915 })
+    expect(captureViewport(pixel, exportDress("pixel-8", "classic"))).toEqual({ width: 412, height: 915 })
+  })
+  it("is the frame's screen below its status bar, at the device's width, for a device frame", () => {
+    // google-pixel-6-pro: screen 376×816 with a 26px status bar, so at the
+    // Pixel 8's 412px width the page gets (816 − 26) × 412 / 376 = 866px —
+    // exactly what the canvas gives a framed board, and exactly the screen
+    // the picture is then laid into, so nothing is cropped.
+    expect(captureViewport(deviceById("pixel-8"), exportDress("pixel-8", "device"))).toEqual({ width: 412, height: 866 })
+    // iphone-14-pro: 390×830 with a 44px status bar, at 393px: (830 − 44) × 393 / 390 = 792.
+    expect(captureViewport(deviceById("iphone-16-pro"), exportDress("iphone-16-pro", "device"))).toEqual({ width: 393, height: 792 })
+  })
+  it("ignores a frame it has no metrics for", () => {
+    expect(captureViewport(deviceById("pixel-8"), { kind: "device", frame: "no-such-frame" })).toEqual({ width: 412, height: 915 })
   })
 })
 

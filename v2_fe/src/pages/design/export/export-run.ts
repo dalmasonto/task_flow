@@ -21,6 +21,7 @@ import {
   FRAME_METRICS,
   PAGE_MARGIN,
   bestPageSetup,
+  captureViewport,
   screenFileName,
   screensPerPage,
   slotOrigin,
@@ -77,6 +78,9 @@ const CAPTURE_TIMEOUT_MS = 45_000
 /// more pixels than any PDF shows, and each one costs memory).
 function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult> {
   const { device } = opts
+  // The frame's own screen when the screen is dressed in one (see
+  // `captureViewport`): the page lays out for the area it will be shown in.
+  const viewport = captureViewport(device, opts.dress)
   return new Promise((resolve, reject) => {
     const frame = document.createElement("iframe")
     frame.setAttribute("aria-hidden", "true")
@@ -87,8 +91,8 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
       position: "fixed",
       left: "-20000px",
       top: "0",
-      width: `${device.width}px`,
-      height: `${device.height}px`,
+      width: `${viewport.width}px`,
+      height: `${viewport.height}px`,
       border: "0",
       opacity: "0",
       pointerEvents: "none",
@@ -161,8 +165,8 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
         } else {
           const picture = {
             dataUrl: data.dataUrl,
-            width: data.width ?? device.width,
-            height: data.height ?? device.height,
+            width: data.width ?? viewport.width,
+            height: data.height ?? viewport.height,
             missingImages: [...missingImages],
           }
           done(() => resolve(picture))

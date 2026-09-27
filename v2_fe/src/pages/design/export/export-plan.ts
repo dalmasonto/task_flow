@@ -5,7 +5,7 @@
 import type { RouteEntry } from "@/lib/design-api"
 import type { LayoutDoc } from "@/lib/design-layout"
 import { chromeStyleForGroup, deviceById, type ChromeStyle, type DevicePreset } from "@/lib/design-devices"
-import { frameFor as deviceFrameFor } from "@/lib/design-frames"
+import { FRAME_METRICS as METRICS, frameFor as deviceFrameFor } from "@/lib/design-frames"
 import { groupedPages } from "../pages-order"
 
 /// What to export. `groups` and `pick` carry the operator's choice; `open` is
@@ -76,6 +76,21 @@ export type ExportDress =
 
 /// The frame styles an export offers.
 export type DressStyle = ExportDress["kind"]
+
+/// The viewport a screen is CAPTURED at. For a device frame it is the frame's
+/// screen below its status bar, at the device's width — the same viewport the
+/// canvas gives a framed board (`framedViewportHeight`), and exactly the area
+/// the picture is then laid into. A page captured at the preset's own height
+/// instead is a different shape from that screen, and laying it in from the
+/// top cropped its bottom: a Pixel 8 page lost its last 49px, and the button
+/// pinned there with it. Bare and classic screenshots take the whole preset.
+export function captureViewport(device: DevicePreset, dress: ExportDress): { width: number; height: number } {
+  if (dress.kind === "device") {
+    const m = METRICS[dress.frame]
+    if (m) return { width: device.width, height: Math.round(((m.screenH - m.statusBar) * device.width) / m.screenW) }
+  }
+  return { width: device.width, height: device.height }
+}
 
 /// The dress for a device in a chosen style. A style the device cannot wear
 /// falls back to none: a breakpoint width is no device, so it has neither a
