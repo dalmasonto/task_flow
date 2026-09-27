@@ -604,9 +604,10 @@ fn move_group_refuses_a_position_outside_the_list() {
         .unwrap_err()
         .contains("1..=2"));
     // Refused, not clamped: a clamp would have returned a document with the group
-    // parked at an end, so the `.unwrap_err()` above is the assertion — and the
-    // input the caller still holds is the one it passed.
-    assert_eq!(before.groups.len(), 2);
+    // parked at an end, so the `.unwrap_err()` above is the assertion. That the
+    // caller's own `before` is untouched needs no assertion — `move_group` takes
+    // the document by VALUE, so no implementation could have changed the caller's
+    // copy, and an assertion that cannot fail is worse than none.
 }
 
 #[test]

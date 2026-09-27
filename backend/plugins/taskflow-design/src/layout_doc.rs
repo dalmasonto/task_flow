@@ -133,12 +133,14 @@ pub fn move_group(doc: LayoutDoc, group_id: &str, position: usize) -> Result<Lay
 /// an unnamed page — but it means a placement expresses the whole arrangement
 /// rather than part of it, which is what makes a position mean anything.
 ///
-/// A placement touches exactly two sections: the one the page LEFT and the one
-/// it JOINED. A third section's numbering cannot move, because its members'
-/// relative order in the flow is untouched by inserting a page that is not one
-/// of them — worth stating because the opposite is an easy thing to believe
-/// about a global flow, and `placing_a_page_leaves_other_sections_alone` pins
-/// it. Within the two affected sections, the other pages DO renumber.
+/// A placement touches at most two sections: the one the page LEFT and the one
+/// it JOINED — and only ONE of them when the page does not change section, the
+/// two roles collapsing onto the section that already holds it. A third
+/// section's numbering cannot move, because its members' relative order in the
+/// flow is untouched by inserting a page that is not one of them — worth stating
+/// because the opposite is an easy thing to believe about a global flow, and
+/// `placing_a_page_leaves_other_sections_alone` pins it. Within the affected
+/// sections, the other pages DO renumber.
 pub fn place_page(
     doc: LayoutDoc,
     known_routes: &[String],
@@ -216,8 +218,14 @@ pub fn place_page(
             ))
         }
         Some(p) if p > len + 1 => {
+            // "other": `len` counts the section AFTER the page being placed is
+            // taken out of it, so a page reordered within the section that
+            // already holds it — the only member of that section, say — would
+            // otherwise be told the section holds 0 pages. The RANGE is right
+            // either way, which is the number the caller actually needs.
             return Err(format!(
-                "position {p} is out of range: this section holds {len} page(s), so 1..={} is valid",
+                "position {p} is out of range: this section holds {len} other page(s), \
+                 so 1..={} is valid",
                 len + 1
             ))
         }
@@ -298,7 +306,7 @@ pub fn to_value(doc: &LayoutDoc) -> serde_json::Value {
 /// is stored is exactly what a later read will parse.
 pub fn validate(doc: LayoutDoc, known_routes: &[String]) -> Result<LayoutDoc, String> {
     if doc.groups.len() > MAX_GROUPS {
-        return Err(format!("at most {MAX_GROUPS} pages groups are allowed"));
+        return Err(format!("at most {MAX_GROUPS} page groups are allowed"));
     }
     let known: HashSet<&str> = known_routes.iter().map(String::as_str).collect();
 

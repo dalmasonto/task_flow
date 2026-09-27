@@ -675,8 +675,9 @@ export class TaskflowClient {
 
 /**
  * Pull a human message out of an error response body: prefer a JSON `detail`
- * (the backend's convention) or `error`, else the raw text, else the status
- * line. Kept resilient — a malformed body must never mask the real failure.
+ * (the backend's convention), then `message`, then `error`, else the raw text,
+ * else the status line. Kept resilient — a malformed body must never mask the
+ * real failure.
  */
 export function extractDetail(raw: string, statusText: string): string {
   const trimmed = raw.trim();
@@ -684,6 +685,12 @@ export function extractDetail(raw: string, statusText: string): string {
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
       if (typeof parsed.detail === "string") return parsed.detail;
+      // The design plugin's `{ok:false, error:<code>, message:<sentence>}`
+      // envelope puts the human sentence in `message`; `error` there is a
+      // machine code. Every other body in the backend that carries `error`
+      // carries the human text in it and has no `message` at all (umbral's
+      // ApiError is `{error, code}`), so `error` stays the fallback.
+      if (typeof parsed.message === "string") return parsed.message;
       if (typeof parsed.error === "string") return parsed.error;
       // Field-error envelope (e.g. { user: ["…"] }) — surface the first message.
       for (const value of Object.values(parsed)) {

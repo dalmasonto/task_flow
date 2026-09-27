@@ -1021,11 +1021,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   // different questions: the argument's schema can say the field is optional,
   // but not that omitting it is the ORDINARY case — an agent that has not read
   // the board has to be able to tell that it may still write.
+  // The 409 says WHAT happened, not what the board now holds: the message is
+  // the sentence an agent reads, while `current_version` and
+  // `current_document` sit in the body beside it and never reach the tool
+  // result. So the promise is "you will be told, and you re-read to merge" —
+  // never "the current arrangement comes back with it".
   const baseVersionNote =
     "`base_version` is optional and omitting it is the normal case: the write then applies " +
     "to the board as it stands, so an agent that never read is never blocked. Supply " +
-    "design_read_layout's `version` to be told (409, with the current arrangement) instead " +
-    "of overwriting a change you have not seen.";
+    "design_read_layout's `version` to be told (409) instead of overwriting a change you " +
+    "have not seen — the refusal says the board moved on, and design_read_layout is where " +
+    "you re-read the arrangement and merge.";
 
   async function resolveDesignProject(
     client: TaskflowClient,

@@ -212,6 +212,79 @@ async fn an_agent_cannot_write_another_projects_layout() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_out_of_range_position_is_refused_with_the_valid_range() {
+    // What the two reorder descriptions promise: "a slot past the last group
+    // comes back as a 400 naming the valid range", and out of range "refused,
+    // not clamped". The sentence is the whole value of the refusal — a caller
+    // told only `invalid_operation` cannot tell a bad slot from a bad group id —
+    // and it is the message the MCP had to be taught to prefer over the
+    // envelope's machine code (see `client.ts::extractDetail`).
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+
+    let created = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await;
+    assert_eq!(created.status(), 200, "{}", created.text());
+    let group_id = created.json()["changed"]["groups"][0]
+        .as_str()
+        .expect("the new group id")
+        .to_string();
+
+    // One group, so the only valid slot is 1 — and the refusal says so.
+    let slot = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "op": { "reorder_group": { "group_id": group_id, "position": 99 } }
+            }),
+        )
+        .await;
+    assert_eq!(slot.status(), 400, "{}", slot.text());
+    let body = slot.json();
+    assert_eq!(
+        body["error"], "invalid_operation",
+        "the code the envelope carries BESIDE the sentence: {}",
+        slot.text()
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("1..=1 is valid"),
+        "the refusal names the range that exists: {}",
+        slot.text()
+    );
+
+    // The page variant counts the section AFTER the placed page is taken out of
+    // it, so the one page this project has reads as "0 other page(s)" — the
+    // count is about the pages already there, and the RANGE is still the one
+    // slot that works.
+    let page_slot = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "reorder_page": { "route": "/a", "position": 99 } } }),
+        )
+        .await;
+    assert_eq!(page_slot.status(), 400, "{}", page_slot.text());
+    assert!(
+        page_slot.json()["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("0 other page(s), so 1..=1 is valid"),
+        "the page refusal counts the OTHER pages and still names the range: {}",
+        page_slot.text()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn bad_arguments_are_refused_with_a_reason() {
     let (app, project, user, key) = app_with_agent().await;
     seed_page(&app, project, user, "pages/a.html", "A").await;
@@ -525,4 +598,115 @@ async fn an_operator_save_makes_a_held_version_stale() {
         )
         .await;
     assert_eq!(res.status(), 409, "the operator's save moved the number: {}", res.text());
+}
+
+// ---------------------------------------------------------------------------
+// `changed.routes`
+//
+// Collateral renumbering, the one thing an agent cannot predict from the call
+// it made: a placement renumbers the section it landed in, so pages the caller
+// never named change their visible position. Spec §11 leans on this list as the
+// caller's only warning, and the reorder_page description promises it "names
+// every page whose visible position moved, and always the page you named".
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn changed_routes_names_the_pages_that_visibly_moved() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+    seed_page(&app, project, user, "pages/b.html", "B").await;
+    seed_page(&app, project, user, "pages/c.html", "C").await;
+
+    // /c takes a section of its own, so the section under test has a neighbour:
+    // what happens to /c is what says the diff is by IN-SECTION position rather
+    // than by the global flow index.
+    let created = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": "One" } } }),
+        )
+        .await;
+    assert_eq!(created.status(), 200, "{}", created.text());
+    let group_id = created.json()["changed"]["groups"][0]
+        .as_str()
+        .expect("the new group id")
+        .to_string();
+    let placed = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "op": { "reorder_page": { "route": "/c", "group_id": group_id } }
+            }),
+        )
+        .await;
+    assert_eq!(
+        placed.status(),
+        200,
+        "the premise: /c has to be IN that group before it can be the untouched \
+         neighbour: {}",
+        placed.text()
+    );
+
+    // The ungrouped section is now [/a, /b] in manifest order. Placing /b FIRST
+    // in it displaces /a from slot 1 to slot 2 — /a moves without the call
+    // naming it, which is the whole reason the caller needs the list. /c keeps
+    // slot 1 of its own section, so it must NOT be reported.
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "reorder_page": { "route": "/b", "position": 1 } } }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let body = res.json();
+    let changed: Vec<&str> = body["changed"]["routes"]
+        .as_array()
+        .expect("changed.routes")
+        .iter()
+        .map(|v| v.as_str().expect("a route"))
+        .collect();
+    assert_eq!(
+        changed,
+        vec!["/a", "/b"],
+        "the page the call displaced is named as well as the one it placed, so a \
+         caller that reads only `changed.groups` is not left thinking /a is still \
+         first: {}",
+        res.text()
+    );
+
+    // And the converse, which is what pins WHICH numbering the diff reads: /a
+    // changes section here, so its own slot is 2 before and 2 after and its
+    // global flow index is 2 before and 3 after — while /c's global index moves
+    // the other way (3 → 2) and its in-section slot does not move at all. A diff
+    // over the raw flow would report /c; the in-section diff reports only the
+    // page the caller named.
+    let moved = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({
+                "project": project,
+                "op": { "reorder_page": { "route": "/a", "group_id": group_id } }
+            }),
+        )
+        .await;
+    assert_eq!(moved.status(), 200, "{}", moved.text());
+    let body = moved.json();
+    let changed: Vec<&str> = body["changed"]["routes"]
+        .as_array()
+        .expect("changed.routes")
+        .iter()
+        .map(|v| v.as_str().expect("a route"))
+        .collect();
+    assert_eq!(
+        changed,
+        vec!["/a"],
+        "no page's VISIBLE position moved here, every section's numbering is what \
+         it was, and the page the caller named is reported anyway: {}",
+        moved.text()
+    );
 }

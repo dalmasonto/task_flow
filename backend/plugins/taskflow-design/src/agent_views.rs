@@ -256,8 +256,9 @@ pub struct AgentLayoutQuery {
 /// The arrangement is readable here and writable at the same path by
 /// `write_layout`, whose body is an OPERATION rather than a document — the
 /// contract change this read was waiting on. The AGENT write is no longer
-/// last-write-wins: the row carries a `version`, and a supplied stale one is
-/// refused rather than applied. The operator's save still always wins and
+/// UNCONDITIONALLY last-write-wins: the row carries a `version`, and a supplied
+/// stale one is refused rather than applied — a write that supplies none still
+/// applies to whatever is stored. The operator's save still always wins and
 /// merely moves that number, so a conflict is a thing an agent can be told
 /// about, never a thing the human's own save can hit. The warning below still
 /// binds: this response is the panel's view, lossy in both directions, and
@@ -1018,9 +1019,21 @@ pub async fn write_layout(
 
             let json = layout_doc::to_json_string(&validated);
             if json.len() > 65536 {
-                return Ok(LayoutOutcome::Invalid(
-                    "the arrangement is too large to store".to_string(),
-                ));
+                // Nothing an agent can do gets back under the cap: none of the
+                // four operations REMOVES a page or a group, so a document this
+                // large stays this large and every later write through this
+                // route fails the same way — permanently, for the agent. Only
+                // the operator can shrink the board (the panel can drop pages
+                // and groups), so the refusal says that rather than inviting a
+                // retry that cannot succeed.
+                return Ok(LayoutOutcome::Invalid(format!(
+                    "the arrangement is too large to store ({} bytes, over the 65536-byte \
+                     limit), and no layout operation removes a page or a group: writes \
+                     through this route will keep failing at this size. The operator has to \
+                     shrink the board in the Pages panel before this arrangement can be \
+                     edited again.",
+                    json.len()
+                )));
             }
 
             let next_version = current_version + 1;
@@ -1057,6 +1070,11 @@ pub async fn write_layout(
                             .filter(design_layout::PROJECT.eq(project_id))
                             .first()
                             .await
+                            // `.ok()` below keeps the fallback rather than
+                            // failing the request, but the reason has to reach
+                            // the log — every other failure path in this
+                            // function says why before it degrades.
+                            .map_err(|err| eprintln!("design layout agent conflict re-read: {err}"))
                             .ok()
                             .flatten()
                             .and_then(|row| {

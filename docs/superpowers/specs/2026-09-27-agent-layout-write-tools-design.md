@@ -254,13 +254,14 @@ the tools to appear.
   with no version. Approach A protects an agent from *you*; it does not protect
   *your* panel from itself. Closing that needs the version to reach `v2_fe`,
   which is out of scope.
-- **A placement renumbers two sections, not one.** Moving a page changes the
-  visible position of other pages in the section it LEFT and the section it
-  JOINED, because in-section position is derived from the global flow. A third
-  section is unaffected — its members' relative flow order is untouched — which
-  is the opposite of what a global flow first suggests. The `changed.routes`
-  list names every page whose visible position moved, so neither case is a
-  surprise.
+- **A placement renumbers at most two sections, not one.** Moving a page
+  changes the visible position of other pages in the section it LEFT and the
+  section it JOINED, because in-section position is derived from the global
+  flow — and when the page does not change section those two are the SAME
+  section, so there is one. A third section is unaffected — its members'
+  relative flow order is untouched — which is the opposite of what a global
+  flow first suggests. The `changed.routes` list names every page whose visible
+  position moved, so neither case is a surprise.
 - **`route_order` becomes total** after any `place_page` (D6).
 - **No group deletion**, so an unwanted group must be removed from the panel.
 

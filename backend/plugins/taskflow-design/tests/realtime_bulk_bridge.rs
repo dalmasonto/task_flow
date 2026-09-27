@@ -257,8 +257,13 @@ async fn an_agents_rearrangement_broadcasts_to_the_project_group() {
 
     let path = format!("/api/taskflow/agents/design/layout?project={project}");
 
-    // The first write CREATES the row, which belongs to `Expose`, not the
-    // bridge — so it is deliberately outside the watch below.
+    let mut rx = watch(&group).await;
+
+    // The first write CREATES the row — the per-row `post_save` path, which
+    // belongs to `Expose` rather than the bridge (this harness registers no
+    // `Expose`). WATCHED rather than merely skipped: a create that wrongly
+    // fired the bulk bridge is exactly the regression this file exists to
+    // catch, and a watch opened after it could never see it.
     let created = app
         .put_as_agent(
             &key,
@@ -267,8 +272,10 @@ async fn an_agents_rearrangement_broadcasts_to_the_project_group() {
         )
         .await;
     assert_eq!(created.status(), 200, "{}", created.text());
-
-    let mut rx = watch(&group).await;
+    assert!(
+        drain(&mut rx).is_empty(),
+        "the create path belongs to Expose, not to the bulk bridge"
+    );
 
     // The second write takes the agent route's UPDATE branch — the same
     // `update_values` the operator's `put_layout` runs, and the half that used

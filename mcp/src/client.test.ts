@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TaskflowClient, type FetchLike } from "./client.js";
+import { TaskflowClient, extractDetail, TaskflowApiError, type FetchLike } from "./client.js";
 
 function stubFetch() {
   const calls: { url: string; init: any }[] = [];
@@ -331,5 +331,76 @@ describe("writeDesignAsset", () => {
     await client(impl).writeDesignAsset(3, "logo.svg", "<svg/>");
 
     expect("base_version" in JSON.parse(calls[0].init.body)).toBe(false);
+  });
+});
+
+describe("extractDetail", () => {
+  // The ONE place a backend body becomes the sentence an agent reads, and the
+  // place where the design plugin's envelope — `{ok:false, error:<code>,
+  // message:<sentence>}` — is the odd one out: everywhere else in the backend a
+  // body carrying `error` carries the human text in it and has no `message` at
+  // all. Reading `error` first therefore hands the agent a machine code and
+  // throws the sentence away, which is how "position 99 is out of range: there
+  // are 2 group(s), so 1..=2 is valid" reached agents as `400:
+  // invalid_operation`. It has no other caller, and nothing branches on the
+  // string, so preferring `message` can only add information.
+  it("returns the design envelope's sentence, not its machine code", () => {
+    const raw = JSON.stringify({
+      ok: false,
+      error: "invalid_operation",
+      message: "position 99 is out of range: there are 2 group(s), so 1..=2 is valid",
+    });
+
+    expect(extractDetail(raw, "Bad Request")).toBe(
+      "position 99 is out of range: there are 2 group(s), so 1..=2 is valid",
+    );
+  });
+
+  it("still returns `error` when the body carries no `message`", () => {
+    // umbral's `ApiError` is `{error, code}` with the human text in `error`, and
+    // `{error: "Unauthorized"}` is the shape every other route here answers
+    // with. None of them has a `message`, so the fallback still serves them.
+    expect(extractDetail(JSON.stringify({ error: "Unauthorized" }), "Unauthorized")).toBe(
+      "Unauthorized",
+    );
+  });
+
+  it("falls through to the raw body when it has neither key", () => {
+    // A body this function does not recognise must still reach the agent rather
+    // than be replaced by a status line that says less.
+    const raw = JSON.stringify({ ok: false, conflicts: [] });
+
+    expect(extractDetail(raw, "Conflict")).toBe(raw);
+  });
+
+  it("carries the sentence through a real layout write, not just the parser", async () => {
+    // The unit cases above pin the function; this pins the PATH an agent's
+    // layout write actually takes, because the promise the tool descriptions
+    // make ("a 400 naming the valid range") is about what arrives in
+    // `TaskflowApiError.message` — what `fail()` prints into the tool result.
+    const body = JSON.stringify({
+      ok: false,
+      error: "invalid_operation",
+      message: "position 99 is out of range: there are 2 group(s), so 1..=2 is valid",
+    });
+    const impl: FetchLike = async () => ({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => body,
+    });
+
+    const thrown = await client(impl)
+      .writeLayoutOp({ project: 2, op: { reorder_group: { group_id: "g1", position: 99 } } })
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(thrown).toBeInstanceOf(TaskflowApiError);
+    expect((thrown as TaskflowApiError).detail).toBe(
+      "position 99 is out of range: there are 2 group(s), so 1..=2 is valid",
+    );
+    expect((thrown as TaskflowApiError).message).toContain("1..=2 is valid");
   });
 });
