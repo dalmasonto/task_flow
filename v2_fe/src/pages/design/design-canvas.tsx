@@ -67,8 +67,10 @@ import { linkPages, linkProblem, placePage, relabel, unlink, type FlowDoc } from
 import {
   DEVICE_PRESETS,
   type Artboard,
+  type ChromeStyle,
   type DevicePreset,
   HEADER_H,
+  classicChrome,
   boardContentOrigin,
   boardHeight,
   boardWidth,
@@ -760,12 +762,19 @@ const ArtboardCard = memo(function ArtboardCard({
           ) : (
             <FrameError width={device.width} height={frameHeight} reason="No sandbox token — reload the surface." />
           )
-          // A real device wears its open-source frame; a breakpoint width is
-          // no device and keeps the plain chrome.
-          return canvasFrame(device) ? (
-            <FramedBoard device={device} theme={theme}>
-              {page}
-            </FramedBoard>
+          // The toolbar's frame mode: a real device frame, the classic bezel,
+          // or a plain outline. A breakpoint width is no device, so it is
+          // always the outline.
+          if (canvasFrame(device)) {
+            return (
+              <FramedBoard device={device} theme={theme}>
+                {page}
+              </FramedBoard>
+            )
+          }
+          const chrome = classicChrome(device)
+          return chrome ? (
+            <ClassicBoard chrome={chrome}>{page}</ClassicBoard>
           ) : (
             <OutlineBoard device={device}>{page}</OutlineBoard>
           )
@@ -1135,6 +1144,49 @@ function StatusBar({ frame, width, height, dark }: { frame: string; width: numbe
       className="absolute top-0 left-0"
       dangerouslySetInnerHTML={{ __html: statusBarHtml(style, width, height, dark ? "#f5f5f5" : "#0a0a0a") }}
     />
+  )
+}
+
+/// The canvas's original chrome — the `classic` frame mode (see `ChromeStyle`):
+/// a black bezel round the page, with a notch pill and home indicator on a
+/// phone, a camera dot on a tablet, and a window bar on a laptop. The page
+/// renders 1:1 inside it, so `boardContentOrigin` is its padding plus border.
+export function ClassicBoard({ chrome, children }: { chrome: ChromeStyle; children: React.ReactNode }) {
+  const { padding } = chrome
+  return (
+    <div
+      className="relative border border-zinc-700/80 bg-black shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)]"
+      style={{
+        borderRadius: chrome.outerRadius,
+        paddingTop: padding.top,
+        paddingRight: padding.right,
+        paddingBottom: padding.bottom,
+        paddingLeft: padding.left,
+      }}
+    >
+      {chrome.notch ? (
+        <div className="absolute top-2 left-1/2 h-4 w-24 -translate-x-1/2 rounded-full bg-zinc-900 ring-1 ring-zinc-800" />
+      ) : null}
+      {chrome.homeIndicator ? (
+        <div className="absolute bottom-1.5 left-1/2 h-1 w-28 -translate-x-1/2 rounded-full bg-zinc-700" />
+      ) : null}
+      {chrome.cameraDot ? (
+        <div className="absolute top-1.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-zinc-800 ring-1 ring-zinc-600/60" />
+      ) : null}
+      {chrome.topBar ? (
+        <div
+          className="absolute top-0 right-0 left-0 flex h-[22px] items-center gap-1.5 bg-zinc-900 px-3"
+          style={{ borderTopLeftRadius: chrome.outerRadius, borderTopRightRadius: chrome.outerRadius }}
+        >
+          <span className="size-2 rounded-full bg-zinc-700" />
+          <span className="size-2 rounded-full bg-zinc-700" />
+          <span className="size-2 rounded-full bg-zinc-700" />
+        </div>
+      ) : null}
+      <div className="overflow-hidden bg-zinc-950" style={{ borderRadius: chrome.innerRadius }}>
+        {children}
+      </div>
+    </div>
   )
 }
 

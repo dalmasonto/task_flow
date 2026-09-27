@@ -52,25 +52,32 @@ export const FRAME_METRICS: Record<string, FrameMetrics> = {
   imac: { w: 640, h: 540, screenX: 16, screenY: 16, screenW: 608, screenH: 342, statusBar: 0 },
 }
 
-/// Whether the canvas draws device frames at all — the toolbar's Frames
-/// toggle. A module setting rather than a parameter because every board-size
-/// rule (`boardWidth`, `boardHeight`, the layout engines, fit) reads it; the
-/// surface sets it before deriving its boards and lists it in their memo deps.
-/// Off, every board is the page in a plain rounded outline.
-let framesEnabled = true
+/// What the canvas draws around each page — the toolbar's Frames / Classic
+/// toggles:
+/// - `device`: the realistic open-source frames below.
+/// - `classic`: the canvas's original, simpler chrome — a black bezel with a
+///   notch pill, camera dot or window bar (`classicChrome` in design-devices).
+/// - `outline`: no device at all, the page in a plain rounded outline.
+/// A module setting rather than a parameter because every board-size rule
+/// (`boardWidth`, `boardHeight`, the layout engines, fit) reads it; the surface
+/// sets it before deriving its boards and lists it in their memo deps.
+export type CanvasFrameMode = "device" | "classic" | "outline"
 
-export function setCanvasFrames(on: boolean): void {
-  framesEnabled = on
+let frameMode: CanvasFrameMode = "device"
+
+export function setCanvasFrameMode(mode: CanvasFrameMode): void {
+  frameMode = mode
 }
 
-export function canvasFramesEnabled(): boolean {
-  return framesEnabled
+export function canvasFrameMode(): CanvasFrameMode {
+  return frameMode
 }
 
 /// A device's frame and the scale that makes the frame's screen exactly as
-/// wide as the device — or null when frames are off or the device has none.
+/// wide as the device — or null when device frames are not the mode or the
+/// device has none.
 export function canvasFrame(device: DevicePreset): { frame: string; metrics: FrameMetrics; scale: number } | null {
-  if (!framesEnabled) return null
+  if (frameMode !== "device") return null
   const frame = frameFor(device.id)
   const metrics = frame ? FRAME_METRICS[frame] : undefined
   if (!frame || !metrics) return null

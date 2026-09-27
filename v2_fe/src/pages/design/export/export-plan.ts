@@ -4,7 +4,8 @@
 
 import type { RouteEntry } from "@/lib/design-api"
 import type { LayoutDoc } from "@/lib/design-layout"
-import { deviceById, type DevicePreset } from "@/lib/design-devices"
+import { chromeStyleForGroup, deviceById, type ChromeStyle, type DevicePreset } from "@/lib/design-devices"
+import { frameFor as deviceFrameFor } from "@/lib/design-frames"
 import { groupedPages } from "../pages-order"
 
 /// What to export. `groups` and `pick` carry the operator's choice; `open` is
@@ -64,6 +65,32 @@ export function exportItems(
 
 // The frames are shared with the canvas (`lib/design-frames`).
 export { FRAME_METRICS, frameFor } from "@/lib/design-frames"
+
+/// What a screenshot is dressed in: a realistic devices.css frame (by its
+/// class, e.g. `iphone-14-pro`), the canvas's simple classic bezel, or nothing
+/// (rounded corners and a shadow).
+export type ExportDress =
+  | { kind: "device"; frame: string }
+  | { kind: "classic"; chrome: ChromeStyle }
+  | { kind: "none" }
+
+/// The frame styles an export offers.
+export type DressStyle = ExportDress["kind"]
+
+/// The dress for a device in a chosen style. A style the device cannot wear
+/// falls back to none: a breakpoint width is no device, so it has neither a
+/// device frame nor a classic bezel.
+export function exportDress(deviceId: string, style: DressStyle): ExportDress {
+  const device = deviceById(deviceId)
+  if (style === "device") {
+    const frame = deviceFrameFor(deviceId)
+    return frame ? { kind: "device", frame } : { kind: "none" }
+  }
+  if (style === "classic" && device.group !== "breakpoint") {
+    return { kind: "classic", chrome: chromeStyleForGroup(device.group) }
+  }
+  return { kind: "none" }
+}
 
 /// Phones print four to a page; everything larger prints two (the owner's
 /// call: a laptop layout needs the room).

@@ -25,7 +25,7 @@ import type { DesignManifest } from "@/lib/design-api"
 import { DEVICE_GROUP_LABELS, DEVICE_PRESETS, deviceById } from "@/lib/design-devices"
 import type { LayoutDoc } from "@/lib/design-layout"
 import { cn } from "@/lib/utils"
-import { exportFileName, exportItems, frameFor, screensPerPage, type ExportScope } from "./export-plan"
+import { exportDress, exportFileName, exportItems, frameFor, screensPerPage, type DressStyle, type ExportScope } from "./export-plan"
 
 type ScopeKind = ExportScope["kind"]
 
@@ -65,6 +65,12 @@ function CheckRow({
   )
 }
 
+const DRESS_OPTIONS: { id: DressStyle; title: string; hint: string }[] = [
+  { id: "device", title: "Device", hint: "Realistic device frame" },
+  { id: "classic", title: "Classic", hint: "Simple black bezel" },
+  { id: "none", title: "None", hint: "Rounded screenshot" },
+]
+
 export function ExportDialog({
   open,
   onOpenChange,
@@ -76,6 +82,7 @@ export function ExportDialog({
   projectName,
   theme,
   defaultDeviceId,
+  defaultDress,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -87,13 +94,25 @@ export function ExportDialog({
   projectName: string
   theme: "light" | "dark"
   defaultDeviceId: string
+  /// The frame style the canvas is showing — the export starts from it.
+  defaultDress: DressStyle
 }) {
   const routes = useMemo(() => manifest?.routes ?? [], [manifest])
   const [scopeKind, setScopeKind] = useState<ScopeKind>("all")
   const [groupIds, setGroupIds] = useState<string[]>([])
   const [picked, setPicked] = useState<string[]>([])
   const [deviceId, setDeviceId] = useState(defaultDeviceId)
-  const [withFrame, setWithFrame] = useState(false)
+  const [dressStyle, setDressStyle] = useState<DressStyle>(defaultDress)
+  // The dialog stays mounted, so each OPENING starts again from what the
+  // canvas shows now (its first device, its frame style).
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setDressStyle(defaultDress)
+      setDeviceId(defaultDeviceId)
+    }
+  }
   // Subtle by default: a screenshot's corners, not a device's.
   const [radius, setRadius] = useState(8)
   // The document's title: the project's name unless the operator says
@@ -106,7 +125,9 @@ export function ExportDialog({
   const cancelled = useRef(false)
 
   const device = deviceById(deviceId)
-  const frame = frameFor(deviceId)
+  const isBreakpoint = !frameFor(deviceId)
+  // What will actually be drawn: a breakpoint width wears no frame of either kind.
+  const effectiveStyle = exportDress(deviceId, dressStyle).kind
   const scope: ExportScope =
     scopeKind === "groups"
       ? { kind: "groups", groupIds }
@@ -145,7 +166,7 @@ export function ExportDialog({
           device,
           sandboxToken,
           theme,
-          frame: withFrame ? frame : null,
+          dress: exportDress(deviceId, dressStyle),
           radius,
           fullPage,
           format,
@@ -305,15 +326,33 @@ export function ExportDialog({
           </section>
 
           <section className="space-y-2.5">
-            <CheckRow
-              checked={withFrame && !!frame}
-              disabled={!frame || running}
-              onChange={setWithFrame}
-              aside={!frame ? <span className="text-xs text-muted-foreground">not for breakpoints</span> : null}
-            >
-              Show a device frame
-            </CheckRow>
-            {!(withFrame && frame) ? (
+            <div className="space-y-1.5">
+              <p className={fieldLabel}>Frame</p>
+              <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Frame">
+                {DRESS_OPTIONS.map((option) => {
+                  const unavailable = option.id !== "none" && isBreakpoint
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={effectiveStyle === option.id}
+                      disabled={running || unavailable}
+                      title={unavailable ? "A breakpoint width is not a device, so it has no frame" : undefined}
+                      onClick={() => setDressStyle(option.id)}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-left transition disabled:opacity-50",
+                        effectiveStyle === option.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "hover:bg-muted",
+                      )}
+                    >
+                      <span className="block text-sm font-medium">{option.title}</span>
+                      <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            {effectiveStyle === "none" ? (
               <label className="flex items-center gap-3 text-sm">
                 <span className="shrink-0">Corner radius</span>
                 <Slider

@@ -17,6 +17,7 @@ import {
   makeArtboard,
   rotateDecisionFor,
 } from "./design-devices"
+import { setCanvasFrameMode } from "./design-frames"
 import { DEFAULT_LAYOUT, assignRoute, createGroup, moveRoute, type LayoutDoc } from "./design-layout"
 
 describe("design devices", () => {
@@ -106,6 +107,36 @@ describe("design devices", () => {
   it("a breakpoint width keeps the plain chrome: bezel plus the 1px border", () => {
     expect(boardWidth(deviceById("bp-sm"))).toBe(640 + 0 + 2)
     expect(boardContentOrigin(deviceById("bp-sm")).y).toBeGreaterThan(HEADER_H)
+  })
+
+  it("classic mode: the old bezel around a 1:1 page, and the outline for a breakpoint", () => {
+    setCanvasFrameMode("classic")
+    try {
+      const phone = deviceById("iphone-16-pro")
+      // Phone bezel: 12px each side, 24 top, 20 bottom, plus the 1px border.
+      expect(boardWidth(phone)).toBe(phone.width + 12 + 12 + 2)
+      expect(boardHeight(phone)).toBe(phone.height + 24 + 20 + 2)
+      expect(boardContentOrigin(phone)).toEqual({ x: 1 + 12, y: HEADER_H + 1 + 24 })
+      // A laptop has only its 22px window bar.
+      const laptop = deviceById("laptop")
+      expect(boardWidth(laptop)).toBe(laptop.width + 2)
+      expect(boardHeight(laptop)).toBe(laptop.height + 22 + 2)
+      // A breakpoint is no device: the plain outline, whatever the mode.
+      expect(boardWidth(deviceById("bp-sm"))).toBe(640 + 2)
+    } finally {
+      setCanvasFrameMode("device")
+    }
+  })
+
+  it("outline mode: every board is the page plus a 1px outline", () => {
+    setCanvasFrameMode("outline")
+    try {
+      const phone = deviceById("iphone-16-pro")
+      expect(boardWidth(phone)).toBe(phone.width + 2)
+      expect(boardContentOrigin(phone)).toEqual({ x: 1, y: HEADER_H + 1 })
+    } finally {
+      setCanvasFrameMode("device")
+    }
   })
 
   it("layoutBands: one band per device, its pages across, next device below", () => {

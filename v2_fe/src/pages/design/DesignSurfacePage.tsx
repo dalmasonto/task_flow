@@ -13,6 +13,7 @@ import {
   LayoutGridIcon,
   MessageSquareIcon,
   SmartphoneIcon,
+  TabletSmartphoneIcon,
   MonitorSmartphoneIcon,
   PanelRightIcon,
   MoonIcon,
@@ -41,8 +42,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ExportDialog } from "./export/export-dialog"
-import { frameFor } from "./export/export-plan"
-import { setCanvasFrames } from "@/lib/design-frames"
+import { exportDress } from "./export/export-plan"
+import { setCanvasFrameMode, type CanvasFrameMode } from "@/lib/design-frames"
 import { flowPositions, type FlowDoc } from "./flow/flow-layout"
 import {
   fetchDesignComments,
@@ -122,6 +123,20 @@ import { createContentEpoch } from "./content-epoch"
 /** A selection plus the board it was captured on — the key the canvas overlay
  *  draws its rect against and the frame `design:flash` posts into. */
 type PickedSelection = SelectionState & { boardKey: string }
+
+const FRAME_MODE_KEY = "taskflow.design.frame-mode"
+
+/// The viewer's saved frame mode. The older on/off setting still counts: a
+/// viewer who had turned frames off keeps the plain outline.
+function readFrameMode(): CanvasFrameMode {
+  try {
+    const saved = window.localStorage.getItem(FRAME_MODE_KEY)
+    if (saved === "device" || saved === "classic" || saved === "outline") return saved
+    return window.localStorage.getItem("taskflow.design.frames") === "0" ? "outline" : "device"
+  } catch {
+    return "device"
+  }
+}
 
 export function DesignSurfacePage({
   projectId,
@@ -235,25 +250,22 @@ export function DesignSurfacePage({
   // `layout` carries the flow, so an explicit reorder is in these deps and
   // redraws the boards in the new sequence — which is the point of the feature,
   // and the one edit allowed to move them (see `boardsForView`).
-  // Device frames on/off (the toolbar's Frames toggle), per viewer. Set into
-  // the board-size rules BEFORE the boards are derived, and listed in their
-  // deps, so turning frames off re-lays the canvas at the outline sizes.
-  const [framesOn, setFramesOn] = useState(() => {
-    try {
-      return window.localStorage.getItem("taskflow.design.frames") !== "0"
-    } catch {
-      return true
-    }
-  })
-  setCanvasFrames(framesOn)
-  const toggleFrames = () => {
-    setFramesOn((on) => {
+  // What each board wears (the toolbar's Frames / Classic toggles), per
+  // viewer. Set into the board-size rules BEFORE the boards are derived, and
+  // listed in their deps, so a change re-lays the canvas at the new sizes.
+  const [frameMode, setFrameMode] = useState<CanvasFrameMode>(readFrameMode)
+  setCanvasFrameMode(frameMode)
+  // Frames and Classic are exclusive: turning one on turns the other off, and
+  // turning the lit one off leaves the plain outline.
+  const toggleFrameMode = (mode: Exclude<CanvasFrameMode, "outline">) => {
+    setFrameMode((current) => {
+      const next: CanvasFrameMode = current === mode ? "outline" : mode
       try {
-        window.localStorage.setItem("taskflow.design.frames", on ? "0" : "1")
+        window.localStorage.setItem(FRAME_MODE_KEY, next)
       } catch {
         /* a convenience — the toggle still works for this visit */
       }
-      return !on
+      return next
     })
   }
 
@@ -262,11 +274,10 @@ export function DesignSurfacePage({
       layout.view === "flow"
         ? flowBoards(layout, openRoutes, deviceIds[0] ?? DEFAULT_DEVICE_ID)
         : boardsForView(layout, openRoutes, deviceIds),
-    // `framesOn` changes every board's size (see `setCanvasFrames`).
-    // `framesOn` is read through `setCanvasFrames`, not in this body, so the
-    // hooks lint cannot see why it is here: it changes every board's size.
+    // `frameMode` is read through `setCanvasFrameMode`, not in this body, so
+    // the hooks lint cannot see why it is here: it changes every board's size.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layout, openRoutes, deviceIds, framesOn],
+    [layout, openRoutes, deviceIds, frameMode],
   )
 
   const refreshComments = useCallback(() => {
@@ -618,7 +629,9 @@ export function DesignSurfacePage({
             device: deviceById(deviceId),
             sandboxToken,
             theme: theme === "dark" ? "dark" : "light",
-            frame: withFrame ? frameFor(deviceId) : null,
+            // "Download w Frame" wears what the canvas shows: the classic
+            // bezel when Classic is on, the device frame otherwise.
+            dress: exportDress(deviceId, !withFrame ? "none" : frameMode === "classic" ? "classic" : "device"),
           }),
         )
         .then(() => setCanvasNotice(null))
@@ -626,7 +639,7 @@ export function DesignSurfacePage({
         // for one failed download.
         .catch((err: Error) => setCanvasNotice({ text: err.message, tone: "error" }))
     },
-    [sandboxToken, theme],
+    [sandboxToken, theme, frameMode],
   )
 
   const restorePage = useCallback(
@@ -944,16 +957,28 @@ export function DesignSurfacePage({
 
         <DevicePicker deviceIds={deviceIds} onChange={setDeviceIds} />
 
-        <Button
-          variant={framesOn ? "secondary" : "ghost"}
-          size="sm"
-          aria-pressed={framesOn}
-          title={framesOn ? "Showing device frames — switch to plain outlines" : "Showing plain outlines — switch to device frames"}
-          onClick={toggleFrames}
-        >
-          <SmartphoneIcon className="size-4" />
-          Frames
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant={frameMode === "device" ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={frameMode === "device"}
+            title={frameMode === "device" ? "Showing device frames — click for plain outlines" : "Show realistic device frames"}
+            onClick={() => toggleFrameMode("device")}
+          >
+            <SmartphoneIcon className="size-4" />
+            Frames
+          </Button>
+          <Button
+            variant={frameMode === "classic" ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={frameMode === "classic"}
+            title={frameMode === "classic" ? "Showing the classic frame — click for plain outlines" : "Show the simple classic frame"}
+            onClick={() => toggleFrameMode("classic")}
+          >
+            <TabletSmartphoneIcon className="size-4" />
+            Classic
+          </Button>
+        </div>
 
         <ViewPicker view={layout.view} onChange={(view) => updateLayout({ ...layout, view })} />
 
@@ -1237,6 +1262,7 @@ export function DesignSurfacePage({
         projectName={project?.name ?? "Design"}
         theme={theme === "dark" ? "dark" : "light"}
         defaultDeviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
+        defaultDress={frameMode === "outline" ? "none" : frameMode}
       />
     </section>
   )

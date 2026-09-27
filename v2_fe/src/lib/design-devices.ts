@@ -1,4 +1,4 @@
-import { canvasFrame } from "./design-frames"
+import { canvasFrame, canvasFrameMode } from "./design-frames"
 import { resolveRouteOrder, type LayoutDoc, type LayoutGroup } from "./design-layout"
 
 /// Device presets for the design canvas (§9.3).
@@ -181,14 +181,17 @@ export const GUTTER = 140
 export const HEADER_H = 30
 
 
-/** How wide a board actually renders. With frames on, a real device wears its
+/** How wide a board actually renders. In `device` mode a real device wears its
  *  open-source frame, scaled so the frame's screen is the device's CSS width
- *  (`lib/design-frames`); otherwise — frames off, or a breakpoint width, which
+ *  (`lib/design-frames`); in `classic` mode it wears the simple bezel
+ *  (`classicChrome`); otherwise — `outline` mode, or a breakpoint width, which
  *  is no device — the page sits in a 1px rounded outline.
  *  Every layout engine spaces boards by this, so it must be what renders. */
 export function boardWidth(device: DevicePreset): number {
   const framed = canvasFrame(device)
   if (framed) return Math.round(framed.metrics.w * framed.scale)
+  const chrome = classicChrome(device)
+  if (chrome) return device.width + chrome.padding.left + chrome.padding.right + CHROME_BORDER * 2
   return device.width + OUTLINE_BORDER * 2
 }
 
@@ -196,6 +199,8 @@ export function boardWidth(device: DevicePreset): number {
 export function boardHeight(device: DevicePreset): number {
   const framed = canvasFrame(device)
   if (framed) return Math.round(framed.metrics.h * framed.scale)
+  const chrome = classicChrome(device)
+  if (chrome) return device.height + chrome.padding.top + chrome.padding.bottom + CHROME_BORDER * 2
   return device.height + OUTLINE_BORDER * 2
 }
 
@@ -209,8 +214,73 @@ export function boardContentOrigin(device: DevicePreset): { x: number; y: number
     const { metrics, scale } = framed
     return { x: metrics.screenX * scale, y: HEADER_H + (metrics.screenY + metrics.statusBar) * scale }
   }
+  const chrome = classicChrome(device)
+  if (chrome) return { x: CHROME_BORDER + chrome.padding.left, y: HEADER_H + CHROME_BORDER + chrome.padding.top }
   return { x: OUTLINE_BORDER, y: HEADER_H + OUTLINE_BORDER }
 }
+
+/// The canvas's original chrome (`ClassicBoard`), kept as the `classic` frame
+/// mode because its plainness reads well: a black bezel drawn AROUND the page,
+/// never resizing it (padding is bezel thickness). Phones get a notch pill and
+/// a home indicator, tablets a camera dot, laptops and desktops a window bar.
+export type ChromeStyle = {
+  /** Outer bezel corner radius (px). */
+  outerRadius: number
+  /** Inner (screen cut-out) corner radius (px). */
+  innerRadius: number
+  /** Bezel thickness per side (px). */
+  padding: { top: number; right: number; bottom: number; left: number }
+  notch: boolean
+  homeIndicator: boolean
+  cameraDot: boolean
+  /** A window bar with three dots across the top. */
+  topBar: boolean
+}
+
+export function chromeStyleForGroup(group: Exclude<DeviceGroup, "breakpoint">): ChromeStyle {
+  switch (group) {
+    case "phone":
+      return {
+        outerRadius: 44,
+        innerRadius: 32,
+        padding: { top: 24, right: 12, bottom: 20, left: 12 },
+        notch: true,
+        homeIndicator: true,
+        cameraDot: false,
+        topBar: false,
+      }
+    case "tablet":
+      return {
+        outerRadius: 24,
+        innerRadius: 14,
+        padding: { top: 14, right: 14, bottom: 14, left: 14 },
+        notch: false,
+        homeIndicator: false,
+        cameraDot: true,
+        topBar: false,
+      }
+    case "laptop":
+      return {
+        outerRadius: 10,
+        innerRadius: 4,
+        padding: { top: 22, right: 0, bottom: 0, left: 0 },
+        notch: false,
+        homeIndicator: false,
+        cameraDot: false,
+        topBar: true,
+      }
+  }
+}
+
+/// The classic chrome a board wears, or null when `classic` is not the mode
+/// or the device is a breakpoint width (no device, so the plain outline).
+export function classicChrome(device: DevicePreset): ChromeStyle | null {
+  if (canvasFrameMode() !== "classic" || device.group === "breakpoint") return null
+  return chromeStyleForGroup(device.group)
+}
+
+/** The 1px border `ClassicBoard` draws around its bezel. */
+export const CHROME_BORDER = 1
 
 /** The border of a frameless board (`OutlineBoard`): the page in a 1px,
  *  softly rounded outline — frames off, or a breakpoint width. */

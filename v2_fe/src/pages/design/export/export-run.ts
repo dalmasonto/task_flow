@@ -13,7 +13,7 @@
 
 import { sandboxUrl } from "@/lib/design-api"
 import { statusBarHtml, statusBarStyle } from "@/lib/design-frames"
-import type { DevicePreset } from "@/lib/design-devices"
+import type { ChromeStyle, DevicePreset } from "@/lib/design-devices"
 import {
   CAPTION_H,
   FRAME_METRICS,
@@ -22,6 +22,7 @@ import {
   screenFileName,
   screensPerPage,
   slotOrigin,
+  type ExportDress,
   type ExportItem,
 } from "./export-plan"
 
@@ -30,10 +31,9 @@ export type ExportOptions = {
   device: DevicePreset
   sandboxToken: string
   theme: "light" | "dark"
-  /// devices.css frame class (e.g. `iphone-14-pro`), or null for a bare,
-  /// rounded screenshot.
-  frame: string | null
-  /// Corner radius in CSS px for a frameless screenshot.
+  /// What each screen is dressed in (see `ExportDress`).
+  dress: ExportDress
+  /// Corner radius in CSS px for a bare screenshot.
   radius: number
   /// The whole page length rather than one screen's worth.
   fullPage: boolean
@@ -229,39 +229,117 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
   }
 }
 
+/// A screenshot in the canvas's classic chrome (`ClassicBoard`): a black bezel
+/// with a notch pill and home indicator (phone), a camera dot (tablet) or a
+/// window bar (laptop). Drawn straight onto a canvas — the same measurements
+/// the canvas uses, at the screenshot's own resolution.
+async function inClassicChrome(shot: Picture, chrome: ChromeStyle): Promise<Picture> {
+  const img = await loadImage(shot.dataUrl)
+  const s = img.naturalWidth / shot.width
+  const { padding: p } = chrome
+  const border = 1
+  const margin = 24
+  const w = shot.width + p.left + p.right + border * 2
+  const h = shot.height + p.top + p.bottom + border * 2
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.round((w + margin * 2) * s)
+  canvas.height = Math.round((h + margin * 2) * s)
+  const ctx = canvas.getContext("2d")!
+  ctx.scale(s, s)
+  ctx.translate(margin, margin)
+
+  // The bezel, with the canvas board's soft drop shadow.
+  ctx.save()
+  ctx.shadowColor = "rgba(0, 0, 0, 0.35)"
+  ctx.shadowBlur = 24
+  ctx.shadowOffsetY = 10
+  ctx.fillStyle = "#000000"
+  ctx.beginPath()
+  ctx.roundRect(0, 0, w, h, chrome.outerRadius)
+  ctx.fill()
+  ctx.restore()
+  ctx.strokeStyle = "rgba(63, 63, 70, 0.8)"
+  ctx.lineWidth = border
+  ctx.beginPath()
+  ctx.roundRect(border / 2, border / 2, w - border, h - border, chrome.outerRadius)
+  ctx.stroke()
+
+  // The screen.
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(border + p.left, border + p.top, shot.width, shot.height, chrome.innerRadius)
+  ctx.clip()
+  ctx.drawImage(img, border + p.left, border + p.top, shot.width, shot.height)
+  ctx.restore()
+
+  const pill = (x: number, y: number, pw: number, ph: number, fill: string, ring?: string) => {
+    ctx.beginPath()
+    ctx.roundRect(x, y, pw, ph, ph / 2)
+    ctx.fillStyle = fill
+    ctx.fill()
+    if (ring) {
+      ctx.strokeStyle = ring
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
+  }
+  const cx = w / 2
+  if (chrome.notch) pill(cx - 48, border + 8, 96, 16, "#18181b", "#27272a")
+  if (chrome.homeIndicator) pill(cx - 56, h - border - 6 - 4, 112, 4, "#3f3f46")
+  if (chrome.cameraDot) pill(cx - 3, border + 6, 6, 6, "#27272a", "rgba(82, 82, 91, 0.6)")
+  if (chrome.topBar) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.roundRect(border, border, w - border * 2, 22, [chrome.outerRadius, chrome.outerRadius, 0, 0])
+    ctx.fillStyle = "#18181b"
+    ctx.fill()
+    ctx.restore()
+    for (let i = 0; i < 3; i++) pill(border + 12 + i * 14, border + 7, 8, 8, "#3f3f46")
+  }
+
+  return { dataUrl: canvas.toDataURL("image/png"), width: w + margin * 2, height: h + margin * 2 }
+}
+
 type Dressed = { item: ExportItem; picture: Picture }
 
 /// One screen, pictured and dressed: the same pipeline an export runs per
 /// page, for the board menu's single-screen download.
 export async function renderScreen(
   route: string,
-  opts: Pick<ExportOptions, "device" | "sandboxToken" | "theme" | "frame" | "radius" | "fullPage">,
+  opts: Pick<ExportOptions, "device" | "sandboxToken" | "theme" | "dress" | "radius" | "fullPage">,
 ): Promise<Picture> {
   const shot = await capturePage(route, opts as ExportOptions)
-  return opts.frame ? inDeviceFrame(shot, opts.frame) : roundAndShadow(shot, opts.radius)
+  switch (opts.dress.kind) {
+    case "device":
+      return inDeviceFrame(shot, opts.dress.frame)
+    case "classic":
+      return inClassicChrome(shot, opts.dress.chrome)
+    case "none":
+      return roundAndShadow(shot, opts.radius)
+  }
 }
 
 /// #507 follow-up: download ONE board's screen as a PNG, bare (rounded
-/// corners) or in its device's frame.
+/// corners), in its device's frame, or in the classic chrome.
 export async function downloadScreen(input: {
   route: string
   label: string
   device: DevicePreset
   sandboxToken: string
   theme: "light" | "dark"
-  frame: string | null
+  dress: ExportDress
 }): Promise<void> {
   const picture = await renderScreen(input.route, {
     device: input.device,
     sandboxToken: input.sandboxToken,
     theme: input.theme,
-    frame: input.frame,
+    dress: input.dress,
     radius: 8,
     fullPage: false,
   })
   const blob = await (await fetch(picture.dataUrl)).blob()
   const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "screen"
-  saveBlob(blob, `${slug(input.label)}-${slug(input.device.label)}${input.frame ? "-framed" : ""}.png`)
+  saveBlob(blob, `${slug(input.label)}-${slug(input.device.label)}${input.dress.kind === "none" ? "" : "-framed"}.png`)
 }
 
 async function captureAll(opts: ExportOptions): Promise<Dressed[]> {

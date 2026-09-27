@@ -4,6 +4,7 @@ import type { RouteEntry } from "@/lib/design-api"
 import { normalizeLayout } from "@/lib/design-layout"
 import { deviceById } from "@/lib/design-devices"
 import {
+  exportDress,
   A4,
   PAGE_MARGIN,
   bestPageSetup,
@@ -101,5 +102,25 @@ describe("frames and names (#507)", () => {
   it("names files so they sort in export order", () => {
     expect(exportFileName("TaskFlow v2", "iphone-16-pro", "pdf")).toBe("taskflow-v2-iphone-15-16-screens.pdf")
     expect(screenFileName({ route: "/", label: "Sign up!", group: null, n: 3 }, 12)).toBe("03-sign-up.png")
+  })
+})
+
+describe("exportDress", () => {
+  it("dresses a phone in its device frame, the classic bezel, or nothing", () => {
+    expect(exportDress("iphone-16-pro", "device")).toEqual({ kind: "device", frame: "iphone-14-pro" })
+    const classic = exportDress("iphone-16-pro", "classic")
+    expect(classic.kind).toBe("classic")
+    if (classic.kind === "classic") expect(classic.chrome.notch).toBe(true)
+    expect(exportDress("iphone-16-pro", "none")).toEqual({ kind: "none" })
+  })
+
+  it("gives a laptop the classic window bar", () => {
+    const classic = exportDress("laptop", "classic")
+    expect(classic.kind === "classic" && classic.chrome.topBar).toBe(true)
+  })
+
+  it("a breakpoint width is no device: no frame of either kind", () => {
+    expect(exportDress("bp-sm", "device")).toEqual({ kind: "none" })
+    expect(exportDress("bp-sm", "classic")).toEqual({ kind: "none" })
   })
 })
