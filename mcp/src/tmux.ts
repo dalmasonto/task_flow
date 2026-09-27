@@ -122,54 +122,109 @@ export function sanitizeForPane(text: string, max = 240): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
+/** One tmux pane as `list-panes` reports it. */
+export interface PaneInfo {
+  id: string;
+  /** `#{pane_pid}` — the process tmux started in the pane (usually its shell). */
+  pid: number;
+  tty: string;
+}
+
 /**
- * Find the tmux pane this agent is running in, with NO configuration.
+ * Decide which pane is ours, from facts gathered by {@link detectTmuxPane}.
+ * Pure, so the rules are testable without a tmux server.
  *
- * The MCP server is spawned by the agent (Claude Code), so it can work out where
- * that agent lives rather than being told:
+ * #213: a pane is OURS when its `pane_pid` is one of this process's ancestors
+ * — the agent runs in that pane's shell, and this MCP server is the agent's
+ * child. That is proof; `$TMUX_PANE` is only a claim. It is inherited through
+ * the environment, so an agent launched from ANOTHER pane's shell (or a
+ * wrapper that carried a stale environment along) names the wrong pane, and
+ * every answer and message was then typed into someone else's terminal.
  *
- *  1. `$TMUX_PANE` — set by tmux and inherited straight down. Exact and free.
- *  2. Otherwise match the ANCESTOR's controlling terminal to a pane's tty
- *     (v1's method): `readlink /proc/<pid>/fd/0` gives the pty, and
- *     `tmux list-panes` maps ptys to panes. We walk a few generations up because
- *     the MCP server may sit behind a shell wrapper, and only the agent process
- *     itself is attached to the pane's tty.
+ *  1. `$TMUX_PANE`, when its pane's pid is an ancestor — the common case.
+ *  2. Otherwise any pane whose pid is an ancestor.
+ *  3. Otherwise an ancestor's controlling tty matched to a pane's tty (v1's
+ *     method) — for a process tree tmux did not start, e.g. `tmux attach`
+ *     from a terminal that later ran the agent.
+ *  4. `$TMUX_PANE` unverified ONLY when tmux could not be asked at all
+ *     (`panes` null): no evidence against it, and refusing would take
+ *     delivery away from a setup that worked before.
+ *
+ * A `$TMUX_PANE` that tmux CAN check and that fails the check is refused:
+ * writing nowhere beats writing into a stranger's pane.
+ */
+export function choosePane(facts: {
+  envPane: string | null;
+  panes: PaneInfo[] | null;
+  ancestors: number[];
+  ancestorTtys: string[];
+}): string | null {
+  const { envPane, panes, ancestors, ancestorTtys } = facts;
+  if (panes === null) return envPane;
+  const ours = new Set(ancestors);
+  if (envPane) {
+    const claimed = panes.find((p) => p.id === envPane);
+    if (claimed && ours.has(claimed.pid)) return claimed.id;
+  }
+  // Nearest ancestor first: nested tmux (a pane running tmux) must resolve to
+  // the innermost pane, which holds the nearer ancestor.
+  for (const pid of ancestors) {
+    const hit = panes.find((p) => p.pid === pid);
+    if (hit) return hit.id;
+  }
+  for (const tty of ancestorTtys) {
+    const hit = panes.find((p) => p.tty === tty);
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
+/**
+ * Find the tmux pane this agent is running in, with NO configuration, and
+ * VERIFIED by process ancestry (#213) — see {@link choosePane} for the rules.
+ * Resolved once per process: pane ids are never reused within a tmux server,
+ * so the answer cannot go stale while this process lives.
  *
  * Returns null when not under tmux, which is a normal state, not an error.
  */
 export async function detectTmuxPane(): Promise<string | null> {
-  const fromEnv = process.env.TMUX_PANE?.trim();
-  if (fromEnv) return fromEnv;
+  const envPane = process.env.TMUX_PANE?.trim() || null;
 
-  let panes: Array<{ id: string; tty: string }>;
+  let panes: PaneInfo[] | null;
   try {
-    const { stdout } = await run("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_tty}"]);
+    const { stdout } = await run("tmux", ["list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{pane_tty}"]);
     panes = stdout
       .trim()
       .split("\n")
       .map((line) => {
-        const [id, tty] = line.split(" ");
-        return { id: id ?? "", tty: tty ?? "" };
+        const [id, pid, tty] = line.split(" ");
+        return { id: id ?? "", pid: Number(pid), tty: tty ?? "" };
       })
-      .filter((p) => p.id && p.tty);
+      .filter((p) => p.id && Number.isFinite(p.pid));
   } catch {
-    return null; // no tmux server
+    panes = null; // no tmux server we can reach
   }
+  if (panes === null) return envPane;
   if (!panes.length) return null;
 
+  // This process's ancestry, nearest first. Eight generations covers the
+  // shell → agent → (npx / node wrapper) → server chains seen in practice.
+  const ancestors: number[] = [];
+  const ancestorTtys: string[] = [];
   let pid: number | undefined = process.ppid;
-  for (let depth = 0; depth < 4 && pid && pid > 1; depth += 1) {
-    try {
-      const { stdout } = await run("readlink", [`/proc/${pid}/fd/0`]);
-      const tty = stdout.trim();
-      const hit = panes.find((p) => p.tty === tty);
-      if (hit) return hit.id;
-    } catch {
-      /* pid gone, or no /proc (non-Linux) — try the next ancestor */
+  for (let depth = 0; depth < 8 && pid && pid > 1; depth += 1) {
+    ancestors.push(pid);
+    if (depth < 4) {
+      try {
+        const { stdout } = await run("readlink", [`/proc/${pid}/fd/0`]);
+        ancestorTtys.push(stdout.trim());
+      } catch {
+        /* pid gone, or no /proc (non-Linux) — the pid match still works */
+      }
     }
     pid = await parentPid(pid);
   }
-  return null;
+  return choosePane({ envPane, panes, ancestors, ancestorTtys });
 }
 
 /** The parent pid of `pid`, or undefined when it cannot be read. */

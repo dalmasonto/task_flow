@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { normalizeSnapshot, sanitizeForPane, buildNotice, detectTmuxPane } from "./tmux.js";
+import { normalizeSnapshot, sanitizeForPane, buildNotice, detectTmuxPane, choosePane } from "./tmux.js";
 
 describe("normalizeSnapshot", () => {
   // A TUI pads the screen to its full height. Keeping that padding would make
@@ -77,17 +77,48 @@ describe("detectTmuxPane", () => {
     else process.env.TMUX_PANE = original;
   });
 
-  // The point of the whole feature: the pane is discovered, never configured.
-  it("uses $TMUX_PANE when tmux exported it", async () => {
-    process.env.TMUX_PANE = "%7";
-    expect(await detectTmuxPane()).toBe("%7");
-  });
-
   it("ignores a blank $TMUX_PANE rather than returning empty string", async () => {
     process.env.TMUX_PANE = "   ";
-    // Falls through to tty matching; outside tmux that yields null, and inside a
-    // real pane it yields that pane — either way, never "".
+    // Falls through to ancestry matching; outside tmux that yields null, and
+    // inside a real pane it yields that pane — either way, never "".
     expect(await detectTmuxPane()).not.toBe("");
+  });
+});
+
+describe("choosePane (#213: a pane is ours only if its process is our ancestor)", () => {
+  const panes = [
+    { id: "%1", pid: 100, tty: "/dev/pts/1" },
+    { id: "%2", pid: 200, tty: "/dev/pts/2" },
+  ];
+
+  it("trusts $TMUX_PANE when that pane's pid is an ancestor", () => {
+    expect(choosePane({ envPane: "%2", panes, ancestors: [555, 200, 1], ancestorTtys: [] })).toBe("%2");
+  });
+
+  it("REFUSES a $TMUX_PANE naming someone else's pane, and finds the real one by pid", () => {
+    // The leak: env says %1, but this process descends from %2's shell.
+    expect(choosePane({ envPane: "%1", panes, ancestors: [555, 200, 1], ancestorTtys: [] })).toBe("%2");
+  });
+
+  it("returns null rather than a stranger's pane when nothing matches", () => {
+    expect(choosePane({ envPane: "%1", panes, ancestors: [555, 999], ancestorTtys: [] })).toBeNull();
+  });
+
+  it("prefers the NEAREST ancestor, so nested tmux resolves to the inner pane", () => {
+    const nested = [
+      { id: "%outer", pid: 10, tty: "/dev/pts/0" },
+      { id: "%inner", pid: 50, tty: "/dev/pts/9" },
+    ];
+    expect(choosePane({ envPane: null, panes: nested, ancestors: [60, 50, 20, 10], ancestorTtys: [] })).toBe("%inner");
+  });
+
+  it("falls back to the tty match when no pane pid is an ancestor", () => {
+    expect(choosePane({ envPane: null, panes, ancestors: [555], ancestorTtys: ["/dev/pts/1"] })).toBe("%1");
+  });
+
+  it("keeps $TMUX_PANE unverified only when tmux cannot be asked at all", () => {
+    expect(choosePane({ envPane: "%7", panes: null, ancestors: [], ancestorTtys: [] })).toBe("%7");
+    expect(choosePane({ envPane: null, panes: null, ancestors: [], ancestorTtys: [] })).toBeNull();
   });
 });
 
