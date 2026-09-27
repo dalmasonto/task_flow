@@ -129,7 +129,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
 
   log("");
   if (defaultOk && failed.length === 0) {
-    log("Ready. The agent can authenticate — MCP tools will work in Claude Code.");
+    log("Ready. The agent can authenticate — MCP tools will work in your coding agent.");
   } else if (defaultOk) {
     log(
       `Mostly ready. The default profile "${defaultName}" works, so tools will run, ` +

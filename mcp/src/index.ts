@@ -13,10 +13,12 @@ import { runDoctor } from "./doctor.js";
 import { runTmuxMirror } from "./tmux.js";
 import { runMint } from "./mint.js";
 import { startAgent } from "./runtime.js";
+import { runInitCommand } from "./init.js";
 
 const USAGE = `taskflow-mcp — TaskFlow MCP server
 
   taskflow-mcp                 Serve over stdio (how an MCP client runs it).
+  taskflow-mcp init            Set up a coding agent (same as: taskflow init).
   taskflow-mcp --check         Verify config + backend auth, then exit.
   taskflow-mcp --tmux [target] Mirror a tmux pane into the dashboard terminal.
   taskflow-mcp --mint <name>   Create a NEW agent identity + profile, then exit.
@@ -62,6 +64,10 @@ defaults to tmux's active pane, or pass one from \`tmux list-panes -a\`. Options
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  // The post-install walkthrough. Checked first so `init --help` reaches it.
+  if (argv[0] === "init") {
+    process.exit(await runInitCommand(argv.slice(1)));
+  }
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(`${USAGE}\n`);
     return;
