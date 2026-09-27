@@ -1206,14 +1206,22 @@ function App() {
     [openDockChat, openAgentChat]
   )
 
+  // #314: which columns have a page request out — the sentinel spins on THIS,
+  // not on merely being scrolled into view.
+  const [loadingColumns, setLoadingColumns] = useState<ReadonlySet<BoardColumnId>>(() => new Set())
   const loadMoreBoardColumn = useCallback(
-    async (columnId: BoardColumnId) => {
+    async (columnId: BoardColumnId, loaded: number) => {
       const projectId = activeLiveProjectId
       if (!projectId) return
-      const nextPage = (boardColumnPages.current[columnId] ?? 1) + 1
+      // #314: a column holding NO rows starts over at page 1. The counter
+      // assumes page 1 is already held, so if those rows were ever dropped (a
+      // reload that replaced the task store) it asked for page 2, 3, … and the
+      // column read "Loading more… (100 left)" over an empty list for good.
+      const nextPage = loaded === 0 ? 1 : (boardColumnPages.current[columnId] ?? 1) + 1
       // Claimed before the request so a second sentinel hit cannot fetch the
       // same page twice; released on failure so it can be retried.
       boardColumnPages.current[columnId] = nextPage
+      setLoadingColumns((current) => new Set(current).add(columnId))
       try {
         const { rows, count } = await fetchBoardColumn(projectId, columnId, nextPage)
         applyWorkspaceUpdate(projectId, (workspace) => ({
@@ -1238,7 +1246,13 @@ function App() {
           return added.length ? [...current, ...added] : current
         })
       } catch {
-        boardColumnPages.current[columnId] = nextPage - 1
+        boardColumnPages.current[columnId] = Math.max(1, nextPage - 1)
+      } finally {
+        setLoadingColumns((current) => {
+          const next = new Set(current)
+          next.delete(columnId)
+          return next
+        })
       }
     },
     [activeLiveProjectId, applyWorkspaceUpdate, activeLiveWorkspace?.members, activeLiveWorkspace?.agents]
@@ -2441,6 +2455,10 @@ function App() {
                     // says whether another page exists.
                     const shownColumnTasks = columnTasks
                     const columnTotal = activeLiveWorkspace?.taskCounts?.[column.id] ?? columnTasks.length
+                    // #314: what the column has FETCHED, before the search /
+                    // priority filter. "Left to load" is total minus this; the
+                    // filtered count made a filter look like 100 unloaded tasks.
+                    const columnLoaded = projectTasks.filter((task) => task.status === column.id).length
                     const ColumnIcon = column.icon
                     return (
                       <div
@@ -2518,16 +2536,21 @@ function App() {
                               ) : null}
                             </div>
                           ))}
-                          {shownColumnTasks.length < columnTotal ? (
-                            <BoardLoadMoreSentinel
-                              onLoadMore={() => void loadMoreBoardColumn(column.id)}
-                              remaining={columnTotal - shownColumnTasks.length}
-                            />
-                          ) : null}
                           {columnTasks.length === 0 ? (
                             <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-background px-3 text-center text-sm text-muted-foreground">
-                              No tasks in {column.title.toLowerCase()}
+                              {boardFilterActive
+                                ? `No loaded tasks in ${column.title.toLowerCase()} match`
+                                : columnLoaded < columnTotal
+                                  ? "Loading tasks…"
+                                  : `No tasks in ${column.title.toLowerCase()}`}
                             </div>
+                          ) : null}
+                          {columnLoaded < columnTotal ? (
+                            <BoardLoadMoreSentinel
+                              onLoadMore={() => void loadMoreBoardColumn(column.id, columnLoaded)}
+                              remaining={columnTotal - columnLoaded}
+                              loading={loadingColumns.has(column.id)}
+                            />
                           ) : null}
                         </div>
                       </div>

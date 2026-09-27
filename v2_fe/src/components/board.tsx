@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { priorityClass, type Task } from "@/lib/workspace-view"
-import { useEffect, useRef, useState, type DragEvent } from "react"
+import { useEffect, useRef, type DragEvent } from "react"
 
 
 export function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -155,13 +155,20 @@ export function EndDropIndicator({ label }: { label: string }) {
 /// callback via a ref — recreating it on each render would fire immediately
 /// while still intersecting and load every page in a runaway loop (the same
 /// trap that bit the #38 activity auto-loader). `remaining` only labels it.
-export function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: () => void; remaining: number }) {
+export function BoardLoadMoreSentinel({
+  onLoadMore,
+  remaining,
+  loading,
+}: {
+  onLoadMore: () => void
+  remaining: number
+  /// #314: a page request is actually out. The spinner used to follow the
+  /// foot's VISIBILITY, so it span with nothing loading (and after a failure).
+  loading: boolean
+}) {
   const ref = useRef<HTMLButtonElement>(null)
   const callback = useRef(onLoadMore)
   callback.current = onLoadMore
-  // Whether the foot is in (or near) the visible scroll area — drives the
-  // spinner so the user sees loading feedback as they reach the bottom.
-  const [pending, setPending] = useState(false)
 
   useEffect(() => {
     const node = ref.current
@@ -174,7 +181,6 @@ export function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: (
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries[0]?.isIntersecting ?? false
-        setPending(hit)
         // One page per not-intersecting→intersecting transition: a full page of
         // cards overflows the column, pushing the foot back below the fold so the
         // next scroll re-fires. No transition → no re-fire, so this can't loop.
@@ -196,8 +202,8 @@ export function BoardLoadMoreSentinel({ onLoadMore, remaining }: { onLoadMore: (
       onClick={() => callback.current()}
       className="flex items-center justify-center gap-2 rounded-md py-2 text-[11px] text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
     >
-      <LoaderIcon className={cn("size-3.5", pending && "animate-spin")} />
-      {pending ? "Loading" : "Load"} more… ({remaining} left)
+      <LoaderIcon className={cn("size-3.5", loading && "animate-spin")} />
+      {loading ? "Loading" : "Load"} more… ({remaining} left)
     </button>
   )
 }
