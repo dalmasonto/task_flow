@@ -710,3 +710,134 @@ async fn changed_routes_names_the_pages_that_visibly_moved() {
         moved.text()
     );
 }
+
+// ---------------------------------------------------------------------------
+// #501: delete_group, and a batch of ops as ONE write.
+// ---------------------------------------------------------------------------
+
+/// Create a group through the agent route and return its minted id.
+async fn create_group(app: &TestApp, key: &str, project: i64, name: &str) -> String {
+    let res = app
+        .put_as_agent(
+            key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "create_group": { "name": name } } }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    res.json()["changed"]["groups"][0].as_str().expect("minted id").to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_group_removes_the_group_and_ungroups_its_pages() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+    let group = create_group(&app, &key, project, "Auth").await;
+    let placed = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "reorder_page": { "route": "/a", "group_id": group } } }),
+        )
+        .await;
+    assert_eq!(placed.status(), 200, "{}", placed.text());
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "delete_group": { "group_id": group } } }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    assert_eq!(res.json()["changed"]["groups"][0], group.as_str());
+
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["groups"].as_array().map(Vec::len), Some(0), "{doc}");
+    // The page itself survives, in Ungrouped.
+    assert!(doc.to_string().contains("\"/a\""), "the page must not be deleted: {doc}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_group_refuses_an_unknown_id() {
+    let (app, project, _user, key) = app_with_agent().await;
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "op": { "delete_group": { "group_id": "g-nope" } } }),
+        )
+        .await;
+    assert_eq!(res.status(), 400, "{}", res.text());
+    assert!(res.text().contains("g-nope"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_batch_lands_as_one_version() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+    seed_page(&app, project, user, "pages/b.html", "B").await;
+    let group = create_group(&app, &key, project, "Flow").await; // version 1
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "ops": [
+                { "reorder_page": { "route": "/a", "group_id": group } },
+                { "reorder_page": { "route": "/b", "group_id": group } },
+                { "update_group": { "group_id": group, "name": "Onboarding" } },
+            ] }),
+        )
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let body = res.json();
+    assert_eq!(body["version"], 2, "three ops, ONE stored version: {body}");
+    let routes = body["changed"]["routes"].to_string();
+    assert!(routes.contains("/a") && routes.contains("/b"), "{body}");
+
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["groups"][0]["name"], "Onboarding", "{doc}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_batch_with_one_bad_op_applies_none_of_them() {
+    let (app, project, user, key) = app_with_agent().await;
+    seed_page(&app, project, user, "pages/a.html", "A").await;
+    let group = create_group(&app, &key, project, "Keep").await;
+
+    let res = app
+        .put_as_agent(
+            &key,
+            &layout_path(project),
+            json!({ "project": project, "ops": [
+                { "update_group": { "group_id": group, "name": "Renamed" } },
+                { "delete_group": { "group_id": "g-missing" } },
+            ] }),
+        )
+        .await;
+    assert_eq!(res.status(), 400, "{}", res.text());
+    let message = res.json()["message"].as_str().unwrap_or_default().to_string();
+    assert!(message.contains("ops[1] (delete_group)"), "names the failing op: {message}");
+
+    // The first op must NOT have landed.
+    let doc = app.get_as_agent(&key, &layout_path(project)).await.json();
+    assert_eq!(doc["groups"][0]["name"], "Keep", "{doc}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_body_with_both_op_and_ops_or_neither_is_refused() {
+    let (app, project, _user, key) = app_with_agent().await;
+    for body in [
+        json!({ "project": project }),
+        json!({ "project": project, "ops": [] }),
+        json!({
+            "project": project,
+            "op": { "create_group": { "name": "A" } },
+            "ops": [{ "create_group": { "name": "B" } }],
+        }),
+    ] {
+        let res = app.put_as_agent(&key, &layout_path(project), body.clone()).await;
+        assert_eq!(res.status(), 400, "{body} → {}", res.text());
+    }
+}

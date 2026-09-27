@@ -184,7 +184,8 @@ export type DesignLayoutOp =
   | { create_group: { name: string } }
   | { update_group: { group_id: string; name: string } }
   | { reorder_group: { group_id: string; position: number } }
-  | { reorder_page: { route: string; group_id?: string; position?: number } };
+  | { reorder_page: { route: string; group_id?: string; position?: number } }
+  | { delete_group: { group_id: string } };
 
 export class TaskflowClient {
   private readonly server: string;
@@ -524,18 +525,20 @@ export class TaskflowClient {
    * panel's view of the arrangement and is lossy in both directions, so a
    * document built from it must never be sent back. `base_version` is optional
    * — omitted, the server works from whatever it currently holds. */
-  writeLayoutOp(input: {
-    project: number;
-    op: DesignLayoutOp;
-    base_version?: number;
-  }): Promise<unknown> {
+  writeLayoutOp(
+    input: { project: number; base_version?: number } & (
+      | { op: DesignLayoutOp }
+      // #501: a batch — applied in order as ONE write, all or nothing.
+      | { ops: DesignLayoutOp[] }
+    ),
+  ): Promise<unknown> {
     return this.request("PUT", `${API_PREFIX}/agents/design/layout`, {
       body: {
         project: input.project,
         // Absent, not `null`: the route reads this as `Option<i64>`, and "not
         // supplied" is a different thing from "supplied as nothing".
         ...(input.base_version === undefined ? {} : { base_version: input.base_version }),
-        op: input.op,
+        ...("ops" in input ? { ops: input.ops } : { op: input.op }),
       },
     });
   }

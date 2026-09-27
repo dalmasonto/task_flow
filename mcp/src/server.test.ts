@@ -114,7 +114,7 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.calls.push(`readDesignLayout:${project}`);
       return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
     }
-    async writeLayoutOp(input: { project: number; op: unknown; base_version?: number }) {
+    async writeLayoutOp(input: { project: number; op?: unknown; ops?: unknown[]; base_version?: number }) {
       // The project is asserted through `calls` — it is resolved from `whoami`
       // and handed in, not chosen here — and the REST is recorded for the shape
       // assertions: an operation carrying a key nobody asked for would
@@ -718,7 +718,7 @@ describe("layout write tools", () => {
   // parts that go wrong are the parts a helper test cannot see, and for these
   // tools that is the SHAPE of the operation object that reaches the client.
 
-  it("registers all four", async () => {
+  it("registers all six", async () => {
     const client = await connectedClient();
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name);
@@ -727,6 +727,8 @@ describe("layout write tools", () => {
       "design_update_group",
       "design_reorder_group",
       "design_reorder_page",
+      "design_delete_group",
+      "design_arrange",
     ]) {
       expect(names, `${name} must be registered`).toContain(name);
     }
@@ -781,6 +783,59 @@ describe("layout write tools", () => {
     expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
       op: { reorder_page: { route: "/settings", position: 2 } },
     });
+  });
+
+  it("#501: design_delete_group sends a delete_group op", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_delete_group",
+      arguments: { profile: "main", group_id: "g3" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      op: { delete_group: { group_id: "g3" } },
+    });
+  });
+
+  it("#501: design_arrange sends the batch as `ops`, in order, and no `op`", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_arrange",
+      arguments: {
+        profile: "main",
+        base_version: 4,
+        ops: [
+          { reorder_page: { route: "/a", group_id: "g1" } },
+          { reorder_page: { route: "/b", group_id: "g1", position: 1 } },
+          { delete_group: { group_id: "g2" } },
+        ],
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(harness.layoutOps.at(-1) ?? "{}")).toEqual({
+      base_version: 4,
+      ops: [
+        { reorder_page: { route: "/a", group_id: "g1" } },
+        { reorder_page: { route: "/b", group_id: "g1", position: 1 } },
+        { delete_group: { group_id: "g2" } },
+      ],
+    });
+  });
+
+  it("#501: design_arrange refuses an op the route would not know, before sending", async () => {
+    const client = await connectedClient();
+    const before = harness.layoutOps.length;
+    const result = await client.callTool({
+      name: "design_arrange",
+      arguments: { profile: "main", ops: [{ reorder_page: { route: "/a" } }] },
+    });
+    expect(result.isError).toBe(true);
+    const typo = await client.callTool({
+      name: "design_arrange",
+      arguments: { profile: "main", ops: [{ reorder_page: { route: "/a", postion: 2 } }] },
+    });
+    expect(typo.isError).toBe(true);
+    expect(harness.layoutOps.length).toBe(before);
   });
 
   it("omits base_version entirely rather than sending null", async () => {

@@ -24,7 +24,7 @@ import {
   type ResolvedProfile,
   type TaskflowConfig,
 } from "./config.js";
-import { TaskflowClient, TaskflowApiError, type AgentSummary } from "./client.js";
+import { TaskflowClient, TaskflowApiError, type AgentSummary, type DesignLayoutOp } from "./client.js";
 import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
@@ -1079,7 +1079,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_read_layout",
-    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. `view` is the canvas arrangement (rows/bands/groups) and the grouping reads the same in all three. `version` is THIS arrangement's version — hand it to a layout write as `base_version` to be told if someone rearranged the board under you. (Note `revision` next to it is a different number: the manifest's, which moves when a page changes.) Arrange the board with design_create_group, design_update_group, design_reorder_group and design_reorder_page, which take an operation — never PUT a document built from this response back, because this is the panel's view and not the stored form.",
+    "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. `view` is the canvas arrangement (rows/bands/groups) and the grouping reads the same in all three. `version` is THIS arrangement's version — hand it to a layout write as `base_version` to be told if someone rearranged the board under you. (Note `revision` next to it is a different number: the manifest's, which moves when a page changes.) Arrange the board with design_create_group, design_update_group, design_reorder_group, design_reorder_page and design_delete_group — or several at once with design_arrange — which take operations — never PUT a document built from this response back, because this is the panel's view and not the stored form.",
     // The arrangement is one document per project, so there is nothing to
     // select: a route or a group id would be an argument this read has no use
     // for. The description says so as well, because a schema shows only what is
@@ -1136,7 +1136,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_update_group",
-    "Rename one page group. Membership and order are untouched, so a rename can never empty a group or move a page — putting pages somewhere is design_reorder_page's job, and a group is emptied by moving its pages out, never by renaming it. `group_id` comes from design_read_layout, or from the id design_create_group returned in `changed.groups`. The name must be non-blank, at most 40 characters, and not already used in this project (as with design_create_group). " +
+    "Rename one page group. Membership and order are untouched, so a rename can never empty a group or move a page — putting pages somewhere is design_reorder_page's job, and a group is emptied by moving its pages out (or removed with design_delete_group), never by renaming it. `group_id` comes from design_read_layout, or from the id design_create_group returned in `changed.groups`. The name must be non-blank, at most 40 characters, and not already used in this project (as with design_create_group). " +
       baseVersionNote,
     {
       ...designProjectArg,
@@ -1243,6 +1243,87 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
                 ...(position === undefined ? {} : { position }),
               },
             },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_delete_group",
+    "Remove one page group. Its pages are NOT deleted: they fall back to the Ungrouped section, keeping their flow order — this removes a grouping, never a screen. `group_id` comes from design_read_layout (or from design_create_group's `changed.groups`); an unknown id is refused rather than ignored. " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      group_id: z.string().describe("The id of the group to remove, from design_read_layout."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, group_id, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            op: { delete_group: { group_id } },
+            ...(base_version === undefined ? {} : { base_version }),
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  // #501: one op of a design_arrange batch — the same five edits the single
+  // tools make, in the route's own wire shape.
+  const layoutOpSchema = z.union([
+    z.object({ create_group: z.object({ name: z.string() }).strict() }).strict(),
+    z.object({ update_group: z.object({ group_id: z.string(), name: z.string() }).strict() }).strict(),
+    z
+      .object({ reorder_group: z.object({ group_id: z.string(), position: z.number().int().min(1) }).strict() })
+      .strict(),
+    z
+      .object({
+        reorder_page: z
+          .object({
+            route: z.string().min(1),
+            group_id: z.string().optional(),
+            position: z.number().int().min(1).optional(),
+          })
+          .strict()
+          .refine((v) => v.group_id !== undefined || v.position !== undefined, {
+            message: "reorder_page needs a group_id, a position, or both.",
+          }),
+      })
+      .strict(),
+    z.object({ delete_group: z.object({ group_id: z.string() }).strict() }).strict(),
+  ]);
+
+  server.tool(
+    "design_arrange",
+    "Apply SEVERAL arrangement edits as ONE write: `ops` is an ordered list, each item exactly one of {\"create_group\":{name}}, {\"update_group\":{group_id,name}}, {\"reorder_group\":{group_id,position}}, {\"reorder_page\":{route,group_id?,position?}}, {\"delete_group\":{group_id}} — the same rules as the single tools of those names. Use it to file many pages into groups, or reorder a whole section, in one call. The ops run in order, each on the result of the one before, and the batch is ALL OR NOTHING: if any op is refused, none is stored and the error names the failing index (`ops[2] (reorder_page) ...`). The whole batch is one version. A group created in the batch gets its id minted by the server, so a later op in the SAME batch cannot name it — create first, then arrange with the id from `changed.groups`. 1 to 100 ops; a one-item list behaves exactly like the single tool. " +
+      baseVersionNote,
+    {
+      ...designProjectArg,
+      ops: z.array(layoutOpSchema).min(1).max(100).describe("The edits, applied in order as one all-or-nothing write."),
+      ...profileArg,
+      ...baseVersionArg,
+    },
+    async ({ project, ops, base_version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.writeLayoutOp({
+            project: await resolveDesignProject(client, project),
+            ops: ops as DesignLayoutOp[],
             ...(base_version === undefined ? {} : { base_version }),
           }),
         );

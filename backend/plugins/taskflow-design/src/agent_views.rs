@@ -897,10 +897,10 @@ async fn agent_write(
     }
 }
 
-/// The four arrangement edits an agent may make.
+/// The arrangement edits an agent may make.
 ///
-/// One enum on one route because these are four edits to ONE resource — the
-/// document — not four resources. Never a document in, either: the read
+/// One enum on one route because these are edits to ONE resource — the
+/// document — not separate resources. Never a document in, either: the read
 /// response is the panel's view and is lossy in both directions, so a payload
 /// that PUT it back would silently reorder every group by the flow
 /// (`agent_views.rs` read_layout, "This response is NOT the document").
@@ -921,14 +921,76 @@ pub enum LayoutOp {
         #[serde(default)]
         position: Option<usize>,
     },
+    /// #501: remove a group; its pages fall back to Ungrouped, none is deleted.
+    DeleteGroup { group_id: String },
 }
 
+impl LayoutOp {
+    /// The op's wire name, for an error that has to say WHICH op of a batch.
+    fn name(&self) -> &'static str {
+        match self {
+            LayoutOp::CreateGroup { .. } => "create_group",
+            LayoutOp::UpdateGroup { .. } => "update_group",
+            LayoutOp::ReorderGroup { .. } => "reorder_group",
+            LayoutOp::ReorderPage { .. } => "reorder_page",
+            LayoutOp::DeleteGroup { .. } => "delete_group",
+        }
+    }
+}
+
+/// #501: the most edits one batch may carry. Generous for rearranging a board
+/// (a page per op) while keeping one request's lock hold bounded.
+const MAX_LAYOUT_OPS: usize = 100;
+
+/// Exactly one of `op` (a single edit) or `ops` (a batch, #501). A batch is
+/// applied in order to ONE document under ONE lock and stored as ONE version:
+/// every op lands or none does, so a half-applied rearrangement is never saved.
 #[derive(Debug, Deserialize)]
 pub struct AgentLayoutWrite {
     pub project: i64,
     #[serde(default)]
     pub base_version: Option<i64>,
-    pub op: LayoutOp,
+    #[serde(default)]
+    pub op: Option<LayoutOp>,
+    #[serde(default)]
+    pub ops: Option<Vec<LayoutOp>>,
+}
+
+/// Apply one op to `doc`, returning the next document and — for a create — the
+/// id it minted. Every rule failure is the op's own message, for a 400.
+fn apply_layout_op(
+    doc: LayoutDoc,
+    known: &[String],
+    op: &LayoutOp,
+) -> Result<(LayoutDoc, Option<String>), String> {
+    match op {
+        LayoutOp::CreateGroup { name } => {
+            let (next, id) = layout_doc::create_group(doc, name);
+            Ok((next, Some(id)))
+        }
+        LayoutOp::UpdateGroup { group_id, name } => {
+            layout_doc::rename_group(doc, group_id, name).map(|next| (next, None))
+        }
+        LayoutOp::ReorderGroup { group_id, position } => {
+            layout_doc::move_group(doc, group_id, *position).map(|next| (next, None))
+        }
+        LayoutOp::ReorderPage { route, group_id, position } => {
+            // Spec §6: `group_id` alone appends to that group, `position`
+            // alone moves the page within its section, both does both —
+            // and NEITHER asks for nothing at all. Refused here, in the
+            // handler, rather than only in the tool schema: a schema is
+            // a client-side courtesy, and a direct call would otherwise
+            // re-append the page to its own section and report success.
+            if group_id.is_none() && position.is_none() {
+                return Err("reorder_page needs a group_id, a position, or both".to_string());
+            }
+            layout_doc::place_page(doc, known, route, group_id.as_deref(), *position)
+                .map(|next| (next, None))
+        }
+        LayoutOp::DeleteGroup { group_id } => {
+            layout_doc::delete_group(doc, group_id).map(|next| (next, None))
+        }
+    }
 }
 
 /// What one write did, resolved inside the lock so the response can be built
@@ -967,6 +1029,22 @@ pub async fn write_layout(
     Json(input): Json<AgentLayoutWrite>,
 ) -> Result<Response, StatusCode> {
     authorized_project(&agent, input.project)?;
+    // Exactly one of `op` / `ops`, and a batch that is neither empty nor huge.
+    let ops: Vec<LayoutOp> = match (input.op, input.ops) {
+        (Some(op), None) => vec![op],
+        (None, Some(ops)) if !ops.is_empty() && ops.len() <= MAX_LAYOUT_OPS => ops,
+        (None, Some(ops)) => {
+            return Ok(layout_invalid(format!(
+                "ops must hold between 1 and {MAX_LAYOUT_OPS} operations, not {}",
+                ops.len()
+            )));
+        }
+        _ => {
+            return Ok(layout_invalid(
+                "send exactly one of `op` (a single edit) or `ops` (a batch)".to_string(),
+            ));
+        }
+    };
     let project_id = agent.project_id;
     let by = format!("{} ({})", agent.display_name, agent.agent_id);
     let known = crate::views::known_routes(project_id).await;
@@ -1008,47 +1086,33 @@ pub async fn write_layout(
             }
 
             let before_doc = doc.clone();
-            let mut minted: Option<String> = None;
 
-            // Matched by REFERENCE: `input.op` is read again below to say what
-            // changed, and matching by value would move it out from under that.
-            let next = match &input.op {
-                LayoutOp::CreateGroup { name } => {
-                    let (next, id) = layout_doc::create_group(doc, name);
-                    minted = Some(id);
-                    next
-                }
-                LayoutOp::UpdateGroup { group_id, name } => {
-                    match layout_doc::rename_group(doc, group_id, name) {
-                        Ok(next) => next,
-                        Err(message) => return Ok(LayoutOutcome::Invalid(message)),
+            // Applied in order, each to the result of the one before, so a
+            // batch can create a group and then fill it only if the caller
+            // already knows the id — ids are minted here, never predictable.
+            // The first failure refuses the WHOLE batch and names its index.
+            let batched = ops.len() > 1;
+            let mut next = doc;
+            let mut minted: Vec<String> = Vec::new();
+            for (index, op) in ops.iter().enumerate() {
+                match apply_layout_op(next, &known, op) {
+                    Ok((doc, id)) => {
+                        next = doc;
+                        minted.extend(id);
+                    }
+                    Err(message) => {
+                        return Ok(LayoutOutcome::Invalid(if batched {
+                            format!(
+                                "ops[{index}] ({}) was refused, so none of the {} ops was applied: {message}",
+                                op.name(),
+                                ops.len()
+                            )
+                        } else {
+                            message
+                        }));
                     }
                 }
-                LayoutOp::ReorderGroup { group_id, position } => {
-                    match layout_doc::move_group(doc, group_id, *position) {
-                        Ok(next) => next,
-                        Err(message) => return Ok(LayoutOutcome::Invalid(message)),
-                    }
-                }
-                LayoutOp::ReorderPage { route, group_id, position } => {
-                    // Spec §6: `group_id` alone appends to that group, `position`
-                    // alone moves the page within its section, both does both —
-                    // and NEITHER asks for nothing at all. Refused here, in the
-                    // handler, rather than only in the tool schema: a schema is
-                    // a client-side courtesy, and a direct call would otherwise
-                    // re-append the page to its own section and report success.
-                    if group_id.is_none() && position.is_none() {
-                        return Ok(LayoutOutcome::Invalid(
-                            "reorder_page needs a group_id, a position, or both".to_string(),
-                        ));
-                    }
-                    match layout_doc::place_page(doc, &known, route, group_id.as_deref(), *position)
-                    {
-                        Ok(next) => next,
-                        Err(message) => return Ok(LayoutOutcome::Invalid(message)),
-                    }
-                }
-            };
+            }
 
             // Note the `return Ok(...)`: the closure's error type is
             // `StatusCode`, and a rule failure is a 400 with `validate`'s or the
@@ -1061,19 +1125,15 @@ pub async fn write_layout(
 
             let json = layout_doc::to_json_string(&validated);
             if json.len() > 65536 {
-                // Nothing an agent can do gets back under the cap: none of the
-                // four operations REMOVES a page or a group, so a document this
-                // large stays this large and every later write through this
-                // route fails the same way — permanently, for the agent. Only
-                // the operator can shrink the board (the panel can drop pages
-                // and groups), so the refusal says that rather than inviting a
-                // retry that cannot succeed.
+                // `delete_group` is the one op that shrinks the document, and
+                // it can only do so in a write of its own — this write, which
+                // would have grown it, is refused whole. Say so, rather than
+                // inviting a retry of the same write that cannot succeed.
                 return Ok(LayoutOutcome::Invalid(format!(
                     "the arrangement is too large to store ({} bytes, over the 65536-byte \
-                     limit), and no layout operation removes a page or a group: writes \
-                     through this route will keep failing at this size. The operator has to \
-                     shrink the board in the Pages panel before this arrangement can be \
-                     edited again.",
+                     limit). Retrying this write will fail the same way; shrink the board \
+                     first (delete_group removes a group, or the operator can drop pages \
+                     and groups in the Pages panel).",
                     json.len()
                 )));
             }
@@ -1166,17 +1226,25 @@ pub async fn write_layout(
                 }
             }
 
-            // A create reports the id it minted; the other three report the
-            // group the caller named, since that is what was asked about.
-            let changed_groups: Vec<String> = match (&minted, &input.op) {
-                (Some(id), _) => vec![id.clone()],
-                (None, LayoutOp::UpdateGroup { group_id, .. })
-                | (None, LayoutOp::ReorderGroup { group_id, .. }) => vec![group_id.clone()],
-                (None, LayoutOp::ReorderPage { group_id, .. }) => {
-                    group_id.iter().cloned().collect()
+            // A create reports the id it minted; the others report the group
+            // the caller named, since that is what was asked about. Over a
+            // batch: every one, in op order, each once.
+            let mut minted_ids = minted.into_iter();
+            let mut changed_groups: Vec<String> = Vec::new();
+            for op in ops.iter() {
+                let named = match op {
+                    LayoutOp::CreateGroup { .. } => minted_ids.next(),
+                    LayoutOp::UpdateGroup { group_id, .. }
+                    | LayoutOp::ReorderGroup { group_id, .. }
+                    | LayoutOp::DeleteGroup { group_id } => Some(group_id.clone()),
+                    LayoutOp::ReorderPage { group_id, .. } => group_id.clone(),
+                };
+                if let Some(id) = named {
+                    if !changed_groups.contains(&id) {
+                        changed_groups.push(id);
+                    }
                 }
-                (None, LayoutOp::CreateGroup { .. }) => Vec::new(),
-            };
+            }
 
             // Which pages changed VISIBLE position. A positional diff of the raw
             // flow would flag pages whose global index moved while nothing a
@@ -1207,9 +1275,11 @@ pub async fn write_layout(
                 .collect();
             // A page that changed SECTION but happened to keep its index would
             // not show up above, and it is the very page the caller named.
-            if let LayoutOp::ReorderPage { route, .. } = &input.op {
-                if !changed_routes.contains(route) {
-                    changed_routes.push(route.clone());
+            for op in ops.iter() {
+                if let LayoutOp::ReorderPage { route, .. } = op {
+                    if !changed_routes.contains(route) {
+                        changed_routes.push(route.clone());
+                    }
                 }
             }
             changed_routes.sort();
@@ -1237,12 +1307,18 @@ pub async fn write_layout(
         )
             .into_response(),
         LayoutOutcome::Conflict { current, doc } => conflict_response_values(current, doc),
-        LayoutOutcome::Invalid(message) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "invalid_operation", "message": message })),
-        )
-            .into_response(),
+        LayoutOutcome::Invalid(message) => layout_invalid(message),
     })
+}
+
+/// The layout write's 400: one shape for a rule an op broke and for a body
+/// that named no op at all.
+fn layout_invalid(message: String) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "ok": false, "error": "invalid_operation", "message": message })),
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]

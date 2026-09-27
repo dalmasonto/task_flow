@@ -90,6 +90,21 @@ pub fn rename_group(doc: LayoutDoc, group_id: &str, name: &str) -> Result<Layout
     Ok(LayoutDoc { groups, ..doc })
 }
 
+/// #501: remove one group. Its pages are NOT deleted — they fall back to the
+/// ungrouped section, in their flow order, which is what the panel's
+/// `removeGroup` (`design-layout.ts`) does and what "remove this grouping"
+/// means. An unknown id is refused, so a stale id is an error rather than a
+/// silent no-op the caller reads as success.
+pub fn delete_group(doc: LayoutDoc, group_id: &str) -> Result<LayoutDoc, String> {
+    let mut groups = doc.groups;
+    let before = groups.len();
+    groups.retain(|g| g.id != group_id);
+    if groups.len() == before {
+        return Err(format!("no group with id \"{group_id}\""));
+    }
+    Ok(LayoutDoc { groups, ..doc })
+}
+
 /// Move one group to a 1-based slot in the group list.
 ///
 /// A MOVE, not a swap: removing then inserting displaces the groups between,
