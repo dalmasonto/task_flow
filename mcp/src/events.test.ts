@@ -543,3 +543,42 @@ describe("startAgentEventStream onConnected barrier (#127)", () => {
     handle.stop();
   });
 });
+
+
+describe("#317: a reply's notice says what it answers", () => {
+  const reply = {
+    id: 20,
+    channel: 3,
+    sender_kind: "user",
+    sender_label: "Dalmas",
+    body_markdown: "yes, ship it",
+    sender_agent: null,
+    reply_to: 12,
+  };
+
+  it("quotes the parent's sender and an excerpt", () => {
+    const line = formatIncoming(reply, [], undefined, false, {
+      id: 12,
+      sender_label: "Builder",
+      body_markdown: "Should I ship\nthe fix now?",
+    });
+    expect(line).toContain('Message from Dalmas (↩ replying to #12 from Builder: "Should I ship the fix now?"): yes, ship it');
+  });
+
+  it("names the parent id when the parent could not be read", () => {
+    expect(formatIncoming(reply, [], undefined, false, null)).toContain("(↩ replying to message #12)");
+  });
+
+  it("clips a long parent to a short excerpt", () => {
+    const line = formatIncoming(reply, [], undefined, false, {
+      id: 12,
+      sender_label: "Builder",
+      body_markdown: "x".repeat(500),
+    });
+    expect(line).toMatch(/"x{79}…"/);
+  });
+
+  it("adds nothing to a message that is not a reply", () => {
+    expect(formatIncoming({ ...reply, reply_to: null }, [])).toContain("Message from Dalmas: yes, ship it");
+  });
+});

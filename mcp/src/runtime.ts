@@ -18,7 +18,7 @@
 
 import type { ConnectedContext } from "./connect.js";
 import type { TaskflowClient } from "./client.js";
-import { formatIncoming, shouldDeliver, startAgentEventStream } from "./events.js";
+import { formatIncoming, shouldDeliver, startAgentEventStream, type ReplyParent } from "./events.js";
 import {
   detectTmuxPane,
   notifyPane,
@@ -102,6 +102,16 @@ export function startAgentRuntime(
   const deliveredIds = new Set<number>();
   const DELIVERED_CAP = 1000;
 
+  const readParent = async (channel: number, parentId: number): Promise<ReplyParent | null> => {
+    try {
+      const page = await client.listMessages({ channel, since: parentId - 1, limit: 1 });
+      const row = (page.messages as ResolvedMessage[]).find((m) => m.id === parentId);
+      return row ? { id: row.id, sender_label: row.sender_label, body_markdown: row.body_markdown } : null;
+    } catch {
+      return null;
+    }
+  };
+
   const deliverMessageById = async (id: number, edited = false) => {
     // Reserve the id SYNCHRONOUSLY (before any await) so two concurrent
     // deliveries of the same created message can't both pass the check and type
@@ -122,9 +132,13 @@ export function startAgentRuntime(
       if (!message) return;
       if (!shouldDeliver(message, profile.agentId)) return;
       if (!pane) return;
+      // #317: a reply quotes what it answers, so the agent reads it in context.
+      // The parent is in the SAME channel, so one windowed read finds it; a
+      // failure only drops the quote, never the delivery.
+      const replyParent = message.reply_to != null ? await readParent(message.channel, message.reply_to) : null;
       await paneQueue(() =>
         notifyPane(
-          formatIncoming(message, message.attachments ?? [], profile.agentId, edited),
+          formatIncoming(message, message.attachments ?? [], profile.agentId, edited, replyParent),
           pane,
           true,
         ),

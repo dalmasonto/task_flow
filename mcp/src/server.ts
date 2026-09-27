@@ -680,10 +680,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "send_message",
-    "Send a chat message as this agent into a channel. Use list_channels to find channel ids.",
+    "Send a chat message as this agent into a channel. Use list_channels to find channel ids. To ANSWER a specific message, pass its id as `reply_to` (the `message=` id in a delivered notice's ⟦ctx⟧ block, or `id` from check_messages): the reply is linked to it and shown quoted, so a thread stays readable when several conversations interleave. `reply_to` must be a message in the same channel.",
     {
       channel: z.number().int().describe("Channel id to post in."),
       body: z.string().min(1).describe("Message body (markdown)."),
+      reply_to: z
+        .number()
+        .int()
+        .optional()
+        .describe("The id of the message this answers (same channel). Omit for a new line of conversation."),
       priority: z
         .enum(["normal", "important", "urgent"])
         .optional()
@@ -702,7 +707,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         ),
       ...profileArg,
     },
-    async ({ channel, body, priority, files, is_design, profile }) => {
+    async ({ channel, body, reply_to, priority, files, is_design, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -717,6 +722,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             priority,
             is_design,
             attachments,
+            ...(reply_to === undefined ? {} : { reply_to }),
           }),
         );
       } catch (err) {

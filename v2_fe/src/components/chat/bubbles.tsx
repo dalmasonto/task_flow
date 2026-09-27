@@ -1,6 +1,6 @@
 import { MessageAttachments } from "@/components/message-attachments"
 import { Button } from "@/components/ui/button"
-import { CheckCheckIcon, CheckIcon, CopyIcon, CrosshairIcon, FileIcon, ImageIcon, PencilIcon, RotateCcwIcon, XIcon } from "lucide-react"
+import { CheckCheckIcon, CheckIcon, CopyIcon, CrosshairIcon, FileIcon, ImageIcon, PencilIcon, ReplyIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/attachment-kind"
@@ -172,6 +172,8 @@ export function AgentChatBubble({
   onCancel,
   onCreateTask,
   onEdit,
+  onReply,
+  onJumpTo,
   showDesignBadge = true,
 }: {
   message: AgentMessage
@@ -179,6 +181,10 @@ export function AgentChatBubble({
   onCancel?: (nonce: string) => void
   onCreateTask?: (body: string) => void
   onEdit?: (messageId: number, body: string) => Promise<void>
+  /// #317: start a reply to this message in the composer.
+  onReply?: (message: AgentMessage) => void
+  /// #317: scroll to the quoted parent (by message id).
+  onJumpTo?: (messageId: string) => void
   /// Shows the header "Design" badge for is_design messages. Defaults to true
   /// so /agents is unchanged; the design rail passes false since every
   /// message shown there is already known to be design.
@@ -217,7 +223,7 @@ export function AgentChatBubble({
   }
 
   return (
-    <article className={cn("flex", alignRight ? "justify-end" : "justify-start")}>
+    <article data-message-id={message.id} className={cn("flex", alignRight ? "justify-end" : "justify-start")}>
       <div
         className={cn(
           "max-w-[88%] rounded-lg border p-3 shadow-sm sm:max-w-[82%]",
@@ -269,6 +275,13 @@ export function AgentChatBubble({
                 icon={<span className="block px-0.5 font-mono text-[9px] font-bold leading-[0.875rem]">MD</span>}
                 run={() => navigator.clipboard.writeText(message.body)}
               />
+              {onReply && message.status === "posted" ? (
+                <BubbleAction
+                  title="Reply"
+                  icon={<ReplyIcon className="size-3.5" />}
+                  run={() => onReply(message)}
+                />
+              ) : null}
               {canEdit && !editing ? (
                 <BubbleAction
                   title="Edit message"
@@ -321,6 +334,25 @@ export function AgentChatBubble({
           </div>
         ) : (
           <>
+            {message.replyTo ? (
+              // #317: the quoted parent. A button when it can be jumped to; a
+              // plain note when the parent is not among the loaded messages.
+              message.replyTo.missing ? (
+                <div className="mb-2 border-l-2 border-muted-foreground/40 pl-2 text-xs italic text-muted-foreground">
+                  Reply to an earlier message (not loaded)
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="mb-2 block w-full rounded-r-md border-l-2 border-primary/60 bg-muted/50 px-2 py-1 text-left text-xs hover:bg-muted"
+                  title="Show the message this replies to"
+                  onClick={() => onJumpTo?.(message.replyTo!.id)}
+                >
+                  <span className="font-medium">{message.replyTo.from}</span>
+                  <span className="line-clamp-2 text-muted-foreground">{message.replyTo.excerpt}</span>
+                </button>
+              )
+            ) : null}
             {message.designRef ? (
               <div className="mb-2 inline-flex max-w-full items-center gap-1 truncate rounded-md border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
                 <CrosshairIcon className="size-3 shrink-0" />

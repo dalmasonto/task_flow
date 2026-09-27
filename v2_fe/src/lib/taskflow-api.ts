@@ -1192,6 +1192,8 @@ export type SendMessageInput = {
   /// Design-rail send (Task 2): true routes the message into the filtered
   /// design view instead of the ordinary project chat.
   is_design?: boolean
+  /// #317: the id of the message this one replies to (same channel).
+  reply_to?: number | null
 }
 
 /// The send-message response: the saved message row plus the attachments the
@@ -1225,6 +1227,7 @@ export async function sendTaskflowAgentMessage(
     // The backend parses `targets` as a JSON array of {kind,id}.
     if (input.targets && input.targets.length) form.append("targets", JSON.stringify(input.targets))
     if (input.is_design != null) form.append("is_design", input.is_design ? "true" : "false")
+    if (input.reply_to != null) form.append("reply_to", String(input.reply_to))
     for (const file of files!) form.append("files", file, file.name)
     body = form
     // No content-type header: the browser sets multipart/form-data + boundary.

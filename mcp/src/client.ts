@@ -122,6 +122,8 @@ export interface SendMessageInput {
   is_design?: boolean;
   /** Resolved by `resolveAttachments`; switches the POST to multipart. */
   attachments?: { filename: string; bytes: Buffer }[];
+  /** #317: the id of the message this one replies to (same channel). */
+  reply_to?: number;
 }
 
 export interface CreateTaskInput {
@@ -369,6 +371,7 @@ export class TaskflowClient {
     if (fields.priority) form.set("priority", fields.priority);
     if (fields.client_nonce) form.set("client_nonce", fields.client_nonce);
     if (fields.is_design) form.set("is_design", "true");
+    if (fields.reply_to !== undefined) form.set("reply_to", String(fields.reply_to));
     for (const file of attachments) {
       // The server treats a part as a file only when it carries a non-empty
       // filename (views.rs:180-186), so the basename must be preserved.

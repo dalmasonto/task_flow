@@ -141,7 +141,14 @@ export type AgentMessage = {
   /// The inspected-element reference parsed out of the body's design-ref block,
   /// or null. Rendered as a chip; the block itself is stripped from `body`.
   designRef?: import("./design-ref").DesignRef | null
+  /// #317: the message this one replies to, as the bubble quotes it. `missing`
+  /// when the parent is not among the loaded messages (older page, or gone) —
+  /// the quote then says so instead of vanishing.
+  replyTo?: ReplyQuote | null
 }
+
+/// #317: a quoted parent. `from` is already resolved ("You" for your own).
+export type ReplyQuote = { id: string; from: string; excerpt: string; missing?: boolean }
 
 
 export type ConversationMember = {

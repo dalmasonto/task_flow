@@ -76,6 +76,7 @@ async fn user_message(project: i64, channel: i64, user: i64) {
             is_design: false,
             client_nonce: None,
             edited_at: None,
+            reply_to: None,
             created_at: None,
         })
         .await

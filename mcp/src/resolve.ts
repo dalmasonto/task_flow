@@ -41,6 +41,8 @@ export interface ResolvedMessage {
    *  parses it into an array before delivery. Supersedes `target_agent`. */
   targets?: MessageTarget[];
   attachments?: Array<{ name: string; size_bytes: number; url: string }>;
+  /** #317: the message this one replies to (same channel), or null. */
+  reply_to?: number | null;
 }
 
 /** Parse the message's `targets` column — a JSON string like

@@ -205,6 +205,7 @@ async fn make_message(project: i64, channel: i64, body: &str, is_design: bool) -
             is_design,
             client_nonce: None,
             edited_at: None,
+            reply_to: None,
             created_at: None,
         })
         .await

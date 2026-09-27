@@ -330,6 +330,13 @@ pub struct TaskflowAgentMessage {
     /// panes so an agent can proceed from the revised content.
     #[umbral(noedit)]
     pub edited_at: Option<DateTime<Utc>>,
+    /// #317: the message this one answers — a message id in the SAME channel
+    /// (checked on both send paths), or null for a message that starts a line
+    /// of its own. A bare id rather than a self-referencing foreign key: the
+    /// reply must outlive nothing in particular, and a reader that finds the
+    /// parent gone simply shows no quote.
+    #[umbral(noedit)]
+    pub reply_to: Option<i64>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

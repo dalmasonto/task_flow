@@ -70,6 +70,7 @@ const designRow: TaskflowAgentMessage = {
   priority: "normal",
   is_design: true,
   edited_at: null,
+  reply_to: null,
   created_at: "2026-09-20T10:00:00Z",
 }
 
@@ -607,5 +608,25 @@ describe("designRoomUnreadCount — the badge the design room has no chat row fo
     // counting its messages would put a design badge on ordinary chat.
     const impostor = room(9, "Design room")
     expect(designRoomUnreadCount(workspace([impostor], [messageRow(300, 9)]), me)).toBe(0)
+  })
+})
+
+describe("mapLiveChannelMessages — #317 reply quotes", () => {
+  const parent = { ...designRow, id: 10, is_design: false, body_markdown: "Should we ship\n\nthe fix?", sender_label: "Builder" }
+  const reply = { ...designRow, id: 11, is_design: false, body_markdown: "yes", reply_to: 10 }
+
+  it("quotes the parent's sender and a flattened excerpt", () => {
+    const [, mapped] = mapLiveChannelMessages(workspaceWithMessages([parent, reply]), 7, "room", null)
+    expect(mapped.replyTo).toEqual({ id: "10", from: "Builder", excerpt: "Should we ship the fix?" })
+  })
+
+  it("marks a parent that is not loaded as missing rather than dropping the quote", () => {
+    const [mapped] = mapLiveChannelMessages(workspaceWithMessages([{ ...reply, reply_to: 99 }]), 7, "room", null)
+    expect(mapped.replyTo).toEqual({ id: "99", from: "", excerpt: "", missing: true })
+  })
+
+  it("gives a plain message no quote", () => {
+    const [mapped] = mapLiveChannelMessages(workspaceWithMessages([parent]), 7, "room", null)
+    expect(mapped.replyTo).toBeNull()
   })
 })

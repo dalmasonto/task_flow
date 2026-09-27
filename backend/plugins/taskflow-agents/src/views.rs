@@ -83,6 +83,9 @@ pub struct SendMessageInput {
     /// it is neither rejected nor able to place a message by declaring it.
     #[serde(default)]
     pub is_design: bool,
+    /// #317: the id of the message this one replies to (same channel).
+    #[serde(default)]
+    pub reply_to: Option<i64>,
 }
 
 /// The single attachment projection, shared by every path that returns one.
@@ -330,6 +333,30 @@ fn storage_unavailable_response() -> Response {
 /// no unauthenticated code path here to forget. The body is read raw
 /// (`Bytes` + `HeaderMap`) so the handler can branch on content-type rather
 /// than committing to one extractor.
+/// #317: a multipart `reply_to` field — an id, or nothing. Unparseable is
+/// treated as absent, like the other optional multipart fields.
+fn parse_reply_field(field: Option<&str>) -> Option<i64> {
+    field.map(str::trim).filter(|s| !s.is_empty()).and_then(|s| s.parse().ok())
+}
+
+/// #317: check a `reply_to` names a message in THIS channel. A reply across
+/// channels would quote something some readers of this room cannot see, so it
+/// is a 400 rather than a silently dropped link.
+async fn validate_reply_to(channel_id: i64, reply_to: Option<i64>) -> Result<Option<i64>, StatusCode> {
+    let Some(parent) = reply_to else {
+        return Ok(None);
+    };
+    let found = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::ID.eq(parent) & taskflow_agent_message::CHANNEL.eq(channel_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    match found {
+        Some(_) => Ok(Some(parent)),
+        None => Err(StatusCode::BAD_REQUEST),
+    }
+}
+
 pub async fn send_message(
     RequireAuth(user_id): RequireAuth<i64>,
     headers: HeaderMap,
@@ -357,6 +384,7 @@ pub async fn send_message(
         targets,
         files,
         _declared_is_design,
+        reply_to,
     ): (
         i64,
         String,
@@ -366,6 +394,7 @@ pub async fn send_message(
         Option<Vec<MessageTarget>>,
         Vec<FilePart>,
         bool,
+        Option<i64>,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
             .await
@@ -378,6 +407,7 @@ pub async fn send_message(
         let mut target_field: Option<String> = None;
         let mut targets_field: Option<String> = None;
         let mut is_design_field: Option<String> = None;
+        let mut reply_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
@@ -387,6 +417,7 @@ pub async fn send_message(
                 "target_agent" => target_field = Some(value),
                 "targets" => targets_field = Some(value),
                 "is_design" => is_design_field = Some(value),
+                "reply_to" => reply_field = Some(value),
                 _ => {}
             }
         }
@@ -438,6 +469,7 @@ pub async fn send_message(
             targets,
             files,
             is_design,
+            parse_reply_field(reply_field.as_deref()),
         )
     } else {
         // JSON path: preserve the original behaviour exactly. A malformed body
@@ -453,6 +485,7 @@ pub async fn send_message(
             input.targets,
             Vec::new(),
             input.is_design,
+            input.reply_to,
         )
     };
 
@@ -547,6 +580,10 @@ pub async fn send_message(
         }
     };
 
+    // #317: a reply must answer a message in this same channel. Checked
+    // after membership, so a non-member cannot probe which ids a room holds.
+    let reply_to = validate_reply_to(channel.id, reply_to).await?;
+
     // Idempotency: the same nonce in the same channel is the same message.
     // A retry after a dropped response must not double-post — and must not
     // re-store the files either, so we hand back the existing message with the
@@ -615,6 +652,7 @@ pub async fn send_message(
             is_design,
             client_nonce: client_nonce.clone(),
             edited_at: None,
+            reply_to,
             created_at: None,
         })
         .await
@@ -1441,6 +1479,9 @@ pub struct AgentSendMessageInput {
     /// place a message by declaring it.
     #[serde(default)]
     pub is_design: bool,
+    /// #317: the id of the message this one replies to (same channel).
+    #[serde(default)]
+    pub reply_to: Option<i64>,
 }
 
 /// `POST /api/taskflow/agents/agent/messages` (agent-authed) — the trusted write
@@ -1484,6 +1525,7 @@ pub async fn send_message_as_agent(
         client_nonce,
         files,
         _declared_is_design,
+        reply_to,
     ): (
         i64,
         String,
@@ -1491,6 +1533,7 @@ pub async fn send_message_as_agent(
         Option<String>,
         Vec<FilePart>,
         bool,
+        Option<i64>,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
             .await
@@ -1501,6 +1544,7 @@ pub async fn send_message_as_agent(
         let mut priority_field: Option<String> = None;
         let mut nonce_field: Option<String> = None;
         let mut is_design_field: Option<String> = None;
+        let mut reply_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
@@ -1508,6 +1552,7 @@ pub async fn send_message_as_agent(
                 "priority" => priority_field = Some(value),
                 "client_nonce" => nonce_field = Some(value),
                 "is_design" => is_design_field = Some(value),
+                "reply_to" => reply_field = Some(value),
                 _ => {}
             }
         }
@@ -1547,6 +1592,7 @@ pub async fn send_message_as_agent(
             nonce_field,
             files,
             is_design,
+            parse_reply_field(reply_field.as_deref()),
         )
     } else {
         let input: AgentSendMessageInput =
@@ -1558,6 +1604,7 @@ pub async fn send_message_as_agent(
             input.client_nonce,
             Vec::new(),
             input.is_design,
+            input.reply_to,
         )
     };
 
@@ -1618,6 +1665,10 @@ pub async fn send_message_as_agent(
         }
     }
 
+    // #317: a reply must answer a message in this same channel. Checked
+    // after membership, so a non-member cannot probe which ids a room holds.
+    let reply_to = validate_reply_to(channel.id, reply_to).await?;
+
     // Idempotency: the same nonce in the same channel is the same message.
     if let Some(nonce) = client_nonce.as_deref().filter(|n| !n.is_empty()) {
         let existing = TaskflowAgentMessage::objects()
@@ -1657,6 +1708,7 @@ pub async fn send_message_as_agent(
             is_design,
             client_nonce: client_nonce.clone(),
             edited_at: None,
+            reply_to,
             created_at: None,
         })
         .await
@@ -3501,6 +3553,7 @@ async fn apply_review(
                     is_design: channel.is_design,
                     client_nonce: None,
                     edited_at: None,
+                    reply_to: None,
                     created_at: None,
                 })
                 .await

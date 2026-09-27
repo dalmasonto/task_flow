@@ -87,6 +87,29 @@ export interface AgentMessageEvent {
    *  (mention only). Empty/absent broadcasts to every agent, like a null
    *  `target_agent`. Supersedes `target_agent` when present. */
   targets?: MessageTarget[] | null;
+  /** #317: the id of the message this one replies to (same channel), or null. */
+  reply_to?: number | null;
+}
+
+/** #317: the message a reply answers, as the notice quotes it. */
+export interface ReplyParent {
+  id: number;
+  sender_label: string;
+  body_markdown: string;
+}
+
+/** How much of a replied-to message the notice quotes — enough to recognise
+ *  it, not so much that it crowds out the reply itself. */
+const REPLY_EXCERPT_CHARS = 80;
+
+/** #317: " (↩ replying to #12 from Ann: "…")", or just the id when the parent
+ *  could not be read. Empty for a message that is not a reply. */
+function replyClause(message: AgentMessageEvent, parent: ReplyParent | null | undefined): string {
+  if (message.reply_to == null) return "";
+  if (!parent) return ` (↩ replying to message #${message.reply_to})`;
+  const flat = parent.body_markdown.replace(/\s+/gu, " ").trim();
+  const excerpt = flat.length > REPLY_EXCERPT_CHARS ? `${flat.slice(0, REPLY_EXCERPT_CHARS - 1)}…` : flat;
+  return ` (↩ replying to #${parent.id} from ${parent.sender_label}: "${excerpt}")`;
 }
 
 /** #29: one directed target of a message. `kind` is "agent" or "user"; only
@@ -471,8 +494,10 @@ export function formatIncoming(
   attachments: NoticeAttachment[] = [],
   selfAgentId?: number,
   edited = false,
+  replyParent?: ReplyParent | null,
 ): string {
   const who = message.sender_label || (message.sender_kind === "user" ? "User" : "Agent");
+  const replying = replyClause(message, replyParent);
   // #40 review: a non-target still receives the message but is told, clearly and
   // up front, NOT to act on it — only to reply / add information if useful. When
   // selfAgentId is unknown, or the agent is a target/broadcast recipient, there
@@ -484,8 +509,8 @@ export function formatIncoming(
   // #107: an edit is redelivered so the agent proceeds from the REVISED words —
   // said explicitly, or the agent reads it as a brand-new (duplicate) request.
   const head = edited
-    ? `[taskflow] ${guard}✏️ EDITED message from ${who} (supersedes the earlier version — continue from this revision): `
-    : `[taskflow] ${guard}Message from ${who}: `;
+    ? `[taskflow] ${guard}✏️ EDITED message from ${who}${replying} (supersedes the earlier version — continue from this revision): `
+    : `[taskflow] ${guard}Message from ${who}${replying}: `;
 
   const manifest = attachments.length
     ? ` 📎 ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}: ` +

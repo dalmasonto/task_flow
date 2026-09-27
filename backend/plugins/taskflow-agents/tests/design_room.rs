@@ -156,6 +156,7 @@ async fn seed_flagged_message(project: i64, channel: i64, is_design: bool) -> i6
             is_design,
             client_nonce: None,
             edited_at: None,
+            reply_to: None,
             created_at: None,
         })
         .await

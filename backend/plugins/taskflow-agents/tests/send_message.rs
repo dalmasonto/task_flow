@@ -497,3 +497,90 @@ async fn agent_send_accepts_but_ignores_the_declared_design_flag() {
         "the design room makes an agent's message a design message"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #317: reply-to.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_reply_stores_the_message_it_answers() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+    let parent = app
+        .post_as(user, "/api/taskflow/agents/messages", json!({ "channel": channel, "body_markdown": "question?" }))
+        .await
+        .json()
+        .await["id"]
+        .as_i64()
+        .expect("parent id");
+
+    let reply = app
+        .post_as(
+            user,
+            "/api/taskflow/agents/messages",
+            json!({ "channel": channel, "body_markdown": "answer", "reply_to": parent }),
+        )
+        .await;
+    assert_eq!(reply.status(), 200);
+    assert_eq!(reply.json().await["reply_to"], json!(parent));
+}
+
+#[tokio::test]
+async fn a_message_without_reply_to_stores_null() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+    let row = app
+        .post_as(user, "/api/taskflow/agents/messages", json!({ "channel": channel, "body_markdown": "hi" }))
+        .await
+        .json()
+        .await;
+    assert_eq!(row["reply_to"], json!(null));
+}
+
+#[tokio::test]
+async fn a_reply_to_another_channels_message_or_a_missing_one_is_refused() {
+    let app = TestApp::new().await;
+    let (channel_a, user_a) = seed_channel_with_member(&app).await;
+    let (channel_b, user_b) = seed_channel_with_member(&app).await;
+    let elsewhere = app
+        .post_as(user_a, "/api/taskflow/agents/messages", json!({ "channel": channel_a, "body_markdown": "in A" }))
+        .await
+        .json()
+        .await["id"]
+        .as_i64()
+        .expect("id");
+
+    for parent in [elsewhere, 987_654_321] {
+        let res = app
+            .post_as(
+                user_b,
+                "/api/taskflow/agents/messages",
+                json!({ "channel": channel_b, "body_markdown": "reply", "reply_to": parent }),
+            )
+            .await;
+        assert_eq!(res.status(), 400, "reply_to {parent} must be refused");
+    }
+}
+
+#[tokio::test]
+async fn a_multipart_send_carries_reply_to_too() {
+    let app = TestApp::new().await;
+    let (channel, user) = seed_channel_with_member(&app).await;
+    let parent = app
+        .post_as(user, "/api/taskflow/agents/messages", json!({ "channel": channel, "body_markdown": "q" }))
+        .await
+        .json()
+        .await["id"]
+        .as_i64()
+        .expect("parent id");
+    let (content_type, body) = encode_multipart(&[
+        field("channel", &channel.to_string()),
+        field("body_markdown", "a"),
+        field("reply_to", &parent.to_string()),
+    ]);
+    let res = app
+        .post_multipart_as(user, "/api/taskflow/agents/messages", &content_type, body)
+        .await;
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.json().await["reply_to"], json!(parent));
+}

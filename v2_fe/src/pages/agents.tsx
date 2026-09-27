@@ -25,7 +25,15 @@ export type AgentsOutletContext = {
   /// Absent means loaded.
   messagesLoaded?: boolean
   selectedSession?: AgentTerminalSessionView
-  onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[], targets?: TargetMember[]) => void
+  /// #317: `replyTo` is the id of the message this one answers (same room).
+  onSendMessage: (
+    chat: AgentChatContext,
+    body: string,
+    priority: MessagePriority,
+    files: File[],
+    targets?: TargetMember[],
+    replyTo?: number | null
+  ) => void
   onRetryMessage: (nonce: string) => void
   onCancelMessage: (nonce: string) => void
   canManageMembers: boolean

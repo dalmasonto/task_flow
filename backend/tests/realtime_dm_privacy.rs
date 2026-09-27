@@ -200,6 +200,7 @@ async fn a_project_member_off_the_roster_never_receives_a_dm_body() {
             priority: TaskflowMessagePriority::Normal,
             is_design: false,
             edited_at: None,
+            reply_to: None,
             created_at: None,
         })
         .await

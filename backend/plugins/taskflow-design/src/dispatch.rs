@@ -164,6 +164,7 @@ pub async fn dispatch_comments(
             is_design: dm.is_design,
             client_nonce: None,
             edited_at: None,
+            reply_to: None,
             created_at: None,
         })
         .await
@@ -280,6 +281,7 @@ pub async fn send_prompt(
             is_design: dm.is_design,
             client_nonce: None,
             edited_at: None,
+            reply_to: None,
             created_at: None,
         })
         .await

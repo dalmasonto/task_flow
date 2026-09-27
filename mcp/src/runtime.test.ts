@@ -338,6 +338,31 @@ describe("#180: a typed line from the dashboard terminal", () => {
   });
 });
 
+describe("#317: a delivered reply quotes its parent", () => {
+  it("reads the parent from the same channel and quotes it in the notice", async () => {
+    const reply = {
+      id: 56, channel: 3, sender_kind: "user", sender_label: "Dalmas",
+      body_markdown: "yes", sender_agent: null, reply_to: 55,
+    };
+    const parent = {
+      id: 55, channel: 3, sender_kind: "agent", sender_label: "Builder",
+      body_markdown: "ship it?", sender_agent: 9, reply_to: null,
+    };
+    const client = {
+      listChannels: async () => [{ id: 3 }],
+      listMessages: async ({ since }: { since?: number }) => ({
+        messages: since === 54 ? [parent] : [reply],
+      }),
+      listOpenPrompts: async () => [],
+      markRead: async () => ({}),
+    } as never;
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onMessage({ id: 56 } as never);
+    const line = tmux.notifyPane.mock.calls[0]?.[0] as unknown as string;
+    expect(line).toContain('(↩ replying to #55 from Builder: "ship it?")');
+  });
+});
+
 describe("mirror status reporting", () => {
   it("reports active with a pane", () => {
     const { client } = fakeClient();

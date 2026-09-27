@@ -1,4 +1,4 @@
-import { columns, type ActivityEvent, type AgentAttachment, type AgentChatContext, type AgentMessage, type AgentTerminalSessionView, type ColumnId, type ConversationMember, type DropTarget, type InviteRecord, type MessagePriority, type Priority, type Project, type Task, type TaskActivityItem, type TaskLink, type TaskRelation, type TaskSession, type TerminalLine } from "@/lib/workspace-view"
+import { columns, type ActivityEvent, type AgentAttachment, type AgentChatContext, type AgentMessage, type AgentTerminalSessionView, type ColumnId, type ConversationMember, type DropTarget, type InviteRecord, type MessagePriority, type Priority, type Project, type ReplyQuote, type Task, type TaskActivityItem, type TaskLink, type TaskRelation, type TaskSession, type TerminalLine } from "@/lib/workspace-view"
 import { formatEstimateMinutes } from "@/lib/tasks"
 import { isPending, type PendingAttachment } from "@/lib/message-store"
 import { parseDesignRef, stripDesignRef } from "@/lib/design-ref"
@@ -544,6 +544,9 @@ export function slugToChatId(slug: string): string {
 /// per-conversation window, not a global cap.
 export const MESSAGE_PAGE_SIZE = 20
 
+/// #317: how much of a replied-to message a bubble quotes.
+const REPLY_EXCERPT_CHARS = 120
+
 
 /// Start-of-day timestamp (local time) for calendar-day comparisons.
 export function startOfLocalDay(date: Date): number {
@@ -1038,6 +1041,23 @@ export function mapLiveChannelMessages(
   const seenOwnMessageId =
     lastOwnMessageId != null && lastOwnMessageId <= otherCursorWatermark ? lastOwnMessageId : null
 
+  // #317: the channel's saved rows by id, so a reply can quote its parent.
+  const byId = new Map<number, TaskflowAgentMessage>()
+  for (const message of workspace.agentMessages) {
+    if (!isPending(message) && message.channel === channelId) byId.set(message.id, message)
+  }
+  const quote = (parentId: number | null | undefined): ReplyQuote | null => {
+    if (parentId == null) return null
+    const parent = byId.get(parentId)
+    if (!parent) return { id: String(parentId), from: "", excerpt: "", missing: true }
+    const own = parent.sender_kind === "user" && currentUser != null && parent.sender_user === currentUser.id
+    const flat = stripDesignRef(parent.body_markdown).replace(/\s+/g, " ").trim()
+    return {
+      id: String(parent.id),
+      from: own ? "You" : parent.sender_label,
+      excerpt: flat.length > REPLY_EXCERPT_CHARS ? `${flat.slice(0, REPLY_EXCERPT_CHARS - 1)}…` : flat,
+    }
+  }
   return workspace.agentMessages
     .filter((message) => message.channel === channelId)
     .slice()
@@ -1067,6 +1087,7 @@ export function mapLiveChannelMessages(
           error: message.error,
           priority: mapLiveMessagePriority(message.priority),
           attachments: (message.attachments ?? []).map(mapPendingAttachment),
+          replyTo: quote(message.reply_to),
         }
       }
       const own =
@@ -1085,6 +1106,7 @@ export function mapLiveChannelMessages(
         seen: seenOwnMessageId != null && message.id === seenOwnMessageId,
         editedAt: message.edited_at,
         canEdit: own,
+        replyTo: quote(message.reply_to),
         attachments: workspace.messageAttachments
           .filter((attachment) => attachment.message === message.id)
           .map(mapStoredAttachment),

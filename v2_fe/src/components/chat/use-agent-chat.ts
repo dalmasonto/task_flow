@@ -137,7 +137,7 @@ export function useAgentChat({
     priority: MessagePriority,
     files: File[],
     targets: TargetMember[] = [],
-    opts?: { isDesign?: boolean }
+    opts?: { isDesign?: boolean; replyTo?: number | null }
   ) => {
     const projectId = liveId(project.id)
     if (!projectId || !liveWorkspace) {
@@ -173,6 +173,7 @@ export function useAgentChat({
         status: "pending",
         attachments: pendingAttachments,
         is_design: opts?.isDesign ?? false,
+        reply_to: opts?.replyTo ?? null,
       }),
     }))
 
@@ -185,6 +186,7 @@ export function useAgentChat({
           client_nonce: nonce,
           targets: targets.map((target) => ({ kind: target.kind, id: target.id })),
           is_design: opts?.isDesign ?? false,
+          reply_to: opts?.replyTo ?? null,
         },
         files
       )
@@ -244,6 +246,7 @@ export function useAgentChat({
         priority: failed.priority,
         client_nonce: nonce,          // same nonce: the send endpoint is idempotent
         is_design: failed.is_design ?? false, // preserve the design flag across a retry
+        reply_to: failed.reply_to ?? null, // #317: and what it replied to
       })
       onWorkspaceUpdate((workspace) => ({
         ...workspace,
@@ -283,13 +286,14 @@ export function useAgentChat({
     body: string,
     priority: MessagePriority,
     files: File[],
-    targets: TargetMember[] = []
+    targets: TargetMember[] = [],
+    replyTo?: number | null
   ) => {
     const trimmedBody = body.trim()
     if (!trimmedBody && files.length === 0) return
 
     setMessageError(null)
-    void sendLiveMessage(chat, trimmedBody, priority, files, targets, { isDesign }).catch((error) => {
+    void sendLiveMessage(chat, trimmedBody, priority, files, targets, { isDesign, replyTo }).catch((error) => {
       setMessageError(error instanceof Error ? error.message : "Could not send the live message.")
     })
   }

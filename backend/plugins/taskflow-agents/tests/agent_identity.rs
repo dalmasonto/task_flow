@@ -351,3 +351,43 @@ async fn linking_adopts_an_existing_room() {
         "the room that already existed is THE public room now"
     );
 }
+
+// #317: an agent can reply to a message in the same room, and only there.
+#[tokio::test]
+async fn an_agent_reply_links_its_parent_in_the_same_room_only() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let minted = mint(&app, user, project, "Builder", "main").await;
+    let key = minted["key"].as_str().unwrap().to_string();
+    let room = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    let other = seed_channel_of_kind(project, TaskflowChannelKind::Incident).await;
+
+    let parent = app
+        .post_as_agent(&key, "/api/taskflow/agents/agent/messages", json!({ "channel": room, "body_markdown": "q" }))
+        .await
+        .json()
+        .await["id"]
+        .as_i64()
+        .unwrap();
+
+    let reply = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/agent/messages",
+            json!({ "channel": room, "body_markdown": "a", "reply_to": parent }),
+        )
+        .await;
+    assert_eq!(reply.status(), 200);
+    assert_eq!(reply.json().await["reply_to"], json!(parent));
+
+    let cross = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/agent/messages",
+            json!({ "channel": other, "body_markdown": "a", "reply_to": parent }),
+        )
+        .await;
+    assert_eq!(cross.status(), 400);
+}

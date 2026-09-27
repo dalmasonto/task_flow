@@ -179,6 +179,7 @@ export interface DesignFile {
   updated_by: string;
   created_at: string | null;
   updated_at: string | null;
+  deleted_at: string | null;
 }
 
 /** Table `design_layout`, from the `app` plugin. */
@@ -188,6 +189,7 @@ export interface DesignLayout {
   project: number;
   view: DesignLayoutView;
   layout_json: string;
+  version: number;
   updated_by: string;
   created_at: string | null;
   updated_at: string | null;
@@ -334,6 +336,7 @@ export interface TaskflowAgentMessage {
   is_design: boolean;
   client_nonce: string | null;
   edited_at: string | null;
+  reply_to: number | null;
   created_at: string | null;
 }
 
@@ -650,6 +653,7 @@ export interface TaskflowTerminalInput {
   /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
   agent: number;
   keys: string;
+  text: string | null;
   created_at: string | null;
 }
 
@@ -1035,8 +1039,16 @@ export interface DesignFileFilters {
   "updated_at__lt"?: string;
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
+  "deleted_at"?: string;
+  "deleted_at__ne"?: string;
+  "deleted_at__gte"?: string;
+  "deleted_at__lte"?: string;
+  "deleted_at__gt"?: string;
+  "deleted_at__lt"?: string;
+  "deleted_at__in"?: string[];
+  "deleted_at__isnull"?: boolean;
 }
-export type DesignFileOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "path" | "-path" | "content" | "-content" | "version" | "-version" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type DesignFileOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "path" | "-path" | "content" | "-content" | "version" | "-version" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at" | "deleted_at" | "-deleted_at";
 /** Body for creating a `design_file`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface DesignFileCreate {
   project: number;
@@ -1046,6 +1058,7 @@ export interface DesignFileCreate {
   version?: number;
   updated_by: string;
   updated_at?: string | null;
+  deleted_at?: string | null;
 }
 /** Body for updating a `design_file` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface DesignFileUpdate {
@@ -1074,6 +1087,13 @@ export interface DesignLayoutFilters {
   "layout_json__icontains"?: string;
   "layout_json__startswith"?: string;
   "layout_json__in"?: string[];
+  "version"?: number;
+  "version__ne"?: number;
+  "version__gte"?: number;
+  "version__lte"?: number;
+  "version__gt"?: number;
+  "version__lt"?: number;
+  "version__in"?: number[];
   "updated_by"?: string;
   "updated_by__ne"?: string;
   "updated_by__contains"?: string;
@@ -1097,12 +1117,13 @@ export interface DesignLayoutFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type DesignLayoutOrdering = "id" | "-id" | "project" | "-project" | "view" | "-view" | "layout_json" | "-layout_json" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type DesignLayoutOrdering = "id" | "-id" | "project" | "-project" | "view" | "-view" | "layout_json" | "-layout_json" | "version" | "-version" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `design_layout`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface DesignLayoutCreate {
   project: number;
   view?: DesignLayoutView;
   layout_json: string;
+  version?: number;
   updated_by: string;
   updated_at?: string | null;
 }
@@ -1111,6 +1132,7 @@ export interface DesignLayoutUpdate {
   project?: number;
   view?: DesignLayoutView;
   layout_json?: string;
+  version?: number;
   updated_by?: string;
 }
 
@@ -1718,6 +1740,14 @@ export interface TaskflowAgentMessageFilters {
   "edited_at__lt"?: string;
   "edited_at__in"?: string[];
   "edited_at__isnull"?: boolean;
+  "reply_to"?: number;
+  "reply_to__ne"?: number;
+  "reply_to__gte"?: number;
+  "reply_to__lte"?: number;
+  "reply_to__gt"?: number;
+  "reply_to__lt"?: number;
+  "reply_to__in"?: number[];
+  "reply_to__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1727,7 +1757,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "is_design" | "-is_design" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "is_design" | "-is_design" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "reply_to" | "-reply_to" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1744,6 +1774,7 @@ export interface TaskflowAgentMessageCreate {
   is_design?: boolean;
   client_nonce?: string | null;
   edited_at?: string | null;
+  reply_to?: number | null;
 }
 /** Body for updating a `taskflow_agent_message` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowAgentMessageUpdate {
@@ -3259,6 +3290,13 @@ export interface TaskflowTerminalInputFilters {
   "keys__icontains"?: string;
   "keys__startswith"?: string;
   "keys__in"?: string[];
+  "text"?: string;
+  "text__ne"?: string;
+  "text__contains"?: string;
+  "text__icontains"?: string;
+  "text__startswith"?: string;
+  "text__in"?: string[];
+  "text__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -3268,18 +3306,20 @@ export interface TaskflowTerminalInputFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowTerminalInputOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "keys" | "-keys" | "created_at" | "-created_at";
+export type TaskflowTerminalInputOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "keys" | "-keys" | "text" | "-text" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_terminal_input`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowTerminalInputCreate {
   project: number;
   agent: number;
   keys: string;
+  text?: string | null;
 }
 /** Body for updating a `taskflow_terminal_input` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowTerminalInputUpdate {
   project?: number;
   agent?: number;
   keys?: string;
+  text?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_user_settings`. Every key is optional and AND-combined server-side. */

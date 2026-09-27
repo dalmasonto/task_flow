@@ -28,6 +28,8 @@ export type PendingMessage = {
   /// Mirrors the server row's `is_design` so the optimistic bubble renders in
   /// the design rail immediately, before the send is acknowledged.
   is_design?: boolean
+  /// #317: the message this pending one replies to, kept so a retry re-sends it.
+  reply_to?: number | null
 }
 
 export type ChatMessage = TaskflowAgentMessage | PendingMessage

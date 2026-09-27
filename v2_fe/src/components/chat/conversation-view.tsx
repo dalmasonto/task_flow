@@ -2,7 +2,7 @@ import { AgentChatBubble, StagedFileList } from "@/components/chat/bubbles"
 import { AgentPromptCard } from "@/components/chat/prompt-card"
 import { AgentTerminalPanel } from "@/components/chat/terminal"
 import { AgentsConversationEmpty, type AgentsOutletContext } from "@/pages/agents"
-import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, RadioIcon, SendIcon, SmileIcon, TerminalIcon } from "lucide-react"
+import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, RadioIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { MESSAGE_PAGE_SIZE, buildThreadItems } from "@/lib/live-mappers"
@@ -77,6 +77,8 @@ export function AgentsConversationView({
   // #29: the "To:" multi-select popover open state.
   const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
+  // #317: the message the next send answers, shown above the composer.
+  const [replyingTo, setReplyingTo] = useState<AgentMessage | null>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -85,6 +87,16 @@ export function AgentsConversationView({
   const canSendMessage = draftMessage.trim().length > 0 || stagedFiles.length > 0
   const focusComposer = () => {
     composerRef.current?.focus()
+  }
+
+  /// #317: scroll a quoted parent into view and flash it. A parent outside the
+  /// rendered window (an older page) has no element yet, so this is a no-op.
+  const jumpToMessage = (id: string) => {
+    const node = threadRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+    if (!node) return
+    node.scrollIntoView({ block: "center", behavior: "smooth" })
+    node.classList.add("ring-2", "ring-primary/40", "rounded-lg")
+    setTimeout(() => node.classList.remove("ring-2", "ring-primary/40", "rounded-lg"), 1200)
   }
 
   // Auto-grow the single-line pill textarea with its content, up to ~136px.
@@ -192,6 +204,8 @@ export function AgentsConversationView({
     setTargetMembers([])
     setMention(null)
     setTargetPickerOpen(false)
+    // A reply belongs to the conversation it was started in.
+    setReplyingTo(null)
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
@@ -373,8 +387,10 @@ export function AgentsConversationView({
       outgoingBody,
       messagePriority,
       stagedFiles.map((staged) => staged.file),
-      selectedChat.mode === "channel" ? targetMembers : []
+      selectedChat.mode === "channel" ? targetMembers : [],
+      replyingTo && /^\d+$/.test(replyingTo.id) ? Number(replyingTo.id) : null
     )
+    setReplyingTo(null)
     // Revoke the composer's own preview URLs; the optimistic bubble mints its
     // own from the same File objects, so these are no longer needed.
     for (const staged of stagedFiles) {
@@ -531,6 +547,11 @@ export function AgentsConversationView({
                 onCancel={onCancelMessage}
                 onCreateTask={onCreateTask}
                 onEdit={onEditMessage}
+                onReply={(message) => {
+                  setReplyingTo(message)
+                  requestAnimationFrame(focusComposer)
+                }}
+                onJumpTo={jumpToMessage}
                 showDesignBadge={showDesignBadge}
               />
             )
@@ -568,6 +589,25 @@ export function AgentsConversationView({
           ) : null}
 
           <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border/75 bg-background/90 px-2 py-2 shadow-inner transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25">
+            {replyingTo ? (
+              <div className="mx-1 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-2 py-1 text-xs">
+                <ReplyIcon className="size-3.5 shrink-0 text-primary" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-medium">
+                    Replying to {replyingTo.from === "user" ? "yourself" : replyingTo.from}
+                  </span>
+                  <span className="text-muted-foreground"> — {replyingTo.body.replace(/\s+/g, " ").slice(0, 120)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Cancel reply"
+                  onClick={() => setReplyingTo(null)}
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
             {stagedFiles.length ? (
               <div className="px-1">
                 <StagedFileList
