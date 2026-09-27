@@ -10,24 +10,42 @@ tab_group: guides
 
 Use the hosted app first unless you are developing the backend itself:
 
-1. Open [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com).
-2. Create an account or log in.
-3. Create or select a project.
-4. Open the project's **API Base** page.
-5. Link an agent profile such as `main`; link a second profile such as `reviewer` when you want a separate review identity.
-6. Put the generated profile block into `.taskflow.json` at your repo root.
-7. Start your agent with `taskflow-mcp` configured as its MCP server.
+1. Install the MCP package and run the setup walkthrough (below). `taskflow init` registers the server with your coding agent (Claude Code, Codex, Gemini CLI, Cursor or opencode) and, for Claude Code, can install the activity hooks.
+2. Open [https://taskflow.supercodehive.com](https://taskflow.supercodehive.com) and create an account or log in. (Self-hosting? Use your own frontend's URL instead.)
+3. Create or select a project and open its **API Base** page.
+4. Link an agent profile such as `main`; link a second profile such as `reviewer` when you want a separate review identity.
+5. Put the generated profile block into `.taskflow.json` at your repo root — or let `taskflow init --project <id> --token <your user token>` link the agent and write the file for you.
+6. Restart your agent and ask it to call `whoami`.
 
-## Install the MCP package
+## Install and set up
+
+Linux and macOS, in one step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dalmasonto/task_flow/main/scripts/install.sh | sh
+```
+
+The script checks for Node.js 20+, installs the package globally (it never uses `sudo`; if npm's global prefix is not writable it tells you how to fix that), then starts `taskflow init`. Arguments after `sh -s --` are passed to `taskflow init`.
+
+Or by hand, on any platform (Windows PowerShell included):
 
 ```bash
 npm install -g @dalmasonto/taskflow-mcp
+taskflow init
 ```
 
-This installs two commands:
+`taskflow init` asks which agents to set up (the ones found on your machine are pre-selected) and whether to register the server for your user (every repo) or only this project. It shows the exact commands and file edits before applying them, backs up every config file it edits, never overwrites an existing `taskflow` entry, and is safe to re-run. For scripts and CI:
+
+```bash
+taskflow init --harness claude,codex --scope user --yes      # no prompts
+taskflow init --harness all --scope project --dry-run        # show the plan, change nothing
+```
+
+The package installs three commands:
 
 | Command | Purpose |
 | --- | --- |
+| `taskflow` | Setup CLI: `taskflow init`, `taskflow doctor`, `taskflow mint` |
 | `taskflow-mcp` | MCP server the agent client starts over stdio |
 | `taskflow-hook` | Optional Claude Code lifecycle hook for activity logging |
 
@@ -37,7 +55,7 @@ The API Base page shows the raw key once. Store it in `.taskflow.json` at the re
 
 ```json
 {
-  "server": "https://taskflow.supercodehive.com",
+  "server": "https://api.taskflow.supercodehive.com",
   "project": 1,
   "default_profile": "main",
   "profiles": {
@@ -57,9 +75,9 @@ The API Base page shows the raw key once. Store it in `.taskflow.json` at the re
 
 For local development, use the backend URL your browser can reach, usually `http://localhost:8000`.
 
-## Register the MCP server
+## Register the MCP server by hand
 
-For clients that read `.mcp.json`, place this at the repo root:
+`taskflow init` does this for you. If you prefer to do it yourself, or your client is not one `init` knows, the per-client pages under [Agent Setup](./agents) have the exact config. For clients that read `.mcp.json`, place this at the repo root:
 
 ```json
 {

@@ -10,10 +10,10 @@ tab_group: agents
 
 Every MCP-capable agent uses the same TaskFlow v2 credential model:
 
-1. Install `@dalmasonto/taskflow-mcp`.
+1. Install `@dalmasonto/taskflow-mcp` and run `taskflow init` — it registers the server with Claude Code, Codex, Gemini CLI, Cursor and opencode for you (see [Getting Started](../getting-started)). The pages below are the manual equivalent, and the only path for clients `init` does not know yet.
 2. Link an agent profile from the project API Base page.
 3. Put the generated profile in `.taskflow.json` at the repo root.
-4. Configure the agent client to start `taskflow-mcp`.
+4. Configure the agent client to start `taskflow-mcp` (step 1 already did this for the clients it supports).
 5. Run the agent inside tmux when you want live terminal mirroring.
 6. Ask the agent to call `whoami` and confirm the profile, project, connection, and mirror state.
 
