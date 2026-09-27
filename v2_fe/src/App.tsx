@@ -42,7 +42,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -663,7 +663,7 @@ function App() {
       } catch (error) {
         if (!loadSeqRef.current.isCurrent(seq)) return
         setLiveWorkspace(null)
-        setLiveSyncError(error instanceof Error ? error.message : "Could not load the live TaskFlow API.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not load the live TaskFlow API."))
       } finally {
         // Only the newest load releases the spinner: a superseded one finishing
         // late must not hide the fact that the load replacing it is still running.
@@ -998,7 +998,7 @@ function App() {
         // is the scope working; it fires for every message anyone else sends and
         // must not surface as a sync error.
         if (isScopeDenial(error)) return
-        setLiveSyncError(error instanceof Error ? error.message : "Could not apply realtime update.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not apply realtime update."))
       }
     },
     [applyRealtimeDeletion, applyRealtimeRow]
@@ -1656,7 +1656,7 @@ function App() {
         applyWorkspaceUpdate(project.id, (workspace) => ({ ...workspace, project }))
       })
       .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not update the project.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not update the project."))
       })
   }
 
@@ -1709,7 +1709,7 @@ function App() {
         applyWorkspaceUpdate(project.id, (workspace) => ({ ...workspace, project }))
       })
       .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not archive the project.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not archive the project."))
       })
   }
 
@@ -1728,7 +1728,7 @@ function App() {
         status: toLiveStatus(target.columnId),
         sort_order: nextSortOrder,
       }).catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not persist the task move.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not persist the task move."))
       })
     }
   }
@@ -1783,7 +1783,7 @@ function App() {
       }
       setLiveSyncError(null)
     } catch (error) {
-      setLiveSyncError(error instanceof Error ? error.message : "Could not upload the attachment.")
+      setLiveSyncError(umbralErrorMessage(error, "Could not upload the attachment."))
     }
   }
 
@@ -1798,7 +1798,7 @@ function App() {
     if (usesLiveApi && /^\d+$/.test(taskId)) {
       void taskflowApi.delete(taskflowTables.tasks, Number(taskId)).catch((error) => {
         if (removed) setTasks((current) => [removed, ...current])
-        setLiveSyncError(error instanceof Error ? error.message : "Could not delete the task.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not delete the task."))
       })
     }
   }
@@ -1927,7 +1927,7 @@ function App() {
             if (files.length) void handleUploadTaskAttachment(String(updatedTask.id), files)
           })
           .catch((error) => {
-            setLiveSyncError(error instanceof Error ? error.message : "Could not save the task changes.")
+            setLiveSyncError(umbralErrorMessage(error, "Could not save the task changes."))
           })
       }
       return
@@ -2011,7 +2011,7 @@ function App() {
           if (files.length) void handleUploadTaskAttachment(String(createdTask.id), files)
         })
         .catch((error) => {
-          setLiveSyncError(error instanceof Error ? error.message : "Could not create the live task.")
+          setLiveSyncError(umbralErrorMessage(error, "Could not create the live task."))
         })
     }
   }
@@ -2076,7 +2076,7 @@ function App() {
         setLiveSyncError(null)
       })
       .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not start the task session.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not start the task session."))
       })
   }
 
@@ -2105,7 +2105,7 @@ function App() {
         setLiveSyncError(null)
       })
       .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not pause the task session.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not pause the task session."))
       })
   }
 
@@ -2141,7 +2141,7 @@ function App() {
         setLiveSyncError(null)
       })
       .catch((error) => {
-        setLiveSyncError(error instanceof Error ? error.message : "Could not stop the task session.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not stop the task session."))
       })
   }
 
@@ -2171,7 +2171,7 @@ function App() {
     const reviewTaskIdNumber = liveId(reviewTask.id)
     if (usesLiveApi && reviewTaskIdNumber) {
       const onError = (error: unknown) =>
-        setLiveSyncError(error instanceof Error ? error.message : "Could not persist the review decision.")
+        setLiveSyncError(umbralErrorMessage(error, "Could not persist the review decision."))
       // approve/changes are real review DECISIONS: the review endpoint records the
       // review row, transitions the task, and posts the report-back to the agent.
       // "blocked" is a plain status change, not a review — keep the direct update.

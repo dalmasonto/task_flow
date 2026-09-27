@@ -1521,6 +1521,73 @@ async function readErrorDetail(response: Response, fallback: string): Promise<st
   }
 }
 
+/// Envelope keys in the REST error body that are not field errors. Everything
+/// ELSE in the body is a column name whose value is a list of messages — the
+/// server flattens `field_errors` to the top level (umbral-rest's `ApiErrorBody`
+/// uses `#[serde(flatten)]`), so there is no `field_errors` key to read.
+const ERROR_ENVELOPE_KEYS = new Set([
+  "code",
+  "non_field_errors",
+  "error",
+  "detail",
+  "hint",
+  "available",
+  "retry_after",
+])
+
+/// A readable message for a failed API call.
+///
+/// The generated client's `UmbralError` sets its `message` to
+/// `"umbral: request failed with status 400"` and keeps the useful part in
+/// `body` — which nothing read, so EVERY validation failure reached the operator
+/// as that opaque string. A rejected task create is the case that matters: the
+/// server answers with the field, the limit, and the actual length, and the form
+/// showed "request failed with status 400" instead.
+///
+/// Field errors are rendered one per line as `field: message`, so a paste of
+/// 12,617 characters into a 12,000-character column reads
+/// `description_markdown: Must be at most 12000 characters (got 12617).`
+///
+/// Falls back to `fallback` for a network failure, a non-JSON body, or any
+/// error that did not come from the API client.
+export function umbralErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof UmbralError)) {
+    return error instanceof Error && error.message ? error.message : fallback
+  }
+  const body = error.body
+  if (!body || typeof body !== "object") return fallback
+
+  const parts: string[] = []
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (ERROR_ENVELOPE_KEYS.has(key)) continue
+    for (const message of asMessages(value)) parts.push(`${key}: ${message}`)
+  }
+  // Not tied to a column, but still operator-facing (a whole-form rule).
+  for (const message of asMessages((body as Record<string, unknown>).non_field_errors)) {
+    parts.push(message)
+  }
+  if (!parts.length) {
+    // 404 / 401 / 403 / 429 carry one message instead of a field map.
+    const envelope = body as Record<string, unknown>
+    for (const key of ["error", "detail"]) {
+      const message = envelope[key]
+      if (typeof message === "string" && message) {
+        parts.push(message)
+        break
+      }
+    }
+  }
+  return parts.length ? parts.join("\n") : fallback
+}
+
+/// Coerce one error value into its messages. The server sends a list per field;
+/// a bare string is accepted too so a hand-written route can't break the render.
+function asMessages(value: unknown): string[] {
+  if (typeof value === "string") return value ? [value] : []
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === "string" && item !== "")
+}
+
 /// The caller's pending invites (addressed to their account email), each with
 /// the project name resolved server-side.
 export async function fetchMyInvites(): Promise<InviteInboxEntry[]> {
