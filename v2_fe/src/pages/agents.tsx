@@ -20,6 +20,10 @@ import { useEffect, useMemo, useState } from "react"
 /// it is null on the index route or when the param doesn't match a real chat.
 export type AgentsOutletContext = {
   selectedChat: AgentChatContext | null
+  /// #194: whether the open conversation's first page has settled. Lets the
+  /// thread say "loading" instead of "no messages" while the fetch is out.
+  /// Absent means loaded.
+  messagesLoaded?: boolean
   selectedSession?: AgentTerminalSessionView
   onSendMessage: (chat: AgentChatContext, body: string, priority: MessagePriority, files: File[], targets?: TargetMember[]) => void
   onRetryMessage: (nonce: string) => void

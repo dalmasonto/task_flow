@@ -27,6 +27,7 @@ import { useNavigate } from "react-router-dom"
 /// would let the two drift.
 export function AgentsConversationView({
   selectedChat,
+  messagesLoaded = true,
   selectedSession,
   onSendMessage,
   onRetryMessage,
@@ -500,7 +501,18 @@ export function AgentsConversationView({
             <div className="pb-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground/50">
               Beginning of conversation
             </div>
-          ) : null}
+          ) : !messagesLoaded ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground/70">
+              Loading messages…
+            </div>
+          ) : (
+            // #194: an empty thread used to render nothing at all, which reads
+            // as "broken" or "did my message go somewhere else?".
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+              <p className="text-sm font-medium text-muted-foreground">No messages here yet</p>
+              <p className="text-xs text-muted-foreground/70">Be the first to say something.</p>
+            </div>
+          )}
           {buildThreadItems(windowedMessages).map((item) =>
             item.type === "date" ? (
               <div

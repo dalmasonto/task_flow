@@ -516,6 +516,22 @@ export function PagesPanel({
 
   return (
     <div className="flex flex-col py-1">
+      {/* Bulk open/close, at the TOP (#501): it acts on every page in both
+          lists, and below the groups it was out of sight in a long project.
+          Nothing to select means no control: a checkbox over an empty project
+          would do nothing, and a checked "Deselect" beside "No pages yet." is
+          worse than nothing. */}
+      {routes.length ? (
+        <label className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-3.5 shrink-0 accent-foreground"
+            checked={bulk.allOpen}
+            onChange={() => onOpenRoutesChange(bulk.next)}
+          />
+          {bulk.label}
+        </label>
+      ) : null}
       {/* The Groups section: one block per group, each with its own rows. Its
           heading is drawn even with no groups at all, because `+ Add group` is
           in it: this button is the only caller of `createGroup`, so a heading
@@ -537,24 +553,9 @@ export function PagesPanel({
         </div>
         <ul className="flex flex-col">{sections.groups.map(groupBlock)}</ul>
       </div>
-      {/* Bulk open/close, between the two lists. Nothing to select means no
-          control: a checkbox over an empty project would do nothing, and a
-          checked "Deselect" beside "No pages yet." is worse than nothing. */}
-      {routes.length ? (
-        <label className="mt-1 flex items-center gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            className="size-3.5 shrink-0 accent-foreground"
-            checked={bulk.allOpen}
-            onChange={() => onOpenRoutesChange(bulk.next)}
-          />
-          {bulk.label}
-        </label>
-      ) : null}
       {/* The ungrouped section, LAST — the order the user confirmed. It is drawn
           like a group is: always, with its rows beneath it however many there
-          are. It is where a page with no group is listed, the list the bulk
-          control above sits over, and — with no pages at all — where "No pages
+          are. It is where a page with no group is listed, and — with no pages at all — where "No pages
           yet." goes, since it is the section that would have held them. */}
       <div className="flex flex-col">
         <h3 className={cn(SECTION_HEADING, "border-t")}>Ungrouped</h3>

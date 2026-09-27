@@ -266,6 +266,16 @@ function App() {
     [projectTasks, boardSearch, boardPriority]
   )
   const boardFilterActive = boardSearch.trim() !== "" || boardPriority !== ALL_PRIORITIES
+  // #315: the project's real task total, from the per-column server counts —
+  // `projectTasks` holds only the pages the board has fetched so far.
+  const liveTaskCounts = activeLiveWorkspace?.taskCounts
+  const projectTaskTotal = useMemo(
+    () =>
+      liveTaskCounts
+        ? Object.values(liveTaskCounts).reduce((sum, n) => sum + n, 0)
+        : projectTasks.length,
+    [liveTaskCounts, projectTasks.length]
+  )
   const selectedTask =
     projectTasks.find((task) => task.id === selectedTaskId) ?? projectTasks[0]
   const openTask = openTaskId ? tasks.find((task) => task.id === openTaskId) : undefined
@@ -2349,6 +2359,11 @@ function App() {
                         <>
                           <span className="ml-1 text-xs text-muted-foreground">
                             {boardFilteredTasks.length} of {projectTasks.length}
+                            {/* #315: the filter only sees loaded pages, so say so
+                                when the server holds more than the board fetched. */}
+                            {projectTaskTotal > projectTasks.length
+                              ? ` loaded (${projectTaskTotal} total)`
+                              : null}
                           </span>
                           <button
                             type="button"

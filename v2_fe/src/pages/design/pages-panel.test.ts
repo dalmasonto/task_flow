@@ -341,12 +341,12 @@ describe("PagesPanel", () => {
       { open: ["/"] },
     )
 
-    // Three sections, in the order the user confirmed: the groups, the bulk
-    // control, then Ungrouped LAST. The last line reads the ungrouped ROWS,
-    // which are drawn below that control and nowhere else.
+    // The bulk control FIRST (#501: it acts on both lists, so it heads them),
+    // then the groups, then Ungrouped LAST. The last line reads the ungrouped
+    // ROWS, which are drawn below that heading and nowhere else.
     expect(headings(html), `rendered markup:\n${html}`).toEqual(["Groups", "Ungrouped"])
-    expect(html.indexOf("Groups")).toBeLessThan(html.indexOf("Select all"))
-    expect(html.indexOf("Select all")).toBeLessThan(html.indexOf(">Ungrouped<"))
+    expect(html.indexOf("Select all")).toBeLessThan(html.indexOf("Groups"))
+    expect(html.indexOf("Groups")).toBeLessThan(html.indexOf(">Ungrouped<"))
     expect(html.indexOf(">Ungrouped<")).toBeLessThan(html.indexOf("Show / on the canvas"))
 
     // Each group with ITS pages beneath it, numbered 1..n inside the group —

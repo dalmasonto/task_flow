@@ -235,8 +235,27 @@ export function DesignSurfacePage({
   // ProfilePage.tsx) — which is exactly why chat stopped autoloading here.
   useEffect(() => {
     if (!projectId) return
-    return onDesignRealtimeEvent((event) => {
+    // #501: a file write can ADD a page (`design_write_page` creates the route),
+    // and the Pages panel lists the manifest, which was read once per project.
+    // Re-read it on file events, trailing-debounced so an agent's burst of
+    // writes is one request. `cancelled` drops a read that lands after a
+    // project switch.
+    let cancelled = false
+    let manifestTimer: ReturnType<typeof setTimeout> | null = null
+    const refreshManifest = () => {
+      if (manifestTimer) clearTimeout(manifestTimer)
+      manifestTimer = setTimeout(() => {
+        manifestTimer = null
+        void fetchDesignManifest(projectId)
+          .then((m) => {
+            if (!cancelled) setManifest(m)
+          })
+          .catch(() => null)
+      }, 300)
+    }
+    const unsubscribe = onDesignRealtimeEvent((event) => {
       if (event.table === taskflowTables.designFiles) {
+        refreshManifest()
         // The event is id-only — it says "a design file changed", never which
         // one — so this remounts the whole canvas whatever changed (the
         // `affected_routes` list the write's own response carries does not
@@ -256,6 +275,11 @@ export function DesignSurfacePage({
         void fetchLayout(projectId).then(setLayout).catch(() => null)
       }
     })
+    return () => {
+      cancelled = true
+      if (manifestTimer) clearTimeout(manifestTimer)
+      unsubscribe()
+    }
   }, [projectId, refreshComments, contentEpochGate])
 
   // --- load manifest + token + shared layout --------------------------------
@@ -389,10 +413,10 @@ export function DesignSurfacePage({
   // keeps every later save possible: the document goes back whole, so a
   // `routeOrder` naming a page the project no longer has is refused with a 400
   // on the next save of ANYTHING — a rename, a group — not merely on the edit
-  // that left it there. The manifest is fetched once per project (the load
-  // effect above) and a page deleted in another tab does not refresh it, so the
-  // flow in hand can name a route the server has; `filterRouteOrder` drops
-  // exactly those, and the pages it keeps are the ones the user ordered.
+  // that left it there. The manifest is re-read on design-file events, but
+  // that is debounced and best-effort, so the flow in hand can still name a
+  // route the server no longer has; `filterRouteOrder` drops exactly those,
+  // and the pages it keeps are the ones the user ordered.
   //
   // `manifest.project === projectId` is the guard the manifest itself needs: on
   // a project switch the previous project's manifest is still in state for one

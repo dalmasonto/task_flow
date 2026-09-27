@@ -379,6 +379,10 @@ export function useAgentChat({
   // slices) is fetched again — the ref alone would have said "done" and left
   // the open thread blank.
   const channelPageState = useRef<Record<string, "pending" | "loaded" | "empty">>({})
+  // #194: the ref above is invisible to render, so the channels whose first
+  // page has settled are mirrored here — it is what lets the thread tell
+  // "still loading" from "empty".
+  const [settledChannels, setSettledChannels] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     const channelId = selectedChat?.liveChannelId
     const projectId = liveWorkspace?.project.id
@@ -401,6 +405,7 @@ export function useAgentChat({
         await mergeChannelPage(rows)
         channelPageState.current[key] = rows.length ? "loaded" : "empty"
         messagePages.current[channelId] = 1
+        setSettledChannels((current) => (current.has(key) ? current : new Set(current).add(key)))
       })
       .catch(() => {
         // Retried the next time the effect runs (any workspace change).
@@ -448,8 +453,17 @@ export function useAgentChat({
     await cancelAgentPrompt(promptId)
   }, [])
 
+  // #194: a chat with no live channel has nothing to fetch, so it is "loaded".
+  const selectedChannelId = selectedChat?.liveChannelId
+  const selectedProjectId = liveWorkspace?.project.id
+  const messagesLoaded =
+    selectedChannelId == null ||
+    selectedProjectId == null ||
+    settledChannels.has(`${selectedProjectId}:${selectedChannelId}`)
+
   const outletContext: AgentsOutletContext = {
     selectedChat,
+    messagesLoaded,
     selectedSession,
     onSendMessage: handleSendMessage,
     onRetryMessage: retryLiveMessage,
