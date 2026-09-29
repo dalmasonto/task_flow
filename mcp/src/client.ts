@@ -38,6 +38,16 @@ export interface TaskflowClientOptions {
 }
 
 /** An error carrying the backend's status + parsed detail. */
+/** Optional `design_screenshot` controls; see the tool's description. */
+export type DesignScreenshotOptions = {
+  width?: number;
+  height?: number;
+  dpr?: number;
+  mobile?: boolean;
+  full_page?: boolean;
+  frame?: "none" | "classic" | "device";
+};
+
 export class TaskflowApiError extends Error {
   readonly status: number;
   readonly detail: string;
@@ -662,15 +672,27 @@ export class TaskflowClient {
     });
   }
 
-  /** `GET /agents/design/screenshot` — render a route; `{png_base64}`. */
+  /** `GET /agents/design/screenshot` — render a route; `{png_base64, warnings}`. */
   designScreenshot(
     project: number,
     route: string,
     viewport: string,
     state?: string,
-  ): Promise<{ route: string; viewport: string; mime: string; png_base64: string }> {
+    opts: DesignScreenshotOptions = {},
+  ): Promise<{
+    route: string
+    viewport: string
+    size?: { width: number; height: number; dpr: number; mobile: boolean }
+    frame?: string
+    full_page?: boolean
+    warnings?: string[]
+    mime: string
+    png_base64: string
+  }> {
+    const extra: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(opts)) if (value !== undefined) extra[key] = value;
     return this.request("GET", `${API_PREFIX}/agents/design/screenshot`, {
-      query: { project, route, viewport, ...(state ? { state } : {}) },
+      query: { project, route, viewport, ...(state ? { state } : {}), ...extra },
       timeoutMs: 45_000,
     });
   }

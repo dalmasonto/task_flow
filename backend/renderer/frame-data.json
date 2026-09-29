@@ -1,0 +1,55 @@
+{
+  "//": "The renderer's copy of the Design Surface's frame tables. Source of truth: v2_fe/src/lib/design-frames.ts (FRAMES, FRAME_METRICS, STATUS_STYLE), v2_fe/src/lib/design-devices.ts (DEVICE_PRESETS groups, chromeStyleForGroup) and the .tf-frame radius overrides in v2_fe/src/index.css. v2_fe/src/lib/renderer-frame-data.test.ts fails if the two drift.",
+  "frames": {
+    "iphone-se": "iphone-8",
+    "iphone-16-pro": "iphone-14-pro",
+    "iphone-16-pro-max": "iphone-14-pro",
+    "pixel-8": "google-pixel-6-pro",
+    "galaxy-s24": "galaxy-s8",
+    "ipad-mini": "ipad-pro",
+    "ipad-pro-11": "ipad-pro",
+    "ipad-pro-13": "ipad-pro",
+    "laptop": "macbook-pro",
+    "laptop-l": "macbook-pro",
+    "desktop": "imac"
+  },
+  "metrics": {
+    "iphone-14-pro": { "w": 428, "h": 868, "screenX": 20, "screenY": 20, "screenW": 390, "screenH": 830, "statusBar": 44 },
+    "iphone-8": { "w": 419, "h": 871, "screenX": 22, "screenY": 102, "screenW": 375, "screenH": 667, "statusBar": 20 },
+    "google-pixel-6-pro": { "w": 404, "h": 862, "screenX": 14, "screenY": 20, "screenW": 376, "screenH": 816, "statusBar": 26 },
+    "galaxy-s8": { "w": 380, "h": 828, "screenX": 10, "screenY": 53, "screenW": 360, "screenH": 740, "statusBar": 20 },
+    "ipad-pro": { "w": 560, "h": 778, "screenX": 27, "screenY": 27, "screenW": 506, "screenH": 724, "statusBar": 0 },
+    "macbook-pro": { "w": 740, "h": 434, "screenX": 70, "screenY": 9, "screenW": 600, "screenH": 375, "statusBar": 0 },
+    "imac": { "w": 640, "h": 540, "screenX": 16, "screenY": 16, "screenW": 608, "screenH": 342, "statusBar": 0 }
+  },
+  "statusStyles": {
+    "iphone-14-pro": "ios-island",
+    "iphone-8": "ios-classic",
+    "google-pixel-6-pro": "android",
+    "galaxy-s8": "android"
+  },
+  "groups": {
+    "iphone-se": "phone",
+    "iphone-16-pro": "phone",
+    "iphone-16-pro-max": "phone",
+    "pixel-8": "phone",
+    "galaxy-s24": "phone",
+    "ipad-mini": "tablet",
+    "ipad-pro-11": "tablet",
+    "ipad-pro-13": "tablet",
+    "laptop": "laptop",
+    "laptop-l": "laptop",
+    "desktop": "laptop",
+    "bp-sm": "breakpoint",
+    "bp-md": "breakpoint",
+    "bp-lg": "breakpoint",
+    "bp-xl": "breakpoint",
+    "bp-2xl": "breakpoint"
+  },
+  "chrome": {
+    "phone": { "outerRadius": 44, "innerRadius": 32, "padding": { "top": 24, "right": 12, "bottom": 20, "left": 12 }, "notch": true, "homeIndicator": true, "cameraDot": false, "topBar": false },
+    "tablet": { "outerRadius": 24, "innerRadius": 14, "padding": { "top": 14, "right": 14, "bottom": 14, "left": 14 }, "notch": false, "homeIndicator": false, "cameraDot": true, "topBar": false },
+    "laptop": { "outerRadius": 10, "innerRadius": 4, "padding": { "top": 22, "right": 0, "bottom": 0, "left": 0 }, "notch": false, "homeIndicator": false, "cameraDot": false, "topBar": true }
+  },
+  "frameCss": ".tf-frame.device-iphone-14-pro .device-frame{border-radius:46px}.tf-frame.device-iphone-14-pro .device-screen{border-radius:28px}.tf-frame.device-iphone-8 .device-frame{border-radius:46px}.tf-frame.device-galaxy-s8 .device-frame{border-radius:38px}.tf-frame.device-galaxy-s8 .device-screen{border-radius:22px}.tf-frame.device-google-pixel-6-pro .device-frame{border-radius:22px}.tf-frame.device-google-pixel-6-pro .device-screen{border-radius:18px}"
+}

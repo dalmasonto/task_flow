@@ -5,11 +5,14 @@
 # Chromium here, next to the backend's secrets, it asks the `renderer`
 # sidecar (./server.mjs) for the PNG.
 #
+# Like design-render.mjs, it leaves `<out>.json` = {"warnings": [...]} beside
+# the PNG, decoded from the sidecar's X-Render-Warnings header.
+#
 # The backend reports the LAST stderr line as the failure reason, so every
 # failure path ends with one plain sentence.
 set -u
 
-url= width= height= dpr= timeout_ms=20000 out=
+url= width= height= dpr= timeout_ms=20000 out= mobile=0 full_page=0 frame=none device=
 while [ $# -ge 2 ]; do
   case "$1" in
     --url) url=$2 ;;
@@ -18,6 +21,10 @@ while [ $# -ge 2 ]; do
     --dpr) dpr=$2 ;;
     --timeout-ms) timeout_ms=$2 ;;
     --out) out=$2 ;;
+    --mobile) mobile=$2 ;;
+    --full-page) full_page=$2 ;;
+    --frame) frame=$2 ;;
+    --device) device=$2 ;;
   esac
   shift 2
 done
@@ -26,22 +33,31 @@ done
 # The backend kills us at timeout + 2s; stay under that so a slow shot fails
 # with the sidecar's reason instead of a bare timeout.
 max_secs=$(( timeout_ms / 1000 + 1 ))
+headers="$out.headers"
 
-code=$(curl -sS --max-time "$max_secs" -o "$out" -w '%{http_code}' \
+code=$(curl -sS --max-time "$max_secs" -o "$out" -D "$headers" -w '%{http_code}' \
   --data-urlencode "url=$url" \
   --data-urlencode "width=$width" \
   --data-urlencode "height=$height" \
   --data-urlencode "dpr=$dpr" \
   --data-urlencode "timeout_ms=$timeout_ms" \
+  --data-urlencode "mobile=$mobile" \
+  --data-urlencode "full_page=$full_page" \
+  --data-urlencode "frame=$frame" \
+  --data-urlencode "device=$device" \
   "${DESIGN_RENDERER_URL:-http://renderer:3000}/render") || {
-  rm -f "$out"
+  rm -f "$out" "$headers"
   echo "screenshot sidecar unreachable at ${DESIGN_RENDERER_URL:-http://renderer:3000}" >&2
   exit 1
 }
 
 if [ "$code" != 200 ]; then
   reason=$(head -c 300 "$out" 2>/dev/null | tr '\n' ' ')
-  rm -f "$out"
+  rm -f "$out" "$headers"
   echo "screenshot sidecar HTTP $code: ${reason:-no reason given}" >&2
   exit 1
 fi
+
+warnings=$(sed -n 's/^[Xx]-[Rr]ender-[Ww]arnings: *//p' "$headers" | tr -d '\r' | base64 -d 2>/dev/null)
+rm -f "$headers"
+printf '{"warnings":%s}' "${warnings:-[]}" > "$out.json"

@@ -1625,22 +1625,51 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_screenshot",
-    "Render a route in headless Chromium at a named viewport and return a PNG. You cannot see the UI otherwise — call this on a route BEFORE and AFTER your edits and self-critique the result. state='dialog:confirm-delete' opens that overlay first so click-only UI is reviewable.",
+    "Render a route in headless Chromium and return a PNG. You cannot see the UI otherwise — call this on a route BEFORE and AFTER your edits and self-critique the result. " +
+      "Phone/tablet viewports render as a real mobile browser (touch, mobile user agent). " +
+      "Size: a preset `viewport`, or a custom `width`+`height` (CSS px, 200–4000) with optional `dpr` (1–4). " +
+      "`full_page: true` captures the whole scrollable page, not one screen. " +
+      "`frame` dresses the shot like the Design Surface export: 'device' (a realistic device frame with status bar), 'classic' (the simple black bezel) or 'none' (default) — use a frame when the picture is for your human. " +
+      "`state='dialog:confirm-delete'` opens that overlay first. The reply lists WARNINGS for any font, image or stylesheet that did not load: fix or mention them, do not ignore them.",
     {
       route: z.string().min(1).describe("Route path to render, e.g. '/settings'."),
-      viewport: z.string().min(1).default("laptop").describe("Device preset id (iphone-16-pro, ipad-mini, laptop…)."),
+      viewport: z
+        .string()
+        .min(1)
+        .default("laptop")
+        .describe("Device preset id: iphone-se, iphone-16-pro, iphone-16-pro-max, pixel-8, galaxy-s24, ipad-mini, ipad-pro-11, ipad-pro-13, laptop, laptop-l, desktop, bp-sm…bp-2xl. Also picks the device frame."),
+      width: z.number().int().min(200).max(4000).optional().describe("Custom width in CSS px (with height); overrides the preset's size."),
+      height: z.number().int().min(200).max(4000).optional().describe("Custom height in CSS px (with width)."),
+      dpr: z.number().int().min(1).max(4).optional().describe("Device pixel ratio (default: the preset's, or 1 for a custom size)."),
+      mobile: z.boolean().optional().describe("Force mobile emulation on/off (default: on for phones/tablets and custom widths up to 1024)."),
+      full_page: z.boolean().optional().describe("Capture the whole scrollable page."),
+      frame: z.enum(["none", "classic", "device"]).optional().describe("How to dress the shot (default none)."),
       state: z.string().optional().describe("Overlay state to open on load, e.g. 'dialog:confirm-delete'."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ route, viewport, state, project, profile }) => {
+    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, state, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
         const projectId = await resolveDesignProject(client, project);
-        const shot = await client.designScreenshot(projectId, route, viewport, state);
+        const shot = await client.designScreenshot(projectId, route, viewport, state, {
+          width,
+          height,
+          dpr,
+          mobile,
+          full_page,
+          frame,
+        });
         if (!shot.png_base64) throw new Error("Renderer returned no image.");
+        const size = shot.size
+          ? ` (${shot.size.width}×${shot.size.height} @${shot.size.dpr}x${shot.size.mobile ? ", mobile" : ""})`
+          : "";
+        const dress = shot.frame && shot.frame !== "none" ? `, ${shot.frame} frame` : "";
+        const warnings = shot.warnings?.length
+          ? `\n\nWARNINGS — the picture differs from a real browser here:\n${shot.warnings.map((w) => `- ${w}`).join("\n")}`
+          : "";
         return {
           content: [
             {
@@ -1651,8 +1680,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             {
               type: "text",
               text:
-                `Screenshot of ${shot.route} at ${shot.viewport}. Self-critique it against ` +
-                `the tokens scale and your instruction before calling it done.`,
+                `Screenshot of ${shot.route} at ${shot.viewport}${size}${shot.full_page ? ", full page" : ""}${dress}. ` +
+                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}`,
             },
           ],
         };

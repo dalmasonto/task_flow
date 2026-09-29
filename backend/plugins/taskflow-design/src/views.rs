@@ -159,6 +159,20 @@ pub struct CreateScreenshotInput {
     pub viewport: String,
     #[serde(default)]
     pub state: Option<String>,
+    /// Optional custom size / emulation / capture / dress — see
+    /// `screenshots::ScreenshotRequest`.
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub dpr: Option<u32>,
+    #[serde(default)]
+    pub mobile: Option<bool>,
+    #[serde(default)]
+    pub full_page: bool,
+    #[serde(default)]
+    pub frame: crate::screenshots::Frame,
 }
 
 /// `POST /api/design/{project}/screenshots` — render a route at a viewport and
@@ -170,26 +184,44 @@ pub async fn create_screenshot(
     Json(input): Json<CreateScreenshotInput>,
 ) -> Result<Response, StatusCode> {
     ensure_member(user_id, project_id).await?;
-    let png = crate::screenshots::render_screenshot(
+    let req = crate::screenshots::ScreenshotRequest {
+        viewport: input.viewport.clone(),
+        width: input.width,
+        height: input.height,
+        dpr: input.dpr,
+        mobile: input.mobile,
+        full_page: input.full_page,
+        frame: input.frame,
+    };
+    let shot = crate::screenshots::render_screenshot(
         &input.route,
-        &input.viewport,
+        &req,
         input.state.as_deref(),
         || sandbox::mint(project_id),
     )
     .await
     .map_err(|err| match err {
         crate::screenshots::RenderError::Unconfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
-        crate::screenshots::RenderError::UnknownViewport(_) => StatusCode::BAD_REQUEST,
+        crate::screenshots::RenderError::UnknownViewport(_)
+        | crate::screenshots::RenderError::BadSize(_) => StatusCode::BAD_REQUEST,
         other => {
             eprintln!("design screenshot: {other}");
             StatusCode::BAD_GATEWAY
         }
     })?;
-    let mut response = png.into_response();
+    let mut response = shot.png.into_response();
     response.headers_mut().insert(
         CONTENT_TYPE,
         HeaderValue::from_static("image/png"),
     );
+    // What did not load into the picture, for a caller that wants to say so.
+    if let Ok(value) = serde_json::to_string(&shot.warnings)
+        .map(|w| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, w))
+        .unwrap_or_default()
+        .parse()
+    {
+        response.headers_mut().insert("x-render-warnings", value);
+    }
     Ok(response)
 }
 

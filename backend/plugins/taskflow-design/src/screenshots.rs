@@ -24,11 +24,15 @@ use tokio::io::AsyncWriteExt;
 /// under this; anything larger means the renderer has gone wrong.
 const MAX_PNG_BYTES: usize = 12 * 1024 * 1024;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Viewport {
     pub width: u32,
     pub height: u32,
     pub dpr: u32,
+    /// Render as a phone/tablet browser: touch, a mobile user agent and
+    /// mobile viewport handling, so `pointer: coarse` / `hover: none` media
+    /// queries and the viewport meta behave as on the device.
+    pub mobile: bool,
 }
 
 /// The named device presets the tools accept. Mirrors the chrome's
@@ -52,7 +56,97 @@ pub fn viewport_for(device_id: &str) -> Option<Viewport> {
         "bp-2xl" => (1536, 960, 1),
         _ => return None,
     };
-    Some(Viewport { width, height, dpr })
+    // Phones and tablets are the presets up to the iPad Pro 13"; laptops,
+    // desktops and the Tailwind breakpoints render as a desktop browser.
+    let mobile = matches!(
+        device_id,
+        "iphone-se" | "iphone-16-pro" | "iphone-16-pro-max" | "pixel-8" | "galaxy-s24"
+            | "ipad-mini" | "ipad-pro-11" | "ipad-pro-13"
+    );
+    Some(Viewport { width, height, dpr, mobile })
+}
+
+/// What an agent or the UI can ask a screenshot for, beyond the route.
+#[derive(Debug, Clone, Default)]
+pub struct ScreenshotRequest {
+    /// A preset id (`iphone-16-pro`, `laptop`, …). Ignored for the SIZE when
+    /// `width` and `height` are given, but still names the device frame.
+    pub viewport: String,
+    /// A custom size, in CSS px. Both or neither.
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    /// Device pixel ratio for a custom size (1–4, default 1), or an override
+    /// of the preset's.
+    pub dpr: Option<u32>,
+    /// Override mobile emulation. Default: the preset's; for a custom size,
+    /// on up to 1024px wide.
+    pub mobile: Option<bool>,
+    /// Capture the whole scrollable page instead of one screen.
+    pub full_page: bool,
+    /// `none` (default), `classic` or `device` — the Design Surface export's
+    /// three dresses.
+    pub frame: Frame,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Frame {
+    #[default]
+    None,
+    Classic,
+    Device,
+}
+
+impl Frame {
+    fn as_str(self) -> &'static str {
+        match self {
+            Frame::None => "none",
+            Frame::Classic => "classic",
+            Frame::Device => "device",
+        }
+    }
+}
+
+/// Custom sizes stay within what the renderer sidecar accepts.
+const SIZE_RANGE: std::ops::RangeInclusive<u32> = 200..=4000;
+
+/// Resolve the request's viewport: a custom size when given, else the preset.
+pub fn resolve_viewport(req: &ScreenshotRequest) -> Result<Viewport, RenderError> {
+    let preset = viewport_for(&req.viewport);
+    let mut vp = match (req.width, req.height) {
+        (Some(width), Some(height)) => {
+            if !SIZE_RANGE.contains(&width) || !SIZE_RANGE.contains(&height) {
+                return Err(RenderError::BadSize(format!(
+                    "width and height must each be {}–{} px",
+                    SIZE_RANGE.start(),
+                    SIZE_RANGE.end()
+                )));
+            }
+            Viewport { width, height, dpr: 1, mobile: width <= 1024 }
+        }
+        (None, None) => preset.ok_or_else(|| RenderError::UnknownViewport(req.viewport.clone()))?,
+        _ => return Err(RenderError::BadSize("give both width and height, or neither".into())),
+    };
+    if let Some(dpr) = req.dpr {
+        if !(1..=4).contains(&dpr) {
+            return Err(RenderError::BadSize("dpr must be 1–4".into()));
+        }
+        vp.dpr = dpr;
+    }
+    if let Some(mobile) = req.mobile {
+        vp.mobile = mobile;
+    }
+    Ok(vp)
+}
+
+/// A rendered shot: the PNG and what did not load into it.
+#[derive(Debug)]
+pub struct Rendered {
+    pub png: Vec<u8>,
+    /// Fonts, images or stylesheets that failed, and anything the renderer
+    /// had to change (a frame it could not draw as asked, a full page it cut).
+    pub warnings: Vec<String>,
+    pub viewport: Viewport,
 }
 
 /// The configured renderer program, if any.
@@ -69,6 +163,8 @@ pub enum RenderError {
     /// crash. Surfaces as 503 so the tool can say so plainly.
     Unconfigured(&'static str),
     UnknownViewport(String),
+    /// A custom size out of range, or half of one.
+    BadSize(String),
     SpawnFailed(String),
     Timeout,
     TooLarge(usize),
@@ -83,6 +179,7 @@ impl std::fmt::Display for RenderError {
                 "Screenshot service is not configured: set {what}."
             ),
             Self::UnknownViewport(id) => write!(f, "Unknown viewport '{id}'."),
+            Self::BadSize(why) => write!(f, "Bad screenshot size: {why}."),
             Self::SpawnFailed(e) => write!(f, "Could not start the renderer: {e}"),
             Self::Timeout => write!(f, "Renderer timed out."),
             Self::TooLarge(n) => write!(f, "Renderer produced {n} bytes; over cap."),
@@ -103,6 +200,20 @@ pub async fn render_with(
     viewport: &Viewport,
     timeout_ms: u64,
 ) -> Result<Vec<u8>, RenderError> {
+    render_shot(program, url, viewport, &ScreenshotRequest::default(), timeout_ms)
+        .await
+        .map(|shot| shot.png)
+}
+
+/// [`render_with`] with the full request (frame, full page, device) and the
+/// renderer's warnings, read from `<out>.json` when it leaves one.
+pub async fn render_shot(
+    program: &str,
+    url: &str,
+    viewport: &Viewport,
+    req: &ScreenshotRequest,
+    timeout_ms: u64,
+) -> Result<Rendered, RenderError> {
     let out = std::env::temp_dir().join(format!(
         "design-shot-{}-{}.png",
         std::process::id(),
@@ -123,6 +234,14 @@ pub async fn render_with(
             &timeout_ms.to_string(),
             "--out",
             out.to_string_lossy().as_ref(),
+            "--mobile",
+            if viewport.mobile { "1" } else { "0" },
+            "--full-page",
+            if req.full_page { "1" } else { "0" },
+            "--frame",
+            req.frame.as_str(),
+            "--device",
+            &req.viewport,
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -151,15 +270,24 @@ pub async fn render_with(
         ));
     }
 
+    let sidecar = out.with_extension("png.json");
     let png = tokio::fs::read(&out)
         .await
-        .map_err(|e| RenderError::Failed(format!("no screenshot written ({e})")))?;
+        .map_err(|e| RenderError::Failed(format!("no screenshot written ({e})")));
+    let warnings = tokio::fs::read(&sidecar)
+        .await
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v["warnings"].clone()).ok())
+        .unwrap_or_default();
     let _ = tokio::fs::remove_file(&out).await;
+    let _ = tokio::fs::remove_file(&sidecar).await;
+    let png = png?;
 
     if png.len() > MAX_PNG_BYTES {
         return Err(RenderError::TooLarge(png.len()));
     }
-    Ok(png)
+    Ok(Rendered { png, warnings, viewport: viewport.clone() })
 }
 
 /// Build the sandbox URL the renderer should load.
@@ -185,10 +313,10 @@ fn urlencode(value: &str) -> String {
 /// passes a fresh token), delegate to [`render_with`].
 pub async fn render_screenshot(
     route: &str,
-    viewport_id: &str,
+    req: &ScreenshotRequest,
     state: Option<&str>,
     mint_token: impl FnOnce() -> String,
-) -> Result<Vec<u8>, RenderError> {
+) -> Result<Rendered, RenderError> {
     let Some(base) = std::env::var("TASKFLOW_DESIGN_BASE_URL")
         .ok()
         .map(|u| u.trim().to_string())
@@ -199,13 +327,14 @@ pub async fn render_screenshot(
     let Some(program) = configured_renderer() else {
         return Err(RenderError::Unconfigured("TASKFLOW_DESIGN_RENDERER"));
     };
-    let Some(viewport) = viewport_for(viewport_id) else {
-        return Err(RenderError::UnknownViewport(viewport_id.to_string()));
-    };
+    let viewport = resolve_viewport(req)?;
 
     let url = sandbox_render_url(&base, &mint_token(), route, state);
-    // §8.1: short timeout — a hung page must cost seconds, not minutes.
-    render_with(&program, &url, &viewport, 20_000).await
+    // §8.1: short timeout — a hung page must cost seconds, not minutes. A
+    // frame or a full page is a second pass over the capture, so it gets a
+    // few seconds more.
+    let budget = if req.full_page || req.frame != Frame::None { 25_000 } else { 20_000 };
+    render_shot(&program, &url, &viewport, req, budget).await
 }
 
 /// Keep the io trait import honest even if the spawn shape changes.

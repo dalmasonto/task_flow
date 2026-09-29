@@ -77,5 +77,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Vitest stubs CSS imports to '' by default. `lib/renderer-frame-data.test.ts`
+    // reads index.css's `.tf-frame` radius rules (`?raw`) to keep the screenshot
+    // renderer's copy in step, so that one file is let through.
+    css: { include: [/src\/index\.css/] },
   },
 })

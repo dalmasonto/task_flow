@@ -5,7 +5,11 @@
 // holds no secrets and no database access, so a page that escapes the
 // browser lands somewhere with nothing to steal.
 //
-//   POST /render   form fields: url, width, height, dpr, timeout_ms → image/png
+//   POST /render   form fields: url, width, height, dpr, timeout_ms, and
+//                  optionally mobile (0|1), full_page (0|1),
+//                  frame (none|classic|device), device (preset id)
+//                  → image/png, with X-Render-Warnings: a base64 JSON array
+//                    of what did not load (fonts, images…)
 //   GET  /health   → 200 "ok"
 //
 // Every shot is a fresh `node design-render.mjs` child — disposable browser,
@@ -63,7 +67,21 @@ function parseShot(body) {
   if (width === null || height === null || dpr === null || timeoutMs === null) {
     return { error: "width/height/dpr/timeout_ms out of range" };
   }
-  return { url: url.href, width, height, dpr, timeoutMs };
+  const frame = f.get("frame") || "none";
+  if (!["none", "classic", "device"].includes(frame)) return { error: "frame must be none, classic or device" };
+  const device = f.get("device") ?? "";
+  if (!/^[a-z0-9-]{0,40}$/.test(device)) return { error: "device must be a preset id" };
+  return {
+    url: url.href,
+    width,
+    height,
+    dpr,
+    timeoutMs,
+    mobile: f.get("mobile") === "1",
+    fullPage: f.get("full_page") === "1",
+    frame,
+    device,
+  };
 }
 
 // Resolves to { png } or { error }. The child is killed if it outlives its
@@ -81,6 +99,10 @@ function renderOnce(shot, signal) {
         "--dpr", String(shot.dpr),
         "--timeout-ms", String(shot.timeoutMs),
         "--out", out,
+        "--mobile", shot.mobile ? "1" : "0",
+        "--full-page", shot.fullPage ? "1" : "0",
+        "--frame", shot.frame,
+        "--device", shot.device,
       ],
       { stdio: ["ignore", "ignore", "pipe"] },
     );
@@ -92,13 +114,17 @@ function renderOnce(shot, signal) {
     child.on("close", async (code) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", kill);
+      const warnings = await readFile(`${out}.json`, "utf8")
+        .then((raw) => JSON.parse(raw).warnings ?? [])
+        .catch(() => []);
+      await rm(`${out}.json`, { force: true });
       if (code !== 0) {
         await rm(out, { force: true });
         const last = stderr.trim().split("\n").pop();
         return done({ error: last || `renderer exited ${code ?? "on a signal"}` });
       }
       try {
-        done({ png: await readFile(out) });
+        done({ png: await readFile(out), warnings });
       } catch (e) {
         done({ error: `no screenshot written (${e.message})` });
       } finally {
@@ -108,9 +134,9 @@ function renderOnce(shot, signal) {
   });
 }
 
-const send = (res, status, body, type = "text/plain; charset=utf-8") => {
+const send = (res, status, body, type = "text/plain; charset=utf-8", extra = {}) => {
   if (res.headersSent || res.destroyed) return;
-  res.writeHead(status, { "content-type": type, "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, { "content-type": type, "content-length": Buffer.byteLength(body), ...extra });
   res.end(body);
 };
 
@@ -137,7 +163,9 @@ createServer(async (req, res) => {
     if (hangup.signal.aborted) return;
     const result = await renderOnce(shot, hangup.signal);
     if (result.error) return send(res, 502, result.error);
-    send(res, 200, result.png, "image/png");
+    send(res, 200, result.png, "image/png", {
+      "x-render-warnings": Buffer.from(JSON.stringify(result.warnings)).toString("base64"),
+    });
   } finally {
     release();
   }

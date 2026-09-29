@@ -1467,6 +1467,22 @@ pub struct AgentScreenshotQuery {
     pub viewport: String,
     #[serde(default)]
     pub state: Option<String>,
+    /// A custom size in CSS px (both or neither); overrides the preset's size.
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub dpr: Option<u32>,
+    /// Override mobile emulation (default: the preset's).
+    #[serde(default)]
+    pub mobile: Option<bool>,
+    /// Capture the whole scrollable page.
+    #[serde(default)]
+    pub full_page: bool,
+    /// `none` | `classic` | `device` — the export's three dresses.
+    #[serde(default)]
+    pub frame: crate::screenshots::Frame,
 }
 
 fn default_viewport() -> String {
@@ -1482,15 +1498,24 @@ pub async fn screenshot(
 ) -> Result<Response, StatusCode> {
     use base64::Engine as _;
     authorized_project(&agent, q.project)?;
-    let png = match crate::screenshots::render_screenshot(
+    let req = crate::screenshots::ScreenshotRequest {
+        viewport: q.viewport.clone(),
+        width: q.width,
+        height: q.height,
+        dpr: q.dpr,
+        mobile: q.mobile,
+        full_page: q.full_page,
+        frame: q.frame,
+    };
+    let shot = match crate::screenshots::render_screenshot(
         &q.route,
-        &q.viewport,
+        &req,
         q.state.as_deref(),
         || crate::sandbox::mint(agent.project_id),
     )
     .await
     {
-        Ok(png) => png,
+        Ok(shot) => shot,
         Err(crate::screenshots::RenderError::Unconfigured(what)) => {
             // Tell the agent exactly what to ask the operator for.
             return Ok((
@@ -1503,12 +1528,9 @@ pub async fn screenshot(
             )
                 .into_response());
         }
-        Err(crate::screenshots::RenderError::UnknownViewport(id)) => {
-            return Ok((
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "detail": format!("Unknown viewport '{id}'.") })),
-            )
-                .into_response());
+        Err(err @ (crate::screenshots::RenderError::UnknownViewport(_)
+        | crate::screenshots::RenderError::BadSize(_))) => {
+            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "detail": err.to_string() }))).into_response());
         }
         Err(other) => {
             eprintln!("design agent screenshot: {other}");
@@ -1519,10 +1541,14 @@ pub async fn screenshot(
                 .into_response());
         }
     };
-    let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&shot.png);
     Ok(Json(json!({
         "route": q.route,
         "viewport": q.viewport,
+        "size": shot.viewport,
+        "full_page": q.full_page,
+        "frame": q.frame,
+        "warnings": shot.warnings,
         "mime": "image/png",
         "png_base64": b64,
     }))

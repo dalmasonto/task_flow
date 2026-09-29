@@ -78,6 +78,9 @@ services:
       TASKFLOW_DESIGN_BASE_URL: https://api.taskflow.supercodehive.com
       TASKFLOW_DESIGN_RENDERER: /usr/local/bin/design-render
       DESIGN_RENDERER_URL: http://renderer:3000
+    # `default` for postgres/minio, `render` to reach the screenshot sidecar,
+    # which is on that network ONLY (see `renderer`).
+    networks: [default, render]
     depends_on:
       postgres:
         condition: service_healthy
@@ -155,6 +158,11 @@ services:
     init: true # node is PID 1; something has to reap Chromium's children
     environment:
       RENDER_ALLOWED_ORIGIN: https://api.taskflow.supercodehive.com
+    # Its own network: it can reach the internet (the public API host, CDNs,
+    # external images) and `web`, but not postgres or minio, so a page that
+    # got past design-render.mjs's private-address check still finds nothing
+    # internal to talk to.
+    networks: [render]
     read_only: true
     tmpfs:
       - /tmp:size=256m
@@ -169,6 +177,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+networks:
+  default:
+  render:
 
 volumes:
   pgdata:
