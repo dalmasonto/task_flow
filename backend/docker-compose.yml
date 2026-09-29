@@ -72,6 +72,12 @@ services:
       # client IP is the last X-Forwarded-For entry. With 0 every anonymous
       # caller shares one throttle bucket. A real env var beats the baked .env.
       UMBRAL_TRUSTED_PROXY_HOPS: "1"
+      # Design screenshots: the backend shells out to renderer/client.sh, which
+      # asks the `renderer` sidecar for the PNG. The sidecar loads sandbox
+      # pages through the public API host, the same origin browsers use.
+      TASKFLOW_DESIGN_BASE_URL: https://api.taskflow.supercodehive.com
+      TASKFLOW_DESIGN_RENDERER: /usr/local/bin/design-render
+      DESIGN_RENDERER_URL: http://renderer:3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -136,6 +142,32 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 10s
+
+  # Headless Chromium for design screenshots (renderer/). It renders
+  # agent-authored HTML with --no-sandbox (the host kernel forbids Chromium's
+  # own sandbox), so the container is the boundary: no secrets, no volumes,
+  # no published port, read-only root, every capability dropped.
+  renderer:
+    build: ./renderer
+    image: taskflow-renderer:latest
+    restart: unless-stopped
+    init: true # node is PID 1; something has to reap Chromium's children
+    environment:
+      RENDER_ALLOWED_ORIGIN: https://api.taskflow.supercodehive.com
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    shm_size: 256m
+    mem_limit: 1g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
       start_period: 10s
 
 volumes:

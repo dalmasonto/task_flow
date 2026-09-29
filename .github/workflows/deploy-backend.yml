@@ -177,7 +177,7 @@ jobs:
         run: |
           mkdir -p payload/backend payload/frontend
           cp backend/Dockerfile backend/docker-compose.yml backend/frontend.Caddyfile payload/backend/
-          cp -a backend/templates backend/migrations backend/static payload/backend/
+          cp -a backend/templates backend/migrations backend/static backend/renderer payload/backend/
           cp backend/.prod.env.decrypted payload/backend/.prod.env
           cp -a v2_fe/dist/. payload/frontend/
 

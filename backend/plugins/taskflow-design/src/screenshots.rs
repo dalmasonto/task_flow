@@ -6,7 +6,7 @@
 //! receives the sandbox URL, a viewport size, a hard timeout and an output
 //! path. The renderer is disposable (one process per shot) and is responsible
 //! for egress blocking — the reference implementation in
-//! `scripts/design-render.mjs` intercepts every request and denies RFC1918 +
+//! `renderer/design-render.mjs` intercepts every request and denies RFC1918 +
 //! link-local targets except the sandbox origin itself, because headless
 //! Chromium is exactly the SSRF surface the spec says it is.
 //!

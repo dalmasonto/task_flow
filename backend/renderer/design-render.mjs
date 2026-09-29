@@ -15,6 +15,12 @@
 /// Setup: `npm install puppeteer` somewhere on PATH-adjacent life, then point
 /// TASKFLOW_DESIGN_RENDERER at this file (needs a `#!/usr/bin/env node` exec
 /// bit) or at a wrapper script that runs `node design-render.mjs "$@"`.
+///
+/// In production this runs inside the `renderer` sidecar (see ./server.mjs and
+/// ./Dockerfile), never in the backend container. That host's kernel forbids
+/// the unprivileged user namespaces Chromium's own sandbox needs, so the
+/// sidecar sets DESIGN_RENDER_NO_SANDBOX=1 and the secretless container is
+/// the boundary instead.
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +62,14 @@ try {
   browser = await puppeteer.launch({
     headless: true,
     // Disposable: fresh profile per shot, no shared state between renders.
-    args: ["--no-first-run", "--no-default-browser-check", "--disable-features=Translate"],
+    args: [
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-features=Translate",
+      // Docker's default /dev/shm is 64MB; a DPR-3 phone shot can exhaust it.
+      "--disable-dev-shm-usage",
+      ...(process.env.DESIGN_RENDER_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
+    ],
   });
   const page = await browser.newPage();
   await page.setViewport({ width, height, deviceScaleFactor: dpr });
@@ -90,11 +103,14 @@ try {
   await new Promise((r) => setTimeout(r, 250));
   try { mkdirSync(dirname(resolve(out)), { recursive: true }); } catch {}
   await page.screenshot({ path: out, type: "png" });
-  process.exit(0);
+  process.exitCode = 0;
 } catch (err) {
   console.error(String(err?.message ?? err).split("\n")[0]);
-  process.exit(1);
+  process.exitCode = 1;
 } finally {
+  // exitCode, not process.exit(): exiting inside try/catch skipped this
+  // block and orphaned Chromium on every shot.
   await browser?.close().catch(() => {});
+  process.exit();
 }
 

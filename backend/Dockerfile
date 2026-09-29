@@ -35,6 +35,11 @@ WORKDIR /app
 COPY dist/backend /usr/local/bin/backend
 RUN chmod +x /usr/local/bin/backend
 
+# TASKFLOW_DESIGN_RENDERER: a curl client for the `renderer` sidecar. Chromium
+# itself never runs in this image, next to the secrets in /app/.env.
+COPY renderer/client.sh /usr/local/bin/design-render
+RUN chmod +x /usr/local/bin/design-render
+
 # Site-level templates, resolved RELATIVE to WORKDIR.
 COPY templates ./templates
 
