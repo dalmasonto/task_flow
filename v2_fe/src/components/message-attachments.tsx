@@ -24,6 +24,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { ChatDockContext, TaskChipContext } from "@/lib/markdown-contexts"
 import { handOffFromPreview, previewLayer } from "@/lib/preview-ref-handoff"
 import { cn } from "@/lib/utils"
+import { clampZoom, fitScale, stepZoom, zoomLimits, type ZoomKind } from "@/lib/preview-zoom"
 import {
   formatBytes,
   getAttachmentKind,
@@ -43,9 +44,6 @@ export type MessageAttachmentItem = {
   pending?: boolean
 }
 
-const minPreviewZoom = 1
-const maxPreviewZoom = 3
-const previewZoomStep = 0.25
 
 /// Chat message attachment renderer. Inline shows only lightweight content: an
 /// image gallery at natural size, full-width file cards, and inline video/audio
@@ -346,7 +344,15 @@ function FileCard({
         render={
           <a href={attachment.url} target="_blank" rel="noreferrer" download={attachment.name} />
         }
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation()
+          // `download` is ignored on a cross-origin link, and /media lives on
+          // the API host, so a plain click would open the file in a tab. Fetch
+          // it and save it from a same-document blob URL instead; the href
+          // stays for middle-click / "copy link".
+          event.preventDefault()
+          void saveAttachment(attachment)
+        }}
       >
         <DownloadIcon className="size-3.5" />
         Download
@@ -398,6 +404,7 @@ export function AttachmentPreviewDialog({
   const [zoomState, setZoomState] = React.useState<{ id: string; value: number } | null>(
     null
   )
+  const [fitState, setFitState] = React.useState<{ id: string; value: number } | null>(null)
   const previewRef = React.useRef<HTMLDivElement>(null)
   // Set once a chip in here has opened something that must sit in front. The
   // preview stays OPEN and steps behind instead — closing it would lose the
@@ -411,17 +418,25 @@ export function AttachmentPreviewDialog({
   const outerChatDock = React.useContext(ChatDockContext)
   const active = attachments[activeIndex]
   const kind = active ? kindOf(active) : "file"
-  const canZoom = kind === "image" || kind === "pdf"
+  const zoomKind: ZoomKind | null = kind === "image" ? "image" : kind === "pdf" ? "pdf" : null
+  const canZoom = zoomKind !== null
   const canNavigate = attachments.length > 1
   const zoomKey = active?.id ?? ""
-  const zoom = zoomState?.id === zoomKey ? zoomState.value : 1
+  // An image opens at its FIT scale (whole image, aspect kept, reported by
+  // `ImagePreview` once it knows the image and the stage); a zoom the user
+  // picked overrides it until the attachment changes or Fit is pressed.
+  const fit = fitState?.id === zoomKey ? fitState.value : null
+  const zoom = zoomState?.id === zoomKey ? zoomState.value : zoomKind === "image" ? (fit ?? 1) : 1
 
   if (!active) return null
 
   function updateZoom(value: number | ((current: number) => number)) {
+    if (!zoomKind) return
     const next = typeof value === "function" ? value(zoom) : value
-    setZoomState({ id: zoomKey, value: clampZoom(next) })
+    setZoomState({ id: zoomKey, value: clampZoom(zoomKind, next) })
   }
+
+  const resetZoom = () => setZoomState(null)
 
   function goTo(offset: number) {
     onIndexChange((activeIndex + offset + attachments.length) % attachments.length)
@@ -512,7 +527,7 @@ export function AttachmentPreviewDialog({
 
             {canZoom ? (
               <div className="hidden items-center gap-1 sm:flex">
-                <PreviewZoomControls zoom={zoom} onZoomChange={updateZoom} />
+                <PreviewZoomControls kind={zoomKind ?? "pdf"} zoom={zoom} onZoomChange={updateZoom} onReset={resetZoom} />
               </div>
             ) : null}
 
@@ -561,12 +576,23 @@ export function AttachmentPreviewDialog({
               </>
             ) : null}
 
-            <AttachmentPreviewContent attachment={active} zoom={zoom} />
+            <AttachmentPreviewContent
+              attachment={active}
+              zoom={zoom}
+              // Returning `prev` when nothing changed matters: this callback is
+              // new every render, so ImagePreview's effect re-reports each
+              // time, and a fresh object would re-render forever.
+              onFit={(value) =>
+                setFitState((prev) =>
+                  prev?.id === active.id && prev.value === value ? prev : { id: active.id, value },
+                )
+              }
+            />
 
             {canZoom ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3 sm:hidden">
                 <div className="pointer-events-auto rounded-xl border border-border/70 bg-background/95 p-1 shadow-2xl backdrop-blur">
-                  <PreviewZoomControls zoom={zoom} onZoomChange={updateZoom} />
+                  <PreviewZoomControls kind={zoomKind ?? "pdf"} zoom={zoom} onZoomChange={updateZoom} onReset={resetZoom} />
                 </div>
               </div>
             ) : null}
@@ -598,9 +624,12 @@ export function AttachmentPreviewDialog({
 function AttachmentPreviewContent({
   attachment,
   zoom,
+  onFit,
 }: {
   attachment: MessageAttachmentItem
   zoom: number
+  /** An image's fit-to-stage scale, once known. */
+  onFit?: (scale: number) => void
 }) {
   const kind = kindOf(attachment)
 
@@ -608,7 +637,7 @@ function AttachmentPreviewContent({
     return <GenericFilePreview attachment={attachment} kind={kind} pending />
   }
 
-  if (kind === "image") return <ImagePreview attachment={attachment} zoom={zoom} />
+  if (kind === "image") return <ImagePreview attachment={attachment} zoom={zoom} onFit={onFit} />
 
   if (kind === "pdf") return <PdfPreview attachment={attachment} zoom={zoom} />
   if (kind === "spreadsheet") return <SpreadsheetPreview attachment={attachment} />
@@ -659,15 +688,48 @@ function AttachmentPreviewContent({
   return <GenericFilePreview attachment={attachment} kind={kind} />
 }
 
-/// Popup image view. The base (zoom = 1) is the image's NATURAL size — not
-/// scaled to fit — and the container scrolls in both axes so a large image can
-/// be roamed freely. The zoom control scales up from natural (2×, 3× …), growing
-/// the scroll area accordingly. `m-auto` centers a small image and collapses to
-/// let scrolling reach every edge of one larger than the viewport (the classic
-/// flex-overflow centering fix).
-function ImagePreview({ attachment, zoom }: { attachment: MessageAttachmentItem; zoom: number }) {
+/// Popup image view. `zoom` is the scale against the image's NATURAL size, and
+/// the dialog opens it at the fit scale this component reports through
+/// `onFit`: the whole image inside the padded stage, its own aspect ratio,
+/// never enlarged past 100%. Width and height are both set from the natural
+/// size × zoom, so the picture can never be stretched. Zoomed past the stage,
+/// the container scrolls in both axes; `m-auto` centers a smaller image and
+/// collapses so scrolling reaches every edge of a larger one.
+function ImagePreview({
+  attachment,
+  zoom,
+  onFit,
+}: {
+  attachment: MessageAttachmentItem
+  zoom: number
+  onFit?: (scale: number) => void
+}) {
   const [natural, setNatural] = React.useState<{ w: number; h: number } | null>(null)
+  const [box, setBox] = React.useState<{ w: number; h: number } | null>(null)
   const [failed, setFailed] = React.useState(false)
+  const stageRef = React.useRef<HTMLDivElement>(null)
+
+  // The stage's content box (inside its padding), kept current as the dialog
+  // resizes or goes fullscreen.
+  React.useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const measure = () => {
+      const style = getComputedStyle(stage)
+      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+      setBox({ w: stage.clientWidth - padX, h: stage.clientHeight - padY })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [])
+
+  const fit = natural && box ? fitScale(natural, box) : null
+  React.useEffect(() => {
+    if (fit !== null) onFit?.(fit)
+  }, [fit, onFit])
 
   if (failed) {
     return (
@@ -681,7 +743,10 @@ function ImagePreview({ attachment, zoom }: { attachment: MessageAttachmentItem;
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full overflow-auto p-3 overscroll-contain [touch-action:pan-x_pan-y] sm:p-6">
+    <div
+      ref={stageRef}
+      className="flex h-full min-h-0 w-full overflow-auto p-6 overscroll-contain [touch-action:pan-x_pan-y] sm:p-12"
+    >
       <img
         src={attachment.url}
         alt={attachment.name}
@@ -689,20 +754,32 @@ function ImagePreview({ attachment, zoom }: { attachment: MessageAttachmentItem;
           setNatural({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight })
         }
         onError={() => setFailed(true)}
-        style={natural ? { width: natural.w * zoom, height: natural.h * zoom } : undefined}
-        className="m-auto block max-w-none rounded-xl shadow-2xl"
+        style={
+          natural && fit !== null
+            ? { width: natural.w * zoom, height: natural.h * zoom }
+            : // Until the fit is known, keep the image inside the stage and
+              // invisible, so it never flashes at full size.
+              { maxWidth: "100%", maxHeight: "100%", opacity: 0 }
+        }
+        className="m-auto block max-w-none shrink-0 rounded-xl shadow-2xl"
       />
     </div>
   )
 }
 
 function PreviewZoomControls({
+  kind,
   zoom,
   onZoomChange,
+  onReset,
 }: {
+  kind: ZoomKind
   zoom: number
   onZoomChange: (value: number | ((current: number) => number)) => void
+  /** Back to the opening size: fit for an image, 100% for a PDF. */
+  onReset: () => void
 }) {
+  const { min, max } = zoomLimits(kind)
   return (
     <div className="flex min-w-[13.75rem] items-center justify-between gap-1 whitespace-nowrap">
       <Button
@@ -710,8 +787,8 @@ function PreviewZoomControls({
         variant="outline"
         size="icon-sm"
         className="h-9 min-w-10 rounded-lg"
-        disabled={zoom <= minPreviewZoom}
-        onClick={() => onZoomChange((value) => value - previewZoomStep)}
+        disabled={zoom <= min + 1e-6}
+        onClick={() => onZoomChange((value) => stepZoom(kind, value, -1))}
       >
         <ZoomOutIcon />
         <span className="sr-only">Zoom out</span>
@@ -721,10 +798,11 @@ function PreviewZoomControls({
         variant="outline"
         size="icon-sm"
         className="h-9 min-w-10 rounded-lg"
-        onClick={() => onZoomChange(1)}
+        title={kind === "image" ? "Fit to window" : "Reset zoom"}
+        onClick={onReset}
       >
         <RotateCcwIcon />
-        <span className="sr-only">Reset zoom</span>
+        <span className="sr-only">{kind === "image" ? "Fit to window" : "Reset zoom"}</span>
       </Button>
       <span className="flex min-w-14 items-center justify-center px-1 text-[11px] font-medium text-muted-foreground">
         {Math.round(zoom * 100)}%
@@ -734,8 +812,8 @@ function PreviewZoomControls({
         variant="outline"
         size="icon-sm"
         className="h-9 min-w-10 rounded-lg"
-        disabled={zoom >= maxPreviewZoom}
-        onClick={() => onZoomChange((value) => value + previewZoomStep)}
+        disabled={zoom >= max - 1e-6}
+        onClick={() => onZoomChange((value) => stepZoom(kind, value, 1))}
       >
         <ZoomInIcon />
         <span className="sr-only">Zoom in</span>
@@ -1392,8 +1470,26 @@ function kindLabel(attachment: MessageAttachmentItem): string {
   return "File"
 }
 
-function clampZoom(value: number): number {
-  return Math.min(maxPreviewZoom, Math.max(minPreviewZoom, value))
+/// Save an attachment to disk. `<a download>` only works for same-origin URLs
+/// and /media is served from the API host, so the bytes are fetched (with the
+/// session cookie, as the PDF preview does) and saved from a blob URL. If the
+/// fetch fails, the file opens in a new tab so the user still gets it.
+async function saveAttachment(attachment: MessageAttachmentItem): Promise<void> {
+  try {
+    const response = await fetch(attachment.url, { credentials: "include" })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const objectUrl = URL.createObjectURL(await response.blob())
+    const link = document.createElement("a")
+    link.href = objectUrl
+    link.download = attachment.name || "download"
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    // Revoked on the next tick: the click has started the download by then.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+  } catch {
+    window.open(attachment.url, "_blank", "noopener,noreferrer")
+  }
 }
 
 /// Only embed/fetch same-origin (or blob/data) URLs. Ours are always
