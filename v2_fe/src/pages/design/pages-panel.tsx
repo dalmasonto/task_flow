@@ -98,12 +98,12 @@
 /// once from `layout.groups`, and it is the only thing keeping the ids out of
 /// the trigger.
 ///
-/// The rename box stays a plain `<input>`: a field that edits its own text needs
-/// no value→label map, and it commits on blur/Enter rather than on a change
-/// event, which is not a Select's job. It is hidden behind the name until the
+/// The rename box is the app's `Input`, not a `Select`: a field that edits its
+/// own text needs no value→label map, and it commits on blur/Enter rather than
+/// on a change event, which is not a Select's job. It is hidden behind the name until the
 /// name is clicked (`PageName` below), which is what the sketch asks for.
 
-import { ChevronDownIcon, ChevronUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, RotateCcwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react"
 import { useId, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -142,6 +142,7 @@ import {
 } from "@/lib/design-layout"
 
 import {
+  filterSections,
   groupedPages,
   numberedPages,
   selectAllState,
@@ -314,6 +315,14 @@ export function PagesPanel({
   const flowPlace = new Map(flow.map((page) => [page.route, page.n]))
   const bulk = selectAllState(routes, openRoutes)
 
+  /// The search box's text, and the sections narrowed to it. A narrowing only:
+  /// every control on a group — its number, arrows, bulk select — still acts on
+  /// the WHOLE group (`groupBlock` is handed the full section), so what a
+  /// button does never depends on what happens to be typed here.
+  const [query, setQuery] = useState("")
+  const shown = filterSections(sections, query, nameFor)
+  const searching = shown !== sections
+
   /// The group picker's items — and its value→label map, which is the same
   /// array: Base UI's `SelectValue` renders the raw value unless the root is
   /// given one, so this is what puts `Auth` in the row instead of `g1`. The
@@ -466,7 +475,12 @@ export function PagesPanel({
   /// The section type is `GroupedPages`' own rather than a second spelling of
   /// it, so a section that grew a field could not be described correctly here
   /// and wrongly there.
-  const groupBlock = (section: GroupedPages["groups"][number], index: number) => {
+  const groupBlock = (
+    section: GroupedPages["groups"][number],
+    index: number,
+    /// The rows to draw: the search's matches, or every page of the group.
+    visible: NumberedPage[] = section.pages,
+  ) => {
     const first = index === 0
     const last = index === sections.groups.length - 1
     /// This group's own bulk control, from the helper that is `selectAllState`'s
@@ -547,13 +561,42 @@ export function PagesPanel({
             its rows 32px — and `pages-panel.test.ts` reads the ladder back out
             of these class lists, because there is no CSS engine in the test
             environment to measure it any other way. */}
-        <ul className="flex flex-col pl-3">{section.pages.map(pageRow)}</ul>
+        <ul className="flex flex-col pl-3">{visible.map(pageRow)}</ul>
       </li>
     )
   }
 
   return (
     <div className="flex flex-col py-1">
+      {/* Search: filters the lists below by page name, route and group name.
+          Escape clears it. Drawn only when there is something to search. */}
+      {routes.length ? (
+        <div className="relative border-b px-2 py-1.5">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-4.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQuery("")
+            }}
+            placeholder="Search pages…"
+            aria-label="Search pages"
+            autoComplete="off"
+            className="px-8 [&::-webkit-search-cancel-button]:hidden"
+          />
+          {query ? (
+            <button
+              type="button"
+              className="absolute top-1/2 right-4 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+              onClick={() => setQuery("")}
+            >
+              <XIcon className="size-3" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {/* Bulk open/close, at the TOP (#501): it acts on every page in both
           lists, and below the groups it was out of sight in a long project.
           Nothing to select means no control: a checkbox over an empty project
@@ -589,12 +632,25 @@ export function PagesPanel({
             </button>
           ) : null}
         </div>
-        <ul className="flex flex-col">{sections.groups.map(groupBlock)}</ul>
+        <ul className="flex flex-col">
+          {/* Each shown group is drawn from its FULL section, at its real
+              position, with only its matching rows. */}
+          {shown.groups.map((match) => {
+            const index = sections.groups.findIndex((group) => group.id === match.id)
+            return groupBlock(sections.groups[index], index, match.pages)
+          })}
+        </ul>
       </div>
       {/* The ungrouped section, LAST — the order the user confirmed. It is drawn
           like a group is: always, with its rows beneath it however many there
           are. It is where a page with no group is listed, and — with no pages at all — where "No pages
           yet." goes, since it is the section that would have held them. */}
+      {searching && !shown.groups.length && !shown.ungrouped.length ? (
+        <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+          No pages match “{query.trim()}”.
+        </p>
+      ) : null}
+      {searching && !shown.ungrouped.length ? null : (
       <div className="flex flex-col">
         <h3 className={cn(SECTION_HEADING, "border-t")}>Ungrouped</h3>
         {/* `pl-1` is the 4px that puts these rows' content on the same x as
@@ -602,11 +658,12 @@ export function PagesPanel({
             the same "a row must not start left of the heading it belongs to"
             rule the groups' rows are held to, applied to the section that has
             no group to be nested under. */}
-        <ul className="flex flex-col pl-1">{sections.ungrouped.map(pageRow)}</ul>
+        <ul className="flex flex-col pl-1">{shown.ungrouped.map(pageRow)}</ul>
         {routes.length ? null : (
           <p className="px-3 py-2 text-xs text-muted-foreground">No pages yet.</p>
         )}
       </div>
+      )}
       {/* #501: the trash, LAST and only when non-empty. A trashed page renders
           nowhere else, so this is the one place it can be brought back. */}
       {trash.length ? (
@@ -847,8 +904,8 @@ function PageName({
   )
 }
 
-/// The rename box: a plain `<input>`, never a Base UI field. Commits on Enter or
-/// blur, reverts on Escape.
+/// The rename box: the app's `Input`, like every other text field in the
+/// panel. Commits on Enter or blur, reverts on Escape.
 ///
 /// It holds the LABEL only, never the resolved name: an empty box means "no
 /// label", so clearing it is how a label is removed — the page's own title
@@ -891,8 +948,8 @@ function LabelInput({
   }
 
   return (
-    <input
-      className="min-w-0 flex-1 rounded border bg-transparent px-1 py-0.5 text-sm"
+    <Input
+      className="h-7 min-w-0 flex-1 px-1.5"
       aria-label={`Label for ${route}`}
       placeholder={name}
       value={draft}

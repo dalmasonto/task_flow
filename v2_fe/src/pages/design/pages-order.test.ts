@@ -8,6 +8,7 @@ import {
   removeGroup,
 } from "@/lib/design-layout"
 import {
+  filterSections,
   groupedPages,
   numberedPages,
   selectAllState,
@@ -719,5 +720,58 @@ describe("selectGroupState", () => {
     expect(state.allOpen).toBe(false)
     expect(state.label).toBe("Select group")
     expect(state.next).toEqual(["/login"])
+  })
+})
+
+describe("filterSections", () => {
+  const sections: GroupedPages = {
+    groups: [
+      { id: "g1", name: "Auth", pages: [{ route: "/login", n: 1 }, { route: "/signup", n: 2 }] },
+      { id: "g2", name: "Setup", pages: [{ route: "/setup-level", n: 1 }] },
+    ],
+    ungrouped: [{ route: "/", n: 1 }, { route: "/settings", n: 2 }],
+  }
+  const names: Record<string, string> = {
+    "/login": "Sign in",
+    "/signup": "Create account",
+    "/setup-level": "Your level",
+    "/": "Home",
+    "/settings": "Settings",
+  }
+  const nameFor = (route: string) => names[route] ?? route
+
+  it("returns the sections themselves for a blank query", () => {
+    expect(filterSections(sections, "", nameFor)).toBe(sections)
+    expect(filterSections(sections, "   ", nameFor)).toBe(sections)
+  })
+
+  it("matches the drawn name, case-insensitively, and drops groups left empty", () => {
+    const out = filterSections(sections, "SIGN", nameFor)
+    // "Sign in" by name; "/signup" by its route.
+    expect(out.groups).toEqual([
+      { id: "g1", name: "Auth", pages: [{ route: "/login", n: 1 }, { route: "/signup", n: 2 }] },
+    ])
+    expect(out.ungrouped).toEqual([])
+  })
+
+  it("matches the route, and keeps each row's own number", () => {
+    const out = filterSections(sections, "settings", nameFor)
+    expect(out.groups).toEqual([])
+    expect(out.ungrouped).toEqual([{ route: "/settings", n: 2 }])
+  })
+
+  it("lists a whole group when its name is typed", () => {
+    const out = filterSections(sections, "setup", nameFor)
+    expect(out.groups.map((g) => g.id)).toEqual(["g2"])
+    expect(out.groups[0].pages).toEqual([{ route: "/setup-level", n: 1 }])
+  })
+
+  it("needs every word, across name, route and group", () => {
+    expect(filterSections(sections, "auth account", nameFor).groups[0].pages).toEqual([
+      { route: "/signup", n: 2 },
+    ])
+    const none = filterSections(sections, "auth settings", nameFor)
+    expect(none.groups).toEqual([])
+    expect(none.ungrouped).toEqual([])
   })
 })

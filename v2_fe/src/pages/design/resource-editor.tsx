@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import {
   fetchDesignResources,
   putDesignResources,
@@ -152,12 +154,12 @@ function PasteForm({ onPaste }: { onPaste: (text: string) => PasteOutcome }) {
         setText("")
       }}
     >
-      <textarea
+      <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={2}
         placeholder="Paste <link> or <script> tags here"
-        className="w-full rounded border bg-transparent px-1 py-0.5 font-mono text-[10px]"
+        className="min-h-14 px-1.5 py-1 font-mono text-xs md:text-xs"
       />
       <div className="flex items-center gap-1.5">
         <button
@@ -401,7 +403,7 @@ export function ResourceEditor({
               handleAddSet()
             }}
           >
-            <input
+            <Input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="e.g. Inter (Google Fonts)"
@@ -412,7 +414,7 @@ export function ResourceEditor({
               // url, a hex, a size or pasted markup stays mono (the links above,
               // the paste box, and every value site in the token editor); a NAME
               // does not, here or there.
-              className="h-6 w-44 rounded border bg-transparent px-1 text-[10px]"
+              className="h-7 px-1.5 text-xs md:text-xs w-44"
             />
             <button
               type="submit"

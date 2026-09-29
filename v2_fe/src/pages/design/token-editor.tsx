@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   fetchDesignTokens,
   putDesignTokens,
@@ -100,11 +101,11 @@ function ValueField({
           onChange={(e) => onChange(e.target.value)}
           className="h-6 w-6 cursor-pointer rounded border border-black/10 p-0"
         />
-        <input
+        <Input
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="h-6 w-24 rounded border bg-transparent px-1 font-mono text-[10px]"
+          className="h-7 px-1.5 text-xs md:text-xs w-24 font-mono"
         />
       </div>
     )
@@ -114,31 +115,31 @@ function ValueField({
   if (parsed) {
     return (
       <div className="flex items-center gap-0.5">
-        <input
+        <Input
           type="number"
           value={parsed.num}
           onChange={(e) => {
             const n = Number(e.target.value)
             if (Number.isFinite(n)) onChange(formatSizeValue(n, parsed.unit))
           }}
-          className="h-6 w-14 rounded border bg-transparent px-1 font-mono text-[10px]"
+          className="h-7 px-1.5 text-xs md:text-xs w-16 font-mono"
         />
-        <input
+        <Input
           value={parsed.unit}
           placeholder="unit"
           onChange={(e) => onChange(formatSizeValue(parsed.num, e.target.value))}
-          className="h-6 w-10 rounded border bg-transparent px-1 font-mono text-[10px]"
+          className="h-7 px-1.5 text-xs md:text-xs w-12 font-mono"
         />
       </div>
     )
   }
 
   return (
-    <input
+    <Input
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="h-6 w-40 rounded border bg-transparent px-1 font-mono text-[10px]"
+      className="h-7 px-1.5 text-xs md:text-xs w-40 font-mono"
     />
   )
 }
@@ -161,11 +162,11 @@ function AddTokenForm({ onAdd }: { onAdd: (key: string) => void }) {
         }
       }}
     >
-      <input
+      <Input
         value={key}
         onChange={(e) => setKey(e.target.value)}
         placeholder="new-token-name"
-        className="h-6 w-32 rounded border bg-transparent px-1 text-[11px]"
+        className="h-7 px-1.5 text-xs md:text-xs w-32"
       />
       <button type="submit" className="rounded bg-muted px-1.5 py-0.5 text-[10px] hover:bg-muted/70">
         + Add
@@ -407,12 +408,12 @@ export function TokenEditor({
           the two buttons already take most of a row, and a filter box squeezed
           between them reads as a third button. */}
       <div className="px-3 pt-2">
-        <input
+        <Input
+          type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search tokens…"
           aria-label="Search tokens"
-          className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] placeholder:text-muted-foreground"
         />
       </div>
       <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-1">

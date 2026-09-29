@@ -287,3 +287,36 @@ export function selectGroupState(
       .map((entry) => entry.path),
   }
 }
+
+/// The Pages tab's search: the same sections, narrowed to the pages the query
+/// matches. The query is split on whitespace and EVERY word must appear
+/// (case-insensitively) somewhere in the page's name, its route, or the name of
+/// the group it is listed under — so "auth login" finds `/login` in the Auth
+/// group, and typing a group's name lists that whole group.
+///
+/// A narrowing only: rows keep the numbers `groupedPages` gave them, because
+/// the number is the page's place in its section and a search does not move
+/// anything. A group with no matching page is left out while searching (an
+/// empty heading under a query reads as "this group matched"), and a blank
+/// query returns `sections` itself.
+///
+/// `nameFor` is the panel's own resolver (`pageLabel` with the title fallback),
+/// passed in so the search matches exactly the name the row draws.
+export function filterSections(
+  sections: GroupedPages,
+  query: string,
+  nameFor: (route: string) => string,
+): GroupedPages {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return sections
+  const matches = (page: NumberedPage, group = "") => {
+    const text = `${nameFor(page.route)} ${page.route} ${group}`.toLowerCase()
+    return words.every((word) => text.includes(word))
+  }
+  return {
+    groups: sections.groups
+      .map((group) => ({ ...group, pages: group.pages.filter((page) => matches(page, group.name)) }))
+      .filter((group) => group.pages.length > 0),
+    ungrouped: sections.ungrouped.filter((page) => matches(page)),
+  }
+}

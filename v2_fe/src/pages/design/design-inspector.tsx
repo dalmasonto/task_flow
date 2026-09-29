@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import { boardContentOrigin, deviceById, type Artboard } from "@/lib/design-devices"
 import {
   type DesignComment,
@@ -405,7 +406,7 @@ function CommentForm({
       </div>
 
       <div className="mx-3 mt-3 flex flex-col gap-2">
-        <textarea
+        <Textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => {
@@ -420,7 +421,7 @@ function CommentForm({
               : "What should change here?"
           }
           rows={4}
-          className="w-full resize-none rounded-lg border bg-transparent p-2 text-sm outline-none focus:ring-1 focus:ring-accent"
+          className="field-sizing-fixed resize-none"
         />
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
         <div className="flex items-center justify-between">
