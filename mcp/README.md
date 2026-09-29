@@ -286,7 +286,8 @@ profile for that one call (e.g. `reviewer` for `report_review`).
 | `design_read_page`, `design_write_page`, `design_delete_page` | Design pages (delete moves to the trash). |
 | `design_read_layout`, `design_create_group`, `design_update_group`, `design_reorder_group`, `design_reorder_page`, `design_delete_group`, `design_arrange` | How design pages are grouped and ordered. |
 | `design_write_asset` | Write an image or other non-page asset. |
-| `design_screenshot` | Render a route in headless Chromium and return a PNG. |
+| `design_screenshot` | Render a route in headless Chromium and return a PNG: any preset or custom size, full page, `theme` light/dark/both, a device or classic `frame`, and unsaved `tokens`/`css` overrides. Reports fonts or images that did not load. |
+| `design_compare` | Render routes × unsaved design variants × light/dark as one labelled grid, with WCAG contrast `checks` and, per variant, the `design_write_tokens` payload that would apply it. Nothing is written. |
 | `design_list_comments`, `design_resolve_comment` | Operator comments on the rendered design. |
 
 ## Troubleshooting
