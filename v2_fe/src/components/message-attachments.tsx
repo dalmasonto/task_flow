@@ -24,7 +24,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { ChatDockContext, TaskChipContext } from "@/lib/markdown-contexts"
 import { handOffFromPreview, previewLayer } from "@/lib/preview-ref-handoff"
 import { cn } from "@/lib/utils"
-import { clampZoom, fitScale, stepZoom, zoomLimits, type ZoomKind } from "@/lib/preview-zoom"
+import { IMAGE_START_ZOOM, clampZoom, stepZoom, zoomLimits, type ZoomKind } from "@/lib/preview-zoom"
 import {
   formatBytes,
   getAttachmentKind,
@@ -404,7 +404,6 @@ export function AttachmentPreviewDialog({
   const [zoomState, setZoomState] = React.useState<{ id: string; value: number } | null>(
     null
   )
-  const [fitState, setFitState] = React.useState<{ id: string; value: number } | null>(null)
   const previewRef = React.useRef<HTMLDivElement>(null)
   // Set once a chip in here has opened something that must sit in front. The
   // preview stays OPEN and steps behind instead — closing it would lose the
@@ -422,11 +421,9 @@ export function AttachmentPreviewDialog({
   const canZoom = zoomKind !== null
   const canNavigate = attachments.length > 1
   const zoomKey = active?.id ?? ""
-  // An image opens at its FIT scale (whole image, aspect kept, reported by
-  // `ImagePreview` once it knows the image and the stage); a zoom the user
-  // picked overrides it until the attachment changes or Fit is pressed.
-  const fit = fitState?.id === zoomKey ? fitState.value : null
-  const zoom = zoomState?.id === zoomKey ? zoomState.value : zoomKind === "image" ? (fit ?? 1) : 1
+  // An image opens at a fixed 50%, a PDF at 100%; a zoom the user picked
+  // holds until the attachment changes or the reset button is pressed.
+  const zoom = zoomState?.id === zoomKey ? zoomState.value : zoomKind === "image" ? IMAGE_START_ZOOM : 1
 
   if (!active) return null
 
@@ -557,7 +554,7 @@ export function AttachmentPreviewDialog({
                   type="button"
                   variant="outline"
                   size="icon-sm"
-                  className="absolute top-1/2 left-2 z-10 hidden -translate-y-1/2 rounded-full bg-background/90 shadow-lg sm:inline-flex"
+                  className="absolute top-[calc(50%-0.875rem)] left-2 z-10 hidden rounded-full bg-background/90 shadow-lg sm:inline-flex"
                   onClick={() => goTo(-1)}
                 >
                   <ChevronLeftIcon />
@@ -567,7 +564,7 @@ export function AttachmentPreviewDialog({
                   type="button"
                   variant="outline"
                   size="icon-sm"
-                  className="absolute top-1/2 right-2 z-10 hidden -translate-y-1/2 rounded-full bg-background/90 shadow-lg sm:inline-flex"
+                  className="absolute top-[calc(50%-0.875rem)] right-2 z-10 hidden rounded-full bg-background/90 shadow-lg sm:inline-flex"
                   onClick={() => goTo(1)}
                 >
                   <ChevronRightIcon />
@@ -576,18 +573,7 @@ export function AttachmentPreviewDialog({
               </>
             ) : null}
 
-            <AttachmentPreviewContent
-              attachment={active}
-              zoom={zoom}
-              // Returning `prev` when nothing changed matters: this callback is
-              // new every render, so ImagePreview's effect re-reports each
-              // time, and a fresh object would re-render forever.
-              onFit={(value) =>
-                setFitState((prev) =>
-                  prev?.id === active.id && prev.value === value ? prev : { id: active.id, value },
-                )
-              }
-            />
+            <AttachmentPreviewContent attachment={active} zoom={zoom} />
 
             {canZoom ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3 sm:hidden">
@@ -624,12 +610,9 @@ export function AttachmentPreviewDialog({
 function AttachmentPreviewContent({
   attachment,
   zoom,
-  onFit,
 }: {
   attachment: MessageAttachmentItem
   zoom: number
-  /** An image's fit-to-stage scale, once known. */
-  onFit?: (scale: number) => void
 }) {
   const kind = kindOf(attachment)
 
@@ -637,7 +620,7 @@ function AttachmentPreviewContent({
     return <GenericFilePreview attachment={attachment} kind={kind} pending />
   }
 
-  if (kind === "image") return <ImagePreview attachment={attachment} zoom={zoom} onFit={onFit} />
+  if (kind === "image") return <ImagePreview attachment={attachment} zoom={zoom} />
 
   if (kind === "pdf") return <PdfPreview attachment={attachment} zoom={zoom} />
   if (kind === "spreadsheet") return <SpreadsheetPreview attachment={attachment} />
@@ -688,48 +671,16 @@ function AttachmentPreviewContent({
   return <GenericFilePreview attachment={attachment} kind={kind} />
 }
 
-/// Popup image view. `zoom` is the scale against the image's NATURAL size, and
-/// the dialog opens it at the fit scale this component reports through
-/// `onFit`: the whole image inside the padded stage, its own aspect ratio,
-/// never enlarged past 100%. Width and height are both set from the natural
-/// size × zoom, so the picture can never be stretched. Zoomed past the stage,
-/// the container scrolls in both axes; `m-auto` centers a smaller image and
-/// collapses so scrolling reaches every edge of a larger one.
-function ImagePreview({
-  attachment,
-  zoom,
-  onFit,
-}: {
-  attachment: MessageAttachmentItem
-  zoom: number
-  onFit?: (scale: number) => void
-}) {
+/// Popup image view. `zoom` is the scale against the image's NATURAL size; the
+/// dialog opens images at a fixed 50%. Width and height are both set from the
+/// natural size × zoom, so the picture keeps its own aspect ratio. Nothing
+/// here measures the stage: a size derived from the stage changed as the
+/// image's scrollbars came and went, which made the picture jump. Past the
+/// stage the container scrolls in both axes; `m-auto` centers a smaller image
+/// and collapses so scrolling reaches every edge of a larger one.
+function ImagePreview({ attachment, zoom }: { attachment: MessageAttachmentItem; zoom: number }) {
   const [natural, setNatural] = React.useState<{ w: number; h: number } | null>(null)
-  const [box, setBox] = React.useState<{ w: number; h: number } | null>(null)
   const [failed, setFailed] = React.useState(false)
-  const stageRef = React.useRef<HTMLDivElement>(null)
-
-  // The stage's content box (inside its padding), kept current as the dialog
-  // resizes or goes fullscreen.
-  React.useEffect(() => {
-    const stage = stageRef.current
-    if (!stage) return
-    const measure = () => {
-      const style = getComputedStyle(stage)
-      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-      const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
-      setBox({ w: stage.clientWidth - padX, h: stage.clientHeight - padY })
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(stage)
-    return () => observer.disconnect()
-  }, [])
-
-  const fit = natural && box ? fitScale(natural, box) : null
-  React.useEffect(() => {
-    if (fit !== null) onFit?.(fit)
-  }, [fit, onFit])
 
   if (failed) {
     return (
@@ -743,10 +694,7 @@ function ImagePreview({
   }
 
   return (
-    <div
-      ref={stageRef}
-      className="flex h-full min-h-0 w-full overflow-auto p-6 overscroll-contain [touch-action:pan-x_pan-y] sm:p-12"
-    >
+    <div className="flex h-full min-h-0 w-full overflow-auto p-6 overscroll-contain [scrollbar-gutter:stable_both-edges] [touch-action:pan-x_pan-y] sm:p-12">
       <img
         src={attachment.url}
         alt={attachment.name}
@@ -755,11 +703,10 @@ function ImagePreview({
         }
         onError={() => setFailed(true)}
         style={
-          natural && fit !== null
+          natural
             ? { width: natural.w * zoom, height: natural.h * zoom }
-            : // Until the fit is known, keep the image inside the stage and
-              // invisible, so it never flashes at full size.
-              { maxWidth: "100%", maxHeight: "100%", opacity: 0 }
+            : // Hidden until its size is known, so it never shows at full size first.
+              { opacity: 0 }
         }
         className="m-auto block max-w-none shrink-0 rounded-xl shadow-2xl"
       />
@@ -798,11 +745,11 @@ function PreviewZoomControls({
         variant="outline"
         size="icon-sm"
         className="h-9 min-w-10 rounded-lg"
-        title={kind === "image" ? "Fit to window" : "Reset zoom"}
+        title="Reset zoom"
         onClick={onReset}
       >
         <RotateCcwIcon />
-        <span className="sr-only">{kind === "image" ? "Fit to window" : "Reset zoom"}</span>
+        <span className="sr-only">Reset zoom</span>
       </Button>
       <span className="flex min-w-14 items-center justify-center px-1 text-[11px] font-medium text-muted-foreground">
         {Math.round(zoom * 100)}%
