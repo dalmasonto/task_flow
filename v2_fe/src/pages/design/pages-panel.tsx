@@ -107,6 +107,7 @@ import { ChevronDownIcon, ChevronUpIcon, RotateCcwIcon, SearchIcon, Trash2Icon, 
 import { useId, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogClose,
@@ -165,6 +166,12 @@ const UNGROUPED = "__ungrouped__"
 /// another section.
 const SECTION_HEADING =
   "px-3 pt-2.5 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+
+/// The panel's three open/close boxes (row, group, bulk): 18px, a step up from
+/// the ui component's 16px, because they are clicked all day. The `after:` box
+/// widens the HIT area by 4px on each side without taking layout space, so the
+/// dense rows keep their spacing.
+const PANEL_CHECKBOX = "relative size-4.5 after:absolute after:-inset-1"
 
 export function PagesPanel({
   manifest,
@@ -373,12 +380,11 @@ export function PagesPanel({
             the row. The move controls are buttons of their own for the same
             reason — a handler on the row would have made the checkbox and the
             arrows reach one another. */}
-        <input
-          type="checkbox"
-          className="size-3.5 shrink-0 accent-foreground"
+        <Checkbox
+          className={PANEL_CHECKBOX}
           aria-label={`Show ${page.route} on the canvas`}
           checked={open}
-          onChange={() => onToggleRoute(page.route)}
+          onCheckedChange={() => onToggleRoute(page.route)}
         />
         {/* The page's number: its place in the SECTION it is under, which is the
             group above it or the ungrouped heading. `pages-order.ts` decides
@@ -513,12 +519,11 @@ export function PagesPanel({
               forwarding clicks. */}
           {section.pages.length ? (
             <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-              <input
-                type="checkbox"
-                className="size-3.5 shrink-0 accent-foreground"
+              <Checkbox
+                className={PANEL_CHECKBOX}
                 aria-label={`${select.label} ${section.name}`}
                 checked={select.allOpen}
-                onChange={() => onOpenRoutesChange(select.next)}
+                onCheckedChange={() => onOpenRoutesChange(select.next)}
               />
               {select.label}
             </span>
@@ -604,11 +609,10 @@ export function PagesPanel({
           worse than nothing. */}
       {routes.length ? (
         <label className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            className="size-3.5 shrink-0 accent-foreground"
+          <Checkbox
+            className={PANEL_CHECKBOX}
             checked={bulk.allOpen}
-            onChange={() => onOpenRoutesChange(bulk.next)}
+            onCheckedChange={() => onOpenRoutesChange(bulk.next)}
           />
           {bulk.label}
         </label>
