@@ -151,21 +151,15 @@ const control = (body: string, label: string) => {
 /// `Label for <route>`, `Group for <route>`), never on a class string, and the
 /// select's own route comes back with its label, so a select that drifted onto
 /// the wrong row fails rather than passing quietly.
-/// Where each checkbox starts. The panel's boxes are the ui `Checkbox` (Base
-/// UI): a `<span role="checkbox" aria-checked="true|false" aria-label=…>` root
-/// followed by a hidden `<input>`, so the root span is the anchor.
-const CHECKBOX_SPLIT = /<span(?=[^>]*role="checkbox")/
-
 const rows = (html: string) =>
   html
-    .split(CHECKBOX_SPLIT)
+    .split(/<input/)
     .slice(1)
     .flatMap((chunk) => {
-      // The split consumed only `<span`, so the chunk STARTS with the
-      // checkbox root's own attributes (`role="checkbox"`, `aria-checked`,
-      // `aria-label`). The next checkbox — another row's, or a group header's,
-      // which carries no `Show …` label and is dropped a line below — is what
-      // bounds a row from the right.
+      // The split consumed the opening tag, so the chunk STARTS with the
+      // checkbox's own attributes. (`<input` also opens each Select's hidden
+      // input, which is what bounds a row from the right — it carries no
+      // `Show …` label and is dropped a line below.)
       const box = /^([^>]*)>/.exec(chunk)?.[1] ?? ""
       const route = /aria-label="Show ([^"]*) on the canvas"/.exec(box)?.[1]
       // The bulk control is a checkbox too, and it is not a row.
@@ -176,7 +170,7 @@ const rows = (html: string) =>
       return [
         {
           route,
-          open: box.includes('aria-checked="true"'),
+          open: box.includes("checked"),
           n: number?.[1] ?? null,
           name: name?.[2] ?? null,
           group: { route: group?.[1] ?? null, label: group?.[2] ?? null },
@@ -214,12 +208,10 @@ const headerOf = (html: string, heading: string) => {
 const groupSelect = (header: string | null, name: string) => {
   if (header === null) return null
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  // The box is Base UI's: a `<span role="checkbox" aria-checked=…>` carrying
-  // the label, then a hidden `<input>`, then the word.
   const match = new RegExp(
-    `<span([^>]*role="checkbox"[^>]*aria-label="(?:Select group|Deselect) ${escaped}"[^>]*)>[\\s\\S]*?<input[^>]*>([^<]*)`,
+    `<input[^>]*aria-label="(?:Select group|Deselect) ${escaped}"([^>]*)>([^<]*)`,
   ).exec(header)
-  return match === null ? null : { label: match[2], checked: match[1].includes('aria-checked="true"') }
+  return match === null ? null : { label: match[2], checked: match[1].includes("checked") }
 }
 
 /// The panel's GROUPS as drawn, in document order: each group's numbered name,
@@ -260,8 +252,8 @@ const ungroupedRows = (html: string) => {
 /// the bulk control, whose word IS its label. The dialog's field is a `<label>`
 /// too, but it lives in a portal the server never renders.
 const bulk = (html: string) => {
-  const match = /<label[^>]*><span([^>]*role="checkbox"[^>]*)>[\s\S]*?<input[^>]*>([^<]*)<\/label>/.exec(html)
-  return match ? { checked: match[1].includes('aria-checked="true"'), label: match[2] } : null
+  const match = /<label[^>]*><input([^>]*)>([^<]*)<\/label>/.exec(html)
+  return match ? { checked: match[1].includes("checked"), label: match[2] } : null
 }
 
 /// The left inset a class list asks for, in px — the one `pl-*` / `px-*` step
@@ -314,7 +306,7 @@ const nesting = (html: string) => {
 /// different label (`Move group …`) and so cannot be picked up by this one.
 const moves = (html: string) =>
   html
-    .split(CHECKBOX_SPLIT)
+    .split(/<input/)
     .slice(1)
     .flatMap((chunk) => {
       const route = /aria-label="Show ([^"]*) on the canvas"/.exec(chunk)?.[1]
@@ -873,15 +865,15 @@ describe("every open/close box writes through the setter that owns the state", (
   })
 
   it("the row's box toggles its own route", () => {
-    expect(source).toContain("onCheckedChange={() => onToggleRoute(page.route)}")
+    expect(source).toContain("onChange={() => onToggleRoute(page.route)}")
   })
 
   it("a group's box writes the list the group's own helper returns", () => {
-    expect(source).toContain("onCheckedChange={() => onOpenRoutesChange(select.next)}")
+    expect(source).toContain("onChange={() => onOpenRoutesChange(select.next)}")
   })
 
   it("the global box writes the list the global helper returns", () => {
-    expect(source).toContain("onCheckedChange={() => onOpenRoutesChange(bulk.next)}")
+    expect(source).toContain("onChange={() => onOpenRoutesChange(bulk.next)}")
   })
 })
 

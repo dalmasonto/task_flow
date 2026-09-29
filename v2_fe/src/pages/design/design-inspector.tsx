@@ -9,7 +9,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { boardContentOrigin, deviceById, type Artboard } from "@/lib/design-devices"
 import {
@@ -550,10 +549,10 @@ export function CommentsListSection({
             <div key={c.id} className="rounded-lg border p-2 text-xs">
               <div className="flex items-center gap-1.5">
                 {c.status === "open" ? (
-                  <Checkbox
-                    className="relative size-4.5 after:absolute after:-inset-1"
+                  <input
+                    type="checkbox"
                     checked={selectedIds.includes(c.id)}
-                    onCheckedChange={() => toggle(c.id)}
+                    onChange={() => toggle(c.id)}
                     title="Select for dispatch"
                   />
                 ) : null}

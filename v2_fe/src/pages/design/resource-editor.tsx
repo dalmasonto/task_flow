@@ -22,7 +22,6 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import {
@@ -202,10 +201,10 @@ function SetRow({
   return (
     <div className="border-b px-3 py-2 last:border-b-0">
       <div className="flex items-center gap-1.5">
-        <Checkbox
-          className="relative size-4.5 after:absolute after:-inset-1"
+        <input
+          type="checkbox"
           checked={set.enabled}
-          onCheckedChange={onToggle}
+          onChange={onToggle}
           title={
             set.enabled
               ? "Enabled — every page loads these links"
