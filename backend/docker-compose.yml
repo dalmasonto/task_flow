@@ -67,6 +67,11 @@ services:
         ENV_FILE: .prod.env
     image: taskflow-backend:latest
     command: ["serve"]
+    environment:
+      # The host Caddy is the one reverse proxy in front of :10002, so the real
+      # client IP is the last X-Forwarded-For entry. With 0 every anonymous
+      # caller shares one throttle bucket. A real env var beats the baked .env.
+      UMBRAL_TRUSTED_PROXY_HOPS: "1"
     depends_on:
       postgres:
         condition: service_healthy
