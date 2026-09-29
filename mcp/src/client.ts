@@ -46,6 +46,7 @@ export type DesignScreenshotOptions = {
   mobile?: boolean;
   full_page?: boolean;
   frame?: "none" | "classic" | "device";
+  theme?: "light" | "dark" | "both";
 };
 
 export class TaskflowApiError extends Error {
@@ -684,6 +685,7 @@ export class TaskflowClient {
     viewport: string
     size?: { width: number; height: number; dpr: number; mobile: boolean }
     frame?: string
+    theme?: string
     full_page?: boolean
     warnings?: string[]
     mime: string

@@ -1630,6 +1630,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       "Size: a preset `viewport`, or a custom `width`+`height` (CSS px, 200–4000) with optional `dpr` (1–4). " +
       "`full_page: true` captures the whole scrollable page, not one screen. " +
       "`frame` dresses the shot like the Design Surface export: 'device' (a realistic device frame with status bar), 'classic' (the simple black bezel) or 'none' (default) — use a frame when the picture is for your human. " +
+      "`theme`: 'light' (default), 'dark', or 'both' (light and dark side by side in one image) — check dark whenever you touch colour. " +
       "`state='dialog:confirm-delete'` opens that overlay first. The reply lists WARNINGS for any font, image or stylesheet that did not load: fix or mention them, do not ignore them.",
     {
       route: z.string().min(1).describe("Route path to render, e.g. '/settings'."),
@@ -1644,11 +1645,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       mobile: z.boolean().optional().describe("Force mobile emulation on/off (default: on for phones/tablets and custom widths up to 1024)."),
       full_page: z.boolean().optional().describe("Capture the whole scrollable page."),
       frame: z.enum(["none", "classic", "device"]).optional().describe("How to dress the shot (default none)."),
+      theme: z.enum(["light", "dark", "both"]).optional().describe("Render light (default), dark, or both side by side."),
       state: z.string().optional().describe("Overlay state to open on load, e.g. 'dialog:confirm-delete'."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, state, project, profile }) => {
+    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, state, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -1661,12 +1663,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           mobile,
           full_page,
           frame,
+          theme,
         });
         if (!shot.png_base64) throw new Error("Renderer returned no image.");
         const size = shot.size
           ? ` (${shot.size.width}×${shot.size.height} @${shot.size.dpr}x${shot.size.mobile ? ", mobile" : ""})`
           : "";
         const dress = shot.frame && shot.frame !== "none" ? `, ${shot.frame} frame` : "";
+        const shade =
+          shot.theme === "both" ? ", light (left) and dark (right)" : shot.theme === "dark" ? ", dark" : "";
         const warnings = shot.warnings?.length
           ? `\n\nWARNINGS — the picture differs from a real browser here:\n${shot.warnings.map((w) => `- ${w}`).join("\n")}`
           : "";
@@ -1680,7 +1685,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             {
               type: "text",
               text:
-                `Screenshot of ${shot.route} at ${shot.viewport}${size}${shot.full_page ? ", full page" : ""}${dress}. ` +
+                `Screenshot of ${shot.route} at ${shot.viewport}${size}${shade}${shot.full_page ? ", full page" : ""}${dress}. ` +
                 `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}`,
             },
           ],

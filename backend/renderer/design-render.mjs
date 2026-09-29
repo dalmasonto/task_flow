@@ -4,7 +4,7 @@
 /// Contract (see backend/plugins/taskflow-design/src/screenshots.rs):
 ///   design-render.mjs --url <url> --width W --height H --dpr D --timeout-ms T --out <png>
 ///                     [--mobile 1] [--full-page 1] [--frame none|classic|device]
-///                     [--device <preset id>]
+///                     [--device <preset id>] [--theme light|dark|both]
 ///
 /// Renders agent-authored HTML in a disposable headless Chromium, writes a PNG
 /// to --out, and writes `<out>.json` = { warnings: [...] }: every font, image or
@@ -33,7 +33,7 @@ import { isIP } from "node:net";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { frameCapture, framedCaptureHeight } from "./frames.mjs";
+import { frameCapture, framedCaptureHeight, sideBySide } from "./frames.mjs";
 
 const args = {};
 const argv = process.argv.slice(2);
@@ -49,6 +49,7 @@ const mobile = args.mobile === "1";
 const fullPage = args["full-page"] === "1";
 const frame = args.frame ?? "none";
 const device = args.device ?? "";
+const theme = ["dark", "both"].includes(args.theme) ? args.theme : "light";
 const out = args.out;
 /// A device-framed screen is captured at the frame screen's own proportions
 /// (the UI export's `captureViewport`), so its cover fit crops nothing.
@@ -133,6 +134,145 @@ const warnUrl = (url, message) => {
 /// a failed analytics beacon is not the agent's problem.
 const VISUAL = new Set(["image", "font", "stylesheet", "media"]);
 
+/// One capture of the page in one theme: load, wait for the ready signal,
+/// capture (the whole page, if asked), then dress it in the frame.
+async function shoot(browser, pageTheme, remaining) {
+  const page = await browser.newPage();
+  try {
+    if (mobile) await page.setUserAgent(mobileUserAgent());
+    await page.setViewport({ width, height, deviceScaleFactor: dpr, isMobile: mobile, hasTouch: mobile });
+    // The composer renders `data-theme` from `?theme=` (so the first paint is
+    // already in the theme); the media query is for anything that listens to
+    // `prefers-color-scheme` instead.
+    await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: pageTheme }]);
+    const pageUrl = new URL(url);
+    if (pageUrl.origin === target.origin) pageUrl.searchParams.set("theme", pageTheme);
+
+    await page.setRequestInterception(true);
+    page.on("request", async (req) => {
+      let u;
+      try {
+        u = new URL(req.url());
+      } catch {
+        return req.abort().catch(() => {});
+      }
+      if (u.protocol === "data:" || u.protocol === "blob:" || u.origin === target.origin) {
+        return req.continue().catch(() => {});
+      }
+      const kind = req.resourceType();
+      if (u.protocol !== "https:") {
+        if (VISUAL.has(kind)) warnUrl(req.url(), "blocked (not https)");
+        return req.abort().catch(() => {});
+      }
+      if (!(await hostIsPublic(u.hostname))) {
+        if (VISUAL.has(kind)) warnUrl(req.url(), "blocked (private or unresolvable host)");
+        return req.abort().catch(() => {});
+      }
+      req.continue().catch(() => {});
+    });
+    page.on("requestfailed", (req) => {
+      if (VISUAL.has(req.resourceType()) && !req.url().startsWith("data:")) {
+        warnUrl(req.url(), `${req.resourceType()} failed to load (${req.failure()?.errorText ?? "failed"})`);
+      }
+    });
+    page.on("response", (res) => {
+      const kind = res.request().resourceType();
+      if (VISUAL.has(kind) && res.status() >= 400) warnUrl(res.url(), `${kind} returned HTTP ${res.status()}`);
+    });
+
+    try {
+      await page.goto(pageUrl.href, { waitUntil: "networkidle0", timeout: remaining() });
+    } catch (err) {
+      // A page that never went network-idle (a polling script, a slow CDN) is
+      // still worth a picture: capture what is there and say so.
+      if (!String(err?.message).includes("timeout")) throw err;
+      warn(`page did not finish loading in time; captured what had rendered`);
+    }
+
+    // The ready signal: webfonts settled, every image loaded or failed, every
+    // custom element upgraded, then two frames so layout and paint have caught
+    // up. Anything still pending at the deadline becomes a warning, not a hang.
+    const pending = await page
+      .evaluate(async (budget) => {
+        const late = [];
+        const within = (p, label) =>
+          Promise.race([p.then(() => null), new Promise((r) => setTimeout(() => r(label), budget))]);
+        const waits = [within(document.fonts.ready, "webfonts")];
+        for (const img of document.images) {
+          if (!img.complete) {
+            waits.push(
+              within(
+                new Promise((r) => {
+                  img.addEventListener("load", r, { once: true });
+                  img.addEventListener("error", r, { once: true });
+                }),
+                `image ${img.currentSrc || img.src}`,
+              ),
+            );
+          }
+        }
+        const undefinedTags = new Set([...document.querySelectorAll(":not(:defined)")].map((el) => el.localName));
+        for (const tag of undefinedTags) waits.push(within(customElements.whenDefined(tag), `<${tag}> never upgraded`));
+        for (const r of await Promise.all(waits)) if (r) late.push(r);
+        const broken = [...document.images]
+          .filter((img) => img.complete && img.naturalWidth === 0 && (img.currentSrc || img.src))
+          .map((img) => ({ url: img.currentSrc || img.src, message: "image did not render" }));
+        const fonts = [...document.fonts]
+          .filter((f) => f.status === "error")
+          .map((f) => `webfont failed: ${f.family}`);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        return { late: [...late.map((l) => `still loading at capture: ${l}`), ...fonts], broken };
+      }, remaining())
+      .catch(() => ({ late: [], broken: [] }));
+    pending.late.forEach(warn);
+    for (const { url: src, message } of pending.broken) warnUrl(src, message);
+
+    if (fullPage) await growToPage(page);
+    let png = Buffer.from(await page.screenshot({ type: "png" }));
+    if (frame !== "none") {
+      png = await frameCapture(browser, { png, frame, device, width, dpr, fullPage, mobile, warn });
+    }
+    return png;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+/// Full page: make the VIEWPORT as tall as the page, then take a normal
+/// screenshot. Capturing beyond a screen-sized viewport (Puppeteer's
+/// `fullPage`) leaves the layout thinking the screen is one screen tall, so a
+/// `sticky bottom-0` footer is drawn mid-page over the content and
+/// `min-h-screen` is sized against the first screen. Resizing can itself grow
+/// the page (anything sized in `vh`), so re-measure after each resize, up to
+/// three passes.
+async function growToPage(page) {
+  const measure = () =>
+    page.evaluate(async () => {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return Math.ceil((document.scrollingElement ?? document.documentElement).scrollHeight);
+    });
+  let viewportHeight = height;
+  let pageHeight = await measure();
+  for (let pass = 0; pass < 3 && pageHeight > viewportHeight && viewportHeight < MAX_FULL_PAGE_HEIGHT; pass++) {
+    viewportHeight = Math.min(pageHeight, MAX_FULL_PAGE_HEIGHT);
+    await page.setViewport({
+      width,
+      height: viewportHeight,
+      deviceScaleFactor: dpr,
+      isMobile: mobile,
+      hasTouch: mobile,
+    });
+    pageHeight = await measure();
+  }
+  if (pageHeight > viewportHeight) {
+    warn(
+      viewportHeight >= MAX_FULL_PAGE_HEIGHT
+        ? `full page cut at ${MAX_FULL_PAGE_HEIGHT}px of ${pageHeight}px`
+        : `page grows with the screen height (sized in vh?); captured ${viewportHeight}px of ${pageHeight}px`,
+    );
+  }
+}
+
 let browser;
 try {
   browser = await puppeteer.launch({
@@ -147,106 +287,12 @@ try {
       ...(process.env.DESIGN_RENDER_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
     ],
   });
-  const page = await browser.newPage();
-  if (mobile) await page.setUserAgent(mobileUserAgent());
-  await page.setViewport({ width, height, deviceScaleFactor: dpr, isMobile: mobile, hasTouch: mobile });
-
-  await page.setRequestInterception(true);
-  page.on("request", async (req) => {
-    let u;
-    try {
-      u = new URL(req.url());
-    } catch {
-      return req.abort().catch(() => {});
-    }
-    if (u.protocol === "data:" || u.protocol === "blob:" || u.origin === target.origin) {
-      return req.continue().catch(() => {});
-    }
-    const kind = req.resourceType();
-    if (u.protocol !== "https:") {
-      if (VISUAL.has(kind)) warnUrl(req.url(), "blocked (not https)");
-      return req.abort().catch(() => {});
-    }
-    if (!(await hostIsPublic(u.hostname))) {
-      if (VISUAL.has(kind)) warnUrl(req.url(), "blocked (private or unresolvable host)");
-      return req.abort().catch(() => {});
-    }
-    req.continue().catch(() => {});
-  });
-  page.on("requestfailed", (req) => {
-    if (VISUAL.has(req.resourceType()) && !req.url().startsWith("data:")) {
-      warnUrl(req.url(), `${req.resourceType()} failed to load (${req.failure()?.errorText ?? "failed"})`);
-    }
-  });
-  page.on("response", (res) => {
-    const kind = res.request().resourceType();
-    if (VISUAL.has(kind) && res.status() >= 400) warnUrl(res.url(), `${kind} returned HTTP ${res.status()}`);
-  });
-
   const started = Date.now();
   const remaining = () => Math.max(1000, timeoutMs - (Date.now() - started));
-  try {
-    await page.goto(url, { waitUntil: "networkidle0", timeout: timeoutMs });
-  } catch (err) {
-    // A page that never went network-idle (a polling script, a slow CDN) is
-    // still worth a picture: capture what is there and say so.
-    if (!String(err?.message).includes("timeout")) throw err;
-    warn(`page did not finish loading within ${timeoutMs} ms; captured what had rendered`);
-  }
-
-  // The ready signal: webfonts settled, every image loaded or failed, every
-  // custom element upgraded, then two frames so layout and paint have caught
-  // up. Anything still pending at the deadline becomes a warning, not a hang.
-  const pending = await page
-    .evaluate(async (budget) => {
-      const late = [];
-      const within = (p, label) =>
-        Promise.race([p.then(() => null), new Promise((r) => setTimeout(() => r(label), budget))]);
-      const waits = [within(document.fonts.ready, "webfonts")];
-      for (const img of document.images) {
-        if (!img.complete) {
-          waits.push(
-            within(
-              new Promise((r) => {
-                img.addEventListener("load", r, { once: true });
-                img.addEventListener("error", r, { once: true });
-              }),
-              `image ${img.currentSrc || img.src}`,
-            ),
-          );
-        }
-      }
-      const undefinedTags = new Set([...document.querySelectorAll(":not(:defined)")].map((el) => el.localName));
-      for (const tag of undefinedTags) waits.push(within(customElements.whenDefined(tag), `<${tag}> never upgraded`));
-      for (const r of await Promise.all(waits)) if (r) late.push(r);
-      const broken = [...document.images]
-        .filter((img) => img.complete && img.naturalWidth === 0 && (img.currentSrc || img.src))
-        .map((img) => ({ url: img.currentSrc || img.src, message: "image did not render" }));
-      const fonts = [...document.fonts]
-        .filter((f) => f.status === "error")
-        .map((f) => `webfont failed: ${f.family}`);
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      return { late: [...late.map((l) => `still loading at capture: ${l}`), ...fonts], broken };
-    }, remaining())
-    .catch(() => ({ late: [], broken: [] }));
-  pending.late.forEach(warn);
-  for (const { url: src, message } of pending.broken) warnUrl(src, message);
-
-  let png;
-  if (fullPage) {
-    const docHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-    const h = Math.min(Math.max(docHeight, height), MAX_FULL_PAGE_HEIGHT);
-    if (docHeight > MAX_FULL_PAGE_HEIGHT) {
-      warn(`full page cut at ${MAX_FULL_PAGE_HEIGHT}px of ${docHeight}px`);
-    }
-    png = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width, height: h }, captureBeyondViewport: true });
-  } else {
-    png = await page.screenshot({ type: "png" });
-  }
-
-  if (frame !== "none") {
-    png = await frameCapture(browser, { png, frame, device, width, dpr, fullPage, mobile, warn });
-  }
+  const themes = theme === "both" ? ["light", "dark"] : [theme];
+  const shots = [];
+  for (const t of themes) shots.push(await shoot(browser, t, remaining));
+  const png = shots.length === 1 ? shots[0] : await sideBySide(browser, shots, dpr);
 
   try { mkdirSync(dirname(resolve(out)), { recursive: true }); } catch {}
   writeFileSync(out, png);

@@ -172,7 +172,9 @@ pub struct CreateScreenshotInput {
     #[serde(default)]
     pub full_page: bool,
     #[serde(default)]
-    pub frame: crate::screenshots::Frame,
+    pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
+    #[serde(default)]
+    pub theme: crate::screenshots::Theme,
 }
 
 /// `POST /api/design/{project}/screenshots` — render a route at a viewport and
@@ -192,6 +194,7 @@ pub async fn create_screenshot(
         mobile: input.mobile,
         full_page: input.full_page,
         frame: input.frame,
+        theme: input.theme,
     };
     let shot = crate::screenshots::render_screenshot(
         &input.route,
@@ -1105,6 +1108,13 @@ async fn serve_sandbox_page(
         return Err(StatusCode::NOT_FOUND);
     };
     let state = query.and_then(extract_state_param);
+    // `?theme=dark` renders the page dark from the first byte, the same
+    // `data-theme` the canvas sets with `design:theme` after load — so a
+    // screenshot has no light first paint to catch. Anything else is light.
+    let theme = match query.and_then(|q| query_param(q, "theme")) {
+        Some("dark") => "dark",
+        _ => "light",
+    };
 
     let files = store::list_files(project_id).await;
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
@@ -1129,13 +1139,21 @@ async fn serve_sandbox_page(
         &page_path,
         &fragment.content,
         &file_versions(&files),
-        "light",
+        theme,
         state.as_deref(),
     );
 
     let mut response = html.into_response();
     apply_sandbox_headers(&mut response, token);
     Ok(response)
+}
+
+/// The raw value of `name` in a query string, if present.
+fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        (key == name).then_some(value)
+    })
 }
 
 /// `?v=` out of a raw query string — the revision a sandbox subresource URL

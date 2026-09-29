@@ -86,6 +86,28 @@ pub struct ScreenshotRequest {
     /// `none` (default), `classic` or `device` — the Design Surface export's
     /// three dresses.
     pub frame: Frame,
+    /// `light` (default), `dark`, or `both` (a light and a dark shot side by
+    /// side in one image).
+    pub theme: Theme,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    Light,
+    Dark,
+    Both,
+}
+
+impl Theme {
+    fn as_str(self) -> &'static str {
+        match self {
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+            Theme::Both => "both",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -242,6 +264,8 @@ pub async fn render_shot(
             req.frame.as_str(),
             "--device",
             &req.viewport,
+            "--theme",
+            req.theme.as_str(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -333,7 +357,13 @@ pub async fn render_screenshot(
     // §8.1: short timeout — a hung page must cost seconds, not minutes. A
     // frame or a full page is a second pass over the capture, so it gets a
     // few seconds more.
-    let budget = if req.full_page || req.frame != Frame::None { 25_000 } else { 20_000 };
+    let budget = if req.theme == Theme::Both {
+        40_000
+    } else if req.full_page || req.frame != Frame::None {
+        25_000
+    } else {
+        20_000
+    };
     render_shot(&program, &url, &viewport, req, budget).await
 }
 

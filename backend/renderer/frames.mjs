@@ -276,3 +276,42 @@ export function statusBarHtml(style, width, height, ink) {
   }
   return "";
 }
+
+/// Two or more captures in one image, left to right with a gap (24 CSS px at
+/// the capture's DPR), top-aligned, on a transparent background — theme
+/// "both": light on the left, dark on the right.
+export async function sideBySide(browser, pngs, dpr) {
+  const page = await browser.newPage();
+  try {
+    const shots = pngs.map((png) => `data:image/png;base64,${png.toString("base64")}`);
+    const dataUrl = await page.evaluate(
+      async ({ shots, gap }) => {
+        const images = await Promise.all(
+          shots.map(
+            (src) =>
+              new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error("Could not read a captured image."));
+                img.src = src;
+              }),
+          ),
+        );
+        const canvas = document.createElement("canvas");
+        canvas.width = images.reduce((w, img) => w + img.naturalWidth, 0) + gap * (images.length - 1);
+        canvas.height = Math.max(...images.map((img) => img.naturalHeight));
+        const ctx = canvas.getContext("2d");
+        let x = 0;
+        for (const img of images) {
+          ctx.drawImage(img, x, 0);
+          x += img.naturalWidth + gap;
+        }
+        return canvas.toDataURL("image/png");
+      },
+      { shots, gap: Math.round(24 * dpr) },
+    );
+    return Buffer.from(dataUrl.split(",")[1], "base64");
+  } finally {
+    await page.close().catch(() => {});
+  }
+}

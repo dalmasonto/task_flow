@@ -7,7 +7,8 @@
 //
 //   POST /render   form fields: url, width, height, dpr, timeout_ms, and
 //                  optionally mobile (0|1), full_page (0|1),
-//                  frame (none|classic|device), device (preset id)
+//                  frame (none|classic|device), device (preset id),
+//                  theme (light|dark|both)
 //                  → image/png, with X-Render-Warnings: a base64 JSON array
 //                    of what did not load (fonts, images…)
 //   GET  /health   → 200 "ok"
@@ -70,6 +71,8 @@ function parseShot(body) {
   const frame = f.get("frame") || "none";
   if (!["none", "classic", "device"].includes(frame)) return { error: "frame must be none, classic or device" };
   const device = f.get("device") ?? "";
+  const theme = f.get("theme") || "light";
+  if (!["light", "dark", "both"].includes(theme)) return { error: "theme must be light, dark or both" };
   if (!/^[a-z0-9-]{0,40}$/.test(device)) return { error: "device must be a preset id" };
   return {
     url: url.href,
@@ -81,6 +84,7 @@ function parseShot(body) {
     fullPage: f.get("full_page") === "1",
     frame,
     device,
+    theme,
   };
 }
 
@@ -103,6 +107,7 @@ function renderOnce(shot, signal) {
         "--full-page", shot.fullPage ? "1" : "0",
         "--frame", shot.frame,
         "--device", shot.device,
+        "--theme", shot.theme,
       ],
       { stdio: ["ignore", "ignore", "pipe"] },
     );

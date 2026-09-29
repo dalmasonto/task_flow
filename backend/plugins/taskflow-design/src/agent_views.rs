@@ -1482,7 +1482,9 @@ pub struct AgentScreenshotQuery {
     pub full_page: bool,
     /// `none` | `classic` | `device` — the export's three dresses.
     #[serde(default)]
-    pub frame: crate::screenshots::Frame,
+    pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
+    #[serde(default)]
+    pub theme: crate::screenshots::Theme,
 }
 
 fn default_viewport() -> String {
@@ -1506,6 +1508,7 @@ pub async fn screenshot(
         mobile: q.mobile,
         full_page: q.full_page,
         frame: q.frame,
+        theme: q.theme,
     };
     let shot = match crate::screenshots::render_screenshot(
         &q.route,
@@ -1544,8 +1547,10 @@ pub async fn screenshot(
     let b64 = base64::engine::general_purpose::STANDARD.encode(&shot.png);
     Ok(Json(json!({
         "route": q.route,
-        "viewport": q.viewport,
+        // A custom size is not the preset it was sent alongside.
+        "viewport": if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() },
         "size": shot.viewport,
+        "theme": q.theme,
         "full_page": q.full_page,
         "frame": q.frame,
         "warnings": shot.warnings,

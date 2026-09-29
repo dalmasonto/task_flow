@@ -157,3 +157,23 @@ async fn only_version_pinned_subresources_are_cacheable() {
         "the composed document must not be cached"
     );
 }
+
+/// `?theme=dark` renders the page dark from the first byte, which is what lets
+/// a screenshot of the dark theme have no light first paint. Anything else,
+/// including no theme at all, stays light.
+#[tokio::test(flavor = "multi_thread")]
+async fn theme_query_sets_the_documents_first_paint_theme() {
+    let app = TestApp::new().await;
+    let (_user, project_id) = seeded(&app).await;
+    let token = taskflow_design::sandbox::mint(project_id);
+
+    for (query, expected) in [("", "light"), ("?theme=dark", "dark"), ("?theme=both", "light"), ("?state=x&theme=dark", "dark")] {
+        let res = app.get_sandbox(&format!("/s/{token}/{query}")).await;
+        assert_eq!(res.status(), 200, "{query}: {}", res.text());
+        let html = res.text();
+        assert!(
+            html.contains(&format!("<html lang=\"en\" data-theme=\"{expected}\">")),
+            "{query}: expected data-theme={expected}"
+        );
+    }
+}
