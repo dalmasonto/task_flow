@@ -24,7 +24,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { ChatDockContext, TaskChipContext } from "@/lib/markdown-contexts"
 import { handOffFromPreview, previewLayer } from "@/lib/preview-ref-handoff"
 import { cn } from "@/lib/utils"
-import { IMAGE_START_ZOOM, clampZoom, stepZoom, zoomLimits, type ZoomKind } from "@/lib/preview-zoom"
+import { IMAGE_START_ZOOM, clampZoom, readImageZoom, stepZoom, writeImageZoom, zoomLimits, type ZoomKind } from "@/lib/preview-zoom"
 import {
   formatBytes,
   getAttachmentKind,
@@ -401,9 +401,12 @@ export function AttachmentPreviewDialog({
   onIndexChange: (index: number) => void
   onOpenChange: (open: boolean) => void
 }) {
+  // A PDF's zoom belongs to that file; an image's is the viewer's, carried
+  // from one image to the next and remembered for the next preview.
   const [zoomState, setZoomState] = React.useState<{ id: string; value: number } | null>(
     null
   )
+  const [imageZoom, setImageZoom] = React.useState(readImageZoom)
   const previewRef = React.useRef<HTMLDivElement>(null)
   // Set once a chip in here has opened something that must sit in front. The
   // preview stays OPEN and steps behind instead — closing it would lose the
@@ -421,19 +424,32 @@ export function AttachmentPreviewDialog({
   const canZoom = zoomKind !== null
   const canNavigate = attachments.length > 1
   const zoomKey = active?.id ?? ""
-  // An image opens at a fixed 50%, a PDF at 100%; a zoom the user picked
-  // holds until the attachment changes or the reset button is pressed.
-  const zoom = zoomState?.id === zoomKey ? zoomState.value : zoomKind === "image" ? IMAGE_START_ZOOM : 1
+  // Images: 50% the first time, then whatever the viewer last picked. PDFs:
+  // 100%, with a zoom that holds until the file changes.
+  const zoom =
+    zoomKind === "image" ? imageZoom : zoomState?.id === zoomKey ? zoomState.value : 1
 
   if (!active) return null
 
   function updateZoom(value: number | ((current: number) => number)) {
     if (!zoomKind) return
-    const next = typeof value === "function" ? value(zoom) : value
-    setZoomState({ id: zoomKey, value: clampZoom(zoomKind, next) })
+    const next = clampZoom(zoomKind, typeof value === "function" ? value(zoom) : value)
+    if (zoomKind === "image") {
+      setImageZoom(next)
+      writeImageZoom(next)
+    } else {
+      setZoomState({ id: zoomKey, value: next })
+    }
   }
 
-  const resetZoom = () => setZoomState(null)
+  const resetZoom = () => {
+    if (zoomKind === "image") {
+      setImageZoom(IMAGE_START_ZOOM)
+      writeImageZoom(IMAGE_START_ZOOM)
+    } else {
+      setZoomState(null)
+    }
+  }
 
   function goTo(offset: number) {
     onIndexChange((activeIndex + offset + attachments.length) % attachments.length)

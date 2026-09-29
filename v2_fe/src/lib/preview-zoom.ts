@@ -20,7 +20,8 @@ const LIMITS: Record<ZoomKind, { min: number; max: number }> = {
 
 const IMAGE_STEP = 1.25
 
-/// Where an image opens, and what the reset button returns it to.
+/// Where an image opens the first time, and what the reset button returns
+/// it to (after that, the viewer's last choice: `readImageZoom`).
 export const IMAGE_START_ZOOM = 0.5
 const PDF_STEP = 0.25
 
@@ -37,4 +38,31 @@ export function clampZoom(kind: ZoomKind, value: number): number {
 export function stepZoom(kind: ZoomKind, zoom: number, direction: 1 | -1): number {
   const next = kind === "image" ? zoom * IMAGE_STEP ** direction : zoom + PDF_STEP * direction
   return clampZoom(kind, next)
+}
+
+/// The image zoom a viewer last chose, remembered across previews (and across
+/// opening the dialog again) so a set of screenshots is flipped through at one
+/// scale. Per-viewer convenience only: storage can be missing or throw, and
+/// anything unreadable falls back to `IMAGE_START_ZOOM`.
+const IMAGE_ZOOM_KEY = "taskflow.preview.image-zoom"
+
+export function readImageZoom(storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): number {
+  try {
+    const value = Number(storage?.getItem(IMAGE_ZOOM_KEY))
+    return Number.isFinite(value) && value > 0 ? clampZoom("image", value) : IMAGE_START_ZOOM
+  } catch {
+    return IMAGE_START_ZOOM
+  }
+}
+
+export function writeImageZoom(
+  zoom: number,
+  storage: Pick<Storage, "setItem" | "removeItem"> | undefined = globalThis.localStorage,
+): void {
+  try {
+    if (zoom === IMAGE_START_ZOOM) storage?.removeItem(IMAGE_ZOOM_KEY)
+    else storage?.setItem(IMAGE_ZOOM_KEY, String(zoom))
+  } catch {
+    // Private mode / blocked storage: the zoom just is not remembered.
+  }
 }
