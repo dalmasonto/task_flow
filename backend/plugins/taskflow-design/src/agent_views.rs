@@ -1485,6 +1485,13 @@ pub struct AgentScreenshotQuery {
     pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
     #[serde(default)]
     pub theme: crate::screenshots::Theme,
+    /// #522: unsaved overrides — a JSON object `{"--name": value | {light, dark}}`
+    /// (a query string carries it as a JSON string).
+    #[serde(default)]
+    pub tokens: Option<String>,
+    /// #522: extra CSS for what tokens cannot express.
+    #[serde(default)]
+    pub css: Option<String>,
 }
 
 fn default_viewport() -> String {
@@ -1500,6 +1507,19 @@ pub async fn screenshot(
 ) -> Result<Response, StatusCode> {
     use base64::Engine as _;
     authorized_project(&agent, q.project)?;
+    let tokens = match q.tokens.as_deref().filter(|t| !t.trim().is_empty()) {
+        Some(raw) => match serde_json::from_str(raw) {
+            Ok(map) => map,
+            Err(e) => {
+                return Ok((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "detail": format!("tokens must be a JSON object of --name → value: {e}") })),
+                )
+                    .into_response());
+            }
+        },
+        None => Default::default(),
+    };
     let req = crate::screenshots::ScreenshotRequest {
         viewport: q.viewport.clone(),
         width: q.width,
@@ -1509,6 +1529,7 @@ pub async fn screenshot(
         full_page: q.full_page,
         frame: q.frame,
         theme: q.theme,
+        overrides: crate::compare::Overrides { tokens, css: q.css.clone() },
     };
     let shot = match crate::screenshots::render_screenshot(
         &q.route,
@@ -1532,7 +1553,8 @@ pub async fn screenshot(
                 .into_response());
         }
         Err(err @ (crate::screenshots::RenderError::UnknownViewport(_)
-        | crate::screenshots::RenderError::BadSize(_))) => {
+        | crate::screenshots::RenderError::BadSize(_)
+        | crate::screenshots::RenderError::BadOverrides(_))) => {
             return Ok((StatusCode::BAD_REQUEST, Json(json!({ "detail": err.to_string() }))).into_response());
         }
         Err(other) => {
@@ -1666,4 +1688,172 @@ pub async fn resolve_comment(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({ "ok": true, "comment": saved })))
+}
+
+// ---------------------------------------------------------------------------
+// #522: design_compare
+// ---------------------------------------------------------------------------
+
+/// A route to compare: a path, or `{route, state?, label?}`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum CompareRouteInput {
+    Path(String),
+    Full(crate::compare::GridRoute),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompareVariantInput {
+    pub label: String,
+    #[serde(default)]
+    pub tokens: std::collections::BTreeMap<String, crate::compare::OverrideValue>,
+    #[serde(default)]
+    pub css: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentCompareInput {
+    pub project: i64,
+    pub routes: Vec<CompareRouteInput>,
+    pub variants: Vec<CompareVariantInput>,
+    /// `["light"]` when absent.
+    #[serde(default)]
+    pub themes: Option<Vec<String>>,
+    /// Preset id; default `iphone-16-pro`.
+    #[serde(default)]
+    pub viewport: Option<String>,
+    /// A custom cell size in CSS px (both or neither).
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub checks: Vec<crate::compare::ContrastCheck>,
+    /// Cell scale, 0.2–1 (default 0.5).
+    #[serde(default)]
+    pub scale: Option<f32>,
+}
+
+fn bad_request(detail: String) -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({ "detail": detail }))).into_response()
+}
+
+/// `POST /api/taskflow/agents/design/compare` — render routes × variants ×
+/// themes as one labelled grid, with UNSAVED overrides per variant, plus
+/// contrast `checks` and, per variant, the `design_write_tokens` payload that
+/// would make it the design. Nothing is written.
+pub async fn compare(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentCompareInput>,
+) -> Result<Response, StatusCode> {
+    use base64::Engine as _;
+    authorized_project(&agent, input.project)?;
+
+    let viewport_id = input.viewport.clone().unwrap_or_else(|| "iphone-16-pro".to_string());
+    let size = match crate::screenshots::resolve_viewport(&crate::screenshots::ScreenshotRequest {
+        viewport: viewport_id.clone(),
+        width: input.width,
+        height: input.height,
+        ..Default::default()
+    }) {
+        Ok(vp) => vp,
+        Err(e) => return Ok(bad_request(e.to_string())),
+    };
+    let spec = crate::compare::GridSpec {
+        routes: input
+            .routes
+            .into_iter()
+            .map(|r| match r {
+                CompareRouteInput::Path(route) => crate::compare::GridRoute { route, state: None, label: None },
+                CompareRouteInput::Full(full) => full,
+            })
+            .collect(),
+        variants: input
+            .variants
+            .into_iter()
+            .map(|v| crate::compare::GridVariant {
+                label: v.label,
+                overrides: crate::compare::Overrides { tokens: v.tokens, css: v.css },
+            })
+            .collect(),
+        themes: input.themes.unwrap_or_else(|| vec!["light".to_string()]),
+        width: size.width,
+        height: size.height,
+        scale: input.scale.unwrap_or(0.5),
+        checks: input.checks,
+    };
+    if let Err(e) = crate::compare::validate_spec(&spec) {
+        return Ok(bad_request(e));
+    }
+    // Every route must be a page the project has: a missing one would render
+    // as a 404 cell that looks like a result.
+    let files = store::list_files(input.project).await;
+    let manifest = manifest::build(input.project, &files, 0);
+    let known: std::collections::HashSet<&str> = manifest.routes.iter().map(|r| r.path.as_str()).collect();
+    if let Some(missing) = spec.routes.iter().find(|r| !known.contains(r.route.as_str())) {
+        return Ok(bad_request(format!(
+            "`{}` is not a page in this project (routes: {})",
+            missing.route,
+            manifest.routes.iter().map(|r| r.path.as_str()).collect::<Vec<_>>().join(", ")
+        )));
+    }
+
+    let shot = match crate::screenshots::render_compare(&spec, || crate::sandbox::mint(agent.project_id)).await {
+        Ok(shot) => shot,
+        Err(crate::screenshots::RenderError::Unconfigured(what)) => {
+            return Ok((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "detail": format!("Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."),
+                })),
+            )
+                .into_response());
+        }
+        Err(e @ crate::screenshots::RenderError::BadOverrides(_)) => return Ok(bad_request(e.to_string())),
+        Err(other) => {
+            eprintln!("design agent compare: {other}");
+            return Ok((StatusCode::BAD_GATEWAY, Json(json!({ "detail": other.to_string() }))).into_response());
+        }
+    };
+
+    // `apply`: per variant with token overrides, the whole tokens document
+    // with them written in — pass it as `tokens` to design_write_tokens.
+    let doc = files
+        .iter()
+        .find(|f| f.path == "styles/tokens.json")
+        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok());
+    let mut apply = serde_json::Map::new();
+    for v in spec.variants.iter().filter(|v| !v.overrides.tokens.is_empty()) {
+        let entry = match &doc {
+            Some(doc) => {
+                let (tokens, added) = crate::compare::apply_to(doc, &v.overrides);
+                json!({ "tokens": tokens, "added_to_custom": added, "css_not_applied": v.overrides.css.is_some() })
+            }
+            None => json!({ "error": "this project has no styles/tokens.json to apply to" }),
+        };
+        apply.insert(v.label.clone(), entry);
+    }
+
+    let mut warnings = shot.warnings;
+    if let Some(grid_warnings) = shot.data["warnings"].as_array() {
+        warnings.extend(grid_warnings.iter().filter_map(|w| w.as_str().map(str::to_string)));
+    }
+    let rows: Vec<_> = spec
+        .routes
+        .iter()
+        .flat_map(|r| spec.themes.iter().map(move |t| json!({ "route": r.route, "theme": t, "label": r.label })))
+        .collect();
+    Ok(Json(json!({
+        "mime": "image/png",
+        "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+        "grid": {
+            "columns": spec.variants.iter().map(|v| v.label.clone()).collect::<Vec<_>>(),
+            "rows": rows,
+            "cell": { "width": spec.width, "height": spec.height, "scale": spec.scale },
+        },
+        "checks": shot.data.get("checks").cloned().unwrap_or_else(|| json!([])),
+        "apply": apply,
+        "warnings": warnings,
+    }))
+    .into_response())
 }

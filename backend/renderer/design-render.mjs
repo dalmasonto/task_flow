@@ -134,6 +134,9 @@ const warnUrl = (url, message) => {
 /// a failed analytics beacon is not the agent's problem.
 const VISUAL = new Set(["image", "font", "stylesheet", "media"]);
 
+/// What the page reported through `window.__tfResult`, if anything.
+let pageData = null;
+
 /// One capture of the page in one theme: load, wait for the ready signal,
 /// capture (the whole page, if asked), then dress it in the frame.
 async function shoot(browser, pageTheme, remaining) {
@@ -227,6 +230,25 @@ async function shoot(browser, pageTheme, remaining) {
     pending.late.forEach(warn);
     for (const { url: src, message } of pending.broken) warnUrl(src, message);
 
+    // A page that knows when it is done says so: the comparison grid exposes
+    // `window.__tfReady` (every cell loaded and measured) and its findings as
+    // `window.__tfResult`, which go back to the caller as `data`.
+    const result = await page
+      .evaluate(async (budget) => {
+        if (!window.__tfReady) return null;
+        const finished = await Promise.race([
+          window.__tfReady.then(() => true),
+          new Promise((r) => setTimeout(() => r(false), budget)),
+        ]);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        return { finished, result: window.__tfResult ?? null };
+      }, remaining())
+      .catch(() => null);
+    if (result) {
+      if (!result.finished) warn("the page did not report ready in time; captured what had rendered");
+      if (result.result) pageData = result.result;
+    }
+
     if (fullPage) await growToPage(page);
     let png = Buffer.from(await page.screenshot({ type: "png" }));
     if (frame !== "none") {
@@ -296,7 +318,7 @@ try {
 
   try { mkdirSync(dirname(resolve(out)), { recursive: true }); } catch {}
   writeFileSync(out, png);
-  writeFileSync(`${out}.json`, JSON.stringify({ warnings }));
+  writeFileSync(`${out}.json`, JSON.stringify({ warnings, data: pageData }));
   process.exitCode = 0;
 } catch (err) {
   console.error(String(err?.message ?? err).split("\n")[0]);

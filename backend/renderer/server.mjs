@@ -10,7 +10,9 @@
 //                  frame (none|classic|device), device (preset id),
 //                  theme (light|dark|both)
 //                  → image/png, with X-Render-Warnings: a base64 JSON array
-//                    of what did not load (fonts, images…)
+//                    of what did not load (fonts, images…), and
+//                    X-Render-Data: base64 JSON of what the page reported
+//                    (`window.__tfResult`), or null
 //   GET  /health   → 200 "ok"
 //
 // Every shot is a fresh `node design-render.mjs` child — disposable browser,
@@ -119,9 +121,11 @@ function renderOnce(shot, signal) {
     child.on("close", async (code) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", kill);
-      const warnings = await readFile(`${out}.json`, "utf8")
-        .then((raw) => JSON.parse(raw).warnings ?? [])
-        .catch(() => []);
+      const report = await readFile(`${out}.json`, "utf8")
+        .then((raw) => JSON.parse(raw))
+        .catch(() => ({}));
+      const warnings = report.warnings ?? [];
+      const data = report.data ?? null;
       await rm(`${out}.json`, { force: true });
       if (code !== 0) {
         await rm(out, { force: true });
@@ -129,7 +133,7 @@ function renderOnce(shot, signal) {
         return done({ error: last || `renderer exited ${code ?? "on a signal"}` });
       }
       try {
-        done({ png: await readFile(out), warnings });
+        done({ png: await readFile(out), warnings, data });
       } catch (e) {
         done({ error: `no screenshot written (${e.message})` });
       } finally {
@@ -170,6 +174,8 @@ createServer(async (req, res) => {
     if (result.error) return send(res, 502, result.error);
     send(res, 200, result.png, "image/png", {
       "x-render-warnings": Buffer.from(JSON.stringify(result.warnings)).toString("base64"),
+      // The page's own findings (the comparison grid's contrast checks).
+      "x-render-data": Buffer.from(JSON.stringify(result.data)).toString("base64"),
     });
   } finally {
     release();

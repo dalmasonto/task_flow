@@ -27,6 +27,7 @@
 //! ```
 
 pub mod agent_views;
+pub mod compare;
 pub mod composer;
 pub mod dispatch;
 pub mod layout_doc;

@@ -5,8 +5,8 @@
 # Chromium here, next to the backend's secrets, it asks the `renderer`
 # sidecar (./server.mjs) for the PNG.
 #
-# Like design-render.mjs, it leaves `<out>.json` = {"warnings": [...]} beside
-# the PNG, decoded from the sidecar's X-Render-Warnings header.
+# Like design-render.mjs, it leaves `<out>.json` = {"warnings": [...], "data": …}
+# beside the PNG, decoded from the sidecar's X-Render-Warnings/-Data headers.
 #
 # The backend reports the LAST stderr line as the failure reason, so every
 # failure path ends with one plain sentence.
@@ -61,5 +61,6 @@ if [ "$code" != 200 ]; then
 fi
 
 warnings=$(sed -n 's/^[Xx]-[Rr]ender-[Ww]arnings: *//p' "$headers" | tr -d '\r' | base64 -d 2>/dev/null)
+data=$(sed -n 's/^[Xx]-[Rr]ender-[Dd]ata: *//p' "$headers" | tr -d '\r' | base64 -d 2>/dev/null)
 rm -f "$headers"
-printf '{"warnings":%s}' "${warnings:-[]}" > "$out.json"
+printf '{"warnings":%s,"data":%s}' "${warnings:-[]}" "${data:-null}" > "$out.json"

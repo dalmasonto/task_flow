@@ -89,6 +89,8 @@ pub struct ScreenshotRequest {
     /// `light` (default), `dark`, or `both` (a light and a dark shot side by
     /// side in one image).
     pub theme: Theme,
+    /// #522: unsaved token/CSS overrides to render with (validated).
+    pub overrides: crate::compare::Overrides,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -168,6 +170,9 @@ pub struct Rendered {
     /// Fonts, images or stylesheets that failed, and anything the renderer
     /// had to change (a frame it could not draw as asked, a full page it cut).
     pub warnings: Vec<String>,
+    /// What the rendered page itself reported (`window.__tfResult`) — the
+    /// comparison grid's contrast checks. `Null` for an ordinary page.
+    pub data: serde_json::Value,
     pub viewport: Viewport,
 }
 
@@ -187,6 +192,8 @@ pub enum RenderError {
     UnknownViewport(String),
     /// A custom size out of range, or half of one.
     BadSize(String),
+    /// Token/CSS overrides (or a comparison spec) that failed validation.
+    BadOverrides(String),
     SpawnFailed(String),
     Timeout,
     TooLarge(usize),
@@ -202,6 +209,7 @@ impl std::fmt::Display for RenderError {
             ),
             Self::UnknownViewport(id) => write!(f, "Unknown viewport '{id}'."),
             Self::BadSize(why) => write!(f, "Bad screenshot size: {why}."),
+            Self::BadOverrides(why) => write!(f, "Bad overrides: {why}."),
             Self::SpawnFailed(e) => write!(f, "Could not start the renderer: {e}"),
             Self::Timeout => write!(f, "Renderer timed out."),
             Self::TooLarge(n) => write!(f, "Renderer produced {n} bytes; over cap."),
@@ -298,12 +306,13 @@ pub async fn render_shot(
     let png = tokio::fs::read(&out)
         .await
         .map_err(|e| RenderError::Failed(format!("no screenshot written ({e})")));
-    let warnings = tokio::fs::read(&sidecar)
+    let report = tokio::fs::read(&sidecar)
         .await
         .ok()
         .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
-        .and_then(|v| serde_json::from_value::<Vec<String>>(v["warnings"].clone()).ok())
         .unwrap_or_default();
+    let warnings = serde_json::from_value::<Vec<String>>(report["warnings"].clone()).unwrap_or_default();
+    let data = report["data"].clone();
     let _ = tokio::fs::remove_file(&out).await;
     let _ = tokio::fs::remove_file(&sidecar).await;
     let png = png?;
@@ -311,7 +320,7 @@ pub async fn render_shot(
     if png.len() > MAX_PNG_BYTES {
         return Err(RenderError::TooLarge(png.len()));
     }
-    Ok(Rendered { png, warnings, viewport: viewport.clone() })
+    Ok(Rendered { png, warnings, data, viewport: viewport.clone() })
 }
 
 /// Build the sandbox URL the renderer should load.
@@ -353,7 +362,12 @@ pub async fn render_screenshot(
     };
     let viewport = resolve_viewport(req)?;
 
-    let url = sandbox_render_url(&base, &mint_token(), route, state);
+    crate::compare::validate(&req.overrides).map_err(RenderError::BadOverrides)?;
+    let mut url = sandbox_render_url(&base, &mint_token(), route, state);
+    if !req.overrides.is_empty() {
+        url.push(if url.contains('?') { '&' } else { '?' });
+        url.push_str(&format!("ov={}", crate::compare::encode(&req.overrides)));
+    }
     // §8.1: short timeout — a hung page must cost seconds, not minutes. A
     // frame or a full page is a second pass over the capture, so it gets a
     // few seconds more.
@@ -370,3 +384,34 @@ pub async fn render_screenshot(
 /// Keep the io trait import honest even if the spawn shape changes.
 #[allow(dead_code)]
 fn _assert_async_write_imported<T: AsyncWriteExt>(_: &T) {}
+
+/// #522: render a comparison grid (`compare::grid_html`) as one full-page
+/// image. The grid page is 2× so each half-scale cell keeps the detail of a
+/// 1× screen, and desktop (not mobile) so the grid itself lays out at its own
+/// width; the cells inside keep the page's own width via their iframes.
+pub async fn render_compare(
+    spec: &crate::compare::GridSpec,
+    mint_token: impl FnOnce() -> String,
+) -> Result<Rendered, RenderError> {
+    let Some(base) = std::env::var("TASKFLOW_DESIGN_BASE_URL")
+        .ok()
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty())
+    else {
+        return Err(RenderError::Unconfigured("TASKFLOW_DESIGN_BASE_URL"));
+    };
+    let Some(program) = configured_renderer() else {
+        return Err(RenderError::Unconfigured("TASKFLOW_DESIGN_RENDERER"));
+    };
+    crate::compare::validate_spec(spec).map_err(RenderError::BadOverrides)?;
+    let url = format!(
+        "{}/s/{}/{}?spec={}",
+        base.trim_end_matches('/'),
+        mint_token(),
+        crate::compare::GRID_ROUTE,
+        crate::compare::encode_spec(spec)
+    );
+    let viewport = Viewport { width: crate::compare::grid_width(spec), height: 900, dpr: 2, mobile: false };
+    let req = ScreenshotRequest { full_page: true, ..Default::default() };
+    render_shot(&program, &url, &viewport, &req, 55_000).await
+}

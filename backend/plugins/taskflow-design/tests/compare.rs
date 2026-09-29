@@ -1,0 +1,142 @@
+//! #522: unsaved overrides on sandbox pages, the comparison grid page, and the
+//! agent `design/compare` endpoint's validation. The renderer itself is out of
+//! reach here (no Chromium), so the endpoint is exercised up to the point it
+//! would render: with no renderer configured it must answer 503, and every
+//! request it should refuse must be refused BEFORE that.
+
+mod support;
+
+use serde_json::json;
+use support::{TestApp, seed_agent};
+use taskflow_design::compare::{self, GridRoute, GridSpec, GridVariant, OverrideValue, Overrides};
+
+const TOKENS_JSON: &str = r##"{"version":1,"categories":{
+    "colors":{"primary":{"light":"#15803D","dark":"#22C55E"}}
+}}"##;
+
+async fn seeded(app: &TestApp) -> i64 {
+    let (user, project_id) = app.create_member_with_project().await;
+    for (path, content) in [
+        ("pages/index.html", "<main><h1>Home</h1></main>"),
+        ("pages/setup.html", "<main><h1>Setup</h1></main>"),
+        ("styles/tokens.json", TOKENS_JSON),
+    ] {
+        let res = app
+            .put_json_as(user.id, &format!("/api/design/{project_id}/file"), &json!({ "path": path, "content": content }))
+            .await;
+        assert_eq!(res.status(), 201, "seed {path}: {}", res.text());
+    }
+    project_id
+}
+
+fn lime() -> Overrides {
+    Overrides {
+        tokens: [("--primary".to_string(), OverrideValue::Both("#448502".into()))].into(),
+        css: None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn overrides_are_appended_after_the_tokens_and_bad_ones_refused() {
+    let app = TestApp::new().await;
+    let project_id = seeded(&app).await;
+    let token = taskflow_design::sandbox::mint(project_id);
+
+    let plain = app.get_sandbox(&format!("/s/{token}/setup")).await.text();
+    assert!(!plain.contains("tf-override"), "no override without ?ov=");
+
+    let res = app.get_sandbox(&format!("/s/{token}/setup?ov={}", compare::encode(&lime()))).await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let html = res.text();
+    let style = html.find("<style id=\"tf-override\">:root{--primary:#448502;}").expect("override block");
+    let tokens = html.find("f/styles/tokens.css").expect("tokens link");
+    assert!(style > tokens, "the override must come after tokens.css to win");
+
+    // Hand-crafted, invalid overrides are refused, not rendered.
+    let crafted = base64_url(r#"{"tokens":{"--primary":"red;}</style><script>alert(1)</script>"}}"#);
+    assert_eq!(app.get_sandbox(&format!("/s/{token}/setup?ov={crafted}")).await.status(), 400);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_grid_page_frames_each_route_variant_and_theme() {
+    let app = TestApp::new().await;
+    let project_id = seeded(&app).await;
+    let token = taskflow_design::sandbox::mint(project_id);
+    let spec = GridSpec {
+        routes: vec![
+            GridRoute { route: "/".into(), state: None, label: Some("Home".into()) },
+            GridRoute { route: "/setup".into(), state: None, label: None },
+        ],
+        variants: vec![
+            GridVariant { label: "Current".into(), overrides: Overrides::default() },
+            GridVariant { label: "Lime <AA>".into(), overrides: lime() },
+        ],
+        themes: vec!["light".into(), "dark".into()],
+        width: 393,
+        height: 852,
+        scale: 0.5,
+        checks: vec![],
+    };
+    let res = app
+        .get_sandbox(&format!("/s/{token}/{}?spec={}", compare::GRID_ROUTE, compare::encode_spec(&spec)))
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let html = res.text();
+    assert_eq!(html.matches("<iframe").count(), 8, "2 routes × 2 variants × 2 themes");
+    assert!(html.contains("Lime &lt;AA&gt;"), "labels are escaped");
+    assert!(html.contains(&format!("/s/{token}/setup?theme=dark&amp;ov=")) || html.contains(&format!("/s/{token}/setup?theme=dark&ov=")));
+    assert!(html.contains("window.__tfReady"));
+
+    assert_eq!(app.get_sandbox(&format!("/s/{token}/{}", compare::GRID_ROUTE)).await.status(), 400, "no spec");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn compare_refuses_bad_requests_before_rendering() {
+    let app = TestApp::new().await;
+    let project_id = seeded(&app).await;
+    let (_agent, key) = seed_agent(project_id, "Designer").await;
+    let post = |body: serde_json::Value| {
+        let app = &app;
+        let key = key.clone();
+        async move { app.post_json_as_agent(&key, "/api/taskflow/agents/design/compare", &body).await }
+    };
+    let base = |routes: serde_json::Value, variants: serde_json::Value| {
+        json!({ "project": project_id, "routes": routes, "variants": variants })
+    };
+
+    let unknown = post(base(json!(["/nope"]), json!([{ "label": "Current" }]))).await;
+    assert_eq!(unknown.status(), 400, "{}", unknown.text());
+    assert!(unknown.text().contains("not a page in this project"));
+
+    let bad_value = post(base(json!(["/setup"]), json!([{ "label": "X", "tokens": { "--primary": "url(https://x)" } }]))).await;
+    assert_eq!(bad_value.status(), 400, "{}", bad_value.text());
+
+    let too_many = post(json!({
+        "project": project_id,
+        "routes": ["/", "/setup", "/", "/setup", "/", "/setup"],
+        "variants": [{ "label": "a" }, { "label": "b" }, { "label": "c" }],
+        "themes": ["light", "dark"],
+    }))
+    .await;
+    assert_eq!(too_many.status(), 400, "{}", too_many.text());
+    assert!(too_many.text().contains("over the limit"));
+
+    // Valid, but no renderer in the test environment: it got as far as rendering.
+    let valid = post(json!({
+        "project": project_id,
+        "routes": ["/", { "route": "/setup", "label": "Setup" }],
+        "variants": [{ "label": "Current" }, { "label": "Lime", "tokens": { "--primary": "#448502" } }],
+        "themes": ["light", "dark"],
+        "checks": [{ "fg": "--primary-foreground", "bg": "--primary" }],
+    }))
+    .await;
+    assert_eq!(valid.status(), 503, "{}", valid.text());
+
+    let other_project = post(json!({ "project": project_id + 999, "routes": ["/"], "variants": [{ "label": "a" }] })).await;
+    assert!(other_project.status() == 403 || other_project.status() == 404, "{}", other_project.status());
+}
+
+fn base64_url(raw: &str) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
+}

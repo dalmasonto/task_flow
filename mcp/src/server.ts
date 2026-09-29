@@ -1631,6 +1631,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       "`full_page: true` captures the whole scrollable page, not one screen. " +
       "`frame` dresses the shot like the Design Surface export: 'device' (a realistic device frame with status bar), 'classic' (the simple black bezel) or 'none' (default) — use a frame when the picture is for your human. " +
       "`theme`: 'light' (default), 'dark', or 'both' (light and dark side by side in one image) — check dark whenever you touch colour. " +
+      "`tokens`/`css` render UNSAVED overrides (try a colour before writing it; use design_compare to see options side by side). " +
       "`state='dialog:confirm-delete'` opens that overlay first. The reply lists WARNINGS for any font, image or stylesheet that did not load: fix or mention them, do not ignore them.",
     {
       route: z.string().min(1).describe("Route path to render, e.g. '/settings'."),
@@ -1646,11 +1647,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       full_page: z.boolean().optional().describe("Capture the whole scrollable page."),
       frame: z.enum(["none", "classic", "device"]).optional().describe("How to dress the shot (default none)."),
       theme: z.enum(["light", "dark", "both"]).optional().describe("Render light (default), dark, or both side by side."),
+      tokens: z
+        .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
+        .optional()
+        .describe('UNSAVED token overrides to render with, e.g. {"--primary": "#448502"} or {"--bg": {"dark": "#0b0b0c"}}. Nothing is written.'),
+      css: z.string().optional().describe("UNSAVED extra CSS for what tokens cannot express (no url(), @, or comments)."),
       state: z.string().optional().describe("Overlay state to open on load, e.g. 'dialog:confirm-delete'."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, state, project, profile }) => {
+    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, tokens, css, state, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -1664,6 +1670,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           full_page,
           frame,
           theme,
+          tokens,
+          css,
         });
         if (!shot.png_base64) throw new Error("Renderer returned no image.");
         const size = shot.size
@@ -1688,6 +1696,90 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
                 `Screenshot of ${shot.route} at ${shot.viewport}${size}${shade}${shot.full_page ? ", full page" : ""}${dress}. ` +
                 `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}`,
             },
+          ],
+        };
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_compare",
+    "Render several screens × several UNSAVED design variants × light/dark as ONE labelled image grid — the way to answer 'which colour/type/spacing?' with your human. " +
+      "Columns are variants (a variant with no overrides is the live design — include it as 'Current'), rows are route × theme. Nothing is written. " +
+      "Each variant's `tokens` are CSS custom-property overrides ({\"--primary\": \"#448502\"} or per theme {\"--bg\": {\"light\": …, \"dark\": …}}); `css` is extra CSS for what tokens cannot express. " +
+      "`checks` measure WCAG contrast of fg on bg per variant and theme, as rendered. " +
+      "The reply's `apply[label].tokens` is the whole tokens document with that variant written in: pass it as `tokens` to design_write_tokens to make it the design (css is not included). " +
+      "Limits: 1–6 routes, 1–4 variants, at most 24 cells.",
+    {
+      routes: z
+        .array(z.union([z.string().min(1), z.object({ route: z.string().min(1), state: z.string().optional(), label: z.string().optional() })]))
+        .min(1)
+        .max(6)
+        .describe("Routes to compare, e.g. ['/setup', {route: '/user', state: 'dialog:report'}]."),
+      variants: z
+        .array(
+          z.object({
+            label: z.string().min(1).max(60),
+            tokens: z
+              .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
+              .optional(),
+            css: z.string().optional(),
+          }),
+        )
+        .min(1)
+        .max(4)
+        .describe("Columns. [{label: 'Current'}, {label: 'Lime AA', tokens: {'--primary': '#448502'}}]."),
+      themes: z.array(z.enum(["light", "dark"])).min(1).max(2).optional().describe("Default ['light']."),
+      viewport: z.string().optional().describe("Device preset for every cell (default iphone-16-pro)."),
+      width: z.number().int().min(200).max(4000).optional().describe("Custom cell width in CSS px (with height)."),
+      height: z.number().int().min(200).max(4000).optional().describe("Custom cell height in CSS px (with width)."),
+      checks: z
+        .array(z.object({ fg: z.string(), bg: z.string(), label: z.string().optional() }))
+        .max(6)
+        .optional()
+        .describe("Contrast pairs, e.g. [{fg: '--primary-foreground', bg: '--primary', label: 'button text'}]."),
+      scale: z.number().min(0.2).max(1).optional().describe("Cell scale (default 0.5)."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ routes, variants, themes, viewport, width, height, checks, scale, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        const projectId = await resolveDesignProject(client, project);
+        const out = await client.designCompare(projectId, { routes, variants, themes, viewport, width, height, checks, scale });
+        if (!out.png_base64) throw new Error("Renderer returned no image.");
+        const lines = [
+          `Compare grid: columns ${out.grid.columns.join(" | ")}; rows ${out.grid.rows.map((r) => `${r.label ?? r.route} (${r.theme})`).join(", ")}.`,
+        ];
+        if (out.checks.length) {
+          lines.push("", "Contrast (WCAG, as rendered):");
+          for (const c of out.checks) {
+            lines.push(
+              c.error
+                ? `- ${c.variant} · ${c.theme} · ${c.label ?? `${c.fg} on ${c.bg}`}: ${c.error}`
+                : `- ${c.variant} · ${c.theme} · ${c.label ?? `${c.fg} on ${c.bg}`}: ${c.fgValue} on ${c.bgValue} = ${c.ratio}:1 ${c.aa ? "AA ✓" : c.aaLarge ? "AA large only" : "fails AA"}`,
+            );
+          }
+        }
+        const applicable = Object.keys(out.apply);
+        if (applicable.length) {
+          lines.push(
+            "",
+            `To make a variant the design, pass apply[label].tokens as \`tokens\` to design_write_tokens. Available: ${applicable.join(", ")}.`,
+            "apply = " + JSON.stringify(out.apply),
+          );
+        }
+        if (out.warnings.length) {
+          lines.push("", "WARNINGS — the picture differs from a real browser here:", ...out.warnings.map((w) => `- ${w}`));
+        }
+        return {
+          content: [
+            { type: "image", data: out.png_base64, mimeType: "image/png" },
+            { type: "text", text: lines.join("\n") },
           ],
         };
       } catch (err) {

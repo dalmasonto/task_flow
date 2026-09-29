@@ -47,6 +47,42 @@ export type DesignScreenshotOptions = {
   full_page?: boolean;
   frame?: "none" | "classic" | "device";
   theme?: "light" | "dark" | "both";
+  /** Unsaved overrides: `{"--name": value | {light?, dark?}}`. */
+  tokens?: Record<string, string | { light?: string; dark?: string }>;
+  css?: string;
+};
+
+/** `design_compare` request body (minus `project`). */
+export type DesignCompareInput = {
+  routes: (string | { route: string; state?: string; label?: string })[];
+  variants: { label: string; tokens?: Record<string, string | { light?: string; dark?: string }>; css?: string }[];
+  themes?: ("light" | "dark")[];
+  viewport?: string;
+  width?: number;
+  height?: number;
+  checks?: { fg: string; bg: string; label?: string }[];
+  scale?: number;
+};
+
+export type DesignCompareResult = {
+  mime: string;
+  png_base64: string;
+  grid: { columns: string[]; rows: { route: string; theme: string; label?: string | null }[] };
+  checks: {
+    variant: string;
+    theme: string;
+    fg: string;
+    bg: string;
+    label?: string | null;
+    fgValue?: string;
+    bgValue?: string;
+    ratio?: number;
+    aa?: boolean;
+    aaLarge?: boolean;
+    error?: string;
+  }[];
+  apply: Record<string, { tokens?: unknown; added_to_custom?: string[]; css_not_applied?: boolean; error?: string }>;
+  warnings: string[];
 };
 
 export class TaskflowApiError extends Error {
@@ -692,10 +728,22 @@ export class TaskflowClient {
     png_base64: string
   }> {
     const extra: Record<string, string | number | boolean> = {};
-    for (const [key, value] of Object.entries(opts)) if (value !== undefined) extra[key] = value;
+    for (const [key, value] of Object.entries(opts)) {
+      if (value === undefined) continue;
+      // The overrides map travels as a JSON string in the query.
+      extra[key] = typeof value === "object" ? JSON.stringify(value) : value;
+    }
     return this.request("GET", `${API_PREFIX}/agents/design/screenshot`, {
       query: { project, route, viewport, ...(state ? { state } : {}), ...extra },
       timeoutMs: 45_000,
+    });
+  }
+
+  /** `POST /agents/design/compare` — routes × variants × themes as one grid. */
+  designCompare(project: number, input: DesignCompareInput): Promise<DesignCompareResult> {
+    return this.request("POST", `${API_PREFIX}/agents/design/compare`, {
+      body: { project, ...input },
+      timeoutMs: 90_000,
     });
   }
 

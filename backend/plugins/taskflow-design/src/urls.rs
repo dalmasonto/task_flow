@@ -116,6 +116,10 @@ pub fn router() -> Router {
             get(agent_views::screenshot),
         )
         .route(
+            "/api/taskflow/agents/design/compare",
+            post(agent_views::compare),
+        )
+        .route(
             "/api/taskflow/agents/design/comments",
             get(agent_views::list_comments_as_targets),
         )

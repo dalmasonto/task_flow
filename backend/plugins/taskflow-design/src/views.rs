@@ -175,6 +175,9 @@ pub struct CreateScreenshotInput {
     pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
     #[serde(default)]
     pub theme: crate::screenshots::Theme,
+    /// #522: unsaved token/CSS overrides.
+    #[serde(default)]
+    pub overrides: crate::compare::Overrides,
 }
 
 /// `POST /api/design/{project}/screenshots` — render a route at a viewport and
@@ -195,6 +198,7 @@ pub async fn create_screenshot(
         full_page: input.full_page,
         frame: input.frame,
         theme: input.theme,
+        overrides: input.overrides.clone(),
     };
     let shot = crate::screenshots::render_screenshot(
         &input.route,
@@ -206,7 +210,8 @@ pub async fn create_screenshot(
     .map_err(|err| match err {
         crate::screenshots::RenderError::Unconfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
         crate::screenshots::RenderError::UnknownViewport(_)
-        | crate::screenshots::RenderError::BadSize(_) => StatusCode::BAD_REQUEST,
+        | crate::screenshots::RenderError::BadSize(_)
+        | crate::screenshots::RenderError::BadOverrides(_) => StatusCode::BAD_REQUEST,
         other => {
             eprintln!("design screenshot: {other}");
             StatusCode::BAD_GATEWAY
@@ -1107,7 +1112,23 @@ async fn serve_sandbox_page(
     let Some(project_id) = sandbox::verify(token) else {
         return Err(StatusCode::NOT_FOUND);
     };
+    // #522: the comparison grid. A page route can never contain a dot, so this
+    // cannot shadow a real page.
+    if route == crate::compare::GRID_ROUTE {
+        let spec = query
+            .and_then(|q| query_param(q, "spec"))
+            .ok_or(StatusCode::BAD_REQUEST)
+            .and_then(|raw| crate::compare::decode_spec(raw).map_err(|_| StatusCode::BAD_REQUEST))?;
+        let mut response = crate::compare::grid_html(token, &spec).into_response();
+        apply_sandbox_headers(&mut response, token);
+        return Ok(response);
+    }
     let state = query.and_then(extract_state_param);
+    // #522: unsaved token/CSS overrides, re-validated on the way in.
+    let overrides = match query.and_then(|q| query_param(q, "ov")) {
+        Some(raw) => crate::compare::decode(raw).map_err(|_| StatusCode::BAD_REQUEST)?,
+        None => crate::compare::Overrides::default(),
+    };
     // `?theme=dark` renders the page dark from the first byte, the same
     // `data-theme` the canvas sets with `design:theme` after load — so a
     // screenshot has no light first paint to catch. Anything else is light.
@@ -1142,6 +1163,7 @@ async fn serve_sandbox_page(
         theme,
         state.as_deref(),
     );
+    let html = crate::compare::inject(html, &overrides);
 
     let mut response = html.into_response();
     apply_sandbox_headers(&mut response, token);
