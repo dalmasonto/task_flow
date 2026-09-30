@@ -443,6 +443,10 @@ async fn agent_creates_third_page_from_existing_components() {
     .await;
     assert_eq!(res.status(), 201, "{}", res.text());
     assert_eq!(res.json()["affected_routes"], json!(["/settings"]));
+    // The reply does not echo back the page the agent just sent.
+    assert!(res.json()["file"].get("content").is_none(), "{}", res.text());
+    assert_eq!(res.json()["file"]["path"], "pages/settings.html");
+    assert_eq!(res.json()["routes_affected"], 1);
 
     // And it renders through the sandbox as a full document.
     let token = taskflow_design::sandbox::mint(project);

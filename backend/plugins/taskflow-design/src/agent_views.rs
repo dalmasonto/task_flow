@@ -1004,28 +1004,33 @@ async fn agent_write(
 
     match outcome {
         WriteOutcome::Saved(row, verdict) => {
+            // Compact on purpose: the caller just sent this content, so the
+            // stored row comes back WITHOUT it (a page write used to double its
+            // own cost), and the routes it touched are a count, named only
+            // while there are few — a shared component can reach dozens.
             let affected = crate::views::affected_routes_for(&row.path, project_id).await;
             let subject = row.path.split('/').next_back().unwrap_or(&row.path);
-            let line = if affected.is_empty() {
-                format!("{subject} written.")
-            } else {
-                format!(
-                    "{subject} written; {} route(s) changed: {}",
-                    affected.len(),
-                    affected.join(", ")
-                )
+            const LISTED: usize = 10;
+            let line = match affected.len() {
+                0 => format!("{subject} is now v{}.", row.version),
+                n if n <= 5 => format!("{subject} is now v{}; {n} route(s) re-render: {}", row.version, affected.join(", ")),
+                n => format!("{subject} is now v{}; {n} route(s) re-render.", row.version),
             };
-            Ok((
-                StatusCode::CREATED,
-                Json(json!({
-                    "ok": true,
-                    "file": row,
-                    "warnings": verdict.warnings,
-                    "affected_routes": affected,
-                    "note": line,
-                })),
-            )
-                .into_response())
+            let mut file = serde_json::to_value(&row).unwrap_or_default();
+            if let Some(obj) = file.as_object_mut() {
+                obj.remove("content");
+            }
+            let mut body = json!({
+                "ok": true,
+                "file": file,
+                "warnings": verdict.warnings,
+                "routes_affected": affected.len(),
+                "note": line,
+            });
+            if affected.len() <= LISTED {
+                body["affected_routes"] = json!(affected);
+            }
+            Ok((StatusCode::CREATED, Json(body)).into_response())
         }
         WriteOutcome::Rejected(v) => Ok(rejection_response(&v)),
         WriteOutcome::Conflict(row) => Ok(conflict_response(&row)),
