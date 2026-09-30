@@ -12,7 +12,7 @@
 # failure path ends with one plain sentence.
 set -u
 
-url= width= height= dpr= timeout_ms=20000 out= mobile=0 full_page=0 frame=none device= theme=light
+url= width= height= dpr= timeout_ms=20000 out= mobile=0 full_page=0 frame=none device= theme=light max_px=0
 while [ $# -ge 2 ]; do
   case "$1" in
     --url) url=$2 ;;
@@ -26,6 +26,7 @@ while [ $# -ge 2 ]; do
     --frame) frame=$2 ;;
     --device) device=$2 ;;
     --theme) theme=$2 ;;
+    --max-px) max_px=$2 ;;
   esac
   shift 2
 done
@@ -47,6 +48,7 @@ code=$(curl -sS --max-time "$max_secs" -o "$out" -D "$headers" -w '%{http_code}'
   --data-urlencode "frame=$frame" \
   --data-urlencode "device=$device" \
   --data-urlencode "theme=$theme" \
+  --data-urlencode "max_px=$max_px" \
   "${DESIGN_RENDERER_URL:-http://renderer:3000}/render") || {
   rm -f "$out" "$headers"
   echo "screenshot sidecar unreachable at ${DESIGN_RENDERER_URL:-http://renderer:3000}" >&2

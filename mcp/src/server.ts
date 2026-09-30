@@ -1596,7 +1596,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_tokens",
-    "Replace the design token scale wholesale. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of `tokens` (a JSON token map — PREFERRED: {\"version\":1,\"categories\":{\"colors\":{\"accent\":{\"light\":\"#6366f1\",\"dark\":\"#818cf8\"}}}}) or `css` (legacy tokens.css text with an @theme block, no remote @import — still accepted, parsed into the same json shape). Prefer adding variables over changing existing ones mid-project. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits.",
+    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names; null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"accent\":{\"light\":\"#6366f1\",\"dark\":\"#818cf8\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits.",
     {
       tokens: z
         .record(z.string(), z.any())
@@ -1605,17 +1605,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           "Preferred. The full tokens document: {version, categories: {colors|spacing|radius|typography|shadows|custom: {<key>: {light, dark?}}}}.",
         ),
       css: z.string().min(1).optional().describe("Legacy: complete tokens.css content (parsed into the json shape)."),
-      reason: z.string().min(8).describe("Why the whole scale must change now."),
+      patch: z
+        .record(z.string(), z.record(z.string(), z.union([z.object({ light: z.string().optional(), dark: z.string().nullable().optional() }), z.null()])))
+        .optional()
+        .describe("Preferred for edits: {category: {key: {light?, dark?} | null}} — only these change."),
+      base_version: z.number().int().optional().describe("The tokens version you read (e.g. design_compare's tokens_version); a stale one is refused."),
+      reason: z.string().min(8).describe("Why the tokens change."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ tokens, css, reason, project, profile }) => {
+    async ({ tokens, css, patch, base_version, reason, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
         return ok(
-          await client.writeDesignTokens(await resolveDesignProject(client, project), reason, { tokens, css }),
+          await client.writeDesignTokens(await resolveDesignProject(client, project), reason, {
+            tokens,
+            css,
+            patch,
+            base_version,
+          }),
         );
       } catch (err) {
         return fail(err);
@@ -1652,11 +1662,18 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .optional()
         .describe('UNSAVED token overrides to render with, e.g. {"--primary": "#448502"} or {"--bg": {"dark": "#0b0b0c"}}. Nothing is written.'),
       css: z.string().optional().describe("UNSAVED extra CSS for what tokens cannot express (no url(), @, or comments)."),
+      max_px: z
+        .number()
+        .int()
+        .min(0)
+        .max(8000)
+        .optional()
+        .describe("Longest side of the returned image (default 1568, what you can read; 0 = full resolution, e.g. to hand to a human)."),
       state: z.string().optional().describe("Overlay state to open on load, e.g. 'dialog:confirm-delete'."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, tokens, css, state, project, profile }) => {
+    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, tokens, css, max_px, state, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -1672,6 +1689,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           theme,
           tokens,
           css,
+          max_px,
         });
         if (!shot.png_base64) throw new Error("Renderer returned no image.");
         const size = shot.size
@@ -1710,7 +1728,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       "Columns are variants (a variant with no overrides is the live design — include it as 'Current'), rows are route × theme. Nothing is written. " +
       "Each variant's `tokens` are CSS custom-property overrides ({\"--primary\": \"#448502\"} or per theme {\"--bg\": {\"light\": …, \"dark\": …}}); `css` is extra CSS for what tokens cannot express. " +
       "`checks` measure WCAG contrast of fg on bg per variant and theme, as rendered. " +
-      "The reply's `apply[label].tokens` is the whole tokens document with that variant written in: pass it as `tokens` to design_write_tokens to make it the design (css is not included). " +
+      "Top-level `tokens`/`css` apply to EVERY variant (e.g. CSS forcing a sheet open) — a variant's own win. " +
+      "`include_apply: true` adds, per variant, the PATCH that would make it the design: pass apply[label].patch as `patch` to design_write_tokens (with base_version = tokens_version). Leave it off when you are only looking. " +
+      "Images fit `max_px` (default 1568); a grid whose cells would be unreadably small is split into one image per route. " +
       "Limits: 1–6 routes, 1–4 variants, at most 24 cells.",
     {
       routes: z
@@ -1741,20 +1761,43 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .optional()
         .describe("Contrast pairs, e.g. [{fg: '--primary-foreground', bg: '--primary', label: 'button text'}]."),
       scale: z.number().min(0.2).max(1).optional().describe("Cell scale (default 0.5)."),
+      tokens: z
+        .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
+        .optional()
+        .describe("Overrides EVERY variant starts from; a variant's own override the same name."),
+      css: z.string().optional().describe("CSS every variant gets (before its own)."),
+      include_apply: z.boolean().optional().describe("Return apply[label].patch per variant (default false)."),
+      max_px: z.number().int().min(0).max(8000).optional().describe("Longest side of each image (default 1568; 0 = full size)."),
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ routes, variants, themes, viewport, width, height, checks, scale, project, profile }) => {
+    async ({ routes, variants, themes, viewport, width, height, checks, scale, tokens, css, include_apply, max_px, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
         const projectId = await resolveDesignProject(client, project);
-        const out = await client.designCompare(projectId, { routes, variants, themes, viewport, width, height, checks, scale });
-        if (!out.png_base64) throw new Error("Renderer returned no image.");
+        const out = await client.designCompare(projectId, {
+          routes,
+          variants,
+          themes,
+          viewport,
+          width,
+          height,
+          checks,
+          scale,
+          tokens,
+          css,
+          include_apply,
+          max_px,
+        });
+        if (!out.images?.length) throw new Error("Renderer returned no image.");
         const lines = [
           `Compare grid: columns ${out.grid.columns.join(" | ")}; rows ${out.grid.rows.map((r) => `${r.label ?? r.route} (${r.theme})`).join(", ")}.`,
         ];
+        if (out.split) {
+          lines.push(`Split into ${out.images.length} images (one per route, in order) so the cells stay readable.`);
+        }
         if (out.checks.length) {
           lines.push("", "Contrast (WCAG, as rendered):");
           for (const c of out.checks) {
@@ -1765,11 +1808,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             );
           }
         }
-        const applicable = Object.keys(out.apply);
+        const applicable = Object.keys(out.apply ?? {});
         if (applicable.length) {
           lines.push(
             "",
-            `To make a variant the design, pass apply[label].tokens as \`tokens\` to design_write_tokens. Available: ${applicable.join(", ")}.`,
+            `To make a variant the design: design_write_tokens({patch: apply[label].patch, base_version: ${out.tokens_version ?? "null"}}).`,
             "apply = " + JSON.stringify(out.apply),
           );
         }
@@ -1778,7 +1821,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         }
         return {
           content: [
-            { type: "image", data: out.png_base64, mimeType: "image/png" },
+            ...out.images.map((image) => ({ type: "image" as const, data: image.png_base64, mimeType: "image/png" })),
             { type: "text", text: lines.join("\n") },
           ],
         };

@@ -50,6 +50,7 @@ export type DesignScreenshotOptions = {
   /** Unsaved overrides: `{"--name": value | {light?, dark?}}`. */
   tokens?: Record<string, string | { light?: string; dark?: string }>;
   css?: string;
+  max_px?: number;
 };
 
 /** `design_compare` request body (minus `project`). */
@@ -62,11 +63,18 @@ export type DesignCompareInput = {
   height?: number;
   checks?: { fg: string; bg: string; label?: string }[];
   scale?: number;
+  /** Overrides every variant starts from. */
+  tokens?: Record<string, string | { light?: string; dark?: string }>;
+  /** CSS every variant gets. */
+  css?: string;
+  include_apply?: boolean;
+  max_px?: number;
 };
 
 export type DesignCompareResult = {
   mime: string;
-  png_base64: string;
+  images: { routes: string[]; size?: { width: number; height: number }; png_base64: string }[];
+  split: boolean;
   grid: { columns: string[]; rows: { route: string; theme: string; label?: string | null }[] };
   checks: {
     variant: string;
@@ -81,7 +89,8 @@ export type DesignCompareResult = {
     aaLarge?: boolean;
     error?: string;
   }[];
-  apply: Record<string, { tokens?: unknown; added_to_custom?: string[]; css_not_applied?: boolean; error?: string }>;
+  apply?: Record<string, { patch: unknown; added_to_custom?: string[]; css_not_applied?: boolean }>;
+  tokens_version?: number | null;
   warnings: string[];
 };
 
@@ -697,7 +706,7 @@ export class TaskflowClient {
   writeDesignTokens(
     project: number,
     reason: string,
-    opts: { tokens?: unknown; css?: string },
+    opts: { tokens?: unknown; css?: string; patch?: unknown; base_version?: number },
   ): Promise<unknown> {
     return this.request("PUT", `${API_PREFIX}/agents/design/tokens`, {
       body: {
@@ -705,6 +714,8 @@ export class TaskflowClient {
         reason,
         ...(opts.tokens !== undefined ? { tokens: opts.tokens } : {}),
         ...(opts.css !== undefined ? { css: opts.css } : {}),
+        ...(opts.patch !== undefined ? { patch: opts.patch } : {}),
+        ...(opts.base_version !== undefined ? { base_version: opts.base_version } : {}),
       },
     });
   }
@@ -720,6 +731,7 @@ export class TaskflowClient {
     route: string
     viewport: string
     size?: { width: number; height: number; dpr: number; mobile: boolean }
+    image?: { width: number; height: number }
     frame?: string
     theme?: string
     full_page?: boolean

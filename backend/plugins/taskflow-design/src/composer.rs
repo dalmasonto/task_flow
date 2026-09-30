@@ -846,19 +846,44 @@ pub fn compose_document(
         Some(s) if !s.is_empty() => {
             let kind = s.split(':').next().unwrap_or("");
             let name = s.split_once(':').map(|x| x.1).unwrap_or("");
-            if (kind == "dialog" || kind == "overlay") && !name.is_empty() {
+            if (kind == "dialog" || kind == "overlay") && !css_ident(name).is_empty() {
+                // Components often build their overlay AFTER DOMContentLoaded
+                // (a bottom sheet moves its children into a <dialog> it creates
+                // in its own DOMContentLoaded handler, registered after this
+                // one), so the lookup retries across frames for up to 2s. The
+                // outcome is published as `window.__tfState` /
+                // `__tfStateReady` so a screenshot can say when nothing
+                // matched instead of silently showing the closed page.
                 format!(
                     r#"<script>
-document.addEventListener('DOMContentLoaded', () => {{
-  const el = document.querySelector('[data-state="{}"], dialog[name="{}"]');
-  if (!el) return;
-  if (el instanceof HTMLDialogElement) {{ try {{ el.showModal(); }} catch (_) {{}} }}
-  else {{ el.removeAttribute('hidden'); el.setAttribute('open', ''); }}
+window.__tfStateReady = new Promise((settle) => {{
+  const want = {state_json};
+  const find = () => {{
+    try {{ return document.querySelector('[data-state="{name}"], dialog[name="{name}"], #{name}'); }}
+    catch (_) {{ return document.querySelector('[data-state="{name}"], dialog[name="{name}"]'); }}
+  }};
+  const open = (el) => {{
+    if (el instanceof HTMLDialogElement) {{ try {{ if (!el.open) el.showModal(); }} catch (_) {{}} }}
+    else {{ el.removeAttribute('hidden'); el.setAttribute('open', ''); }}
+  }};
+  const start = () => {{
+    const t0 = performance.now();
+    const attempt = () => {{
+      const el = find();
+      if (el) {{ open(el); window.__tfState = {{ state: want, matched: true }}; return settle(window.__tfState); }}
+      if (performance.now() - t0 > 2000) {{ window.__tfState = {{ state: want, matched: false }}; return settle(window.__tfState); }}
+      requestAnimationFrame(attempt);
+    }};
+    attempt();
+  }};
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(start, 0), {{ once: true }});
+  else start();
 }});
 </script>"#,
-                    esc(name),
-                    esc(name)
+                    state_json = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into()).replace('<', "\\u003c"),
+                    name = css_ident(name),
                 )
+
             } else {
                 String::new()
             }
@@ -1105,6 +1130,13 @@ pub fn sandbox_csp(token: &str) -> String {
          base-uri 'none'; \
          frame-ancestors *"
     )
+}
+
+/// A state name usable inside a CSS selector (`[data-state="…"]`, `#…`):
+/// only letters, digits, `-` and `_` survive, so a crafted `?state=` cannot
+/// break out of the selector or the script around it.
+fn css_ident(name: &str) -> String {
+    name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect()
 }
 
 #[cfg(test)]

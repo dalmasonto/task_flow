@@ -230,6 +230,61 @@ pub fn apply_to(doc: &TokensDoc, ov: &Overrides) -> (TokensDoc, Vec<String>) {
     (out, added)
 }
 
+/// What a variant CHANGES, in the stored patch shape
+/// `{category: {key: {light, dark?}}}` — pass it as `patch` to
+/// `design_write_tokens` to make the variant the design. Only the tokens the
+/// variant overrides appear (the reply stays small); each carries the values
+/// it rendered with. Returns the names added under `custom` too.
+pub fn apply_diff(doc: &TokensDoc, ov: &Overrides) -> (serde_json::Value, Vec<String>) {
+    let (merged, added) = apply_to(doc, ov);
+    let mut index: BTreeMap<String, (String, String)> = BTreeMap::new();
+    for (category, entries) in merged.categories.iter() {
+        for (key, _) in entries.iter() {
+            index.insert(category_to_var_name(category, key), (category.clone(), key.clone()));
+        }
+    }
+    let mut patch = serde_json::Map::new();
+    for name in ov.tokens.keys() {
+        let (category, key) = if added.contains(name) {
+            ("custom".to_string(), name.clone())
+        } else {
+            match index.get(name) {
+                Some(found) => found.clone(),
+                None => continue,
+            }
+        };
+        let Some(value) = merged
+            .categories
+            .iter()
+            .find(|(c, _)| *c == category)
+            .and_then(|(_, tokens)| tokens.iter().find(|(k, _)| *k == key))
+            .map(|(_, v)| v)
+        else {
+            continue;
+        };
+        let entry = patch
+            .entry(category)
+            .or_insert_with(|| serde_json::Value::Object(Default::default()));
+        if let Some(obj) = entry.as_object_mut() {
+            obj.insert(key, serde_json::to_value(value).unwrap_or_default());
+        }
+    }
+    (serde_json::Value::Object(patch), added)
+}
+
+/// Layer a variant's own overrides over shared ones: global tokens, then the
+/// shared `tokens`, then the variant's (a name in both takes the variant's);
+/// shared `css` first, then the variant's.
+pub fn layered(shared: &Overrides, own: &Overrides) -> Overrides {
+    let mut tokens = shared.tokens.clone();
+    tokens.extend(own.tokens.clone());
+    let css = match (shared.css.as_deref(), own.css.as_deref()) {
+        (Some(a), Some(b)) => Some(format!("{a}\n{b}")),
+        (a, b) => a.or(b).map(str::to_string),
+    };
+    Overrides { tokens, css }
+}
+
 // ---------------------------------------------------------------------------
 // The grid page
 // ---------------------------------------------------------------------------
@@ -298,6 +353,33 @@ pub fn cell_size(spec: &GridSpec) -> (u32, u32) {
 pub fn grid_width(spec: &GridSpec) -> u32 {
     let (cw, _) = cell_size(spec);
     PAD * 2 + LABEL_COL + spec.variants.len() as u32 * (cw + GAP)
+}
+
+/// Below this, a cell in the returned image is too small to read.
+pub const MIN_CELL_PX: f32 = 180.0;
+
+/// How wide one cell comes out, in px of the returned image, when the grid
+/// is rendered at 2× and then fitted within `max_px` (0 = not fitted).
+/// The height is estimated from the layout; the renderer does the real fit.
+pub fn cell_px(spec: &GridSpec, max_px: u32) -> f32 {
+    let (cw, ch) = cell_size(spec);
+    let rows = (spec.routes.len() * spec.themes.len()) as u32;
+    let width = grid_width(spec) as f32 * 2.0;
+    let height = (PAD * 2 + 40 + rows * (ch + GAP)) as f32 * 2.0;
+    let fit = if max_px == 0 { 1.0 } else { (max_px as f32 / width.max(height)).min(1.0) };
+    cw as f32 * 2.0 * fit
+}
+
+/// The grids to render so every cell stays readable: the whole spec, or —
+/// when its cells would come out under [`MIN_CELL_PX`] — one grid per route.
+pub fn split_for_readability(spec: &GridSpec, max_px: u32) -> Vec<GridSpec> {
+    if max_px == 0 || spec.routes.len() < 2 || cell_px(spec, max_px) >= MIN_CELL_PX {
+        return vec![spec.clone()];
+    }
+    spec.routes
+        .iter()
+        .map(|route| GridSpec { routes: vec![route.clone()], ..spec.clone() })
+        .collect()
 }
 
 pub fn validate_spec(spec: &GridSpec) -> Result<(), String> {
@@ -438,6 +520,8 @@ iframe{{border:0;display:block;transform-origin:0 0;pointer-events:none}}
     if (!doc) return;
     await Promise.race([doc.fonts.ready, new Promise((r) => setTimeout(r, 4000))]);
     await Promise.all([...doc.images].map((img) => img.complete ? null : new Promise((r) => {{ img.onload = img.onerror = r; setTimeout(r, 4000); }})));
+    const state = await Promise.race([f.contentWindow.__tfStateReady ?? Promise.resolve(null), new Promise((r) => setTimeout(() => r(null), 3000))]);
+    if (state && !state.matched) warnings.push(`state "${{state.state}}" matched no element in ${{f.dataset.route}}; rendered without it`);
     await new Promise((r) => f.contentWindow.requestAnimationFrame(() => f.contentWindow.requestAnimationFrame(r)));
   }};
   // A resolved CSS colour (rgb(), oklch(), color(), …) as sRGB 0–255 + alpha,
@@ -556,6 +640,63 @@ mod tests {
         assert_eq!(json["categories"]["radius"]["md"]["light"], "12px");
         assert_eq!(json["categories"]["custom"]["--brand-new"]["light"], "#111");
         assert_eq!(added, vec!["--brand-new".to_string()]);
+    }
+
+    #[test]
+    fn apply_diff_names_only_what_the_variant_changes() {
+        let doc: TokensDoc = serde_json::from_str(
+            r##"{"version":1,"categories":{
+              "colors":{"primary":{"light":"#15803D","dark":"#22C55E"},"bg":{"light":"#fff"}},
+              "radius":{"md":{"light":"8px"}}}}"##,
+        )
+        .expect("doc");
+        let (patch, added) = apply_diff(&doc, &ov(&[("--primary", "#448502"), ("--new-one", "#111")]));
+        assert_eq!(
+            patch,
+            serde_json::json!({
+                "colors": { "primary": { "light": "#448502", "dark": "#448502" } },
+                "custom": { "--new-one": { "light": "#111" } }
+            })
+        );
+        assert_eq!(added, vec!["--new-one".to_string()]);
+
+        // Writing the diff back as a patch reproduces the rendered column.
+        let mut written = doc.clone();
+        crate::tokens::apply_patch(&mut written, &patch).expect("patch applies");
+        assert_eq!(written, apply_to(&doc, &ov(&[("--primary", "#448502"), ("--new-one", "#111")])).0);
+    }
+
+    #[test]
+    fn variant_overrides_win_over_shared_ones() {
+        let shared = Overrides { tokens: ov(&[("--radius", "12px"), ("--primary", "#000")]).tokens, css: Some("#sheet{display:block}".into()) };
+        let own = Overrides { tokens: ov(&[("--primary", "#BE123C")]).tokens, css: Some("a{color:red}".into()) };
+        let out = layered(&shared, &own);
+        assert_eq!(out.tokens["--primary"], OverrideValue::Both("#BE123C".into()));
+        assert_eq!(out.tokens["--radius"], OverrideValue::Both("12px".into()));
+        assert_eq!(out.css.as_deref(), Some("#sheet{display:block}\na{color:red}"));
+        assert_eq!(layered(&shared, &Overrides::default()).tokens.len(), 2, "Current gets the shared base too");
+    }
+
+    #[test]
+    fn a_tall_grid_is_split_per_route_when_cells_get_too_small() {
+        let variant = |label: &str| GridVariant { label: label.into(), overrides: Overrides::default() };
+        let route = |r: &str| GridRoute { route: r.into(), state: None, label: None };
+        let spec = GridSpec {
+            routes: vec![route("/a"), route("/b"), route("/c")],
+            variants: vec![variant("x"), variant("y"), variant("z")],
+            themes: vec!["light".into(), "dark".into()],
+            width: 393,
+            height: 852,
+            scale: 0.5,
+            checks: vec![],
+        };
+        assert!(cell_px(&spec, 1568) < MIN_CELL_PX, "18 cells in 1568px are too small");
+        let parts = split_for_readability(&spec, 1568);
+        assert_eq!(parts.len(), 3);
+        assert!(parts.iter().all(|p| p.routes.len() == 1 && cell_px(p, 1568) >= MIN_CELL_PX));
+        assert_eq!(split_for_readability(&spec, 0).len(), 1, "max_px 0 never splits");
+        let small = GridSpec { routes: vec![route("/a")], themes: vec!["light".into()], ..spec };
+        assert_eq!(split_for_readability(&small, 1568).len(), 1);
     }
 
     #[test]

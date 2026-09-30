@@ -811,6 +811,14 @@ pub struct AgentWriteTokensInput {
     /// `css_to_tokens_json` before storage. Exactly one of `tokens`/`css`.
     #[serde(default)]
     pub css: Option<String>,
+    /// Merge shape `{category: {key: {light?, dark?} | null}}`: only what it
+    /// names changes (see `tokens::apply_patch`). `design_compare`'s `apply`
+    /// diff is exactly this. Exactly one of `tokens`/`css`/`patch`.
+    #[serde(default)]
+    pub patch: Option<serde_json::Value>,
+    /// Refuse with 409 if `styles/tokens.json` moved past this version.
+    #[serde(default)]
+    pub base_version: Option<i64>,
     pub reason: String,
 }
 
@@ -852,23 +860,49 @@ pub async fn write_tokens(
         ));
     }
 
-    let doc = match (input.tokens, input.css) {
-        (Some(_), Some(_)) => {
-            return Ok(tokens_validation_error(
-                "tokens-or-css",
-                "design_write_tokens takes exactly ONE of `tokens` or `css`, not both."
-                    .to_string(),
-            ));
+    let given = [input.tokens.is_some(), input.css.is_some(), input.patch.is_some()]
+        .iter()
+        .filter(|g| **g)
+        .count();
+    if given != 1 {
+        return Ok(tokens_validation_error(
+            "tokens-or-css",
+            "design_write_tokens takes exactly ONE of `patch` (only the tokens you change — \
+             preferred for edits), `tokens` (a whole JSON token document) or `css` (legacy \
+             tokens.css text)."
+                .to_string(),
+        ));
+    }
+
+    // The version the write is checked against: the caller's, or — for a
+    // patch — the one it was merged onto, so a concurrent write surfaces as
+    // a 409 instead of being silently overwritten by a stale merge.
+    let mut base_version = input.base_version;
+    let doc = if let Some(patch) = input.patch {
+        let current = store::load_file(input.project, "styles/tokens.json").await;
+        let mut doc = match &current {
+            Some(row) => match serde_json::from_str::<TokensDoc>(&row.content) {
+                Ok(doc) => doc,
+                Err(_) => {
+                    return Ok(tokens_validation_error(
+                        "invalid-json",
+                        "The stored tokens document could not be read, so a patch cannot be \
+                         merged into it; write the whole document with `tokens` instead."
+                            .to_string(),
+                    ));
+                }
+            },
+            None => TokensDoc::default(),
+        };
+        if let Err(err) = crate::tokens::apply_patch(&mut doc, &patch) {
+            return Ok(tokens_validation_error("invalid-patch", err));
         }
-        (None, None) => {
-            return Ok(tokens_validation_error(
-                "tokens-or-css",
-                "design_write_tokens requires exactly ONE of `tokens` (a JSON token map, \
-                 preferred) or `css` (legacy tokens.css text)."
-                    .to_string(),
-            ));
+        if base_version.is_none() {
+            base_version = current.map(|row| row.version);
         }
-        (Some(tokens), None) => match serde_json::from_value::<TokensDoc>(tokens) {
+        doc
+    } else if let Some(tokens) = input.tokens {
+        match serde_json::from_value::<TokensDoc>(tokens) {
             Ok(doc) => doc,
             Err(err) => {
                 return Ok(tokens_validation_error(
@@ -880,8 +914,9 @@ pub async fn write_tokens(
                     ),
                 ));
             }
-        },
-        (None, Some(css)) => css_to_tokens_json(&css),
+        }
+    } else {
+        css_to_tokens_json(input.css.as_deref().unwrap_or_default())
     };
 
     let content = match serde_json::to_string(&doc) {
@@ -899,7 +934,7 @@ pub async fn write_tokens(
         &format!("{} ({})", agent.display_name, agent.agent_id),
         "styles/tokens.json",
         &content,
-        None,
+        base_version,
     )
     .await
 }
@@ -1492,6 +1527,10 @@ pub struct AgentScreenshotQuery {
     /// #522: extra CSS for what tokens cannot express.
     #[serde(default)]
     pub css: Option<String>,
+    /// Longest side of the returned image (default 1568, the size the model
+    /// reads at; 0 = full resolution, e.g. for a human).
+    #[serde(default)]
+    pub max_px: Option<u32>,
 }
 
 fn default_viewport() -> String {
@@ -1530,6 +1569,7 @@ pub async fn screenshot(
         frame: q.frame,
         theme: q.theme,
         overrides: crate::compare::Overrides { tokens, css: q.css.clone() },
+        max_px: q.max_px.unwrap_or(crate::screenshots::AGENT_MAX_PX),
     };
     let shot = match crate::screenshots::render_screenshot(
         &q.route,
@@ -1572,6 +1612,7 @@ pub async fn screenshot(
         // A custom size is not the preset it was sent alongside.
         "viewport": if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() },
         "size": shot.viewport,
+        "image": png_size(&shot.png),
         "theme": q.theme,
         "full_page": q.full_page,
         "frame": q.frame,
@@ -1732,6 +1773,18 @@ pub struct AgentCompareInput {
     /// Cell scale, 0.2–1 (default 0.5).
     #[serde(default)]
     pub scale: Option<f32>,
+    /// Overrides every variant starts from (a variant's own win).
+    #[serde(default)]
+    pub tokens: std::collections::BTreeMap<String, crate::compare::OverrideValue>,
+    /// CSS every variant gets (before a variant's own).
+    #[serde(default)]
+    pub css: Option<String>,
+    /// Return `apply`: per variant, the patch that would make it the design.
+    #[serde(default)]
+    pub include_apply: bool,
+    /// Longest side of each returned image (default 1568; 0 = full size).
+    #[serde(default)]
+    pub max_px: Option<u32>,
 }
 
 fn bad_request(detail: String) -> Response {
@@ -1759,6 +1812,7 @@ pub async fn compare(
         Ok(vp) => vp,
         Err(e) => return Ok(bad_request(e.to_string())),
     };
+    let shared = crate::compare::Overrides { tokens: input.tokens, css: input.css };
     let spec = crate::compare::GridSpec {
         routes: input
             .routes
@@ -1773,7 +1827,7 @@ pub async fn compare(
             .into_iter()
             .map(|v| crate::compare::GridVariant {
                 label: v.label,
-                overrides: crate::compare::Overrides { tokens: v.tokens, css: v.css },
+                overrides: crate::compare::layered(&shared, &crate::compare::Overrides { tokens: v.tokens, css: v.css }),
             })
             .collect(),
         themes: input.themes.unwrap_or_else(|| vec!["light".to_string()]),
@@ -1798,62 +1852,115 @@ pub async fn compare(
         )));
     }
 
-    let shot = match crate::screenshots::render_compare(&spec, || crate::sandbox::mint(agent.project_id)).await {
-        Ok(shot) => shot,
-        Err(crate::screenshots::RenderError::Unconfigured(what)) => {
-            return Ok((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "detail": format!("Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."),
-                })),
-            )
-                .into_response());
-        }
-        Err(e @ crate::screenshots::RenderError::BadOverrides(_)) => return Ok(bad_request(e.to_string())),
-        Err(other) => {
-            eprintln!("design agent compare: {other}");
-            return Ok((StatusCode::BAD_GATEWAY, Json(json!({ "detail": other.to_string() }))).into_response());
-        }
-    };
-
-    // `apply`: per variant with token overrides, the whole tokens document
-    // with them written in — pass it as `tokens` to design_write_tokens.
-    let doc = files
+    // One grid, or one per route when a single grid would shrink its cells
+    // past readable within `max_px`. The parts render concurrently (the
+    // sidecar queues past its own limit).
+    let max_px = input.max_px.unwrap_or(crate::screenshots::AGENT_MAX_PX);
+    let parts = crate::compare::split_for_readability(&spec, max_px);
+    let project_id = agent.project_id;
+    let handles: Vec<_> = parts
         .iter()
-        .find(|f| f.path == "styles/tokens.json")
-        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok());
-    let mut apply = serde_json::Map::new();
-    for v in spec.variants.iter().filter(|v| !v.overrides.tokens.is_empty()) {
-        let entry = match &doc {
-            Some(doc) => {
-                let (tokens, added) = crate::compare::apply_to(doc, &v.overrides);
-                json!({ "tokens": tokens, "added_to_custom": added, "css_not_applied": v.overrides.css.is_some() })
-            }
-            None => json!({ "error": "this project has no styles/tokens.json to apply to" }),
-        };
-        apply.insert(v.label.clone(), entry);
-    }
-
-    let mut warnings = shot.warnings;
-    if let Some(grid_warnings) = shot.data["warnings"].as_array() {
-        warnings.extend(grid_warnings.iter().filter_map(|w| w.as_str().map(str::to_string)));
-    }
-    let rows: Vec<_> = spec
-        .routes
-        .iter()
-        .flat_map(|r| spec.themes.iter().map(move |t| json!({ "route": r.route, "theme": t, "label": r.label })))
+        .cloned()
+        .map(|part| {
+            tokio::spawn(async move {
+                crate::screenshots::render_compare(&part, max_px, move || crate::sandbox::mint(project_id)).await
+            })
+        })
         .collect();
-    Ok(Json(json!({
+    let mut renders = Vec::with_capacity(handles.len());
+    for handle in handles {
+        renders.push(handle.await.unwrap_or_else(|e| {
+            Err(crate::screenshots::RenderError::Failed(format!("render task failed: {e}")))
+        }));
+    }
+
+    let mut images = Vec::new();
+    let mut checks: Vec<serde_json::Value> = Vec::new();
+    let mut seen_checks = std::collections::HashSet::new();
+    let mut warnings = Vec::new();
+    for (part, rendered) in parts.iter().zip(renders) {
+        let shot = match rendered {
+            Ok(shot) => shot,
+            Err(crate::screenshots::RenderError::Unconfigured(what)) => {
+                return Ok((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "detail": format!("Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."),
+                    })),
+                )
+                    .into_response());
+            }
+            Err(e @ crate::screenshots::RenderError::BadOverrides(_)) => return Ok(bad_request(e.to_string())),
+            Err(other) => {
+                eprintln!("design agent compare: {other}");
+                return Ok((StatusCode::BAD_GATEWAY, Json(json!({ "detail": other.to_string() }))).into_response());
+            }
+        };
+        warnings.extend(shot.warnings.iter().cloned());
+        if let Some(grid_warnings) = shot.data["warnings"].as_array() {
+            warnings.extend(grid_warnings.iter().filter_map(|w| w.as_str().map(str::to_string)));
+        }
+        // Each part measures every variant × theme; keep the first of each.
+        for check in shot.data["checks"].as_array().into_iter().flatten() {
+            let key = format!("{}|{}|{}|{}", check["variant"], check["theme"], check["fg"], check["bg"]);
+            if seen_checks.insert(key) {
+                checks.push(check.clone());
+            }
+        }
+        images.push(json!({
+            "routes": part.routes.iter().map(|r| r.route.clone()).collect::<Vec<_>>(),
+            "size": png_size(&shot.png),
+            "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+        }));
+    }
+
+    let mut body = json!({
         "mime": "image/png",
-        "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+        "images": images,
+        "split": parts.len() > 1,
         "grid": {
             "columns": spec.variants.iter().map(|v| v.label.clone()).collect::<Vec<_>>(),
-            "rows": rows,
+            "rows": spec
+                .routes
+                .iter()
+                .flat_map(|r| spec.themes.iter().map(move |t| json!({ "route": r.route, "theme": t, "label": r.label })))
+                .collect::<Vec<_>>(),
             "cell": { "width": spec.width, "height": spec.height, "scale": spec.scale },
         },
-        "checks": shot.data.get("checks").cloned().unwrap_or_else(|| json!([])),
-        "apply": apply,
+        "checks": checks,
         "warnings": warnings,
-    }))
-    .into_response())
+    });
+
+    // `apply`, only when asked: per variant with token overrides, the PATCH
+    // (just the tokens it changes) that makes it the design via
+    // `design_write_tokens({patch})`.
+    if input.include_apply {
+        let doc = files
+            .iter()
+            .find(|f| f.path == "styles/tokens.json")
+            .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
+            .unwrap_or_default();
+        let base_version = files.iter().find(|f| f.path == "styles/tokens.json").map(|f| f.version);
+        let mut apply = serde_json::Map::new();
+        for v in spec.variants.iter().filter(|v| !v.overrides.tokens.is_empty()) {
+            let (patch, added) = crate::compare::apply_diff(&doc, &v.overrides);
+            let mut entry = json!({ "patch": patch });
+            if !added.is_empty() {
+                entry["added_to_custom"] = json!(added);
+            }
+            if v.overrides.css.is_some() {
+                entry["css_not_applied"] = json!(true);
+            }
+            apply.insert(v.label.clone(), entry);
+        }
+        body["apply"] = json!(apply);
+        body["tokens_version"] = json!(base_version);
+    }
+    Ok(Json(body).into_response())
+}
+
+/// Width and height of a PNG, from its IHDR chunk.
+fn png_size(png: &[u8]) -> serde_json::Value {
+    let read = |at: usize| png.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    json!({ "width": read(16), "height": read(20) })
 }

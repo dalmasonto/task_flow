@@ -4,7 +4,7 @@
 /// Contract (see backend/plugins/taskflow-design/src/screenshots.rs):
 ///   design-render.mjs --url <url> --width W --height H --dpr D --timeout-ms T --out <png>
 ///                     [--mobile 1] [--full-page 1] [--frame none|classic|device]
-///                     [--device <preset id>] [--theme light|dark|both]
+///                     [--device <preset id>] [--theme light|dark|both] [--max-px N]
 ///
 /// Renders agent-authored HTML in a disposable headless Chromium, writes a PNG
 /// to --out, and writes `<out>.json` = { warnings: [...] }: every font, image or
@@ -33,7 +33,7 @@ import { isIP } from "node:net";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { frameCapture, framedCaptureHeight, sideBySide } from "./frames.mjs";
+import { fitWithin, frameCapture, framedCaptureHeight, sideBySide } from "./frames.mjs";
 
 const args = {};
 const argv = process.argv.slice(2);
@@ -50,6 +50,8 @@ const fullPage = args["full-page"] === "1";
 const frame = args.frame ?? "none";
 const device = args.device ?? "";
 const theme = ["dark", "both"].includes(args.theme) ? args.theme : "light";
+/// Longest side of the returned PNG (0 = as captured).
+const maxPx = Math.max(0, parseInt(args["max-px"] ?? "0", 10) || 0);
 const out = args.out;
 /// A device-framed screen is captured at the frame screen's own proportions
 /// (the UI export's `captureViewport`), so its cover fit crops nothing.
@@ -230,6 +232,19 @@ async function shoot(browser, pageTheme, remaining) {
     pending.late.forEach(warn);
     for (const { url: src, message } of pending.broken) warnUrl(src, message);
 
+    // `?state=` overlays open on their own schedule (a sheet may build its
+    // dialog after DOMContentLoaded); wait for the composer's verdict, and say
+    // so when the state matched nothing rather than show the closed page.
+    const stateResult = await page
+      .evaluate(async (budget) => {
+        if (!window.__tfStateReady) return null;
+        return Promise.race([window.__tfStateReady, new Promise((r) => setTimeout(() => r(null), budget))]);
+      }, Math.min(3000, remaining()))
+      .catch(() => null);
+    if (stateResult && !stateResult.matched) {
+      warn(`state "${stateResult.state}" matched no element; rendered without it`);
+    }
+
     // A page that knows when it is done says so: the comparison grid exposes
     // `window.__tfReady` (every cell loaded and measured) and its findings as
     // `window.__tfResult`, which go back to the caller as `data`.
@@ -314,7 +329,8 @@ try {
   const themes = theme === "both" ? ["light", "dark"] : [theme];
   const shots = [];
   for (const t of themes) shots.push(await shoot(browser, t, remaining));
-  const png = shots.length === 1 ? shots[0] : await sideBySide(browser, shots, dpr);
+  const joined = shots.length === 1 ? shots[0] : await sideBySide(browser, shots, dpr);
+  const png = await fitWithin(browser, joined, maxPx);
 
   try { mkdirSync(dirname(resolve(out)), { recursive: true }); } catch {}
   writeFileSync(out, png);

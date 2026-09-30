@@ -178,6 +178,9 @@ pub struct CreateScreenshotInput {
     /// #522: unsaved token/CSS overrides.
     #[serde(default)]
     pub overrides: crate::compare::Overrides,
+    /// Longest side of the returned PNG; 0 (default here) = full size.
+    #[serde(default)]
+    pub max_px: u32,
 }
 
 /// `POST /api/design/{project}/screenshots` — render a route at a viewport and
@@ -199,6 +202,7 @@ pub async fn create_screenshot(
         frame: input.frame,
         theme: input.theme,
         overrides: input.overrides.clone(),
+        max_px: input.max_px,
     };
     let shot = crate::screenshots::render_screenshot(
         &input.route,

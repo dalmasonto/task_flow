@@ -91,7 +91,12 @@ pub struct ScreenshotRequest {
     pub theme: Theme,
     /// #522: unsaved token/CSS overrides to render with (validated).
     pub overrides: crate::compare::Overrides,
+    /// Longest side of the returned PNG in px; 0 = as captured.
+    pub max_px: u32,
 }
+
+/// What agents get by default: about the size their model downscales to.
+pub const AGENT_MAX_PX: u32 = 1568;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -274,6 +279,8 @@ pub async fn render_shot(
             &req.viewport,
             "--theme",
             req.theme.as_str(),
+            "--max-px",
+            &req.max_px.to_string(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -391,6 +398,7 @@ fn _assert_async_write_imported<T: AsyncWriteExt>(_: &T) {}
 /// width; the cells inside keep the page's own width via their iframes.
 pub async fn render_compare(
     spec: &crate::compare::GridSpec,
+    max_px: u32,
     mint_token: impl FnOnce() -> String,
 ) -> Result<Rendered, RenderError> {
     let Some(base) = std::env::var("TASKFLOW_DESIGN_BASE_URL")
@@ -412,6 +420,6 @@ pub async fn render_compare(
         crate::compare::encode_spec(spec)
     );
     let viewport = Viewport { width: crate::compare::grid_width(spec), height: 900, dpr: 2, mobile: false };
-    let req = ScreenshotRequest { full_page: true, ..Default::default() };
+    let req = ScreenshotRequest { full_page: true, max_px, ..Default::default() };
     render_shot(&program, &url, &viewport, &req, 55_000).await
 }

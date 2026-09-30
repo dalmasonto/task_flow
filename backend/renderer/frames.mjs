@@ -315,3 +315,51 @@ export async function sideBySide(browser, pngs, dpr) {
     await page.close().catch(() => {});
   }
 }
+
+/// Scale `png` down so its longer side is at most `maxPx` (never up). The
+/// agent's model downscales anything larger itself, so shipping more pixels
+/// only costs upload and latency. Halving steps keep small text crisp.
+export async function fitWithin(browser, png, maxPx) {
+  const w = png.readUInt32BE(16);
+  const h = png.readUInt32BE(20);
+  if (!maxPx || Math.max(w, h) <= maxPx) return png;
+  const page = await browser.newPage();
+  try {
+    const dataUrl = await page.evaluate(
+      async ({ src, maxPx }) => {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error("Could not read the captured image."));
+          i.src = src;
+        });
+        const scale = maxPx / Math.max(img.naturalWidth, img.naturalHeight);
+        const target = { w: Math.max(1, Math.round(img.naturalWidth * scale)), h: Math.max(1, Math.round(img.naturalHeight * scale)) };
+        let source = img;
+        let cur = { w: img.naturalWidth, h: img.naturalHeight };
+        while (cur.w / 2 >= target.w && cur.h / 2 >= target.h) {
+          const next = { w: Math.round(cur.w / 2), h: Math.round(cur.h / 2) };
+          const step = document.createElement("canvas");
+          step.width = next.w;
+          step.height = next.h;
+          const sctx = step.getContext("2d");
+          sctx.imageSmoothingQuality = "high";
+          sctx.drawImage(source, 0, 0, next.w, next.h);
+          source = step;
+          cur = next;
+        }
+        const out = document.createElement("canvas");
+        out.width = target.w;
+        out.height = target.h;
+        const ctx = out.getContext("2d");
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(source, 0, 0, target.w, target.h);
+        return out.toDataURL("image/png");
+      },
+      { src: `data:image/png;base64,${png.toString("base64")}`, maxPx },
+    );
+    return Buffer.from(dataUrl.split(",")[1], "base64");
+  } finally {
+    await page.close().catch(() => {});
+  }
+}

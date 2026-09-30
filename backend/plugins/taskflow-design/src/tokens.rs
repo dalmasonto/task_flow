@@ -357,3 +357,100 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
         categories,
     }
 }
+
+/// Merge a PATCH into a tokens document, in its stored shape:
+/// `{ "<category>": { "<key>": { "light"?: v, "dark"?: v } | null } }`.
+///
+/// A token in the patch replaces only the themes it names; `null` removes the
+/// token (and a category left empty goes with it); a new category or key is
+/// added at the end, keeping the document's order. Everything the patch does
+/// not name is left exactly as it was. `design_write_tokens({patch})` and
+/// `design_compare`'s `apply` diff both speak this shape.
+pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(), String> {
+    let categories = patch
+        .as_object()
+        .ok_or("patch must be an object of categories, e.g. {\"colors\": {\"primary\": {\"light\": \"#448502\"}}}")?;
+    for (category, entries) in categories {
+        let entries = entries
+            .as_object()
+            .ok_or_else(|| format!("patch.{category} must be an object of tokens"))?;
+        for (key, value) in entries {
+            if value.is_null() {
+                if let Some(existing) = doc.categories.get_mut(category) {
+                    existing.0.retain(|(k, _)| k != key);
+                }
+                continue;
+            }
+            let fields = value
+                .as_object()
+                .ok_or_else(|| format!("patch.{category}.{key} must be {{\"light\"?, \"dark\"?}} or null"))?;
+            if let Some(extra) = fields.keys().find(|k| *k != "light" && *k != "dark") {
+                return Err(format!("patch.{category}.{key}: unknown field `{extra}` (light, dark)"));
+            }
+            let theme = |name: &str| -> Result<Option<String>, String> {
+                match fields.get(name) {
+                    None => Ok(None),
+                    Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+                    Some(serde_json::Value::Null) => Ok(Some(String::new())),
+                    Some(_) => Err(format!("patch.{category}.{key}.{name} must be a string")),
+                }
+            };
+            let (light, dark) = (theme("light")?, theme("dark")?);
+            if light.is_none() && dark.is_none() {
+                return Err(format!("patch.{category}.{key}: give light and/or dark (or null to remove)"));
+            }
+            let tokens = doc.categories.entry_or_insert_with(category, OrderedMap::new);
+            let token = tokens.entry_or_insert_with(key, || TokenValue { light: String::new(), dark: None });
+            if let Some(light) = light {
+                token.light = light;
+            }
+            if let Some(dark) = dark {
+                // `"dark": null` drops the dark value, so the light one applies in both.
+                token.dark = (!dark.is_empty()).then_some(dark);
+            }
+            if token.light.is_empty() {
+                return Err(format!("patch.{category}.{key}: a new token needs a light value"));
+            }
+        }
+    }
+    doc.categories.0.retain(|(_, tokens)| !tokens.is_empty());
+    Ok(())
+}
+
+#[cfg(test)]
+mod patch_tests {
+    use super::*;
+
+    fn doc() -> TokensDoc {
+        serde_json::from_str(
+            r##"{"version":1,"categories":{
+              "colors":{"primary":{"light":"#15803D","dark":"#22C55E"},"bg":{"light":"#fff","dark":"#000"}},
+              "radius":{"md":{"light":"8px"}}}}"##,
+        )
+        .expect("doc")
+    }
+
+    #[test]
+    fn a_patch_changes_only_what_it_names() {
+        let mut d = doc();
+        apply_patch(&mut d, &serde_json::json!({ "colors": { "primary": { "light": "#448502" } } })).expect("ok");
+        let json = serde_json::to_value(&d).expect("json");
+        assert_eq!(json["categories"]["colors"]["primary"], serde_json::json!({ "light": "#448502", "dark": "#22C55E" }));
+        assert_eq!(json["categories"]["colors"]["bg"], serde_json::json!({ "light": "#fff", "dark": "#000" }));
+        assert_eq!(json["categories"]["radius"]["md"], serde_json::json!({ "light": "8px" }));
+        // Order is kept: colors stays first, primary stays before bg.
+        assert_eq!(serde_json::to_string(&d).expect("s").find("primary") < serde_json::to_string(&d).expect("s").find("\"bg\""), true);
+    }
+
+    #[test]
+    fn null_removes_and_new_tokens_need_a_light_value() {
+        let mut d = doc();
+        apply_patch(&mut d, &serde_json::json!({ "radius": { "md": null }, "colors": { "accent": { "light": "#f00" } } })).expect("ok");
+        let json = serde_json::to_value(&d).expect("json");
+        assert!(json["categories"].get("radius").is_none(), "an emptied category goes too");
+        assert_eq!(json["categories"]["colors"]["accent"]["light"], "#f00");
+        assert!(apply_patch(&mut doc(), &serde_json::json!({ "colors": { "x": { "dark": "#000" } } })).is_err());
+        assert!(apply_patch(&mut doc(), &serde_json::json!({ "colors": { "primary": { "shade": "#000" } } })).is_err());
+        assert!(apply_patch(&mut doc(), &serde_json::json!(["nope"])).is_err());
+    }
+}

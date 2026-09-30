@@ -14,6 +14,12 @@ use taskflow_design::screenshots::{
     viewport_for,
 };
 
+/// The stub tests write an executable and then run it. Run in parallel, one
+/// test's fork can hold another's freshly written script open for an
+/// instant, and exec then fails with ETXTBSY ("Text file busy"). Holding this
+/// across write + render keeps the stub tests from racing each other.
+static STUB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Write an executable stub renderer that sleeps `sleep_ms` then writes a tiny
 /// PNG to --out (or exits non-zero when `fail` is set).
 async fn write_stub(name: &str, sleep_ms: u64, fail: bool) -> String {
@@ -44,6 +50,7 @@ async fn write_stub(name: &str, sleep_ms: u64, fail: bool) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn renderer_happy_path_returns_png_bytes() {
+    let _serial = STUB_LOCK.lock().await;
     let stub = write_stub("design-render-ok", 10, false).await;
     let vp = Viewport {
         width: 393,
@@ -59,6 +66,7 @@ async fn renderer_happy_path_returns_png_bytes() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn renderer_failure_is_surfaced_not_swallowed() {
+    let _serial = STUB_LOCK.lock().await;
     let stub = write_stub("design-render-fail", 10, true).await;
     let vp = Viewport {
         width: 1280,
@@ -76,6 +84,7 @@ async fn renderer_failure_is_surfaced_not_swallowed() {
 #[tokio::test(flavor = "multi_thread")]
 async fn hung_renderer_is_killed_at_the_deadline() {
     // Sleeps far past the budget; the wrapper must return Timeout well before.
+    let _serial = STUB_LOCK.lock().await;
     let stub = write_stub("design-render-hang", 30_000, false).await;
     let vp = Viewport {
         width: 1280,
@@ -122,6 +131,7 @@ const _: Option<support::TestApp> = None;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn renderer_warnings_are_read_back_and_cleaned_up() {
+    let _serial = STUB_LOCK.lock().await;
     let stub = write_stub("design-render-warn", 10, false).await;
     let vp = viewport_for("iphone-16-pro").expect("preset");
     let req = ScreenshotRequest {

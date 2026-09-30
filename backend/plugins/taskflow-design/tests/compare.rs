@@ -140,3 +140,55 @@ fn base64_url(raw: &str) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
 }
+
+/// Builder's upgrade §2.2: `design_write_tokens({patch})` changes only what
+/// it names, and a stale `base_version` is a 409, not a silent overwrite.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_token_patch_merges_and_refuses_a_stale_base_version() {
+    let app = TestApp::new().await;
+    let project_id = seeded(&app).await;
+    let (_agent, key) = seed_agent(project_id, "Designer").await;
+    let path = "/api/taskflow/agents/design/tokens";
+    let stored = || async {
+        let row = taskflow_design::store::load_file(project_id, "styles/tokens.json").await.expect("tokens row");
+        serde_json::from_str::<serde_json::Value>(&row.content).expect("tokens json")
+    };
+
+    let res = app
+        .put_as_agent(
+            &key,
+            path,
+            json!({
+                "project": project_id,
+                "reason": "Try the lime primary from the compare",
+                "patch": { "colors": { "primary": { "light": "#448502" }, "accent": { "light": "#f59e0b" } } },
+            }),
+        )
+        .await;
+    assert!((200..300).contains(&res.status()), "{}: {}", res.status(), res.text());
+
+    let tokens = stored().await;
+    let primary = &tokens["categories"]["colors"]["primary"];
+    assert_eq!(primary["light"], "#448502");
+    assert_eq!(primary["dark"], "#22C55E", "the dark value the patch did not name is untouched");
+    assert_eq!(tokens["categories"]["colors"]["accent"]["light"], "#f59e0b");
+
+    let stale = app
+        .put_as_agent(
+            &key,
+            path,
+            json!({
+                "project": project_id,
+                "reason": "An edit based on an old read",
+                "base_version": 1,
+                "patch": { "colors": { "primary": { "light": "#000000" } } },
+            }),
+        )
+        .await;
+    assert_eq!(stale.status(), 409, "{}", stale.text());
+
+    let both = app
+        .put_as_agent(&key, path, json!({ "project": project_id, "reason": "two shapes at once", "patch": {}, "css": "@theme{}" }))
+        .await;
+    assert_eq!(both.status(), 422, "{}", both.text());
+}
