@@ -166,6 +166,22 @@ async fn a_token_patch_merges_and_refuses_a_stale_base_version() {
         )
         .await;
     assert!((200..300).contains(&res.status()), "{}: {}", res.status(), res.text());
+    // The reply is the new version and what changed — not the stored file
+    // echoed back, and not every route listed (a token write touches them all).
+    let reply = res.json();
+    assert!(reply.get("file").is_none(), "no echoed document: {reply}");
+    assert!(reply.get("affected_routes").is_none(), "no route list: {reply}");
+    assert!(reply["version"].as_i64().unwrap_or(0) >= 2, "{reply}");
+    assert_eq!(reply["routes_affected"], 2, "a count of the project's routes: {reply}");
+    assert_eq!(reply["changed_count"], 2);
+    let primary_change = reply["changed"]
+        .as_array()
+        .and_then(|c| c.iter().find(|c| c["var"] == "--primary"))
+        .cloned()
+        .expect("--primary in changed");
+    assert_eq!(primary_change["before"]["light"], "#15803D");
+    assert_eq!(primary_change["after"], json!({ "light": "#448502", "dark": "#22C55E" }));
+    assert!(reply.to_string().len() < 800, "compact reply, got {} bytes", reply.to_string().len());
 
     let tokens = stored().await;
     let primary = &tokens["categories"]["colors"]["primary"];

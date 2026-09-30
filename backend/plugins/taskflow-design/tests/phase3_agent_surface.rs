@@ -581,7 +581,8 @@ async fn agent_write_tokens_json_stores_json_row_and_get_tokens_returns_it() {
         )
         .await;
     assert_eq!(res.status(), 201, "{}", res.text());
-    assert_eq!(res.json()["file"]["path"], "styles/tokens.json");
+    assert_eq!(res.json()["path"], "styles/tokens.json");
+    assert_eq!(res.json()["changed"][0]["var"], "--accent", "the reply names what changed");
 
     let ctx = app
         .get_as_agent(
@@ -704,7 +705,7 @@ async fn agent_write_tokens_css_migrates_legacy_project_to_json_row() {
         )
         .await;
     assert_eq!(res.status(), 201, "{}", res.text());
-    assert_eq!(res.json()["file"]["path"], "styles/tokens.json");
+    assert_eq!(res.json()["path"], "styles/tokens.json");
 
     let row = app
         .get_as_agent(

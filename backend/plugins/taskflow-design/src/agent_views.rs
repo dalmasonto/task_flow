@@ -874,12 +874,19 @@ pub async fn write_tokens(
         ));
     }
 
+    // The stored document: what a patch merges onto, and what the reply
+    // diffs against.
+    let current = store::load_file(input.project, "styles/tokens.json").await;
+    let before = current
+        .as_ref()
+        .and_then(|row| serde_json::from_str::<TokensDoc>(&row.content).ok())
+        .unwrap_or_default();
+
     // The version the write is checked against: the caller's, or — for a
     // patch — the one it was merged onto, so a concurrent write surfaces as
     // a 409 instead of being silently overwritten by a stale merge.
     let mut base_version = input.base_version;
     let doc = if let Some(patch) = input.patch {
-        let current = store::load_file(input.project, "styles/tokens.json").await;
         let mut doc = match &current {
             Some(row) => match serde_json::from_str::<TokensDoc>(&row.content) {
                 Ok(doc) => doc,
@@ -898,7 +905,7 @@ pub async fn write_tokens(
             return Ok(tokens_validation_error("invalid-patch", err));
         }
         if base_version.is_none() {
-            base_version = current.map(|row| row.version);
+            base_version = current.as_ref().map(|row| row.version);
         }
         doc
     } else if let Some(tokens) = input.tokens {
@@ -929,14 +936,55 @@ pub async fn write_tokens(
         }
     };
 
-    agent_write(
-        agent.project_id,
-        &format!("{} ({})", agent.display_name, agent.agent_id),
-        "styles/tokens.json",
-        &content,
-        base_version,
-    )
-    .await
+    // Written like every agent write (same lock, validator, conflict rules),
+    // but answered compactly: a token write re-renders EVERY route, so the
+    // shared reply — the stored file echoed back plus every route named twice
+    // — cost ~2k tokens for a one-line change. The caller already has the
+    // document; what it needs is the new version and what changed.
+    let by = format!("{} ({})", agent.display_name, agent.agent_id);
+    let outcome = project_locks()
+        .with_lock(agent.project_id, || async {
+            store::write_file(agent.project_id, "styles/tokens.json", &content, base_version, &by).await
+        })
+        .await;
+    match outcome {
+        WriteOutcome::Saved(row, verdict) => {
+            let changes = crate::tokens::diff(&before, &doc);
+            let routes = crate::views::affected_routes_for(&row.path, agent.project_id).await.len();
+            const SHOWN: usize = 40;
+            let names: Vec<&str> = changes.iter().take(5).map(|c| c.var.as_str()).collect();
+            let note = format!(
+                "tokens.json is now v{}: {} token(s) changed{}; {routes} route(s) re-render.",
+                row.version,
+                changes.len(),
+                if names.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " ({}{})",
+                        names.join(", "),
+                        if changes.len() > names.len() { ", …" } else { "" }
+                    )
+                },
+            );
+            Ok((
+                StatusCode::CREATED,
+                Json(json!({
+                    "ok": true,
+                    "path": row.path,
+                    "version": row.version,
+                    "changed": changes.iter().take(SHOWN).collect::<Vec<_>>(),
+                    "changed_count": changes.len(),
+                    "routes_affected": routes,
+                    "warnings": verdict.warnings,
+                    "note": note,
+                })),
+            )
+                .into_response())
+        }
+        WriteOutcome::Rejected(v) => Ok(rejection_response(&v)),
+        WriteOutcome::Conflict(row) => Ok(conflict_response(&row)),
+    }
 }
 
 /// Shared write path for agent tools: same lock, validator, caps and conflict

@@ -454,3 +454,55 @@ mod patch_tests {
         assert!(apply_patch(&mut doc(), &serde_json::json!(["nope"])).is_err());
     }
 }
+
+/// One token's change between two documents, for a compact write reply.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TokenChange {
+    /// `category.key`, the path a patch uses.
+    pub token: String,
+    /// The CSS custom property it emits, what pages reference.
+    pub var: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<TokenValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<TokenValue>,
+}
+
+/// Every token added, changed or removed from `old` to `new`, in `new`'s
+/// order then removals.
+pub fn diff(old: &TokensDoc, new: &TokensDoc) -> Vec<TokenChange> {
+    let find = |doc: &TokensDoc, category: &str, key: &str| -> Option<TokenValue> {
+        doc.categories
+            .iter()
+            .find(|(c, _)| c == category)
+            .and_then(|(_, tokens)| tokens.iter().find(|(k, _)| k == key))
+            .map(|(_, v)| v.clone())
+    };
+    let mut changes = Vec::new();
+    for (category, tokens) in new.categories.iter() {
+        for (key, after) in tokens.iter() {
+            let before = find(old, category, key);
+            if before.as_ref() != Some(after) {
+                changes.push(TokenChange {
+                    token: format!("{category}.{key}"),
+                    var: category_to_var_name(category, key),
+                    before,
+                    after: Some(after.clone()),
+                });
+            }
+        }
+    }
+    for (category, tokens) in old.categories.iter() {
+        for (key, before) in tokens.iter() {
+            if find(new, category, key).is_none() {
+                changes.push(TokenChange {
+                    token: format!("{category}.{key}"),
+                    var: category_to_var_name(category, key),
+                    before: Some(before.clone()),
+                    after: None,
+                });
+            }
+        }
+    }
+    changes
+}
