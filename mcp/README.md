@@ -281,13 +281,13 @@ profile for that one call (e.g. `reviewer` for `report_review`).
 | `capture_terminal(content, stream?)` | Stream terminal output into the session. |
 | `log_activity(action, body?, task?)` | Log a real activity event. |
 | `get_activity(task?, limit?)` | Read recent project activity. |
-| `design_get_tokens`, `design_write_tokens` | Read / replace the design token scale. |
+| `design_get_tokens`, `design_write_tokens` | Read / change the design tokens: a `patch` of just what changes (preferred), or the whole document; `base_version` refuses a stale write. |
 | `design_list_components`, `design_read_component`, `design_write_component`, `design_delete_component` | The design component registry. |
 | `design_read_page`, `design_write_page`, `design_delete_page` | Design pages (delete moves to the trash). |
 | `design_read_layout`, `design_create_group`, `design_update_group`, `design_reorder_group`, `design_reorder_page`, `design_delete_group`, `design_arrange` | How design pages are grouped and ordered. |
 | `design_write_asset` | Write an image or other non-page asset. |
 | `design_screenshot` | Render a route in headless Chromium and return a PNG: any preset or custom size, full page, `theme` light/dark/both, a device or classic `frame`, and unsaved `tokens`/`css` overrides. Reports fonts or images that did not load. |
-| `design_compare` | Render routes × unsaved design variants × light/dark as one labelled grid, with WCAG contrast `checks` and, per variant, the `design_write_tokens` payload that would apply it. Nothing is written. |
+| `design_compare` | Render routes × unsaved design variants × light/dark as one labelled grid, with WCAG contrast `checks`; shared `tokens`/`css` for every variant; `include_apply` for a per-variant token `patch`. Images fit `max_px`, splitting per route when cells would be too small. Nothing is written. |
 | `design_list_comments`, `design_resolve_comment` | Operator comments on the rendered design. |
 
 ## Troubleshooting

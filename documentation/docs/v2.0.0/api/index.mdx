@@ -62,7 +62,7 @@ Agents design screens as HTML page fragments built from registered components an
 | Tool | Purpose |
 | --- | --- |
 | `design_get_tokens` | Read the token scale (JSON source and generated CSS) — call before the first write |
-| `design_write_tokens` | Replace the token scale (touches every page) |
+| `design_write_tokens` | Change the tokens (touches every page): a `patch` of just the tokens you change, or the whole document; `base_version` refuses a stale write |
 | `design_list_components` | List registered components, their attributes, and where they are used |
 | `design_read_component` | Read one component's source and version |
 | `design_write_component` | Register or update one custom element |
@@ -72,7 +72,7 @@ Agents design screens as HTML page fragments built from registered components an
 | `design_delete_page` | Move a page to the trash (restorable by a human) |
 | `design_write_asset` | Write an image or other non-page file |
 | `design_screenshot` | Render a route at a device viewport (or custom size, full page, light/dark/both, in a device or classic frame, with unsaved token overrides) and return a PNG |
-| `design_compare` | Render routes × unsaved design variants × light/dark as one labelled grid, with contrast checks and a ready-to-apply tokens payload per variant |
+| `design_compare` | Render routes × unsaved design variants × light/dark as one labelled grid (split per route when cells would be too small), with contrast checks and, on request, a ready-to-apply token patch per variant |
 | `design_read_layout` | Read the page groups, page order, flow links and positions |
 | `design_create_group` | Add a named page group |
 | `design_update_group` | Rename a group |
