@@ -737,8 +737,8 @@ pub struct AgentWriteTokensInput {
     /// `css_to_tokens_json` before storage. Exactly one of `tokens`/`css`.
     #[serde(default)]
     pub css: Option<String>,
-    /// Merge shape `{category: {key: {light?, dark?} | null}}`: only what it
-    /// names changes (see `tokens::apply_patch`). `design_compare`'s `apply`
+    /// Merge shape `{"themes"?: [...full list besides light...], category: {key: {light?, <theme>?} | null}}`:
+    /// only what it names changes (see `tokens::apply_patch`). `design_compare`'s `apply`
     /// diff is exactly this. Exactly one of `tokens`/`css`/`patch`.
     #[serde(default)]
     pub patch: Option<serde_json::Value>,
@@ -812,6 +812,7 @@ pub async fn write_tokens(
     // patch — the one it was merged onto, so a concurrent write surfaces as
     // a 409 instead of being silently overwritten by a stale merge.
     let mut base_version = input.base_version;
+    let mut renamed: Vec<(String, String)> = Vec::new();
     let doc = if let Some(patch) = input.patch {
         let mut doc = match &current {
             Some(row) => match serde_json::from_str::<TokensDoc>(&row.content) {
@@ -827,8 +828,9 @@ pub async fn write_tokens(
             },
             None => TokensDoc::default(),
         };
-        if let Err(err) = crate::tokens::apply_patch(&mut doc, &patch) {
-            return Ok(tokens_validation_error("invalid-patch", err));
+        match crate::tokens::apply_patch(&mut doc, &patch) {
+            Ok(changes) => renamed = changes.renamed,
+            Err(err) => return Ok(tokens_validation_error("invalid-patch", err)),
         }
         if base_version.is_none() {
             base_version = current.as_ref().map(|row| row.version);
@@ -862,6 +864,16 @@ pub async fn write_tokens(
         }
     };
 
+    // #619: a theme that left the list (not by a rename) took its values with
+    // it. The reply says so, because `themes` is the FULL list and an agent
+    // adding one theme can drop `dark` by leaving it out.
+    let after_themes = doc.declared_themes();
+    let removed_themes: Vec<String> = before
+        .declared_themes()
+        .into_iter()
+        .filter(|t| !after_themes.contains(t) && !renamed.iter().any(|(from, _)| from == t))
+        .collect();
+
     // Written like every agent write (same lock, validator, conflict rules),
     // but answered compactly: a token write re-renders EVERY route, so the
     // shared reply — the stored file echoed back plus every route named twice
@@ -879,7 +891,7 @@ pub async fn write_tokens(
             let routes = crate::views::affected_routes_for(&row.path, agent.project_id).await.len();
             const SHOWN: usize = 40;
             let names: Vec<&str> = changes.iter().take(5).map(|c| c.var.as_str()).collect();
-            let note = format!(
+            let mut note = format!(
                 "tokens.json is now v{}: {} token(s) changed{}; {routes} route(s) re-render.",
                 row.version,
                 changes.len(),
@@ -893,20 +905,27 @@ pub async fn write_tokens(
                     )
                 },
             );
-            Ok((
-                StatusCode::CREATED,
-                Json(json!({
-                    "ok": true,
-                    "path": row.path,
-                    "version": row.version,
-                    "changed": changes.iter().take(SHOWN).collect::<Vec<_>>(),
-                    "changed_count": changes.len(),
-                    "routes_affected": routes,
-                    "warnings": verdict.warnings,
-                    "note": note,
-                })),
-            )
-                .into_response())
+            if !removed_themes.is_empty() {
+                note.push_str(&format!(
+                    " Removed theme(s) {} and their values (`themes` is the full list: a theme left out is deleted).",
+                    removed_themes.join(", ")
+                ));
+            }
+            let mut body = json!({
+                "ok": true,
+                "path": row.path,
+                "version": row.version,
+                "changed": changes.iter().take(SHOWN).collect::<Vec<_>>(),
+                "changed_count": changes.len(),
+                "routes_affected": routes,
+                "themes": after_themes,
+                "warnings": verdict.warnings,
+                "note": note,
+            });
+            if !removed_themes.is_empty() {
+                body["themes_removed"] = json!(removed_themes);
+            }
+            Ok((StatusCode::CREATED, Json(body)).into_response())
         }
         WriteOutcome::Rejected(v) => Ok(rejection_response(&v)),
         WriteOutcome::Conflict(row) => Ok(conflict_response(&row)),
