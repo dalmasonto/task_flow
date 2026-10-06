@@ -12,7 +12,10 @@ export type InstructionTemplate = {
 }
 
 /// Starter roles for the "Insert template" buttons. Short on purpose: a
-/// template is a starting point the human edits, not a policy.
+/// template is a starting point the human edits, not a policy. Every one names
+/// the same working loop — `check_messages` at the start and after each step,
+/// `send_message` to talk, `log_activity` for notable actions, and when to set
+/// `blocked` / `paused` — so a new agent coordinates from its first session.
 export const INSTRUCTION_TEMPLATES: readonly InstructionTemplate[] = [
   {
     id: "reviewer",
@@ -21,16 +24,16 @@ export const INSTRUCTION_TEMPLATES: readonly InstructionTemplate[] = [
 You review work that others mark \`partial_done\`. You do not implement features.
 
 ### Responsibilities
-- Read the task, its activity and the diff before judging.
-- Run the tests and the build yourself; never approve on a description alone.
-- Record every verdict with \`report_review\`: \`approved\`, or \`changes_requested\` with a numbered list of concrete fixes.
-- Message the author in the project channel when a verdict needs discussion.
+- Call \`check_messages\` at session start and after each review.
+- Read the task, its activity and the diff; run the tests and build yourself.
+- Record every verdict with \`report_review\`: \`approved\`, or \`changes_requested\` with numbered fixes.
+- Message the author with \`send_message\` when a verdict needs discussion.
+- Use \`log_activity\` for notable findings.
 
 ### Conventions
-- Judge against the task's acceptance criteria first, then correctness, security and tests, then style.
-- Cite file:line for every finding, and mark which findings block approval.
-- Do not push fixes to work you are reviewing unless asked.
-- Do not move a task to \`done\` yourself; \`report_review\` decides that.`,
+- Cite file:line for every finding, and mark which ones block approval.
+- If you are waiting on someone, set the task \`blocked\` and message the human; set \`paused\` when you stop mid-review.
+- Do not push fixes to work you review, or move a task to \`done\` yourself.`,
   },
   {
     id: "designer",
@@ -39,35 +42,35 @@ You review work that others mark \`partial_done\`. You do not implement features
 You own the project's Design surface: screens, components and tokens.
 
 ### Responsibilities
-- Call \`design_guide\` before your first design write in a session, and follow it.
-- Build with shadcn semantic classes (\`bg-primary\`, \`text-muted-foreground\`) on the project's tokens.
-- Reuse existing components before creating new ones.
-- Claim the design task and set it \`in_progress\`; set \`partial_done\` when a screen is ready for review.
+- Call \`check_messages\` at session start and after each screen.
+- Call \`design_guide\` before your first design write in a session.
+- Build with shadcn semantic classes on the project's tokens; reuse components first.
+- Claim the task, set it \`in_progress\`, and \`log_activity\` for notable changes.
+- Set \`partial_done\` and \`send_message\` a summary to the Design room when a screen is ready.
 
 ### Conventions
-- Check every screen at mobile and desktop widths with \`design_screenshot\` before calling it done.
-- Resolve each design comment with a note saying what changed.
-- Post a short summary in the Design room when a screen is ready.
-- Never use raw hex or Tailwind palette colours, and do not edit application code.`,
+- Check every screen at mobile and desktop widths with \`design_screenshot\`.
+- If you are waiting on someone, set the task \`blocked\` and message the human; set \`paused\` when you stop mid-task.
+- Never use raw hex colours, and do not edit application code.`,
   },
   {
     id: "backend",
     label: "Backend",
     markdown: `## Role: Backend engineer
-You build and maintain the server: APIs, data models, migrations and background jobs.
+You build the server: APIs, data models, migrations and background jobs.
 
 ### Responsibilities
-- Claim the task, set it \`in_progress\`, and log activity as you go.
-- Write a failing test first, then the code; keep the whole suite green.
-- Validate and authorize every request on the server; never trust a client-sent identity or role.
-- Add a new migration for every schema change.
+- Call \`check_messages\` at session start and after each step.
+- Claim the task, set it \`in_progress\`, and \`log_activity\` for notable actions.
+- Write a failing test first, then the code; keep the suite green.
+- Validate and authorize every request on the server.
 - Set \`partial_done\` when finished so a reviewer can check it.
 
 ### Conventions
-- Keep handlers thin and put logic in functions you can test.
-- Return a clear 4xx for bad input; a client mistake must never become a 500.
-- Note every API change on the task and message the frontend agent so they can follow it.
-- Never edit a migration that has been applied, and never mark your own work \`done\` before review.`,
+- Return a clear 4xx for bad input; never a 500.
+- Tell the frontend agent about API changes with \`send_message\`.
+- If you are waiting on someone, set the task \`blocked\` and message the human; set \`paused\` when you stop mid-task.
+- Never edit an applied migration.`,
   },
   {
     id: "frontend",
@@ -76,17 +79,16 @@ You build and maintain the server: APIs, data models, migrations and background 
 You build the web app's UI.
 
 ### Responsibilities
-- Claim the task, set it \`in_progress\`, and log activity as you go.
-- Use the existing components and design tokens before adding new ones.
-- Handle loading, empty and error states on every screen you touch.
+- Call \`check_messages\` at session start and after each step.
+- Claim the task, set it \`in_progress\`, and \`log_activity\` for notable actions.
+- Reuse existing components and tokens; handle loading, empty and error states.
 - Keep it accessible: labelled controls, keyboard reachable, readable contrast.
 - Set \`partial_done\` when finished so a reviewer can check it.
 
 ### Conventions
-- Put pure logic in tested modules; keep components thin.
-- Run the type check, lint and build before marking work \`partial_done\`.
-- Attach a screenshot of the change to the task when you hand it over.
-- Ask the backend agent in the project channel instead of guessing an API shape.`,
+- Run the type check, lint and build before \`partial_done\`.
+- Ask the backend agent with \`send_message\` instead of guessing an API shape.
+- If you are waiting on someone, set the task \`blocked\` and message the human; set \`paused\` when you stop mid-task.`,
   },
 ]
 
@@ -96,9 +98,17 @@ export function normalizeInstructions(text: string): string | null {
   return text.trim() ? text : null
 }
 
-/// Whether the draft differs from what is saved, blank counting as none.
+/// Whether the draft differs from what is saved, blank counting as none on
+/// BOTH sides (a blank saved value is the same as no instructions).
 export function instructionsChanged(saved: string | null | undefined, draft: string): boolean {
-  return normalizeInstructions(draft) !== (saved ?? null)
+  return normalizeInstructions(draft) !== normalizeInstructions(saved ?? "")
+}
+
+/// What a close request (Esc, backdrop click, Cancel) does in the agent
+/// instructions dialog: with nothing unsaved it closes at once; with unsaved
+/// edits it asks "Discard changes?" first, so a stray Esc never loses typing.
+export function closeRequestOutcome(dirty: boolean): "close" | "confirm" {
+  return dirty ? "confirm" : "close"
 }
 
 /// A template fills an empty editor, or is appended below what is already
@@ -120,9 +130,10 @@ export function instructionsSnippet(markdown: string | null | undefined, max = 1
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
-/// The workspace lists are not refetched after a write, so the page keeps what
-/// it saved locally. Show whichever is newer: a newer row (another admin edited
-/// since, delivered by realtime) must win over an older local save.
+/// Saves patch the workspace (and realtime carries other admins' edits), but an
+/// agent linked from this page is not in the workspace roster yet, so the page
+/// also keeps what it saved locally. Show whichever is newer: a newer row
+/// (another admin edited since) must win over an older local save.
 export function latestInstructions(row: InstructionsBlock, local: InstructionsBlock | undefined): InstructionsBlock {
   if (!local) return row
   if (!row.updated_at) return local
@@ -136,4 +147,23 @@ export function agentInstructionsOf(agent: {
   instructions_updated_at?: string | null
 }): InstructionsBlock {
   return { markdown: agent.instructions_markdown ?? null, updated_at: agent.instructions_updated_at ?? null }
+}
+
+/// Patch one agent's instructions columns from a PUT reply, leaving every other
+/// agent (and every other column) untouched. An agent not in the list is a no-op.
+export function patchAgentInstructions<
+  T extends { id: number; instructions_markdown?: string | null; instructions_updated_at?: string | null },
+>(agents: readonly T[], agentId: number, block: InstructionsBlock): T[] {
+  return agents.map((agent) =>
+    agent.id === agentId
+      ? { ...agent, instructions_markdown: block.markdown, instructions_updated_at: block.updated_at }
+      : agent
+  )
+}
+
+/// Patch the project's agent-instructions columns from a PUT reply.
+export function patchProjectInstructions<
+  P extends { agent_instructions_markdown?: string | null; agent_instructions_updated_at?: string | null },
+>(project: P, block: InstructionsBlock): P {
+  return { ...project, agent_instructions_markdown: block.markdown, agent_instructions_updated_at: block.updated_at }
 }

@@ -8,6 +8,8 @@ import {
   fetchTaskTitles,
   fetchWorkspaceChannels,
   fetchWorkspaceChat,
+  setAgentInstructions,
+  setProjectAgentInstructions,
   taskflowTables,
 } from "./taskflow-api"
 
@@ -303,5 +305,43 @@ describe("cancelAgentPrompt", () => {
     recordFetch(403, { detail: "forbidden" })
 
     await expect(cancelAgentPrompt(42)).rejects.toThrow(/member of this project/)
+  })
+})
+
+describe("instruction PUTs", () => {
+  /// The bodies the two instruction PUTs send. Blank → null lives INSIDE the
+  /// calls, so no caller can send "" (the server would treat it as a clear too,
+  /// but the wire contract is `markdown: string | null`).
+  function recordBodies() {
+    const bodies: unknown[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: unknown, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return Promise.resolve(
+          new Response(JSON.stringify({ markdown: null, updated_at: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        )
+      })
+    )
+    return bodies
+  }
+
+  it("sends blank or whitespace text as null for both PUTs", async () => {
+    const bodies = recordBodies()
+    await setAgentInstructions(1, "")
+    await setAgentInstructions(1, "  \n ")
+    await setProjectAgentInstructions(2, "")
+    await setProjectAgentInstructions(2, null)
+    expect(bodies).toEqual([{ markdown: null }, { markdown: null }, { markdown: null }, { markdown: null }])
+  })
+
+  it("sends real text verbatim", async () => {
+    const bodies = recordBodies()
+    await setAgentInstructions(1, "  ## Role\n")
+    await setProjectAgentInstructions(2, "Use pnpm.")
+    expect(bodies).toEqual([{ markdown: "  ## Role\n" }, { markdown: "Use pnpm." }])
   })
 })

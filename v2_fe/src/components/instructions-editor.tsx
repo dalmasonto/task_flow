@@ -13,6 +13,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { cn } from "@/lib/utils"
 import {
   INSTRUCTION_TEMPLATES,
+  closeRequestOutcome,
   insertTemplate,
   instructionsChanged,
   normalizeInstructions,
@@ -104,7 +105,8 @@ export function InstructionsEditor({
 
 /// #615: edit one agent's role instructions. Mount it with `key={agent.id}` so
 /// the draft starts from that agent's saved text. It stays open while saving
-/// and shows a refusal (403) inline.
+/// and shows a refusal (403) inline. Esc, a backdrop click or Cancel with
+/// unsaved edits asks "Discard changes?" inline before closing.
 export function AgentInstructionsDialog({
   open,
   onOpenChange,
@@ -121,11 +123,21 @@ export function AgentInstructionsDialog({
   const [draft, setDraft] = useState(saved ?? "")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const dirty = instructionsChanged(saved, draft)
 
   const change = (next: boolean) => {
     if (busy) return
+    if (!next && closeRequestOutcome(dirty) === "confirm") {
+      setConfirmingDiscard(true)
+      return
+    }
     onOpenChange(next)
+  }
+
+  const discard = () => {
+    setConfirmingDiscard(false)
+    onOpenChange(false)
   }
 
   const save = async () => {
@@ -153,15 +165,27 @@ export function AgentInstructionsDialog({
         </DialogHeader>
         <InstructionsEditor label="Role & instructions" value={draft} onChange={setDraft} disabled={busy} showTemplates />
         {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => change(false)} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => void save()} disabled={busy || !dirty}>
-            {busy ? <Loader2Icon className="animate-spin" /> : null}
-            {busy ? "Saving…" : "Save"}
-          </Button>
-        </DialogFooter>
+        {confirmingDiscard ? (
+          <DialogFooter role="alertdialog" aria-label="Discard changes?" className="items-center">
+            <p className="mr-auto text-sm font-medium">Discard changes?</p>
+            <Button type="button" variant="outline" onClick={() => setConfirmingDiscard(false)} autoFocus>
+              Keep editing
+            </Button>
+            <Button type="button" variant="destructive" onClick={discard}>
+              Discard
+            </Button>
+          </DialogFooter>
+        ) : (
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => change(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void save()} disabled={busy || !dirty}>
+              {busy ? <Loader2Icon className="animate-spin" /> : null}
+              {busy ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )

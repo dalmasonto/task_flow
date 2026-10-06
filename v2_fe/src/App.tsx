@@ -2704,6 +2704,7 @@ function App() {
                     workspace={activeLiveWorkspace}
                     onContract={() => setDialogMode("api-contract")}
                     onUpdateProject={handleUpdateProject}
+                    onWorkspaceUpdate={applyWorkspaceUpdate}
                   />
                 ) : (
                   <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />

@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setAgentInstructions, setGithubAutoMirror, setProjectAgentInstructions, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Input } from "@/components/ui/input"
 import { AgentInstructionsDialog, InstructionsEditor } from "@/components/instructions-editor"
-import { agentInstructionsOf, instructionsChanged, instructionsSnippet, latestInstructions, normalizeInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
+import { agentInstructionsOf, instructionsChanged, instructionsSnippet, latestInstructions, normalizeInstructions, patchAgentInstructions, patchProjectInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
 import { Link } from "react-router-dom"
 import { PageShell } from "@/components/layout"
 import { cn } from "@/lib/utils"
@@ -24,11 +24,15 @@ export function ApiBasePage({
   project,
   workspace,
   onContract,
+  onWorkspaceUpdate,
 }: {
   project: Project
   workspace: TaskflowWorkspace | null
   onContract: () => void
   onUpdateProject?: (event: FormEvent<HTMLFormElement>) => void
+  /// App's `applyWorkspaceUpdate`: an instructions save patches the shared
+  /// workspace with the PUT's reply, so the saved value survives navigating away.
+  onWorkspaceUpdate?: (projectId: number, updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
 }) {
   const agents = useMemo(() => workspace?.agents ?? [], [workspace?.agents])
   const numericProjectId = liveId(project.id)
@@ -65,6 +69,21 @@ export function ApiBasePage({
       })),
     ],
     [workspace?.agentCredentials, justLinked]
+  )
+  /// Record a saved agent block: patch the workspace roster (the durable copy)
+  /// and keep it locally too, for an agent linked here that the roster does not
+  /// list yet.
+  const recordAgentInstructions = useCallback(
+    (agentId: number, block: InstructionsBlock) => {
+      setLocalInstructions((current) => ({ ...current, [agentId]: block }))
+      if (numericProjectId != null) {
+        onWorkspaceUpdate?.(numericProjectId, (current) => ({
+          ...current,
+          agents: patchAgentInstructions(current.agents, agentId, block),
+        }))
+      }
+    },
+    [numericProjectId, onWorkspaceUpdate]
   )
 
   const [ghStatus, setGhStatus] = useState<GithubProjectStatus | null>(null)
@@ -125,7 +144,10 @@ export function ApiBasePage({
         <LinkAgentCard
           projectId={numericProjectId}
           projectAgents={projectAgents}
-          onLinked={(linked, instructions) =>
+          onLinked={(linked, instructions) => {
+            // A re-link's fallback save (or a create with instructions) lands in
+            // the workspace like any other save, not only in the hidden entry.
+            if (instructions.updated_at) recordAgentInstructions(linked.agent_id, instructions)
             setJustLinked((current) => [
               ...current,
               {
@@ -150,7 +172,7 @@ export function ApiBasePage({
                 keyPrefix: linked.key.slice(0, 16),
               },
             ])
-          }
+          }}
         />
       </div>
 
@@ -165,15 +187,21 @@ export function ApiBasePage({
         instructionsOf={(agent) => latestInstructions(agentInstructionsOf(agent), localInstructions[agent.id])}
         onSaveInstructions={async (agentId, markdown) => {
           const saved = await setAgentInstructions(agentId, markdown)
-          setLocalInstructions((current) => ({
-            ...current,
-            [agentId]: { markdown: saved.markdown, updated_at: saved.updated_at },
-          }))
+          recordAgentInstructions(agentId, { markdown: saved.markdown, updated_at: saved.updated_at })
         }}
       />
 
       {workspace?.project && workspace.project.id === numericProjectId ? (
-        <ProjectInstructionsCard key={workspace.project.id} project={workspace.project} />
+        <ProjectInstructionsCard
+          key={workspace.project.id}
+          project={workspace.project}
+          onSaved={(block) =>
+            onWorkspaceUpdate?.(workspace.project.id, (current) => ({
+              ...current,
+              project: patchProjectInstructions(current.project, block),
+            }))
+          }
+        />
       ) : null}
 
       <section className="rounded-lg border bg-card p-4 shadow-sm">
@@ -842,7 +870,14 @@ export function AgentsList({
 /// beside its own role instructions. Everyone can read them here; only owners
 /// and admins can save (the server answers 403 otherwise, shown inline).
 /// Mounted with `key={project.id}` so the draft starts from that project.
-function ProjectInstructionsCard({ project }: { project: TaskflowWorkspace["project"] }) {
+/// `onSaved` patches the shared workspace with the PUT's reply.
+function ProjectInstructionsCard({
+  project,
+  onSaved,
+}: {
+  project: TaskflowWorkspace["project"]
+  onSaved?: (block: InstructionsBlock) => void
+}) {
   const [local, setLocal] = useState<InstructionsBlock | undefined>(undefined)
   const saved = latestInstructions(
     { markdown: project.agent_instructions_markdown ?? null, updated_at: project.agent_instructions_updated_at ?? null },
@@ -852,8 +887,10 @@ function ProjectInstructionsCard({ project }: { project: TaskflowWorkspace["proj
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dirty = instructionsChanged(saved.markdown, draft)
-  // A newer saved value (a second admin's edit via realtime) replaces an
-  // unedited draft; a dirty draft is never clobbered.
+  // A newer saved value replaces an unedited draft; a dirty draft is never
+  // clobbered. It arrives either from this card's own save (patched into the
+  // workspace from the PUT reply) or from another admin's save: the PUT
+  // announces the project row on realtime and App refetches it.
   const [seenSaved, setSeenSaved] = useState(saved.markdown)
   if (seenSaved !== saved.markdown) {
     if (!instructionsChanged(seenSaved, draft)) setDraft(saved.markdown ?? "")
@@ -865,7 +902,9 @@ function ProjectInstructionsCard({ project }: { project: TaskflowWorkspace["proj
     setError(null)
     try {
       const result = await setProjectAgentInstructions(project.id, normalizeInstructions(draft))
-      setLocal({ markdown: result.markdown, updated_at: result.updated_at })
+      const block = { markdown: result.markdown, updated_at: result.updated_at }
+      setLocal(block)
+      onSaved?.(block)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save the project instructions.")
     } finally {

@@ -29,7 +29,7 @@ import type {
   TaskflowUserSettingsTheme,
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken, readJson } from "@/lib/auth-api"
-import type { InstructionsBlock } from "@/lib/agent-instructions"
+import { normalizeInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
 import { BOARD_COLUMN_IDS, columnStatuses, type BoardColumnId } from "@/lib/board-columns"
 import { fetchAllReferencePages } from "@/lib/reference-pages"
 import type { ChatMessage } from "@/lib/message-store"
@@ -1351,9 +1351,10 @@ export async function deleteAgent(agentId: number): Promise<void> {
   }
 }
 
-/// #615: replace an agent's role instructions (null or blank clears them). The
-/// agent reads them on its next whoami. Allowed for the human who linked it and
-/// for project owners/admins.
+/// #615: replace an agent's role instructions (null or blank clears them; blank
+/// is normalised to null here, so no caller can send ""). The agent reads them
+/// on its next whoami. Allowed for the human who linked it and for project
+/// owners/admins.
 export async function setAgentInstructions(
   agentId: number,
   markdown: string | null
@@ -1362,7 +1363,7 @@ export async function setAgentInstructions(
     method: "PUT",
     credentials: "include",
     headers: bearerHeaders(),
-    body: JSON.stringify({ markdown }),
+    body: JSON.stringify({ markdown: normalizeInstructions(markdown ?? "") }),
   })
   if (!response.ok) {
     throw new Error(
@@ -1375,7 +1376,8 @@ export async function setAgentInstructions(
 }
 
 /// #616: replace the instructions every agent in the project reads through
-/// whoami (null or blank clears them). Owners and admins only.
+/// whoami (null or blank clears them; blank is normalised to null here). Owners
+/// and admins only.
 export async function setProjectAgentInstructions(
   projectId: number,
   markdown: string | null
@@ -1384,7 +1386,7 @@ export async function setProjectAgentInstructions(
     method: "PUT",
     credentials: "include",
     headers: bearerHeaders(),
-    body: JSON.stringify({ markdown }),
+    body: JSON.stringify({ markdown: normalizeInstructions(markdown ?? "") }),
   })
   if (!response.ok) {
     throw new Error(
