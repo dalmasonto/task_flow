@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 
 import { deviceById } from "@/lib/design-devices"
-import { ArtboardHeader } from "./design-canvas"
+import { ArtboardHeader, FramedBoard } from "./design-canvas"
 
 // What the header DRAWS when a frame has navigated away from the page its board
 // was created for — the half `design-route.test.ts` cannot reach. That file
@@ -82,5 +82,41 @@ describe("ArtboardHeader — a frame that has gone elsewhere", () => {
     const markup = header({ boardKey: "/@laptop", route: "/", label: "Home", strayRoute: "/settings" })
     expect(markup).toContain('aria-label="Show / again"')
     expect(markup).not.toContain('aria-label="Show /settings again"')
+  })
+})
+
+/** A framed board for `deviceId` wrapping a stand-in page, as `ArtboardCard` draws it. */
+function framed(deviceId: string, chrome: Parameters<typeof FramedBoard>[0]["chrome"], safeArea: { top: number; bottom: number }) {
+  return renderToStaticMarkup(
+    // `children` in the props (not the third argument) so the required prop type-checks.
+    createElement(FramedBoard, { device: deviceById(deviceId), chrome, safeArea, children: createElement("div", { id: "page" }) }),
+  )
+}
+
+describe("FramedBoard safe areas (#626)", () => {
+  const padded = { ink: "light", stripFill: null, screenBackground: "rgb(21, 128, 61)", colorScheme: "light" } as const
+  const unpadded = { ink: "light", stripFill: "rgb(15, 23, 42)", screenBackground: "rgb(15, 23, 42)", colorScheme: "dark" } as const
+
+  it("the page starts at the top of the screen, under the strip", () => {
+    const html = framed("iphone-16-pro", padded, { top: 59, bottom: 34 })
+    expect(html).toMatch(/top:0;left:0;width:393px;height:836px/)
+    expect(html).toContain('id="page"')
+  })
+
+  it("a page that pads under the bar gets a transparent strip with white icons", () => {
+    const html = framed("iphone-16-pro", padded, { top: 59, bottom: 34 })
+    expect(html).toMatch(/width:393px;height:59px;background:transparent/)
+    expect(html).toContain("color:#f5f5f5")
+  })
+
+  it("a page that does not pad gets the strip filled with its own colour", () => {
+    const html = framed("iphone-16-pro", unpadded, { top: 59, bottom: 34 })
+    expect(html).toMatch(/height:59px;background:rgb\(15, 23, 42\)/)
+    expect(html).toContain("color-scheme:dark")
+  })
+
+  it("draws the home indicator only when there is a bottom inset", () => {
+    expect(framed("iphone-16-pro", padded, { top: 59, bottom: 34 })).toContain('data-home-indicator=""')
+    expect(framed("iphone-se", padded, { top: 20, bottom: 0 })).not.toContain("data-home-indicator")
   })
 })

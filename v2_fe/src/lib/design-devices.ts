@@ -206,8 +206,13 @@ export function boardHeight(device: DevicePreset): number {
 
 /** Where the PAGE's top-left sits inside a board (header included), in canvas
  *  px — what turns a position a frame reports (a picked element, a comment's
- *  anchor) into a place on the canvas. The page renders 1:1 in both the frame
- *  and the chrome, so this is an offset only. */
+ *  anchor) into a place on the canvas. The page renders 1:1 on every board, so
+ *  this is an offset only. In a device frame (#626) the page starts at the TOP
+ *  of the screen, under the status strip `FramedBoard` overlays, so its origin
+ *  is the screen's own corner; the status bar is no longer part of it. A page
+ *  keeps clear of the strip itself by padding with `--safe-top`. With classic
+ *  chrome the origin is the bezel's padding plus border, and in an outline it
+ *  is the border alone. */
 export function boardContentOrigin(device: DevicePreset): { x: number; y: number } {
   const framed = canvasFrame(device)
   if (framed) {
