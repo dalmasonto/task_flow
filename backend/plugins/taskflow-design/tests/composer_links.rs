@@ -312,3 +312,26 @@ fn a_href_left_alone_keeps_exactly_one_closing_quote() {
         assert_eq!(body(html), stamped(expected_markup, SETTINGS_SRC), "{html}");
     }
 }
+
+/// #625: links a COMPONENT renders at runtime (or links to a route with no page)
+/// never pass through `rewrite_hrefs`, so the browser resolved `/together`
+/// against the API host root → 404 + X-Frame-Options DENY ("refused to
+/// connect"). Every served page carries a runtime guard that keeps such clicks
+/// inside the sandbox.
+#[test]
+fn nav_guard_keeps_runtime_links_inside_the_sandbox() {
+    let script = composer::nav_guard_script("tok123", &routes());
+    assert!(script.contains("\"/s/tok123\""), "base missing: {script}");
+    for r in routes() {
+        assert!(script.contains(&format!("\"{r}\"")), "route {r} missing: {script}");
+    }
+    assert!(script.contains("design:missing-route"));
+    assert!(script.contains("preventDefault"));
+}
+
+#[test]
+fn nav_guard_escapes_its_data_for_an_inline_script() {
+    let hostile = vec!["/</script><script>alert(1)</script>".to_string()];
+    let script = composer::nav_guard_script("tok", &hostile);
+    assert!(!script.to_ascii_lowercase().contains("</script"), "{script}");
+}

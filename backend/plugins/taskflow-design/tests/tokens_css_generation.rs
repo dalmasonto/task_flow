@@ -364,3 +364,21 @@ async fn legacy_css_project_keeps_values_and_gains_defaults() {
     assert!(css.contains("--primary: #ff0000;"));
     assert!(css.contains("  --muted-foreground: "));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_page_carries_the_navigation_guard() {
+    let app = TestApp::new().await;
+    let (user, project_id) = app.create_member_with_project().await;
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({ "path": "pages/index.html", "content": r#"<main class="p-4">x</main>"# }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed page failed: {}", res.text());
+    let token = taskflow_design::sandbox::mint(project_id);
+    let html = app.get_sandbox(&format!("/s/{token}/")).await.text();
+    assert!(html.contains("design:missing-route"), "guard missing: {html}");
+    assert!(html.contains(&format!("\"/s/{token}\"")));
+}

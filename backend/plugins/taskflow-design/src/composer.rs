@@ -635,6 +635,65 @@ fn rewrite_hrefs(html: &str, base: &str, routes: &[String], is_root: bool) -> St
     out
 }
 
+/// The runtime navigation guard every served sandbox page carries (#625).
+///
+/// [`rewrite_hrefs`] keeps `href="/route"` inside `/s/{token}` — but only for
+/// links IN the page fragment at compose time. A link a component renders at
+/// runtime (a tab bar building `<a href="/together">` in JS), or a link to a
+/// route with no page, reached the browser unrewritten, resolved against the
+/// API host's root, 404'd, and the frame showed X-Frame-Options' "refused to
+/// connect". This listener catches a same-origin link click that would leave
+/// the sandbox: a known route navigates inside it, anything else stays put with
+/// an in-frame notice and a `design:missing-route` message to the chrome.
+///
+/// It is added AFTER the picker runtime, whose click handler swallows clicks
+/// while picking (`stopImmediatePropagation`), and it reads the anchor through
+/// `composedPath()` so links inside a component's shadow root are seen too.
+pub fn nav_guard_script(token: &str, routes: &[String]) -> String {
+    let base = serde_json::to_string(&format!("/s/{token}")).unwrap_or_else(|_| "\"\"".into());
+    let routes = serde_json::to_string(routes).unwrap_or_else(|_| "[]".into());
+    let js = format!(
+        r#"(() => {{
+  const BASE = {base}, ROUTES = {routes};
+  const norm = (p) => (p === '/' ? p : p.replace(/\/+$/, '') || '/');
+  const notice = (msg) => {{
+    let t = document.getElementById('__tf_nav_notice');
+    if (!t) {{
+      t = document.createElement('div');
+      t.id = '__tf_nav_notice';
+      t.setAttribute('role', 'status');
+      t.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483647;max-width:90%;padding:8px 12px;border-radius:8px;background:rgba(17,17,17,.9);color:#fff;font:13px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none';
+      document.documentElement.appendChild(t);
+    }}
+    t.textContent = msg;
+    clearTimeout(t.__h);
+    t.__h = setTimeout(() => t.remove(), 3000);
+  }};
+  addEventListener('click', (e) => {{
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const path = e.composedPath ? e.composedPath() : [e.target];
+    const a = path.find((n) => n instanceof Element && n.localName === 'a' && n.hasAttribute('href'));
+    if (!a) return;
+    const target = (a.getAttribute('target') || '').toLowerCase();
+    if (target && target !== '_self') return;
+    let url;
+    try {{ url = new URL(a.getAttribute('href'), location.href); }} catch (_) {{ return; }}
+    if (url.origin !== location.origin) return;
+    if (url.pathname === BASE || url.pathname.startsWith(BASE + '/')) return;
+    e.preventDefault();
+    const route = norm(url.pathname);
+    if (ROUTES.includes(route)) {{
+      location.assign((route === '/' ? BASE : BASE + route) + url.search + url.hash);
+      return;
+    }}
+    parent.postMessage({{ type: 'design:missing-route', path: route }}, '*');
+    notice('No ' + route + ' page in this design yet');
+  }});
+}})();"#
+    );
+    escape_for_inline_script(&js)
+}
+
 /// Stamp `data-src="{file}:{line}"` on every element that does not already
 /// carry one. Line numbers come from counting newlines up to each start tag —
 /// exactly what an agent needs to land an edit on `pages/settings.html:41`.
@@ -813,6 +872,7 @@ pub fn compose_document(
     // The route list the pages were built from — the only paths a link inside
     // the frame can navigate to. Computed once, here, and passed down.
     let routes: Vec<String> = manifest.routes.iter().map(|r| r.path.clone()).collect();
+    let nav_guard = nav_guard_script(token, &routes);
     // `route` is not only for diagnostics: which page this IS decides how a
     // RELATIVE href resolves (see [`rewrite_hrefs`]), because the root frame's
     // document URL has no trailing slash.
@@ -922,6 +982,7 @@ window.__tfStateReady = new Promise((settle) => {{
   <style type="text/tailwindcss">{bridge}</style>
   {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css?v={tokens_rev}">
   {component_tags}<script>{PICKER_RUNTIME}</script>
+  <script>{nav_guard}</script>
   {state_script}
 </head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
