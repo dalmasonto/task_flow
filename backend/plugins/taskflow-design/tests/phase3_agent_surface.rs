@@ -248,7 +248,7 @@ async fn context_serves_the_link_back_and_media_guidance() {
         guide.push_str(r.json()["text"].as_str().expect("guide text"));
         guide.push('\n');
     }
-    println!("--- context.guide as served ---\n{guide}\n--- end ---");
+    println!("--- design_guide pages+fonts as served ---\n{guide}\n--- end ---");
 
     // Linking, back navigation, and the habits that would silently undo them:
     // a hand-written sandbox URL, a new tab, and a Back button on a frame that
@@ -313,10 +313,6 @@ async fn context_serves_the_link_back_and_media_guidance() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_guides_webfont_example_is_a_valid_resources_document() {
     let (app, project, _user, _agent, key) = setup_app().await;
-    let ctx = app
-        .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
-        .await;
-    let _ = ctx;
     let guide = app
         .get_as_agent(key.as_str(), "/api/taskflow/agents/design/guide?topic=fonts")
         .await

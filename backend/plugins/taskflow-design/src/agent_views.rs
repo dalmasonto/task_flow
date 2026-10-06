@@ -72,7 +72,7 @@ pub async fn context(
         .collect();
     let tokens_json = serde_json::to_value(&project_doc).unwrap_or_else(|_| json!({}));
     // The external-resources document as stored (webfonts live here, not in
-    // pages — see the guide), with its version for a `base_version` replace.
+    // pages — see design_guide topic "fonts"), with its version for a `base_version` replace.
     // `null` when the project has none yet. The raw row is parsed leniently:
     // an agent needs to SEE a document the manifest refused in order to fix it.
     let resources = files

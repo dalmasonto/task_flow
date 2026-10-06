@@ -113,8 +113,8 @@ const FONTS: &str = r#"Web fonts (one global change, never per page)
           {"rel":"stylesheet","href":"https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css"}
         ]}]}
   Links must be https, with rel stylesheet, preconnect or dns-prefetch.
-  The `resources` field of this response shows the current document and its
-  version (pass it as base_version when you replace it).
+  The `resources` field of design_get_tokens shows the current document and
+  its version (pass it as base_version when you replace it).
   The operator often manages these sets from the panel (enable, disable, add).
   If the document already exists, change only what you need, typically the
   `enabled` flags, and keep every other set exactly as it is.
