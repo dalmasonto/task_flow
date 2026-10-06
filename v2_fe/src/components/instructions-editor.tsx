@@ -159,8 +159,9 @@ export function AgentInstructionsDialog({
         <DialogHeader>
           <DialogTitle>Role &amp; instructions — {agentName}</DialogTitle>
           <DialogDescription>
-            Markdown {agentName} reads through whoami: its role, responsibilities and conventions. Changes apply on its
-            next whoami, with no new key and no restart. Leave it empty to remove them.
+            <span className="font-medium">{agentName}</span> reads this through <code>whoami</code> — its role,
+            responsibilities and conventions. Changes apply on its next whoami, with no new key and no restart. Leave it
+            empty to remove them.
           </DialogDescription>
         </DialogHeader>
         <InstructionsEditor label="Role & instructions" value={draft} onChange={setDraft} disabled={busy} showTemplates />

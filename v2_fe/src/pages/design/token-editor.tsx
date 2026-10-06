@@ -29,6 +29,7 @@ import {
 import { defaultRows } from "./token-defaults"
 import { CATEGORY_ORDER, categoryLabel, filterTokenCategories } from "./token-filter"
 import { LIGHT, declaredThemes, overrideFromDefault, ownThemeValue, setThemeValue } from "./token-themes"
+import { colourControl } from "./token-swatch"
 import { ThemeStrip } from "./theme-strip"
 import { TokenCssView } from "./token-css-view"
 
@@ -54,8 +55,6 @@ export function parseSizeValue(v: string): { num: number; unit: string } | null 
 function formatSizeValue(num: number, unit: string): string {
   return `${num}${unit}`
 }
-
-const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 
 // ---------------------------------------------------------------------------
 // Categories
@@ -100,25 +99,31 @@ function ValueField({
   placeholder?: string
 }) {
   if (category === "colors") {
-    const swatch = HEX_COLOR_RE.test(value)
-      ? value
-      : placeholder && HEX_COLOR_RE.test(placeholder)
-        ? placeholder
-        : "#000000"
+    const control = colourControl(value, placeholder)
     return (
       <div className="flex items-center gap-1">
-        <input
-          type="color"
-          value={swatch}
-          title="Pick a color"
-          onChange={(e) => onChange(e.target.value)}
-          className="h-6 w-6 cursor-pointer rounded border border-black/10 p-0"
-        />
+        {control.kind === "picker" ? (
+          <input
+            type="color"
+            value={control.hex}
+            title="Pick a color"
+            onChange={(e) => onChange(e.target.value)}
+            className="h-6 w-6 shrink-0 cursor-pointer rounded border border-black/10 p-0"
+          />
+        ) : (
+          <span
+            aria-hidden="true"
+            title={value || placeholder || undefined}
+            style={control.color ? { backgroundColor: control.color } : undefined}
+            className="inline-block h-6 w-6 shrink-0 rounded border border-black/10"
+          />
+        )}
         <Input
           value={value}
           placeholder={placeholder}
+          title={value || placeholder || undefined}
           onChange={(e) => onChange(e.target.value)}
-          className="h-7 px-1.5 text-xs md:text-xs w-24 font-mono"
+          className="h-7 px-1.5 text-xs md:text-xs w-36 font-mono"
         />
       </div>
     )
@@ -299,6 +304,7 @@ export function TokenEditor({
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [errors, setErrors] = useState<ValidationError[] | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -405,6 +411,8 @@ export function TokenEditor({
         return
       }
       onSaved()
+      setJustSaved(true)
+      window.setTimeout(() => setJustSaved(false), 2000)
       setCssEpoch((n) => n + 1)
       await load() // refetch — picks up the new version
     } catch (err) {
@@ -466,7 +474,7 @@ export function TokenEditor({
           </div>
           <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-1">
             <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>
-              {saving ? "Saving…" : "Save tokens"}
+              {saving ? "Saving…" : justSaved ? "Saved ✓" : "Save tokens"}
             </Button>
             <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void handleExport()}>
               {exporting ? "Exporting…" : "Export CSS"}
