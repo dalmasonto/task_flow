@@ -27,6 +27,7 @@ import {
   typeLineToPane,
   startMirrorLoop,
 } from "./tmux.js";
+import { INSTRUCTIONS_UPDATED_NOTICE, createInstructionsWatcher } from "./agent-instructions.js";
 import { createSerialQueue } from "./pane-queue.js";
 import { createPromptGate } from "./prompt-gate.js";
 import { stepsForPrompt } from "./prompts.js";
@@ -216,6 +217,28 @@ export function startAgentRuntime(
     }
   };
 
+  // #615/#616: the role/project instructions are read through whoami, so an
+  // edit made while this agent runs is invisible until it calls whoami again.
+  // On each (re)connect, compare their `updated_at` pair with what this runtime
+  // last saw and, if either moved, type ONE line telling the agent to re-read.
+  // The first connect only records a baseline (the agent reads them itself at
+  // session start). A runtime is per profile, so the memory is too. Without a
+  // pane there is nowhere to type, so nothing is fetched. A failure is logged
+  // and keeps the old baseline, so the change is still caught next time. It
+  // never throws out of the onConnected barrier.
+  const instructionsWatcher = createInstructionsWatcher();
+  const checkInstructions = async () => {
+    if (!pane) return;
+    try {
+      const identity = await client.whoami();
+      if (!instructionsWatcher.observe(identity)) return;
+      log("role/project instructions changed — notifying the agent");
+      await paneQueue(() => notifyPane(INSTRUCTIONS_UPDATED_NOTICE, pane, true));
+    } catch (err) {
+      log(`instructions check failed (${(err as Error).message.split("\n")[0]})`);
+    }
+  };
+
   // Instant delivery: hold the event stream open and write each incoming
   // message straight into the pane. Polling would make a message as slow to
   // arrive as the capture interval, which is what "messages don't appear in
@@ -230,6 +253,7 @@ export function startAgentRuntime(
     onConnected: async (isReconnect) => {
       await hydrateOpenPrompts();
       if (isReconnect) await noticeUnread();
+      await checkInstructions();
     },
     // The stream has failed to reconnect for a sustained stretch — tell the
     // agent its live feed is paused so it does not sit waiting on a dead stream.

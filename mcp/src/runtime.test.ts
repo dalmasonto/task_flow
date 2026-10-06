@@ -599,3 +599,72 @@ describe("connectAs", () => {
   // separate FILE gets its own module registry, where `vi.resetModules()` +
   // dynamic import mutated this one's and only worked while it ran last.
 });
+
+describe("#615 instructions-updated notice", () => {
+  /** A client whose successive whoami calls report these role `updated_at`s (an Error throws). */
+  function clientWithStamps(stamps: Array<string | null | Error>) {
+    const whoami = vi.fn(async () => {
+      const next = stamps.shift();
+      if (next instanceof Error) throw next;
+      return {
+        agent_id: 1,
+        instructions: { markdown: "role", updated_at: next ?? null },
+        project_instructions: { markdown: null, updated_at: null },
+      };
+    });
+    const client = {
+      whoami,
+      listChannels: async () => [],
+      listMessages: async () => ({ messages: [] }),
+      listOpenPrompts: async () => [],
+      markRead: vi.fn(async () => ({})),
+    } as never;
+    return { whoami, client };
+  }
+
+  const noticeLines = () =>
+    tmux.notifyPane.mock.calls.map((call) => String((call as unknown[])[0]));
+
+  it("takes a baseline on the first connect and types nothing", async () => {
+    const { client, whoami } = clientWithStamps(["t1"]);
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onConnected!(false as never);
+    expect(whoami).toHaveBeenCalledTimes(1);
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
+  });
+
+  it("types ONE notice on a reconnect when the instructions changed", async () => {
+    const { client } = clientWithStamps(["t1", "t2"]);
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onConnected!(false as never);
+    await events.options?.onConnected!(true as never);
+    expect(noticeLines()).toEqual(["[taskflow] your role/project instructions were updated — call whoami"]);
+  });
+
+  it("types nothing on a reconnect when nothing changed", async () => {
+    const { client } = clientWithStamps(["t1", "t1"]);
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onConnected!(false as never);
+    await events.options?.onConnected!(true as never);
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
+  });
+
+  it("a failed whoami types nothing and keeps the baseline", async () => {
+    const { client } = clientWithStamps(["t1", new Error("fetch failed"), "t2"]);
+    startAgentRuntime(contextFor("%4", client), () => {});
+    await events.options?.onConnected!(false as never);
+    await expect(events.options?.onConnected!(true as never)).resolves.toBeUndefined();
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
+    await events.options?.onConnected!(true as never);
+    expect(noticeLines()).toHaveLength(1);
+  });
+
+  it("without a pane it never asks", async () => {
+    const { client, whoami } = clientWithStamps(["t1", "t2"]);
+    startAgentRuntime(contextFor(null, client), () => {});
+    await events.options?.onConnected!(false as never);
+    await events.options?.onConnected!(true as never);
+    expect(whoami).not.toHaveBeenCalled();
+    expect(tmux.notifyPane).not.toHaveBeenCalled();
+  });
+});
