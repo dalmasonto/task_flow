@@ -82,3 +82,9 @@ describe("parseUIState", () => {
     expect(state.openRoutes).toEqual(["/"])
   })
 })
+
+describe("parseUIState and named themes", () => {
+  it("keeps a named theme as chosen (#619)", () => {
+    expect(parseUIState({ ...valid, theme: "ocean" }, 1, 2)?.theme).toBe("ocean")
+  })
+})
