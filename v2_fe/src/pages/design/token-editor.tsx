@@ -16,11 +16,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   fetchDesignTokens,
+  fetchTokenDefaults,
   putDesignTokens,
   exportTokensCss,
   type DesignTokensDoc,
   type ValidationError,
 } from "@/lib/design-api"
+import { defaultRows } from "./token-defaults"
 import { CATEGORY_ORDER, categoryLabel, filterTokenCategories } from "./token-filter"
 
 // ---------------------------------------------------------------------------
@@ -181,9 +183,13 @@ function CategorySection({
   onSetValue,
   onAdd,
   onRemove,
+  defaults,
+  onOverride,
 }: {
   category: string
   tokens: TokenMap
+  defaults: [string, { light: string; dark?: string }][]
+  onOverride: (key: string, value: { light: string; dark?: string }) => void
   onSetValue: (key: string, field: "light" | "dark", value: string) => void
   onAdd: (key: string) => void
   onRemove: (key: string) => void
@@ -242,7 +248,22 @@ function CategorySection({
             </div>
           </div>
         ))}
-        {!entries.length ? (
+        {defaults.map(([key, value]) => (
+          <div key={`default:${key}`} className="flex items-center gap-1.5 opacity-70">
+            <span className="min-w-0 flex-1 truncate text-[11px]" title={`${key}: ${value.light}${value.dark ? ` / ${value.dark}` : ""}`}>
+              {key}
+            </span>
+            <span className="rounded bg-muted px-1 text-[9px] text-muted-foreground">default</span>
+            <button
+              type="button"
+              className="shrink-0 rounded px-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => onOverride(key, value)}
+            >
+              Override
+            </button>
+          </div>
+        ))}
+        {!entries.length && !defaults.length ? (
           <p className="text-[10px] text-muted-foreground">No {category} tokens yet.</p>
         ) : null}
       </div>
@@ -271,6 +292,7 @@ export function TokenEditor({
   const [errors, setErrors] = useState<ValidationError[] | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [defaults, setDefaults] = useState<DesignTokensDoc | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -279,6 +301,7 @@ export function TokenEditor({
       const { doc, version } = await fetchDesignTokens(projectId)
       setDoc(doc)
       setVersion(version)
+      setDefaults(await fetchTokenDefaults(projectId))
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Could not load tokens.")
     } finally {
@@ -289,6 +312,11 @@ export function TokenEditor({
   useEffect(() => {
     void load()
   }, [load])
+
+  const overrideDefault = (category: string, key: string, value: { light: string; dark?: string }) =>
+    setDoc((prev) =>
+      prev ? { ...prev, categories: { ...prev.categories, [category]: { ...(prev.categories[category] ?? {}), [key]: { ...value } } } } : prev
+    )
 
   const setTokenValue = (category: string, key: string, field: "light" | "dark", value: string) => {
     setDoc((prev) => {
@@ -443,6 +471,8 @@ export function TokenEditor({
                 onSetValue={(key, field, value) => setTokenValue(category, key, field, value)}
                 onAdd={(key) => addToken(category, key)}
                 onRemove={(key) => removeToken(category, key)}
+                defaults={defaults && doc && !searching ? defaultRows(defaults, doc, category) : []}
+                onOverride={(key, value) => overrideDefault(category, key, value)}
               />
             ))
         : null}

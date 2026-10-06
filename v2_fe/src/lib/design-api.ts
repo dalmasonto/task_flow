@@ -348,6 +348,19 @@ export async function fetchDesignTokens(
   }
 }
 
+/// The shadcn defaults this project does not override (shown as "default"
+/// rows in the token editor). Fails soft to none: the editor still works.
+export async function fetchTokenDefaults(projectId: number): Promise<DesignTokensDoc> {
+  try {
+    const res = await designFetch(`/api/design/${projectId}/tokens/defaults`)
+    if (!res.ok) return DEFAULT_TOKENS_DOC
+    const body = await readJson<{ missing: DesignTokensDoc }>(res)
+    return body.missing
+  } catch {
+    return DEFAULT_TOKENS_DOC
+  }
+}
+
 /// Writes the structured tokens file. Goes through the same `putDesignFile`
 /// path (and thus the same `validate_tokens_json` + 409/version-conflict
 /// handling) every other design file write uses — tokens are just a file with
