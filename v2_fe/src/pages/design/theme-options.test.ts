@@ -93,3 +93,36 @@ describe("safeSwatchColor refuses url() and var()", () => {
     expect(safeSwatchColor("#fff", yes)).toBe("#fff")
   })
 })
+
+describe("safeSwatchColor allowlist", () => {
+  const yes = () => true
+  it("refuses anything that is not a plain colour", () => {
+    for (const v of [
+      "\\75 rl(//h/x)",
+      'image-set("//h" 1x)',
+      "var(--x, url(//h))",
+      "if(style(--a: 1): red; else: blue)",
+      "attr(data-c type(<color>))",
+      "env(x)",
+      "url(x)",
+    ]) {
+      expect(safeSwatchColor(v, yes), v).toBeUndefined()
+    }
+  })
+  it("passes hex, colour functions and named colours", () => {
+    for (const v of [
+      "#fff",
+      "#11223344",
+      "oklch(0.6 0.2 250)",
+      "rgb(0 0 0 / 50%)",
+      "color-mix(in oklch, red 50%, blue)",
+      "color-mix(in srgb, oklch(0.5 0.1 200) 40%, white)",
+      "red",
+    ]) {
+      expect(safeSwatchColor(v, yes), v).toBe(v)
+    }
+  })
+  it("refuses when CSS is undefined", () => {
+    expect(safeSwatchColor("#fff")).toBeUndefined()
+  })
+})

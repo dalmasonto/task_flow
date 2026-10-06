@@ -850,6 +850,19 @@ pub fn validate_tokens(content: &str) -> Validation {
         }
     }
 
+    if has_fetching_syntax(content) {
+        return v.fail(ValidationError {
+            line: 0,
+            rule: "token-url",
+            message: "tokens.css uses url(), image-set(), src() or a CSS escape. Design tokens \
+                      can't reference URLs or use CSS escapes; load fonts through \
+                      styles/resources.json."
+                .into(),
+            found: None,
+            suggest: None,
+        });
+    }
+
     v
 }
 
@@ -949,13 +962,14 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                         suggest: None,
                     });
                 }
-                if has_url_function(value) {
+                if has_fetching_syntax(value) {
                     return v.fail(ValidationError {
                         line: 0,
                         rule: "token-url",
                         message: format!(
-                            "Token `{category}.{key}` uses a url() ({value}). Design tokens can't \
-                             reference URLs; load fonts through styles/resources.json."
+                            "Token `{category}.{key}` uses url(), image-set(), src() or a CSS \
+                             escape ({value}). Design tokens can't reference URLs or use CSS \
+                             escapes; load fonts through styles/resources.json."
                         ),
                         found: Some(value.clone()),
                         suggest: None,
@@ -968,19 +982,34 @@ pub fn validate_tokens_json(content: &str) -> Validation {
     v
 }
 
-/// True when `value` contains a CSS `url(` in any case, with optional
-/// whitespace between `url` and `(`.
-fn has_url_function(value: &str) -> bool {
+/// True when `value` contains CSS `name(` in any case, with optional
+/// whitespace between the name and `(`.
+fn has_function(value: &str, name: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     let mut rest = lower.as_str();
-    while let Some(i) = rest.find("url") {
-        let after = rest[i + 3..].trim_start();
+    while let Some(i) = rest.find(name) {
+        let after = rest[i + name.len()..].trim_start();
         if after.starts_with('(') {
             return true;
         }
-        rest = &rest[i + 3..];
+        rest = &rest[i + name.len()..];
     }
     false
+}
+
+/// True when `value` contains a CSS `url(` in any case.
+fn has_url_function(value: &str) -> bool {
+    has_function(value, "url")
+}
+
+/// True when `value` can make a browser fetch: `url(`, `image-set(` (also
+/// `-webkit-image-set(`), `src(`, or any backslash (a CSS escape such as
+/// `\75 rl(` is tokenized as `url(`).
+fn has_fetching_syntax(value: &str) -> bool {
+    value.contains('\\')
+        || has_url_function(value)
+        || has_function(value, "image-set")
+        || has_function(value, "src")
 }
 
 // ---------------------------------------------------------------------------
