@@ -1,4 +1,4 @@
-use taskflow_design::tokens::{css_to_tokens_json, tokens_json_to_css, TokensDoc};
+use taskflow_design::tokens::{css_to_tokens_json, tokens_json_to_css, ThemeDecl, TokensDoc};
 
 fn sample_json() -> &'static str {
     r##"{"version":1,"categories":{
@@ -101,4 +101,91 @@ fn token_keys_must_be_identifiers() {
     assert!(!v.ok);
     assert_eq!(v.errors[0].rule, "token-key");
     assert!(validate_tokens_json(r#"{"version":1,"categories":{"colors":{"ok-1_a":{"light":"red"}},"custom":{"--radius":{"light":"1px"},"radius":{"light":"1px"}}}}"#).ok);
+}
+
+fn themed_doc() -> TokensDoc {
+    serde_json::from_str(
+        r##"{"version":1,"themes":[{"name":"dark"},{"name":"ocean"}],"categories":{
+        "colors":{"primary":{"light":"#15803D","dark":"#22C55E","ocean":"#00AAFF"},"bg":{"light":"#ffffff","ocean":"#002233"},"fg":{"light":"#111111"}}}}"##,
+    )
+    .unwrap()
+}
+
+#[test]
+fn each_theme_gets_one_block_with_only_its_overrides() {
+    let css = tokens_json_to_css(&themed_doc());
+    assert!(css.contains(":root[data-theme=\"dark\"], .dark {\n  --primary: #22C55E;\n}\n"), "{css}");
+    assert!(css.contains(":root[data-theme=\"ocean\"] {\n  --primary: #00AAFF;\n  --bg: #002233;\n}\n"), "{css}");
+    let ocean = &css[css.find("[data-theme=\"ocean\"]").unwrap()..css.find("@theme inline").unwrap()];
+    assert!(!ocean.contains("--fg"), "an inherited token is not repeated: {ocean}");
+    assert!(css.find("data-theme=\"dark\"") < css.find("data-theme=\"ocean\""), "blocks follow the theme order");
+}
+
+#[test]
+fn a_theme_with_no_overrides_emits_no_block() {
+    let mut doc = themed_doc();
+    doc.themes = Some(vec![ThemeDecl::named("dark"), ThemeDecl::named("ocean"), ThemeDecl::named("sunset")]);
+    assert!(!tokens_json_to_css(&doc).contains("sunset"));
+}
+
+#[test]
+fn an_undeclared_override_is_never_emitted() {
+    let mut doc = themed_doc();
+    doc.themes = Some(vec![ThemeDecl::named("ocean")]);
+    let css = tokens_json_to_css(&doc);
+    assert!(!css.contains("data-theme=\"dark\""), "dark is no longer declared: {css}");
+    assert!(css.contains(":root[data-theme=\"ocean\"] {"), "{css}");
+}
+
+#[test]
+fn n_theme_css_round_trips() {
+    let css = tokens_json_to_css(&themed_doc());
+    let back = css_to_tokens_json(&css);
+    assert_eq!(back.declared_themes(), ["light", "dark", "ocean"].map(String::from).to_vec());
+    // Compare the theme blocks only: the `@theme inline` bridge is derived from
+    // the `colors` category, and a bare `--bg` imports as `custom` (not colors).
+    let blocks = |c: &str| c[..c.find("@theme inline").unwrap()].to_string();
+    assert_eq!(blocks(&tokens_json_to_css(&back)), blocks(&css), "css -> json -> css is stable");
+}
+
+#[test]
+fn css_with_only_dark_stays_a_legacy_document() {
+    let back = css_to_tokens_json(":root {\n  --a: #fff;\n}\n.dark {\n  --a: #000;\n}\n");
+    assert_eq!(back.themes, None);
+}
+
+#[test]
+fn pasted_css_imports_any_data_theme_block_and_dot_dark() {
+    let hand = r#"@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+:root {
+  --primary: #111;
+}
+[data-theme="ocean"] {
+  --primary: #0af;
+  --wave: #123;
+}
+.dark {
+  --primary: #eee;
+}
+"#;
+    let doc = css_to_tokens_json(hand);
+    assert_eq!(doc.declared_themes(), ["light", "dark", "ocean"].map(String::from).to_vec(), "dark first");
+    let css = tokens_json_to_css(&doc);
+    assert!(css.contains(":root[data-theme=\"dark\"], .dark {\n  --primary: #eee;\n}"), "{css}");
+    assert!(css.contains(":root[data-theme=\"ocean\"] {\n  --primary: #0af;\n  --wave: #123;\n}"), "{css}");
+    assert!(!css.contains("*));"), "the @custom-variant line is not a block: {css}");
+}
+
+#[test]
+fn an_undeclared_dark_gets_no_block_even_with_shadcn_defaults() {
+    use taskflow_design::defaults::effective_tokens;
+    let doc: TokensDoc = serde_json::from_str(
+        r##"{"version":1,"themes":[{"name":"ocean"}],"categories":{"colors":{"brand":{"light":"#111111","ocean":"#00AAFF"}}}}"##,
+    )
+    .unwrap();
+    let css = tokens_json_to_css(&effective_tokens(&doc));
+    assert!(css.contains(":root[data-theme=\"ocean\"] {"), "{css}");
+    assert!(!css.contains("data-theme=\"dark\""), "{css}");
+    assert!(!css.contains(".dark"), "{css}");
+    assert!(css.contains("--primary:"), "shadcn defaults still in :root: {css}");
 }

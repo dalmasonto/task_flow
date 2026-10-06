@@ -359,9 +359,11 @@ pub fn var_name_to_category(var_name: &str) -> (&'static str, String) {
 /// shadcn's `globals.css` shape:
 ///
 /// 1. `:root { <light values> }`
-/// 2. `:root[data-theme="dark"], .dark { <dark values> }` — the sandbox toggles
-///    `data-theme` (composer.rs); `.dark` makes the file drop into a shadcn app.
-///    Emitted only when some token has a dark value.
+/// 2. One block per declared theme: dark as `:root[data-theme="dark"], .dark`
+///    (the sandbox toggles `data-theme` (composer.rs); `.dark` makes the file
+///    drop into a shadcn app), every other theme as
+///    `:root[data-theme="<name>"]`, each with only its overrides; a theme with
+///    none emits nothing.
 /// 3. [`theme_bridge`] — `@theme inline`, mapping tokens into Tailwind's
 ///    namespaces. A plain stylesheet ignores it; the composer feeds the same
 ///    block to the Tailwind browser build as `text/tailwindcss`.
@@ -370,14 +372,24 @@ pub fn var_name_to_category(var_name: &str) -> (&'static str, String) {
 /// never compiled it, and in an app it would register `--primary` itself as a
 /// theme variable.
 pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
+    // Declared themes only, and only real slugs: a name reaches an attribute
+    // selector here, so an unvalidated document can never inject one.
+    let themes: Vec<String> = doc
+        .theme_decls()
+        .into_iter()
+        .map(|t| t.name)
+        .filter(|name| is_theme_name(name) && !RESERVED_THEME_NAMES.contains(&name.as_str()))
+        .collect();
     let mut light_lines: Vec<String> = Vec::new();
-    let mut dark_lines: Vec<String> = Vec::new();
+    let mut theme_lines: Vec<Vec<String>> = vec![Vec::new(); themes.len()];
     for (category, tokens) in doc.categories.iter() {
         for (key, value) in tokens.iter() {
             let var_name = category_to_var_name(category, key);
             light_lines.push(format!("  {var_name}: {};", value.light));
-            if let Some(dark) = value.themes.get(DARK) {
-                dark_lines.push(format!("  {var_name}: {dark};"));
+            for (i, theme) in themes.iter().enumerate() {
+                if let Some(v) = value.themes.get(theme) {
+                    theme_lines[i].push(format!("  {var_name}: {v};"));
+                }
             }
         }
     }
@@ -388,9 +400,17 @@ pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
         out.push('\n');
     }
     out.push_str("}\n");
-    if !dark_lines.is_empty() {
-        out.push_str("\n:root[data-theme=\"dark\"], .dark {\n");
-        for line in &dark_lines {
+    for (theme, lines) in themes.iter().zip(&theme_lines) {
+        if lines.is_empty() {
+            continue;
+        }
+        if theme == DARK {
+            // Byte-identical to the pre-#619 dark block (tests/tokens_legacy_pin.rs).
+            out.push_str("\n:root[data-theme=\"dark\"], .dark {\n");
+        } else {
+            out.push_str(&format!("\n:root[data-theme=\"{theme}\"] {{\n"));
+        }
+        for line in lines {
             out.push_str(line);
             out.push('\n');
         }
@@ -527,10 +547,40 @@ fn parse_decls(block: &str) -> Vec<(String, String)> {
     out
 }
 
+/// Every `[data-theme="<name>"] … { … }` rule in `css`, in order: `(name,
+/// body)`. Only a selector list may sit between the attribute and its `{` —
+/// so `@custom-variant dark (&:where([data-theme="dark"] *));`, which has a
+/// `;` before any brace, is not a block. Names that are not theme slugs (and
+/// `light`/`both`/`all`) are skipped.
+fn theme_blocks(css: &str) -> Vec<(String, &str)> {
+    const OPEN: &str = "[data-theme=\"";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = css[from..].find(OPEN) {
+        let name_start = from + i + OPEN.len();
+        let Some(close) = css[name_start..].find("\"]") else { break };
+        let name = &css[name_start..name_start + close];
+        let after = name_start + close + 2;
+        from = after;
+        let rest = &css[after..];
+        let Some(brace) = rest.find('{') else { break };
+        if rest[..brace].contains(['}', ';']) {
+            continue;
+        }
+        let body = &rest[brace + 1..];
+        let Some(end) = body.find('}') else { break };
+        if is_theme_name(name) && !RESERVED_THEME_NAMES.contains(&name) {
+            out.push((name.to_string(), &body[..end]));
+        }
+        from = after + brace + 1 + end + 1;
+    }
+    out
+}
+
 /// Parse legacy/hand-authored CSS (or CSS-shaped input from an agent) back
 /// into a [`TokensDoc`]. Scans `@theme` and `:root` for light values (merged,
 /// first occurrence per name wins — they're normally identical since the
-/// generator emits both) and the dark block for dark overrides, then buckets
+/// generator emits both) and every `[data-theme="<name>"]` block plus `.dark` for theme overrides, then buckets
 /// each `--var` name into a category via [`var_name_to_category`].
 ///
 /// The dark block is read from BOTH our generated `:root[data-theme="dark"]`
@@ -556,46 +606,61 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
         }
     }
 
-    // Dark overrides: prefer the generated `[data-theme="dark"]` selector, and
-    // also accept a `.dark` class block (hand-authored CSS convention). A name
-    // present in both takes the data-theme value (inserted first, `.dark` fills
-    // only what's missing).
-    let mut darks: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for selector in ["[data-theme=\"dark\"]", ".dark"] {
-        if let Some(block) = extract_selector_block(&legacy_css, selector) {
-            for (name, value) in parse_decls(block) {
-                darks.entry(name).or_insert(value);
+    // Theme overrides, theme by theme: every `[data-theme="<name>"]` block
+    // (our generated selectors and hand-written ones alike), then a `.dark { … }`
+    // class block for pasted shadcn CSS. A var set twice for one theme keeps
+    // its first value, so `[data-theme="dark"]` wins over `.dark`.
+    let mut theme_values: Vec<(String, Vec<(String, String)>)> = Vec::new();
+    let mut add = |theme: &str, decls: Vec<(String, String)>| {
+        let at = match theme_values.iter().position(|(t, _)| t == theme) {
+            Some(at) => at,
+            None => {
+                theme_values.push((theme.to_string(), Vec::new()));
+                theme_values.len() - 1
+            }
+        };
+        for (name, value) in decls {
+            if !theme_values[at].1.iter().any(|(n, _)| *n == name) {
+                theme_values[at].1.push((name, value));
+            }
+        }
+    };
+    for (theme, block) in theme_blocks(&legacy_css) {
+        add(&theme, parse_decls(block));
+    }
+    if let Some(block) = extract_selector_block(&legacy_css, ".dark") {
+        add(DARK, parse_decls(block));
+    }
+    // `dark` leads the imported themes, as it does in every generated file.
+    theme_values.sort_by_key(|(theme, _)| theme != DARK);
+
+    let mut by_var: OrderedMap<TokenValue> = OrderedMap::new();
+    for (name, light) in &lights {
+        by_var.insert(name.clone(), TokenValue::new(light.clone()));
+    }
+    for (theme, decls) in &theme_values {
+        for (name, value) in decls {
+            match by_var.get_mut(name) {
+                Some(token) => token.set(theme, value.clone()),
+                // A var only a theme sets still round-trips: light takes that value.
+                None => by_var.insert(name.clone(), TokenValue::new(value.clone()).with(theme, value.clone())),
             }
         }
     }
 
     let mut categories: OrderedMap<OrderedMap<TokenValue>> = OrderedMap::new();
-
-    for (name, light) in &lights {
-        let (category, key) = var_name_to_category(name);
-        let mut value = TokenValue::new(light.clone());
-        if let Some(dark) = darks.get(name) {
-            value.set(DARK, dark.clone());
-        }
+    for (name, value) in by_var.0 {
+        let (category, key) = var_name_to_category(&name);
         categories.entry_or_insert_with(category, OrderedMap::new).insert(key, value);
     }
-
-    // Dark-only vars (no matching light decl) still need to round-trip.
-    for (name, dark_value) in &darks {
-        if lights.iter().any(|(n, _)| n == name) {
-            continue;
-        }
-        let (category, key) = var_name_to_category(name);
-        categories
-            .entry_or_insert_with(category, OrderedMap::new)
-            .insert(key, TokenValue::new(dark_value.clone()).with(DARK, dark_value.clone()));
-    }
-
-    TokensDoc {
-        version: 1,
-        themes: None,
-        categories,
-    }
+    let names: Vec<&str> = theme_values.iter().map(|(t, _)| t.as_str()).collect();
+    // Only dark (or nothing): the legacy shape, so a light/dark import is unchanged.
+    let themes = if names.is_empty() || names == [DARK] {
+        None
+    } else {
+        Some(names.iter().map(|n| ThemeDecl::named(*n)).collect())
+    };
+    TokensDoc { version: 1, themes, categories }
 }
 
 /// Merge a PATCH into a tokens document, in its stored shape:
