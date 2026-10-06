@@ -819,3 +819,48 @@ pub async fn update_user_settings(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(saved))
 }
+
+/// `DELETE /api/taskflow/projects/{project}`
+///
+/// Delete a project and everything in it. Only the project's OWNER (or a
+/// superuser) may — an admin can manage people and agents but cannot destroy the
+/// project itself. A non-member and a missing project both answer 403/404 from
+/// the same gate as invites, so this is no existence oracle beyond what the
+/// project scope already allows.
+///
+/// The children go with it through the schema's `on_delete = "cascade"` FKs
+/// (tasks, members, invites, agents and their credentials/sessions, channels,
+/// messages, design pages…); rows that only *reference* the project loosely are
+/// `set_null`. Auto-REST `DELETE /api/taskflow_project/{id}` is stripped (see
+/// `backend/src/rest.rs`) because it let any active member do this.
+pub async fn delete_project(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(project_id): Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
+    if !identity.is_superuser {
+        let member = TaskflowProjectMember::objects()
+            .filter(
+                taskflow_project_member::PROJECT.eq(project_id)
+                    & taskflow_project_member::USER.eq(user_id)
+                    & taskflow_project_member::STATUS.eq("active"),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::FORBIDDEN)?;
+        if member.role != TaskflowProjectRole::Owner {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    let deleted = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .delete()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if deleted == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}

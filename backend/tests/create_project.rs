@@ -304,3 +304,79 @@ async fn defaults_are_applied_for_empty_optional_fields() {
     // does not assert on.
     let _ = (&caller.username, &caller.email);
 }
+
+async fn delete(token: &str, path: &str) -> u16 {
+    client_for(token).await.delete(path).await.status().as_u16()
+}
+
+async fn create_project_as(caller: &Caller) -> i64 {
+    let (status, body) = post_json(
+        &caller.token,
+        "/api/taskflow/projects",
+        json!({ "name": format!("Doomed {}", seq()) }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    body["id"].as_i64().unwrap()
+}
+
+/// The owner deletes their project: 204, and it is gone from their list.
+#[tokio::test]
+async fn owner_can_delete_their_project() {
+    app().await;
+    let owner = make_caller().await;
+    let project = create_project_as(&owner).await;
+
+    assert_eq!(delete(&owner.token, &format!("/api/taskflow/projects/{project}")).await, 204);
+    let (_, list) = get(&owner.token, "/api/taskflow_project/").await;
+    assert!(!result_ids(&list).contains(&project), "deleted project still listed: {list}");
+    // The owner's membership went with it (cascade).
+    let left = TaskflowProjectMember::objects()
+        .filter(taskflow_project_member::PROJECT.eq(project))
+        .fetch()
+        .await
+        .unwrap();
+    assert!(left.is_empty());
+}
+
+/// An active member who is not the owner cannot delete the project — not through
+/// the endpoint, and not through auto-REST, whose Delete is stripped.
+#[tokio::test]
+async fn a_non_owner_member_cannot_delete_the_project() {
+    app().await;
+    let owner = make_caller().await;
+    let project = create_project_as(&owner).await;
+    let dev = make_caller().await;
+    TaskflowProjectMember::objects()
+        .create(TaskflowProjectMember {
+            id: 0,
+            project: umbral::orm::ForeignKey::new(project),
+            member_key: format!("user:{}", dev.id),
+            user: Some(umbral::orm::ForeignKey::new(dev.id)),
+            display_name: dev.username.clone(),
+            email: None,
+            role: TaskflowProjectRole::Admin,
+            status: taskflow_projects::models::TaskflowMembershipStatus::Active,
+            invited_by: None,
+            created_at: None,
+            joined_at: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(delete(&dev.token, &format!("/api/taskflow/projects/{project}")).await, 403);
+    let rest = delete(&dev.token, &format!("/api/taskflow_project/{project}")).await;
+    assert!(rest == 405 || rest == 404, "auto-REST delete must be gone; got {rest}");
+    let (_, list) = get(&owner.token, "/api/taskflow_project/").await;
+    assert!(result_ids(&list).contains(&project));
+}
+
+/// A stranger is refused.
+#[tokio::test]
+async fn a_stranger_cannot_delete_a_project() {
+    app().await;
+    let owner = make_caller().await;
+    let project = create_project_as(&owner).await;
+    let stranger = make_caller().await;
+    assert_eq!(delete(&stranger.token, &format!("/api/taskflow/projects/{project}")).await, 403);
+}

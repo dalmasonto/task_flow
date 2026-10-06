@@ -7,7 +7,7 @@
 //! single index of everything the plugin serves.
 
 use axum::extract::DefaultBodyLimit;
-use umbral::web::{Router, get, post};
+use umbral::web::{Router, delete, get, post};
 
 use crate::views;
 
@@ -68,6 +68,8 @@ pub fn router() -> Router {
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))
+        // Remove an agent (human-authed): owner/admin, or whoever linked it.
+        .route("/api/taskflow/agents/{agent}", delete(views::delete_agent))
         // Agent-authored send (agent-authed via `RequireAgent`). Accepts JSON or
         // multipart with attachments, so it needs the same raised body limit as
         // the human send — axum's 2 MiB default would reject uploads well under

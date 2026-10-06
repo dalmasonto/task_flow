@@ -244,17 +244,17 @@ pub fn channel_scope(column: &'static str) -> impl Fn(Option<Identity>) -> Scope
 /// caller isn't an active member of — so an auto-REST-created project was an
 /// orphan invisible to its own creator. Projects are now created only through the
 /// authorized `POST /api/taskflow/projects` endpoint, which atomically creates
-/// the project and an active owner membership. Update/Delete stay — the frontend
+/// the project and an active owner membership. Update stays — the frontend
 /// edits projects via PATCH, still governed by the `scope_async` row scope.
+///
+/// `delete` is stripped too: the scope admits every ACTIVE member, so any
+/// developer or viewer could DELETE the whole project (and, by cascade, all of
+/// its tasks, chat and agents). Deletion goes through the owner-gated
+/// `DELETE /api/taskflow/projects/{project}` instead.
 pub fn project_resource() -> ResourceConfig {
     ResourceConfig::new("taskflow_project")
         .scope_async(project_scope("id"))
-        .views([
-            Action::List,
-            Action::Retrieve,
-            Action::Update,
-            Action::Delete,
-        ])
+        .views([Action::List, Action::Retrieve, Action::Update])
 }
 
 /// Per-user settings — READ-ONLY over REST, owner-scoped.
@@ -292,7 +292,18 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
         // must reach its two participants and nobody else, even though everyone
         // in the project shares its `project` FK.
         .filter(|table| !CHANNEL_SCOPED_TABLES.contains(*table))
-        .map(|table| ResourceConfig::new(*table).scope_async(project_scope("project")));
+        .map(|table| {
+            let config = ResourceConfig::new(*table).scope_async(project_scope("project"));
+            // Agents are removed ONLY through the gated
+            // `DELETE /api/taskflow/agents/{agent}` (owner/admin or the human who
+            // linked it). The project scope admits every active member, so an
+            // auto-REST delete let any viewer revoke anyone's agent.
+            if *table == "taskflow_agent" {
+                config.views([Action::List, Action::Retrieve, Action::Create, Action::Update])
+            } else {
+                config
+            }
+        });
 
     let chat = CHANNEL_SCOPED_TABLES.iter().map(|table| {
         let column = if *table == "taskflow_agent_channel" {

@@ -6,7 +6,7 @@
 //! Map each path to a handler in `views.rs` so this file reads as the
 //! single index of everything the plugin serves.
 
-use umbral::web::{Router, get, post};
+use umbral::web::{Router, delete, get, post};
 
 use crate::views;
 
@@ -21,6 +21,9 @@ pub fn router() -> Router {
         // This endpoint atomically creates the project AND an active owner
         // membership for the caller.
         .route("/api/taskflow/projects", post(views::create_project))
+        // Delete a project — owner-only (or superuser). Auto-REST delete on
+        // `taskflow_project` is stripped because it let any member do this.
+        .route("/api/taskflow/projects/{project}", delete(views::delete_project))
         // Create an invite — the ONLY authorized mint path. Project id from the
         // path; owner/admin-gated; token generated server-side. The
         // `taskflow_project_invite` auto-REST resource is read-only so this is

@@ -6,7 +6,8 @@ use axum::body::Bytes;
 use serde::Deserialize;
 use serde_json::json;
 use taskflow_projects::models::{
-    TaskflowProject, TaskflowProjectMember, taskflow_project, taskflow_project_member,
+    TaskflowProject, TaskflowProjectMember, TaskflowProjectRole, taskflow_project,
+    taskflow_project_member,
 };
 use taskflow_tasks::models::{
     TaskflowActorKind, TaskflowTask, TaskflowTaskActivity, TaskflowTaskAttachment,
@@ -17,7 +18,7 @@ use umbral::orm::{FileField, ForeignKey};
 use umbral::storage::storage_opt;
 use umbral::web::multipart::{FilePart, is_multipart, parse_multipart};
 use umbral::web::{HeaderMap, IntoResponse, Json, Path, Query, Response, StatusCode, header};
-use umbral_auth::{AuthUser, RequireAuth, auth_user};
+use umbral_auth::{AuthUser, CurrentIdentity, RequireAuth, auth_user};
 use uuid::Uuid;
 
 use crate::agent_auth::{AgentIdentity, RequireAgent, hash_key};
@@ -5096,4 +5097,55 @@ mod terminal_input_tests {
         // What an MCP that predates `text` sees on a text row.
         assert!(!is_allowed_terminal_key(""));
     }
+}
+
+/// `DELETE /api/taskflow/agents/{agent}` (human-authed)
+///
+/// Remove an agent identity from its project. Allowed for a superuser, the
+/// project's owners and admins, or the human who linked this agent (while they
+/// are still an active member) — the same person who could mint it may unmint
+/// it. Everyone else, members included, gets 403.
+///
+/// The agent's credentials, sessions, terminal frames, prompts and roster rows
+/// cascade away with it, so its key stops authenticating on the next call. What
+/// it *said* stays: messages, reviews and task authorship are `set_null` and keep
+/// their denormalized labels. Auto-REST `DELETE /api/taskflow_agent/{id}` is
+/// stripped (see `backend/src/rest.rs`) so this gate is the only way in.
+pub async fn delete_agent(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(agent_id): Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if !identity.is_superuser {
+        let member = TaskflowProjectMember::objects()
+            .filter(
+                taskflow_project_member::PROJECT.eq(agent.project.id())
+                    & taskflow_project_member::USER.eq(user_id)
+                    & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            // Not a member: indistinguishable from a missing agent.
+            .ok_or(StatusCode::NOT_FOUND)?;
+        let manages = matches!(member.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin);
+        let linked_it = agent.linked_by.as_ref().map(|fk| fk.id()) == Some(user_id);
+        if !manages && !linked_it {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .delete()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
 }

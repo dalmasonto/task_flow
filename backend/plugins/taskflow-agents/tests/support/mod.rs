@@ -253,6 +253,23 @@ impl TestApp {
         }
     }
 
+    pub async fn delete_as(&self, user_id: i64, path: &str) -> TestResponse {
+        let token = self
+            .tokens
+            .lock()
+            .expect("tokens poisoned")
+            .get(&user_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no bearer token seeded for user {user_id}"));
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"),
+        );
+        TestResponse {
+            inner: self.client.delete(path).await,
+        }
+    }
+
     /// POST JSON with NO authentication header at all — for asserting an
     /// agent-gated route 401s a caller who presents no key. Sets no default
     /// header, so it must be the FIRST request on a fresh client (the client has
@@ -683,6 +700,20 @@ async fn seed_project_member(
     user_id: i64,
     status: TaskflowMembershipStatus,
 ) -> String {
+    seed_project_member_with_role(project, user_id, status, TaskflowProjectRole::Developer).await
+}
+
+/// An ACTIVE member of `project` at an explicit role.
+pub async fn make_project_member_with_role(project: i64, user: i64, role: TaskflowProjectRole) {
+    seed_project_member_with_role(project, user, TaskflowMembershipStatus::Active, role).await;
+}
+
+async fn seed_project_member_with_role(
+    project: i64,
+    user_id: i64,
+    status: TaskflowMembershipStatus,
+    role: TaskflowProjectRole,
+) -> String {
     let display_name = format!("Project Member {user_id}");
     TaskflowProjectMember::objects()
         .create(TaskflowProjectMember {
@@ -692,7 +723,7 @@ async fn seed_project_member(
             user: Some(ForeignKey::new(user_id)),
             display_name: display_name.clone(),
             email: None,
-            role: TaskflowProjectRole::Developer,
+            role,
             status,
             invited_by: None,
             created_at: None,
