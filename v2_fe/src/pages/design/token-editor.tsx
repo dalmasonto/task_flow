@@ -460,26 +460,33 @@ export function TokenEditor({
           {panel === "theme" && doc ? (
             <ThemeStrip doc={doc} active={shownTheme} onSelect={setActiveTheme} onDocChange={setDoc} />
           ) : null}
+          {/* The search and Save/Export stay pinned under the strip too: a
+              query typed at the top is still editable after scrolling deep
+              into the results, and so is Save. */}
+          {panel === "theme" ? (
+            <>
+              <div className="px-3 pt-2">
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search tokens…"
+                  aria-label="Search tokens"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 border-b px-3 pb-1.5 pt-1">
+                <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>
+                  {saving ? "Saving…" : justSaved ? "Saved ✓" : "Save tokens"}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void handleExport()}>
+                  {exporting ? "Exporting…" : "Export CSS"}
+                </Button>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <TabsContent value="theme" className="overflow-y-visible">
-          <div className="px-3 pt-2">
-            <Input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search tokens…"
-              aria-label="Search tokens"
-            />
-          </div>
-          <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-1">
-            <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>
-              {saving ? "Saving…" : justSaved ? "Saved ✓" : "Save tokens"}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void handleExport()}>
-              {exporting ? "Exporting…" : "Export CSS"}
-            </Button>
-          </div>
 
           {loading ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading tokens…</p> : null}
           {loadError ? <p className="px-3 py-2 text-xs text-destructive">{loadError}</p> : null}

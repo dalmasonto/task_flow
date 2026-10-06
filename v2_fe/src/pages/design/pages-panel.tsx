@@ -597,9 +597,11 @@ export function PagesPanel({
   return (
     <div className="flex flex-col py-1">
       {/* Search: filters the lists below by page name, route and group name.
-          Escape clears it. Drawn only when there is something to search. */}
+          Escape clears it. Drawn only when there is something to search.
+          Sticky inside the Pages tab's scroll container (the outer
+          TabsContent), so it stays reachable in a long page list. */}
       {routes.length ? (
-        <div className="relative border-b px-2 py-1.5">
+        <div className="sticky top-0 z-10 border-b bg-background px-2 py-1.5">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-4.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
