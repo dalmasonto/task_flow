@@ -19,7 +19,7 @@ use taskflow_agents::agent_auth::RequireAgent;
 use crate::layout_doc::{self, LayoutDoc};
 use crate::manifest;
 use crate::models::{
-    CommentStatus, DesignComment, DesignFileKind, DesignLayout, design_comment, design_layout,
+    CommentStatus, DesignComment, DesignLayout, design_comment, design_layout,
 };
 use crate::store::{self, WriteOutcome};
 use crate::tokens::{TokensDoc, css_to_tokens_json, tokens_json_to_css};
@@ -38,26 +38,6 @@ fn authorized_project(agent: &taskflow_agents::agent_auth::AgentIdentity, reques
 
 async fn load_files(project_id: i64) -> Vec<crate::models::DesignFile> {
     store::list_files(project_id).await
-}
-
-/// Resolve the project's tokens as a [`TokensDoc`], preferring the
-/// `styles/tokens.json` source of truth and falling back to deriving one
-/// from a legacy `styles/tokens.css` row (via [`css_to_tokens_json`]) when no
-/// json row exists yet. This is the READ side of the json migration: a
-/// project that has only ever been written as CSS still answers
-/// `design_get_tokens`/`context` with a proper json map, no write required.
-fn resolve_tokens_doc(files: &[crate::models::DesignFile]) -> TokensDoc {
-    files
-        .iter()
-        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.json")
-        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
-        .or_else(|| {
-            files
-                .iter()
-                .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
-                .map(|f| css_to_tokens_json(&f.content))
-        })
-        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +142,7 @@ pub async fn context(
     let files = load_files(agent.project_id).await;
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
     let m = manifest::build(agent.project_id, &files, revision);
-    let tokens_doc = resolve_tokens_doc(&files);
+    let tokens_doc = crate::tokens::project_tokens_doc(&files);
     let tokens_css = tokens_json_to_css(&tokens_doc);
     let tokens_json = serde_json::to_value(&tokens_doc).unwrap_or_else(|_| json!({}));
     // The external-resources document as stored (webfonts live here, not in

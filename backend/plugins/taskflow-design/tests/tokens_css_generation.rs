@@ -300,7 +300,67 @@ async fn sandbox_serve_falls_back_to_legacy_css_row_when_no_json() {
     assert_eq!(served.status(), 200);
     assert!(
         served.text().contains("--accent: #111111"),
-        "legacy row content should be served verbatim when no json row exists: {}",
+        "legacy values survive generation when no json row exists: {}",
         served.text()
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_tokens_css_includes_defaults_and_bridge() {
+    let app = TestApp::new().await;
+    let (_user, project_id) = app.create_member_with_project().await;
+    // No tokens written at all.
+    let token = taskflow_design::sandbox::mint(project_id);
+    let css = app.get_sandbox(&format!("/s/{token}/f/styles/tokens.css")).await.text();
+    assert!(css.contains("  --background: oklch(1 0 0);"), "{css}");
+    assert!(css.contains("@theme inline {"));
+    assert!(css.contains("--color-primary: var(--primary);"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_page_carries_the_tailwind_bridge() {
+    let app = TestApp::new().await;
+    let (user, project_id) = app.create_member_with_project().await;
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({ "path": "pages/index.html", "content": r#"<main class="bg-primary">x</main>"# }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed page failed: {}", res.text());
+    let token = taskflow_design::sandbox::mint(project_id);
+    let html = app.get_sandbox(&format!("/s/{token}/")).await.text();
+    let style = html.find("<style type=\"text/tailwindcss\">").expect("bridge style tag");
+    assert!(html[style..].contains("--color-primary: var(--primary);"));
+    assert!(style < html.find("<body").unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn export_document_carries_the_bridge() {
+    let app = TestApp::new().await;
+    let (user_id, project_id) = seed_project_with_accordion_page(&app).await;
+    let html = app.get_as(user_id, &format!("/api/design/{project_id}/page.html?route=/")).await.text();
+    assert!(html.contains("<style type=\"text/tailwindcss\">"), "{html}");
+    assert!(html.contains("--color-background: var(--background);"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_css_project_keeps_values_and_gains_defaults() {
+    let app = TestApp::new().await;
+    let (user, project_id) = app.create_member_with_project().await;
+    let res = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project_id}/file"),
+            &json!({ "path": "styles/tokens.css", "content": "@theme {\n  --bg: #ffffff;\n  --primary: #ff0000;\n}\n" }),
+        )
+        .await;
+    assert_eq!(res.status(), 201, "seed legacy css failed: {}", res.text());
+    let token = taskflow_design::sandbox::mint(project_id);
+    let css = app.get_sandbox(&format!("/s/{token}/f/styles/tokens.css")).await.text();
+    assert!(css.contains("--bg: #ffffff;"));
+    assert_eq!(css.matches("  --primary: ").count(), 1, "{css}");
+    assert!(css.contains("--primary: #ff0000;"));
+    assert!(css.contains("  --muted-foreground: "));
 }

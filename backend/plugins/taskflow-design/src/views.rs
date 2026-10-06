@@ -33,7 +33,7 @@ use crate::models::{
 use crate::sandbox;
 use crate::signals;
 use crate::store::{self, ProjectLocks, WriteOutcome};
-use crate::tokens::{TokensDoc, tokens_json_to_css};
+use crate::tokens::tokens_json_to_css;
 
 /// Shared per-project write locks. One instance per process; cheap to clone.
 pub fn project_locks() -> ProjectLocks {
@@ -1262,14 +1262,13 @@ pub async fn serve_file(
     // when that row exists; only a project that has never migrated off
     // hand-authored CSS falls through to serving the legacy row verbatim.
     if path == "styles/tokens.css" {
-        if let Some(css) = generated_tokens_css(project_id).await {
-            let mut response = css.into_response();
-            apply_subresource_headers(&mut response, &token, versioned);
-            response
-                .headers_mut()
-                .insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
-            return Ok(response);
-        }
+        let css = effective_tokens_css(project_id).await;
+        let mut response = css.into_response();
+        apply_subresource_headers(&mut response, &token, versioned);
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8"));
+        return Ok(response);
     }
 
     let row = store::load_file(project_id, &path)
@@ -1294,17 +1293,13 @@ pub async fn serve_file(
     Ok(response)
 }
 
-/// Build the generated `tokens.css` from the `styles/tokens.json` source row,
-/// if one exists. Returns `None` (never a hard error) when there is no json
-/// row, so callers fall back to serving the legacy hand-authored
-/// `styles/tokens.css` row unchanged. A json row that fails to parse is
-/// treated the same as absent — Task 2's write-time validation is what keeps
-/// stored rows well-formed; a serve-time failure here should degrade to the
-/// legacy fallback rather than 500.
-async fn generated_tokens_css(project_id: i64) -> Option<String> {
-    let row = store::load_file(project_id, "styles/tokens.json").await?;
-    let doc: TokensDoc = serde_json::from_str(&row.content).ok()?;
-    Some(tokens_json_to_css(&doc))
+/// The project's served `tokens.css`: its stored tokens (json row, else the
+/// legacy css row imported) with the shadcn defaults filling every gap, in
+/// globals.css shape. Always answers — an empty project renders the defaults.
+async fn effective_tokens_css(project_id: i64) -> String {
+    let files = store::list_files(project_id).await;
+    let project = crate::tokens::project_tokens_doc(&files);
+    tokens_json_to_css(&crate::defaults::effective_tokens(&project))
 }
 
 /// `GET /api/design/{project}/tokens.css` — chrome-facing download of the
@@ -1317,13 +1312,7 @@ pub async fn export_tokens_css(
 ) -> Result<Response, StatusCode> {
     ensure_member(user_id, project_id).await?;
 
-    let css = match generated_tokens_css(project_id).await {
-        Some(css) => css,
-        None => store::load_file(project_id, "styles/tokens.css")
-            .await
-            .map(|row| row.content)
-            .ok_or(StatusCode::NOT_FOUND)?,
-    };
+    let css = effective_tokens_css(project_id).await;
 
     let mut response = css.into_response();
     let headers = response.headers_mut();
@@ -1394,13 +1383,10 @@ pub async fn export_page_html(
     // (`styles/tokens.json` row when present, else the legacy hand-authored
     // `styles/tokens.css` row) — never a raw file read, and never a hard
     // 404 here: a page with no tokens configured yet still exports.
-    let tokens_css = match generated_tokens_css(project_id).await {
-        Some(css) => css,
-        None => store::load_file(project_id, "styles/tokens.css")
-            .await
-            .map(|row| row.content)
-            .unwrap_or_default(),
-    };
+    let tokens_css = effective_tokens_css(project_id).await;
+    let bridge = crate::tokens::theme_bridge(&crate::defaults::effective_tokens(
+        &crate::tokens::project_tokens_doc(&files),
+    ));
 
     let components: Vec<(String, String)> = files
         .iter()
@@ -1427,6 +1413,7 @@ pub async fn export_page_html(
         &page_file.content,
         "light",
         &tokens_css,
+        &bridge,
         &components,
         &resources,
     );

@@ -15,7 +15,7 @@ fn json_generates_css_with_root_and_dark_preserving_var_names() {
     assert!(css.contains("--accent: #6366f1"), "css: {css}");
     assert!(css.contains("--bg: #ffffff"));
     assert!(css.contains("--radius-md: 8px") || css.contains("--md: 8px"));
-    // Dark values go under the sandbox's data-theme selector (NOT `.dark`),
+    // Dark values go under the sandbox's data-theme selector (and `.dark`),
     // matching how the composer applies the theme; light under :root.
     let dark_sel = "[data-theme=\"dark\"]";
     assert!(css.contains(dark_sel), "dark block selector missing: {css}");
@@ -53,4 +53,17 @@ fn legacy_css_parses_into_json_round_trip() {
     assert!(regen.contains("--accent: #6366f1"));
     assert!(regen.contains("--radius-md: 8px"));
     assert!(regen.contains("--spacing-1: 4px"));
+}
+
+#[test]
+fn generated_css_round_trips_without_bridge_pollution() {
+    use taskflow_design::defaults::effective_tokens;
+    let css = tokens_json_to_css(&effective_tokens(&TokensDoc::default()));
+    let reimported = css_to_tokens_json(&css);
+    let regen = tokens_json_to_css(&reimported);
+    let root = &regen[..regen.find("@theme inline").unwrap()];
+    assert!(!root.contains("--color-"), "bridge leaked into tokens: {root}");
+    assert!(!root.contains("--radius-sm"), "radius scale leaked into tokens: {root}");
+    assert!(root.contains("  --primary: oklch(0.205 0 0);"));
+    assert!(root.contains("  --radius: 0.625rem;"));
 }

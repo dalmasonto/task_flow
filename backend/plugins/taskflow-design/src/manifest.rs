@@ -9,7 +9,6 @@
 
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 use crate::models::{DesignFile, DesignFileKind};
 use crate::resources::{self, ResourceLink};
@@ -74,6 +73,8 @@ pub struct DesignManifest {
     /// as the tokens above; a project with no such row (most of them) composes
     /// exactly as it did before this field existed.
     pub resources: Vec<(bool, ResourceLink)>,
+    /// The `@theme inline` bridge for this project's effective tokens; the composer feeds it to Tailwind.
+    pub tokens_bridge: String,
 }
 
 /// The route a page file serves: `pages/index.html` → `/`, else `/<stem>`.
@@ -226,19 +227,10 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
     // to a regex-ish scan of legacy `styles/tokens.css` only when there's no
     // json row (or it fails to parse, which validation should prevent, but
     // don't panic the manifest builder over it).
-    let tokens = files
-        .iter()
-        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.json")
-        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
-        .map(|doc| token_groups_from_doc(&doc))
-        .unwrap_or_else(|| {
-            let tokens_css = files
-                .iter()
-                .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
-                .map(|f| f.content.clone())
-                .unwrap_or_default();
-            parse_token_groups(&tokens_css)
-        });
+    let project_doc = crate::tokens::project_tokens_doc(files);
+    let effective = crate::defaults::effective_tokens(&project_doc);
+    let tokens = token_groups_from_doc(&effective);
+    let tokens_bridge = crate::tokens::theme_bridge(&effective);
 
     let resources = resources_from(files);
 
@@ -249,6 +241,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
         tokens,
         revision,
         resources,
+        tokens_bridge,
     }
 }
 
@@ -282,55 +275,6 @@ pub fn resources_from(files: &[DesignFile]) -> Vec<(bool, ResourceLink)> {
         .and_then(|d| resources::validate(d).ok())
         .map(|d| resources::enabled_links(&d).into_iter().map(|(s, l)| (s, l.clone())).collect())
         .unwrap_or_default()
-}
-
-/// Group custom properties from `@theme` into named groups by prefix.
-fn parse_token_groups(css: &str) -> Vec<TokenGroup> {
-    const PREFIXES: [&str; 5] = ["--color", "--spacing", "--radius", "--font", "--text"];
-    let lower = css.to_ascii_lowercase();
-    let mut groups: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-
-    let theme_start = lower.find("@theme");
-    let scope: &str = match theme_start {
-        Some(start) => {
-            let after = &lower[start..];
-            let end = after.find('}').map(|k| start + k).unwrap_or(lower.len());
-            &css[start.min(css.len())..end.min(css.len())]
-        }
-        None => "",
-    };
-
-    let mut rest = scope;
-    while let Some(pos) = rest.find("--") {
-        let tail = &rest[pos + 2..];
-        let Some(name_end) = tail.find(':') else {
-            break;
-        };
-        let raw_name = &tail[..name_end];
-        let value = tail[name_end + 1..]
-            .split(';')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let full = format!("--{raw_name}");
-        let group = PREFIXES
-            .iter()
-            .find(|p| full.starts_with(*p))
-            .map(|p| p.trim_start_matches('-').to_string())
-            .unwrap_or_else(|| "other".to_string());
-        groups.entry(group).or_default().push((full, value));
-        rest = &tail[name_end..];
-    }
-
-    groups
-        .into_iter()
-        .map(|(name, variables)| TokenGroup {
-            name,
-            variables,
-            variables_dark: Vec::new(),
-        })
-        .collect()
 }
 
 /// Build [`TokenGroup`]s straight from a [`TokensDoc`] (the tokens.json
@@ -622,7 +566,7 @@ mod tests {
         let m = to_json(&build(1, &files, 1));
 
         // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys).
-        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "tokens"]);
+        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "tokens", "tokensBridge"]);
 
         // `RouteEntry` — NO `rename_all`, and still right only because none of
         // its keys has a second word. Add one and the two spellings part company.

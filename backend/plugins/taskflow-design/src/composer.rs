@@ -819,11 +819,12 @@ pub fn compose_document(
     // in the head before the page's own stylesheet, so a page can override a
     // webfont. Empty — and so invisible — for a project that has none.
     let resources = resources_tags(&manifest.resources);
+    let bridge = escape_for_inline_style(&manifest.tokens_bridge);
 
     // `tokens.css` is GENERATED from `styles/tokens.json` when that row exists
     // and served from the legacy `styles/tokens.css` row otherwise, so its
     // revision is whichever of the two backs it — the same precedence
-    // `views::generated_tokens_css` resolves on the serve side.
+    // `views::effective_tokens_css` resolves on the serve side.
     let tokens_rev = rev_of(versions, "styles/tokens.json")
         .or_else(|| rev_of(versions, "styles/tokens.css"))
         .unwrap_or(manifest.revision);
@@ -915,6 +916,7 @@ window.__tfStateReady = new Promise((settle) => {{
     }}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">{bridge}</style>
   {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css?v={tokens_rev}">
   {component_tags}<script>{PICKER_RUNTIME}</script>
   {state_script}
@@ -995,6 +997,7 @@ pub fn compose_export_document(
     fragment: &str,
     theme: &str,
     tokens_css: &str,
+    bridge: &str,
     components: &[(String, String)],
     resources: &[(bool, ResourceLink)],
 ) -> String {
@@ -1009,6 +1012,7 @@ pub fn compose_export_document(
     }
 
     let safe_tokens_css = escape_for_inline_style(tokens_css);
+    let safe_bridge = escape_for_inline_style(bridge);
     let resource_tags = resources_tags(resources);
 
     format!(
@@ -1018,6 +1022,7 @@ pub fn compose_export_document(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">{safe_bridge}</style>
   {resource_tags}<style>{safe_tokens_css}</style>
   {component_scripts}</head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
@@ -1213,6 +1218,7 @@ mod tests {
             r#"<app-header title="Hi"></app-header>"#,
             "light",
             ":root { --accent: #6366f1; }",
+            "@theme inline { --color-accent: var(--accent); }",
             &[("app-header".to_string(), "customElements.define('app-header', class {});".to_string())],
             &[],
         );

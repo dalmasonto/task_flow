@@ -304,6 +304,27 @@ fn extract_block<'a>(css: &'a str, selector: &str) -> Option<&'a str> {
     Some(&body_start[..end])
 }
 
+/// `css` with every `@theme inline { … }` block removed.
+fn strip_theme_inline(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(pos) = rest.find("@theme") {
+        let after = &rest[pos + "@theme".len()..];
+        if after.trim_start().starts_with("inline") {
+            out.push_str(&rest[..pos]);
+            match after.find('}') {
+                Some(end) => rest = &after[end + 1..],
+                None => return out,
+            }
+        } else {
+            out.push_str(&rest[..pos + "@theme".len()]);
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Scan a flat declaration block for `--name: value;` pairs, in the order
 /// they appear.
 fn parse_decls(block: &str) -> Vec<(String, String)> {
@@ -342,8 +363,11 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
     let mut lights: Vec<(String, String)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
+    // A plain `@theme {` (legacy) is a value source; `@theme inline {` is our
+    // generated bridge (`--color-x: var(--x)`) and must never become tokens.
+    let legacy_css = strip_theme_inline(css);
     for selector in ["@theme", ":root"] {
-        if let Some(block) = extract_block(css, selector) {
+        if let Some(block) = extract_block(&legacy_css, selector) {
             for (name, value) in parse_decls(block) {
                 if seen.insert(name.clone()) {
                     lights.push((name, value));
@@ -455,6 +479,25 @@ pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(),
     }
     doc.categories.0.retain(|(_, tokens)| !tokens.is_empty());
     Ok(())
+}
+
+/// The project's STORED token document: the `styles/tokens.json` row, else a
+/// legacy `styles/tokens.css` row imported via [`css_to_tokens_json`], else
+/// empty. This is what the project defines — NOT what renders; pass it through
+/// `defaults::effective_tokens` for that.
+pub fn project_tokens_doc(files: &[crate::models::DesignFile]) -> TokensDoc {
+    use crate::models::DesignFileKind;
+    files
+        .iter()
+        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.json")
+        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
+        .or_else(|| {
+            files
+                .iter()
+                .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
+                .map(|f| css_to_tokens_json(&f.content))
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
