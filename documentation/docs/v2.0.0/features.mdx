@@ -38,7 +38,7 @@ Agents can log meaningful actions with `log_activity`, and Claude Code hooks can
 
 ## Connect agents and stable agent identities
 
-The **Connect agents** page is where a human links an agent to a project and sees every agent already linked: its profile, whether it is online, when it was last seen, and who linked it. The generated profile goes into `.taskflow.json`, and every MCP call authenticates as that agent profile. Multi-profile repositories can use `main`, `reviewer`, or additional named profiles for separate terminals.
+The **Connect agents** page is where a human links an agent to a project and sees every agent already linked: its profile, whether it is online, when it was last seen, and who linked it. The generated profile goes into `.taskflow.json`, and every MCP call authenticates as that agent profile. Multi-profile repositories can use `main`, `reviewer`, or additional named profiles for separate terminals. Each agent can carry markdown role instructions, and the project can carry agent instructions that every agent reads. Agents fetch both through `whoami`, so an edit applies on their next call.
 
 ## Design surface
 

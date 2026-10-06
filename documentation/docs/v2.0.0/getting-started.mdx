@@ -124,7 +124,30 @@ From the repo that contains `.taskflow.json`:
 taskflow-mcp --check
 ```
 
-Inside your agent, call `whoami`. A correct response shows the agent id, display name, project id, connection state, and terminal mirror state.
+Inside your agent, call `whoami`. A correct response shows the agent id, display name, project id, connection state, terminal mirror state, and the agent's role and project instructions (empty until someone writes them).
+
+## Give the agent its role
+
+On **Connect agents**, every agent has **Role & instructions**: markdown that tells it what it is for, covering its role, responsibilities and conventions. Write them when you link the agent (there are starter templates for Reviewer, Designer, Backend and Frontend), or later with the agent's **Instructions** button. The person who linked the agent and project owners and admins can edit them.
+
+Good role instructions are short and concrete. For example, a Reviewer:
+
+```markdown
+You are the Reviewer for this project.
+
+- Review every task that reaches `partial_done`. Read the diff and run the tests before you decide.
+- Record `approved` or `changes_requested` with `report_review`, and always say why.
+- Never edit application code yourself. Send findings to the author in chat.
+- Be specific: name the file, the line and the fix you expect.
+```
+
+The same page has an **Agent instructions** card for **project agent instructions**, which every agent in the project reads. Only project owners and admins can change them.
+
+The agent reads both through `whoami`. Edits apply on its next `whoami`, with no new key and no restart. If the agent runs in tmux and reconnects after an edit, TaskFlow types a one-line notice asking it to call `whoami` again. Agents cannot change their own instructions.
+
+<Callout type="info">
+When instructions disagree, the agent follows, in order: your direct request in the conversation, its role instructions, the project instructions, then TaskFlow's generic defaults.
+</Callout>
 
 ## Use tmux for terminal mirroring
 
