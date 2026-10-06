@@ -284,6 +284,42 @@ impl TokensDoc {
     }
 }
 
+/// The one rule set for a theme list (stored document and patch alike):
+/// light is never listed, reserved names refused, slugs only, no duplicate,
+/// labels 1-40 characters, at most [`MAX_THEMES`] including light.
+pub fn check_theme_list(themes: &[ThemeDecl]) -> Result<(), String> {
+    if themes.len() + 1 > MAX_THEMES {
+        return Err(format!(
+            "at most {MAX_THEMES} themes including light; this lists {}",
+            themes.len() + 1
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for theme in themes {
+        let name = theme.name.as_str();
+        if name == LIGHT {
+            return Err("`light` is the implicit base theme: list only the other themes, e.g. [{\"name\":\"dark\"},{\"name\":\"ocean\"}]".into());
+        }
+        if RESERVED_THEME_NAMES.contains(&name) {
+            return Err(format!("`{name}` is reserved (design_screenshot uses it); pick another theme name"));
+        }
+        if !is_theme_name(name) {
+            return Err(format!(
+                "theme name `{name}` must be a lowercase slug: a letter, then letters, digits or `-`, at most 32"
+            ));
+        }
+        if !seen.insert(name) {
+            return Err(format!("theme `{name}` is listed twice"));
+        }
+        if let Some(label) = &theme.label {
+            if label.trim().is_empty() || label.chars().count() > 40 {
+                return Err(format!("theme `{name}`: a label is 1-40 characters"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Derive the CSS custom-property name for a token, given its category and
 /// key. This is the ONE place the naming convention lives; `manifest.rs`
 /// (Task 4) reuses `var_name_to_category` (the inverse) to read tokens back

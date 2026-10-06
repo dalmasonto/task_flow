@@ -882,6 +882,20 @@ pub fn validate_tokens_json(content: &str) -> Validation {
         }
     };
 
+    // #619: the theme list first, then every override must name one of them.
+    if let Some(themes) = &doc.themes {
+        if let Err(message) = crate::tokens::check_theme_list(themes) {
+            return v.fail(ValidationError {
+                line: 0,
+                rule: "theme-name",
+                message,
+                found: None,
+                suggest: Some(r#"{"themes":[{"name":"dark"},{"name":"ocean","label":"Ocean"}]}"#.into()),
+            });
+        }
+    }
+    let declared = doc.declared_themes();
+
     for (category, tokens) in doc.categories.iter() {
         for (key, value) in tokens.iter() {
             let bare = if category == "custom" { key.strip_prefix("--").unwrap_or(key) } else { key };
@@ -895,6 +909,19 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                          with `--`), because it becomes a CSS variable name."
                     ),
                     found: Some(key.clone()),
+                    suggest: None,
+                });
+            }
+            if let Some((theme, _)) = value.themes.iter().find(|(t, _)| !declared.contains(t)) {
+                return v.fail(ValidationError {
+                    line: 0,
+                    rule: "theme-unknown",
+                    message: format!(
+                        "Token `{category}.{key}` has a value for theme `{theme}`, which the document does \
+                         not declare (themes: {}). Add {{\"name\": \"{theme}\"}} to `themes` first.",
+                        declared.join(", ")
+                    ),
+                    found: Some(theme.clone()),
                     suggest: None,
                 });
             }
