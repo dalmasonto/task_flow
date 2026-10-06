@@ -604,7 +604,7 @@ mod tests {
         let m = to_json(&build(1, &files, 1));
 
         // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys).
-        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "tokens", "tokensBridge"]);
+        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "themes", "tokens", "tokensBridge"]);
 
         // `RouteEntry` — NO `rename_all`, and still right only because none of
         // its keys has a second word. Add one and the two spellings part company.

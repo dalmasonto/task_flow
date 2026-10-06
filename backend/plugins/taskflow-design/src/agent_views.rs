@@ -927,6 +927,10 @@ pub async fn write_tokens(
             if !removed_themes.is_empty() {
                 body["themes_removed"] = json!(removed_themes);
             }
+            if !renamed.is_empty() {
+                body["themes_renamed"] =
+                    json!(renamed.iter().map(|(f, t)| json!({ "from": f, "to": t })).collect::<Vec<_>>());
+            }
             Ok((StatusCode::CREATED, Json(body)).into_response())
         }
         WriteOutcome::Rejected(v) => Ok(rejection_response(&v)),
