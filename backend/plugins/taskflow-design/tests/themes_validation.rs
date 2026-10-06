@@ -44,6 +44,11 @@ fn an_override_for_an_undeclared_theme_is_theme_unknown() {
     );
     let v = validate_tokens_json(r#"{"version":1,"categories":{"colors":{"p":{"light":"red","ocean":"blue"}}}}"#);
     assert!(v.errors[0].message.contains("light, dark"), "{}", v.errors[0].message);
+    // T3: a legacy document is told to list dark too, since a list makes it non-implicit.
+    assert!(v.errors[0].message.contains(r#"{"name": "dark"}"#), "{}", v.errors[0].message);
+    // A document that already has a list gets no such note.
+    let listed = validate_tokens_json(r#"{"version":1,"themes":[{"name":"ocean"}],"categories":{"colors":{"p":{"light":"red","sun":"blue"}}}}"#);
+    assert!(!listed.errors[0].message.contains("dark is implicit"), "{}", listed.errors[0].message);
 }
 
 #[test]

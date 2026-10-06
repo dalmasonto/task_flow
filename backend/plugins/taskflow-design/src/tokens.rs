@@ -622,9 +622,10 @@ fn parse_decls(block: &str) -> Vec<(String, String)> {
 }
 
 /// Every `[data-theme="<name>"] … { … }` rule in `css`, in order: `(name,
-/// body)`. Only a selector list may sit between the attribute and its `{` —
-/// so `@custom-variant dark (&:where([data-theme="dark"] *));`, which has a
-/// `;` before any brace, is not a block. Names that are not theme slugs (and
+/// body)`. Only nothing, or the rest of a `,`-led selector list, may sit
+/// between the attribute and its `{` — so a descendant rule
+/// (`[data-theme="dark"] .card { … }`) is not a root override, and
+/// `@custom-variant dark (&:where([data-theme="dark"] *));` is not a block. Names that are not theme slugs (and
 /// `light`/`both`/`all`) are skipped.
 fn theme_blocks(css: &str) -> Vec<(String, &str)> {
     const OPEN: &str = "[data-theme=\"";
@@ -638,7 +639,11 @@ fn theme_blocks(css: &str) -> Vec<(String, &str)> {
         from = after;
         let rest = &css[after..];
         let Some(brace) = rest.find('{') else { break };
-        if rest[..brace].contains(['}', ';']) {
+        // Only `[data-theme="x"] {` or `[data-theme="x"], <more selectors> {`
+        // is a ROOT override: a descendant rule (`[data-theme="dark"] .card {`)
+        // styles one element and must never become a token.
+        let between = rest[..brace].trim_start();
+        if rest[..brace].contains(['}', ';']) || !(between.is_empty() || between.starts_with(',')) {
             continue;
         }
         let body = &rest[brace + 1..];
@@ -791,7 +796,7 @@ fn apply_theme_list(doc: &mut TokensDoc, raw: &serde_json::Value) -> Result<Them
             && !entries.iter().any(|e| e.rename_from.as_deref() == Some(entry.name.as_str()) && e.name != entry.name)
         {
             return Err(format!(
-                "patch.themes: cannot rename `{from}` to `{}`: `{}` already exists. Delete or rename `{}` in the same patch first.",
+                "patch.themes: cannot rename `{from}` to `{}`: `{}` already exists. Rename `{}` in this same patch, or delete it in an earlier patch.",
                 entry.name, entry.name, entry.name
             ));
         }
@@ -1022,6 +1027,7 @@ mod patch_tests {
         let before = serde_json::to_value(&d).expect("json");
         let err = apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }] })).unwrap_err();
         assert!(err.contains("`ocean` already exists"), "{err}");
+        assert!(err.contains("rename it in this same patch, or delete it in an earlier patch") || err.contains("Rename `ocean` in this same patch, or delete it in an earlier patch"), "{err}");
         assert_eq!(serde_json::to_value(&d).expect("json"), before, "nothing changed");
         // Swap: values trade places.
         apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "dark", "rename_from": "ocean" }] })).expect("swap");
@@ -1031,6 +1037,34 @@ mod patch_tests {
         apply_patch(&mut c, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "sea", "rename_from": "ocean" }] })).expect("chain");
         assert_eq!(c.declared_themes(), ["light", "ocean", "sea"].map(String::from).to_vec());
         assert_eq!(serde_json::to_value(&c).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "ocean": "#22C55E", "sea": "#0af" }));
+    }
+
+    #[test]
+    fn a_three_cycle_of_renames_rotates_the_values() {
+        let mut d = doc();
+        apply_patch(
+            &mut d,
+            &serde_json::json!({ "themes": [{ "name": "a" }, { "name": "b" }, { "name": "c" }],
+                "colors": { "primary": { "a": "#a00", "b": "#0b0", "c": "#00c" } } }),
+        )
+        .expect("declare a, b, c");
+        let changes = apply_patch(
+            &mut d,
+            &serde_json::json!({ "themes": [
+                { "name": "b", "rename_from": "a" },
+                { "name": "c", "rename_from": "b" },
+                { "name": "a", "rename_from": "c" }
+            ] }),
+        )
+        .expect("3-cycle");
+        assert!(changes.removed.is_empty(), "{changes:?}");
+        assert_eq!(changes.renamed.len(), 3);
+        assert_eq!(d.declared_themes(), ["light", "b", "c", "a"].map(String::from).to_vec());
+        let primary = &serde_json::to_value(&d).expect("json")["categories"]["colors"]["primary"];
+        assert_eq!(primary["b"], "#a00");
+        assert_eq!(primary["c"], "#0b0");
+        assert_eq!(primary["a"], "#00c");
+        assert_eq!(primary["light"], "#15803D");
     }
 
     #[test]

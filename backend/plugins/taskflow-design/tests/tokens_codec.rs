@@ -177,6 +177,31 @@ fn pasted_css_imports_any_data_theme_block_and_dot_dark() {
 }
 
 #[test]
+fn a_descendant_theme_rule_is_not_a_root_override() {
+    let hand = r#":root {
+  --primary: #111;
+}
+[data-theme="dark"] .card {
+  --primary: #f00;
+  --card-only: #f00;
+}
+[data-theme="ocean"], .ocean {
+  --primary: #0af;
+}
+:root[data-theme="sun"] {
+  --primary: #fa0;
+}
+"#;
+    let doc = css_to_tokens_json(hand);
+    // `.card`'s rule is skipped entirely: no dark theme, no `--card-only` token.
+    assert_eq!(doc.declared_themes(), ["light", "ocean", "sun"].map(String::from).to_vec());
+    let json = serde_json::to_string(&doc).unwrap();
+    assert!(!json.contains("#f00") && !json.contains("card-only"), "{json}");
+    assert_eq!(doc.resolve_var("--primary", "ocean"), Some("#0af"));
+    assert_eq!(doc.resolve_var("--primary", "sun"), Some("#fa0"));
+}
+
+#[test]
 fn an_undeclared_dark_gets_no_block_even_with_shadcn_defaults() {
     use taskflow_design::defaults::effective_tokens;
     let doc: TokensDoc = serde_json::from_str(

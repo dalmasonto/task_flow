@@ -251,6 +251,16 @@ pub fn apply_to(doc: &TokensDoc, ov: &Overrides) -> (TokensDoc, Vec<String>) {
             }
         }
     }
+    // #619: the built-in defaults always carry `dark`; a project that does not
+    // declare it (e.g. light + ocean only) must never get a dark value back,
+    // or `design_write_tokens` refuses the patch ("unknown theme `dark`").
+    // Keep light plus the DECLARED themes on every value.
+    let declared = doc.declared_themes();
+    for (_, entries) in out.categories.0.iter_mut() {
+        for (_, token) in entries.0.iter_mut() {
+            token.themes.0.retain(|(theme, _)| declared.contains(theme));
+        }
+    }
     (out, added)
 }
 

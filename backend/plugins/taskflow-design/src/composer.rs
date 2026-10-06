@@ -807,6 +807,9 @@ pub fn compose_document(
     theme: &str,
     state: Option<&str>,
 ) -> String {
+    // #619: callers only pass a validated theme slug, but it lands in an HTML
+    // attribute, so escape it anyway (defence in depth).
+    let theme = esc(theme);
     // The route list the pages were built from — the only paths a link inside
     // the frame can navigate to. Computed once, here, and passed down.
     let routes: Vec<String> = manifest.routes.iter().map(|r| r.path.clone()).collect();
@@ -1002,6 +1005,8 @@ pub fn compose_export_document(
     resources: &[(bool, ResourceLink)],
 ) -> String {
     let _ = page_path;
+    // #619: defence in depth — the theme lands in an HTML attribute.
+    let theme = esc(theme);
     let body = compose_export_body(fragment);
 
     let mut component_scripts = String::new();
@@ -1147,6 +1152,29 @@ fn css_ident(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_theme_attribute_is_html_escaped() {
+        let html = compose_export_document("pages/x.html", "<p>x</p>", "x\"><script>alert(1)</script>", "", "", &[], &[]);
+        assert!(html.contains(r#"data-theme="x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;""#), "{html}");
+        assert!(!html.contains("<script>alert(1)"));
+    }
+
+    #[test]
+    fn the_sandbox_document_escapes_the_theme_attribute() {
+        let manifest = crate::manifest::DesignManifest {
+            project: 1,
+            routes: vec![],
+            components: vec![],
+            tokens: vec![],
+            revision: 1,
+            resources: vec![],
+            tokens_bridge: String::new(),
+            themes: vec![],
+        };
+        let html = compose_document("tok", &manifest, "/", "pages/index.html", "<p>x</p>", &[], "a\"b", None);
+        assert!(html.contains(r#"data-theme="a&quot;b""#), "theme not escaped");
+    }
 
     #[test]
     fn escape_for_inline_script_neutralizes_every_case_variant() {

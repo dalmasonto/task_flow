@@ -913,12 +913,21 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                 });
             }
             if let Some((theme, _)) = value.themes.iter().find(|(t, _)| !declared.contains(t)) {
+                // A legacy document declares `dark` only implicitly: once it
+                // gains a `themes` list, dark must be listed too or its values
+                // become undeclared.
+                let legacy = if doc.themes.is_none() {
+                    " This document has no `themes` list yet (dark is implicit): if it uses dark, \
+                     list it too, e.g. \"themes\": [{\"name\": \"dark\"}, {\"name\": \"<theme>\"}]."
+                } else {
+                    ""
+                };
                 return v.fail(ValidationError {
                     line: 0,
                     rule: "theme-unknown",
                     message: format!(
                         "Token `{category}.{key}` has a value for theme `{theme}`, which the document does \
-                         not declare (themes: {}). Add {{\"name\": \"{theme}\"}} to `themes` first.",
+                         not declare (themes: {}). Add {{\"name\": \"{theme}\"}} to `themes` first.{legacy}",
                         declared.join(", ")
                     ),
                     found: Some(theme.clone()),
