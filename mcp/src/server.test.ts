@@ -133,6 +133,22 @@ vi.mock("./client.js", async (importOriginal) => {
     }
     async designScreenshot(project: number, route: string, viewport: string, _state: string | undefined, opts: { theme?: string }) {
       harness.calls.push(`designScreenshot:${project}:${route}:${opts.theme ?? "light"}`);
+      if (opts.theme === "all" && route === "/partial") {
+        return {
+          route, viewport, theme: "all", mime: "image/png", warnings: [],
+          shots: [
+            { theme: "light", png_base64: "AAAA" },
+            { theme: "dark", error: "Renderer timed out." },
+            { theme: "ocean", error: "skipped: time budget" },
+          ],
+        };
+      }
+      if (opts.theme === "all" && route === "/none") {
+        return {
+          route, viewport, theme: "all", mime: "image/png", warnings: [],
+          shots: [{ theme: "light", error: "skipped: time budget" }],
+        };
+      }
       if (opts.theme === "all") {
         return {
           route, viewport, theme: "all", mime: "image/png", warnings: ["ocean: font did not load"],
@@ -1080,6 +1096,20 @@ describe("named themes (#619)", () => {
     expect(content.find((c) => c.type === "text")?.text ?? "").toMatch(/ocean: font did not load/);
     const bad = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/", theme: "Ocean" } });
     expect(bad.isError).toBe(true);
+  });
+
+  it("design_screenshot all with a partial reply shows images only for the themes that have one", async () => {
+    const client = await connectedClient();
+    const res = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/partial", theme: "all" } });
+    expect(res.isError).toBeFalsy();
+    const content = res.content as Array<{ type: string; text?: string }>;
+    expect(content.filter((c) => c.type === "image")).toHaveLength(1);
+    const text = content.find((c) => c.type === "text")?.text ?? "";
+    expect(text).toMatch(/one image per theme in order: light(?!,)/);
+    expect(text).toMatch(/dark: Renderer timed out\./);
+    expect(text).toMatch(/ocean: skipped: time budget/);
+    const none = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/none", theme: "all" } });
+    expect(none.isError).toBe(true);
   });
 
   it("design_compare takes three themes with no cap of two", async () => {

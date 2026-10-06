@@ -1589,49 +1589,54 @@ pub async fn screenshot(
         max_px: q.max_px.unwrap_or(crate::screenshots::AGENT_MAX_PX),
     };
     // One renderer run per theme: `all` is every declared theme, in order.
-    let mut shots = Vec::new();
-    for theme in crate::screenshots::theme_shots(&q.theme, &declared) {
+    let themes = crate::screenshots::theme_shots(&q.theme, &declared);
+    let is_all = q.theme == crate::screenshots::Theme::All;
+    let started = std::time::Instant::now();
+    let mut outcomes: Vec<(crate::screenshots::Theme, Result<crate::screenshots::Rendered, ShotFailure>)> = Vec::new();
+    for theme in themes {
         let req = crate::screenshots::ScreenshotRequest { theme: theme.clone(), ..base.clone() };
+        if is_all
+            && !crate::screenshots::fits_budget(
+                started.elapsed().as_millis() as u64,
+                crate::screenshots::shot_budget_ms(&req),
+                crate::screenshots::ALL_BUDGET_MS,
+            )
+        {
+            outcomes.push((theme, Err(ShotFailure::Skipped)));
+            continue;
+        }
         match crate::screenshots::render_screenshot(&q.route, &req, q.state.as_deref(), || {
             crate::sandbox::mint(agent.project_id)
         })
         .await
         {
-            Ok(shot) => shots.push((theme, shot)),
-            Err(err) => return Ok(screenshot_error_response(err)),
+            Ok(shot) => outcomes.push((theme, Ok(shot))),
+            // A single shot has nothing else to return: answer the error as is.
+            Err(err) if !is_all => return Ok(screenshot_error_response(err)),
+            Err(err) => outcomes.push((theme, Err(ShotFailure::Render(err)))),
         }
     }
     // A custom size is not the preset it was sent alongside.
     let viewport = if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() };
-    if q.theme == crate::screenshots::Theme::All {
-        let warnings: Vec<String> = shots
-            .iter()
-            .flat_map(|(theme, shot)| shot.warnings.iter().map(move |w| format!("{}: {w}", theme.as_str())))
-            .collect();
-        let images: Vec<serde_json::Value> = shots
-            .iter()
-            .map(|(theme, shot)| {
-                json!({
-                    "theme": theme,
-                    "image": png_size(&shot.png),
-                    "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
-                })
-            })
-            .collect();
+    if is_all {
+        let parts = match all_shots(&outcomes) {
+            Ok(parts) => parts,
+            Err(err) => return Ok(err),
+        };
         return Ok(Json(json!({
             "route": q.route,
             "viewport": viewport,
-            "size": shots.first().map(|(_, shot)| shot.viewport.clone()),
+            "size": parts.size,
             "theme": q.theme,
             "full_page": q.full_page,
             "frame": q.frame,
-            "warnings": warnings,
+            "warnings": parts.warnings,
             "mime": "image/png",
-            "shots": images,
+            "shots": parts.shots,
         }))
         .into_response());
     }
-    let Some((_, shot)) = shots.into_iter().next() else {
+    let Some((_, Ok(shot))) = outcomes.into_iter().next() else {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
     let b64 = base64::engine::general_purpose::STANDARD.encode(&shot.png);
@@ -1648,6 +1653,85 @@ pub async fn screenshot(
         "png_base64": b64,
     }))
     .into_response())
+}
+
+/// Why one theme of an `all` run has no picture.
+#[derive(Debug)]
+enum ShotFailure {
+    Render(crate::screenshots::RenderError),
+    /// Not started: the overall time budget would have been exceeded.
+    Skipped,
+}
+
+impl ShotFailure {
+    fn message(&self) -> String {
+        match self {
+            ShotFailure::Render(err) => err.to_string(),
+            ShotFailure::Skipped => "skipped: time budget".to_string(),
+        }
+    }
+}
+
+struct AllShots {
+    shots: Vec<serde_json::Value>,
+    warnings: Vec<String>,
+    size: Option<crate::screenshots::Viewport>,
+}
+
+fn all_failed_detail(
+    outcomes: &[(crate::screenshots::Theme, Result<crate::screenshots::Rendered, ShotFailure>)],
+) -> String {
+    let reasons = outcomes
+        .iter()
+        .map(|(theme, r)| format!("{}: {}", theme.as_str(), r.as_ref().err().map(|e| e.message()).unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("No theme could be rendered. {reasons}")
+}
+
+/// Partial results for `theme: "all"`: each entry is `{theme, image,
+/// png_base64}` or `{theme, error}`. Only when NO theme produced a picture is
+/// it an error, naming every theme's reason.
+fn all_shots(
+    outcomes: &[(crate::screenshots::Theme, Result<crate::screenshots::Rendered, ShotFailure>)],
+) -> Result<AllShots, Response> {
+    use base64::Engine as _;
+    if !outcomes.iter().any(|(_, r)| r.is_ok()) {
+        // Every theme failed: a renderer that is simply not configured is the
+        // same 503 as a single shot's.
+        if let Some((_, Err(ShotFailure::Render(err @ crate::screenshots::RenderError::Unconfigured(_))))) =
+            outcomes.first()
+        {
+            return Err(screenshot_error_response(crate::screenshots::RenderError::Unconfigured(match err {
+                crate::screenshots::RenderError::Unconfigured(what) => what,
+                _ => "renderer",
+            })));
+        }
+        let detail = all_failed_detail(outcomes);
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "detail": detail })),
+        )
+            .into_response());
+    }
+    let mut warnings = Vec::new();
+    let mut shots = Vec::new();
+    let mut size = None;
+    for (theme, result) in outcomes {
+        match result {
+            Ok(shot) => {
+                size.get_or_insert_with(|| shot.viewport.clone());
+                warnings.extend(shot.warnings.iter().map(|w| format!("{}: {w}", theme.as_str())));
+                shots.push(json!({
+                    "theme": theme,
+                    "image": png_size(&shot.png),
+                    "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+                }));
+            }
+            Err(failure) => shots.push(json!({ "theme": theme, "error": failure.message() })),
+        }
+    }
+    Ok(AllShots { shots, warnings, size })
 }
 
 /// The agent screenshot's answer to a render error: 503 names what the
@@ -2040,4 +2124,48 @@ pub fn compare_apply(
 fn png_size(png: &[u8]) -> serde_json::Value {
     let read = |at: usize| png.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
     json!({ "width": read(16), "height": read(20) })
+}
+
+#[cfg(test)]
+mod all_shots_tests {
+    use super::*;
+    use crate::screenshots::{RenderError, Rendered, Theme, Viewport};
+
+    fn rendered() -> Rendered {
+        Rendered {
+            png: vec![],
+            warnings: vec!["font did not load".into()],
+            data: serde_json::Value::Null,
+            viewport: Viewport { width: 10, height: 10, dpr: 1, mobile: false },
+        }
+    }
+
+    #[test]
+    fn a_mixed_run_returns_partial_shots() {
+        let outcomes = vec![
+            (Theme::Light, Ok(rendered())),
+            (Theme::Dark, Err(ShotFailure::Render(RenderError::Timeout))),
+            (Theme::Named("ocean".into()), Err(ShotFailure::Skipped)),
+        ];
+        let parts = all_shots(&outcomes).ok().expect("partial is ok");
+        assert_eq!(parts.shots.len(), 3);
+        assert!(parts.shots[0]["png_base64"].is_string() && parts.shots[0].get("error").is_none());
+        assert_eq!(parts.shots[1]["theme"], "dark");
+        assert!(parts.shots[1]["error"].as_str().unwrap().contains("timed out"));
+        assert!(parts.shots[1].get("png_base64").is_none());
+        assert_eq!(parts.shots[2]["error"], "skipped: time budget");
+        assert_eq!(parts.warnings, vec!["light: font did not load"]);
+    }
+
+    #[test]
+    fn all_failing_is_an_error_naming_each_theme() {
+        let outcomes = vec![
+            (Theme::Light, Err(ShotFailure::Render(RenderError::Timeout))),
+            (Theme::Named("ocean".into()), Err(ShotFailure::Skipped)),
+        ];
+        let Err(res) = all_shots(&outcomes) else { panic!("expected an error") };
+        assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+        let detail = all_failed_detail(&outcomes);
+        assert!(detail.contains("light: Renderer timed out") && detail.contains("ocean: skipped: time budget"), "{detail}");
+    }
 }

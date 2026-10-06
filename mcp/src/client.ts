@@ -752,7 +752,7 @@ export class TaskflowClient {
     mime: string
     png_base64?: string
     /** `theme: "all"`: one shot per declared theme, in order. */
-    shots?: { theme: string; image?: { width: number; height: number }; png_base64: string }[]
+    shots?: { theme: string; image?: { width: number; height: number }; png_base64?: string; error?: string }[]
   }> {
     const extra: Record<string, string | number | boolean> = {};
     for (const [key, value] of Object.entries(opts)) {

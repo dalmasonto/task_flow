@@ -1723,12 +1723,25 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           css,
           max_px,
         });
-        const images = shot.shots?.length
+        // `all` may be partial: an entry with an error and no picture becomes a
+        // text line, not an image.
+        const entries = shot.shots?.length
           ? shot.shots
           : shot.png_base64
             ? [{ theme: shot.theme ?? "light", png_base64: shot.png_base64 }]
             : [];
-        if (!images.length) throw new Error("Renderer returned no image.");
+        const images = entries.filter((e): e is typeof e & { png_base64: string } => !!e.png_base64);
+        const failed = entries.filter((e) => !e.png_base64);
+        if (!images.length) {
+          throw new Error(
+            failed.length
+              ? `No theme could be rendered. ${failed.map((f) => `${f.theme}: ${f.error ?? "no image"}`).join("; ")}`
+              : "Renderer returned no image.",
+          );
+        }
+        const failures = failed.length
+          ? `\n\nNo picture for:\n${failed.map((f) => `${f.theme}: ${f.error ?? "no image"}`).join("\n")}`
+          : "";
         const size = shot.size
           ? ` (${shot.size.width}×${shot.size.height} @${shot.size.dpr}x${shot.size.mobile ? ", mobile" : ""})`
           : "";
@@ -1751,7 +1764,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
               type: "text",
               text:
                 `Screenshot of ${shot.route} at ${shot.viewport}${size}${shade}${shot.full_page ? ", full page" : ""}${dress}. ` +
-                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}`,
+                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}${failures}`,
             },
           ],
         };

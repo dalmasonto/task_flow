@@ -442,14 +442,26 @@ pub async fn render_screenshot(
     // §8.1: short timeout — a hung page must cost seconds, not minutes. A
     // frame or a full page is a second pass over the capture, so it gets a
     // few seconds more.
-    let budget = if req.theme == Theme::Both {
+    render_shot(&program, &url, &viewport, req, shot_budget_ms(req)).await
+}
+
+/// The wall-clock budget one renderer run gets.
+pub fn shot_budget_ms(req: &ScreenshotRequest) -> u64 {
+    if req.theme == Theme::Both {
         40_000
     } else if req.full_page || req.frame != Frame::None {
         25_000
     } else {
         20_000
-    };
-    render_shot(&program, &url, &viewport, req, budget).await
+    }
+}
+
+/// Overall budget for a `theme: "all"` call: under the MCP's 180 s timeout.
+pub const ALL_BUDGET_MS: u64 = 150_000;
+
+/// May another shot start? Only if it could still finish inside the budget.
+pub fn fits_budget(elapsed_ms: u64, shot_ms: u64, total_ms: u64) -> bool {
+    elapsed_ms.saturating_add(shot_ms) <= total_ms
 }
 
 /// Keep the io trait import honest even if the spawn shape changes.
@@ -527,5 +539,23 @@ mod theme_tests {
             vec![Theme::Light, Theme::Dark, Theme::Named("ocean".into())]
         );
         assert_eq!(theme_shots(&Theme::Both, &declared()), vec![Theme::Both]);
+    }
+
+    #[test]
+    fn the_time_budget_skips_a_shot_that_could_not_finish() {
+        assert!(fits_budget(0, 20_000, ALL_BUDGET_MS));
+        assert!(fits_budget(130_000, 20_000, ALL_BUDGET_MS), "exactly fits");
+        assert!(!fits_budget(130_001, 20_000, ALL_BUDGET_MS));
+        assert!(!fits_budget(u64::MAX, 20_000, ALL_BUDGET_MS));
+        // 8 plain themes at the worst case cannot all start inside 150 s.
+        let mut elapsed = 0;
+        let mut started = 0;
+        for _ in 0..8 {
+            if fits_budget(elapsed, 20_000, ALL_BUDGET_MS) {
+                started += 1;
+                elapsed += 20_000;
+            }
+        }
+        assert_eq!(started, 7);
     }
 }
