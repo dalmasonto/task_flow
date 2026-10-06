@@ -110,3 +110,14 @@ fn legacy_tokens_css_refuses_urls_escapes_image_set_and_src() {
     let r = validate_tokens("@import \"https://x.example/a.css\";\n@theme { --a: red; }");
     assert_eq!(r.errors[0].rule, "remote-import");
 }
+
+#[test]
+fn appearance_is_light_or_dark() {
+    assert_eq!(
+        rule(r#"{"version":1,"themes":[{"name":"dark","appearance":"dark"},{"name":"ocean","appearance":"light"}],"categories":{}}"#),
+        None
+    );
+    assert_eq!(rule(r#"{"version":1,"themes":[{"name":"ocean"}],"categories":{}}"#), None, "absent = automatic");
+    assert_eq!(rule(r#"{"version":1,"themes":[{"name":"ocean","appearance":"dim"}],"categories":{}}"#), Some("theme-name"));
+    assert_eq!(rule(r#"{"version":1,"themes":[{"name":"ocean","appearance":"Dark"}],"categories":{}}"#), Some("theme-name"));
+}
