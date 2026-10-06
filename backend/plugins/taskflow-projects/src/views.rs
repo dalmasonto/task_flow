@@ -869,10 +869,12 @@ pub async fn delete_project(
 }
 
 /// The body of `PUT /api/taskflow/projects/{project}/agent-instructions`. A
-/// missing, `null`, empty or whitespace-only `markdown` clears them.
+/// The `markdown` key is REQUIRED (a missing/typo'd key is a 4xx, not a silent
+/// clear); an explicit `null`, empty or whitespace-only value clears them.
 #[derive(Debug, Deserialize)]
 pub struct ProjectInstructionsInput {
-    #[serde(default)]
+    // serde treats a missing `Option` as `None`; `deserialize_with` makes the key required.
+    #[serde(deserialize_with = "Option::deserialize")]
     pub markdown: Option<String>,
 }
 

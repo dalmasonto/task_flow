@@ -98,3 +98,15 @@ async fn a_no_op_save_keeps_the_timestamp_and_blank_clears() {
     assert_eq!(row.agent_instructions_markdown, None);
     assert!(row.agent_instructions_updated_at.is_some());
 }
+
+#[tokio::test]
+async fn a_body_without_the_markdown_key_is_rejected_and_changes_nothing() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let owner = member(&app, project, TaskflowProjectRole::Owner).await;
+    assert_eq!(app.put_body_as(owner, &path(project), json!({ "markdown": "keep me" })).await.status(), 200);
+
+    let status = app.put_body_as(owner, &path(project), json!({})).await.status();
+    assert!((400..500).contains(&status), "expected 4xx, got {status}");
+    assert_eq!(stored(project).await.agent_instructions_markdown.as_deref(), Some("keep me"));
+}

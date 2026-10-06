@@ -227,3 +227,16 @@ async fn relinking_by_another_member_does_not_overwrite_the_instructions() {
     let me = whoami(&app, relinked["key"].as_str().unwrap()).await;
     assert_eq!(me["instructions"]["markdown"], json!("linker's role"));
 }
+
+#[tokio::test]
+async fn a_body_without_the_markdown_key_is_rejected_and_changes_nothing() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (agent, key) = ids(&link(&app, user, project, "Keep", "keep", Some("keep me")).await);
+
+    let status = app.put_as(user, &path(agent), json!({})).await.status();
+    assert!((400..500).contains(&status), "expected 4xx, got {status}");
+    assert_eq!(whoami(&app, &key).await["instructions"]["markdown"], json!("keep me"));
+}

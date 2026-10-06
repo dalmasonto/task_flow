@@ -5207,11 +5207,13 @@ pub async fn delete_agent(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The body of `PUT /api/taskflow/agents/{agent}/instructions`. A missing,
-/// `null`, empty or whitespace-only `markdown` clears the instructions.
+/// The body of `PUT /api/taskflow/agents/{agent}/instructions`. The `markdown`
+/// key is REQUIRED (a missing/typo'd key is a 4xx, not a silent clear); an
+/// explicit `null`, empty or whitespace-only value clears the instructions.
 #[derive(Debug, Deserialize)]
 pub struct SetInstructionsInput {
-    #[serde(default)]
+    // serde treats a missing `Option` as `None`; `deserialize_with` makes the key required.
+    #[serde(deserialize_with = "Option::deserialize")]
     pub markdown: Option<String>,
 }
 
