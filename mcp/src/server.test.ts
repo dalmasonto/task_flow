@@ -1117,6 +1117,31 @@ describe("named themes (#619)", () => {
     expect(JSON.parse(harness.payloads[0]!)).toEqual({ patch });
   });
 
+  it("design_write_tokens passes a theme's appearance through, null included (#626)", async () => {
+    const client = await connectedClient();
+    const patch = { themes: [{ name: "dark", appearance: "dark" }, { name: "ocean", appearance: null }] };
+    const result = await client.callTool({
+      name: "design_write_tokens",
+      arguments: { profile: "main", reason: "Mark ocean automatic again", patch },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(harness.payloads[0]!)).toEqual({ patch });
+    const bad = await client.callTool({
+      name: "design_write_tokens",
+      arguments: { profile: "main", reason: "A bad appearance value", patch: { themes: [{ name: "ocean", appearance: "dim" }] } },
+    });
+    expect(bad.isError).toBe(true);
+  });
+
+  it("descriptions teach appearance and safe areas (#626)", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const desc = (name: string) => tools.tools.find((t) => t.name === name)?.description ?? "";
+    expect(desc("design_write_tokens")).toMatch(/"appearance":"dark"/);
+    expect(desc("design_write_tokens")).toMatch(/--safe-top/);
+    expect(desc("design_get_tokens")).toMatch(/appearance/);
+  });
+
   it("design_screenshot takes any theme name and returns one image per theme for all", async () => {
     const client = await connectedClient();
     const one = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/", theme: "ocean" } });
