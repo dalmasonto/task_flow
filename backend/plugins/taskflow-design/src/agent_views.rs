@@ -96,6 +96,8 @@ pub async fn context(
         "routes": manifest::to_json(&m)["routes"],
         "revision": revision,
         "defaults": defaults,
+        // #619: the ordered theme list (light first) with labels and swatches.
+        "themes": manifest::to_json(&m)["themes"],
         "resources": resources,
         "note": "Colour, radius and type come from these tokens — write shadcn classes \
                  (bg-primary, text-muted-foreground, rounded-lg). Names in `defaults` are \

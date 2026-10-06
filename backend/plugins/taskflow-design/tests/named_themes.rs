@@ -112,3 +112,26 @@ async fn rename_moves_values_and_an_omitted_theme_is_reported_removed() {
     assert!(reply["note"].as_str().unwrap_or_default().contains("Removed theme(s) dark"), "{reply}");
     assert_eq!(stored(project).await["categories"]["colors"]["primary"], json!({ "light": "#15803D", "sea": "#0af" }));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_manifest_and_context_list_themes_with_swatches() {
+    let app = TestApp::new().await;
+    let (user, project, key) = seeded(&app).await;
+    let manifest = app.get_as(user, &format!("/api/design/{project}/manifest")).await.json();
+    let themes = manifest["themes"].clone();
+    assert_eq!(themes.as_array().map(|t| t.len()), Some(2), "legacy: light + dark: {themes}");
+    assert_eq!(themes[0]["name"], "light");
+    assert_eq!(themes[1], json!({ "name": "dark", "label": "Dark", "swatch": { "primary": "#22C55E", "background": "oklch(0.145 0 0)" } }));
+
+    add_ocean(&app, &key, project).await;
+    let themes = app.get_as(user, &format!("/api/design/{project}/manifest")).await.json()["themes"].clone();
+    // Ruling 3: ocean sets no background, so it inherits the LIGHT default.
+    assert_eq!(themes[2], json!({ "name": "ocean", "label": "Ocean", "swatch": { "primary": "#0af", "background": "oklch(1 0 0)" } }));
+
+    let ctx = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/design/context?project={project}"))
+        .await
+        .json();
+    let names: Vec<serde_json::Value> = ctx["themes"].as_array().cloned().unwrap_or_default().iter().map(|t| t["name"].clone()).collect();
+    assert_eq!(names, vec![json!("light"), json!("dark"), json!("ocean")]);
+}

@@ -141,6 +141,22 @@ pub fn is_theme_name(name: &str) -> bool {
         && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
+/// A theme's display name when it has no label: the slug title-cased
+/// (`high-contrast` -> `High Contrast`).
+pub fn default_theme_label(name: &str) -> String {
+    name.split('-')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut chars = w.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// One declared theme besides light: `{"name": "ocean", "label"?: "Ocean"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeDecl {
@@ -277,6 +293,28 @@ impl TokensDoc {
         std::iter::once(LIGHT.to_string())
             .chain(self.theme_decls().into_iter().map(|t| t.name))
             .collect()
+    }
+
+    /// The theme's label, else [`default_theme_label`] (light is "Light").
+    pub fn theme_label(&self, theme: &str) -> String {
+        self.theme_decls()
+            .into_iter()
+            .find(|t| t.name == theme)
+            .and_then(|t| t.label)
+            .unwrap_or_else(|| default_theme_label(theme))
+    }
+
+    /// What the `--var` (emitted name) renders with in `theme`, found through
+    /// the emitter's own naming rule, so `custom["--primary"]` counts too.
+    pub fn resolve_var(&self, var: &str, theme: &str) -> Option<&str> {
+        for (category, tokens) in self.categories.iter() {
+            for (key, value) in tokens.iter() {
+                if category_to_var_name(category, key) == var {
+                    return Some(value.resolve(theme));
+                }
+            }
+        }
+        None
     }
 
     pub fn declares(&self, theme: &str) -> bool {
