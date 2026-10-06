@@ -102,6 +102,7 @@ async fn rename_moves_values_and_an_omitted_theme_is_reported_removed() {
     let res = patch(&app, &key, project, json!({ "themes": [{ "name": "dark" }, { "name": "sea", "rename_from": "ocean" }] })).await;
     assert_eq!(res.status(), 201, "{}", res.text());
     assert!(res.json().get("themes_removed").is_none(), "a rename removes nothing: {}", res.text());
+    assert_eq!(res.json()["themes_renamed"], json!([{ "from": "ocean", "to": "sea" }]), "{}", res.text());
     assert_eq!(stored(project).await["categories"]["colors"]["primary"], json!({ "light": "#15803D", "dark": "#22C55E", "sea": "#0af" }));
 
     // Review focus 1: listing only the new theme deletes dark — and says so.
@@ -134,4 +135,20 @@ async fn the_manifest_and_context_list_themes_with_swatches() {
         .json();
     let names: Vec<serde_json::Value> = ctx["themes"].as_array().cloned().unwrap_or_default().iter().map(|t| t["name"].clone()).collect();
     assert_eq!(names, vec![json!("light"), json!("dark"), json!("ocean")]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn renaming_onto_an_existing_theme_is_refused_and_stores_nothing() {
+    let app = TestApp::new().await;
+    let (_user, project, key) = seeded(&app).await;
+    add_ocean(&app, &key, project).await;
+    let before = stored(project).await;
+    let res = patch(&app, &key, project, json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }] })).await;
+    assert_eq!(res.status(), 422, "{}", res.text());
+    assert!(res.text().contains("already exists"), "{}", res.text());
+    assert_eq!(stored(project).await, before);
+    // A swap is legal and trades the values.
+    let res = patch(&app, &key, project, json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "dark", "rename_from": "ocean" }] })).await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(stored(project).await["categories"]["colors"]["primary"], json!({ "light": "#15803D", "ocean": "#22C55E", "dark": "#0af" }));
 }

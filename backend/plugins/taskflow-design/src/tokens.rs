@@ -785,6 +785,16 @@ fn apply_theme_list(doc: &mut TokensDoc, raw: &serde_json::Value) -> Result<Them
                 declared_before.join(", ")
             ));
         }
+        // The target must be free: new, or itself renamed away in this list
+        // (swaps and chains). Otherwise the values would silently merge over it.
+        if current.iter().any(|c| c == &entry.name)
+            && !entries.iter().any(|e| e.rename_from.as_deref() == Some(entry.name.as_str()) && e.name != entry.name)
+        {
+            return Err(format!(
+                "patch.themes: cannot rename `{from}` to `{}`: `{}` already exists. Delete or rename `{}` in the same patch first.",
+                entry.name, entry.name, entry.name
+            ));
+        }
         // "Also kept" = an entry still named `from` that is NOT itself a rename
         // target (in a swap, the entry named `from` came from elsewhere).
         if entries
@@ -999,6 +1009,28 @@ mod patch_tests {
         ] {
             assert!(apply_patch(&mut doc(), &bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn renaming_onto_an_existing_theme_is_refused_but_swaps_and_chains_work() {
+        let seed = || {
+            let mut d = doc();
+            apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean" }], "colors": { "primary": { "ocean": "#0af" } } })).expect("add");
+            d
+        };
+        let mut d = seed();
+        let before = serde_json::to_value(&d).expect("json");
+        let err = apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }] })).unwrap_err();
+        assert!(err.contains("`ocean` already exists"), "{err}");
+        assert_eq!(serde_json::to_value(&d).expect("json"), before, "nothing changed");
+        // Swap: values trade places.
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "dark", "rename_from": "ocean" }] })).expect("swap");
+        assert_eq!(serde_json::to_value(&d).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "ocean": "#22C55E", "dark": "#0af" }));
+        // Chain: dark -> ocean while ocean -> sea.
+        let mut c = seed();
+        apply_patch(&mut c, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "sea", "rename_from": "ocean" }] })).expect("chain");
+        assert_eq!(c.declared_themes(), ["light", "ocean", "sea"].map(String::from).to_vec());
+        assert_eq!(serde_json::to_value(&c).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "ocean": "#22C55E", "sea": "#0af" }));
     }
 
     #[test]
