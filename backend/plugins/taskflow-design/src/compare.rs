@@ -771,6 +771,25 @@ mod tests {
     }
 
     #[test]
+    fn apply_diff_round_trips_a_per_theme_variant() {
+        let doc: TokensDoc = serde_json::from_str(
+            r##"{"version":1,"themes":[{"name":"dark"},{"name":"ocean"}],"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E","ocean":"#00AAFF"}}}}"##,
+        )
+        .expect("doc");
+        let mut o = Overrides::default();
+        o.tokens.insert("--primary".into(), OverrideValue::PerTheme([("ocean".to_string(), "oklch(0.6 0.2 250)".to_string())].into()));
+        let (patch, added) = apply_diff(&doc, &o);
+        assert!(added.is_empty(), "nothing lands in custom: {added:?}");
+        assert_eq!(
+            patch,
+            serde_json::json!({ "colors": { "primary": { "light": "#15803D", "dark": "#22C55E", "ocean": "oklch(0.6 0.2 250)" } } })
+        );
+        let mut written = doc.clone();
+        crate::tokens::apply_patch(&mut written, &patch).expect("patch applies");
+        assert_eq!(written, apply_to(&doc, &o).0);
+    }
+
+    #[test]
     fn variant_overrides_win_over_shared_ones() {
         let shared = Overrides { tokens: ov(&[("--radius", "12px"), ("--primary", "#000")]).tokens, css: Some("#sheet{display:block}".into()) };
         let own = Overrides { tokens: ov(&[("--primary", "#BE123C")]).tokens, css: Some("a{color:red}".into()) };
