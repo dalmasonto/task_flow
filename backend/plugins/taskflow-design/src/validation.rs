@@ -451,13 +451,7 @@ pub fn validate_page_fragment(
                  semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\"."
             ),
             found: Some(found),
-            suggest: Some(if prop == "text" || prop == "placeholder" || prop == "decoration" {
-                "text-foreground".into()
-            } else if prop == "border" || prop == "divide" || prop == "ring" || prop == "outline" {
-                "border-border".into()
-            } else {
-                "bg-primary".into()
-            }),
+            suggest: Some(raw_color_suggestion(&prop)),
         });
     }
 
@@ -619,6 +613,17 @@ fn semantic_suggestion(class: &str) -> &'static str {
     }
 }
 
+/// Get the suggested value for a raw-color error based on the utility property.
+fn raw_color_suggestion(prop: &str) -> String {
+    if prop == "text" || prop == "placeholder" || prop == "decoration" {
+        "text-foreground".into()
+    } else if prop == "border" || prop == "divide" || prop == "ring" || prop == "outline" {
+        "border-border".into()
+    } else {
+        "bg-primary".into()
+    }
+}
+
 fn palette_error(content: &str, found: String, offset: usize) -> ValidationError {
     let suggest = semantic_suggestion(&found);
     ValidationError {
@@ -735,6 +740,12 @@ pub fn validate_component(path: &str, content: &str) -> Validation {
         }
     }
 
+    // Tailwind palette colours in component templates — check before size warning
+    // so oversize components with palette colours are still rejected.
+    if let Some((found, offset)) = find_palette_class(content) {
+        return v.fail(palette_error(content, found, offset));
+    }
+
     if content.len() > COMPONENT_SOFT_SIZE_BYTES {
         return v.warn(ValidationWarning {
             rule: "component-size",
@@ -744,11 +755,6 @@ pub fn validate_component(path: &str, content: &str) -> Validation {
                 expected, content.len() / 1024
             ),
         });
-    }
-
-    // Tailwind palette colours in component templates.
-    if let Some((found, offset)) = find_palette_class(content) {
-        return v.fail(palette_error(content, found, offset));
     }
 
     v
@@ -1042,13 +1048,7 @@ pub fn validate_write(
                      semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\"."
                 ),
                 found: Some(found),
-                suggest: Some(if prop == "text" || prop == "placeholder" || prop == "decoration" {
-                    "text-foreground".into()
-                } else if prop == "border" || prop == "divide" || prop == "ring" || prop == "outline" {
-                    "border-border".into()
-                } else {
-                    "bg-primary".into()
-                }),
+                suggest: Some(raw_color_suggestion(&prop)),
             });
         }
     }

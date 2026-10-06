@@ -44,12 +44,31 @@ fn component_write_rejects_too() {
 }
 
 #[test]
-fn nbsp_offset_does_not_panic() {
-    // A page with a NBSP before a palette class should still be found and line_of should work
+fn nbsp_offset_calculation_is_precise() {
+    // A page with a NBSP before a palette class should still be found and offset should be correct
     let html = "<p>\u{a0}<span class=\"bg-red-500\">";
+    let (found, offset) = find_palette_class(html).expect("should find palette class");
+    assert_eq!(found, "bg-red-500");
+    // Verify the offset calculation is correct by checking that the substring at offset matches
+    assert_eq!(&html[offset..offset + found.len()], "bg-red-500");
+    // Also verify via validate_page_fragment that line_of doesn't panic
     let result = validate_page_fragment("pages/index.html", html, &[]);
     assert_eq!(result.errors.len(), 1);
     let err = result.errors.first().unwrap();
     assert_eq!(err.rule, "palette-color");
     assert_eq!(err.found.as_deref(), Some("bg-red-500"));
+}
+
+#[test]
+fn oversize_component_with_palette_color_is_rejected() {
+    // A component over 6 KB with a palette color should be rejected, not just warned
+    let mut js = "class X extends HTMLElement { connectedCallback(){ this.innerHTML = '<p class=\"text-zinc-500\">x</p>' } } customElements.define('x-y', X)".to_string();
+    // Pad with a long comment to exceed 6 KB (6144 bytes)
+    js.push_str("\n// ");
+    js.push_str(&"x".repeat(7000));
+
+    let v = validate_component("components/x-y.js", &js);
+    assert_eq!(v.errors.len(), 1, "should have exactly one error (palette-color, not size warning)");
+    let err = v.errors.first().unwrap();
+    assert_eq!(err.rule, "palette-color", "error should be palette-color, not component-size");
 }
