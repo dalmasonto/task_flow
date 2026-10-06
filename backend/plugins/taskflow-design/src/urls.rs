@@ -43,6 +43,10 @@ pub fn router() -> Router {
             get(views::export_tokens_css),
         )
         .route(
+            "/api/design/{project}/tokens/defaults",
+            get(views::token_defaults),
+        )
+        .route(
             "/api/design/{project}/page.html",
             get(views::export_page_html),
         )
@@ -74,6 +78,10 @@ pub fn router() -> Router {
         .route(
             "/api/taskflow/agents/design/context",
             get(agent_views::context),
+        )
+        .route(
+            "/api/taskflow/agents/design/guide",
+            get(agent_views::guide),
         )
         .route(
             "/api/taskflow/agents/design/page",

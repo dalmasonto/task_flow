@@ -31,6 +31,7 @@ pub mod compare;
 pub mod composer;
 pub mod defaults;
 pub mod dispatch;
+pub mod guide;
 pub mod layout_doc;
 pub mod manifest;
 pub mod models;

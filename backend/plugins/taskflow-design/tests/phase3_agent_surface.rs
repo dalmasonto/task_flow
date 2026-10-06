@@ -118,17 +118,6 @@ async fn agent_reads_context_and_registry() {
         .map(|c| c["name"].as_str().unwrap())
         .collect();
     assert_eq!(names, vec!["app-card"]);
-
-    let primitive_names: Vec<&str> = v["primitives"]
-        .as_array()
-        .expect("context response has a primitives array")
-        .iter()
-        .map(|p| p["name"].as_str().unwrap())
-        .collect();
-    assert!(
-        primitive_names.contains(&"ui-tabs"),
-        "primitives catalog should include ui-tabs: {primitive_names:?}"
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -249,9 +238,16 @@ async fn context_serves_the_link_back_and_media_guidance() {
         .await;
     assert_eq!(ctx.status(), 200, "{}", ctx.text());
     let v = ctx.json();
-    let guide = v["guide"]
-        .as_str()
-        .expect("context response carries the authoring guide");
+    assert!(v.get("guide").is_none(), "context no longer carries the guide");
+    let mut guide = String::new();
+    for topic in ["pages", "fonts"] {
+        let r = app
+            .get_as_agent(key.as_str(), &format!("/api/taskflow/agents/design/guide?topic={topic}"))
+            .await;
+        assert_eq!(r.status(), 200, "{}", r.text());
+        guide.push_str(r.json()["text"].as_str().expect("guide text"));
+        guide.push('\n');
+    }
     println!("--- context.guide as served ---\n{guide}\n--- end ---");
 
     // Linking, back navigation, and the habits that would silently undo them:
@@ -320,7 +316,14 @@ async fn the_guides_webfont_example_is_a_valid_resources_document() {
     let ctx = app
         .get_as_agent(key.as_str(), &format!("{AGENT_CONTEXT}?project={project}"))
         .await;
-    let guide = ctx.json()["guide"].as_str().unwrap().to_string();
+    let _ = ctx;
+    let guide = app
+        .get_as_agent(key.as_str(), "/api/taskflow/agents/design/guide?topic=fonts")
+        .await
+        .json()["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let start = guide.find("{\"version\":1,\"sets\"").expect("example present");
     let end = start + guide[start..].find("]}]}").expect("example closes") + 4;
     let example: String = guide[start..end].split_whitespace().collect::<Vec<_>>().join("");

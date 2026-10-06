@@ -50,90 +50,10 @@ pub struct AgentContextQuery {
     pub project: i64,
 }
 
-/// The authoring guidance that is true of the sandbox but is not derivable
-/// from the manifest: how a page links to another page, how a back control is
-/// written, what a page may load from outside the sandbox, and where a
-/// webfont is loaded (once, from `styles/resources.json`, never per page).
-///
-/// It is served from HERE because this response is what the agent receives:
-/// `design_get_tokens` and `design_list_components` both return it, and the
-/// first is the read an agent is told to always make before its first design
-/// write. The MCP tool descriptions are the other place this could live, and
-/// to a reader they are the more obvious one — but the MCP an agent actually
-/// runs is a global COPY of the package, not this repo
-/// (`$(npm root -g)/@dalmasonto/taskflow-mcp`: real files, no symlink into the
-/// repo), so text written into `mcp/src` reaches an agent only after a build
-/// AND a reinstall — a build refreshes this repo's `dist/`, and only a
-/// reinstall replaces the installed copy. At the time of writing that copy was
-/// already behind this repo's `src/` and `dist/`: its `dist/server.js` carried
-/// no occurrence of `primitives`, which both of them do. This response has no
-/// such step.
-const AUTHORING_GUIDE: &str = r#"Links between pages
-  Use a plain <a href="/route"> for any route in the manifest — e.g.
-  <a href="/app">. The composer rewrites it to the sandbox URL, so the click
-  navigates the preview frame and the browser's back/forward work.
-
-  A back control is just:
-      <button onclick="history.back()">Back</button>
-  The frame keeps its own history, so this works with no extra wiring — but
-  only once the frame HAS history: opened directly at one route it has a
-  single entry, and Back there does nothing. A link to a known route always
-  works, so do not let Back be the only way off a page.
-
-  Do NOT hand-write sandbox URLs, and do not use target="_blank" for
-  in-project links — a new tab leaves the frame and loses its history.
-
-Images, video and motion
-  External https images and media work:
-      <img src="https://cdn.example/hero.png" alt="…">
-      <video src="https://cdn.example/clip.mp4" controls></video>
-  That covers sprite sheets and CSS background-image from an https origin.
-  Plain http is refused, and inline data:/blob: URIs still work for small
-  assets. Motion no longer has to be CSS/SVG/inline — a video is a real
-  option — though CSS and SVG animation are still the default for interface
-  motion.
-
-  A Lottie animation works, but NOT by putting <script src> in a page: page
-  fragments may not contain one, and the server refuses that markup. Write a
-  COMPONENT instead — in the sandbox a component is a same-origin script, and
-  the player it appends from a CDN is allowed by script-src.
-
-  Pass the animation data INLINE in that component (lottie's animationData),
-  because there is nowhere to store it as a file: assets/ accepts image
-  extensions only, and styles/ accepts only tokens.css, tokens.json and
-  resources.json. That data counts against the 128 KB per-file cap on the
-  component itself, so keep the animation small: a larger one is refused
-  outright (rule `size-cap`), and there is nowhere else to put it.
-
-Web fonts (one global change, never per page)
-  The page font is the `typography.font-sans` token (design_write_tokens):
-  it becomes --font-sans, the whole document's default family. The font FILE
-  is loaded ONCE for every page from styles/resources.json, which the server
-  emits into the head of every page, before the tokens. Write it with
-  design_write_asset (path "styles/resources.json"), e.g. for Inter:
-      {"version":1,"sets":[{"id":"font","name":"Font","enabled":true,
-        "links":[
-          {"rel":"preconnect","href":"https://cdn.jsdelivr.net","crossorigin":true},
-          {"rel":"stylesheet","href":"https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css"}
-        ]}]}
-  Links must be https, with rel stylesheet, preconnect or dns-prefetch.
-  The `resources` field of this response shows the current document and its
-  version (pass it as base_version when you replace it).
-  The operator often manages these sets from the panel (enable, disable, add).
-  If the document already exists, change only what you need, typically the
-  `enabled` flags, and keep every other set exactly as it is.
-
-  Do NOT put a webfont <link> (or its preconnect) in a page fragment: it
-  loads for that one page only, so changing the typeface becomes an edit per
-  page. A page write that carries one is accepted with a warning (rule
-  `page-resource-link`). To switch typeface: change font-sans in the tokens
-  and the stylesheet href in resources.json — two writes, zero page edits.
-"#;
-
 /// `GET /api/taskflow/agents/design/context` — everything `design_get_tokens`
 /// and `design_list_components` need, in one read: the tokens css + parsed
-/// scale, the component registry with usage, the routes, and the authoring
-/// guide (links, back navigation, external media).
+/// scale, the component registry with usage and the routes. The authoring
+/// guidance is NOT here any more: it is read on demand from [`guide`].
 pub async fn context(
     RequireAgent(agent): RequireAgent,
     Query(q): Query<AgentContextQuery>,
@@ -142,9 +62,15 @@ pub async fn context(
     let files = load_files(agent.project_id).await;
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
     let m = manifest::build(agent.project_id, &files, revision);
-    let tokens_doc = crate::tokens::project_tokens_doc(&files);
-    let tokens_css = tokens_json_to_css(&tokens_doc);
-    let tokens_json = serde_json::to_value(&tokens_doc).unwrap_or_else(|_| json!({}));
+    let project_doc = crate::tokens::project_tokens_doc(&files);
+    let effective = crate::defaults::effective_tokens(&project_doc);
+    let tokens_css = tokens_json_to_css(&effective);
+    let defaults: Vec<String> = crate::defaults::missing_defaults(&project_doc)
+        .categories
+        .iter()
+        .flat_map(|(c, t)| t.iter().map(move |(k, _)| crate::tokens::category_to_var_name(c, k)))
+        .collect();
+    let tokens_json = serde_json::to_value(&project_doc).unwrap_or_else(|_| json!({}));
     // The external-resources document as stored (webfonts live here, not in
     // pages — see the guide), with its version for a `base_version` replace.
     // `null` when the project has none yet. The raw row is parsed leniently:
@@ -169,12 +95,31 @@ pub async fn context(
         "components": manifest::to_json(&m)["components"],
         "routes": manifest::to_json(&m)["routes"],
         "revision": revision,
-        "primitives": crate::primitives::catalog(),
+        "defaults": defaults,
         "resources": resources,
-        "guide": AUTHORING_GUIDE,
-        "note": "Always call design_get_tokens before your first design write: colour and \
-                 spacing MUST come from this scale."
+        "note": "Colour, radius and type come from these tokens — write shadcn classes \
+                 (bg-primary, text-muted-foreground, rounded-lg). Names in `defaults` are \
+                 built-in shadcn values the project has not overridden. Read design_guide \
+                 (topic \"tokens\") before your first design write."
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GuideQuery {
+    pub topic: Option<String>,
+}
+
+/// `GET /api/taskflow/agents/design/guide?topic=` — the design guide on demand.
+pub async fn guide(
+    RequireAgent(_agent): RequireAgent,
+    Query(q): Query<GuideQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let topic = q.topic.as_deref().map(str::trim);
+    crate::guide::text(topic)
+        .map(|text| Json(json!({ "topic": topic.filter(|t| !t.is_empty()).unwrap_or("index"), "text": text })))
+        .map_err(|_| {
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": "unknown_topic", "topics": crate::guide::TOPICS })))
+        })
 }
 
 #[derive(Debug, Deserialize)]

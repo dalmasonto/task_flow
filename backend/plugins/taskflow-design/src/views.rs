@@ -1324,6 +1324,18 @@ pub async fn export_tokens_css(
     Ok(response)
 }
 
+/// `GET /api/design/{project}/tokens/defaults` — the shadcn defaults this
+/// project does not override, for the token editor's "default" rows.
+pub async fn token_defaults(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let files = store::list_files(project_id).await;
+    let missing = crate::defaults::missing_defaults(&crate::tokens::project_tokens_doc(&files));
+    Ok(Json(serde_json::json!({ "missing": missing })))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ExportPageHtmlQuery {
     pub route: String,
