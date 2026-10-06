@@ -255,6 +255,8 @@ export interface TaskflowAgent {
   linked_by: number | null;
   linked_user_label: string | null;
   last_seen_at: string | null;
+  instructions_markdown: string | null;
+  instructions_updated_at: string | null;
   created_at: string | null;
 }
 
@@ -465,6 +467,8 @@ export interface TaskflowProject {
   github_linked_by: number | null;
   github_default_branch: string | null;
   github_auto_mirror: boolean;
+  agent_instructions_markdown: string | null;
+  agent_instructions_updated_at: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -1393,6 +1397,21 @@ export interface TaskflowAgentFilters {
   "last_seen_at__lt"?: string;
   "last_seen_at__in"?: string[];
   "last_seen_at__isnull"?: boolean;
+  "instructions_markdown"?: string;
+  "instructions_markdown__ne"?: string;
+  "instructions_markdown__contains"?: string;
+  "instructions_markdown__icontains"?: string;
+  "instructions_markdown__startswith"?: string;
+  "instructions_markdown__in"?: string[];
+  "instructions_markdown__isnull"?: boolean;
+  "instructions_updated_at"?: string;
+  "instructions_updated_at__ne"?: string;
+  "instructions_updated_at__gte"?: string;
+  "instructions_updated_at__lte"?: string;
+  "instructions_updated_at__gt"?: string;
+  "instructions_updated_at__lt"?: string;
+  "instructions_updated_at__in"?: string[];
+  "instructions_updated_at__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1402,7 +1421,7 @@ export interface TaskflowAgentFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentOrdering = "id" | "-id" | "project" | "-project" | "display_name" | "-display_name" | "identifier" | "-identifier" | "fingerprint" | "-fingerprint" | "project_root" | "-project_root" | "taskflow_file_path" | "-taskflow_file_path" | "runtime" | "-runtime" | "version" | "-version" | "status" | "-status" | "linked_by" | "-linked_by" | "linked_user_label" | "-linked_user_label" | "last_seen_at" | "-last_seen_at" | "created_at" | "-created_at";
+export type TaskflowAgentOrdering = "id" | "-id" | "project" | "-project" | "display_name" | "-display_name" | "identifier" | "-identifier" | "fingerprint" | "-fingerprint" | "project_root" | "-project_root" | "taskflow_file_path" | "-taskflow_file_path" | "runtime" | "-runtime" | "version" | "-version" | "status" | "-status" | "linked_by" | "-linked_by" | "linked_user_label" | "-linked_user_label" | "last_seen_at" | "-last_seen_at" | "instructions_markdown" | "-instructions_markdown" | "instructions_updated_at" | "-instructions_updated_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentCreate {
   project: number;
@@ -2340,6 +2359,21 @@ export interface TaskflowProjectFilters {
   "github_auto_mirror"?: boolean;
   "github_auto_mirror__ne"?: boolean;
   "github_auto_mirror__in"?: boolean[];
+  "agent_instructions_markdown"?: string;
+  "agent_instructions_markdown__ne"?: string;
+  "agent_instructions_markdown__contains"?: string;
+  "agent_instructions_markdown__icontains"?: string;
+  "agent_instructions_markdown__startswith"?: string;
+  "agent_instructions_markdown__in"?: string[];
+  "agent_instructions_markdown__isnull"?: boolean;
+  "agent_instructions_updated_at"?: string;
+  "agent_instructions_updated_at__ne"?: string;
+  "agent_instructions_updated_at__gte"?: string;
+  "agent_instructions_updated_at__lte"?: string;
+  "agent_instructions_updated_at__gt"?: string;
+  "agent_instructions_updated_at__lt"?: string;
+  "agent_instructions_updated_at__in"?: string[];
+  "agent_instructions_updated_at__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -2357,7 +2391,7 @@ export interface TaskflowProjectFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowProjectOrdering = "id" | "-id" | "name" | "-name" | "slug" | "-slug" | "description_markdown" | "-description_markdown" | "repository_url" | "-repository_url" | "default_api_base_url" | "-default_api_base_url" | "status" | "-status" | "owner" | "-owner" | "github_repo" | "-github_repo" | "github_linked_by" | "-github_linked_by" | "github_default_branch" | "-github_default_branch" | "github_auto_mirror" | "-github_auto_mirror" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowProjectOrdering = "id" | "-id" | "name" | "-name" | "slug" | "-slug" | "description_markdown" | "-description_markdown" | "repository_url" | "-repository_url" | "default_api_base_url" | "-default_api_base_url" | "status" | "-status" | "owner" | "-owner" | "github_repo" | "-github_repo" | "github_linked_by" | "-github_linked_by" | "github_default_branch" | "-github_default_branch" | "github_auto_mirror" | "-github_auto_mirror" | "agent_instructions_markdown" | "-agent_instructions_markdown" | "agent_instructions_updated_at" | "-agent_instructions_updated_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_project`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowProjectCreate {
   name: string;

@@ -29,6 +29,7 @@ import type {
   TaskflowUserSettingsTheme,
 } from "@/api/client"
 import { API_BASE_URL, getStoredToken, readJson } from "@/lib/auth-api"
+import type { InstructionsBlock } from "@/lib/agent-instructions"
 import { BOARD_COLUMN_IDS, columnStatuses, type BoardColumnId } from "@/lib/board-columns"
 import { fetchAllReferencePages } from "@/lib/reference-pages"
 import type { ChatMessage } from "@/lib/message-store"
@@ -1287,6 +1288,9 @@ export type LinkAgentInput = {
   project_root?: string
   runtime?: string
   version?: string
+  /// #615: optional role instructions. Applied only when the link CREATES the
+  /// agent; see `LinkAgentResult.instructions_applied`.
+  instructions_markdown?: string
 }
 
 /// The link response. `key` (a `tfk_…` string) is returned ONCE and is never
@@ -1299,6 +1303,9 @@ export type LinkAgentResult = {
   project: number
   profile: string
   key: string
+  /// #615: false when the identity already existed (a re-link never changes
+  /// instructions — only the agent's manager may, via setAgentInstructions).
+  instructions_applied?: boolean
   taskflow_profile: {
     agent_id: number
     key: string
@@ -1342,6 +1349,51 @@ export async function deleteAgent(agentId: number): Promise<void> {
         : await readErrorDetail(response, `Could not delete the agent (${response.status}).`)
     )
   }
+}
+
+/// #615: replace an agent's role instructions (null or blank clears them). The
+/// agent reads them on its next whoami. Allowed for the human who linked it and
+/// for project owners/admins.
+export async function setAgentInstructions(
+  agentId: number,
+  markdown: string | null
+): Promise<InstructionsBlock & { agent_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}/instructions`, {
+    method: "PUT",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ markdown }),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "Only the person who linked this agent, or a project owner/admin, can change its instructions."
+        : await readErrorDetail(response, `Could not save the instructions (${response.status}).`)
+    )
+  }
+  return readJson(response)
+}
+
+/// #616: replace the instructions every agent in the project reads through
+/// whoami (null or blank clears them). Owners and admins only.
+export async function setProjectAgentInstructions(
+  projectId: number,
+  markdown: string | null
+): Promise<InstructionsBlock & { project: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}/agent-instructions`, {
+    method: "PUT",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ markdown }),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "Only project owners and admins can change the project's agent instructions."
+        : await readErrorDetail(response, `Could not save the project instructions (${response.status}).`)
+    )
+  }
+  return readJson(response)
 }
 
 /// Delete a project and everything in it (tasks, chat, agents, design). Owner-only.

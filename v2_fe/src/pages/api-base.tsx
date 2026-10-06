@@ -140,6 +140,8 @@ export function ApiBasePage({
                   linked_by: null,
                   linked_user_label: null,
                   last_seen_at: null,
+                  instructions_markdown: null,
+                  instructions_updated_at: null,
                   created_at: null,
                 },
                 keyPrefix: linked.key.slice(0, 16),
