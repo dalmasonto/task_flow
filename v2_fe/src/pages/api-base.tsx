@@ -852,6 +852,13 @@ function ProjectInstructionsCard({ project }: { project: TaskflowWorkspace["proj
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dirty = instructionsChanged(saved.markdown, draft)
+  // A newer saved value (a second admin's edit via realtime) replaces an
+  // unedited draft; a dirty draft is never clobbered.
+  const [seenSaved, setSeenSaved] = useState(saved.markdown)
+  if (seenSaved !== saved.markdown) {
+    if (!instructionsChanged(seenSaved, draft)) setDraft(saved.markdown ?? "")
+    setSeenSaved(saved.markdown)
+  }
 
   const save = async () => {
     setBusy(true)
@@ -873,10 +880,16 @@ function ProjectInstructionsCard({ project }: { project: TaskflowWorkspace["proj
         Project agent instructions
       </div>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-        Markdown every agent in this project reads through <code className="rounded bg-muted px-1 py-0.5 text-xs">whoami</code>,
-        beside its own role instructions. An agent follows its human's direct request first, then its role instructions,
-        then these. Edits apply on each agent's next whoami. Only project owners and admins can save.
+        Applies to every agent in this project, on its next <code className="rounded bg-muted px-1 py-0.5 text-xs">whoami</code>.
+        An agent follows the human's direct request first, then its own role instructions, then these project
+        instructions, then TaskFlow's defaults. Only project owners and admins can save.
       </p>
+      {saved.markdown == null ? (
+        <p className="mt-3 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          No project instructions yet — agents currently follow their own role instructions and TaskFlow's defaults.
+          Write shared conventions here (repo rules, definition of done, how to communicate).
+        </p>
+      ) : null}
       <div className="mt-3">
         <InstructionsEditor
           label="Project agent instructions"
