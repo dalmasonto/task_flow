@@ -50,7 +50,7 @@ To try a palette, add a theme with design_write_tokens and compare themes. Don't
 - Rename: {"themes":[{"name":"dark"},{"name":"sea","rename_from":"ocean"}]}. Renaming onto a theme that already exists is refused — rename or remove it first, in a separate patch.
 - Edit one theme: {"colors":{"primary":{"ocean":"oklch(0.7 0.12 220)"}}}; {"ocean": null} drops that value (back to light's).
 - The write reply lists `themes_removed` and `themes_renamed` so you can confirm what changed.
-- Look: design_screenshot theme "<name>", "all" (one image per theme) or "both" (light + dark); design_compare themes ["light","dark","ocean"].
+- Look: design_screenshot theme "<name>", theme "all" (one image per theme) or theme "both" (light + dark); design_compare themes ["light","dark","ocean"].
 Names: a name starts with a lowercase letter, then lowercase letters, digits or dashes, up to 32 characters; light, both and all are reserved; at most 8 themes including light.
 
 ## Porting
