@@ -657,7 +657,7 @@ export function DesignSurfacePage({
   // One board's screen as a PNG, from the board's ⋯ menu — the export
   // pipeline for a single page, loaded only when first used.
   const downloadBoardImage = useCallback(
-    (route: string, label: string, deviceId: string, withFrame: boolean) => {
+    (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => {
       if (!sandboxToken || projectId === null) return
       setCanvasNotice({ text: `Preparing ${label}…`, tone: "info" })
       void import("./export/export-run")
@@ -672,6 +672,7 @@ export function DesignSurfacePage({
             // "Download w Frame" wears what the canvas shows: the classic
             // bezel when Classic is on, the device frame otherwise.
             dress: exportDress(deviceId, !withFrame ? "none" : frameMode === "classic" ? "classic" : "device"),
+            fullPage,
           }),
         )
         .then(() => setCanvasNotice(null))

@@ -14,7 +14,7 @@
 import { sandboxUrl } from "@/lib/design-api"
 import { inlineFontCss } from "./font-inline"
 import { inlineImage } from "./image-inline"
-import { statusBarHtml, statusBarStyle } from "@/lib/design-frames"
+import { frameStretch, statusBarHtml, statusBarStyle } from "@/lib/design-frames"
 import type { ChromeStyle, DevicePreset } from "@/lib/design-devices"
 import {
   CAPTION_H,
@@ -283,6 +283,18 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
     Object.assign(bar.style, { position: "absolute", left: `${metrics.screenX}px`, top: `${metrics.screenY}px`, zIndex: "2" })
     holder.querySelector(".device")!.appendChild(bar)
   }
+  // A full-page shot is taller than the frame's screen: grow the phone to
+  // fit it rather than crop the page (`object-fit: cover` would cut it at the
+  // first screenful). Every frame part is anchored to an edge, so only these
+  // three heights change.
+  const stretch = metrics ? frameStretch(metrics, shot) : 0
+  if (metrics && stretch > 0) {
+    const device = holder.querySelector<HTMLElement>(".device")!
+    const frameEl = holder.querySelector<HTMLElement>(".device-frame")!
+    device.style.height = `${metrics.h + stretch}px`
+    frameEl.style.height = `${metrics.h + stretch}px`
+    img.style.height = `${metrics.screenH + stretch}px`
+  }
   img.src = shot.dataUrl
   document.body.appendChild(holder)
   try {
@@ -402,6 +414,8 @@ export async function downloadScreen(input: {
   getSandboxToken: () => Promise<string>
   theme: string
   dress: ExportDress
+  /** The whole scrolled page instead of the visible screen. */
+  fullPage?: boolean
 }): Promise<void> {
   const picture = await renderScreen(input.route, {
     device: input.device,
@@ -410,11 +424,14 @@ export async function downloadScreen(input: {
     theme: input.theme,
     dress: input.dress,
     radius: 8,
-    fullPage: false,
+    fullPage: input.fullPage ?? false,
   })
   const blob = await (await fetch(picture.dataUrl)).blob()
   const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "screen"
-  saveBlob(blob, `${slug(input.label)}-${slug(input.device.label)}${input.dress.kind === "none" ? "" : "-framed"}.png`)
+  saveBlob(
+    blob,
+    `${slug(input.label)}-${slug(input.device.label)}${input.fullPage ? "-full" : ""}${input.dress.kind === "none" ? "" : "-framed"}.png`,
+  )
 }
 
 type Captured = Pick<ExportResult, "missingImages"> & { dressed: Dressed[] }
