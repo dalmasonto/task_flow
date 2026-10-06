@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_INSTRUCTIONS } from "./instructions.js";
+import { INSTRUCTIONS_UPDATED_NOTICE } from "./agent-instructions.js";
 
 describe("AGENT_INSTRUCTIONS", () => {
   it("names the core tools an agent needs on connect", () => {
@@ -104,4 +105,25 @@ describe("identity instructions", () => {
     expect(AGENT_INSTRUCTIONS).toContain("design_guide")
     expect(AGENT_INSTRUCTIONS).not.toContain("muted-foreground")
   })
+
+  it("#615/#616: reads role + project instructions from whoami at session start", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("project_instructions");
+    expect(AGENT_INSTRUCTIONS).toMatch(/start of every session/i);
+  });
+
+  it("#616: states the precedence — human first, generic defaults last", () => {
+    const at = (s: string) => AGENT_INSTRUCTIONS.indexOf(s);
+    const human = at("(1) your human's direct request");
+    const role = at("(2) your role instructions");
+    const project = at("(3) the project instructions");
+    const defaults = at("(4) these generic TaskFlow defaults");
+    expect(human).toBeGreaterThan(-1);
+    expect(human).toBeLessThan(role);
+    expect(role).toBeLessThan(project);
+    expect(project).toBeLessThan(defaults);
+  });
+
+  it("names the pane notice the MCP types after an edit", () => {
+    expect(AGENT_INSTRUCTIONS).toContain(INSTRUCTIONS_UPDATED_NOTICE);
+  });
 });

@@ -25,6 +25,7 @@ import {
   type TaskflowConfig,
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError, type AgentSummary, type DesignLayoutOp } from "./client.js";
+import { renderInstructions } from "./agent-instructions.js";
 import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
@@ -309,7 +310,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "whoami",
-    "Confirm which TaskFlow agent identity and project this credential maps to, plus the connection and terminal-mirror state. Connection and heartbeat are automatic — this confirms them, it does not establish them. mirror.state 'off' just means there is no tmux pane to stream; it is not an error.",
+    "Confirm which TaskFlow agent identity and project this credential maps to, plus the connection and terminal-mirror state, your role instructions (instructions) and the project's instructions for every agent (project_instructions) — follow them for the session. Connection and heartbeat are automatic — this confirms them, it does not establish them. mirror.state 'off' just means there is no tmux pane to stream; it is not an error.",
     { ...profileArg },
     async ({ profile }) => {
       try {
@@ -321,11 +322,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         // is otherwise invisible: it only ever wrote one line to stderr, which
         // nobody reads, so "the dashboard terminal is stale" could only be
         // answered by inspecting /proc and open sockets.
-        return ok({
+        const result = ok({
           ...(identity as object),
           connection: getConnectionStatus(),
           mirror: getMirrorStatus(),
         });
+        // #615/#616: the JSON escapes every newline, so long markdown is
+        // unreadable there. Show it again as plain text when there is any.
+        const readable = renderInstructions(identity);
+        if (readable) result.content.push({ type: "text", text: readable });
+        return result;
       } catch (err) {
         return fail(err);
       }

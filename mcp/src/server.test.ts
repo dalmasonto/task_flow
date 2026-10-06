@@ -16,6 +16,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `runtime.test.ts`). No socket, no tmux, no real timer.
  */
 const harness = vi.hoisted(() => ({
+  /** #615/#616: extra keys merged into the fake whoami reply. */
+  whoamiExtra: {} as Record<string, unknown>,
   /** Ordered log of the collaborator calls each tool makes. */
   calls: [] as string[],
   /**
@@ -92,6 +94,7 @@ vi.mock("./client.js", async (importOriginal) => {
         identifier: "agent:2:x:main",
         project: 2,
         status: "connected",
+        ...harness.whoamiExtra,
       };
     }
     async registerSession(input: { session_identifier: string }) {
@@ -307,6 +310,7 @@ const LIVE_MAIN = {
 };
 
 beforeEach(() => {
+  harness.whoamiExtra = {};
   harness.calls.length = 0;
   harness.layoutOps.length = 0;
   harness.layoutOpKeys.length = 0;
@@ -1018,5 +1022,34 @@ describe("design_guide", () => {
     const page = tools.find((t) => t.name === "design_write_page");
     expect(page?.description).toContain("bg-primary");
     expect(page?.description).not.toContain("bg-[var(--accent)]");
+  });
+});
+
+describe("whoami (end to end)", () => {
+  it("passes both instruction blocks through and renders them readably", async () => {
+    const instructions = { markdown: "## Reviewer\nReview only.", updated_at: "2026-10-06T10:00:00Z" };
+    const project_instructions = { markdown: "Use pnpm.", updated_at: "2026-10-05T10:00:00Z" };
+    harness.whoamiExtra = { instructions, project_instructions };
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "whoami", arguments: { profile: "main" } });
+
+    const parsed = body(result);
+    expect(parsed.agent_id).toBe(1);
+    expect(parsed.instructions).toEqual(instructions);
+    expect(parsed.project_instructions).toEqual(project_instructions);
+    const content = (result as { content: Array<{ text: string }> }).content;
+    expect(content).toHaveLength(2);
+    expect(content[1]!.text).toContain("## Reviewer\nReview only.");
+    expect(content[1]!.text).toContain("Use pnpm.");
+  });
+
+  it("adds no second block when there are no instructions", async () => {
+    harness.whoamiExtra = {
+      instructions: { markdown: null, updated_at: null },
+      project_instructions: { markdown: null, updated_at: null },
+    };
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "whoami", arguments: { profile: "main" } });
+    expect((result as { content: unknown[] }).content).toHaveLength(1);
   });
 });

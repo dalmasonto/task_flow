@@ -131,12 +131,22 @@ const API_PREFIX = "/api/taskflow";
 
 // ---- Endpoint payload / response shapes (only the fields the client asserts) ----
 
+/** #615/#616: one instructions block on `whoami`; both keys null when unset. */
+export interface InstructionsBlock {
+  markdown: string | null;
+  updated_at: string | null;
+}
+
 export interface Whoami {
   agent_id: number;
   display_name: string;
   identifier: string;
   project: number;
   status: string;
+  /** #615: this agent's role instructions. Absent on a backend that predates them. */
+  instructions?: InstructionsBlock;
+  /** #616: the project's instructions for every agent. Absent on an older backend. */
+  project_instructions?: InstructionsBlock;
 }
 
 export interface ChannelSummary {

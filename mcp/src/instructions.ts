@@ -1,3 +1,5 @@
+import { INSTRUCTIONS_UPDATED_NOTICE } from "./agent-instructions.js";
+
 /**
  * Agent-facing guidance surfaced to the model on connect.
  *
@@ -51,6 +53,21 @@ that for the rest of the session.
 - Call **list_agents** to see who else is on the project and **list_channels** for
   the rooms you can post in. If other agents are active, coordinate rather than
   duplicate work.
+
+## Role & project instructions
+- **whoami** may return \`instructions\` (your role instructions, written by your
+  human for this agent) and \`project_instructions\` (written by the project's
+  admins for every agent). Call **whoami** at the start of every session; when
+  either has \`markdown\`, read it and follow it for the rest of the session.
+- Precedence, highest first: (1) your human's direct request in this
+  conversation; (2) your role instructions; (3) the project instructions;
+  (4) these generic TaskFlow defaults. Role and project instructions override the
+  defaults in this guide, but never a direct request from your human.
+- Humans edit them in the dashboard; edits apply on your next **whoami** — no
+  restart, no new key. If your terminal shows
+  "${INSTRUCTIONS_UPDATED_NOTICE}", call **whoami** and follow the new text.
+- You cannot change them yourself. If they look wrong or conflict with the task,
+  tell your human instead of ignoring them.
 
 ## Messaging — stay in the loop
 - Call **check_messages** regularly — at minimum when you finish a task, before
