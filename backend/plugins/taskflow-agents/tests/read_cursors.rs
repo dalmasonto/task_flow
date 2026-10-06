@@ -301,3 +301,44 @@ async fn unread_and_since_take_the_stricter_floor() {
     assert_eq!(rows.len(), 1, "the read cursor must not be undercut by `since`");
     assert_eq!(rows[0]["id"].as_i64().unwrap(), third);
 }
+
+// An agent's OWN messages are never unread to it. Its cursor does not move when
+// it sends, so without the filter its own words came back through check_messages
+// and the reconnect "N unread" notice — the "my message replays in my own
+// terminal" bug. Someone else's message in the same channel still counts, and
+// history still has both.
+#[tokio::test]
+async fn an_agents_own_messages_are_never_unread_to_it() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (key, _agent) = mint_agent(&app, user, project).await;
+    let channel = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+
+    let sent = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/agent/messages",
+            json!({ "channel": channel, "body_markdown": "my own words" }),
+        )
+        .await;
+    assert_eq!(sent.status(), 200, "{:?}", sent.json().await);
+    let theirs = seed_message(project, channel).await;
+
+    let unread = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/messages?channel={channel}&unread=true"))
+        .await
+        .json()
+        .await;
+    let ids: Vec<i64> = unread["messages"].as_array().unwrap().iter().map(|m| m["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids, vec![theirs], "only the other sender's message is unread");
+    assert_eq!(unread["unread_count"], json!(1));
+
+    let history = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/messages?channel={channel}"))
+        .await
+        .json()
+        .await;
+    assert_eq!(history["messages"].as_array().unwrap().len(), 2);
+}

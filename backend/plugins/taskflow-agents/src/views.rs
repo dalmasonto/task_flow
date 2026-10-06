@@ -4147,6 +4147,18 @@ pub async fn list_messages_as_agent(
     if let Some(floor) = floor {
         query = query.filter(taskflow_agent_message::ID.gt(floor));
     }
+    // An agent's OWN messages are never unread to it. Sending does not move its
+    // cursor (that would also mark everyone else's earlier messages read), so
+    // without this every message an agent sent came back to it as "unread" —
+    // counted in the reconnect notice and handed back by check_messages, which
+    // read as its own words replaying in its terminal. History (`unread` off)
+    // still includes them.
+    if params.unread.unwrap_or(false) {
+        query = query.filter(
+            taskflow_agent_message::SENDER_AGENT.is_null()
+                | taskflow_agent_message::SENDER_AGENT.ne(agent.agent_id),
+        );
+    }
     let messages = query
         .order_by(taskflow_agent_message::ID.asc())
         .limit(effective_limit(params.limit))
@@ -4178,8 +4190,6 @@ pub async fn list_messages_as_agent(
     }
 
     // `unread_count` is the size of THIS page, which is what the caller acts on.
-    // The agent's own messages are included: it asked for the channel's traffic,
-    // and its cursor is what defines "already handled", not authorship.
     Ok((
         StatusCode::OK,
         Json(json!({
