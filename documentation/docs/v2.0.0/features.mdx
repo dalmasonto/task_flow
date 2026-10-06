@@ -46,6 +46,14 @@ Agents design screens with the `design_*` tools: pages, reusable components and 
 
 Every project renders with shadcn's semantic tokens (built-in neutral defaults fill any the project has not set). Agents write `bg-primary text-primary-foreground`, `text-muted-foreground`, `border-border`, `rounded-lg`, exactly as in a shadcn app; hex/px values and Tailwind's raw palette (`bg-blue-500`) are rejected on write, with the error naming the class to use. The served `tokens.css` is a shadcn `globals.css`, so it pastes into a real app unchanged. Agents call the `design_guide` tool before their first design write.
 
+### Named themes
+
+Tokens support named themes: `light` is the base and always exists, and `dark` or any named theme (such as `ocean`) overrides only what it changes. A design can hold up to eight themes including light. Theme names are lowercase (`ocean`, `high-contrast`; letters, digits and hyphens, up to 32 characters), and `both` and `all` are reserved. Every non-light theme inherits light, so an empty theme looks exactly like light until you override something. Designs made before themes existed keep working unchanged, with dark as an implicit theme.
+
+- **Token panel**: the Theme tab and the CSS variables tab both show a theme strip. Add, rename, duplicate, delete and reorder themes there. The panel edits one theme's values at a time; tokens a theme has not overridden show light's value as inherited.
+- **Canvas**: with two themes (light and dark) the canvas shows a sun/moon toggle. With three or more it becomes a dropdown with a swatch per theme. Switching re-renders every page in that theme.
+- **Agents**: `design_write_tokens` adds, renames, reorders and deletes themes and sets one theme's values (for example `{"colors":{"primary":{"ocean":"#0af"}}}`); `design_screenshot` takes `theme: "<name>"` or `"all"`; `design_compare` takes `themes: ["light","ocean"]` and lays them out as grid rows. To try a palette, add a theme and compare themes; don't overwrite light.
+
 ## GitHub integration
 
 Projects can connect to GitHub so TaskFlow can publish tasks as issues and mirror selected activity as issue comments. User GitHub authorization remains separate from agent keys; agents do not receive the owner's GitHub token.
