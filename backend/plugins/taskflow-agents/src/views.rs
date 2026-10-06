@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use axum::body::Bytes;
 use serde::Deserialize;
 use serde_json::json;
+use taskflow_projects::instructions::{instructions_block, normalize_markdown};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectMember, TaskflowProjectRole, taskflow_project,
     taskflow_project_member,
@@ -1288,6 +1289,12 @@ pub struct LinkAgentInput {
     pub runtime: Option<String>,
     #[serde(default)]
     pub version: Option<String>,
+    /// #615: optional role instructions. Applied ONLY when this call creates
+    /// the agent. A re-link of an existing identity (open to any active member)
+    /// ignores them and answers `instructions_applied: false`; the caller then
+    /// uses the manager-gated PUT. Otherwise a re-link would bypass that rule.
+    #[serde(default)]
+    pub instructions_markdown: Option<String>,
 }
 
 /// `POST /api/taskflow/agents/link` (human-authed) — mint an agent identity.
@@ -1368,13 +1375,16 @@ pub async fn link_agent(
     let project_root = input.project_root.clone();
     let runtime = input.runtime.clone();
     let version = input.version.clone();
+    let instructions = normalize_markdown(input.instructions_markdown.clone());
+    let tx_instructions = instructions.clone();
 
-    let agent_id = umbral::transaction(move |tx| {
+    let (agent_id, created) = umbral::transaction(move |tx| {
         Box::pin(async move {
-            let agent = match existing_agent {
-                Some(agent) => agent,
+            let (agent, created) = match existing_agent {
+                Some(agent) => (agent, false),
                 None => {
-                    TaskflowAgent::objects()
+                    let stamped = tx_instructions.as_ref().map(|_| chrono::Utc::now());
+                    let agent = TaskflowAgent::objects()
                         .on_tx(tx)
                         .create(TaskflowAgent {
                             id: 0,
@@ -1389,12 +1399,13 @@ pub async fn link_agent(
                             status: TaskflowAgentStatus::Offline,
                             linked_by: Some(ForeignKey::new(user_id)),
                             linked_user_label: Some(linked_user_label.clone()),
-                            instructions_markdown: None,
-                            instructions_updated_at: None,
+                            instructions_markdown: tx_instructions.clone(),
+                            instructions_updated_at: stamped,
                             last_seen_at: None,
                             created_at: None,
                         })
-                        .await?
+                        .await?;
+                    (agent, true)
                 }
             };
 
@@ -1415,7 +1426,7 @@ pub async fn link_agent(
                 })
                 .await?;
 
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(agent.id)
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((agent.id, created))
         })
     })
     .await
@@ -1453,6 +1464,7 @@ pub async fn link_agent(
             "display_name": display_name,
             "project": project_id,
             "profile": profile,
+            "instructions_applied": created && instructions.is_some(),
             "key": raw_key,
             "taskflow_profile": {
                 "agent_id": agent_id,
@@ -3927,6 +3939,8 @@ async fn agent_can_see_channel(
 /// presented credential. Loads the authenticated `TaskflowAgent` row and returns
 /// its stable identity fields, so an agent (or the MCP acting for it) can confirm
 /// who it is and which project it is scoped to before doing anything else.
+/// Also returns the agent's role instructions (#615) and its project's agent
+/// instructions (#616), each `{markdown, updated_at}`. Additive: old MCPs ignore them.
 pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Response, StatusCode> {
     let row = TaskflowAgent::objects()
         .filter(taskflow_agent::ID.eq(agent.agent_id))
@@ -3944,6 +3958,16 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
     let has_live_session = live_session_count(row.id, now).await? > 0;
     let status = effective_agent_status(row.status, has_live_session);
 
+    // #616: the project's instructions for every agent ride beside the agent's own (#615).
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(row.project.id()))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let (project_markdown, project_updated_at) = project
+        .map(|p| (p.agent_instructions_markdown, p.agent_instructions_updated_at))
+        .unwrap_or((None, None));
+
     Ok((
         StatusCode::OK,
         Json(json!({
@@ -3952,6 +3976,14 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
             "identifier": row.identifier,
             "project": row.project.id(),
             "status": status,
+            "instructions": instructions_block(
+                row.instructions_markdown.as_deref(),
+                row.instructions_updated_at,
+            ),
+            "project_instructions": instructions_block(
+                project_markdown.as_deref(),
+                project_updated_at,
+            ),
         })),
     )
         .into_response())
@@ -5111,6 +5143,38 @@ mod terminal_input_tests {
     }
 }
 
+/// Who may MANAGE an agent: delete it (`delete_agent`) or edit its role
+/// instructions (`set_agent_instructions`). That is a superuser, an ACTIVE
+/// owner/admin of the agent's project, or the active member who linked it. A
+/// non-member gets 404 (indistinguishable from a missing agent); any other
+/// member gets 403. One rule, so the two gates cannot drift apart.
+async fn authorize_agent_manager(
+    identity: &umbral::auth::Identity,
+    agent: &TaskflowAgent,
+) -> Result<(), StatusCode> {
+    if identity.is_superuser {
+        return Ok(());
+    }
+    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(agent.project.id())
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        // Not a member: indistinguishable from a missing agent.
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let manages = matches!(member.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin);
+    let linked_it = agent.linked_by.as_ref().map(|fk| fk.id()) == Some(user_id);
+    if !manages && !linked_it {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
+}
+
 /// `DELETE /api/taskflow/agents/{agent}` (human-authed)
 ///
 /// Remove an agent identity from its project. Allowed for a superuser, the
@@ -5127,32 +5191,13 @@ pub async fn delete_agent(
     CurrentIdentity(identity): CurrentIdentity,
     Path(agent_id): Path<i64>,
 ) -> Result<StatusCode, StatusCode> {
-    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
     let agent = TaskflowAgent::objects()
         .filter(taskflow_agent::ID.eq(agent_id))
         .first()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-
-    if !identity.is_superuser {
-        let member = TaskflowProjectMember::objects()
-            .filter(
-                taskflow_project_member::PROJECT.eq(agent.project.id())
-                    & taskflow_project_member::USER.eq(user_id)
-                    & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
-            )
-            .first()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            // Not a member: indistinguishable from a missing agent.
-            .ok_or(StatusCode::NOT_FOUND)?;
-        let manages = matches!(member.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin);
-        let linked_it = agent.linked_by.as_ref().map(|fk| fk.id()) == Some(user_id);
-        if !manages && !linked_it {
-            return Err(StatusCode::FORBIDDEN);
-        }
-    }
+    authorize_agent_manager(&identity, &agent).await?;
 
     TaskflowAgent::objects()
         .filter(taskflow_agent::ID.eq(agent_id))
@@ -5160,4 +5205,66 @@ pub async fn delete_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The body of `PUT /api/taskflow/agents/{agent}/instructions`. A missing,
+/// `null`, empty or whitespace-only `markdown` clears the instructions.
+#[derive(Debug, Deserialize)]
+pub struct SetInstructionsInput {
+    #[serde(default)]
+    pub markdown: Option<String>,
+}
+
+/// `PUT /api/taskflow/agents/{agent}/instructions` (human-authed): #615
+///
+/// Replace an agent's role instructions. The agent reads them on its next
+/// `whoami`, with no new key and no restart. Authorization is the same rule as
+/// `delete_agent` ([`authorize_agent_manager`]). An agent key is not a human
+/// identity, so an agent can never write its own. Auto-REST cannot write the
+/// column either (`privileged`).
+///
+/// A change stamps `instructions_updated_at`, which the MCP watches on
+/// reconnect. A no-op leaves it alone so a Save with nothing changed does not
+/// page the agent. Only the two columns are written (`update_values`): a
+/// whole-row save would clobber a concurrent heartbeat's `status`/`last_seen_at`.
+pub async fn set_agent_instructions(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(agent_id): Path<i64>,
+    Json(input): Json<SetInstructionsInput>,
+) -> Result<Response, StatusCode> {
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    authorize_agent_manager(&identity, &agent).await?;
+
+    let next = normalize_markdown(input.markdown);
+    let (markdown, updated_at) = if next == agent.instructions_markdown {
+        (agent.instructions_markdown, agent.instructions_updated_at)
+    } else {
+        let now = chrono::Utc::now();
+        TaskflowAgent::objects()
+            .filter(taskflow_agent::ID.eq(agent.id))
+            .update_values(
+                json!({ "instructions_markdown": next, "instructions_updated_at": now })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        (next, Some(now))
+    };
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "agent_id": agent.id,
+            "markdown": markdown,
+            "updated_at": updated_at,
+        })),
+    )
+        .into_response())
 }

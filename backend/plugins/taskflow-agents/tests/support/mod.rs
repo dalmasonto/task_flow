@@ -270,6 +270,36 @@ impl TestApp {
         }
     }
 
+    /// PUT JSON as a human user (bearer token), like [`post_as`].
+    pub async fn put_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
+        let token = self
+            .tokens
+            .lock()
+            .expect("tokens poisoned")
+            .get(&user_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no bearer token seeded for user {user_id}"));
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"),
+        );
+        TestResponse {
+            inner: self.client.put_json(path, &body).await,
+        }
+    }
+
+    /// PUT JSON authenticated as an AGENT (`Authorization: Agent <key>`). Used to
+    /// prove an agent cannot write through a human-only route.
+    pub async fn put_as_agent(&self, key: &str, path: &str, body: Value) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        TestResponse {
+            inner: self.client.put_json(path, &body).await,
+        }
+    }
+
     /// POST JSON with NO authentication header at all — for asserting an
     /// agent-gated route 401s a caller who presents no key. Sets no default
     /// header, so it must be the FIRST request on a fresh client (the client has
