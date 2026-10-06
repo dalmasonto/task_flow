@@ -143,7 +143,7 @@ export function AgentInstructionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={change}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Role &amp; instructions — {agentName}</DialogTitle>
           <DialogDescription>
