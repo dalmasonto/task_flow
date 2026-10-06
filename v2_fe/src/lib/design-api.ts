@@ -89,12 +89,30 @@ export type TokenGroup = {
   variablesDark?: [string, string][]
 }
 
-/// Mirrors the backend's `TokensDoc` (styles/tokens.json) exactly: a flat
-/// version counter plus category → token-name → {light, dark?} values. `dark`
-/// is omitted when a token has no dark override.
+/// One token's values (#619): `light`, the base every theme inherits, plus
+/// one key per theme that overrides it — `{light, dark?, ocean?, …}`. Mirrors
+/// the backend's flat `TokenValue`; a theme with no key renders light's value.
+export type DesignTokenValue = { light: string; [theme: string]: string }
+
+/// A declared theme besides light. `label` is optional display text.
+export type DesignThemeDecl = { name: string; label?: string }
+
+/// Mirrors the backend's `TokensDoc` (styles/tokens.json): a version counter,
+/// the ordered themes besides light (absent = the legacy light/dark pair),
+/// and category → token-name → values.
 export type DesignTokensDoc = {
   version: number
-  categories: Record<string, Record<string, { light: string; dark?: string }>>
+  themes?: DesignThemeDecl[]
+  categories: Record<string, Record<string, DesignTokenValue>>
+}
+
+/// One of the project's themes as the manifest lists it (light first), with
+/// the swatch the canvas switcher draws: the theme's resolved primary and
+/// background (null when the project has neither).
+export type DesignThemeInfo = {
+  name: string
+  label: string
+  swatch: { primary: string | null; background: string | null }
 }
 
 const DEFAULT_TOKENS_DOC: DesignTokensDoc = { version: 1, categories: {} }
@@ -120,6 +138,9 @@ export type DesignManifest = {
   /// reader should not have to go and check what `Vec<(bool, ResourceLink)>`
   /// turned into.
   resources: [boolean, ResourceLink][]
+  /// #619: the declared themes, light first. Absent from a backend that
+  /// predates named themes — read it through `manifestThemes`.
+  themes?: DesignThemeInfo[]
 }
 
 export type DesignFileSummary = {
@@ -437,6 +458,14 @@ export async function exportTokensCss(projectId: number): Promise<void> {
   link.click()
   link.remove()
   URL.revokeObjectURL(objectUrl)
+}
+
+/// The generated tokens.css as text, for the token panel's read-only "CSS
+/// variables" view. Same endpoint and auth as `exportTokensCss`.
+export async function fetchTokensCss(projectId: number): Promise<string> {
+  const res = await designFetch(`/api/design/${projectId}/tokens.css`)
+  if (!res.ok) throw new Error(`Could not load tokens.css (${res.status}).`)
+  return res.text()
 }
 
 /// Filename fallback when the response's `Content-Disposition` header is

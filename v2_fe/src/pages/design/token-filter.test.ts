@@ -338,3 +338,12 @@ describe("filterTokenCategories", () => {
     expect(doc.categories.spacing.pad_x).toEqual({ light: "12px", dark: "16px" })
   })
 })
+
+describe("filterTokenCategories over named themes", () => {
+  it("matches a value set only in a named theme", () => {
+    const doc = JSON.parse(
+      `{"version":1,"themes":[{"name":"ocean"}],"categories":{"colors":{"primary":{"light":"#111111","ocean":"#00aaff"},"bg":{"light":"#ffffff"}}}}`,
+    ) as DesignTokensDoc
+    expect(Object.keys(filterTokenCategories(doc, "00aaff").categories.colors ?? {})).toEqual(["primary"])
+  })
+})

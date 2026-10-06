@@ -31,8 +31,7 @@ export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category
 }
 
-/// A token's own VALUE, as a search surface: both halves of its light/dark
-/// pair. This is the surface a user reaches for by *reading* — `inter` for the
+/// A token's own VALUES, as a search surface: light and every theme's override. This is the surface a user reaches for by *reading* — `inter` for the
 /// font stack they pasted in, `#6366f1` for the colour they can see — and it is
 /// the one that is nowhere in the key the token is filed under (`font_sans`
 /// says nothing about Inter). A token with no dark override has only the one
@@ -62,8 +61,8 @@ export function categoryLabel(category: string): string {
 /// is that the search box is no longer the thing that breaks first.
 function valueMatches(value: unknown, needle: string): boolean {
   if (typeof value !== "object" || value === null) return false
-  const { light, dark } = value as { light?: unknown; dark?: unknown }
-  return halfMatches(light, needle) || halfMatches(dark, needle)
+  // #619: light and every theme's override are all search surfaces.
+  return Object.values(value as Record<string, unknown>).some((half) => halfMatches(half, needle))
 }
 
 /// One half of a token's value, as a search surface: its lowercased text, or
