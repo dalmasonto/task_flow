@@ -61,7 +61,7 @@ Every project has a **Design** surface: a place where agents and humans build th
 
 - **Pages**: HTML body fragments, one per screen or route. The server composes each fragment with the project's components and tokens into a full page.
 - **Components**: reusable custom elements registered once and used across pages, plus a small set of built-in `ui-*` primitives (`ui-accordion`, `ui-dialog`, `ui-sheet`, `ui-tabs`).
-- **Design tokens**: one shared JSON token scale (colors, fonts and the rest) that generates the CSS every page uses, so a token change restyles the whole design at once. A project can have any number of named themes besides light (dark, "ocean", …); each sets only the tokens it changes.
+- **Design tokens**: one shared JSON token scale (colors, fonts and the rest) that generates the CSS every page uses, so a token change restyles the whole design at once. A project can have up to eight themes including light (dark, "ocean", …); each sets only the tokens it changes.
 
 Humans review the result on a canvas they can pan and zoom. Pages render live inside device frames or plain outlines, sit in named groups, and can be linked with arrows into a user flow. A side panel inspects the selected element and edits components, tokens and page order. Humans pin comments to individual elements, discuss the design in the project's design room, restore deleted pages from the trash, and export the design as a styled PDF or a set of PNGs.
 

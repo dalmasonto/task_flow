@@ -50,8 +50,8 @@ Every project renders with shadcn's semantic tokens (built-in neutral defaults f
 
 Tokens support named themes: `light` is the base and always exists, and `dark` or any named theme (such as `ocean`) overrides only what it changes. A design can hold up to eight themes including light. Theme names are lowercase (`ocean`, `high-contrast`; letters, digits and hyphens, up to 32 characters), and `both` and `all` are reserved. Every non-light theme inherits light, so an empty theme looks exactly like light until you override something. Designs made before themes existed keep working unchanged, with dark as an implicit theme.
 
-- **Token panel**: the Theme tab and the CSS variables tab both show a theme strip. Add, rename, duplicate, delete and reorder themes there. The panel edits one theme's values at a time; tokens a theme has not overridden show light's value as inherited.
-- **Canvas**: with two themes (light and dark) the canvas shows a sun/moon toggle. With three or more it becomes a dropdown with a swatch per theme. Switching re-renders every page in that theme.
+- **Token panel**: the Theme tab shows a theme strip. Add, rename, duplicate, delete and reorder themes there. The panel edits one theme's values at a time; tokens a theme has not overridden show light's value as inherited.
+- **Canvas**: with exactly light and dark the canvas shows a sun/moon toggle. Any other set of two or more themes (light and ocean, or light, dark and ocean) gets a dropdown with a swatch per theme, and light alone gets no control. Switching re-renders every page in that theme.
 - **Agents**: `design_write_tokens` adds, renames, reorders and deletes themes and sets one theme's values (for example `{"colors":{"primary":{"ocean":"#0af"}}}`); `design_screenshot` takes `theme: "<name>"` or `"all"`; `design_compare` takes `themes: ["light","ocean"]` and lays them out as grid rows. To try a palette, add a theme and compare themes; don't overwrite light.
 
 ## GitHub integration

@@ -37,7 +37,6 @@ export interface TaskflowClientOptions {
   timeoutMs?: number;
 }
 
-/** An error carrying the backend's status + parsed detail. */
 /** An unsaved override: one value for every theme, or per theme `{light?, dark?, <theme>?}`. */
 export type DesignOverrideValue = string | Record<string, string>;
 
@@ -99,6 +98,7 @@ export type DesignCompareResult = {
   warnings: string[];
 };
 
+/** An error carrying the backend's status + parsed detail. */
 export class TaskflowApiError extends Error {
   readonly status: number;
   readonly detail: string;

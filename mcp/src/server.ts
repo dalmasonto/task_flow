@@ -1060,7 +1060,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_guide",
-    "How to design in this project, on demand. No topic → a short index. Topics: tokens (shadcn colour names, light/dark, radius, the classes to write, what is rejected — read before your first design write), fonts, flow (groups, order, links), primitives (ui-* components), pages (page rules, links, media).",
+    "How to design in this project, on demand. No topic → a short index. Topics: tokens (shadcn colour names, named themes — light, dark and custom palettes such as ocean, add/rename/delete, compare themes — radius, the classes to write, what is rejected — read before your first design write), fonts, flow (groups, order, links), primitives (ui-* components), pages (page rules, links, media).",
     {
       topic: z.enum(["tokens", "fonts", "flow", "primitives", "pages"]).optional().describe("Omit for the index."),
       ...profileArg,
