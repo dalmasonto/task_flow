@@ -80,3 +80,16 @@ describe("safeSwatchColor", () => {
     expect(safeSwatchColor("#0af")).toBeUndefined()
   })
 })
+
+describe("safeSwatchColor refuses url() and var()", () => {
+  const yes = () => true
+  it("rejects values that could fetch or can't resolve", () => {
+    expect(safeSwatchColor("var(--x, url(//h/x))", yes)).toBeUndefined()
+    expect(safeSwatchColor("url(x)", yes)).toBeUndefined()
+    expect(safeSwatchColor("URL (x)", yes)).toBeUndefined()
+    expect(safeSwatchColor("var(--primary)", yes)).toBeUndefined()
+  })
+  it("passes a concrete colour", () => {
+    expect(safeSwatchColor("#fff", yes)).toBe("#fff")
+  })
+})

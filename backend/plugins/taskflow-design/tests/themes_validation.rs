@@ -58,3 +58,19 @@ fn a_remote_url_in_any_theme_is_refused() {
         Some("remote-url")
     );
 }
+
+#[test]
+fn url_functions_in_any_theme_are_refused() {
+    for v in ["url(//host/x)", "var(--a, url(x))", "URL (x)", "uRl   (x)"] {
+        for theme in ["light", "ocean"] {
+            let doc = format!(
+                r#"{{"version":1,"themes":[{{"name":"ocean"}}],"categories":{{"colors":{{"p":{{"light":"red","{theme}":"{v}"}}}}}}}}"#
+            );
+            assert_eq!(rule(&doc), Some("token-url"), "{theme}: {v}");
+        }
+    }
+    for ok in ["#fff", "var(--primary)", "oklch(0.7 0.1 200)"] {
+        let doc = format!(r#"{{"version":1,"categories":{{"colors":{{"p":{{"light":"{ok}"}}}}}}}}"#);
+        assert_eq!(rule(&doc), None, "{ok}");
+    }
+}

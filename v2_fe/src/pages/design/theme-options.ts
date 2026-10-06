@@ -58,5 +58,8 @@ export function safeSwatchColor(
     : null,
 ): string | undefined {
   if (!value || !supports) return undefined
+  // CSS.supports("color", "var(--x, url(//h/x))") is true, and painting it
+  // fetches the URL. Swatches only need concrete colours.
+  if (/url\s*\(|var\s*\(/i.test(value)) return undefined
   return supports("color", value) ? value : undefined
 }

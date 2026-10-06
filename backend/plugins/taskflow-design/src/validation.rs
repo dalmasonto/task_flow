@@ -949,11 +949,38 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                         suggest: None,
                     });
                 }
+                if has_url_function(value) {
+                    return v.fail(ValidationError {
+                        line: 0,
+                        rule: "token-url",
+                        message: format!(
+                            "Token `{category}.{key}` uses a url() ({value}). Design tokens can't \
+                             reference URLs; load fonts through styles/resources.json."
+                        ),
+                        found: Some(value.clone()),
+                        suggest: None,
+                    });
+                }
             }
         }
     }
 
     v
+}
+
+/// True when `value` contains a CSS `url(` in any case, with optional
+/// whitespace between `url` and `(`.
+fn has_url_function(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let mut rest = lower.as_str();
+    while let Some(i) = rest.find("url") {
+        let after = rest[i + 3..].trim_start();
+        if after.starts_with('(') {
+            return true;
+        }
+        rest = &rest[i + 3..];
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
