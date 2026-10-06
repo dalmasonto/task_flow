@@ -336,12 +336,18 @@ describe("runInit", () => {
     expect(JSON.parse(readFileSync(join(dir, ".cursor", "mcp.json"), "utf8")).mcpServers.taskflow.command).toBe(
       "taskflow-mcp",
     );
-    expect(logs[logs.length - 1]).toMatch(/Sign up or log in at .*API Base/);
+    expect(logs.some((l) => /Sign up or log in at .*Connect agents/.test(l))).toBe(true);
   });
 
-  it("ends the next steps at the web app", async () => {
+  it("puts getting credentials before the steps that need them", async () => {
     const { deps, logs } = tempDeps();
     await runInit(["--harness", "cursor", "--yes", "--dry-run"], deps);
-    expect(logs[logs.length - 1]).toMatch(/Sign up or log in at https:\/\/taskflow\.supercodehive\.com/);
+    const signUp = logs.findIndex((l) => /Sign up or log in at https:\/\/taskflow\.supercodehive\.com/.test(l));
+    const doctor = logs.findIndex((l) => /verify with: taskflow-mcp --doctor/.test(l));
+    const whoami = logs.findIndex((l) => /call whoami/.test(l));
+    expect(signUp).toBeGreaterThan(-1);
+    expect(signUp).toBeLessThan(doctor);
+    expect(doctor).toBeLessThan(whoami);
+    expect(logs[logs.length - 1]).toMatch(/call whoami/);
   });
 });

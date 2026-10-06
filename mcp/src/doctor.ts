@@ -50,7 +50,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     log(`${FAIL}  .taskflow.json not found`);
     log(`      ${(err as ConfigError).message}`);
     log("");
-    log("      Fix: link an agent on the dashboard's API Base page, then save the");
+    log("      Fix: link an agent on the dashboard's Connect agents page, then save the");
     log("      snippet as .taskflow.json in your repo root.");
     return 1;
   }
@@ -119,7 +119,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
       const status = err instanceof TaskflowApiError ? err.status : -1;
       if (status === 401 || status === 403) {
         log("      The key is wrong, revoked, or belongs to another project.");
-        log("      Fix: re-link the agent on the API Base page for a fresh key.");
+        log("      Fix: re-link the agent on the Connect agents page for a fresh key.");
       } else if (status === 0 || /ECONNREFUSED|fetch failed|ENOTFOUND|network/i.test(message)) {
         log(`      Nothing is listening at ${resolved.server}.`);
         log('      Fix: start the backend, or correct the "server" field.');

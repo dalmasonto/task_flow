@@ -20,12 +20,14 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'taskflow install: %s\n' "$*" >&2; exit 1; }
 
 command -v node >/dev/null 2>&1 || die "Node.js ${NODE_MAJOR_MIN}+ is required (https://nodejs.org). Install it, then re-run."
-command -v npm >/dev/null 2>&1 || die "npm is required (it ships with Node.js)."
 
+# Version before npm: a distro's old Node (e.g. Ubuntu's apt v12) often ships
+# without npm, and "npm is required" would hide the real problem.
 node_major=$(node -p 'process.versions.node.split(".")[0]')
 if [ "$node_major" -lt "$NODE_MAJOR_MIN" ]; then
   die "Node.js ${NODE_MAJOR_MIN}+ is required; found $(node --version)."
 fi
+command -v npm >/dev/null 2>&1 || die "npm is required (it ships with Node.js)."
 
 # A global install into a root-owned prefix needs sudo. We never run sudo
 # ourselves — say how to fix it instead.

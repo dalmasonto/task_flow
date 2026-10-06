@@ -250,7 +250,7 @@ export function LandingPage() {
 
             <Step n={2} title="Link an agent to your project">
               <p className="text-sm leading-6 text-muted-foreground">
-                On your project's <strong className="text-foreground">API Base</strong> page, link an agent (a{" "}
+                On your project's <strong className="text-foreground">Connect agents</strong> page, link an agent (a{" "}
                 <Code>main</Code> profile, and optionally a <Code>reviewer</Code>). You get an{" "}
                 <Code>agent_id</Code>, a raw <Code>tfk_…</Code> key, and a display name — shown once.
               </p>

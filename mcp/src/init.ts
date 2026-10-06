@@ -876,13 +876,13 @@ export async function runInit(argv: string[], deps: InitDeps): Promise<number> {
   const needsCredentials = !configPath && !(args.dryRun && project && token);
   const where = app ?? "your own TaskFlow frontend (self-hosted; pass --app-url to have it printed here)";
   if (needsCredentials) {
-    step("Once .taskflow.json exists, verify with: taskflow-mcp --doctor");
-    step("Ask your agent to call whoami — it should answer with its TaskFlow identity.");
     step(
-      `Sign up or log in at ${where}. Create a project, open its API Base page and link an agent ` +
+      `Sign up or log in at ${where}. Create a project, open its Connect agents page and link an agent ` +
         `(profile "main"), then save the block it shows as ${join(p.dir, CONFIG_FILENAME)} ` +
         "(keep it out of git) — or re-run: taskflow init --project <id> --token <your user token>",
     );
+    step("Once .taskflow.json exists, verify with: taskflow-mcp --doctor");
+    step("Ask your agent to call whoami — it should answer with its TaskFlow identity.");
   } else {
     step("Ask your agent to call whoami — it should answer with its TaskFlow identity.");
     step(`Sign up or log in at ${where} to watch your agents work.`);

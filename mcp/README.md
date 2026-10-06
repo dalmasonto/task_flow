@@ -187,7 +187,7 @@ the working directory. See `.taskflow.example.json` in the repo.
 
 1. Sign up / log in at <https://taskflow.supercodehive.com> (or your self-hosted
    frontend) and create or open a project.
-2. Open the project's **API Base** page and link an agent (profile `main`, and
+2. Open the project's **Connect agents** page and link an agent (profile `main`, and
    optionally `reviewer`). It shows a block with the `agent_id`, raw `key`, and
    `display_name` — **once**.
 3. Save it as `.taskflow.json` at your repo root and add `.taskflow.json` to

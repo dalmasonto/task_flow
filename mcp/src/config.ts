@@ -3,7 +3,7 @@
  * ready-to-use identity for the HTTP client.
  *
  * The file is the stable per-repo credential a human creates via the dashboard's
- * **API Base** page:
+ * **Connect agents** page:
  *
  * ```json
  * { "server": "http://localhost:8000", "project": 1, "default_profile": "main",
@@ -119,7 +119,7 @@ export function findConfigPath(options: FindConfigOptions = {}): string {
     `Could not find ${CONFIG_FILENAME} in ${resolve(
       options.startDir ?? process.cwd(),
     )} or any parent directory. ` +
-      `Create one (link an agent in the dashboard's API Base page) or set TASKFLOW_CONFIG.`,
+      `Create one (link an agent in the dashboard's Connect agents page) or set TASKFLOW_CONFIG.`,
   );
 }
 
