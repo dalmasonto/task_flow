@@ -74,3 +74,39 @@ fn url_functions_in_any_theme_are_refused() {
         assert_eq!(rule(&doc), None, "{ok}");
     }
 }
+
+#[test]
+fn escapes_image_set_and_src_in_any_theme_are_refused() {
+    // JSON text: `\\` decodes to ONE backslash.
+    for v in [
+        r"\\75 rl(//h/x)",
+        "image-set(\\\"//h\\\" 1x)",
+        "-webkit-image-set(\\\"//h\\\" 1x)",
+        "IMAGE-SET (x)",
+        "src(\\\"//h\\\")",
+        "SRC  (x)",
+    ] {
+        for theme in ["light", "ocean"] {
+            let doc = format!(
+                r#"{{"version":1,"themes":[{{"name":"ocean"}}],"categories":{{"colors":{{"p":{{"light":"red","{theme}":"{v}"}}}}}}}}"#
+            );
+            assert_eq!(rule(&doc), Some("token-url"), "{theme}: {v}");
+        }
+    }
+}
+
+#[test]
+fn legacy_tokens_css_refuses_urls_escapes_image_set_and_src() {
+    use taskflow_design::validation::validate_tokens;
+    for v in ["url(//h/x)", "URL (x)", "\\75 rl(//h/x)", "image-set(\"//h\" 1x)", "-webkit-image-set(x)", "src(\"//h\")", "SRC (x)"] {
+        let css = format!("@theme {{ --a: {v}; }}");
+        let r = validate_tokens(&css);
+        assert!(!r.ok, "{v}");
+        assert_eq!(r.errors[0].rule, "token-url", "{v}");
+    }
+    for ok in ["var(--primary)", "oklch(0.7 0.1 200)", "#fff"] {
+        assert!(validate_tokens(&format!("@theme {{ --a: {ok}; }}")).ok, "{ok}");
+    }
+    let r = validate_tokens("@import \"https://x.example/a.css\";\n@theme { --a: red; }");
+    assert_eq!(r.errors[0].rule, "remote-import");
+}

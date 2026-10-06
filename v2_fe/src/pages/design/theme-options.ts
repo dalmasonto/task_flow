@@ -50,6 +50,23 @@ export function themeSelectItems(themes: ThemeOption[]): { value: string; label:
 /// remote resource. Only something the browser parses as a plain COLOR is
 /// used. `supports` is injectable for tests (vitest runs in node, where `CSS`
 /// does not exist — and with no `CSS`, nothing is painted).
+const COLOUR_FNS = "rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix"
+const PLAIN_ARGS = "[a-zA-Z0-9 .%/,+-]*"
+const HEX = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
+const NAMED = /^[a-z]+$/i
+const SIMPLE_FN = new RegExp(`^(?:${COLOUR_FNS})\\(${PLAIN_ARGS}\\)$`, "i")
+const MIX_FN = new RegExp(
+  `^color-mix\\((?:[a-zA-Z0-9 .%/,+-]|(?:${COLOUR_FNS})\\(${PLAIN_ARGS}\\))*\\)$`,
+  "i",
+)
+
+/// Allowlist: hex, one colour function with plain-character arguments
+/// (color-mix may nest one level of colour functions), or a letters-only name.
+/// No backslash can match, so no CSS escape survives.
+function isPlainColour(v: string): boolean {
+  return HEX.test(v) || NAMED.test(v) || SIMPLE_FN.test(v) || MIX_FN.test(v)
+}
+
 export function safeSwatchColor(
   value: string | null | undefined,
   supports: ((property: string, value: string) => boolean) | null = typeof CSS !== "undefined" &&
@@ -58,8 +75,6 @@ export function safeSwatchColor(
     : null,
 ): string | undefined {
   if (!value || !supports) return undefined
-  // CSS.supports("color", "var(--x, url(//h/x))") is true, and painting it
-  // fetches the URL. Swatches only need concrete colours.
-  if (/url\s*\(|var\s*\(/i.test(value)) return undefined
+  if (!isPlainColour(value)) return undefined
   return supports("color", value) ? value : undefined
 }
