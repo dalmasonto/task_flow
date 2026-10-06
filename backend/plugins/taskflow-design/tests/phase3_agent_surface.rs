@@ -479,8 +479,8 @@ async fn deliberate_raw_hex_is_rejected_with_a_usable_message() {
     assert_eq!(err["rule"], "raw-color");
     let msg = err["message"].as_str().unwrap();
     assert!(msg.contains("bg-[#ff0000]"), "names what it found: {msg}");
-    assert!(msg.contains("var(--"), "names the token to use instead: {msg}");
-    assert_eq!(err["suggest"], "bg-[var(--accent)]");
+    assert!(msg.contains("semantic class"), "names the semantic class to use instead: {msg}");
+    assert_eq!(err["suggest"], "bg-primary");
 }
 
 #[tokio::test(flavor = "multi_thread")]

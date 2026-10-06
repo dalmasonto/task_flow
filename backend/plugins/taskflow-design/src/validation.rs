@@ -447,13 +447,23 @@ pub fn validate_page_fragment(
             line: line_of(content, offset),
             rule: "raw-color",
             message: format!(
-                "{found} is not allowed. Raw hex/px values bypass the token scale. Use a token \
-                 variable instead, e.g. {prop}-[var(--accent)] — see design_get_tokens for the \
-                 full scale."
+                "{found} is not allowed. Raw hex/px values bypass the token scale. Use a \
+                 semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\"."
             ),
             found: Some(found),
-            suggest: Some(format!("{prop}-[var(--accent)]")),
+            suggest: Some(if prop == "text" || prop == "placeholder" || prop == "decoration" {
+                "text-foreground".into()
+            } else if prop == "border" || prop == "divide" || prop == "ring" || prop == "outline" {
+                "border-border".into()
+            } else {
+                "bg-primary".into()
+            }),
         });
+    }
+
+    // Tailwind palette colours (raw blues, reds, etc.). These bypass the theme.
+    if let Some((found, offset)) = find_palette_class(content) {
+        return v.fail(palette_error(content, found, offset));
     }
 
     // Raw hex inside style="" attributes.
@@ -462,10 +472,10 @@ pub fn validate_page_fragment(
             line: line_of(content, offset),
             rule: "style-hex",
             message: "Raw colour codes in style= attributes bypass the token scale. Use Tailwind \
-                      token utilities (e.g. bg-[var(--surface)]) or a var() reference."
+                      token utilities (e.g. bg-card) or a var() reference."
                 .into(),
             found: Some(style),
-            suggest: Some("class=\"bg-[var(--surface)]\"".into()),
+            suggest: Some("class=\"bg-card\"".into()),
         });
     }
 
@@ -560,6 +570,68 @@ fn find_style_hex(content: &str) -> Option<(String, usize)> {
         search = value_range.end.max(style_start + 1);
     }
     None
+}
+
+const PALETTE: &[&str] = &[
+    "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber", "yellow", "lime", "green",
+    "emerald", "teal", "cyan", "sky", "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose",
+];
+const COLOR_UTILITIES: &[&str] = &[
+    "ring-offset", "border-x", "border-y", "border-t", "border-r", "border-b", "border-l",
+    "bg", "text", "border", "ring", "outline", "divide", "fill", "stroke", "from", "via", "to",
+    "placeholder", "decoration", "caret", "accent", "shadow",
+];
+const SHADES: &[&str] = &["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"];
+
+/// A Tailwind PALETTE colour class (`bg-blue-500`, `hover:text-zinc-400/80`):
+/// returns the whole class and its byte offset. Semantic classes, `black`/
+/// `white`/`transparent`/`current`/`inherit`, arbitrary `[var(--x)]` and plain
+/// prose never match — a match needs utility prefix + palette name + shade.
+pub fn find_palette_class(content: &str) -> Option<(String, usize)> {
+    let is_sep = |c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>' | '=');
+    for word in content.split(is_sep) {
+        if word.is_empty() {
+            continue;
+        }
+        let start = word.as_ptr() as usize - content.as_ptr() as usize;
+        let base = word.rsplit(':').next().unwrap_or(word);
+        let base = base.split('/').next().unwrap_or(base);
+        for util in COLOR_UTILITIES {
+            let Some(rest) = base.strip_prefix(util).and_then(|r| r.strip_prefix('-')) else { continue };
+            let Some((name, shade)) = rest.rsplit_once('-') else { continue };
+            if PALETTE.contains(&name) && SHADES.contains(&shade) {
+                return Some((word.to_string(), start));
+            }
+        }
+    }
+    None
+}
+
+/// The semantic class to suggest for a palette class's utility.
+fn semantic_suggestion(class: &str) -> &'static str {
+    let base = class.rsplit(':').next().unwrap_or(class);
+    if base.starts_with("text-") || base.starts_with("placeholder-") || base.starts_with("decoration-") {
+        "text-foreground / text-muted-foreground / text-primary"
+    } else if base.starts_with("border") || base.starts_with("divide-") || base.starts_with("ring") || base.starts_with("outline-") {
+        "border-border / border-input / ring-ring"
+    } else {
+        "bg-primary / bg-secondary / bg-muted / bg-accent / bg-card"
+    }
+}
+
+fn palette_error(content: &str, found: String, offset: usize) -> ValidationError {
+    let suggest = semantic_suggestion(&found);
+    ValidationError {
+        line: line_of(content, offset),
+        rule: "palette-color",
+        message: format!(
+            "{found} uses Tailwind's raw palette, which does not follow the project's theme and \
+             does not port to a shadcn app. Use a semantic class instead: {suggest} (or \
+             bg-[var(--your-token)] for a custom token). See design_guide topic \"tokens\"."
+        ),
+        found: Some(found),
+        suggest: Some(suggest.to_string()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -674,6 +746,11 @@ pub fn validate_component(path: &str, content: &str) -> Validation {
         });
     }
 
+    // Tailwind palette colours in component templates.
+    if let Some((found, offset)) = find_palette_class(content) {
+        return v.fail(palette_error(content, found, offset));
+    }
+
     v
 }
 
@@ -696,7 +773,7 @@ pub fn validate_tokens(content: &str) -> Validation {
                       spacing, radius, fonts)."
                 .into(),
             found: None,
-            suggest: Some("@theme { --color-accent: #6366f1; --spacing-*: initial; }".into()),
+            suggest: Some("@theme { --accent: oklch(0.6 0.2 260); }".into()),
         });
     }
 
@@ -962,10 +1039,16 @@ pub fn validate_write(
                 rule: "raw-color",
                 message: format!(
                     "{found} is not allowed. Raw hex/px values bypass the token scale. Use a \
-                     token variable instead, e.g. {prop}-[var(--accent)]."
+                     semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\"."
                 ),
                 found: Some(found),
-                suggest: Some(format!("{prop}-[var(--accent)]")),
+                suggest: Some(if prop == "text" || prop == "placeholder" || prop == "decoration" {
+                    "text-foreground".into()
+                } else if prop == "border" || prop == "divide" || prop == "ring" || prop == "outline" {
+                    "border-border".into()
+                } else {
+                    "bg-primary".into()
+                }),
             });
         }
     }

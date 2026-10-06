@@ -426,7 +426,7 @@ async fn arbitrary_tailwind_values_are_rejected_with_token_hint() {
     let e = &res.json()["errors"][0];
     assert_eq!(e["rule"], "raw-color");
     let msg = e["message"].as_str().unwrap();
-    assert!(msg.contains("var(--accent)"), "must name the token to use: {msg}");
+    assert!(msg.contains("semantic class") || msg.contains("design_guide"), "message must mention semantic classes: {msg}");
 
     // px spacing values are caught by the same rule.
     let res2 = app
