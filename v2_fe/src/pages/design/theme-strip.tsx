@@ -7,6 +7,7 @@
 import { useState } from "react"
 import { MoreHorizontalIcon, PlusIcon } from "lucide-react"
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ import {
   renameTheme,
   themeLabel,
   themeNameError,
+  themeOverrideCount,
 } from "./token-themes"
 
 type Editing = { mode: "add" } | { mode: "rename"; name: string } | { mode: "duplicate"; source: string }
@@ -43,6 +45,11 @@ export function ThemeStrip({
   onDocChange: (doc: DesignTokensDoc) => void
 }) {
   const [editing, setEditing] = useState<Editing | null>(null)
+  // The theme waiting on "Delete theme?" — deleting discards its values from
+  // the editor's doc (stored on Save tokens), so it is confirmed first.
+  // The name outlives `open` so the closing animation keeps its title.
+  const [toDelete, setToDelete] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [draft, setDraft] = useState("")
   const names = declaredThemes(doc)
   const movable = names.slice(1)
@@ -119,7 +126,13 @@ export function ThemeStrip({
                       Move right
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onClick={() => remove(name)}>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        setToDelete(name)
+                        setDeleteOpen(true)
+                      }}
+                    >
                       Delete
                     </DropdownMenuItem>
                   </>
@@ -166,6 +179,20 @@ export function ThemeStrip({
           {error ? <span className="text-[10px] text-destructive">{error}</span> : null}
         </form>
       ) : null}
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={`Delete the ${toDelete ? themeLabel(doc, toDelete) : ""} theme?`}
+        description={(() => {
+          const n = toDelete ? themeOverrideCount(doc, toDelete) : 0
+          const values = n === 0 ? "It has no values of its own" : `Its ${n} value${n === 1 ? "" : "s"} will be removed`
+          return `${values}; tokens fall back to light. Nothing is stored until you click Save tokens.`
+        })()}
+        confirmLabel="Delete theme"
+        onConfirm={async () => {
+          if (toDelete) remove(toDelete)
+        }}
+      />
     </div>
   )
 }

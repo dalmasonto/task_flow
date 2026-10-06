@@ -97,6 +97,17 @@ export function deleteTheme(doc: DesignTokensDoc, name: string): DesignTokensDoc
   })
 }
 
+/// How many token values `name` overrides — what deleting it would discard.
+export function themeOverrideCount(doc: DesignTokensDoc, name: string): number {
+  let count = 0
+  for (const tokens of Object.values(doc.categories)) {
+    for (const value of Object.values(tokens)) {
+      if ((value as DesignTokenValue)[name] !== undefined) count += 1
+    }
+  }
+  return count
+}
+
 /// Move a theme one place left (-1) or right (1) among the themes besides light.
 export function moveTheme(doc: DesignTokensDoc, name: string, delta: -1 | 1): DesignTokensDoc {
   const themes = [...themeDecls(doc)]

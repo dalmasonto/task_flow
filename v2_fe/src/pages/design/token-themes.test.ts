@@ -13,6 +13,7 @@ import {
   setThemeValue,
   themeLabel,
   themeNameError,
+  themeOverrideCount,
 } from "./token-themes"
 
 // The document as `fetchDesignTokens` hands it over: parsed JSON, legacy shape.
@@ -121,5 +122,20 @@ describe("overrideFromDefault", () => {
   it("returns a copy, never the default itself", () => {
     const copy = overrideFromDefault(legacy(), shadcn)
     expect(copy).not.toBe(shadcn)
+  })
+})
+
+describe("themeOverrideCount", () => {
+  it("counts the token values a theme overrides, across categories", () => {
+    const doc: DesignTokensDoc = {
+      version: 1,
+      themes: [{ name: "ocean" }],
+      categories: {
+        colors: { primary: { light: "#000", ocean: "#0af" }, ring: { light: "#111" } },
+        custom: { radius: { light: "0.5rem", ocean: "1rem" } },
+      },
+    }
+    expect(themeOverrideCount(doc, "ocean")).toBe(2)
+    expect(themeOverrideCount(doc, "dark")).toBe(0)
   })
 })
