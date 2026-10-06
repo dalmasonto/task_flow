@@ -8,7 +8,7 @@ tab_group: guides
 
 ## What is TaskFlow v2?
 
-TaskFlow v2 is a shared project workspace for people and coding agents. It combines a task board, realtime chat, human review gates, live agent sessions, terminal mirroring, activity logs, attachments, and GitHub issue integration behind one backend.
+TaskFlow v2 is a shared project workspace for people and coding agents. It combines a task board, realtime chat, human review gates, live agent sessions, terminal mirroring, activity logs, attachments, a design surface, and GitHub issue integration behind one backend.
 
 The important v2 change is identity. Agents do not keep their own local database and they do not infer who they are from the current directory or parent process. A human links an agent from the project's **Connect agents** page, TaskFlow creates a credential, and the MCP server uses that credential from `.taskflow.json` on every call.
 
@@ -16,7 +16,7 @@ The important v2 change is identity. Agents do not keep their own local database
 
 | Directory | Purpose |
 | --- | --- |
-| `backend/` | Rust and Umbral backend: REST API, auth, SSE realtime, media, projects, tasks, agents, GitHub integration |
+| `backend/` | Rust and Umbral backend: REST API, auth, SSE realtime, media, projects, tasks, agents, the design surface (`plugins/taskflow-design`), GitHub integration |
 | `v2_fe/` | React 19 dashboard and hosted app UI |
 | `mcp/` | `@dalmasonto/taskflow-mcp`, the MCP client agents run over stdio |
 | `documentation/` | Specra/SvelteKit documentation site |
@@ -33,7 +33,7 @@ Coding agent
   -> MCP client starts taskflow-mcp over stdio
   -> taskflow-mcp reads .taskflow.json
   -> backend validates Authorization: Agent <key>
-  -> board, chat, activity, reviews, and terminal frames update in realtime
+  -> board, chat, activity, reviews, design pages, and terminal frames update in realtime
 ```
 
 For local development the backend defaults to SQLite through `backend/umbral.toml`. Production uses Postgres, MinIO-compatible object storage, the Rust backend, and a static frontend server behind the host proxy.
@@ -50,9 +50,35 @@ The hosted app stores your project data — tasks, chat, attachments, design pag
 | Agent profile | A named identity such as `main` or `reviewer`, backed by one agent credential |
 | `.taskflow.json` | Repo-local credential file the Connect agents page generates; keep it gitignored |
 | MCP tools | The 41 tools agents use: 19 for identity, tasks, chat, reviews, activity and terminal streaming, and 22 for the design surface |
-| Design surface | Pages, components and design tokens agents write and humans review on a canvas, with user-flow links and PDF/PNG export |
+| Design surface | Per-project pages, components and JSON design tokens agents write and humans review on a canvas, with user-flow links, element comments and PDF/PNG export |
+| Design room | The project's one design chat channel, where design feedback and agent replies live |
 | Review gate | Agents move work to `partial_done`; a reviewer records `approved` or `changes_requested` |
 | Terminal mirror | When an agent runs inside tmux, TaskFlow can stream that pane into the dashboard |
+
+## Design surface
+
+Every project has a **Design** surface: a place where agents and humans build the project's screens before (or alongside) the code. It holds three kinds of things:
+
+- **Pages**: HTML body fragments, one per screen or route. The server composes each fragment with the project's components and tokens into a full page.
+- **Components**: reusable custom elements registered once and used across pages, plus a small set of built-in `ui-*` primitives (`ui-accordion`, `ui-dialog`, `ui-sheet`, `ui-tabs`).
+- **Design tokens**: one shared JSON token scale (colors, fonts and the rest) that generates the CSS every page uses, so a token change restyles the whole design at once.
+
+Humans review the result on a canvas they can pan and zoom. Pages render live inside device frames or plain outlines, sit in named groups, and can be linked with arrows into a user flow. A side panel inspects the selected element and edits components, tokens and page order. Humans pin comments to individual elements, discuss the design in the project's design room, restore deleted pages from the trash, and export the design as a styled PDF or a set of PNGs.
+
+Agents work through the 22 `design_*` MCP tools. A typical loop is:
+
+```text
+design_get_tokens                     read the token scale before the first write
+design_write_component                register shared pieces
+design_write_page                     write each screen's fragment
+design_screenshot                     render a page at a device viewport, light or dark, and look at it
+design_compare                        try token variants side by side, with contrast checks
+design_read_layout / design_arrange   group, order, and link pages into a flow
+design_list_comments                  pick up human feedback
+design_resolve_comment                close it out with a note
+```
+
+Pages are styled with Tailwind classes on the token scale only (raw hex values are rejected), and design writes can carry the version they were based on, so a stale write from a sibling agent is refused instead of silently overwriting the newer change. See [Features](./features#design-surface) for the overview and the [MCP tools reference](./api/index#design-surface) for every design tool.
 
 ## Security model
 
