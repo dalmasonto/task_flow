@@ -887,7 +887,8 @@ pub struct ProjectInstructionsInput {
 ///
 /// A change stamps `agent_instructions_updated_at`, which the MCP watches on
 /// reconnect. A no-op leaves it alone. Only the two columns are written
-/// (`update_values`), never the whole row.
+/// (`update_values`), never the whole row; a real change is then announced on
+/// `post_save:taskflow_project` so realtime carries it.
 pub async fn set_project_agent_instructions(
     CurrentIdentity(identity): CurrentIdentity,
     Path(project_id): Path<i64>,
@@ -918,6 +919,22 @@ pub async fn set_project_agent_instructions(
             )
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // `update_values` fires `bulk_post_save` only, which
+        // `Expose::<TaskflowProject>` never hears. Re-read and announce the row
+        // on the per-row signal (the same shape `create_project` emits) so other
+        // viewers' dashboards refetch the project. The agents plugin's room
+        // ensure also listens here; it is idempotent.
+        if let Ok(Some(row)) = TaskflowProject::objects()
+            .filter(taskflow_project::ID.eq(project.id))
+            .first()
+            .await
+        {
+            umbral::signals::emit(
+                "post_save:taskflow_project",
+                json!({ "instance": row, "created": false }),
+            )
+            .await;
+        }
         (next, Some(now))
     };
 

@@ -240,3 +240,100 @@ async fn a_body_without_the_markdown_key_is_rejected_and_changes_nothing() {
     assert!((400..500).contains(&status), "expected 4xx, got {status}");
     assert_eq!(whoami(&app, &key).await["instructions"]["markdown"], json!("keep me"));
 }
+
+/// The agent whose whole-row save the `pre_save` probe below interleaves with,
+/// and whether the probe ran. Process-wide because a signal subscription is.
+static RACE_AGENT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+static RACE_FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// I1: register/heartbeat/close must write ONLY the liveness columns. Before the
+/// fix each loaded the whole agent row and `Manager::save`d it back, so an
+/// instructions PUT landing between that load and that save was reverted.
+///
+/// The interleaving is forced, not hoped for: a `pre_save:taskflow_agent`
+/// subscriber runs INLINE between `Manager::save`'s load and its write, and it
+/// performs the "concurrent PUT" there. A whole-row save then writes the stale
+/// markdown back over it (the bug); a column-only write never fires `pre_save`,
+/// so the probe never runs and the PUT's value simply stands.
+#[tokio::test]
+async fn liveness_writes_never_revert_an_instructions_edit() {
+    use std::sync::atomic::Ordering;
+    use taskflow_agents::models::{TaskflowAgent, taskflow_agent};
+
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let user = app.create_user().await;
+    make_active_project_member(project, user).await;
+    let (agent, key) = ids(&link(&app, user, project, "Racer", "racer", None).await);
+
+    let put = app.put_as(user, &path(agent), json!({ "markdown": "v1" })).await;
+    assert_eq!(put.status(), 200);
+    let v1_at = whoami(&app, &key).await["instructions"]["updated_at"].clone();
+    assert!(v1_at.is_string());
+
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        umbral::signals::subscribe_async("pre_save:taskflow_agent", |payload| {
+            let id = payload["instance"]["id"].as_i64();
+            async move {
+                if id != Some(RACE_AGENT.load(Ordering::SeqCst)) || RACE_FIRED.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+                TaskflowAgent::objects()
+                    .filter(taskflow_agent::ID.eq(id.unwrap()))
+                    .update_values(
+                        json!({
+                            "instructions_markdown": "edited mid-heartbeat",
+                            "instructions_updated_at": chrono::Utc::now(),
+                        })
+                        .as_object()
+                        .cloned()
+                        .expect("object"),
+                    )
+                    .await
+                    .expect("concurrent edit");
+            }
+        });
+    });
+    RACE_AGENT.store(agent, Ordering::SeqCst);
+
+    // Every liveness path: register, heartbeat (with a hint), close.
+    let session = app
+        .post_as_agent(
+            &key,
+            "/api/taskflow/agents/sessions",
+            json!({ "session_identifier": "race:1", "host": "box", "pid": 1 }),
+        )
+        .await;
+    assert_eq!(session.status(), 200);
+    let session = session.json().await["id"].as_i64().expect("session id");
+    let hb = app
+        .post_as_agent(
+            &key,
+            &format!("/api/taskflow/agents/sessions/{session}/heartbeat"),
+            json!({ "status": "busy" }),
+        )
+        .await;
+    assert_eq!(hb.status(), 200);
+    let closed = app
+        .post_as_agent(&key, &format!("/api/taskflow/agents/sessions/{session}/close"), json!({}))
+        .await;
+    assert_eq!(closed.status(), 200);
+
+    let row = app.agent(agent).await;
+    if RACE_FIRED.load(Ordering::SeqCst) {
+        // A whole-row save ran; the edit made inside it must survive it.
+        assert_eq!(
+            row.instructions_markdown.as_deref(),
+            Some("edited mid-heartbeat"),
+            "a liveness write reverted a concurrent instructions edit"
+        );
+    } else {
+        // Column-only writes: the PUT's value and stamp are untouched.
+        assert_eq!(row.instructions_markdown.as_deref(), Some("v1"));
+        assert_eq!(whoami(&app, &key).await["instructions"]["updated_at"], v1_at);
+    }
+    // Liveness itself still landed.
+    assert_eq!(row.status, taskflow_agents::models::TaskflowAgentStatus::Offline);
+    assert!(row.last_seen_at.is_some());
+}

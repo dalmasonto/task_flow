@@ -2101,19 +2101,55 @@ async fn touch_agent(
     status: TaskflowAgentStatus,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), StatusCode> {
-    let mut agent = TaskflowAgent::objects()
+    write_agent_liveness(agent_id, json!({ "status": status, "last_seen_at": now })).await
+}
+
+/// Write ONLY an agent's liveness columns (`status`, and `last_seen_at` when
+/// given), then announce the row on realtime.
+///
+/// Never a load-then-`Manager::save` of the whole row: a register/heartbeat/
+/// close runs constantly, and a whole-row save would write back whatever it
+/// loaded — so an instructions PUT (#615) that landed between the load and the
+/// save would be silently reverted to the old markdown and timestamp.
+/// `update_values` touches the named columns and nothing else.
+///
+/// `update_values` fires `bulk_post_save` only, which `Expose` never hears, so
+/// the dashboard's online/offline dot would go silent; [`announce_agent_saved`]
+/// restores the per-row event the old whole-row save produced. 500 if the
+/// agent row is gone (the caller authenticated as it a moment ago).
+async fn write_agent_liveness(agent_id: i64, values: serde_json::Value) -> Result<(), StatusCode> {
+    let written = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .update_values(values.as_object().cloned().unwrap_or_default())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if written == 0 {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    announce_agent_saved(agent_id).await;
+    Ok(())
+}
+
+/// Re-read an agent row and announce it on `post_save:taskflow_agent`, the
+/// per-row signal `Expose::<TaskflowAgent>` (`backend/src/realtime.rs`)
+/// broadcasts from. Every column-only write of an agent (`update_values`, which
+/// fires `bulk_post_save` alone) calls this so the dashboard still hears it.
+/// The payload is the shape the ORM's own emitter builds (`{instance,
+/// created}`); `umbral::signals::emit` adds the `actor`. A row that is gone by
+/// now is skipped rather than guessed at.
+pub(crate) async fn announce_agent_saved(agent_id: i64) {
+    let Ok(Some(row)) = TaskflowAgent::objects()
         .filter(taskflow_agent::ID.eq(agent_id))
         .first()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    agent.status = status;
-    agent.last_seen_at = Some(now);
-    TaskflowAgent::objects()
-        .save(agent)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(())
+    else {
+        return;
+    };
+    umbral::signals::emit(
+        "post_save:taskflow_agent",
+        json!({ "instance": row, "created": false }),
+    )
+    .await;
 }
 
 /// Load a session by id and prove it belongs to `agent_id`. 404 if the session
@@ -2548,17 +2584,12 @@ pub async fn close_session(
     // died without closing) pin the agent online permanently.
     let still_connected = live_session_count(agent.agent_id, now).await?;
     if still_connected == 0 {
-        let mut agent_row = TaskflowAgent::objects()
-            .filter(taskflow_agent::ID.eq(agent.agent_id))
-            .first()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        agent_row.status = TaskflowAgentStatus::Offline;
-        TaskflowAgent::objects()
-            .save(agent_row)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // Status only: never a whole-row save (see `write_agent_liveness`).
+        write_agent_liveness(
+            agent.agent_id,
+            json!({ "status": TaskflowAgentStatus::Offline }),
+        )
+        .await?;
     }
 
     Ok((StatusCode::OK, Json(session)).into_response())
@@ -5228,7 +5259,9 @@ pub struct SetInstructionsInput {
 /// A change stamps `instructions_updated_at`, which the MCP watches on
 /// reconnect. A no-op leaves it alone so a Save with nothing changed does not
 /// page the agent. Only the two columns are written (`update_values`): a
-/// whole-row save would clobber a concurrent heartbeat's `status`/`last_seen_at`.
+/// whole-row save would clobber a concurrent heartbeat's `status`/`last_seen_at`
+/// (and the heartbeat, in turn, writes only those — `write_agent_liveness`). A
+/// real change is announced on realtime (`announce_agent_saved`).
 pub async fn set_agent_instructions(
     CurrentIdentity(identity): CurrentIdentity,
     Path(agent_id): Path<i64>,
@@ -5257,6 +5290,9 @@ pub async fn set_agent_instructions(
             )
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // `update_values` fires `bulk_post_save` only; announce the row so other
+        // viewers' dashboards hear the change (a no-op save announces nothing).
+        announce_agent_saved(agent.id).await;
         (next, Some(now))
     };
 
