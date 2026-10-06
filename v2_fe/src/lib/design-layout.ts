@@ -215,6 +215,25 @@ export function createGroup(doc: LayoutDoc, name: string): { doc: LayoutDoc; id:
   return { doc: { ...doc, groups: [...doc.groups, { id, name: name.trim(), routes: [] }] }, id }
 }
 
+/// Why `name` cannot be `id`'s new name, or null. `groupNameProblem` minus the
+/// group itself (so "Auth" -> "auth" is a valid rename) and minus the count cap
+/// (renaming does not add a group).
+export function renameProblem(doc: LayoutDoc, id: string, name: string): string | null {
+  const others = { ...doc, groups: doc.groups.filter((g) => g.id !== id) }
+  const problem = groupNameProblem(others, name)
+  return problem?.startsWith("At most") ? null : problem
+}
+
+/// `id` renamed to `name` (trimmed), or the document ITSELF when the name is
+/// unchanged, refused by `renameProblem`, or `id` is unknown, so a caller can
+/// skip the save by identity, as with `moveGroup`.
+export function renameGroup(doc: LayoutDoc, id: string, name: string): LayoutDoc {
+  const group = doc.groups.find((g) => g.id === id)
+  const trimmed = name.trim()
+  if (!group || group.name === trimmed || renameProblem(doc, id, trimmed) !== null) return doc
+  return { ...doc, groups: doc.groups.map((g) => (g.id === id ? { ...g, name: trimmed } : g)) }
+}
+
 /** Move a route into `groupId`, or out of every group when it is null. A route
  *  lives in at most one group, so this removes it from wherever it was. */
 export function assignRoute(doc: LayoutDoc, route: string, groupId: string | null): LayoutDoc {

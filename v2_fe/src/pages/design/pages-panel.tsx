@@ -138,6 +138,8 @@ import {
   moveGroup,
   moveRouteInSection,
   pageLabel,
+  renameGroup,
+  renameProblem,
   setPageLabel,
   type LayoutDoc,
 } from "@/lib/design-layout"
@@ -218,6 +220,7 @@ export function PagesPanel({
   /// Whether the New group dialog is open. Held here, not inside it: the button
   /// that opens it is the panel's, and so is the `createGroup` call below.
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
 
   /// The group the Delete group dialog is asking about, or null when closed.
   /// Deleting removes the GROUPING only: `removeGroup` leaves its pages in the
@@ -499,9 +502,29 @@ export function PagesPanel({
     return (
       <li key={section.id} className="flex flex-col pl-3">
         <div className="flex items-center gap-1 px-2 py-0.5">
-          <h4 className="min-w-0 flex-1 truncate px-1 text-xs font-medium">
-            {index + 1}. {section.name}
-          </h4>
+          {renamingGroup === section.id ? (
+            <GroupNameInput
+              name={section.name}
+              problem={(value) => renameProblem(layout, section.id, value)}
+              onCommit={(value) => {
+                const next = renameGroup(layout, section.id, value)
+                if (next !== layout) onLayoutChange(next)
+                setRenamingGroup(null)
+              }}
+              onCancel={() => setRenamingGroup(null)}
+            />
+          ) : (
+            <h4 className="min-w-0 flex-1 truncate px-1 text-xs font-medium">
+              <button
+                type="button"
+                className="max-w-full truncate rounded text-left hover:bg-accent"
+                title="Rename group"
+                onClick={() => setRenamingGroup(section.id)}
+              >
+                {index + 1}. {section.name}
+              </button>
+            </h4>
+          )}
           {/* The group's own open/close control — "Select group" / "Deselect",
               the action rather than a second name for the state — beside the
               arrows that move the group, and above the rows it acts on. The box
@@ -905,6 +928,42 @@ function PageName({
       onCommit={onCommit}
       onCommitted={() => setEditing(false)}
     />
+  )
+}
+
+/// The group rename box: Enter or blur commits, Escape cancels. A refused name
+/// shows its reason under the box and is not committed.
+function GroupNameInput({
+  name,
+  problem,
+  onCommit,
+  onCancel,
+}: {
+  name: string
+  problem: (value: string) => string | null
+  onCommit: (value: string) => void
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState(name)
+  const reason = draft.trim() === name ? null : problem(draft)
+  const commit = () => (reason ? onCancel() : onCommit(draft))
+  return (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <Input
+        autoFocus
+        className="h-7 min-w-0 px-1.5"
+        aria-label={`Rename group ${name}`}
+        value={draft}
+        maxLength={40}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit()
+          if (e.key === "Escape") onCancel()
+        }}
+      />
+      {reason ? <span className="px-1 text-[10px] text-destructive">{reason}</span> : null}
+    </div>
   )
 }
 

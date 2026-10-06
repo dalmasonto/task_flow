@@ -7,6 +7,8 @@ import {
   normalizeLayout,
   nextEdgeId,
   createGroup,
+  renameGroup,
+  renameProblem,
   groupNameProblem,
   assignRoute,
   removeGroup,
@@ -969,5 +971,30 @@ describe("#508 flow view and edge ids", () => {
     expect(nextEdgeId(withIds(["e7", "e2"]))).toBe("e8")
     expect(nextEdgeId(withIds(["eabc", "x9", "e", "e-4", "e3x"]))).toBe("e1")
     expect(nextEdgeId(withIds(["e009", "gfoo"]))).toBe("e10")
+  })
+})
+
+describe("renameGroup", () => {
+  const base = withGroups("Auth", "Settings")
+  const g1 = base.groups[0].id
+  it("renames, trimming", () => {
+    expect(renameGroup(base, g1, "  Sign in  ").groups[0].name).toBe("Sign in")
+  })
+  it("returns the doc itself for the same name (case changes allowed)", () => {
+    expect(renameGroup(base, g1, "Auth")).toBe(base)
+    expect(renameGroup(base, g1, "auth").groups[0].name).toBe("auth")
+  })
+  it("refuses a name another group has, blank, or over 40 chars", () => {
+    expect(renameGroup(base, g1, "settings")).toBe(base)
+    expect(renameGroup(base, g1, "   ")).toBe(base)
+    expect(renameGroup(base, g1, "x".repeat(41))).toBe(base)
+    expect(renameProblem(base, g1, "settings")).toMatch(/already/)
+  })
+  it("ignores an unknown id", () => {
+    expect(renameGroup(base, "nope", "X")).toBe(base)
+  })
+  it("is allowed at the group cap (renaming adds nothing)", () => {
+    const full = fullLayout()
+    expect(renameGroup(full, full.groups[0].id, "Renamed").groups[0].name).toBe("Renamed")
   })
 })

@@ -111,7 +111,7 @@ const headings = (html: string) =>
 /// sequence: a row that drifted into the wrong group — or out of every group
 /// into the tail — fails here and passes a flat scan.
 const blocks = (html: string) => {
-  const marks = [...html.matchAll(/<h([34])[^>]*>([^<]*)<\/h\1>/g)].map((match) => ({
+  const marks = [...html.matchAll(/<h([34])[^>]*>(?:<button[^>]*>)?([^<]*)(?:<\/button>)?<\/h\1>/g)].map((match) => ({
     level: Number(match[1]),
     text: match[2],
     at: match.index ?? 0,
@@ -196,7 +196,7 @@ const rows = (html: string) =>
 /// `null` when the panel draws no such heading, which is a state worth seeing.
 const headerOf = (html: string, heading: string) => {
   const pattern = new RegExp(
-    `<li[^>]*><div[^>]*><h4[^>]*>${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</h4>([\\s\\S]*?)</div>`,
+    `<li[^>]*><div[^>]*><h4[^>]*>(?:<button[^>]*>)?${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:</button>)?</h4>([\\s\\S]*?)</div>`,
   )
   return pattern.exec(html)?.[1] ?? null
 }
