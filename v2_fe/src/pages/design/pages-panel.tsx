@@ -104,7 +104,7 @@
 /// name is clicked (`PageName` below), which is what the sketch asks for.
 
 import { ChevronDownIcon, ChevronUpIcon, RotateCcwIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react"
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -946,7 +946,15 @@ function GroupNameInput({
 }) {
   const [draft, setDraft] = useState(name)
   const reason = draft.trim() === name ? null : problem(draft)
-  const commit = () => (reason ? onCancel() : onCommit(draft))
+  // The first of Enter / Escape / blur wins: Enter unmounts the box, whose blur
+  // would otherwise commit a second time (or Escape's would commit the draft).
+  const done = useRef(false)
+  const finish = (fn: () => void) => {
+    if (done.current) return
+    done.current = true
+    fn()
+  }
+  const commit = () => finish(() => (reason ? onCancel() : onCommit(draft)))
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <Input
@@ -959,7 +967,7 @@ function GroupNameInput({
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit()
-          if (e.key === "Escape") onCancel()
+          if (e.key === "Escape") finish(onCancel)
         }}
       />
       {reason ? <span className="px-1 text-[10px] text-destructive">{reason}</span> : null}
