@@ -47,6 +47,8 @@ import {
   DownloadIcon,
   ImageDownIcon,
   SmartphoneIcon,
+  ScrollTextIcon,
+  FileCodeIcon,
   Trash2Icon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -81,7 +83,9 @@ import { sandboxUrl, downloadPageHtml, fetchPageHtmlFragment } from "@/lib/desig
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -176,9 +180,10 @@ export type DesignCanvasProps = {
   onDuplicateBoard: (key: string, deviceId: string) => void
   /** Close this board's route from the canvas — the page, everywhere. */
   onRemoveBoard: (route: string) => void
-  /** Download this board's screen as a PNG, bare or in its device's frame.
+  /** Download this board's screen as a PNG — the visible screen or the whole
+   *  page, bare or in its device's frame.
    *  Absent: the menu offers no download. */
-  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   /** Move this board's PAGE to the trash (after the menu's confirm dialog).
    *  Absent: the menu offers no delete. */
   onDeletePage?: (route: string) => void
@@ -593,7 +598,7 @@ type BoardNodeData = {
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
   onRemoveBoard: (route: string) => void
-  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   onDeletePage?: (route: string) => void
   sandboxToken: string | null
   projectId: number | null
@@ -696,7 +701,7 @@ const ArtboardCard = memo(function ArtboardCard({
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
   onRemoveBoard: (route: string) => void
-  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   onDeletePage?: (route: string) => void
   sandboxToken: string | null
   projectId: number | null
@@ -843,8 +848,9 @@ export function ArtboardHeader({
   onOpenBoard: (key: string) => void
   onDuplicateBoard: (key: string, deviceId: string) => void
   onRemoveBoard: (route: string) => void
-  /** Download this screen as a PNG — bare, or in the board's device frame. */
-  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean) => void
+  /** Download this screen as a PNG — visible screen or full page, bare or in
+   *  the board's device frame. */
+  onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   /** Trash this page; only ever called from the confirm dialog below. */
   onDeletePage?: (route: string) => void
 }) {
@@ -928,13 +934,71 @@ export function ArtboardHeader({
         <ClipboardCopyIcon className="size-3.5" />
       </button>
       <button
-        className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
-        title="Download"
-        disabled={projectId == null}
-        onClick={downloadHtml}
+        type="button"
+        className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800"
+        title="Reload"
+        aria-label={`Reload ${label}`}
+        onClick={() => onReloadBoard(boardKey)}
       >
-        <DownloadIcon className="size-3.5" />
+        <RefreshCwIcon className="size-3.5" />
       </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          disabled={projectId == null}
+          render={
+            // `nopan nodrag`: React Flow must not take this press as a pan.
+            <button
+              type="button"
+              className="nopan nodrag shrink-0 rounded p-1 hover:bg-zinc-800 disabled:opacity-40"
+              title="Download"
+              aria-label={`Download ${label}`}
+            />
+          }
+        >
+          <DownloadIcon className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          {onDownloadImage ? (
+            // GroupLabel needs Menu.Group context, or Base UI throws on open.
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Download</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => onDownloadImage(route, label, device.id, false, false)}>
+                <ImageDownIcon className="size-3.5" />
+                <span className="flex-1">Image</span>
+                <span className="text-[10px] text-muted-foreground">screen</span>
+              </DropdownMenuItem>
+              {/* A breakpoint is a width, not a device: there is no honest
+                  frame to draw, and the row says so rather than hiding. */}
+              <DropdownMenuItem
+                disabled={!frame}
+                onClick={() => frame && onDownloadImage(route, label, device.id, true, false)}
+              >
+                <SmartphoneIcon className="size-3.5" />
+                <span className="flex-1">Image with frame</span>
+                {!frame ? <span className="text-[10px] text-muted-foreground">no frame</span> : null}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onDownloadImage(route, label, device.id, false, true)}>
+                <ScrollTextIcon className="size-3.5" />
+                <span className="flex-1">Full page</span>
+                <span className="text-[10px] text-muted-foreground">whole scroll</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!frame}
+                onClick={() => frame && onDownloadImage(route, label, device.id, true, true)}
+              >
+                <SmartphoneIcon className="size-3.5" />
+                <span className="flex-1">Full page with frame</span>
+                {!frame ? <span className="text-[10px] text-muted-foreground">no frame</span> : null}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          ) : null}
+          {onDownloadImage ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem onClick={downloadHtml}>
+            <FileCodeIcon className="size-3.5" />
+            HTML file
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -996,33 +1060,10 @@ export function ArtboardHeader({
             <ExternalLinkIcon className="size-3.5" />
             Open in new tab
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onReloadBoard(boardKey)}>
-            <RefreshCwIcon className="size-3.5" />
-            Reload
-          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onRemoveBoard(route)}>
             <XIcon className="size-3.5" />
             Remove
           </DropdownMenuItem>
-          {onDownloadImage ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onDownloadImage(route, label, device.id, false)}>
-                <ImageDownIcon className="size-3.5" />
-                Download image
-              </DropdownMenuItem>
-              {/* A breakpoint is a width, not a device: there is no honest
-                  frame to draw, and the row says so rather than hiding. */}
-              <DropdownMenuItem
-                disabled={!frame}
-                onClick={() => frame && onDownloadImage(route, label, device.id, true)}
-              >
-                <SmartphoneIcon className="size-3.5" />
-                <span className="flex-1">Download with frame</span>
-                {!frame ? <span className="text-[10px] text-muted-foreground">no frame</span> : null}
-              </DropdownMenuItem>
-            </>
-          ) : null}
           {onDeletePage ? (
             <>
               <DropdownMenuSeparator />

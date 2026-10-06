@@ -84,6 +84,19 @@ export function canvasFrame(device: DevicePreset): { frame: string; metrics: Fra
   return { frame, metrics, scale: device.width / metrics.screenW }
 }
 
+/// How many frame pixels a device frame must grow so a FULL-PAGE shot fits its
+/// screen below the status bar (0 when the shot fits). The shot is shown at the
+/// screen's width, so its height scales by `screenW / shot.width`. devices.css
+/// positions every frame part from the frame's top or bottom edge, so growing
+/// the frame, its inner frame and its screen by this much stretches the phone
+/// without moving its buttons, notch or home bar.
+export function frameStretch(metrics: FrameMetrics, shot: { width: number; height: number }): number {
+  if (shot.width <= 0) return 0
+  const shown = (shot.height * metrics.screenW) / shot.width
+  const room = metrics.screenH - metrics.statusBar
+  return Math.max(0, Math.ceil(shown - room))
+}
+
 /// The page's viewport height inside a framed board: the frame's screen below
 /// its status bar, at the canvas scale. Close to the preset's height — a real
 /// phone loses the same strip to its status bar.
