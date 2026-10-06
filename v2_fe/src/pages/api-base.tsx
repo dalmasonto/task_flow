@@ -1,10 +1,12 @@
 import { API_BASE_URL } from "@/lib/auth-api"
-import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon, Trash2Icon } from "lucide-react"
+import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, FileTextIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon, Trash2Icon } from "lucide-react"
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setAgentInstructions, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Input } from "@/components/ui/input"
+import { AgentInstructionsDialog, InstructionsEditor } from "@/components/instructions-editor"
+import { agentInstructionsOf, instructionsSnippet, latestInstructions, normalizeInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
 import { Link } from "react-router-dom"
 import { PageShell } from "@/components/layout"
 import { cn } from "@/lib/utils"
@@ -35,6 +37,7 @@ export function ApiBasePage({
   // agent would not appear until a reload.
   // Agents deleted from this page, hidden at once for the same reason.
   const [deletedAgentIds, setDeletedAgentIds] = useState<number[]>([])
+  const [localInstructions, setLocalInstructions] = useState<Record<number, InstructionsBlock>>({})
   const [justLinked, setJustLinked] = useState<{ agent: TaskflowWorkspace["agents"][number]; keyPrefix: string }[]>([])
   const projectAgents = useMemo(() => {
     if (numericProjectId == null) return []
@@ -122,7 +125,7 @@ export function ApiBasePage({
         <LinkAgentCard
           projectId={numericProjectId}
           projectAgents={projectAgents}
-          onLinked={(linked) =>
+          onLinked={(linked, instructions) =>
             setJustLinked((current) => [
               ...current,
               {
@@ -140,8 +143,8 @@ export function ApiBasePage({
                   linked_by: null,
                   linked_user_label: null,
                   last_seen_at: null,
-                  instructions_markdown: null,
-                  instructions_updated_at: null,
+                  instructions_markdown: instructions.markdown,
+                  instructions_updated_at: instructions.updated_at,
                   created_at: null,
                 },
                 keyPrefix: linked.key.slice(0, 16),
@@ -158,6 +161,14 @@ export function ApiBasePage({
         onDelete={async (agentId) => {
           await deleteAgent(agentId)
           setDeletedAgentIds((current) => [...current, agentId])
+        }}
+        instructionsOf={(agent) => latestInstructions(agentInstructionsOf(agent), localInstructions[agent.id])}
+        onSaveInstructions={async (agentId, markdown) => {
+          const saved = await setAgentInstructions(agentId, markdown)
+          setLocalInstructions((current) => ({
+            ...current,
+            [agentId]: { markdown: saved.markdown, updated_at: saved.updated_at },
+          }))
         }}
       />
 
@@ -423,7 +434,7 @@ export function LinkAgentCard({
   projectId: number | null
   projectAgents: TaskflowWorkspace["agents"]
   /// Called with each new link, so the page can list the agent at once.
-  onLinked?: (linked: LinkAgentResult) => void
+  onLinked?: (linked: LinkAgentResult, instructions: InstructionsBlock) => void
 }) {
   const usedProfiles = useMemo(
     () => new Map(projectAgents.map((agent) => [profileOf(agent.identifier), agent.display_name])),
@@ -437,6 +448,8 @@ export function LinkAgentCard({
   /// Whether the project already had agents when this one was linked — decides
   /// which save form is shown first.
   const [hadAgents, setHadAgents] = useState(false)
+  const [instructions, setInstructions] = useState("")
+  const [instructionsWarning, setInstructionsWarning] = useState<string | null>(null)
 
   // The first agent is `main` (the profile the MCP picks by default); later
   // ones must be named.
@@ -469,16 +482,38 @@ export function LinkAgentCard({
       setError(null)
       try {
         setHadAgents(projectAgents.length > 0)
-        const linked = await linkAgent({ project: projectId, display_name: name, profile: effectiveProfile })
+        const markdown = normalizeInstructions(instructions)
+        const linked = await linkAgent({
+          project: projectId,
+          display_name: name,
+          profile: effectiveProfile,
+          ...(markdown ? { instructions_markdown: markdown } : {}),
+        })
+        let block: InstructionsBlock = linked.instructions_applied
+          ? { markdown, updated_at: new Date().toISOString() }
+          : { markdown: null, updated_at: null }
+        setInstructionsWarning(null)
+        if (markdown && !linked.instructions_applied) {
+          // The identity already existed, so the link left its instructions alone
+          // (only its manager may change them). Save them through the gated call.
+          try {
+            const saved = await setAgentInstructions(linked.agent_id, markdown)
+            block = { markdown: saved.markdown, updated_at: saved.updated_at }
+          } catch (caught) {
+            setInstructionsWarning(
+              `Linked, but the role instructions were not saved: ${caught instanceof Error ? caught.message : "unknown error"}`
+            )
+          }
+        }
         setResult(linked)
-        onLinked?.(linked)
+        onLinked?.(linked, block)
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Could not link the agent.")
       } finally {
         setPending(false)
       }
     },
-    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked]
+    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked, instructions]
   )
 
   const handleReset = useCallback(() => {
@@ -486,6 +521,8 @@ export function LinkAgentCard({
     setError(null)
     setDisplayName("")
     setProfile("")
+    setInstructions("")
+    setInstructionsWarning(null)
   }, [])
 
   // The BACKEND origin, not this page's: an agent runs headless and must not
@@ -524,6 +561,7 @@ export function LinkAgentCard({
               <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{result.profile}</code>.
             </span>
           </p>
+          {instructionsWarning ? <p className="text-xs font-medium text-rose-600">{instructionsWarning}</p> : null}
           <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
             <LockIcon className="size-3.5 shrink-0" />
             The key below is shown once and cannot be recovered — save it now.
@@ -601,6 +639,21 @@ export function LinkAgentCard({
                   : "The identity's key inside .taskflow.json. The first agent is usually main."}
             </span>
           </label>
+          <div className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Role &amp; instructions (optional)</span>
+            <InstructionsEditor
+              label="Role & instructions"
+              value={instructions}
+              onChange={setInstructions}
+              disabled={pending}
+              showTemplates
+              placeholder={"## Role\nWhat this agent is for, what it owns, and the conventions it follows."}
+            />
+            <span className="text-xs text-muted-foreground">
+              Markdown the agent reads through <code className="rounded bg-muted px-1 py-0.5">whoami</code>. Edit it any
+              time; the agent picks up changes on its next whoami.
+            </span>
+          </div>
           {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
           <Button type="submit" size="sm" disabled={pending || projectId == null}>
             <BotIcon />
@@ -628,14 +681,20 @@ export function AgentsList({
   sessions,
   credentials,
   onDelete,
+  instructionsOf,
+  onSaveInstructions,
 }: {
   agents: TaskflowWorkspace["agents"]
   sessions: TaskflowWorkspace["agentSessions"]
   credentials: TaskflowWorkspace["agentCredentials"]
   onDelete?: (agentId: number) => Promise<void>
+  instructionsOf?: (agent: TaskflowWorkspace["agents"][number]) => InstructionsBlock
+  onSaveInstructions?: (agentId: number, markdown: string | null) => Promise<void>
 }) {
   const now = useLivenessNow()
   const [toDelete, setToDelete] = useState<TaskflowWorkspace["agents"][number] | null>(null)
+  const [editing, setEditing] = useState<TaskflowWorkspace["agents"][number] | null>(null)
+  const blockOf = (agent: TaskflowWorkspace["agents"][number]) => (instructionsOf ? instructionsOf(agent) : agentInstructionsOf(agent))
   return (
     <section className="rounded-lg border bg-card shadow-sm">
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
@@ -662,6 +721,7 @@ export function AgentsList({
             const keys = credentials.filter((c) => c.agent === agent.id)
             const active = keys.find((c) => c.status === "active")
             const profile = profileOf(agent.identifier)
+            const snippet = instructionsSnippet(blockOf(agent).markdown)
             return (
               <li key={agent.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                 <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -679,6 +739,15 @@ export function AgentsList({
                     <span className="truncate font-medium">{agent.display_name}</span>
                     {profile ? (
                       <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{profile}</code>
+                    ) : null}
+                    {snippet ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
+                        title={snippet}
+                      >
+                        <FileTextIcon className="size-3" />
+                        Instructions
+                      </span>
                     ) : null}
                     <span className={cn("text-xs", live.length ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
                       {live.length ? `Online${live.length > 1 ? ` · ${live.length} sessions` : ""}` : "Offline"}
@@ -704,6 +773,19 @@ export function AgentsList({
                     <span className="text-rose-600">No active key</span>
                   )}
                 </div>
+                {onSaveInstructions ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    title={`Role & instructions for ${agent.display_name}`}
+                    onClick={() => setEditing(agent)}
+                  >
+                    <FileTextIcon />
+                    Instructions
+                  </Button>
+                ) : null}
                 {onDelete ? (
                   <Button
                     type="button"
@@ -734,6 +816,18 @@ export function AgentsList({
           onConfirm={async () => {
             if (toDelete) await onDelete(toDelete.id)
           }}
+        />
+      ) : null}
+      {onSaveInstructions && editing ? (
+        <AgentInstructionsDialog
+          key={editing.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditing(null)
+          }}
+          agentName={editing.display_name}
+          saved={blockOf(editing).markdown}
+          onSave={(markdown) => onSaveInstructions(editing.id, markdown)}
         />
       ) : null}
     </section>
