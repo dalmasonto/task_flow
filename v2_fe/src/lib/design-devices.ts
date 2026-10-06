@@ -212,11 +212,42 @@ export function boardContentOrigin(device: DevicePreset): { x: number; y: number
   const framed = canvasFrame(device)
   if (framed) {
     const { metrics, scale } = framed
-    return { x: metrics.screenX * scale, y: HEADER_H + (metrics.screenY + metrics.statusBar) * scale }
+    return { x: metrics.screenX * scale, y: HEADER_H + metrics.screenY * scale }
   }
   const chrome = classicChrome(device)
   if (chrome) return { x: CHROME_BORDER + chrome.padding.left, y: HEADER_H + CHROME_BORDER + chrome.padding.top }
   return { x: OUTLINE_BORDER, y: HEADER_H + OUTLINE_BORDER }
+}
+
+/// #626: a device's safe-area insets in CSS px — what the canvas injects as
+/// `--safe-top` / `--safe-bottom` into a device-framed board. Sources are in
+/// docs/superpowers/specs/2026-10-07-design-safe-areas-design.md ("Preset
+/// values"); the Android pair are estimates. A landscape variant, a laptop, a
+/// breakpoint and any unknown id have none.
+export type SafeArea = { top: number; bottom: number }
+
+export const NO_SAFE_AREA: SafeArea = { top: 0, bottom: 0 }
+
+const SAFE_AREAS: Record<string, SafeArea> = {
+  "iphone-se": { top: 20, bottom: 0 },
+  "iphone-16-pro": { top: 59, bottom: 34 },
+  "iphone-16-pro-max": { top: 62, bottom: 34 },
+  "pixel-8": { top: 40, bottom: 24 },
+  "galaxy-s24": { top: 32, bottom: 24 },
+  "ipad-mini": { top: 24, bottom: 20 },
+  "ipad-pro-11": { top: 24, bottom: 20 },
+  "ipad-pro-13": { top: 24, bottom: 20 },
+}
+
+export function safeAreaFor(deviceId: string): SafeArea {
+  return SAFE_AREAS[deviceId] ?? NO_SAFE_AREA
+}
+
+/// The insets a BOARD injects: the device's own only when it wears a real
+/// device frame. Classic and outline boards draw nothing over the page, so
+/// they inject 0/0 and render exactly as before.
+export function boardSafeArea(device: DevicePreset): SafeArea {
+  return canvasFrame(device) ? safeAreaFor(device.id) : NO_SAFE_AREA
 }
 
 /// The canvas's original chrome (`ClassicBoard`), kept as the `classic` frame

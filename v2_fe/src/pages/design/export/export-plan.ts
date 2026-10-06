@@ -78,8 +78,9 @@ export type ExportDress =
 export type DressStyle = ExportDress["kind"]
 
 /// The viewport a screen is CAPTURED at. For a device frame it is the frame's
-/// screen below its status bar, at the device's width — the same viewport the
-/// canvas gives a framed board (`framedViewportHeight`), and exactly the area
+/// screen below its status bar, at the device's width — what the canvas gave a
+/// framed board before #626 (the canvas now draws the page under the strip;
+/// exports deliberately keep this rule), and exactly the area
 /// the picture is then laid into. A page captured at the preset's own height
 /// instead is a different shape from that screen, and laying it in from the
 /// top cropped its bottom: a Pixel 8 page lost its last 49px, and the button
