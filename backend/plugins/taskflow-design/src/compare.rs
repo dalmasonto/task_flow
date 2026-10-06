@@ -205,12 +205,12 @@ pub fn apply_to(doc: &TokensDoc, ov: &Overrides) -> (TokensDoc, Vec<String>) {
             ("custom".to_string(), name.clone())
         });
         let entries = out.categories.entry_or_insert_with(&category, OrderedMap::new);
-        let token = entries.entry_or_insert_with(&key, || TokenValue { light: String::new(), dark: None });
+        let token = entries.entry_or_insert_with(&key, TokenValue::default);
         match value {
             OverrideValue::Both(v) => {
                 token.light = v.clone();
-                if token.dark.is_some() {
-                    token.dark = Some(v.clone());
+                if token.themes.contains_key("dark") {
+                    token.set("dark", v.clone());
                 }
             }
             OverrideValue::PerTheme { light, dark } => {
@@ -218,7 +218,7 @@ pub fn apply_to(doc: &TokensDoc, ov: &Overrides) -> (TokensDoc, Vec<String>) {
                     token.light = v.clone();
                 }
                 if let Some(v) = dark {
-                    token.dark = Some(v.clone());
+                    token.set("dark", v.clone());
                 }
                 if token.light.is_empty() {
                     // A dark-only override of a token that had no light value.

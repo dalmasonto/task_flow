@@ -292,7 +292,7 @@ fn token_groups_from_doc(doc: &TokensDoc) -> Vec<TokenGroup> {
             for (key, value) in entries.iter() {
                 let var_name = category_to_var_name(category, key);
                 variables.push((var_name.clone(), value.light.clone()));
-                if let Some(dark) = &value.dark {
+                if let Some(dark) = value.themes.get("dark") {
                     variables_dark.push((var_name, dark.clone()));
                 }
             }

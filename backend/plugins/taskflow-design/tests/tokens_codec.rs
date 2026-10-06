@@ -88,7 +88,7 @@ fn a_real_shadcn_globals_css_imports_its_dark_values() {
     let p = &doc.categories.iter().find(|(c, _)| c == "custom").expect("custom").1
         .iter().find(|(k, _)| k == "--primary").expect("--primary").1;
     assert_eq!(p.light, "oklch(0.205 0 0)");
-    assert_eq!(p.dark.as_deref(), Some("oklch(0.922 0 0)"));
+    assert_eq!(p.get("dark"), Some("oklch(0.922 0 0)"));
     let json = serde_json::to_string(&doc).unwrap();
     assert!(!json.contains("--color-") && !json.contains("\"lg\""), "{json}");
 }

@@ -71,6 +71,20 @@ impl<V> OrderedMap<V> {
         }
         self.get_mut(key).expect("just inserted")
     }
+
+    pub fn get(&self, key: &str) -> Option<&V> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.0.iter().any(|(k, _)| k == key)
+    }
+
+    /// Remove `key`, returning its value if it was present.
+    pub fn remove(&mut self, key: &str) -> Option<V> {
+        let at = self.0.iter().position(|(k, _)| k == key)?;
+        Some(self.0.remove(at).1)
+    }
 }
 
 impl<V: Serialize> Serialize for OrderedMap<V> {
@@ -107,18 +121,137 @@ impl<'de, V: Deserialize<'de>> Deserialize<'de> for OrderedMap<V> {
     }
 }
 
-/// A single token's value: always a light value, optionally a dark override.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The base theme every other theme inherits from. Always exists.
+pub const LIGHT: &str = "light";
+/// The theme a legacy document (no `themes` list) declares implicitly.
+pub const DARK: &str = "dark";
+/// Themes per project, light included.
+pub const MAX_THEMES: usize = 8;
+/// Never a theme name: `light` is the implicit base; `both` and `all` are
+/// design_screenshot's multi-theme values.
+pub const RESERVED_THEME_NAMES: &[&str] = &["light", "both", "all"];
+
+/// A theme name is a lowercase slug, `^[a-z][a-z0-9-]{0,31}$`. It lands in a
+/// CSS attribute selector (`[data-theme="<name>"]`), an HTML attribute and a
+/// URL query, so nothing else is ever accepted.
+pub fn is_theme_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (1..=32).contains(&bytes.len())
+        && bytes[0].is_ascii_lowercase()
+        && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
+/// One declared theme besides light: `{"name": "ocean", "label"?: "Ocean"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeDecl {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+impl ThemeDecl {
+    pub fn named(name: impl Into<String>) -> Self {
+        ThemeDecl { name: name.into(), label: None }
+    }
+}
+
+/// A single token's values: the light (base) value plus one override per
+/// theme that changes it. Serialised FLAT — `{"light": v, "dark": v, "ocean": v}`
+/// — so the legacy `{light, dark?}` shape IS this shape with one theme and
+/// every stored document reads and writes unchanged. A theme with no entry
+/// inherits `light`.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct TokenValue {
     pub light: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dark: Option<String>,
+    /// Theme name → value, in document order. Never holds `light`.
+    pub themes: OrderedMap<String>,
+}
+
+impl TokenValue {
+    pub fn new(light: impl Into<String>) -> Self {
+        TokenValue { light: light.into(), themes: OrderedMap::new() }
+    }
+
+    /// Builder form of [`TokenValue::set`].
+    pub fn with(mut self, theme: &str, value: impl Into<String>) -> Self {
+        self.set(theme, value);
+        self
+    }
+
+    /// The token's OWN value in `theme`: light's for `light`, else the
+    /// override, if it has one.
+    pub fn get(&self, theme: &str) -> Option<&str> {
+        if theme == LIGHT {
+            Some(self.light.as_str())
+        } else {
+            self.themes.get(theme).map(String::as_str)
+        }
+    }
+
+    /// What the token renders with in `theme`: its override, else light.
+    pub fn resolve(&self, theme: &str) -> &str {
+        self.get(theme).unwrap_or(self.light.as_str())
+    }
+
+    pub fn set(&mut self, theme: &str, value: impl Into<String>) {
+        if theme == LIGHT {
+            self.light = value.into();
+        } else {
+            self.themes.insert(theme, value.into());
+        }
+    }
+
+    /// Drop `theme`'s override (it inherits light again). Light itself is
+    /// never removed — remove the token for that.
+    pub fn remove(&mut self, theme: &str) -> Option<String> {
+        if theme == LIGHT { None } else { self.themes.remove(theme) }
+    }
+
+    /// Every value: light first, then each override in order.
+    pub fn values(&self) -> impl Iterator<Item = &String> {
+        std::iter::once(&self.light).chain(self.themes.iter().map(|(_, v)| v))
+    }
+}
+
+impl Serialize for TokenValue {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(1 + self.themes.0.len()))?;
+        map.serialize_entry(LIGHT, &self.light)?;
+        for (theme, value) in self.themes.iter() {
+            map.serialize_entry(theme, value)?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for TokenValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // `null` for a theme reads as "no override" (old clients send
+        // `"dark": null`); every other key is a theme name, which
+        // `validate_tokens_json` checks against the declared list on write.
+        let raw = OrderedMap::<Option<String>>::deserialize(deserializer)?;
+        let mut light = None;
+        let mut themes = OrderedMap::new();
+        for (key, value) in raw.0 {
+            if key == LIGHT {
+                light = value;
+            } else if let Some(value) = value {
+                themes.insert(key, value);
+            }
+        }
+        let light = light.ok_or_else(|| serde::de::Error::missing_field("light"))?;
+        Ok(TokenValue { light, themes })
+    }
 }
 
 /// The tokens JSON source of truth: `styles/tokens.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokensDoc {
     pub version: u32,
+    /// #619: the themes besides light, in order. Absent on every legacy
+    /// document, which then declares `dark` implicitly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub themes: Option<Vec<ThemeDecl>>,
     pub categories: OrderedMap<OrderedMap<TokenValue>>,
 }
 
@@ -126,8 +259,28 @@ impl Default for TokensDoc {
     fn default() -> Self {
         TokensDoc {
             version: 1,
+            themes: None,
             categories: OrderedMap::new(),
         }
+    }
+}
+
+impl TokensDoc {
+    /// The themes besides light, in order. A document with no `themes` list
+    /// is the legacy light/dark pair, so `dark` is declared implicitly.
+    pub fn theme_decls(&self) -> Vec<ThemeDecl> {
+        self.themes.clone().unwrap_or_else(|| vec![ThemeDecl::named(DARK)])
+    }
+
+    /// Every theme a page can render in, light first.
+    pub fn declared_themes(&self) -> Vec<String> {
+        std::iter::once(LIGHT.to_string())
+            .chain(self.theme_decls().into_iter().map(|t| t.name))
+            .collect()
+    }
+
+    pub fn declares(&self, theme: &str) -> bool {
+        theme == LIGHT || self.theme_decls().iter().any(|t| t.name == theme)
     }
 }
 
@@ -223,7 +376,7 @@ pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
         for (key, value) in tokens.iter() {
             let var_name = category_to_var_name(category, key);
             light_lines.push(format!("  {var_name}: {};", value.light));
-            if let Some(dark) = &value.dark {
+            if let Some(dark) = value.themes.get(DARK) {
                 dark_lines.push(format!("  {var_name}: {dark};"));
             }
         }
@@ -420,13 +573,11 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
 
     for (name, light) in &lights {
         let (category, key) = var_name_to_category(name);
-        let dark = darks.get(name).cloned();
-        categories
-            .entry_or_insert_with(category, OrderedMap::new)
-            .insert(key, TokenValue {
-                light: light.clone(),
-                dark,
-            });
+        let mut value = TokenValue::new(light.clone());
+        if let Some(dark) = darks.get(name) {
+            value.set(DARK, dark.clone());
+        }
+        categories.entry_or_insert_with(category, OrderedMap::new).insert(key, value);
     }
 
     // Dark-only vars (no matching light decl) still need to round-trip.
@@ -437,14 +588,12 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
         let (category, key) = var_name_to_category(name);
         categories
             .entry_or_insert_with(category, OrderedMap::new)
-            .insert(key, TokenValue {
-                light: dark_value.clone(),
-                dark: Some(dark_value.clone()),
-            });
+            .insert(key, TokenValue::new(dark_value.clone()).with(DARK, dark_value.clone()));
     }
 
     TokensDoc {
         version: 1,
+        themes: None,
         categories,
     }
 }
@@ -491,13 +640,17 @@ pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(),
                 return Err(format!("patch.{category}.{key}: give light and/or dark (or null to remove)"));
             }
             let tokens = doc.categories.entry_or_insert_with(category, OrderedMap::new);
-            let token = tokens.entry_or_insert_with(key, || TokenValue { light: String::new(), dark: None });
+            let token = tokens.entry_or_insert_with(key, TokenValue::default);
             if let Some(light) = light {
                 token.light = light;
             }
             if let Some(dark) = dark {
                 // `"dark": null` drops the dark value, so the light one applies in both.
-                token.dark = (!dark.is_empty()).then_some(dark);
+                if dark.is_empty() {
+                    token.remove(DARK);
+                } else {
+                    token.set(DARK, dark);
+                }
             }
             if token.light.is_empty() {
                 return Err(format!("patch.{category}.{key}: a new token needs a light value"));
@@ -626,4 +779,64 @@ pub fn diff(old: &TokensDoc, new: &TokensDoc) -> Vec<TokenChange> {
         }
     }
     changes
+}
+
+#[cfg(test)]
+mod theme_model_tests {
+    use super::*;
+
+    #[test]
+    fn a_legacy_document_declares_light_and_dark_implicitly() {
+        let raw = r##"{"version":1,"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E"},"bg":{"light":"#fff"}}}}"##;
+        let doc: TokensDoc = serde_json::from_str(raw).expect("legacy doc");
+        assert_eq!(doc.themes, None);
+        assert_eq!(doc.declared_themes(), vec!["light".to_string(), "dark".to_string()]);
+        assert!(doc.declares("dark") && !doc.declares("ocean"));
+        assert_eq!(serde_json::to_string(&doc).expect("json"), raw);
+    }
+
+    #[test]
+    fn named_themes_are_flat_keys_beside_light() {
+        let raw = r##"{"version":1,"themes":[{"name":"dark"},{"name":"ocean","label":"Ocean"}],"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E","ocean":"#00AAFF"}}}}"##;
+        let doc: TokensDoc = serde_json::from_str(raw).expect("themed doc");
+        assert_eq!(doc.declared_themes(), ["light", "dark", "ocean"].map(String::from).to_vec());
+        let primary = doc.categories.get("colors").and_then(|c| c.get("primary")).expect("primary");
+        assert_eq!(primary.get("ocean"), Some("#00AAFF"));
+        assert_eq!(primary.get("light"), Some("#15803D"));
+        assert_eq!(primary.resolve("ocean"), "#00AAFF");
+        assert_eq!(primary.resolve("sunset"), "#15803D", "a theme with no override inherits light");
+        assert_eq!(serde_json::to_string(&doc).expect("json"), raw);
+    }
+
+    #[test]
+    fn a_null_override_reads_as_absent_and_light_is_required() {
+        let doc: TokensDoc =
+            serde_json::from_str(r#"{"version":1,"categories":{"colors":{"x":{"light":"red","dark":null}}}}"#)
+                .expect("null dark");
+        assert!(doc.categories.get("colors").and_then(|c| c.get("x")).expect("x").themes.is_empty());
+        assert!(serde_json::from_str::<TokensDoc>(r#"{"version":1,"categories":{"colors":{"x":{"dark":"red"}}}}"#).is_err());
+        assert!(serde_json::from_str::<TokensDoc>(r#"{"version":1,"categories":{"colors":{"x":{"light":3}}}}"#).is_err());
+    }
+
+    #[test]
+    fn set_and_remove_address_one_theme() {
+        let mut v = TokenValue::new("#111").with("dark", "#eee");
+        v.set("ocean", "#0af");
+        v.set("light", "#222");
+        assert_eq!(v.light, "#222");
+        assert_eq!(v.remove("dark"), Some("#eee".to_string()));
+        assert_eq!(v.remove("light"), None, "light is never removed");
+        assert_eq!(v.values().cloned().collect::<Vec<_>>(), vec!["#222".to_string(), "#0af".to_string()]);
+    }
+
+    #[test]
+    fn theme_names_are_lowercase_slugs() {
+        for ok in ["dark", "ocean", "high-contrast", "a1"] {
+            assert!(is_theme_name(ok), "{ok}");
+        }
+        let long = "a".repeat(33);
+        for bad in ["", "Ocean", "1ocean", "my theme", "-x", "x\"]", long.as_str()] {
+            assert!(!is_theme_name(bad), "{bad}");
+        }
+    }
 }

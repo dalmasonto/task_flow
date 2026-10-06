@@ -898,7 +898,7 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                     suggest: None,
                 });
             }
-            for value in [Some(&value.light), value.dark.as_ref()].into_iter().flatten() {
+            for value in value.values() {
                 if value.contains("http://") || value.contains("https://") {
                     return v.fail(ValidationError {
                         line: 0,
