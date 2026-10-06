@@ -1,4 +1,6 @@
-/// Structured, typed light/dark editor over `styles/tokens.json` (Task 7 of
+/// Structured, typed editor over `styles/tokens.json`: a **Theme** tab that
+/// edits one theme at a time (theme strip + one value per token, #619) and a
+/// read-only **CSS variables** tab. (Task 7 of
 /// the design-phase2 tabs/tokens work). Replaces the old inline `TokenEditor`
 /// that did regex string-surgery on `styles/tokens.css`: tokens are stored as
 /// JSON now (Task 6's `DesignTokensDoc`), so this editor reads/writes that
@@ -14,16 +16,21 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   fetchDesignTokens,
   fetchTokenDefaults,
   putDesignTokens,
   exportTokensCss,
   type DesignTokensDoc,
+  type DesignTokenValue,
   type ValidationError,
 } from "@/lib/design-api"
 import { defaultRows } from "./token-defaults"
 import { CATEGORY_ORDER, categoryLabel, filterTokenCategories } from "./token-filter"
+import { LIGHT, declaredThemes, ownThemeValue, setThemeValue } from "./token-themes"
+import { ThemeStrip } from "./theme-strip"
+import { TokenCssView } from "./token-css-view"
 
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-tested in token-editor.test.ts)
@@ -64,7 +71,7 @@ const HEX_COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 /// plain text field whenever `parseSizeValue` can't split the current value.
 const NUMERIC_CATEGORIES = new Set(["spacing", "radius", "typography"])
 
-type TokenMap = Record<string, { light: string; dark?: string }>
+type TokenMap = Record<string, DesignTokenValue>
 
 // ---------------------------------------------------------------------------
 // Value field — renders the right typed control for a category
@@ -93,7 +100,11 @@ function ValueField({
   placeholder?: string
 }) {
   if (category === "colors") {
-    const swatch = HEX_COLOR_RE.test(value) ? value : "#000000"
+    const swatch = HEX_COLOR_RE.test(value)
+      ? value
+      : placeholder && HEX_COLOR_RE.test(placeholder)
+        ? placeholder
+        : "#000000"
     return (
       <div className="flex items-center gap-1">
         <input
@@ -180,6 +191,7 @@ function AddTokenForm({ onAdd }: { onAdd: (key: string) => void }) {
 function CategorySection({
   category,
   tokens,
+  theme,
   onSetValue,
   onAdd,
   onRemove,
@@ -188,69 +200,68 @@ function CategorySection({
 }: {
   category: string
   tokens: TokenMap
-  defaults: [string, { light: string; dark?: string }][]
-  onOverride: (key: string, value: { light: string; dark?: string }) => void
-  onSetValue: (key: string, field: "light" | "dark", value: string) => void
+  /// The theme being edited (#619): each token shows ONE value — this theme's.
+  theme: string
+  defaults: [string, DesignTokenValue][]
+  onOverride: (key: string, value: DesignTokenValue) => void
+  onSetValue: (key: string, value: string) => void
   onAdd: (key: string) => void
   onRemove: (key: string) => void
 }) {
   const entries = Object.entries(tokens)
   return (
     <div className="border-b px-3 py-2 last:border-b-0">
-      {/* The group label, one step below `PanelTitle`'s `text-xs font-semibold`
-          and one step quieter than the token names beneath it: uppercase,
-          letterspaced, muted, and 10px against their 11px, so it reads as a
-          heading over them instead of competing with them. It was mono at
-          11px in the token names' own weight, which is how the two levels came
-          to look like the same thing. */}
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {categoryLabel(category)}
       </p>
       <div className="flex flex-col gap-2">
-        {entries.map(([key, value]) => (
-          // Name over values, not name beside them: the token's name is the
-          // row's heading, and its two labelled value rows sit under it in one
-          // aligned column (the sibling `resource-editor.tsx` stacks a set and
-          // its links the same way). Beside the fields, the light/dark labels
-          // read as labels for whatever they happened to line up with.
-          <div key={key} className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <span className="min-w-0 flex-1 truncate text-[11px] font-medium" title={key}>
-                {key}
-              </span>
-              <button
-                type="button"
-                title={`Remove ${key}`}
-                onClick={() => onRemove(key)}
-                className="shrink-0 rounded px-1 text-[10px] leading-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              >
-                ×
-              </button>
-            </div>
-            <div className="flex flex-col gap-0.5 pl-2">
-              <div className="flex items-center gap-1">
-                <span className="w-9 shrink-0 text-[9px] text-muted-foreground">light</span>
+        {entries.map(([key, value]) => {
+          const own = ownThemeValue(value, theme)
+          // A theme other than light with no value of its own renders light's.
+          const inherits = theme !== LIGHT && own === undefined
+          return (
+            <div key={key} className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-[11px] font-medium" title={key}>
+                  {key}
+                </span>
+                <button
+                  type="button"
+                  title={`Remove ${key}`}
+                  onClick={() => onRemove(key)}
+                  className="shrink-0 rounded px-1 text-[10px] leading-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex items-center gap-1 pl-2">
                 <ValueField
                   category={category}
-                  value={value.light}
-                  onChange={(v) => onSetValue(key, "light", v)}
+                  value={own ?? ""}
+                  // The inherited light value shows as the placeholder, so an
+                  // empty field never reads as "unset".
+                  placeholder={theme === LIGHT ? undefined : value.light}
+                  onChange={(v) => onSetValue(key, v)}
                 />
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="w-9 shrink-0 text-[9px] text-muted-foreground">dark</span>
-                <ValueField
-                  category={category}
-                  value={value.dark ?? ""}
-                  placeholder="(same as light)"
-                  onChange={(v) => onSetValue(key, "dark", v)}
-                />
+                {theme !== LIGHT && !inherits ? (
+                  <button
+                    type="button"
+                    title={`Reset ${key} to the light value`}
+                    aria-label={`Reset ${key} to the light value`}
+                    onClick={() => onSetValue(key, "")}
+                    className="shrink-0 rounded px-1 text-[10px] leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    ↺
+                  </button>
+                ) : null}
+                {inherits ? <span className="text-[9px] text-muted-foreground">from light</span> : null}
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {defaults.map(([key, value]) => (
           <div key={`default:${key}`} className="flex items-center gap-1.5 opacity-70">
-            <span className="min-w-0 flex-1 truncate text-[11px]" title={`${key}: ${value.light}${value.dark ? ` / ${value.dark}` : ""}`}>
+            <span className="min-w-0 flex-1 truncate text-[11px]" title={`${key}: ${ownThemeValue(value, theme) ?? value.light}`}>
               {key}
             </span>
             <span className="rounded bg-muted px-1 text-[9px] text-muted-foreground">default</span>
@@ -293,6 +304,9 @@ export function TokenEditor({
   const [exportError, setExportError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [defaults, setDefaults] = useState<DesignTokensDoc | null>(null)
+  const [activeTheme, setActiveTheme] = useState(LIGHT)
+  const [panel, setPanel] = useState<"theme" | "css">("theme")
+  const [cssEpoch, setCssEpoch] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -313,33 +327,17 @@ export function TokenEditor({
     void load()
   }, [load])
 
-  const overrideDefault = (category: string, key: string, value: { light: string; dark?: string }) =>
+  // The theme being edited, while it still exists in the (possibly just
+  // edited) document; light otherwise.
+  const shownTheme = doc && declaredThemes(doc).includes(activeTheme) ? activeTheme : LIGHT
+
+  const overrideDefault = (category: string, key: string, value: DesignTokenValue) =>
     setDoc((prev) =>
       prev ? { ...prev, categories: { ...prev.categories, [category]: { ...(prev.categories[category] ?? {}), [key]: { ...value } } } } : prev
     )
 
-  const setTokenValue = (category: string, key: string, field: "light" | "dark", value: string) => {
-    setDoc((prev) => {
-      if (!prev) return prev
-      const catTokens = prev.categories[category] ?? {}
-      const existing = catTokens[key] ?? { light: "" }
-      const nextValue: { light: string; dark?: string } = { ...existing }
-      if (field === "light") {
-        nextValue.light = value
-      } else if (value.trim() === "") {
-        delete nextValue.dark
-      } else {
-        nextValue.dark = value
-      }
-      return {
-        ...prev,
-        categories: {
-          ...prev.categories,
-          [category]: { ...catTokens, [key]: nextValue },
-        },
-      }
-    })
-  }
+  const setTokenValue = (category: string, key: string, value: string) =>
+    setDoc((prev) => (prev ? setThemeValue(prev, category, key, shownTheme, value) : prev))
 
   /// Adding a token also clears the search box, and that is not a convenience:
   /// a token added under an active query can be filtered straight back out of
@@ -399,6 +397,7 @@ export function TokenEditor({
         return
       }
       onSaved()
+      setCssEpoch((n) => n + 1)
       await load() // refetch — picks up the new version
     } catch (err) {
       setErrors([{ line: 0, rule: "network", message: err instanceof Error ? err.message : "Save failed." }])
@@ -432,66 +431,82 @@ export function TokenEditor({
 
   return (
     <div className="flex flex-col">
-      {/* Sits above the actions rather than beside them: at this panel's width
-          the two buttons already take most of a row, and a filter box squeezed
-          between them reads as a third button. */}
-      <div className="px-3 pt-2">
-        <Input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search tokens…"
-          aria-label="Search tokens"
-        />
-      </div>
-      <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-1">
-        <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>
-          {saving ? "Saving…" : "Save tokens"}
-        </Button>
-        <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void handleExport()}>
-          {exporting ? "Exporting…" : "Export CSS"}
-        </Button>
-      </div>
-
-      {loading ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading tokens…</p> : null}
-      {loadError ? <p className="px-3 py-2 text-xs text-destructive">{loadError}</p> : null}
-      {exportError ? <p className="px-3 py-2 text-xs text-destructive">{exportError}</p> : null}
-
-      {view && !loading
-        ? categoryNames
-            // While searching, an empty group is not a result: drawing all six
-            // would answer a query that matched nothing with a screenful of
-            // "No colors tokens yet." — false, and it reads as a broken search.
-            .filter((category) => !searching || category in view.categories)
-            .map((category) => (
-              <CategorySection
-                key={category}
-                category={category}
-                tokens={view.categories[category] ?? {}}
-                onSetValue={(key, field, value) => setTokenValue(category, key, field, value)}
-                onAdd={(key) => addToken(category, key)}
-                onRemove={(key) => removeToken(category, key)}
-                defaults={defaults && doc && !searching ? defaultRows(defaults, doc, category) : []}
-                onOverride={(key, value) => overrideDefault(category, key, value)}
-              />
-            ))
-        : null}
-
-      {view && !loading && searching && !Object.keys(view.categories).length ? (
-        <p className="px-3 py-2 text-[11px] text-muted-foreground">
-          No tokens match “{query.trim()}”.
-        </p>
-      ) : null}
-
-      {errors?.length ? (
-        <div className="mx-3 mb-2 rounded border border-destructive/40 bg-destructive/10 p-2">
-          {errors.map((e, i) => (
-            <p key={i} className="text-[11px] text-destructive">
-              {e.rule}: {e.message}
-            </p>
-          ))}
+      <Tabs value={panel} onValueChange={(value) => setPanel(value as "theme" | "css")}>
+        {/* Sticky inside the Tokens tab's scroll container (the outer
+            TabsContent): the inner tabs and the theme strip stay pinned while
+            the token list scrolls. Nothing between here and that container may
+            set `overflow`, or `sticky` sticks to the wrong box. */}
+        <div className="sticky top-0 z-10 bg-background">
+          <TabsList>
+            <TabsTrigger value="theme">Theme</TabsTrigger>
+            <TabsTrigger value="css">CSS variables</TabsTrigger>
+          </TabsList>
+          {panel === "theme" && doc ? (
+            <ThemeStrip doc={doc} active={shownTheme} onSelect={setActiveTheme} onDocChange={setDoc} />
+          ) : null}
         </div>
-      ) : null}
+
+        <TabsContent value="theme" className="overflow-y-visible">
+          <div className="px-3 pt-2">
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tokens…"
+              aria-label="Search tokens"
+            />
+          </div>
+          <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-1">
+            <Button size="sm" variant="outline" disabled={!doc || saving} onClick={() => void handleSave()}>
+              {saving ? "Saving…" : "Save tokens"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={exporting} onClick={() => void handleExport()}>
+              {exporting ? "Exporting…" : "Export CSS"}
+            </Button>
+          </div>
+
+          {loading ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading tokens…</p> : null}
+          {loadError ? <p className="px-3 py-2 text-xs text-destructive">{loadError}</p> : null}
+          {exportError ? <p className="px-3 py-2 text-xs text-destructive">{exportError}</p> : null}
+
+          {view && !loading
+            ? categoryNames
+                // While searching, an empty group is not a result.
+                .filter((category) => !searching || category in view.categories)
+                .map((category) => (
+                  <CategorySection
+                    key={category}
+                    category={category}
+                    tokens={view.categories[category] ?? {}}
+                    theme={shownTheme}
+                    onSetValue={(key, value) => setTokenValue(category, key, value)}
+                    onAdd={(key) => addToken(category, key)}
+                    onRemove={(key) => removeToken(category, key)}
+                    defaults={defaults && doc && !searching ? defaultRows(defaults, doc, category) : []}
+                    onOverride={(key, value) => overrideDefault(category, key, value)}
+                  />
+                ))
+            : null}
+
+          {view && !loading && searching && !Object.keys(view.categories).length ? (
+            <p className="px-3 py-2 text-[11px] text-muted-foreground">No tokens match “{query.trim()}”.</p>
+          ) : null}
+
+          {errors?.length ? (
+            <div className="mx-3 mb-2 rounded border border-destructive/40 bg-destructive/10 p-2">
+              {errors.map((e, i) => (
+                <p key={i} className="text-[11px] text-destructive">
+                  {e.rule}: {e.message}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="css" className="overflow-y-visible">
+          <TokenCssView projectId={projectId} epoch={cssEpoch} />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
