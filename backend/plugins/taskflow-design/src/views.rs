@@ -1133,15 +1133,17 @@ async fn serve_sandbox_page(
         Some(raw) => crate::compare::decode(raw).map_err(|_| StatusCode::BAD_REQUEST)?,
         None => crate::compare::Overrides::default(),
     };
-    // `?theme=dark` renders the page dark from the first byte, the same
-    // `data-theme` the canvas sets with `design:theme` after load — so a
-    // screenshot has no light first paint to catch. Anything else is light.
-    let theme = match query.and_then(|q| query_param(q, "theme")) {
-        Some("dark") => "dark",
-        _ => "light",
-    };
-
     let files = store::list_files(project_id).await;
+    // `?theme=<name>` renders the page in that theme from the first byte, the
+    // same `data-theme` the canvas sets with `design:theme` after load — so a
+    // screenshot has no light first paint to catch. #619: any theme the
+    // project declares; anything else (including `both`) is light. Only a
+    // declared slug can reach the HTML attribute.
+    let declared = crate::tokens::project_tokens_doc(&files).declared_themes();
+    let theme = match query.and_then(|q| query_param(q, "theme")) {
+        Some(name) if declared.iter().any(|d| d == name) => name.to_string(),
+        _ => "light".to_string(),
+    };
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
     let m = manifest::build(project_id, &files, revision);
 
@@ -1164,7 +1166,7 @@ async fn serve_sandbox_page(
         &page_path,
         &fragment.content,
         &file_versions(&files),
-        theme,
+        &theme,
         state.as_deref(),
     );
     let html = crate::compare::inject(html, &overrides);

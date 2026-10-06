@@ -152,3 +152,30 @@ async fn renaming_onto_an_existing_theme_is_refused_and_stores_nothing() {
     assert_eq!(res.status(), 201, "{}", res.text());
     assert_eq!(stored(project).await["categories"]["colors"]["primary"], json!({ "light": "#15803D", "ocean": "#22C55E", "dark": "#0af" }));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_sandbox_renders_any_declared_theme_and_falls_back_to_light() {
+    let app = TestApp::new().await;
+    let (_user, project, key) = seeded(&app).await;
+    add_ocean(&app, &key, project).await;
+    let token = taskflow_design::sandbox::mint(project);
+    for (query, expected) in [
+        ("?theme=ocean", "ocean"),
+        ("?theme=dark", "dark"),
+        ("?theme=light", "light"),
+        ("", "light"),
+        ("?theme=sunset", "light"),
+        ("?theme=both", "light"),
+        ("?theme=Ocean", "light"),
+        ("?theme=%22%3E%3Cscript%3E", "light"),
+    ] {
+        let res = app.get_sandbox(&format!("/s/{token}/{query}")).await;
+        assert_eq!(res.status(), 200, "{query}: {}", res.text());
+        assert!(
+            res.text().contains(&format!("<html lang=\"en\" data-theme=\"{expected}\">")),
+            "{query}: expected data-theme={expected}"
+        );
+    }
+    let css = app.get_sandbox(&format!("/s/{token}/f/styles/tokens.css")).await.text();
+    assert!(css.contains(":root[data-theme=\"ocean\"] {\n  --primary: #0af;\n}"), "{css}");
+}
