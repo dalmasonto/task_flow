@@ -6,7 +6,7 @@
 //! Map each path to a handler in `views.rs` so this file reads as the
 //! single index of everything the plugin serves.
 
-use umbral::web::{Router, delete, get, post};
+use umbral::web::{Router, delete, get, post, put};
 
 use crate::views;
 
@@ -24,6 +24,12 @@ pub fn router() -> Router {
         // Delete a project — owner-only (or superuser). Auto-REST delete on
         // `taskflow_project` is stripped because it let any member do this.
         .route("/api/taskflow/projects/{project}", delete(views::delete_project))
+        // #616: the instructions every agent in the project reads via whoami.
+        // Owner/admin (or superuser) only; auto-REST cannot write the column.
+        .route(
+            "/api/taskflow/projects/{project}/agent-instructions",
+            put(views::set_project_agent_instructions),
+        )
         // Create an invite — the ONLY authorized mint path. Project id from the
         // path; owner/admin-gated; token generated server-side. The
         // `taskflow_project_invite` auto-REST resource is read-only so this is

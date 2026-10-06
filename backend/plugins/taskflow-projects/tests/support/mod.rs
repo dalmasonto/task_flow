@@ -147,6 +147,13 @@ impl TestApp {
         }
     }
 
+    pub async fn put_body_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
+        self.set_auth(user_id);
+        TestResponse {
+            inner: self.client.put_json(path, &body).await,
+        }
+    }
+
     pub async fn count_active_members(&self, project: i64, user_id: i64) -> i64 {
         TaskflowProjectMember::objects()
             .filter(

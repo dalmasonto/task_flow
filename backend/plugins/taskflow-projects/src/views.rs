@@ -17,6 +17,7 @@ use umbral::orm::ForeignKey;
 use umbral::web::{IntoResponse, Json, Path, Response, StatusCode};
 use umbral_auth::{AuthUser, CurrentIdentity, RequireAuth, auth_user};
 
+use crate::instructions::normalize_markdown;
 use crate::models::{
     TaskflowInviteStatus, TaskflowMembershipStatus, TaskflowProject, TaskflowProjectInvite,
     TaskflowProjectMember, TaskflowProjectRole, TaskflowProjectStatus, TaskflowTheme,
@@ -865,4 +866,62 @@ pub async fn delete_project(
         return Err(StatusCode::NOT_FOUND);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The body of `PUT /api/taskflow/projects/{project}/agent-instructions`. A
+/// missing, `null`, empty or whitespace-only `markdown` clears them.
+#[derive(Debug, Deserialize)]
+pub struct ProjectInstructionsInput {
+    #[serde(default)]
+    pub markdown: Option<String>,
+}
+
+/// `PUT /api/taskflow/projects/{project}/agent-instructions`: #616
+///
+/// Replace the instructions every agent in the project reads through `whoami`.
+/// Owner/admin only, or a superuser: the same gate as minting an invite
+/// ([`invite_manager_rank`]), so a non-member or a developer/reviewer/viewer
+/// gets 403. Auto-REST cannot write the column (`privileged`).
+///
+/// A change stamps `agent_instructions_updated_at`, which the MCP watches on
+/// reconnect. A no-op leaves it alone. Only the two columns are written
+/// (`update_values`), never the whole row.
+pub async fn set_project_agent_instructions(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(project_id): Path<i64>,
+    Json(input): Json<ProjectInstructionsInput>,
+) -> Result<Response, StatusCode> {
+    let user_id: i64 = identity.pk().map_err(|_| StatusCode::BAD_REQUEST)?;
+    invite_manager_rank(identity.is_superuser, user_id, project_id).await?;
+
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let next = normalize_markdown(input.markdown);
+    let (markdown, updated_at) = if next == project.agent_instructions_markdown {
+        (project.agent_instructions_markdown, project.agent_instructions_updated_at)
+    } else {
+        let now = Utc::now();
+        TaskflowProject::objects()
+            .filter(taskflow_project::ID.eq(project.id))
+            .update_values(
+                json!({ "agent_instructions_markdown": next, "agent_instructions_updated_at": now })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        (next, Some(now))
+    };
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({ "project": project.id, "markdown": markdown, "updated_at": updated_at })),
+    )
+        .into_response())
 }
