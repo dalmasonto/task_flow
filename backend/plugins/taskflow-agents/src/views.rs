@@ -1389,6 +1389,8 @@ pub async fn link_agent(
                             status: TaskflowAgentStatus::Offline,
                             linked_by: Some(ForeignKey::new(user_id)),
                             linked_user_label: Some(linked_user_label.clone()),
+                            instructions_markdown: None,
+                            instructions_updated_at: None,
                             last_seen_at: None,
                             created_at: None,
                         })

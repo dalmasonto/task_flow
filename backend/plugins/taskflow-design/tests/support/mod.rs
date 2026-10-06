@@ -165,6 +165,8 @@ impl TestApp {
                 github_linked_by: None,
                 github_default_branch: None,
                 github_auto_mirror: false,
+                agent_instructions_markdown: None,
+                agent_instructions_updated_at: None,
                 created_at: None,
                 updated_at: None,
             })
@@ -405,6 +407,8 @@ pub async fn seed_agent(project: i64, display_name: &str) -> (i64, String) {
             status: TaskflowAgentStatus::Offline,
             linked_by: None,
             linked_user_label: None,
+            instructions_markdown: None,
+            instructions_updated_at: None,
             last_seen_at: None,
             created_at: None,
         })

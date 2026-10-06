@@ -150,6 +150,8 @@ async fn agent_with_headers(project: i64) -> (i64, HeaderMap) {
             status: TaskflowAgentStatus::Offline,
             linked_by: None,
             linked_user_label: None,
+            instructions_markdown: None,
+            instructions_updated_at: None,
             last_seen_at: None,
             created_at: None,
         })
@@ -196,6 +198,8 @@ async fn seed_project() -> i64 {
             github_linked_by: None,
             github_default_branch: None,
             github_auto_mirror: false,
+            agent_instructions_markdown: None,
+            agent_instructions_updated_at: None,
             created_at: None,
             updated_at: None,
         })

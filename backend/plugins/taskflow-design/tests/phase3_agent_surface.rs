@@ -37,6 +37,8 @@ async fn seed_agent(
             status: TaskflowAgentStatus::Offline,
             linked_by: None,
             linked_user_label: None,
+            instructions_markdown: None,
+            instructions_updated_at: None,
             last_seen_at: None,
             created_at: None,
         })

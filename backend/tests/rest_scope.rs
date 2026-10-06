@@ -23,14 +23,14 @@ use umbral_testing::TestClient;
 
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_agents::models::{
-    TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind,
-    TaskflowChannelMemberKind, TaskflowChannelReadCursor, TaskflowMessageAttachment,
-    TaskflowMessagePriority,
+    TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage,
+    TaskflowAgentStatus, TaskflowChannelKind, TaskflowChannelMemberKind, TaskflowChannelReadCursor,
+    TaskflowMessageAttachment, TaskflowMessagePriority, taskflow_agent,
 };
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_projects::models::{
     TaskflowMembershipStatus, TaskflowProject, TaskflowProjectMember, TaskflowProjectRole,
-    TaskflowProjectStatus,
+    TaskflowProjectStatus, taskflow_project,
 };
 use taskflow_tasks::TaskflowTasksPlugin;
 use taskflow_tasks::models::{TaskflowTask, TaskflowTaskPriority, TaskflowTaskStatus};
@@ -162,6 +162,8 @@ async fn make_project(name: &str, slug: &str) -> i64 {
             github_linked_by: None,
             github_default_branch: None,
             github_auto_mirror: false,
+            agent_instructions_markdown: None,
+            agent_instructions_updated_at: None,
             created_at: None,
             updated_at: None,
         })
@@ -1169,4 +1171,98 @@ async fn task_create_round_trips_the_new_columns() {
     assert_eq!(got["estimate_minutes"], serde_json::json!(90));
     assert_eq!(got["operator_agent_id"], serde_json::json!(7));
     assert_eq!(got["created_by"], serde_json::json!(seed.alice));
+}
+
+/// #615/#616: the four instruction columns are `#[umbral(privileged)]`, so an
+/// auto-REST write by an ordinary member is STRIPPED. The only writers are the
+/// role-gated PUT endpoints (and `link_agent` on create). `noedit` alone would
+/// not do this: the JSON write path strips only `noform` and unauthorized
+/// `privileged` columns (umbral-core `orm/dynamic.rs` `normalise_update_body`).
+#[tokio::test]
+async fn a_member_cannot_write_instructions_through_auto_rest() {
+    let (_, seed) = app().await;
+    let agent = TaskflowAgent::objects()
+        .create(TaskflowAgent {
+            id: 0,
+            project: ForeignKey::new(seed.project_p),
+            display_name: "Instructed".to_string(),
+            identifier: "agent:rest-guard:instructed".to_string(),
+            fingerprint: None,
+            project_root: None,
+            taskflow_file_path: None,
+            runtime: None,
+            version: None,
+            status: TaskflowAgentStatus::Offline,
+            linked_by: None,
+            linked_user_label: None,
+            last_seen_at: None,
+            instructions_markdown: Some("original role".to_string()),
+            instructions_updated_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("create agent");
+
+    // PATCH the agent: the instruction columns are dropped, the rest applies.
+    let (status, body) = patch_as(
+        seed.alice,
+        &format!("/api/taskflow_agent/{}", agent.id),
+        serde_json::json!({
+            "display_name": "Instructed",
+            "instructions_markdown": "hijacked",
+            "instructions_updated_at": "2030-01-01T00:00:00Z",
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "agent PATCH: {body}");
+    let stored = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent.id))
+        .first()
+        .await
+        .expect("load agent")
+        .expect("agent exists");
+    assert_eq!(stored.instructions_markdown.as_deref(), Some("original role"));
+    assert_eq!(stored.instructions_updated_at, None);
+
+    // PATCH the project: same guard on the project block.
+    let (pstatus, pbody) = patch_as(
+        seed.alice,
+        &format!("/api/taskflow_project/{}", seed.project_p),
+        serde_json::json!({
+            "name": "Project P",
+            "agent_instructions_markdown": "hijacked",
+            "agent_instructions_updated_at": "2030-01-01T00:00:00Z",
+        }),
+    )
+    .await;
+    assert_eq!(pstatus, 200, "project PATCH: {pbody}");
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(seed.project_p))
+        .first()
+        .await
+        .expect("load project")
+        .expect("project exists");
+    assert_eq!(project.agent_instructions_markdown, None);
+    assert_eq!(project.agent_instructions_updated_at, None);
+
+    // A REST create cannot smuggle them in either.
+    let (cstatus, created) = post_as(
+        seed.alice,
+        "/api/taskflow_agent/",
+        serde_json::json!({
+            "project": seed.project_p,
+            "display_name": "Made by REST",
+            "identifier": "agent:rest-guard:made",
+            "instructions_markdown": "smuggled",
+        }),
+    )
+    .await;
+    assert_eq!(cstatus, 201, "agent POST: {created}");
+    assert_eq!(created["instructions_markdown"], Value::Null);
+
+    // Reads still carry the columns: the dashboard renders them from these lists.
+    let (rstatus, row) = get_as(seed.alice, false, &format!("/api/taskflow_agent/{}", agent.id)).await;
+    assert_eq!(rstatus, 200);
+    assert_eq!(row["instructions_markdown"], "original role");
+    assert!(row.as_object().expect("object").contains_key("instructions_updated_at"));
 }

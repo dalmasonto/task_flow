@@ -134,6 +134,17 @@ pub struct TaskflowAgent {
     #[umbral(string, max_length = 160)]
     pub linked_user_label: Option<String>,
     pub last_seen_at: Option<DateTime<Utc>>,
+    /// #615: the agent's role instructions (markdown), read by the agent through
+    /// `whoami`. `privileged`: auto-REST create/update strips it. The only
+    /// writers are `PUT /api/taskflow/agents/{agent}/instructions`
+    /// (manager-gated) and `link_agent` when it creates the agent. There is no
+    /// `max_length` and no size cap (Postgres TEXT).
+    #[umbral(privileged, widget = "textarea")]
+    pub instructions_markdown: Option<String>,
+    /// #615: when `instructions_markdown` last changed. The MCP compares it on
+    /// reconnect to tell the agent to re-read. Server-stamped.
+    #[umbral(privileged)]
+    pub instructions_updated_at: Option<DateTime<Utc>>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

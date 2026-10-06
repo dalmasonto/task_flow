@@ -23,6 +23,8 @@ async fn project_persists_github_link_fields() {
             github_linked_by: Some(ForeignKey::new(user.id)),
             github_default_branch: Some("main".into()),
             github_auto_mirror: false,
+            agent_instructions_markdown: None,
+            agent_instructions_updated_at: None,
             created_at: None,
             updated_at: None,
         })

@@ -116,6 +116,15 @@ pub struct TaskflowProject {
     /// setting. Only comment actions mirror, never every activity.
     #[umbral(default = "false")]
     pub github_auto_mirror: bool,
+    /// #616: instructions (markdown) every agent in the project reads through
+    /// `whoami`, beside its own role instructions. `privileged`: auto-REST
+    /// strips it, and the only writer is the owner/admin-gated
+    /// `PUT /api/taskflow/projects/{project}/agent-instructions`. No size cap.
+    #[umbral(privileged, widget = "textarea")]
+    pub agent_instructions_markdown: Option<String>,
+    /// #616: when `agent_instructions_markdown` last changed. Server-stamped.
+    #[umbral(privileged)]
+    pub agent_instructions_updated_at: Option<DateTime<Utc>>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]
