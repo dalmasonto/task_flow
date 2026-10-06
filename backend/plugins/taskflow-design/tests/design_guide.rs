@@ -91,6 +91,10 @@ async fn tokens_topic_teaches_named_themes() {
         "theme \"all\"",
         "themes [\"light\",\"dark\",\"ocean\"]",
         "FULL",
+        "starts with a lowercase letter",
+        "both",
+        "already exists",
+        "themes_renamed",
     ] {
         assert!(text.contains(must), "tokens topic lacks {must}");
     }

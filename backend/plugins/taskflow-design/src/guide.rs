@@ -44,13 +44,14 @@ Prefer oklch values. A project-only colour (e.g. colors.brand) becomes bg-brand 
 Check dark mode: design_screenshot with theme "dark". Compare options with design_compare before writing.
 
 ## Themes
-light is the base. Every other theme (dark, or a named one like "ocean") sets only the tokens it changes and inherits the rest from light. design_get_tokens lists them in `themes`.
+light is the base. Every other theme (dark, or a named one like "ocean") sets only the tokens it changes and inherits the rest from light. design_get_tokens lists them in `themes`. A design made before named themes has light and an implicit dark.
 To try a palette, add a theme with design_write_tokens and compare themes. Don't overwrite light.
 - Add: {"themes":[{"name":"dark"},{"name":"ocean","label":"Ocean"}],"colors":{"primary":{"ocean":"oklch(0.62 0.14 220)"}}} — `themes` is the FULL ordered list besides light: a theme you leave out is deleted with its values (keep dark).
-- Rename: {"themes":[{"name":"dark"},{"name":"sea","rename_from":"ocean"}]}
+- Rename: {"themes":[{"name":"dark"},{"name":"sea","rename_from":"ocean"}]}. Renaming onto a theme that already exists is refused — rename or remove it first, in a separate patch.
 - Edit one theme: {"colors":{"primary":{"ocean":"oklch(0.7 0.12 220)"}}}; {"ocean": null} drops that value (back to light's).
-- Look: design_screenshot theme "ocean" (or theme "all": one image per theme); design_compare themes ["light","dark","ocean"].
-Names: lowercase slug (letters, digits, -); light, both and all are reserved; at most 8 themes including light.
+- The write reply lists `themes_removed` and `themes_renamed` so you can confirm what changed.
+- Look: design_screenshot theme "<name>", "all" (one image per theme) or "both" (light + dark); design_compare themes ["light","dark","ocean"].
+Names: a name starts with a lowercase letter, then lowercase letters, digits or dashes, up to 32 characters; light, both and all are reserved; at most 8 themes including light.
 
 ## Porting
 The served tokens.css IS a shadcn globals.css (:root, .dark, @theme inline): paste it into the app and the classes in these pages work unchanged."#;
