@@ -1326,6 +1326,40 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
   return readJson(response)
 }
 
+/// Remove an agent from its project. Its credentials and sessions go with it, so
+/// its key stops working at once; its messages and reviews stay, under its name.
+/// Allowed for the human who linked it and for project owners/admins.
+export async function deleteAgent(agentId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "Only the person who linked this agent, or a project owner/admin, can delete it."
+        : await readErrorDetail(response, `Could not delete the agent (${response.status}).`)
+    )
+  }
+}
+
+/// Delete a project and everything in it (tasks, chat, agents, design). Owner-only.
+export async function deleteProject(projectId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 403
+        ? "Only the project owner can delete this project."
+        : await readErrorDetail(response, `Could not delete the project (${response.status}).`)
+    )
+  }
+}
+
 
 /// Answer a question an agent's terminal is blocked on.
 ///

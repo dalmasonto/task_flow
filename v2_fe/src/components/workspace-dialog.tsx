@@ -1,7 +1,8 @@
 import { AttachableTextarea } from "@/components/attachable-textarea"
 import { type AttachableFile } from "@/components/attachable-textarea"
 import { Button } from "@/components/ui/button"
-import { CheckIcon, ClipboardCheckIcon, FileJsonIcon, FileTextIcon, FolderKanbanIcon, PencilIcon, PlusIcon, UserRoundPlusIcon, XIcon } from "lucide-react"
+import { CheckIcon, ClipboardCheckIcon, FileJsonIcon, FileTextIcon, FolderKanbanIcon, PencilIcon, PlusIcon, Trash2Icon, UserRoundPlusIcon, XIcon } from "lucide-react"
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Input } from "@/components/ui/input"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { ProjectFormError } from "@/lib/taskflow-api"
@@ -39,6 +40,7 @@ export function WorkspaceDialog({
   onEditProject,
   onCreateProject,
   onUpdateProject,
+  onDeleteProject,
   onCreateTask,
   onCreateInvite,
   onReviewDecision,
@@ -67,6 +69,7 @@ export function WorkspaceDialog({
   onEditProject?: () => void
   onCreateProject: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onUpdateProject: (event: FormEvent<HTMLFormElement>) => void
+  onDeleteProject?: () => Promise<void>
   onCreateTask: (event: FormEvent<HTMLFormElement>, files: File[]) => void
   onCreateInvite: (event: FormEvent<HTMLFormElement>) => Promise<void>
   onReviewDecision: (event: FormEvent<HTMLFormElement>) => void
@@ -77,6 +80,7 @@ export function WorkspaceDialog({
   const [submitting, setSubmitting] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [confirmProjectDelete, setConfirmProjectDelete] = useState(false)
   // Files staged in the task description; uploaded to the task after it saves.
   // The dialog is keyed by mode at its call site, so this resets on remount.
   const [taskFiles, setTaskFiles] = useState<AttachableFile[]>([])
@@ -233,6 +237,29 @@ export function WorkspaceDialog({
               </FormField>
             </div>
             <DialogActions onClose={onClose} submitLabel="Save Project" submitIcon={<CheckIcon />} />
+            {onDeleteProject && activeProject ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Delete this project</p>
+                  <p className="text-xs text-muted-foreground">
+                    Removes its tasks, chat, agents and design for everyone. Only the owner can do this.
+                  </p>
+                </div>
+                <Button type="button" variant="destructive" size="sm" onClick={() => setConfirmProjectDelete(true)}>
+                  <Trash2Icon />
+                  Delete project
+                </Button>
+                <ConfirmDeleteDialog
+                  open={confirmProjectDelete}
+                  onOpenChange={setConfirmProjectDelete}
+                  title={`Delete “${activeProject.name}”?`}
+                  description="This permanently deletes the project with all of its tasks, activity, chat, linked agents and their keys, and design pages. It cannot be undone."
+                  confirmLabel="Delete project"
+                  confirmText={activeProject.name}
+                  onConfirm={onDeleteProject}
+                />
+              </div>
+            ) : null}
           </form>
         ) : null}
 

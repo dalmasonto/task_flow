@@ -42,7 +42,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
-import { archiveTaskflowProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, deleteProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -1625,6 +1625,26 @@ function App() {
     })
   }
 
+  /// Delete the active project (owner-only server-side; a 403 surfaces in the
+  /// confirm dialog). Drops it locally at once, then reloads so the resolver
+  /// lands on another project — the deleted id is no longer in the list, so the
+  /// persisted choice falls through to the first remaining one.
+  async function handleDeleteProject() {
+    if (!activeProject) return
+    const projectId = liveId(activeProject.id)
+    if (!projectId) return
+    await deleteProject(projectId)
+    const deletedId = activeProject.id
+    setWorkspaceProjects((current) => current.filter((project) => project.id !== deletedId))
+    setTasks((current) => current.filter((task) => task.projectId !== deletedId))
+    setSelectedTaskId(null)
+    setLiveWorkspace(null)
+    rememberPersistedProjectId(null)
+    setDialogMode(null)
+    navigate("/dashboard/board")
+    void loadLiveWorkspace(null)
+  }
+
   function handleUpdateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!activeProject) return
@@ -2835,6 +2855,7 @@ function App() {
         onCreateTask={handleCreateTask}
         onCreateProject={handleCreateProject}
         onUpdateProject={handleUpdateProject}
+        onDeleteProject={handleDeleteProject}
         onCreateInvite={handleCreateInvite}
         onReviewDecision={handleReviewDecision}
       />

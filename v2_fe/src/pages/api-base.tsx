@@ -1,8 +1,9 @@
 import { API_BASE_URL } from "@/lib/auth-api"
-import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon } from "lucide-react"
+import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon, Trash2Icon } from "lucide-react"
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GithubNeedsConnectError, fetchGithubProjectStatus, linkAgent, linkGithubProject, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Input } from "@/components/ui/input"
 import { Link } from "react-router-dom"
 import { PageShell } from "@/components/layout"
@@ -32,6 +33,8 @@ export function ApiBasePage({
   // Agents linked from this page, shown at once: the roster in `workspace` is
   // the core load's and is not refetched by a link, so without these a new
   // agent would not appear until a reload.
+  // Agents deleted from this page, hidden at once for the same reason.
+  const [deletedAgentIds, setDeletedAgentIds] = useState<number[]>([])
   const [justLinked, setJustLinked] = useState<{ agent: TaskflowWorkspace["agents"][number]; keyPrefix: string }[]>([])
   const projectAgents = useMemo(() => {
     if (numericProjectId == null) return []
@@ -39,8 +42,8 @@ export function ApiBasePage({
     const extra = justLinked
       .map((entry) => entry.agent)
       .filter((agent) => agent.project === numericProjectId && !known.some((k) => k.id === agent.id))
-    return [...known, ...extra]
-  }, [agents, justLinked, numericProjectId])
+    return [...known, ...extra].filter((agent) => !deletedAgentIds.includes(agent.id))
+  }, [agents, justLinked, numericProjectId, deletedAgentIds])
   const credentials = useMemo(
     () => [
       ...(workspace?.agentCredentials ?? []),
@@ -150,6 +153,10 @@ export function ApiBasePage({
         agents={projectAgents}
         sessions={workspace?.agentSessions ?? []}
         credentials={credentials}
+        onDelete={async (agentId) => {
+          await deleteAgent(agentId)
+          setDeletedAgentIds((current) => [...current, agentId])
+        }}
       />
 
       <section className="rounded-lg border bg-card p-4 shadow-sm">
@@ -618,12 +625,15 @@ export function AgentsList({
   agents,
   sessions,
   credentials,
+  onDelete,
 }: {
   agents: TaskflowWorkspace["agents"]
   sessions: TaskflowWorkspace["agentSessions"]
   credentials: TaskflowWorkspace["agentCredentials"]
+  onDelete?: (agentId: number) => Promise<void>
 }) {
   const now = useLivenessNow()
+  const [toDelete, setToDelete] = useState<TaskflowWorkspace["agents"][number] | null>(null)
   return (
     <section className="rounded-lg border bg-card shadow-sm">
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
@@ -692,11 +702,38 @@ export function AgentsList({
                     <span className="text-rose-600">No active key</span>
                   )}
                 </div>
+                {onDelete ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:text-rose-600"
+                    title={`Delete ${agent.display_name}`}
+                    aria-label={`Delete ${agent.display_name}`}
+                    onClick={() => setToDelete(agent)}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                ) : null}
               </li>
             )
           })}
         </ul>
       )}
+      {onDelete ? (
+        <ConfirmDeleteDialog
+          open={toDelete !== null}
+          onOpenChange={(open) => {
+            if (!open) setToDelete(null)
+          }}
+          title={`Delete ${toDelete?.display_name ?? "agent"}?`}
+          description="Its keys stop working immediately and any running session is cut off. Its messages, reviews and task history stay, under its name. To use it again, link a new agent."
+          confirmLabel="Delete agent"
+          onConfirm={async () => {
+            if (toDelete) await onDelete(toDelete.id)
+          }}
+        />
+      ) : null}
     </section>
   )
 }
