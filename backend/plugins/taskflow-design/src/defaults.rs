@@ -45,14 +45,14 @@ const COLORS: &[(&str, &str, &str)] = &[
 pub fn shadcn_defaults() -> TokensDoc {
     let mut colors = OrderedMap::new();
     for (key, light, dark) in COLORS {
-        colors.insert(*key, TokenValue { light: (*light).into(), dark: Some((*dark).into()) });
+        colors.insert(*key, TokenValue::new(*light).with("dark", *dark));
     }
     let mut custom = OrderedMap::new();
-    custom.insert("radius", TokenValue { light: "0.625rem".into(), dark: None });
+    custom.insert("radius", TokenValue::new("0.625rem"));
     let mut categories = OrderedMap::new();
     categories.insert("colors", colors);
     categories.insert("custom", custom);
-    TokensDoc { version: 1, categories }
+    TokensDoc { version: 1, themes: None, categories }
 }
 
 /// Every emitted `--var` name a document defines.

@@ -32,6 +32,10 @@ mod views;
 mod widgets;
 
 use std::sync::Arc;
+
+/// The app-wide request timeout: above the slowest design render budget
+/// (`theme:"all"` screenshots, 150 s) with headroom for the reply.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_design::TaskflowDesignPlugin;
 use taskflow_github::TaskflowGithubPlugin;
@@ -95,7 +99,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // the upstream gap this is waiting on. Must run before the app serves.
     validation::install();
 
-    let mut builder = App::builder();
+    // #619: the framework's default request timeout is 30 s, global (one
+    // `TimeoutLayer` for the whole app, answering 408), with no per-route
+    // override. design_screenshot's `theme:"all"` budgets 150 s
+    // (`screenshots::ALL_BUDGET_MS`), `both` ~40 s and design_compare ~55 s, so
+    // at 30 s they were cut off mid-render. Raised app-wide; see gaps6 for the
+    // per-route override this waits on.
+    let mut builder = App::builder().request_timeout(Some(REQUEST_TIMEOUT));
 
     // Cross-origin FE: in production the SPA is served from a different
     // origin (taskflow.supercodehive.com:10003) than this API
@@ -381,5 +391,16 @@ async fn warn_if_migrations_pending() {
             eprintln!("migrations: could not be checked ({err}).");
             eprintln!("            If this database is new, run `cargo run -- migrate`.");
         }
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    #[test]
+    fn the_request_timeout_outlasts_the_slowest_design_budget() {
+        // A design_screenshot `theme:"all"` may run for its whole budget; the
+        // app's TimeoutLayer must not answer 408 before it can reply.
+        let budget = std::time::Duration::from_millis(taskflow_design::screenshots::ALL_BUDGET_MS);
+        assert!(super::REQUEST_TIMEOUT >= budget + std::time::Duration::from_secs(20), "{:?}", super::REQUEST_TIMEOUT);
     }
 }

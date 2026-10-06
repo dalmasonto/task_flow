@@ -37,7 +37,9 @@ export interface TaskflowClientOptions {
   timeoutMs?: number;
 }
 
-/** An error carrying the backend's status + parsed detail. */
+/** An unsaved override: one value for every theme, or per theme `{light?, dark?, <theme>?}`. */
+export type DesignOverrideValue = string | Record<string, string>;
+
 /** Optional `design_screenshot` controls; see the tool's description. */
 export type DesignScreenshotOptions = {
   width?: number;
@@ -46,9 +48,10 @@ export type DesignScreenshotOptions = {
   mobile?: boolean;
   full_page?: boolean;
   frame?: "none" | "classic" | "device";
-  theme?: "light" | "dark" | "both";
-  /** Unsaved overrides: `{"--name": value | {light?, dark?}}`. */
-  tokens?: Record<string, string | { light?: string; dark?: string }>;
+  /** light | dark | both | all | any theme the project declares. */
+  theme?: string;
+  /** Unsaved overrides: `{"--name": value | {light?, dark?, <theme>?}}`. */
+  tokens?: Record<string, DesignOverrideValue>;
   css?: string;
   max_px?: number;
 };
@@ -56,15 +59,16 @@ export type DesignScreenshotOptions = {
 /** `design_compare` request body (minus `project`). */
 export type DesignCompareInput = {
   routes: (string | { route: string; state?: string; label?: string })[];
-  variants: { label: string; tokens?: Record<string, string | { light?: string; dark?: string }>; css?: string }[];
-  themes?: ("light" | "dark")[];
+  variants: { label: string; tokens?: Record<string, DesignOverrideValue>; css?: string }[];
+  /** Theme rows: any themes the project declares. */
+  themes?: string[];
   viewport?: string;
   width?: number;
   height?: number;
   checks?: { fg: string; bg: string; label?: string }[];
   scale?: number;
   /** Overrides every variant starts from. */
-  tokens?: Record<string, string | { light?: string; dark?: string }>;
+  tokens?: Record<string, DesignOverrideValue>;
   /** CSS every variant gets. */
   css?: string;
   include_apply?: boolean;
@@ -94,6 +98,7 @@ export type DesignCompareResult = {
   warnings: string[];
 };
 
+/** An error carrying the backend's status + parsed detail. */
 export class TaskflowApiError extends Error {
   readonly status: number;
   readonly detail: string;
@@ -755,7 +760,9 @@ export class TaskflowClient {
     full_page?: boolean
     warnings?: string[]
     mime: string
-    png_base64: string
+    png_base64?: string
+    /** `theme: "all"`: one shot per declared theme, in order. */
+    shots?: { theme: string; image?: { width: number; height: number }; png_base64?: string; error?: string }[]
   }> {
     const extra: Record<string, string | number | boolean> = {};
     for (const [key, value] of Object.entries(opts)) {
@@ -765,7 +772,7 @@ export class TaskflowClient {
     }
     return this.request("GET", `${API_PREFIX}/agents/design/screenshot`, {
       query: { project, route, viewport, ...(state ? { state } : {}), ...extra },
-      timeoutMs: 45_000,
+      timeoutMs: opts.theme === "all" ? 180_000 : 45_000,
     });
   }
 

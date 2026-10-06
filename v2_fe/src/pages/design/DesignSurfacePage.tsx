@@ -18,11 +18,9 @@ import {
   TabletSmartphoneIcon,
   MonitorSmartphoneIcon,
   PanelRightIcon,
-  MoonIcon,
   MousePointer2Icon,
   RowsIcon,
   ScanIcon,
-  SunIcon,
   WorkflowIcon,
   XIcon,
   ZoomInIcon,
@@ -43,6 +41,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { ThemeSwitcher } from "./theme-switcher"
+import { manifestThemes, resolveActiveTheme } from "./theme-options"
 import { ExportDialog } from "./export/export-dialog"
 import { exportDress } from "./export/export-plan"
 import { setCanvasFrameMode, type CanvasFrameMode } from "@/lib/design-frames"
@@ -202,6 +202,11 @@ export function DesignSurfacePage({
   const [picking, setPicking] = useState(false)
   const [canvasTool, setCanvasTool] = useState<CanvasTool>("select")
   const [theme, setTheme] = useState("light")
+  // #619: the project's themes (light first) come from the manifest, so a
+  // token save updates the switcher live. `theme` stays the user's choice (and
+  // is what gets persisted); what renders is that choice while it exists, else light.
+  const themeOptions = useMemo(() => manifestThemes(manifest), [manifest])
+  const activeTheme = resolveActiveTheme(theme, themeOptions)
   /** Bumped on server-side file changes so iframes remount with fresh content.
    *  It is part of EVERY frame's key, so one bump remounts every board at every
    *  device — which is why nothing here writes it directly: a burst of writes
@@ -663,7 +668,7 @@ export function DesignSurfacePage({
             device: deviceById(deviceId),
             projectId,
             getSandboxToken,
-            theme: theme === "dark" ? "dark" : "light",
+            theme: activeTheme,
             // "Download w Frame" wears what the canvas shows: the classic
             // bezel when Classic is on, the device frame otherwise.
             dress: exportDress(deviceId, !withFrame ? "none" : frameMode === "classic" ? "classic" : "device"),
@@ -674,7 +679,7 @@ export function DesignSurfacePage({
         // for one failed download.
         .catch((err: Error) => setCanvasNotice({ text: err.message, tone: "error" }))
     },
-    [sandboxToken, projectId, getSandboxToken, theme, frameMode],
+    [sandboxToken, projectId, getSandboxToken, activeTheme, frameMode],
   )
 
   const restorePage = useCallback(
@@ -1061,14 +1066,7 @@ export function DesignSurfacePage({
           <Button variant="outline" size="sm" onClick={responsiveReview}>
             Responsive review
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Toggle theme"
-            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-          >
-            {theme === "light" ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
-          </Button>
+          <ThemeSwitcher themes={themeOptions} value={activeTheme} onChange={setTheme} />
           <Button
             variant={picking ? "default" : "outline"}
             size="sm"
@@ -1166,7 +1164,7 @@ export function DesignSurfacePage({
               onTransformChange={setTransform}
               picking={picking}
               canvasTool={canvasTool}
-              theme={theme}
+              theme={activeTheme}
               projectId={projectId}
               labelFor={labelFor}
               sandboxToken={sandboxToken}
@@ -1301,7 +1299,7 @@ export function DesignSurfacePage({
         sandboxToken={sandboxToken}
         getSandboxToken={getSandboxToken}
         projectName={project?.name ?? "Design"}
-        theme={theme === "dark" ? "dark" : "light"}
+        theme={activeTheme}
         defaultDeviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
         defaultDress={frameMode === "outline" ? "none" : frameMode}
       />
@@ -1765,6 +1763,7 @@ function ComponentsPanel({
       <ComponentDialog
         component={selected}
         sandboxToken={sandboxToken}
+        themes={manifestThemes(manifest)}
         open={selected !== null}
         onClose={() => setSelected(null)}
       />

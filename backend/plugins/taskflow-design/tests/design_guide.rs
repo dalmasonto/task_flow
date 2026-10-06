@@ -72,3 +72,30 @@ async fn guide_requires_an_agent_key() {
     let r = app.get_sandbox("/api/taskflow/agents/design/guide").await;
     assert_eq!(r.status(), 401);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tokens_topic_teaches_named_themes() {
+    let app = TestApp::new().await;
+    let (_p, key) = agent(&app).await;
+    let text = app
+        .get_as_agent(&key, "/api/taskflow/agents/design/guide?topic=tokens")
+        .await
+        .json()["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for must in [
+        "## Themes",
+        "To try a palette, add a theme with design_write_tokens and compare themes. Don't overwrite light.",
+        "rename_from",
+        "theme \"all\"",
+        "themes [\"light\",\"dark\",\"ocean\"]",
+        "FULL",
+        "starts with a lowercase letter",
+        "both",
+        "already exists",
+        "themes_renamed",
+    ] {
+        assert!(text.contains(must), "tokens topic lacks {must}");
+    }
+}

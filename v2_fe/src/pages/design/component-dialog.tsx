@@ -1,10 +1,12 @@
 import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
-import { MoonIcon, SunIcon, XIcon } from "lucide-react"
+import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { sandboxUrl, type ComponentEntry } from "@/lib/design-api"
+import { ThemeSwitcher } from "./theme-switcher"
+import { resolveActiveTheme, type ThemeOption } from "./theme-options"
 
 /// A small, dialog-scoped set of viewport widths — a quick sanity check, not
 /// the full responsive-review device picker the toolbar has.
@@ -26,15 +28,17 @@ type ViewportId = (typeof VIEWPORT_PRESETS)[number]["id"]
 export function ComponentDialog({
   component,
   sandboxToken,
+  themes,
   open,
   onClose,
 }: {
   component: ComponentEntry | null
   sandboxToken: string | null
+  themes: ThemeOption[]
   open: boolean
   onClose: () => void
 }) {
-  const [theme, setTheme] = React.useState<"light" | "dark">("light")
+  const [theme, setTheme] = React.useState("light")
   const [viewport, setViewport] = React.useState<ViewportId>("full")
 
   // Reset to a clean light/full view each time a (possibly different)
@@ -45,6 +49,7 @@ export function ComponentDialog({
       setViewport("full")
     }
   }, [open, component?.name])
+  const activeTheme = resolveActiveTheme(theme, themes)
 
   if (!component) return null
 
@@ -93,17 +98,7 @@ export function ComponentDialog({
               ))}
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              className="rounded-lg"
-              title="Toggle theme"
-              onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            >
-              {theme === "light" ? <SunIcon /> : <MoonIcon />}
-              <span className="sr-only">Toggle theme</span>
-            </Button>
+            <ThemeSwitcher themes={themes} value={activeTheme} onChange={setTheme} compact />
 
             <DialogPrimitive.Close
               render={<Button type="button" variant="outline" size="icon-sm" className="rounded-lg" />}
@@ -132,7 +127,7 @@ export function ComponentDialog({
                 key={component.name}
                 sandboxToken={sandboxToken}
                 componentName={component.name}
-                theme={theme}
+                theme={activeTheme}
                 width={width}
               />
             ) : (
@@ -158,7 +153,7 @@ function ComponentSandboxFrame({
 }: {
   sandboxToken: string
   componentName: string
-  theme: "light" | "dark"
+  theme: string
   width: number | null
 }) {
   const frameRef = React.useRef<HTMLIFrameElement>(null)

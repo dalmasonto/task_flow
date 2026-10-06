@@ -217,7 +217,7 @@ async fn apply_diffs_against_the_effective_tokens_not_the_stored_doc() {
     let _ = user;
     let files = taskflow_design::store::list_files(project).await;
     let dark_only = Overrides {
-        tokens: [("--primary".to_string(), OverrideValue::PerTheme { light: None, dark: Some("oklch(0.9 0.1 250)".into()) })].into(),
+        tokens: [("--primary".to_string(), OverrideValue::PerTheme([("dark".to_string(), "oklch(0.9 0.1 250)".to_string())].into()))].into(),
         css: None,
     };
     let variants = vec![GridVariant { label: "Dark".into(), overrides: dark_only }];
@@ -227,4 +227,59 @@ async fn apply_diffs_against_the_effective_tokens_not_the_stored_doc() {
         json!({"colors":{"primary":{"light":"oklch(0.205 0 0)","dark":"oklch(0.9 0.1 250)"}}})
     );
     assert!(apply["Dark"].get("added_to_custom").is_none(), "{apply}");
+}
+
+/// #619 (I1): the built-in defaults carry `dark`, but a project that declares
+/// only `ocean` must never be handed a `dark` value — the patch would be
+/// refused by `design_write_tokens` ("unknown theme `dark`").
+#[test]
+fn apply_keeps_only_light_and_the_declared_themes() {
+    use taskflow_design::tokens::{TokensDoc, apply_patch};
+    let stored: TokensDoc = serde_json::from_str(
+        r##"{"version":1,"themes":[{"name":"ocean"}],"categories":{"colors":{"bg":{"light":"#fff","ocean":"#024"}}}}"##,
+    )
+    .expect("doc");
+    let effective = taskflow_design::defaults::effective_tokens(&stored);
+    let ov = Overrides {
+        tokens: [("--primary".to_string(), OverrideValue::Both("#448502".to_string()))].into(),
+        css: None,
+    };
+    let (patch, added) = compare::apply_diff(&effective, &ov);
+    assert!(added.is_empty(), "{added:?}");
+    assert_eq!(patch, json!({"colors":{"primary":{"light":"#448502"}}}));
+    // A per-theme override keeps its declared theme and still drops the default dark.
+    let per_theme = Overrides {
+        tokens: [("--primary".to_string(), OverrideValue::PerTheme([("ocean".to_string(), "#0af".to_string())].into()))].into(),
+        css: None,
+    };
+    let (patch2, _) = compare::apply_diff(&effective, &per_theme);
+    assert!(patch2["colors"]["primary"].get("dark").is_none(), "{patch2}");
+    assert_eq!(patch2["colors"]["primary"]["ocean"], json!("#0af"));
+    // Both patches apply cleanly and the result validates.
+    for p in [&patch, &patch2] {
+        let mut doc = stored.clone();
+        apply_patch(&mut doc, p).expect("patch applies");
+        let content = serde_json::to_string(&doc).expect("json");
+        let v = taskflow_design::validation::validate_tokens_json(&content);
+        assert!(v.ok, "{:?}", v.errors);
+    }
+}
+
+/// A legacy light+dark project (no `themes` list) still gets its dark value.
+#[test]
+fn apply_on_a_legacy_project_still_carries_dark() {
+    let stored: taskflow_design::tokens::TokensDoc = serde_json::from_str(TOKENS_JSON).expect("doc");
+    let effective = taskflow_design::defaults::effective_tokens(&stored);
+    let ov = Overrides {
+        tokens: [
+            ("--primary".to_string(), OverrideValue::Both("#448502".to_string())),
+            ("--ring".to_string(), OverrideValue::Both("#111".to_string())),
+        ]
+        .into(),
+        css: None,
+    };
+    let (patch, _) = compare::apply_diff(&effective, &ov);
+    assert_eq!(patch["colors"]["primary"], json!({"light":"#448502","dark":"#448502"}));
+    // `--ring` comes from the defaults, which carry dark: still kept.
+    assert_eq!(patch["colors"]["ring"], json!({"light":"#111","dark":"#111"}));
 }

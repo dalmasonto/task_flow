@@ -134,7 +134,7 @@ export function ExportDialog({
   /// screen, because a token lives ten minutes and an export can run longer.
   getSandboxToken: () => Promise<string>
   projectName: string
-  theme: "light" | "dark"
+  theme: string
   defaultDeviceId: string
   /// The frame style the canvas is showing — the export starts from it.
   defaultDress: DressStyle

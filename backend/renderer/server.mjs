@@ -8,7 +8,7 @@
 //   POST /render   form fields: url, width, height, dpr, timeout_ms, and
 //                  optionally mobile (0|1), full_page (0|1),
 //                  frame (none|classic|device), device (preset id),
-//                  theme (light|dark|both), max_px (0 = as captured)
+//                  theme (light|dark|both|<theme name>), max_px (0 = as captured)
 //                  → image/png, with X-Render-Warnings: a base64 JSON array
 //                    of what did not load (fonts, images…), and
 //                    X-Render-Data: base64 JSON of what the page reported
@@ -76,7 +76,7 @@ function parseShot(body) {
   const theme = f.get("theme") || "light";
   const maxPx = intIn(f.get("max_px") || "0", 0, 8000);
   if (maxPx === null) return { error: "max_px must be 0–8000" };
-  if (!["light", "dark", "both"].includes(theme)) return { error: "theme must be light, dark or both" };
+  if (theme !== "both" && !/^[a-z][a-z0-9-]{0,31}$/.test(theme)) return { error: "theme must be both or a theme name" };
   if (!/^[a-z0-9-]{0,40}$/.test(device)) return { error: "device must be a preset id" };
   return {
     url: url.href,

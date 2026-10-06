@@ -172,7 +172,8 @@ pub struct CreateScreenshotInput {
     #[serde(default)]
     pub full_page: bool,
     #[serde(default)]
-    pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
+    pub frame: crate::screenshots::Frame,
+    /// light | dark | both | a theme the project declares (one PNG: never all).
     #[serde(default)]
     pub theme: crate::screenshots::Theme,
     /// #522: unsaved token/CSS overrides.
@@ -192,6 +193,13 @@ pub async fn create_screenshot(
     Json(input): Json<CreateScreenshotInput>,
 ) -> Result<Response, StatusCode> {
     ensure_member(user_id, project_id).await?;
+    // #619: one declared theme (or both) per PNG here; `all` is the agent tool's.
+    let declared = crate::tokens::load_project_tokens_doc(project_id).await.declared_themes();
+    if input.theme == crate::screenshots::Theme::All
+        || crate::screenshots::check_theme(&input.theme, &declared).is_err()
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let req = crate::screenshots::ScreenshotRequest {
         viewport: input.viewport.clone(),
         width: input.width,
@@ -200,7 +208,7 @@ pub async fn create_screenshot(
         mobile: input.mobile,
         full_page: input.full_page,
         frame: input.frame,
-        theme: input.theme,
+        theme: input.theme.clone(),
         overrides: input.overrides.clone(),
         max_px: input.max_px,
     };
@@ -215,7 +223,8 @@ pub async fn create_screenshot(
         crate::screenshots::RenderError::Unconfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
         crate::screenshots::RenderError::UnknownViewport(_)
         | crate::screenshots::RenderError::BadSize(_)
-        | crate::screenshots::RenderError::BadOverrides(_) => StatusCode::BAD_REQUEST,
+        | crate::screenshots::RenderError::BadOverrides(_)
+        | crate::screenshots::RenderError::BadTheme(_) => StatusCode::BAD_REQUEST,
         other => {
             eprintln!("design screenshot: {other}");
             StatusCode::BAD_GATEWAY
@@ -1133,15 +1142,17 @@ async fn serve_sandbox_page(
         Some(raw) => crate::compare::decode(raw).map_err(|_| StatusCode::BAD_REQUEST)?,
         None => crate::compare::Overrides::default(),
     };
-    // `?theme=dark` renders the page dark from the first byte, the same
-    // `data-theme` the canvas sets with `design:theme` after load — so a
-    // screenshot has no light first paint to catch. Anything else is light.
-    let theme = match query.and_then(|q| query_param(q, "theme")) {
-        Some("dark") => "dark",
-        _ => "light",
-    };
-
     let files = store::list_files(project_id).await;
+    // `?theme=<name>` renders the page in that theme from the first byte, the
+    // same `data-theme` the canvas sets with `design:theme` after load — so a
+    // screenshot has no light first paint to catch. #619: any theme the
+    // project declares; anything else (including `both`) is light. Only a
+    // declared slug can reach the HTML attribute.
+    let declared = crate::tokens::project_tokens_doc(&files).declared_themes();
+    let theme = match query.and_then(|q| query_param(q, "theme")) {
+        Some(name) if declared.iter().any(|d| d == name) => name.to_string(),
+        _ => "light".to_string(),
+    };
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
     let m = manifest::build(project_id, &files, revision);
 
@@ -1164,7 +1175,7 @@ async fn serve_sandbox_page(
         &page_path,
         &fragment.content,
         &file_versions(&files),
-        theme,
+        &theme,
         state.as_deref(),
     );
     let html = crate::compare::inject(html, &overrides);

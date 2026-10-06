@@ -99,7 +99,7 @@ fn bridge_skips_non_ident_colour_keys() {
     project
         .categories
         .entry_or_insert_with("colors", taskflow_design::tokens::OrderedMap::new)
-        .insert("x;} body{display:none}".to_string(), taskflow_design::tokens::TokenValue { light: "red".into(), dark: None });
+        .insert("x;} body{display:none}".to_string(), taskflow_design::tokens::TokenValue::new("red"));
     let bridge = theme_bridge(&effective_tokens(&project));
     assert!(bridge.contains("--color-ok: var(--ok);"));
     assert!(!bridge.contains("body{"), "{bridge}");

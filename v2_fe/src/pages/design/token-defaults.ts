@@ -1,6 +1,6 @@
-import type { DesignTokensDoc } from "@/lib/design-api"
+import type { DesignTokensDoc, DesignTokenValue } from "@/lib/design-api"
 
-type TokenValue = { light: string; dark?: string }
+type TokenValue = DesignTokenValue
 
 /// The built-in shadcn defaults to show (muted, "default") under `category`:
 /// the server's `missing` list minus anything the user has since added locally

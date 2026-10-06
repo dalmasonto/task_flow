@@ -96,6 +96,8 @@ pub async fn context(
         "routes": manifest::to_json(&m)["routes"],
         "revision": revision,
         "defaults": defaults,
+        // #619: the ordered theme list (light first) with labels and swatches.
+        "themes": manifest::to_json(&m)["themes"],
         "resources": resources,
         "note": "Colour, radius and type come from these tokens — write shadcn classes \
                  (bg-primary, text-muted-foreground, rounded-lg). Names in `defaults` are \
@@ -737,8 +739,8 @@ pub struct AgentWriteTokensInput {
     /// `css_to_tokens_json` before storage. Exactly one of `tokens`/`css`.
     #[serde(default)]
     pub css: Option<String>,
-    /// Merge shape `{category: {key: {light?, dark?} | null}}`: only what it
-    /// names changes (see `tokens::apply_patch`). `design_compare`'s `apply`
+    /// Merge shape `{"themes"?: [...full list besides light...], category: {key: {light?, <theme>?} | null}}`:
+    /// only what it names changes (see `tokens::apply_patch`). `design_compare`'s `apply`
     /// diff is exactly this. Exactly one of `tokens`/`css`/`patch`.
     #[serde(default)]
     pub patch: Option<serde_json::Value>,
@@ -812,6 +814,7 @@ pub async fn write_tokens(
     // patch — the one it was merged onto, so a concurrent write surfaces as
     // a 409 instead of being silently overwritten by a stale merge.
     let mut base_version = input.base_version;
+    let mut renamed: Vec<(String, String)> = Vec::new();
     let doc = if let Some(patch) = input.patch {
         let mut doc = match &current {
             Some(row) => match serde_json::from_str::<TokensDoc>(&row.content) {
@@ -827,8 +830,9 @@ pub async fn write_tokens(
             },
             None => TokensDoc::default(),
         };
-        if let Err(err) = crate::tokens::apply_patch(&mut doc, &patch) {
-            return Ok(tokens_validation_error("invalid-patch", err));
+        match crate::tokens::apply_patch(&mut doc, &patch) {
+            Ok(changes) => renamed = changes.renamed,
+            Err(err) => return Ok(tokens_validation_error("invalid-patch", err)),
         }
         if base_version.is_none() {
             base_version = current.as_ref().map(|row| row.version);
@@ -862,6 +866,16 @@ pub async fn write_tokens(
         }
     };
 
+    // #619: a theme that left the list (not by a rename) took its values with
+    // it. The reply says so, because `themes` is the FULL list and an agent
+    // adding one theme can drop `dark` by leaving it out.
+    let after_themes = doc.declared_themes();
+    let removed_themes: Vec<String> = before
+        .declared_themes()
+        .into_iter()
+        .filter(|t| !after_themes.contains(t) && !renamed.iter().any(|(from, _)| from == t))
+        .collect();
+
     // Written like every agent write (same lock, validator, conflict rules),
     // but answered compactly: a token write re-renders EVERY route, so the
     // shared reply — the stored file echoed back plus every route named twice
@@ -879,7 +893,7 @@ pub async fn write_tokens(
             let routes = crate::views::affected_routes_for(&row.path, agent.project_id).await.len();
             const SHOWN: usize = 40;
             let names: Vec<&str> = changes.iter().take(5).map(|c| c.var.as_str()).collect();
-            let note = format!(
+            let mut note = format!(
                 "tokens.json is now v{}: {} token(s) changed{}; {routes} route(s) re-render.",
                 row.version,
                 changes.len(),
@@ -893,20 +907,31 @@ pub async fn write_tokens(
                     )
                 },
             );
-            Ok((
-                StatusCode::CREATED,
-                Json(json!({
-                    "ok": true,
-                    "path": row.path,
-                    "version": row.version,
-                    "changed": changes.iter().take(SHOWN).collect::<Vec<_>>(),
-                    "changed_count": changes.len(),
-                    "routes_affected": routes,
-                    "warnings": verdict.warnings,
-                    "note": note,
-                })),
-            )
-                .into_response())
+            if !removed_themes.is_empty() {
+                note.push_str(&format!(
+                    " Removed theme(s) {} and their values (`themes` is the full list: a theme left out is deleted).",
+                    removed_themes.join(", ")
+                ));
+            }
+            let mut body = json!({
+                "ok": true,
+                "path": row.path,
+                "version": row.version,
+                "changed": changes.iter().take(SHOWN).collect::<Vec<_>>(),
+                "changed_count": changes.len(),
+                "routes_affected": routes,
+                "themes": after_themes,
+                "warnings": verdict.warnings,
+                "note": note,
+            });
+            if !removed_themes.is_empty() {
+                body["themes_removed"] = json!(removed_themes);
+            }
+            if !renamed.is_empty() {
+                body["themes_renamed"] =
+                    json!(renamed.iter().map(|(f, t)| json!({ "from": f, "to": t })).collect::<Vec<_>>());
+            }
+            Ok((StatusCode::CREATED, Json(body)).into_response())
         }
         WriteOutcome::Rejected(v) => Ok(rejection_response(&v)),
         WriteOutcome::Conflict(row) => Ok(conflict_response(&row)),
@@ -1496,7 +1521,8 @@ pub struct AgentScreenshotQuery {
     pub full_page: bool,
     /// `none` | `classic` | `device` — the export's three dresses.
     #[serde(default)]
-    pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
+    pub frame: crate::screenshots::Frame,
+    /// light | dark | both | all | a theme the project declares.
     #[serde(default)]
     pub theme: crate::screenshots::Theme,
     /// #522: unsaved overrides — a JSON object `{"--name": value | {light, dark}}`
@@ -1538,7 +1564,19 @@ pub async fn screenshot(
         },
         None => Default::default(),
     };
-    let req = crate::screenshots::ScreenshotRequest {
+    let overrides = crate::compare::Overrides { tokens, css: q.css.clone() };
+    // #619: a theme is any name the project declares (plus `both` / `all`),
+    // checked here, before the renderer, so an unknown name is a 400 and not
+    // a light picture.
+    let declared = crate::tokens::load_project_tokens_doc(agent.project_id).await.declared_themes();
+    let checked = crate::screenshots::check_theme(&q.theme, &declared).and_then(|()| {
+        crate::compare::check_override_themes(&overrides, &declared)
+            .map_err(crate::screenshots::RenderError::BadOverrides)
+    });
+    if let Err(err) = checked {
+        return Ok(screenshot_error_response(err));
+    }
+    let base = crate::screenshots::ScreenshotRequest {
         viewport: q.viewport.clone(),
         width: q.width,
         height: q.height,
@@ -1546,50 +1584,65 @@ pub async fn screenshot(
         mobile: q.mobile,
         full_page: q.full_page,
         frame: q.frame,
-        theme: q.theme,
-        overrides: crate::compare::Overrides { tokens, css: q.css.clone() },
+        theme: q.theme.clone(),
+        overrides,
         max_px: q.max_px.unwrap_or(crate::screenshots::AGENT_MAX_PX),
     };
-    let shot = match crate::screenshots::render_screenshot(
-        &q.route,
-        &req,
-        q.state.as_deref(),
-        || crate::sandbox::mint(agent.project_id),
-    )
-    .await
-    {
-        Ok(shot) => shot,
-        Err(crate::screenshots::RenderError::Unconfigured(what)) => {
-            // Tell the agent exactly what to ask the operator for.
-            return Ok((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "detail": format!(
-                        "Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."
-                    ),
-                })),
+    // One renderer run per theme: `all` is every declared theme, in order.
+    let themes = crate::screenshots::theme_shots(&q.theme, &declared);
+    let is_all = q.theme == crate::screenshots::Theme::All;
+    let started = std::time::Instant::now();
+    let mut outcomes: Vec<(crate::screenshots::Theme, Result<crate::screenshots::Rendered, ShotFailure>)> = Vec::new();
+    for theme in themes {
+        let req = crate::screenshots::ScreenshotRequest { theme: theme.clone(), ..base.clone() };
+        if is_all
+            && !crate::screenshots::fits_budget(
+                started.elapsed().as_millis() as u64,
+                crate::screenshots::shot_budget_ms(&req),
+                crate::screenshots::ALL_BUDGET_MS,
             )
-                .into_response());
+        {
+            outcomes.push((theme, Err(ShotFailure::Skipped)));
+            continue;
         }
-        Err(err @ (crate::screenshots::RenderError::UnknownViewport(_)
-        | crate::screenshots::RenderError::BadSize(_)
-        | crate::screenshots::RenderError::BadOverrides(_))) => {
-            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "detail": err.to_string() }))).into_response());
+        match crate::screenshots::render_screenshot(&q.route, &req, q.state.as_deref(), || {
+            crate::sandbox::mint(agent.project_id)
+        })
+        .await
+        {
+            Ok(shot) => outcomes.push((theme, Ok(shot))),
+            // A single shot has nothing else to return: answer the error as is.
+            Err(err) if !is_all => return Ok(screenshot_error_response(err)),
+            Err(err) => outcomes.push((theme, Err(ShotFailure::Render(err)))),
         }
-        Err(other) => {
-            eprintln!("design agent screenshot: {other}");
-            return Ok((
-                StatusCode::BAD_GATEWAY,
-                Json(json!({ "detail": other.to_string() })),
-            )
-                .into_response());
-        }
+    }
+    // A custom size is not the preset it was sent alongside.
+    let viewport = if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() };
+    if is_all {
+        let parts = match all_shots(&outcomes) {
+            Ok(parts) => parts,
+            Err(err) => return Ok(err),
+        };
+        return Ok(Json(json!({
+            "route": q.route,
+            "viewport": viewport,
+            "size": parts.size,
+            "theme": q.theme,
+            "full_page": q.full_page,
+            "frame": q.frame,
+            "warnings": parts.warnings,
+            "mime": "image/png",
+            "shots": parts.shots,
+        }))
+        .into_response());
+    }
+    let Some((_, Ok(shot))) = outcomes.into_iter().next() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
     let b64 = base64::engine::general_purpose::STANDARD.encode(&shot.png);
     Ok(Json(json!({
         "route": q.route,
-        // A custom size is not the preset it was sent alongside.
-        "viewport": if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() },
+        "viewport": viewport,
         "size": shot.viewport,
         "image": png_size(&shot.png),
         "theme": q.theme,
@@ -1600,6 +1653,112 @@ pub async fn screenshot(
         "png_base64": b64,
     }))
     .into_response())
+}
+
+/// Why one theme of an `all` run has no picture.
+#[derive(Debug)]
+enum ShotFailure {
+    Render(crate::screenshots::RenderError),
+    /// Not started: the overall time budget would have been exceeded.
+    Skipped,
+}
+
+impl ShotFailure {
+    fn message(&self) -> String {
+        match self {
+            ShotFailure::Render(err) => err.to_string(),
+            ShotFailure::Skipped => "skipped: time budget".to_string(),
+        }
+    }
+}
+
+struct AllShots {
+    shots: Vec<serde_json::Value>,
+    warnings: Vec<String>,
+    size: Option<crate::screenshots::Viewport>,
+}
+
+fn all_failed_detail(
+    outcomes: &[(crate::screenshots::Theme, Result<crate::screenshots::Rendered, ShotFailure>)],
+) -> String {
+    let reasons = outcomes
+        .iter()
+        .map(|(theme, r)| format!("{}: {}", theme.as_str(), r.as_ref().err().map(|e| e.message()).unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("No theme could be rendered. {reasons}")
+}
+
+/// Partial results for `theme: "all"`: each entry is `{theme, image,
+/// png_base64}` or `{theme, error}`. Only when NO theme produced a picture is
+/// it an error, naming every theme's reason.
+fn all_shots(
+    outcomes: &[(crate::screenshots::Theme, Result<crate::screenshots::Rendered, ShotFailure>)],
+) -> Result<AllShots, Response> {
+    use base64::Engine as _;
+    if !outcomes.iter().any(|(_, r)| r.is_ok()) {
+        // Every theme failed: a renderer that is simply not configured is the
+        // same 503 as a single shot's.
+        if let Some((_, Err(ShotFailure::Render(err @ crate::screenshots::RenderError::Unconfigured(_))))) =
+            outcomes.first()
+        {
+            return Err(screenshot_error_response(crate::screenshots::RenderError::Unconfigured(match err {
+                crate::screenshots::RenderError::Unconfigured(what) => what,
+                _ => "renderer",
+            })));
+        }
+        let detail = all_failed_detail(outcomes);
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "detail": detail })),
+        )
+            .into_response());
+    }
+    let mut warnings = Vec::new();
+    let mut shots = Vec::new();
+    let mut size = None;
+    for (theme, result) in outcomes {
+        match result {
+            Ok(shot) => {
+                size.get_or_insert_with(|| shot.viewport.clone());
+                warnings.extend(shot.warnings.iter().map(|w| format!("{}: {w}", theme.as_str())));
+                shots.push(json!({
+                    "theme": theme,
+                    "image": png_size(&shot.png),
+                    "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+                }));
+            }
+            Err(failure) => shots.push(json!({ "theme": theme, "error": failure.message() })),
+        }
+    }
+    Ok(AllShots { shots, warnings, size })
+}
+
+/// The agent screenshot's answer to a render error: 503 names what the
+/// operator must configure; bad input is a 400; anything else a 502.
+fn screenshot_error_response(err: crate::screenshots::RenderError) -> Response {
+    use crate::screenshots::RenderError;
+    match err {
+        RenderError::Unconfigured(what) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "detail": format!(
+                    "Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."
+                ),
+            })),
+        )
+            .into_response(),
+        err @ (RenderError::UnknownViewport(_)
+        | RenderError::BadSize(_)
+        | RenderError::BadOverrides(_)
+        | RenderError::BadTheme(_)) => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "detail": err.to_string() }))).into_response()
+        }
+        other => {
+            eprintln!("design agent screenshot: {other}");
+            (StatusCode::BAD_GATEWAY, Json(json!({ "detail": other.to_string() }))).into_response()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1736,7 +1895,7 @@ pub struct AgentCompareInput {
     pub project: i64,
     pub routes: Vec<CompareRouteInput>,
     pub variants: Vec<CompareVariantInput>,
-    /// `["light"]` when absent.
+    /// Theme rows, any the project declares; ["light"] when absent.
     #[serde(default)]
     pub themes: Option<Vec<String>>,
     /// Preset id; default `iphone-16-pro`.
@@ -1829,6 +1988,20 @@ pub async fn compare(
             missing.route,
             manifest.routes.iter().map(|r| r.path.as_str()).collect::<Vec<_>>().join(", ")
         )));
+    }
+    // #619: every theme row and every per-theme override must be a theme the
+    // project declares — an unknown one would render light and look like a result.
+    let declared = crate::tokens::project_tokens_doc(&files).declared_themes();
+    if let Some(unknown) = spec.themes.iter().find(|t| !declared.contains(t)) {
+        return Ok(bad_request(format!(
+            "theme `{unknown}` is not declared in this project (themes: {}); add it with design_write_tokens first",
+            declared.join(", ")
+        )));
+    }
+    for v in &spec.variants {
+        if let Err(e) = crate::compare::check_override_themes(&v.overrides, &declared) {
+            return Ok(bad_request(format!("variant `{}`: {e}", v.label)));
+        }
     }
 
     // One grid, or one per route when a single grid would shrink its cells
@@ -1951,4 +2124,48 @@ pub fn compare_apply(
 fn png_size(png: &[u8]) -> serde_json::Value {
     let read = |at: usize| png.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
     json!({ "width": read(16), "height": read(20) })
+}
+
+#[cfg(test)]
+mod all_shots_tests {
+    use super::*;
+    use crate::screenshots::{RenderError, Rendered, Theme, Viewport};
+
+    fn rendered() -> Rendered {
+        Rendered {
+            png: vec![],
+            warnings: vec!["font did not load".into()],
+            data: serde_json::Value::Null,
+            viewport: Viewport { width: 10, height: 10, dpr: 1, mobile: false },
+        }
+    }
+
+    #[test]
+    fn a_mixed_run_returns_partial_shots() {
+        let outcomes = vec![
+            (Theme::Light, Ok(rendered())),
+            (Theme::Dark, Err(ShotFailure::Render(RenderError::Timeout))),
+            (Theme::Named("ocean".into()), Err(ShotFailure::Skipped)),
+        ];
+        let parts = all_shots(&outcomes).ok().expect("partial is ok");
+        assert_eq!(parts.shots.len(), 3);
+        assert!(parts.shots[0]["png_base64"].is_string() && parts.shots[0].get("error").is_none());
+        assert_eq!(parts.shots[1]["theme"], "dark");
+        assert!(parts.shots[1]["error"].as_str().unwrap().contains("timed out"));
+        assert!(parts.shots[1].get("png_base64").is_none());
+        assert_eq!(parts.shots[2]["error"], "skipped: time budget");
+        assert_eq!(parts.warnings, vec!["light: font did not load"]);
+    }
+
+    #[test]
+    fn all_failing_is_an_error_naming_each_theme() {
+        let outcomes = vec![
+            (Theme::Light, Err(ShotFailure::Render(RenderError::Timeout))),
+            (Theme::Named("ocean".into()), Err(ShotFailure::Skipped)),
+        ];
+        let Err(res) = all_shots(&outcomes) else { panic!("expected an error") };
+        assert_eq!(res.status(), StatusCode::BAD_GATEWAY);
+        let detail = all_failed_detail(&outcomes);
+        assert!(detail.contains("light: Renderer timed out") && detail.contains("ocean: skipped: time budget"), "{detail}");
+    }
 }

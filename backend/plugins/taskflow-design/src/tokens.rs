@@ -71,6 +71,20 @@ impl<V> OrderedMap<V> {
         }
         self.get_mut(key).expect("just inserted")
     }
+
+    pub fn get(&self, key: &str) -> Option<&V> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.0.iter().any(|(k, _)| k == key)
+    }
+
+    /// Remove `key`, returning its value if it was present.
+    pub fn remove(&mut self, key: &str) -> Option<V> {
+        let at = self.0.iter().position(|(k, _)| k == key)?;
+        Some(self.0.remove(at).1)
+    }
 }
 
 impl<V: Serialize> Serialize for OrderedMap<V> {
@@ -107,18 +121,153 @@ impl<'de, V: Deserialize<'de>> Deserialize<'de> for OrderedMap<V> {
     }
 }
 
-/// A single token's value: always a light value, optionally a dark override.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The base theme every other theme inherits from. Always exists.
+pub const LIGHT: &str = "light";
+/// The theme a legacy document (no `themes` list) declares implicitly.
+pub const DARK: &str = "dark";
+/// Themes per project, light included.
+pub const MAX_THEMES: usize = 8;
+/// Never a theme name: `light` is the implicit base; `both` and `all` are
+/// design_screenshot's multi-theme values.
+pub const RESERVED_THEME_NAMES: &[&str] = &["light", "both", "all"];
+
+/// A theme name is a lowercase slug, `^[a-z][a-z0-9-]{0,31}$`. It lands in a
+/// CSS attribute selector (`[data-theme="<name>"]`), an HTML attribute and a
+/// URL query, so nothing else is ever accepted.
+pub fn is_theme_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (1..=32).contains(&bytes.len())
+        && bytes[0].is_ascii_lowercase()
+        && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
+/// A theme's display name when it has no label: the slug title-cased
+/// (`high-contrast` -> `High Contrast`).
+pub fn default_theme_label(name: &str) -> String {
+    name.split('-')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut chars = w.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// One declared theme besides light: `{"name": "ocean", "label"?: "Ocean"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeDecl {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+impl ThemeDecl {
+    pub fn named(name: impl Into<String>) -> Self {
+        ThemeDecl { name: name.into(), label: None }
+    }
+}
+
+/// A single token's values: the light (base) value plus one override per
+/// theme that changes it. Serialised FLAT — `{"light": v, "dark": v, "ocean": v}`
+/// — so the legacy `{light, dark?}` shape IS this shape with one theme and
+/// every stored document reads and writes unchanged. A theme with no entry
+/// inherits `light`.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct TokenValue {
     pub light: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dark: Option<String>,
+    /// Theme name → value, in document order. Never holds `light`.
+    pub themes: OrderedMap<String>,
+}
+
+impl TokenValue {
+    pub fn new(light: impl Into<String>) -> Self {
+        TokenValue { light: light.into(), themes: OrderedMap::new() }
+    }
+
+    /// Builder form of [`TokenValue::set`].
+    pub fn with(mut self, theme: &str, value: impl Into<String>) -> Self {
+        self.set(theme, value);
+        self
+    }
+
+    /// The token's OWN value in `theme`: light's for `light`, else the
+    /// override, if it has one.
+    pub fn get(&self, theme: &str) -> Option<&str> {
+        if theme == LIGHT {
+            Some(self.light.as_str())
+        } else {
+            self.themes.get(theme).map(String::as_str)
+        }
+    }
+
+    /// What the token renders with in `theme`: its override, else light.
+    pub fn resolve(&self, theme: &str) -> &str {
+        self.get(theme).unwrap_or(self.light.as_str())
+    }
+
+    pub fn set(&mut self, theme: &str, value: impl Into<String>) {
+        if theme == LIGHT {
+            self.light = value.into();
+        } else {
+            self.themes.insert(theme, value.into());
+        }
+    }
+
+    /// Drop `theme`'s override (it inherits light again). Light itself is
+    /// never removed — remove the token for that.
+    pub fn remove(&mut self, theme: &str) -> Option<String> {
+        if theme == LIGHT { None } else { self.themes.remove(theme) }
+    }
+
+    /// Every value: light first, then each override in order.
+    pub fn values(&self) -> impl Iterator<Item = &String> {
+        std::iter::once(&self.light).chain(self.themes.iter().map(|(_, v)| v))
+    }
+}
+
+impl Serialize for TokenValue {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(1 + self.themes.0.len()))?;
+        map.serialize_entry(LIGHT, &self.light)?;
+        for (theme, value) in self.themes.iter() {
+            map.serialize_entry(theme, value)?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for TokenValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // `null` for a theme reads as "no override" (old clients send
+        // `"dark": null`); every other key is a theme name, which
+        // `validate_tokens_json` checks against the declared list on write.
+        let raw = OrderedMap::<Option<String>>::deserialize(deserializer)?;
+        let mut light = None;
+        let mut themes = OrderedMap::new();
+        for (key, value) in raw.0 {
+            if key == LIGHT {
+                light = value;
+            } else if let Some(value) = value {
+                themes.insert(key, value);
+            }
+        }
+        let light = light.ok_or_else(|| serde::de::Error::missing_field("light"))?;
+        Ok(TokenValue { light, themes })
+    }
 }
 
 /// The tokens JSON source of truth: `styles/tokens.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokensDoc {
     pub version: u32,
+    /// #619: the themes besides light, in order. Absent on every legacy
+    /// document, which then declares `dark` implicitly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub themes: Option<Vec<ThemeDecl>>,
     pub categories: OrderedMap<OrderedMap<TokenValue>>,
 }
 
@@ -126,9 +275,87 @@ impl Default for TokensDoc {
     fn default() -> Self {
         TokensDoc {
             version: 1,
+            themes: None,
             categories: OrderedMap::new(),
         }
     }
+}
+
+impl TokensDoc {
+    /// The themes besides light, in order. A document with no `themes` list
+    /// is the legacy light/dark pair, so `dark` is declared implicitly.
+    pub fn theme_decls(&self) -> Vec<ThemeDecl> {
+        self.themes.clone().unwrap_or_else(|| vec![ThemeDecl::named(DARK)])
+    }
+
+    /// Every theme a page can render in, light first.
+    pub fn declared_themes(&self) -> Vec<String> {
+        std::iter::once(LIGHT.to_string())
+            .chain(self.theme_decls().into_iter().map(|t| t.name))
+            .collect()
+    }
+
+    /// The theme's label, else [`default_theme_label`] (light is "Light").
+    pub fn theme_label(&self, theme: &str) -> String {
+        self.theme_decls()
+            .into_iter()
+            .find(|t| t.name == theme)
+            .and_then(|t| t.label)
+            .unwrap_or_else(|| default_theme_label(theme))
+    }
+
+    /// What the `--var` (emitted name) renders with in `theme`, found through
+    /// the emitter's own naming rule, so `custom["--primary"]` counts too.
+    pub fn resolve_var(&self, var: &str, theme: &str) -> Option<&str> {
+        for (category, tokens) in self.categories.iter() {
+            for (key, value) in tokens.iter() {
+                if category_to_var_name(category, key) == var {
+                    return Some(value.resolve(theme));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn declares(&self, theme: &str) -> bool {
+        theme == LIGHT || self.theme_decls().iter().any(|t| t.name == theme)
+    }
+}
+
+/// The one rule set for a theme list (stored document and patch alike):
+/// light is never listed, reserved names refused, slugs only, no duplicate,
+/// labels 1-40 characters, at most [`MAX_THEMES`] including light.
+pub fn check_theme_list(themes: &[ThemeDecl]) -> Result<(), String> {
+    if themes.len() + 1 > MAX_THEMES {
+        return Err(format!(
+            "at most {MAX_THEMES} themes including light; this lists {}",
+            themes.len() + 1
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for theme in themes {
+        let name = theme.name.as_str();
+        if name == LIGHT {
+            return Err("`light` is the implicit base theme: list only the other themes, e.g. [{\"name\":\"dark\"},{\"name\":\"ocean\"}]".into());
+        }
+        if RESERVED_THEME_NAMES.contains(&name) {
+            return Err(format!("`{name}` is reserved (design_screenshot uses it); pick another theme name"));
+        }
+        if !is_theme_name(name) {
+            return Err(format!(
+                "theme name `{name}` must be a lowercase slug: a letter, then letters, digits or `-`, at most 32"
+            ));
+        }
+        if !seen.insert(name) {
+            return Err(format!("theme `{name}` is listed twice"));
+        }
+        if let Some(label) = &theme.label {
+            if label.trim().is_empty() || label.chars().count() > 40 {
+                return Err(format!("theme `{name}`: a label is 1-40 characters"));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Derive the CSS custom-property name for a token, given its category and
@@ -206,9 +433,11 @@ pub fn var_name_to_category(var_name: &str) -> (&'static str, String) {
 /// shadcn's `globals.css` shape:
 ///
 /// 1. `:root { <light values> }`
-/// 2. `:root[data-theme="dark"], .dark { <dark values> }` — the sandbox toggles
-///    `data-theme` (composer.rs); `.dark` makes the file drop into a shadcn app.
-///    Emitted only when some token has a dark value.
+/// 2. One block per declared theme: dark as `:root[data-theme="dark"], .dark`
+///    (the sandbox toggles `data-theme` (composer.rs); `.dark` makes the file
+///    drop into a shadcn app), every other theme as
+///    `:root[data-theme="<name>"]`, each with only its overrides; a theme with
+///    none emits nothing.
 /// 3. [`theme_bridge`] — `@theme inline`, mapping tokens into Tailwind's
 ///    namespaces. A plain stylesheet ignores it; the composer feeds the same
 ///    block to the Tailwind browser build as `text/tailwindcss`.
@@ -217,14 +446,24 @@ pub fn var_name_to_category(var_name: &str) -> (&'static str, String) {
 /// never compiled it, and in an app it would register `--primary` itself as a
 /// theme variable.
 pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
+    // Declared themes only, and only real slugs: a name reaches an attribute
+    // selector here, so an unvalidated document can never inject one.
+    let themes: Vec<String> = doc
+        .theme_decls()
+        .into_iter()
+        .map(|t| t.name)
+        .filter(|name| is_theme_name(name) && !RESERVED_THEME_NAMES.contains(&name.as_str()))
+        .collect();
     let mut light_lines: Vec<String> = Vec::new();
-    let mut dark_lines: Vec<String> = Vec::new();
+    let mut theme_lines: Vec<Vec<String>> = vec![Vec::new(); themes.len()];
     for (category, tokens) in doc.categories.iter() {
         for (key, value) in tokens.iter() {
             let var_name = category_to_var_name(category, key);
             light_lines.push(format!("  {var_name}: {};", value.light));
-            if let Some(dark) = &value.dark {
-                dark_lines.push(format!("  {var_name}: {dark};"));
+            for (i, theme) in themes.iter().enumerate() {
+                if let Some(v) = value.themes.get(theme) {
+                    theme_lines[i].push(format!("  {var_name}: {v};"));
+                }
             }
         }
     }
@@ -235,9 +474,17 @@ pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
         out.push('\n');
     }
     out.push_str("}\n");
-    if !dark_lines.is_empty() {
-        out.push_str("\n:root[data-theme=\"dark\"], .dark {\n");
-        for line in &dark_lines {
+    for (theme, lines) in themes.iter().zip(&theme_lines) {
+        if lines.is_empty() {
+            continue;
+        }
+        if theme == DARK {
+            // Byte-identical to the pre-#619 dark block (tests/tokens_legacy_pin.rs).
+            out.push_str("\n:root[data-theme=\"dark\"], .dark {\n");
+        } else {
+            out.push_str(&format!("\n:root[data-theme=\"{theme}\"] {{\n"));
+        }
+        for line in lines {
             out.push_str(line);
             out.push('\n');
         }
@@ -374,10 +621,45 @@ fn parse_decls(block: &str) -> Vec<(String, String)> {
     out
 }
 
+/// Every `[data-theme="<name>"] … { … }` rule in `css`, in order: `(name,
+/// body)`. Only nothing, or the rest of a `,`-led selector list, may sit
+/// between the attribute and its `{` — so a descendant rule
+/// (`[data-theme="dark"] .card { … }`) is not a root override, and
+/// `@custom-variant dark (&:where([data-theme="dark"] *));` is not a block. Names that are not theme slugs (and
+/// `light`/`both`/`all`) are skipped.
+fn theme_blocks(css: &str) -> Vec<(String, &str)> {
+    const OPEN: &str = "[data-theme=\"";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = css[from..].find(OPEN) {
+        let name_start = from + i + OPEN.len();
+        let Some(close) = css[name_start..].find("\"]") else { break };
+        let name = &css[name_start..name_start + close];
+        let after = name_start + close + 2;
+        from = after;
+        let rest = &css[after..];
+        let Some(brace) = rest.find('{') else { break };
+        // Only `[data-theme="x"] {` or `[data-theme="x"], <more selectors> {`
+        // is a ROOT override: a descendant rule (`[data-theme="dark"] .card {`)
+        // styles one element and must never become a token.
+        let between = rest[..brace].trim_start();
+        if rest[..brace].contains(['}', ';']) || !(between.is_empty() || between.starts_with(',')) {
+            continue;
+        }
+        let body = &rest[brace + 1..];
+        let Some(end) = body.find('}') else { break };
+        if is_theme_name(name) && !RESERVED_THEME_NAMES.contains(&name) {
+            out.push((name.to_string(), &body[..end]));
+        }
+        from = after + brace + 1 + end + 1;
+    }
+    out
+}
+
 /// Parse legacy/hand-authored CSS (or CSS-shaped input from an agent) back
 /// into a [`TokensDoc`]. Scans `@theme` and `:root` for light values (merged,
 /// first occurrence per name wins — they're normally identical since the
-/// generator emits both) and the dark block for dark overrides, then buckets
+/// generator emits both) and every `[data-theme="<name>"]` block plus `.dark` for theme overrides, then buckets
 /// each `--var` name into a category via [`var_name_to_category`].
 ///
 /// The dark block is read from BOTH our generated `:root[data-theme="dark"]`
@@ -403,65 +685,183 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
         }
     }
 
-    // Dark overrides: prefer the generated `[data-theme="dark"]` selector, and
-    // also accept a `.dark` class block (hand-authored CSS convention). A name
-    // present in both takes the data-theme value (inserted first, `.dark` fills
-    // only what's missing).
-    let mut darks: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for selector in ["[data-theme=\"dark\"]", ".dark"] {
-        if let Some(block) = extract_selector_block(&legacy_css, selector) {
-            for (name, value) in parse_decls(block) {
-                darks.entry(name).or_insert(value);
+    // Theme overrides, theme by theme: every `[data-theme="<name>"]` block
+    // (our generated selectors and hand-written ones alike), then a `.dark { … }`
+    // class block for pasted shadcn CSS. A var set twice for one theme keeps
+    // its first value, so `[data-theme="dark"]` wins over `.dark`.
+    let mut theme_values: Vec<(String, Vec<(String, String)>)> = Vec::new();
+    let mut add = |theme: &str, decls: Vec<(String, String)>| {
+        let at = match theme_values.iter().position(|(t, _)| t == theme) {
+            Some(at) => at,
+            None => {
+                theme_values.push((theme.to_string(), Vec::new()));
+                theme_values.len() - 1
+            }
+        };
+        for (name, value) in decls {
+            if !theme_values[at].1.iter().any(|(n, _)| *n == name) {
+                theme_values[at].1.push((name, value));
+            }
+        }
+    };
+    for (theme, block) in theme_blocks(&legacy_css) {
+        add(&theme, parse_decls(block));
+    }
+    if let Some(block) = extract_selector_block(&legacy_css, ".dark") {
+        add(DARK, parse_decls(block));
+    }
+    // `dark` leads the imported themes, as it does in every generated file.
+    theme_values.sort_by_key(|(theme, _)| theme != DARK);
+
+    let mut by_var: OrderedMap<TokenValue> = OrderedMap::new();
+    for (name, light) in &lights {
+        by_var.insert(name.clone(), TokenValue::new(light.clone()));
+    }
+    for (theme, decls) in &theme_values {
+        for (name, value) in decls {
+            match by_var.get_mut(name) {
+                Some(token) => token.set(theme, value.clone()),
+                // A var only a theme sets still round-trips: light takes that value.
+                None => by_var.insert(name.clone(), TokenValue::new(value.clone()).with(theme, value.clone())),
             }
         }
     }
 
     let mut categories: OrderedMap<OrderedMap<TokenValue>> = OrderedMap::new();
-
-    for (name, light) in &lights {
-        let (category, key) = var_name_to_category(name);
-        let dark = darks.get(name).cloned();
-        categories
-            .entry_or_insert_with(category, OrderedMap::new)
-            .insert(key, TokenValue {
-                light: light.clone(),
-                dark,
-            });
+    for (name, value) in by_var.0 {
+        let (category, key) = var_name_to_category(&name);
+        categories.entry_or_insert_with(category, OrderedMap::new).insert(key, value);
     }
+    let names: Vec<&str> = theme_values.iter().map(|(t, _)| t.as_str()).collect();
+    // Only dark (or nothing): the legacy shape, so a light/dark import is unchanged.
+    let themes = if names.is_empty() || names == [DARK] {
+        None
+    } else {
+        Some(names.iter().map(|n| ThemeDecl::named(*n)).collect())
+    };
+    TokensDoc { version: 1, themes, categories }
+}
 
-    // Dark-only vars (no matching light decl) still need to round-trip.
-    for (name, dark_value) in &darks {
-        if lights.iter().any(|(n, _)| n == name) {
+/// What a patch's `themes` list did, for the write reply.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ThemeChanges {
+    /// Themes the new list left out: deleted with every value they held.
+    pub removed: Vec<String>,
+    /// `(from, to)` renames; their values moved with them.
+    pub renamed: Vec<(String, String)>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ThemePatchEntry {
+    name: String,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    rename_from: Option<String>,
+}
+
+/// Replace the document's theme list with a patch's `themes` — the FULL
+/// ordered list besides light. A `rename_from` moves that theme's values to
+/// the new name; a theme left out loses its values.
+fn apply_theme_list(doc: &mut TokensDoc, raw: &serde_json::Value) -> Result<ThemeChanges, String> {
+    let entries: Vec<ThemePatchEntry> = serde_json::from_value(raw.clone()).map_err(|e| {
+        format!(
+            "patch.themes must be the FULL ordered list of themes besides light, e.g. \
+             [{{\"name\":\"dark\"}},{{\"name\":\"ocean\",\"label\":\"Ocean\"}}]: {e}"
+        )
+    })?;
+    let next: Vec<ThemeDecl> = entries
+        .iter()
+        .map(|e| ThemeDecl { name: e.name.clone(), label: e.label.clone() })
+        .collect();
+    check_theme_list(&next).map_err(|e| format!("patch.themes: {e}"))?;
+    let declared_before = doc.declared_themes();
+    let current: Vec<String> = doc.theme_decls().into_iter().map(|t| t.name).collect();
+    let mut changes = ThemeChanges::default();
+    for entry in &entries {
+        let Some(from) = entry.rename_from.as_deref() else { continue };
+        if from == entry.name {
             continue;
         }
-        let (category, key) = var_name_to_category(name);
-        categories
-            .entry_or_insert_with(category, OrderedMap::new)
-            .insert(key, TokenValue {
-                light: dark_value.clone(),
-                dark: Some(dark_value.clone()),
-            });
+        if !current.iter().any(|c| c == from) {
+            return Err(format!(
+                "patch.themes: cannot rename `{from}`: it is not a theme here (themes: {})",
+                declared_before.join(", ")
+            ));
+        }
+        // The target must be free: new, or itself renamed away in this list
+        // (swaps and chains). Otherwise the values would silently merge over it.
+        if current.iter().any(|c| c == &entry.name)
+            && !entries.iter().any(|e| e.rename_from.as_deref() == Some(entry.name.as_str()) && e.name != entry.name)
+        {
+            return Err(format!(
+                "patch.themes: cannot rename `{from}` to `{}`: `{}` already exists. Rename `{}` in this same patch, or delete it in an earlier patch.",
+                entry.name, entry.name, entry.name
+            ));
+        }
+        // "Also kept" = an entry still named `from` that is NOT itself a rename
+        // target (in a swap, the entry named `from` came from elsewhere).
+        if entries
+            .iter()
+            .any(|e| e.name == from && e.rename_from.as_deref().is_none_or(|f| f == from))
+        {
+            return Err(format!("patch.themes: `{from}` is renamed to `{}` and also kept; list it once", entry.name));
+        }
+        if changes.renamed.iter().any(|(f, _)| f == from) {
+            return Err(format!("patch.themes: `{from}` is renamed twice"));
+        }
+        changes.renamed.push((from.to_string(), entry.name.clone()));
     }
-
-    TokensDoc {
-        version: 1,
-        categories,
+    changes.removed = current
+        .iter()
+        .filter(|c| !next.iter().any(|t| &t.name == *c) && !changes.renamed.iter().any(|(f, _)| f == *c))
+        .cloned()
+        .collect();
+    for (_, tokens) in doc.categories.0.iter_mut() {
+        for (_, value) in tokens.0.iter_mut() {
+            for gone in &changes.removed {
+                value.themes.remove(gone);
+            }
+            // Take every renamed value out first, then put them back, so a
+            // swap (dark→ocean, ocean→dark) cannot overwrite itself.
+            let moved: Vec<(String, String)> = changes
+                .renamed
+                .iter()
+                .filter_map(|(from, to)| value.themes.remove(from).map(|v| (to.clone(), v)))
+                .collect();
+            for (to, v) in moved {
+                value.themes.insert(to, v);
+            }
+        }
     }
+    doc.themes = Some(next);
+    Ok(changes)
 }
 
 /// Merge a PATCH into a tokens document, in its stored shape:
-/// `{ "<category>": { "<key>": { "light"?: v, "dark"?: v } | null } }`.
+/// `{ "themes"?: [...], "<category>": { "<key>": { "light"?: v, "<theme>"?: v } | null } }`.
 ///
-/// A token in the patch replaces only the themes it names; `null` removes the
-/// token (and a category left empty goes with it); a new category or key is
-/// added at the end, keeping the document's order. Everything the patch does
-/// not name is left exactly as it was. `design_write_tokens({patch})` and
-/// `design_compare`'s `apply` diff both speak this shape.
-pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(), String> {
+/// `themes` (when given) is applied first and is the FULL new list besides
+/// light (see [`apply_theme_list`]); then each token replaces only the themes
+/// it names — a string sets, `null` drops that theme's value (light cannot be
+/// dropped; null the token to remove it), and a name the document (after the
+/// list change) does not declare is an error. `null` for a token removes it
+/// (an emptied category goes too); a new category or key is added at the end.
+/// `design_write_tokens({patch})` and `design_compare`'s `apply` speak this shape.
+pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<ThemeChanges, String> {
     let categories = patch
         .as_object()
         .ok_or("patch must be an object of categories, e.g. {\"colors\": {\"primary\": {\"light\": \"#448502\"}}}")?;
+    let changes = match categories.get("themes") {
+        Some(themes) => apply_theme_list(doc, themes)?,
+        None => ThemeChanges::default(),
+    };
+    let declared = doc.declared_themes();
     for (category, entries) in categories {
+        if category == "themes" {
+            continue;
+        }
         let entries = entries
             .as_object()
             .ok_or_else(|| format!("patch.{category} must be an object of tokens"))?;
@@ -472,32 +872,40 @@ pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(),
                 }
                 continue;
             }
-            let fields = value
-                .as_object()
-                .ok_or_else(|| format!("patch.{category}.{key} must be {{\"light\"?, \"dark\"?}} or null"))?;
-            if let Some(extra) = fields.keys().find(|k| *k != "light" && *k != "dark") {
-                return Err(format!("patch.{category}.{key}: unknown field `{extra}` (light, dark)"));
+            let fields = value.as_object().ok_or_else(|| {
+                format!("patch.{category}.{key} must be {{\"light\"?, \"<theme>\"?: value}} or null")
+            })?;
+            if fields.is_empty() {
+                return Err(format!(
+                    "patch.{category}.{key}: give light and/or a theme's value (or null to remove the token)"
+                ));
             }
-            let theme = |name: &str| -> Result<Option<String>, String> {
-                match fields.get(name) {
-                    None => Ok(None),
-                    Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
-                    Some(serde_json::Value::Null) => Ok(Some(String::new())),
-                    Some(_) => Err(format!("patch.{category}.{key}.{name} must be a string")),
-                }
-            };
-            let (light, dark) = (theme("light")?, theme("dark")?);
-            if light.is_none() && dark.is_none() {
-                return Err(format!("patch.{category}.{key}: give light and/or dark (or null to remove)"));
+            if let Some(unknown) = fields.keys().find(|name| !declared.contains(*name)) {
+                return Err(format!(
+                    "patch.{category}.{key}: unknown theme `{unknown}` (themes: {}). Declare it in the same \
+                     patch: {{\"themes\": [<every theme to keep>, {{\"name\": \"{unknown}\"}}]}}",
+                    declared.join(", ")
+                ));
             }
             let tokens = doc.categories.entry_or_insert_with(category, OrderedMap::new);
-            let token = tokens.entry_or_insert_with(key, || TokenValue { light: String::new(), dark: None });
-            if let Some(light) = light {
-                token.light = light;
-            }
-            if let Some(dark) = dark {
-                // `"dark": null` drops the dark value, so the light one applies in both.
-                token.dark = (!dark.is_empty()).then_some(dark);
+            let token = tokens.entry_or_insert_with(key, TokenValue::default);
+            for (theme, v) in fields {
+                match v {
+                    serde_json::Value::String(s) => token.set(theme, s.clone()),
+                    serde_json::Value::Null if theme == LIGHT => {
+                        return Err(format!(
+                            "patch.{category}.{key}.light cannot be null: null the whole token to remove it"
+                        ));
+                    }
+                    serde_json::Value::Null => {
+                        token.remove(theme);
+                    }
+                    _ => {
+                        return Err(format!(
+                            "patch.{category}.{key}.{theme} must be a string, or null to drop that theme's value"
+                        ));
+                    }
+                }
             }
             if token.light.is_empty() {
                 return Err(format!("patch.{category}.{key}: a new token needs a light value"));
@@ -505,7 +913,7 @@ pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(),
         }
     }
     doc.categories.0.retain(|(_, tokens)| !tokens.is_empty());
-    Ok(())
+    Ok(changes)
 }
 
 /// The project's STORED token document: the `styles/tokens.json` row, else a
@@ -561,6 +969,102 @@ mod patch_tests {
         assert_eq!(json["categories"]["radius"]["md"], serde_json::json!({ "light": "8px" }));
         // Order is kept: colors stays first, primary stays before bg.
         assert_eq!(serde_json::to_string(&d).expect("s").find("primary") < serde_json::to_string(&d).expect("s").find("\"bg\""), true);
+    }
+
+    #[test]
+    fn a_patch_can_target_any_declared_theme() {
+        let mut d = doc();
+        let changes = apply_patch(
+            &mut d,
+            &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean" }], "colors": { "primary": { "ocean": "#0af" } } }),
+        )
+        .expect("ok");
+        assert_eq!(changes, ThemeChanges::default());
+        let json = serde_json::to_value(&d).expect("json");
+        assert_eq!(json["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "dark": "#22C55E", "ocean": "#0af" }));
+        apply_patch(&mut d, &serde_json::json!({ "colors": { "primary": { "ocean": null } } })).expect("null drops");
+        assert_eq!(serde_json::to_value(&d).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "dark": "#22C55E" }));
+        let err = apply_patch(&mut doc(), &serde_json::json!({ "colors": { "primary": { "sunset": "#f00" } } })).unwrap_err();
+        assert!(err.contains("unknown theme `sunset`") && err.contains("light, dark"), "{err}");
+        assert!(apply_patch(&mut doc(), &serde_json::json!({ "colors": { "primary": { "light": null } } })).is_err());
+    }
+
+    #[test]
+    fn the_theme_list_renames_reorders_and_deletes() {
+        let mut d = doc();
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean" }], "colors": { "primary": { "ocean": "#0af" } } })).expect("add");
+        let changes = apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "sea", "rename_from": "ocean" }, { "name": "night", "rename_from": "dark" }] })).expect("rename + reorder");
+        assert_eq!(changes.renamed, vec![("ocean".to_string(), "sea".to_string()), ("dark".to_string(), "night".to_string())]);
+        assert_eq!(d.declared_themes(), ["light", "sea", "night"].map(String::from).to_vec());
+        assert_eq!(serde_json::to_value(&d).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "sea": "#0af", "night": "#22C55E" }));
+        let changes = apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "sea" }] })).expect("delete night");
+        assert_eq!(changes.removed, vec!["night".to_string()]);
+        assert!(serde_json::to_value(&d).expect("json")["categories"]["colors"]["bg"].get("night").is_none());
+        // Swapping two names is two renames, not a collision.
+        let mut s = doc();
+        apply_patch(&mut s, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean" }], "colors": { "primary": { "ocean": "#0af" } } })).expect("add");
+        apply_patch(&mut s, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "dark", "rename_from": "ocean" }] })).expect("swap");
+        assert_eq!(serde_json::to_value(&s).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "ocean": "#22C55E", "dark": "#0af" }));
+        for bad in [
+            serde_json::json!({ "themes": [{ "name": "light" }] }),
+            serde_json::json!({ "themes": [{ "name": "x", "rename_from": "nope" }] }),
+            serde_json::json!({ "themes": [{ "name": "x", "rename_from": "dark" }, { "name": "dark" }] }),
+            serde_json::json!({ "themes": [{ "name": "x", "colour": "red" }] }),
+            serde_json::json!({ "themes": "dark" }),
+        ] {
+            assert!(apply_patch(&mut doc(), &bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn renaming_onto_an_existing_theme_is_refused_but_swaps_and_chains_work() {
+        let seed = || {
+            let mut d = doc();
+            apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean" }], "colors": { "primary": { "ocean": "#0af" } } })).expect("add");
+            d
+        };
+        let mut d = seed();
+        let before = serde_json::to_value(&d).expect("json");
+        let err = apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }] })).unwrap_err();
+        assert!(err.contains("`ocean` already exists"), "{err}");
+        assert!(err.contains("rename it in this same patch, or delete it in an earlier patch") || err.contains("Rename `ocean` in this same patch, or delete it in an earlier patch"), "{err}");
+        assert_eq!(serde_json::to_value(&d).expect("json"), before, "nothing changed");
+        // Swap: values trade places.
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "dark", "rename_from": "ocean" }] })).expect("swap");
+        assert_eq!(serde_json::to_value(&d).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "ocean": "#22C55E", "dark": "#0af" }));
+        // Chain: dark -> ocean while ocean -> sea.
+        let mut c = seed();
+        apply_patch(&mut c, &serde_json::json!({ "themes": [{ "name": "ocean", "rename_from": "dark" }, { "name": "sea", "rename_from": "ocean" }] })).expect("chain");
+        assert_eq!(c.declared_themes(), ["light", "ocean", "sea"].map(String::from).to_vec());
+        assert_eq!(serde_json::to_value(&c).expect("json")["categories"]["colors"]["primary"], serde_json::json!({ "light": "#15803D", "ocean": "#22C55E", "sea": "#0af" }));
+    }
+
+    #[test]
+    fn a_three_cycle_of_renames_rotates_the_values() {
+        let mut d = doc();
+        apply_patch(
+            &mut d,
+            &serde_json::json!({ "themes": [{ "name": "a" }, { "name": "b" }, { "name": "c" }],
+                "colors": { "primary": { "a": "#a00", "b": "#0b0", "c": "#00c" } } }),
+        )
+        .expect("declare a, b, c");
+        let changes = apply_patch(
+            &mut d,
+            &serde_json::json!({ "themes": [
+                { "name": "b", "rename_from": "a" },
+                { "name": "c", "rename_from": "b" },
+                { "name": "a", "rename_from": "c" }
+            ] }),
+        )
+        .expect("3-cycle");
+        assert!(changes.removed.is_empty(), "{changes:?}");
+        assert_eq!(changes.renamed.len(), 3);
+        assert_eq!(d.declared_themes(), ["light", "b", "c", "a"].map(String::from).to_vec());
+        let primary = &serde_json::to_value(&d).expect("json")["categories"]["colors"]["primary"];
+        assert_eq!(primary["b"], "#a00");
+        assert_eq!(primary["c"], "#0b0");
+        assert_eq!(primary["a"], "#00c");
+        assert_eq!(primary["light"], "#15803D");
     }
 
     #[test]
@@ -626,4 +1130,64 @@ pub fn diff(old: &TokensDoc, new: &TokensDoc) -> Vec<TokenChange> {
         }
     }
     changes
+}
+
+#[cfg(test)]
+mod theme_model_tests {
+    use super::*;
+
+    #[test]
+    fn a_legacy_document_declares_light_and_dark_implicitly() {
+        let raw = r##"{"version":1,"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E"},"bg":{"light":"#fff"}}}}"##;
+        let doc: TokensDoc = serde_json::from_str(raw).expect("legacy doc");
+        assert_eq!(doc.themes, None);
+        assert_eq!(doc.declared_themes(), vec!["light".to_string(), "dark".to_string()]);
+        assert!(doc.declares("dark") && !doc.declares("ocean"));
+        assert_eq!(serde_json::to_string(&doc).expect("json"), raw);
+    }
+
+    #[test]
+    fn named_themes_are_flat_keys_beside_light() {
+        let raw = r##"{"version":1,"themes":[{"name":"dark"},{"name":"ocean","label":"Ocean"}],"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E","ocean":"#00AAFF"}}}}"##;
+        let doc: TokensDoc = serde_json::from_str(raw).expect("themed doc");
+        assert_eq!(doc.declared_themes(), ["light", "dark", "ocean"].map(String::from).to_vec());
+        let primary = doc.categories.get("colors").and_then(|c| c.get("primary")).expect("primary");
+        assert_eq!(primary.get("ocean"), Some("#00AAFF"));
+        assert_eq!(primary.get("light"), Some("#15803D"));
+        assert_eq!(primary.resolve("ocean"), "#00AAFF");
+        assert_eq!(primary.resolve("sunset"), "#15803D", "a theme with no override inherits light");
+        assert_eq!(serde_json::to_string(&doc).expect("json"), raw);
+    }
+
+    #[test]
+    fn a_null_override_reads_as_absent_and_light_is_required() {
+        let doc: TokensDoc =
+            serde_json::from_str(r#"{"version":1,"categories":{"colors":{"x":{"light":"red","dark":null}}}}"#)
+                .expect("null dark");
+        assert!(doc.categories.get("colors").and_then(|c| c.get("x")).expect("x").themes.is_empty());
+        assert!(serde_json::from_str::<TokensDoc>(r#"{"version":1,"categories":{"colors":{"x":{"dark":"red"}}}}"#).is_err());
+        assert!(serde_json::from_str::<TokensDoc>(r#"{"version":1,"categories":{"colors":{"x":{"light":3}}}}"#).is_err());
+    }
+
+    #[test]
+    fn set_and_remove_address_one_theme() {
+        let mut v = TokenValue::new("#111").with("dark", "#eee");
+        v.set("ocean", "#0af");
+        v.set("light", "#222");
+        assert_eq!(v.light, "#222");
+        assert_eq!(v.remove("dark"), Some("#eee".to_string()));
+        assert_eq!(v.remove("light"), None, "light is never removed");
+        assert_eq!(v.values().cloned().collect::<Vec<_>>(), vec!["#222".to_string(), "#0af".to_string()]);
+    }
+
+    #[test]
+    fn theme_names_are_lowercase_slugs() {
+        for ok in ["dark", "ocean", "high-contrast", "a1"] {
+            assert!(is_theme_name(ok), "{ok}");
+        }
+        let long = "a".repeat(33);
+        for bad in ["", "Ocean", "1ocean", "my theme", "-x", "x\"]", long.as_str()] {
+            assert!(!is_theme_name(bad), "{bad}");
+        }
+    }
 }

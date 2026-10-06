@@ -1057,9 +1057,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     return identity.project;
   }
 
+  // #619: a theme name (lowercase slug); light/dark/both/all are slugs too.
+  const themeName = z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,31}$/, "a theme name: lowercase letters, digits and -");
+  // An unsaved override: one value for every theme, or per theme.
+  const overrideValue = z.union([z.string(), z.record(z.string(), z.string())]);
+
   server.tool(
     "design_guide",
-    "How to design in this project, on demand. No topic → a short index. Topics: tokens (shadcn colour names, light/dark, radius, the classes to write, what is rejected — read before your first design write), fonts, flow (groups, order, links), primitives (ui-* components), pages (page rules, links, media).",
+    "How to design in this project, on demand. No topic → a short index. Topics: tokens (shadcn colour names, named themes — light, dark and custom palettes such as ocean, add/rename/delete, compare themes — radius, the classes to write, what is rejected — read before your first design write), fonts, flow (groups, order, links), primitives (ui-* components), pages (page rules, links, media).",
     {
       topic: z.enum(["tokens", "fonts", "flow", "primitives", "pages"]).optional().describe("Omit for the index."),
       ...profileArg,
@@ -1077,7 +1084,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_get_tokens",
-    "Read the project's design tokens: `tokens_json` (what the project defines), `tokens_css` (what renders — a shadcn globals.css: :root, .dark, @theme inline), and `defaults` (shadcn names served from built-in values because the project has not set them). Write shadcn classes (bg-primary text-primary-foreground, text-muted-foreground, border-border, rounded-lg); hex/px and Tailwind's raw palette (bg-blue-500) are rejected. Call design_guide (topic \"tokens\") before your first design write. `resources` is styles/resources.json (webfonts).",
+    "Read the project's design tokens: `tokens_json` (what the project defines), `tokens_css` (what renders — a shadcn globals.css: :root, .dark, @theme inline), and `defaults` (shadcn names served from built-in values because the project has not set them). Write shadcn classes (bg-primary text-primary-foreground, text-muted-foreground, border-border, rounded-lg); hex/px and Tailwind's raw palette (bg-blue-500) are rejected. Call design_guide (topic \"tokens\") before your first design write. `resources` is styles/resources.json (webfonts). `themes` is the ordered theme list (light first) with each theme's label and swatch; tokens_json values are {light, <theme>?…} per token.",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1620,19 +1627,26 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_tokens",
-    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names; null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"primary\":{\"light\":\"oklch(0.55 0.2 250)\",\"dark\":\"oklch(0.7 0.17 250)\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Use the shadcn names (primary, muted-foreground…; radius is custom.radius) — design_guide topic \"tokens\" lists them. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits.",
+    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names ({\"colors\":{\"primary\":{\"ocean\":\"#0af\"}}}); {\"ocean\": null} drops that theme's value; a token: null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"primary\":{\"light\":\"oklch(0.55 0.2 250)\",\"dark\":\"oklch(0.7 0.17 250)\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Use the shadcn names (primary, muted-foreground…; radius is custom.radius) — design_guide topic \"tokens\" lists them. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits. THEMES: light is the base; add/rename/reorder/delete themes with patch.themes — the FULL ordered list besides light ([{\"name\":\"dark\"},{\"name\":\"ocean\",\"label\":\"Ocean\"}]; a theme left out is DELETED with its values; rename with {\"name\":\"sea\",\"rename_from\":\"ocean\"}). To try a palette, add a theme with design_write_tokens and compare themes. Don't overwrite light.",
     {
       tokens: z
         .record(z.string(), z.any())
         .optional()
         .describe(
-          "Preferred. The full tokens document: {version, categories: {colors|spacing|radius|typography|shadows|custom: {<key>: {light, dark?}}}}.",
+          "Preferred. The full tokens document: {version, themes?, categories: {colors|spacing|radius|typography|shadows|custom: {<key>: {light, <theme>?…}}}}.",
         ),
       css: z.string().min(1).optional().describe("Legacy: complete tokens.css content (parsed into the json shape)."),
       patch: z
-        .record(z.string(), z.record(z.string(), z.union([z.object({ light: z.string().optional(), dark: z.string().nullable().optional() }), z.null()])))
+        .object({
+          themes: z
+            .array(z.object({ name: themeName, label: z.string().min(1).max(40).optional(), rename_from: themeName.optional() }))
+            .max(7)
+            .optional()
+            .describe("The FULL ordered theme list besides light; omitted themes are deleted. Omit to keep the list."),
+        })
+        .catchall(z.record(z.string(), z.union([z.record(z.string(), z.string().nullable()), z.null()])))
         .optional()
-        .describe("Preferred for edits: {category: {key: {light?, dark?} | null}} — only these change."),
+        .describe("Preferred for edits: {themes?, category: {key: {light?, <theme>?: value | null} | null}} — only these change."),
       base_version: z.number().int().optional().describe("The tokens version you read (e.g. design_compare's tokens_version); a stale one is refused."),
       reason: z.string().min(8).describe("Why the tokens change."),
       ...designProjectArg,
@@ -1664,7 +1678,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       "Size: a preset `viewport`, or a custom `width`+`height` (CSS px, 200–4000) with optional `dpr` (1–4). " +
       "`full_page: true` captures the whole scrollable page, not one screen. " +
       "`frame` dresses the shot like the Design Surface export: 'device' (a realistic device frame with status bar), 'classic' (the simple black bezel) or 'none' (default) — use a frame when the picture is for your human. " +
-      "`theme`: 'light' (default), 'dark', or 'both' (light and dark side by side in one image) — check dark whenever you touch colour. " +
+      "`theme`: 'light' (default), 'dark', any theme the project declares (design_get_tokens `themes`), 'both' (light and dark side by side in one image) or 'all' (one image per theme) — check every theme whenever you touch colour. " +
       "`tokens`/`css` render UNSAVED overrides (try a colour before writing it; use design_compare to see options side by side). " +
       "`state='dialog:confirm-delete'` opens that overlay first. The reply lists WARNINGS for any font, image or stylesheet that did not load: fix or mention them, do not ignore them.",
     {
@@ -1680,11 +1694,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       mobile: z.boolean().optional().describe("Force mobile emulation on/off (default: on for phones/tablets and custom widths up to 1024)."),
       full_page: z.boolean().optional().describe("Capture the whole scrollable page."),
       frame: z.enum(["none", "classic", "device"]).optional().describe("How to dress the shot (default none)."),
-      theme: z.enum(["light", "dark", "both"]).optional().describe("Render light (default), dark, or both side by side."),
+      theme: themeName.optional().describe("light (default), dark, a declared theme, both, or all."),
       tokens: z
-        .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
+        .record(z.string(), overrideValue)
         .optional()
-        .describe('UNSAVED token overrides to render with, e.g. {"--primary": "#448502"} or {"--background": {"dark": "oklch(0.15 0 0)"}}. Nothing is written.'),
+        .describe('UNSAVED token overrides, e.g. {"--primary": "#448502"} or {"--background": {"dark": "oklch(0.15 0 0)", "ocean": "oklch(0.2 0.05 230)"}}. Nothing is written.'),
       css: z.string().optional().describe("UNSAVED extra CSS for what tokens cannot express (no url(), @, or comments)."),
       max_px: z
         .number()
@@ -1715,28 +1729,48 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           css,
           max_px,
         });
-        if (!shot.png_base64) throw new Error("Renderer returned no image.");
+        // `all` may be partial: an entry with an error and no picture becomes a
+        // text line, not an image.
+        const entries = shot.shots?.length
+          ? shot.shots
+          : shot.png_base64
+            ? [{ theme: shot.theme ?? "light", png_base64: shot.png_base64 }]
+            : [];
+        const images = entries.filter((e): e is typeof e & { png_base64: string } => !!e.png_base64);
+        const failed = entries.filter((e) => !e.png_base64);
+        if (!images.length) {
+          throw new Error(
+            failed.length
+              ? `No theme could be rendered. ${failed.map((f) => `${f.theme}: ${f.error ?? "no image"}`).join("; ")}`
+              : "Renderer returned no image.",
+          );
+        }
+        const failures = failed.length
+          ? `\n\nNo picture for:\n${failed.map((f) => `${f.theme}: ${f.error ?? "no image"}`).join("\n")}`
+          : "";
         const size = shot.size
           ? ` (${shot.size.width}×${shot.size.height} @${shot.size.dpr}x${shot.size.mobile ? ", mobile" : ""})`
           : "";
         const dress = shot.frame && shot.frame !== "none" ? `, ${shot.frame} frame` : "";
         const shade =
-          shot.theme === "both" ? ", light (left) and dark (right)" : shot.theme === "dark" ? ", dark" : "";
+          shot.theme === "both"
+            ? ", light (left) and dark (right)"
+            : shot.theme === "all"
+              ? `, one image per theme in order: ${images.map((i) => i.theme).join(", ")}`
+              : shot.theme && shot.theme !== "light"
+                ? `, ${shot.theme}`
+                : "";
         const warnings = shot.warnings?.length
           ? `\n\nWARNINGS — the picture differs from a real browser here:\n${shot.warnings.map((w) => `- ${w}`).join("\n")}`
           : "";
         return {
           content: [
-            {
-              type: "image",
-              data: shot.png_base64,
-              mimeType: "image/png",
-            },
+            ...images.map((image) => ({ type: "image" as const, data: image.png_base64, mimeType: "image/png" })),
             {
               type: "text",
               text:
                 `Screenshot of ${shot.route} at ${shot.viewport}${size}${shade}${shot.full_page ? ", full page" : ""}${dress}. ` +
-                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}`,
+                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}${failures}`,
             },
           ],
         };
@@ -1748,13 +1782,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_compare",
-    "Render several screens × several UNSAVED design variants × light/dark as ONE labelled image grid — the way to answer 'which colour/type/spacing?' with your human. " +
+    "Render several screens × several UNSAVED design variants × themes as ONE labelled image grid — the way to answer 'which colour/type/spacing?' with your human. " +
       "Columns are variants (a variant with no overrides is the live design — include it as 'Current'), rows are route × theme. Nothing is written. " +
-      "Each variant's `tokens` are CSS custom-property overrides ({\"--primary\": \"#448502\"} or per theme {\"--background\": {\"light\": …, \"dark\": …}}); `css` is extra CSS for what tokens cannot express. " +
+      "Each variant's `tokens` are CSS custom-property overrides ({\"--primary\": \"#448502\"} or per theme {\"--background\": {\"light\": …, \"dark\": …, \"ocean\": …}}); `css` is extra CSS for what tokens cannot express. " +
       "`checks` measure WCAG contrast of fg on bg per variant and theme, as rendered. " +
       "Top-level `tokens`/`css` apply to EVERY variant (e.g. CSS forcing a sheet open) — a variant's own win. " +
       "`include_apply: true` adds, per variant, the PATCH that would make it the design: pass apply[label].patch as `patch` to design_write_tokens (with base_version = tokens_version). Leave it off when you are only looking. " +
       "Images fit `max_px` (default 1568); a grid whose cells would be unreadably small is split into one image per route. " +
+      "`themes`: any theme the project declares, e.g. ['light','dark','ocean'] (rows = route × theme). To try a palette, add a theme with design_write_tokens and compare themes. " +
       "Limits: 1–6 routes, 1–4 variants, at most 24 cells.",
     {
       routes: z
@@ -1767,7 +1802,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           z.object({
             label: z.string().min(1).max(60),
             tokens: z
-              .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
+              .record(z.string(), overrideValue)
               .optional(),
             css: z.string().optional(),
           }),
@@ -1775,7 +1810,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .min(1)
         .max(4)
         .describe("Columns. [{label: 'Current'}, {label: 'Lime AA', tokens: {'--primary': '#448502'}}]."),
-      themes: z.array(z.enum(["light", "dark"])).min(1).max(2).optional().describe("Default ['light']."),
+      themes: z.array(themeName).min(1).max(8).optional().describe("Theme rows — any theme the project declares (default ['light'])."),
       viewport: z.string().optional().describe("Device preset for every cell (default iphone-16-pro)."),
       width: z.number().int().min(200).max(4000).optional().describe("Custom cell width in CSS px (with height)."),
       height: z.number().int().min(200).max(4000).optional().describe("Custom cell height in CSS px (with width)."),
@@ -1786,7 +1821,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .describe("Contrast pairs, e.g. [{fg: '--primary-foreground', bg: '--primary', label: 'button text'}]."),
       scale: z.number().min(0.2).max(1).optional().describe("Cell scale (default 0.5)."),
       tokens: z
-        .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
+        .record(z.string(), overrideValue)
         .optional()
         .describe("Overrides EVERY variant starts from; a variant's own override the same name."),
       css: z.string().optional().describe("CSS every variant gets (before its own)."),

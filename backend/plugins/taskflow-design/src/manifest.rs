@@ -57,6 +57,39 @@ pub struct TokenGroup {
     pub variables_dark: Vec<(String, String)>,
 }
 
+/// #619: one of the project's themes, for the canvas theme switcher.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ThemeInfo {
+    pub name: String,
+    pub label: String,
+    /// What the switcher's swatch shows: the theme's resolved primary and background.
+    pub swatch: ThemeSwatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ThemeSwatch {
+    pub primary: Option<String>,
+    pub background: Option<String>,
+}
+
+/// The project's themes, light first, labelled, with swatches resolved from
+/// the EFFECTIVE tokens (a theme that does not set a colour shows light's,
+/// defaults included).
+pub fn theme_infos(effective: &TokensDoc) -> Vec<ThemeInfo> {
+    effective
+        .declared_themes()
+        .into_iter()
+        .map(|name| ThemeInfo {
+            label: effective.theme_label(&name),
+            swatch: ThemeSwatch {
+                primary: effective.resolve_var("--primary", &name).map(str::to_string),
+                background: effective.resolve_var("--background", &name).map(str::to_string),
+            },
+            name,
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesignManifest {
@@ -75,6 +108,8 @@ pub struct DesignManifest {
     pub resources: Vec<(bool, ResourceLink)>,
     /// The `@theme inline` bridge for this project's effective tokens; the composer feeds it to Tailwind.
     pub tokens_bridge: String,
+    /// #619: the declared themes, light first, for the canvas switcher.
+    pub themes: Vec<ThemeInfo>,
 }
 
 /// The route a page file serves: `pages/index.html` → `/`, else `/<stem>`.
@@ -232,6 +267,8 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
     let tokens = token_groups_from_doc(&effective);
     let tokens_bridge = crate::tokens::theme_bridge(&effective);
 
+    let themes = theme_infos(&effective);
+
     let resources = resources_from(files);
 
     DesignManifest {
@@ -242,6 +279,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
         revision,
         resources,
         tokens_bridge,
+        themes,
     }
 }
 
@@ -292,7 +330,7 @@ fn token_groups_from_doc(doc: &TokensDoc) -> Vec<TokenGroup> {
             for (key, value) in entries.iter() {
                 let var_name = category_to_var_name(category, key);
                 variables.push((var_name.clone(), value.light.clone()));
-                if let Some(dark) = &value.dark {
+                if let Some(dark) = value.themes.get("dark") {
                     variables_dark.push((var_name, dark.clone()));
                 }
             }
@@ -566,7 +604,7 @@ mod tests {
         let m = to_json(&build(1, &files, 1));
 
         // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys).
-        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "tokens", "tokensBridge"]);
+        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "themes", "tokens", "tokensBridge"]);
 
         // `RouteEntry` — NO `rename_all`, and still right only because none of
         // its keys has a second word. Add one and the two spellings part company.

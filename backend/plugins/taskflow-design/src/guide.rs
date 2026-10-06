@@ -5,7 +5,7 @@
 pub const TOPICS: &[&str] = &["tokens", "fonts", "flow", "primitives", "pages"];
 
 const INDEX: &str = "Design guide — call design_guide with a topic:\n\
-- tokens: the shadcn colour names, light/dark, radius, the classes to write (bg-primary…), what is rejected. Read before your first design write.\n\
+- tokens: the shadcn colour names, light/dark and named themes, radius, the classes to write (bg-primary…), what is rejected. Read before your first design write.\n\
 - fonts: adding a webfont (a token plus styles/resources.json).\n\
 - flow: groups, page order and links between screens; design_arrange vs single operations.\n\
 - primitives: the built-in <ui-accordion|dialog|sheet|tabs> components with examples.\n\
@@ -15,7 +15,7 @@ const TOKENS: &str = r#"# Tokens — shadcn vocabulary
 
 Every project renders with shadcn's semantic colour tokens. Names the project does not define come from built-in defaults (shadcn neutral), so they ALWAYS exist; design_get_tokens lists which are defaults under `defaults`.
 
-## Names (each has light + dark)
+## Names (each has light + dark defaults)
 background / foreground — the page
 card / card-foreground — raised surfaces
 popover / popover-foreground — menus, dialogs, sheets
@@ -42,6 +42,16 @@ Restyle with design_write_tokens and a patch — pages need no edits:
 {"custom":{"radius":{"light":"0.5rem"}}}
 Prefer oklch values. A project-only colour (e.g. colors.brand) becomes bg-brand / text-brand automatically; use it sparingly — prefer the shadcn names.
 Check dark mode: design_screenshot with theme "dark". Compare options with design_compare before writing.
+
+## Themes
+light is the base. Every other theme (dark, or a named one like "ocean") sets only the tokens it changes and inherits the rest from light. design_get_tokens lists them in `themes`. A design made before named themes has light and an implicit dark.
+To try a palette, add a theme with design_write_tokens and compare themes. Don't overwrite light.
+- Add: {"themes":[{"name":"dark"},{"name":"ocean","label":"Ocean"}],"colors":{"primary":{"ocean":"oklch(0.62 0.14 220)"}}} — `themes` is the FULL ordered list besides light: a theme you leave out is deleted with its values (keep dark).
+- Rename: {"themes":[{"name":"dark"},{"name":"sea","rename_from":"ocean"}]}. Renaming onto a theme that already exists is refused — rename it in this same patch, or delete it in an earlier patch.
+- Edit one theme: {"colors":{"primary":{"ocean":"oklch(0.7 0.12 220)"}}}; {"ocean": null} drops that value (back to light's).
+- The write reply lists `themes_removed` and `themes_renamed` so you can confirm what changed.
+- Look: design_screenshot theme "<name>", theme "all" (one image per theme) or theme "both" (light + dark); design_compare themes ["light","dark","ocean"].
+Names: a name starts with a lowercase letter, then lowercase letters, digits or dashes, up to 32 characters; light, both and all are reserved; at most 8 themes including light.
 
 ## Porting
 The served tokens.css IS a shadcn globals.css (:root, .dark, @theme inline): paste it into the app and the classes in these pages work unchanged."#;

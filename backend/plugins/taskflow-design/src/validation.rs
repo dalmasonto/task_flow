@@ -882,6 +882,20 @@ pub fn validate_tokens_json(content: &str) -> Validation {
         }
     };
 
+    // #619: the theme list first, then every override must name one of them.
+    if let Some(themes) = &doc.themes {
+        if let Err(message) = crate::tokens::check_theme_list(themes) {
+            return v.fail(ValidationError {
+                line: 0,
+                rule: "theme-name",
+                message,
+                found: None,
+                suggest: Some(r#"{"themes":[{"name":"dark"},{"name":"ocean","label":"Ocean"}]}"#.into()),
+            });
+        }
+    }
+    let declared = doc.declared_themes();
+
     for (category, tokens) in doc.categories.iter() {
         for (key, value) in tokens.iter() {
             let bare = if category == "custom" { key.strip_prefix("--").unwrap_or(key) } else { key };
@@ -898,7 +912,29 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                     suggest: None,
                 });
             }
-            for value in [Some(&value.light), value.dark.as_ref()].into_iter().flatten() {
+            if let Some((theme, _)) = value.themes.iter().find(|(t, _)| !declared.contains(t)) {
+                // A legacy document declares `dark` only implicitly: once it
+                // gains a `themes` list, dark must be listed too or its values
+                // become undeclared.
+                let legacy = if doc.themes.is_none() {
+                    " This document has no `themes` list yet (dark is implicit): if it uses dark, \
+                     list it too, e.g. \"themes\": [{\"name\": \"dark\"}, {\"name\": \"<theme>\"}]."
+                } else {
+                    ""
+                };
+                return v.fail(ValidationError {
+                    line: 0,
+                    rule: "theme-unknown",
+                    message: format!(
+                        "Token `{category}.{key}` has a value for theme `{theme}`, which the document does \
+                         not declare (themes: {}). Add {{\"name\": \"{theme}\"}} to `themes` first.{legacy}",
+                        declared.join(", ")
+                    ),
+                    found: Some(theme.clone()),
+                    suggest: None,
+                });
+            }
+            for value in value.values() {
                 if value.contains("http://") || value.contains("https://") {
                     return v.fail(ValidationError {
                         line: 0,
@@ -913,11 +949,38 @@ pub fn validate_tokens_json(content: &str) -> Validation {
                         suggest: None,
                     });
                 }
+                if has_url_function(value) {
+                    return v.fail(ValidationError {
+                        line: 0,
+                        rule: "token-url",
+                        message: format!(
+                            "Token `{category}.{key}` uses a url() ({value}). Design tokens can't \
+                             reference URLs; load fonts through styles/resources.json."
+                        ),
+                        found: Some(value.clone()),
+                        suggest: None,
+                    });
+                }
             }
         }
     }
 
     v
+}
+
+/// True when `value` contains a CSS `url(` in any case, with optional
+/// whitespace between `url` and `(`.
+fn has_url_function(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let mut rest = lower.as_str();
+    while let Some(i) = rest.find("url") {
+        let after = rest[i + 3..].trim_start();
+        if after.starts_with('(') {
+            return true;
+        }
+        rest = &rest[i + 3..];
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
