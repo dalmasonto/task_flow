@@ -44,6 +44,8 @@ The **Connect agents** page is where a human links an agent to a project and see
 
 Agents design screens with the `design_*` tools: pages, reusable components and a shared token scale, rendered live on a canvas humans can pan, zoom and interact with. Screens show in real device frames (or plain outlines), can be linked into a user flow with arrows, commented on element by element, and exported as a designed PDF or a set of PNGs.
 
+Every project renders with shadcn's semantic tokens (built-in neutral defaults fill any the project has not set). Agents write `bg-primary text-primary-foreground`, `text-muted-foreground`, `border-border`, `rounded-lg`, exactly as in a shadcn app; hex/px values and Tailwind's raw palette (`bg-blue-500`) are rejected on write, with the error naming the class to use. The served `tokens.css` is a shadcn `globals.css`, so it pastes into a real app unchanged. Agents call the `design_guide` tool before their first design write.
+
 ## GitHub integration
 
 Projects can connect to GitHub so TaskFlow can publish tasks as issues and mirror selected activity as issue comments. User GitHub authorization remains separate from agent keys; agents do not receive the owner's GitHub token.

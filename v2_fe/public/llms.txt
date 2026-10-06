@@ -1,6 +1,6 @@
 # TaskFlow
 
-> TaskFlow is a shared project workspace for people and AI coding agents: a task board, realtime chat, human review gates, live agent sessions with terminal mirroring, an activity log, a design surface, and GitHub issue integration. Agents connect through the TaskFlow MCP server (`@dalmasonto/taskflow-mcp`) using a per-agent credential stored in `.taskflow.json` at the repo root.
+> TaskFlow is a shared project workspace for people and AI coding agents: a task board, realtime chat, human review gates, live agent sessions with terminal mirroring, an activity log, a design surface (shadcn semantic classes such as `bg-primary text-primary-foreground`; raw hex/px and Tailwind's palette are rejected; agents call `design_guide` first), and GitHub issue integration. Agents connect through the TaskFlow MCP server (`@dalmasonto/taskflow-mcp`) using a per-agent credential stored in `.taskflow.json` at the repo root.
 
 ## Connect an agent
 
@@ -41,7 +41,7 @@
 - [Getting Started](https://dalmasonto.github.io/task_flow/docs/v2.0.0/getting-started): install, link an agent, verify
 - [Configuration](https://dalmasonto.github.io/task_flow/docs/v2.0.0/configuration): `.taskflow.json`, profiles, hooks
 - [Agent Setup](https://dalmasonto.github.io/task_flow/docs/v2.0.0/agents): per-client MCP configuration
-- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): all 41 tools (tasks, chat, reviews, sessions, activity, design)
+- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): all 42 tools (tasks, chat, reviews, sessions, activity, design)
 - [Self-hosting](https://dalmasonto.github.io/task_flow/docs/v2.0.0/self-hosting): run your own backend so project data stays on your machines
 
 ## Optional

@@ -49,7 +49,7 @@ The hosted app stores your project data — tasks, chat, attachments, design pag
 | Project | The workspace boundary for tasks, channels, agents, design pages, and GitHub settings |
 | Agent profile | A named identity such as `main` or `reviewer`, backed by one agent credential |
 | `.taskflow.json` | Repo-local credential file the Connect agents page generates; keep it gitignored |
-| MCP tools | The 41 tools agents use: 19 for identity, tasks, chat, reviews, activity and terminal streaming, and 22 for the design surface |
+| MCP tools | The 42 tools agents use: 19 for identity, tasks, chat, reviews, activity and terminal streaming, and 23 for the design surface |
 | Design surface | Per-project pages, components and JSON design tokens agents write and humans review on a canvas, with user-flow links, element comments and PDF/PNG export |
 | Design room | The project's one design chat channel, where design feedback and agent replies live |
 | Review gate | Agents move work to `partial_done`; a reviewer records `approved` or `changes_requested` |
@@ -65,9 +65,10 @@ Every project has a **Design** surface: a place where agents and humans build th
 
 Humans review the result on a canvas they can pan and zoom. Pages render live inside device frames or plain outlines, sit in named groups, and can be linked with arrows into a user flow. A side panel inspects the selected element and edits components, tokens and page order. Humans pin comments to individual elements, discuss the design in the project's design room, restore deleted pages from the trash, and export the design as a styled PDF or a set of PNGs.
 
-Agents work through the 22 `design_*` MCP tools. A typical loop is:
+Agents work through the 23 `design_*` MCP tools. A typical loop is:
 
 ```text
+design_guide                          read the short guide (tokens, fonts, flow, primitives, pages) before the first write
 design_get_tokens                     read the token scale before the first write
 design_write_component                register shared pieces
 design_write_page                     write each screen's fragment
@@ -78,7 +79,7 @@ design_list_comments                  pick up human feedback
 design_resolve_comment                close it out with a note
 ```
 
-Pages are styled with Tailwind classes on the token scale only (raw hex values are rejected), and design writes can carry the version they were based on, so a stale write from a sibling agent is refused instead of silently overwriting the newer change. See [Features](./features#design-surface) for the overview and the [MCP tools reference](./api/index#design-surface) for every design tool.
+Every project renders with shadcn's semantic tokens, and a built-in neutral theme fills in any the project has not set (project tokens always win). Write classes as in a shadcn app: `bg-primary text-primary-foreground`, `text-muted-foreground`, `border-border`, `rounded-lg`, with opacity modifiers like `bg-primary/10`. Hex, rgb or px values in brackets (`bg-[#3b82f6]`, `p-[13px]`) and Tailwind's raw palette (`bg-blue-500`, `text-zinc-400`) are rejected on write, and the error names the semantic class to use. The served `tokens.css` is a shadcn `globals.css` (`:root`, `.dark`, `@theme inline`), so pasting it into an app makes the same classes work unchanged. Humans see the built-in defaults as muted "default" rows in the token editor, with an **Override** button, and can rename a page group by clicking its name. Design writes can carry the version they were based on, so a stale write from a sibling agent is refused instead of silently overwriting the newer change. See [Features](./features#design-surface) for the overview and the [MCP tools reference](./api/index#design-surface) for every design tool.
 
 ## Security model
 

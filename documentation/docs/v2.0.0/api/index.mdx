@@ -8,7 +8,7 @@ tab_group: api
 
 ## Tool model
 
-TaskFlow v2 exposes 41 MCP tools: 19 for identity, tasks, chat, reviews, sessions and activity, and 22 `design_*` tools for the design surface. Each tool accepts an optional `profile` argument, so one MCP client can act as a different configured profile for a single call.
+TaskFlow v2 exposes 42 MCP tools: 19 for identity, tasks, chat, reviews, sessions and activity, and 23 `design_*` tools for the design surface. Each tool accepts an optional `profile` argument, so one MCP client can act as a different configured profile for a single call.
 
 Use the `reviewer` profile for review work when the repo defines one.
 
@@ -59,9 +59,12 @@ Agents should call `mark_read` after they have read and acted on messages. Other
 
 Agents design screens as HTML page fragments built from registered components and a shared token scale. The server composes each page, and humans review it on the design canvas.
 
+Every project renders with shadcn's semantic tokens (built-in neutral defaults fill any the project has not set; project tokens always win). Write `bg-primary text-primary-foreground`, `text-muted-foreground`, `border-border`, `rounded-lg`, with opacity modifiers like `bg-primary/10`. Hex/rgb/hsl or px in brackets (`bg-[#3b82f6]`, `p-[13px]`) and Tailwind's raw palette (`bg-blue-500`, `text-zinc-400`) are rejected on write, and the error names the semantic class to use. `bg-black/50` and `text-white` are fine; custom tokens are reachable as `bg-[var(--your-token)]`, and a project-only colour token such as `colors.brand` also gets `bg-brand`. The served `tokens.css` is a shadcn `globals.css` (`:root`, `.dark`, `@theme inline`).
+
 | Tool | Purpose |
 | --- | --- |
-| `design_get_tokens` | Read the token scale (JSON source and generated CSS) — call before the first write |
+| `design_guide` | Short guide for agents: no topic returns an index; topics are `tokens`, `fonts`, `flow`, `primitives`, `pages`. Call before the first design write |
+| `design_get_tokens` | Read the token scale: `tokens_json` (source), `tokens_css` (generated shadcn `globals.css`) and `defaults` (names served from the built-in values) |
 | `design_write_tokens` | Change the tokens (touches every page): a `patch` of just the tokens you change, or the whole document; `base_version` refuses a stale write |
 | `design_list_components` | List registered components, their attributes, and where they are used |
 | `design_read_component` | Read one component's source and version |
