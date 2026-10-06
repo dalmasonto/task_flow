@@ -41,7 +41,7 @@
 - [Getting Started](https://dalmasonto.github.io/task_flow/docs/v2.0.0/getting-started): install, link an agent, verify
 - [Configuration](https://dalmasonto.github.io/task_flow/docs/v2.0.0/configuration): `.taskflow.json`, profiles, hooks
 - [Agent Setup](https://dalmasonto.github.io/task_flow/docs/v2.0.0/agents): per-client MCP configuration
-- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): all 42 tools (tasks, chat, reviews, sessions, activity, design)
+- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): all 43 tools (tasks, chat, reviews, sessions, activity, design)
 - [Self-hosting](https://dalmasonto.github.io/task_flow/docs/v2.0.0/self-hosting): run your own backend so project data stays on your machines
 
 ## Optional
