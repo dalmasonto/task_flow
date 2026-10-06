@@ -1521,7 +1521,8 @@ pub struct AgentScreenshotQuery {
     pub full_page: bool,
     /// `none` | `classic` | `device` — the export's three dresses.
     #[serde(default)]
-    pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
+    pub frame: crate::screenshots::Frame,
+    /// light | dark | both | all | a theme the project declares.
     #[serde(default)]
     pub theme: crate::screenshots::Theme,
     /// #522: unsaved overrides — a JSON object `{"--name": value | {light, dark}}`
@@ -1563,7 +1564,19 @@ pub async fn screenshot(
         },
         None => Default::default(),
     };
-    let req = crate::screenshots::ScreenshotRequest {
+    let overrides = crate::compare::Overrides { tokens, css: q.css.clone() };
+    // #619: a theme is any name the project declares (plus `both` / `all`),
+    // checked here, before the renderer, so an unknown name is a 400 and not
+    // a light picture.
+    let declared = crate::tokens::load_project_tokens_doc(agent.project_id).await.declared_themes();
+    let checked = crate::screenshots::check_theme(&q.theme, &declared).and_then(|()| {
+        crate::compare::check_override_themes(&overrides, &declared)
+            .map_err(crate::screenshots::RenderError::BadOverrides)
+    });
+    if let Err(err) = checked {
+        return Ok(screenshot_error_response(err));
+    }
+    let base = crate::screenshots::ScreenshotRequest {
         viewport: q.viewport.clone(),
         width: q.width,
         height: q.height,
@@ -1571,50 +1584,60 @@ pub async fn screenshot(
         mobile: q.mobile,
         full_page: q.full_page,
         frame: q.frame,
-        theme: q.theme,
-        overrides: crate::compare::Overrides { tokens, css: q.css.clone() },
+        theme: q.theme.clone(),
+        overrides,
         max_px: q.max_px.unwrap_or(crate::screenshots::AGENT_MAX_PX),
     };
-    let shot = match crate::screenshots::render_screenshot(
-        &q.route,
-        &req,
-        q.state.as_deref(),
-        || crate::sandbox::mint(agent.project_id),
-    )
-    .await
-    {
-        Ok(shot) => shot,
-        Err(crate::screenshots::RenderError::Unconfigured(what)) => {
-            // Tell the agent exactly what to ask the operator for.
-            return Ok((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "detail": format!(
-                        "Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."
-                    ),
-                })),
-            )
-                .into_response());
+    // One renderer run per theme: `all` is every declared theme, in order.
+    let mut shots = Vec::new();
+    for theme in crate::screenshots::theme_shots(&q.theme, &declared) {
+        let req = crate::screenshots::ScreenshotRequest { theme: theme.clone(), ..base.clone() };
+        match crate::screenshots::render_screenshot(&q.route, &req, q.state.as_deref(), || {
+            crate::sandbox::mint(agent.project_id)
+        })
+        .await
+        {
+            Ok(shot) => shots.push((theme, shot)),
+            Err(err) => return Ok(screenshot_error_response(err)),
         }
-        Err(err @ (crate::screenshots::RenderError::UnknownViewport(_)
-        | crate::screenshots::RenderError::BadSize(_)
-        | crate::screenshots::RenderError::BadOverrides(_))) => {
-            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "detail": err.to_string() }))).into_response());
-        }
-        Err(other) => {
-            eprintln!("design agent screenshot: {other}");
-            return Ok((
-                StatusCode::BAD_GATEWAY,
-                Json(json!({ "detail": other.to_string() })),
-            )
-                .into_response());
-        }
+    }
+    // A custom size is not the preset it was sent alongside.
+    let viewport = if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() };
+    if q.theme == crate::screenshots::Theme::All {
+        let warnings: Vec<String> = shots
+            .iter()
+            .flat_map(|(theme, shot)| shot.warnings.iter().map(move |w| format!("{}: {w}", theme.as_str())))
+            .collect();
+        let images: Vec<serde_json::Value> = shots
+            .iter()
+            .map(|(theme, shot)| {
+                json!({
+                    "theme": theme,
+                    "image": png_size(&shot.png),
+                    "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+                })
+            })
+            .collect();
+        return Ok(Json(json!({
+            "route": q.route,
+            "viewport": viewport,
+            "size": shots.first().map(|(_, shot)| shot.viewport.clone()),
+            "theme": q.theme,
+            "full_page": q.full_page,
+            "frame": q.frame,
+            "warnings": warnings,
+            "mime": "image/png",
+            "shots": images,
+        }))
+        .into_response());
+    }
+    let Some((_, shot)) = shots.into_iter().next() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
     let b64 = base64::engine::general_purpose::STANDARD.encode(&shot.png);
     Ok(Json(json!({
         "route": q.route,
-        // A custom size is not the preset it was sent alongside.
-        "viewport": if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() },
+        "viewport": viewport,
         "size": shot.viewport,
         "image": png_size(&shot.png),
         "theme": q.theme,
@@ -1625,6 +1648,33 @@ pub async fn screenshot(
         "png_base64": b64,
     }))
     .into_response())
+}
+
+/// The agent screenshot's answer to a render error: 503 names what the
+/// operator must configure; bad input is a 400; anything else a 502.
+fn screenshot_error_response(err: crate::screenshots::RenderError) -> Response {
+    use crate::screenshots::RenderError;
+    match err {
+        RenderError::Unconfigured(what) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "detail": format!(
+                    "Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."
+                ),
+            })),
+        )
+            .into_response(),
+        err @ (RenderError::UnknownViewport(_)
+        | RenderError::BadSize(_)
+        | RenderError::BadOverrides(_)
+        | RenderError::BadTheme(_)) => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "detail": err.to_string() }))).into_response()
+        }
+        other => {
+            eprintln!("design agent screenshot: {other}");
+            (StatusCode::BAD_GATEWAY, Json(json!({ "detail": other.to_string() }))).into_response()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

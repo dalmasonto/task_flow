@@ -4,7 +4,7 @@
 /// Contract (see backend/plugins/taskflow-design/src/screenshots.rs):
 ///   design-render.mjs --url <url> --width W --height H --dpr D --timeout-ms T --out <png>
 ///                     [--mobile 1] [--full-page 1] [--frame none|classic|device]
-///                     [--device <preset id>] [--theme light|dark|both] [--max-px N]
+///                     [--device <preset id>] [--theme light|dark|both|<theme name>] [--max-px N]
 ///
 /// Renders agent-authored HTML in a disposable headless Chromium, writes a PNG
 /// to --out, and writes `<out>.json` = { warnings: [...] }: every font, image or
@@ -49,7 +49,10 @@ const mobile = args.mobile === "1";
 const fullPage = args["full-page"] === "1";
 const frame = args.frame ?? "none";
 const device = args.device ?? "";
-const theme = ["dark", "both"].includes(args.theme) ? args.theme : "light";
+/// light, dark, `both` (light + dark side by side) or any declared theme slug
+/// (#619) — the backend has already checked it is declared.
+const THEME_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+const theme = args.theme === "both" || THEME_NAME.test(args.theme ?? "") ? args.theme : "light";
 /// Longest side of the returned PNG (0 = as captured).
 const maxPx = Math.max(0, parseInt(args["max-px"] ?? "0", 10) || 0);
 const out = args.out;
@@ -148,8 +151,9 @@ async function shoot(browser, pageTheme, remaining) {
     await page.setViewport({ width, height, deviceScaleFactor: dpr, isMobile: mobile, hasTouch: mobile });
     // The composer renders `data-theme` from `?theme=` (so the first paint is
     // already in the theme); the media query is for anything that listens to
-    // `prefers-color-scheme` instead.
-    await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: pageTheme }]);
+    // `prefers-color-scheme` instead. Only dark asks for a dark colour scheme;
+    // a named theme restyles through its tokens.
+    await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: pageTheme === "dark" ? "dark" : "light" }]);
     const pageUrl = new URL(url);
     if (pageUrl.origin === target.origin) pageUrl.searchParams.set("theme", pageTheme);
 

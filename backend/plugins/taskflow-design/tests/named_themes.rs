@@ -210,3 +210,26 @@ async fn compare_takes_any_declared_theme_and_refuses_the_rest() {
     let html = app.get_sandbox(&format!("/s/{token}/?theme=ocean&ov={ov}")).await.text();
     assert!(html.contains(":root[data-theme]{--primary:#448502;}"), "{html}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn screenshot_themes_are_checked_before_rendering() {
+    let app = TestApp::new().await;
+    let (user, project, key) = seeded(&app).await;
+    add_ocean(&app, &key, project).await;
+    for (theme, status) in [("ocean", 503), ("all", 503), ("both", 503), ("dark", 503), ("light", 503), ("sunset", 400), ("Ocean", 400)] {
+        let res = app
+            .get_as_agent(&key, &format!("/api/taskflow/agents/design/screenshot?project={project}&route=/&theme={theme}"))
+            .await;
+        assert_eq!(res.status(), status, "{theme}: {}", res.text());
+        if status == 400 {
+            assert!(res.text().contains("light, dark, ocean"), "{theme}: {}", res.text());
+        }
+    }
+    // The operator endpoint takes one theme per PNG: `all` and unknown names are refused.
+    for theme in ["all", "sunset"] {
+        let res = app
+            .post_json_as(user, &format!("/api/design/{project}/screenshots"), &json!({ "route": "/", "viewport": "laptop", "theme": theme }))
+            .await;
+        assert_eq!(res.status(), 400, "{theme}: {}", res.text());
+    }
+}

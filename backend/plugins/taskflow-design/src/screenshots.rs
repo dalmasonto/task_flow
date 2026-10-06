@@ -86,8 +86,7 @@ pub struct ScreenshotRequest {
     /// `none` (default), `classic` or `device` — the Design Surface export's
     /// three dresses.
     pub frame: Frame,
-    /// `light` (default), `dark`, or `both` (a light and a dark shot side by
-    /// side in one image).
+    /// light (default), dark, both, or a declared theme name (never all here).
     pub theme: Theme,
     /// #522: unsaved token/CSS overrides to render with (validated).
     pub overrides: crate::compare::Overrides,
@@ -98,22 +97,81 @@ pub struct ScreenshotRequest {
 /// What agents get by default: about the size their model downscales to.
 pub const AGENT_MAX_PX: u32 = 1568;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// Which theme(s) a screenshot renders in: `light` (default), `dark`, `both`
+/// (light and dark side by side), #619 any theme the project declares, or
+/// `all` (one shot per declared theme — the agent endpoint loops; the
+/// renderer never sees `all`). Travels as a plain string.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Theme {
     #[default]
     Light,
     Dark,
     Both,
+    All,
+    Named(String),
 }
 
 impl Theme {
-    fn as_str(self) -> &'static str {
+    pub fn parse(raw: &str) -> Theme {
+        match raw {
+            "light" => Theme::Light,
+            "dark" => Theme::Dark,
+            "both" => Theme::Both,
+            "all" => Theme::All,
+            other => Theme::Named(other.to_string()),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
         match self {
             Theme::Light => "light",
             Theme::Dark => "dark",
             Theme::Both => "both",
+            Theme::All => "all",
+            Theme::Named(name) => name,
         }
+    }
+}
+
+impl Serialize for Theme {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Theme {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Theme::parse(&raw))
+    }
+}
+
+/// Refuse a theme the project does not declare BEFORE anything renders: an
+/// unknown name would otherwise come back as a light picture. `both` needs
+/// `dark`; `all` is always fine.
+pub fn check_theme(theme: &Theme, declared: &[String]) -> Result<(), RenderError> {
+    let needed = match theme {
+        Theme::Light | Theme::All => None,
+        Theme::Dark | Theme::Both => Some("dark"),
+        Theme::Named(name) => Some(name.as_str()),
+    };
+    match needed {
+        Some(name) if !crate::tokens::is_theme_name(name) || !declared.iter().any(|d| d == name) => {
+            Err(RenderError::BadTheme(format!(
+                "theme `{name}` is not declared in this project (themes: {}; or \"both\", \"all\")",
+                declared.join(", ")
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The shots a request takes: one per declared theme, in order, for `all`;
+/// otherwise just itself.
+pub fn theme_shots(theme: &Theme, declared: &[String]) -> Vec<Theme> {
+    match theme {
+        Theme::All => declared.iter().map(|name| Theme::parse(name)).collect(),
+        other => vec![other.clone()],
     }
 }
 
@@ -199,6 +257,8 @@ pub enum RenderError {
     BadSize(String),
     /// Token/CSS overrides (or a comparison spec) that failed validation.
     BadOverrides(String),
+    /// A theme the project does not declare (or `all` where one shot is meant).
+    BadTheme(String),
     SpawnFailed(String),
     Timeout,
     TooLarge(usize),
@@ -215,6 +275,7 @@ impl std::fmt::Display for RenderError {
             Self::UnknownViewport(id) => write!(f, "Unknown viewport '{id}'."),
             Self::BadSize(why) => write!(f, "Bad screenshot size: {why}."),
             Self::BadOverrides(why) => write!(f, "Bad overrides: {why}."),
+            Self::BadTheme(why) => write!(f, "Bad theme: {why}."),
             Self::SpawnFailed(e) => write!(f, "Could not start the renderer: {e}"),
             Self::Timeout => write!(f, "Renderer timed out."),
             Self::TooLarge(n) => write!(f, "Renderer produced {n} bytes; over cap."),
@@ -357,6 +418,9 @@ pub async fn render_screenshot(
     state: Option<&str>,
     mint_token: impl FnOnce() -> String,
 ) -> Result<Rendered, RenderError> {
+    if req.theme == Theme::All {
+        return Err(RenderError::BadTheme("render one theme at a time; `all` is expanded by the caller".into()));
+    }
     let Some(base) = std::env::var("TASKFLOW_DESIGN_BASE_URL")
         .ok()
         .map(|u| u.trim().to_string())
@@ -422,4 +486,46 @@ pub async fn render_compare(
     let viewport = Viewport { width: crate::compare::grid_width(spec), height: 900, dpr: 2, mobile: false };
     let req = ScreenshotRequest { full_page: true, max_px, ..Default::default() };
     render_shot(&program, &url, &viewport, &req, 55_000).await
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    fn declared() -> Vec<String> {
+        ["light", "dark", "ocean"].map(String::from).to_vec()
+    }
+
+    #[test]
+    fn a_theme_parses_from_its_name_and_serialises_back() {
+        for raw in ["light", "dark", "both", "all", "ocean"] {
+            let theme: Theme = serde_json::from_value(serde_json::json!(raw)).expect("theme");
+            assert_eq!(theme.as_str(), raw);
+            assert_eq!(serde_json::to_value(&theme).expect("json"), serde_json::json!(raw));
+        }
+        assert_eq!(Theme::parse("ocean"), Theme::Named("ocean".into()));
+        assert_eq!(Theme::parse("dark"), Theme::Dark);
+    }
+
+    #[test]
+    fn only_declared_themes_pass() {
+        assert!(check_theme(&Theme::Named("ocean".into()), &declared()).is_ok());
+        assert!(check_theme(&Theme::Both, &declared()).is_ok());
+        assert!(check_theme(&Theme::All, &declared()).is_ok());
+        let err = check_theme(&Theme::Named("sunset".into()), &declared()).unwrap_err().to_string();
+        assert!(err.contains("sunset") && err.contains("light, dark, ocean"), "{err}");
+        let no_dark = ["light", "ocean"].map(String::from).to_vec();
+        assert!(check_theme(&Theme::Dark, &no_dark).is_err(), "dark only when declared");
+        assert!(check_theme(&Theme::Both, &no_dark).is_err(), "both needs dark");
+        assert!(check_theme(&Theme::Named("Ocean\"]".into()), &declared()).is_err());
+    }
+
+    #[test]
+    fn all_is_one_shot_per_declared_theme_in_order() {
+        assert_eq!(
+            theme_shots(&Theme::All, &declared()),
+            vec![Theme::Light, Theme::Dark, Theme::Named("ocean".into())]
+        );
+        assert_eq!(theme_shots(&Theme::Both, &declared()), vec![Theme::Both]);
+    }
 }

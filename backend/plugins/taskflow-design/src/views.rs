@@ -172,7 +172,8 @@ pub struct CreateScreenshotInput {
     #[serde(default)]
     pub full_page: bool,
     #[serde(default)]
-    pub frame: crate::screenshots::Frame,    /// `light` | `dark` | `both`.
+    pub frame: crate::screenshots::Frame,
+    /// light | dark | both | a theme the project declares (one PNG: never all).
     #[serde(default)]
     pub theme: crate::screenshots::Theme,
     /// #522: unsaved token/CSS overrides.
@@ -192,6 +193,13 @@ pub async fn create_screenshot(
     Json(input): Json<CreateScreenshotInput>,
 ) -> Result<Response, StatusCode> {
     ensure_member(user_id, project_id).await?;
+    // #619: one declared theme (or both) per PNG here; `all` is the agent tool's.
+    let declared = crate::tokens::load_project_tokens_doc(project_id).await.declared_themes();
+    if input.theme == crate::screenshots::Theme::All
+        || crate::screenshots::check_theme(&input.theme, &declared).is_err()
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let req = crate::screenshots::ScreenshotRequest {
         viewport: input.viewport.clone(),
         width: input.width,
@@ -200,7 +208,7 @@ pub async fn create_screenshot(
         mobile: input.mobile,
         full_page: input.full_page,
         frame: input.frame,
-        theme: input.theme,
+        theme: input.theme.clone(),
         overrides: input.overrides.clone(),
         max_px: input.max_px,
     };
@@ -215,7 +223,8 @@ pub async fn create_screenshot(
         crate::screenshots::RenderError::Unconfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
         crate::screenshots::RenderError::UnknownViewport(_)
         | crate::screenshots::RenderError::BadSize(_)
-        | crate::screenshots::RenderError::BadOverrides(_) => StatusCode::BAD_REQUEST,
+        | crate::screenshots::RenderError::BadOverrides(_)
+        | crate::screenshots::RenderError::BadTheme(_) => StatusCode::BAD_REQUEST,
         other => {
             eprintln!("design screenshot: {other}");
             StatusCode::BAD_GATEWAY
