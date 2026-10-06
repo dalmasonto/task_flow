@@ -7,6 +7,7 @@ import {
   deleteTheme,
   duplicateTheme,
   moveTheme,
+  overrideFromDefault,
   ownThemeValue,
   renameTheme,
   setThemeValue,
@@ -103,5 +104,22 @@ describe("per-theme values", () => {
     expect(themeLabel(legacy(), "light")).toBe("Light")
     expect(themeLabel(addTheme(legacy(), "high-contrast"), "high-contrast")).toBe("High Contrast")
     expect(themeLabel(addTheme(legacy(), "ocean", "Deep sea"), "ocean")).toBe("Deep sea")
+  })
+})
+
+describe("overrideFromDefault", () => {
+  const shadcn = { light: "oklch(0.205 0 0)", dark: "oklch(0.922 0 0)" }
+  it("drops the default's dark in a project that deleted dark (Save would be refused)", () => {
+    const oceanOnly: DesignTokensDoc = { version: 1, themes: [{ name: "ocean" }], categories: {} }
+    expect(overrideFromDefault(oceanOnly, shadcn)).toEqual({ light: "oklch(0.205 0 0)" })
+  })
+  it("keeps dark where the project declares it (legacy and listed alike)", () => {
+    expect(overrideFromDefault(legacy(), shadcn)).toEqual(shadcn)
+    const listed: DesignTokensDoc = { version: 1, themes: [{ name: "dark" }, { name: "ocean" }], categories: {} }
+    expect(overrideFromDefault(listed, shadcn)).toEqual(shadcn)
+  })
+  it("returns a copy, never the default itself", () => {
+    const copy = overrideFromDefault(legacy(), shadcn)
+    expect(copy).not.toBe(shadcn)
   })
 })

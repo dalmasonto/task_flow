@@ -4,6 +4,7 @@ import type { DesignManifest } from "@/lib/design-api"
 import {
   manifestThemes,
   resolveActiveTheme,
+  safeSwatchColor,
   switcherMode,
   themeSelectItems,
   toggledTheme,
@@ -57,5 +58,25 @@ describe("toggle and items", () => {
       { value: "light", label: "Light" },
       { value: "ocean", label: "Ocean" },
     ])
+  })
+})
+
+describe("safeSwatchColor", () => {
+  // A stand-in for CSS.supports("color", v): plain colours only.
+  const supports = (property: string, v: string) => property === "color" && /^(#[0-9a-f]{3,8}|oklch\([^()]*\)|red)$/i.test(v)
+  it("paints a value the browser reads as a colour", () => {
+    expect(safeSwatchColor("#0af", supports)).toBe("#0af")
+    expect(safeSwatchColor("oklch(0.5 0.1 250)", supports)).toBe("oklch(0.5 0.1 250)")
+  })
+  it("never paints a url() or anything else that is not a colour", () => {
+    expect(safeSwatchColor("url(//evil.example/x.png)", supports)).toBeUndefined()
+    expect(safeSwatchColor("red url(//evil.example/x.png)", supports)).toBeUndefined()
+  })
+  it("paints nothing for a missing value, or with no CSS.supports at all", () => {
+    expect(safeSwatchColor(null, supports)).toBeUndefined()
+    expect(safeSwatchColor("", supports)).toBeUndefined()
+    expect(safeSwatchColor("#0af", null)).toBeUndefined()
+    // In node (vitest) the default has no `CSS`, so it refuses.
+    expect(safeSwatchColor("#0af")).toBeUndefined()
   })
 })

@@ -128,3 +128,16 @@ export function setThemeValue(
   else next[theme] = raw
   return { ...doc, categories: { ...doc.categories, [category]: { ...tokens, [key]: next } } }
 }
+
+/// The value a built-in default becomes when the user overrides it: its light
+/// value plus only those theme values whose theme `doc` declares. The defaults
+/// carry light/dark, so copying them whole into a project that deleted dark
+/// would hand Save a `dark` value the server refuses (`theme-unknown`).
+export function overrideFromDefault(doc: DesignTokensDoc, value: DesignTokenValue): DesignTokenValue {
+  const declared = new Set(declaredThemes(doc))
+  const next: DesignTokenValue = { light: value.light }
+  for (const [theme, v] of Object.entries(value)) {
+    if (theme !== LIGHT && declared.has(theme) && typeof v === "string") next[theme] = v
+  }
+  return next
+}

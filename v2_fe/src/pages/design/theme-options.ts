@@ -43,3 +43,20 @@ export function toggledTheme(theme: string): string {
 export function themeSelectItems(themes: ThemeOption[]): { value: string; label: string }[] {
   return themes.map((t) => ({ value: t.name, label: t.label }))
 }
+
+/// A swatch value safe to paint as a CSS `background`, or undefined. Token
+/// values are agent-authored and validation only refuses `http(s)://`, so a
+/// value like `url(//host/x.png)` would make the viewer's browser fetch a
+/// remote resource. Only something the browser parses as a plain COLOR is
+/// used. `supports` is injectable for tests (vitest runs in node, where `CSS`
+/// does not exist — and with no `CSS`, nothing is painted).
+export function safeSwatchColor(
+  value: string | null | undefined,
+  supports: ((property: string, value: string) => boolean) | null = typeof CSS !== "undefined" &&
+  typeof CSS.supports === "function"
+    ? (property, v) => CSS.supports(property, v)
+    : null,
+): string | undefined {
+  if (!value || !supports) return undefined
+  return supports("color", value) ? value : undefined
+}

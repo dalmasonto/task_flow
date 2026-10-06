@@ -7,7 +7,7 @@ import { MoonIcon, SunIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { switcherMode, themeSelectItems, toggledTheme, type ThemeOption } from "./theme-options"
+import { safeSwatchColor, switcherMode, themeSelectItems, toggledTheme, type ThemeOption } from "./theme-options"
 
 export function ThemeSwitcher({
   themes,
@@ -54,13 +54,14 @@ export function ThemeSwitcher({
           <SelectItem key={theme.name} value={theme.name}>
             <span className="flex items-center gap-2">
               {/* Background on the left, primary on the right: enough to tell
-                  palettes apart at a glance. */}
+                  palettes apart at a glance. Only real colours are painted
+                  (`safeSwatchColor`): a token value could be a url(). */}
               <span
                 aria-hidden
                 className="relative inline-block size-3.5 shrink-0 overflow-hidden rounded-full border border-border"
-                style={{ background: theme.swatch.background ?? undefined }}
+                style={{ background: safeSwatchColor(theme.swatch.background) }}
               >
-                <span className="absolute inset-y-0 right-0 w-1/2" style={{ background: theme.swatch.primary ?? undefined }} />
+                <span className="absolute inset-y-0 right-0 w-1/2" style={{ background: safeSwatchColor(theme.swatch.primary) }} />
               </span>
               {theme.label}
             </span>

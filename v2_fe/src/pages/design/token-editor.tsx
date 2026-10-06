@@ -28,7 +28,7 @@ import {
 } from "@/lib/design-api"
 import { defaultRows } from "./token-defaults"
 import { CATEGORY_ORDER, categoryLabel, filterTokenCategories } from "./token-filter"
-import { LIGHT, declaredThemes, ownThemeValue, setThemeValue } from "./token-themes"
+import { LIGHT, declaredThemes, overrideFromDefault, ownThemeValue, setThemeValue } from "./token-themes"
 import { ThemeStrip } from "./theme-strip"
 import { TokenCssView } from "./token-css-view"
 
@@ -333,7 +333,15 @@ export function TokenEditor({
 
   const overrideDefault = (category: string, key: string, value: DesignTokenValue) =>
     setDoc((prev) =>
-      prev ? { ...prev, categories: { ...prev.categories, [category]: { ...(prev.categories[category] ?? {}), [key]: { ...value } } } } : prev
+      prev
+        ? {
+            ...prev,
+            categories: {
+              ...prev.categories,
+              [category]: { ...(prev.categories[category] ?? {}), [key]: overrideFromDefault(prev, value) },
+            },
+          }
+        : prev
     )
 
   const setTokenValue = (category: string, key: string, value: string) =>

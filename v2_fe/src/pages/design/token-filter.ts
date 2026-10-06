@@ -31,19 +31,20 @@ export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category
 }
 
-/// A token's own VALUES, as a search surface: light and every theme's override. This is the surface a user reaches for by *reading* — `inter` for the
-/// font stack they pasted in, `#6366f1` for the colour they can see — and it is
-/// the one that is nowhere in the key the token is filed under (`font_sans`
-/// says nothing about Inter). A token with no dark override has only the one
-/// string, so `dark` is checked only when it is there.
+/// A token's own VALUES, as a search surface: light and every theme's override
+/// (#619). This is the surface a user reaches for by *reading* — `inter` for
+/// the font stack they pasted in, `#6366f1` for the colour they can see — and
+/// it is the one that is nowhere in the key the token is filed under
+/// (`font_sans` says nothing about Inter). A theme with no override has no
+/// string of its own, so only the values actually present are checked.
 ///
-/// The parameter is `unknown` rather than the two optional strings it used to
-/// be, because that type described what `DesignTokensDoc` PROMISES and nothing
-/// checks the promise: the document arrives as
+/// The parameter is `unknown` rather than a typed `DesignTokenValue`, because
+/// that type describes what `DesignTokensDoc` PROMISES and nothing checks the
+/// promise: the document arrives as
 /// `JSON.parse(row.content) as DesignTokensDoc` (`design-api.ts`), so this is
-/// handed whatever a hand-edited `styles/tokens.json` held. A half that is not a
+/// handed whatever a hand-edited `styles/tokens.json` held. A value that is not a
 /// string contributes nothing to the match, and a value that is not an object
-/// matches nothing at all — the same rule as a missing half's empty string,
+/// matches nothing at all — the same rule as a missing value's empty string,
 /// which cannot match either (the caller has already returned for a needle that
 /// trims to nothing). Both shapes are TypeErrors otherwise — `value.light` on
 /// `null`, and `.toLowerCase()` on a number — thrown from the search box's own
@@ -65,8 +66,8 @@ function valueMatches(value: unknown, needle: string): boolean {
   return Object.values(value as Record<string, unknown>).some((half) => halfMatches(half, needle))
 }
 
-/// One half of a token's value, as a search surface: its lowercased text, or
-/// `""` for a half that is absent, `null`, or not a string at all.
+/// One of a token's values (light or a theme's), as a search surface: its
+/// lowercased text, or `""` for one that is absent, `null`, or not a string.
 function halfMatches(half: unknown, needle: string): boolean {
   return (typeof half === "string" ? half.toLowerCase() : "").includes(needle)
 }
