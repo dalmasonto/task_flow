@@ -1761,7 +1761,7 @@ pub struct AgentCompareInput {
     pub project: i64,
     pub routes: Vec<CompareRouteInput>,
     pub variants: Vec<CompareVariantInput>,
-    /// `["light"]` when absent.
+    /// Theme rows, any the project declares; ["light"] when absent.
     #[serde(default)]
     pub themes: Option<Vec<String>>,
     /// Preset id; default `iphone-16-pro`.
@@ -1854,6 +1854,20 @@ pub async fn compare(
             missing.route,
             manifest.routes.iter().map(|r| r.path.as_str()).collect::<Vec<_>>().join(", ")
         )));
+    }
+    // #619: every theme row and every per-theme override must be a theme the
+    // project declares — an unknown one would render light and look like a result.
+    let declared = crate::tokens::project_tokens_doc(&files).declared_themes();
+    if let Some(unknown) = spec.themes.iter().find(|t| !declared.contains(t)) {
+        return Ok(bad_request(format!(
+            "theme `{unknown}` is not declared in this project (themes: {}); add it with design_write_tokens first",
+            declared.join(", ")
+        )));
+    }
+    for v in &spec.variants {
+        if let Err(e) = crate::compare::check_override_themes(&v.overrides, &declared) {
+            return Ok(bad_request(format!("variant `{}`: {e}", v.label)));
+        }
     }
 
     // One grid, or one per route when a single grid would shrink its cells

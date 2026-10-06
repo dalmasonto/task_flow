@@ -179,3 +179,34 @@ async fn the_sandbox_renders_any_declared_theme_and_falls_back_to_light() {
     let css = app.get_sandbox(&format!("/s/{token}/f/styles/tokens.css")).await.text();
     assert!(css.contains(":root[data-theme=\"ocean\"] {\n  --primary: #0af;\n}"), "{css}");
 }
+
+async fn compare(app: &TestApp, key: &str, body: serde_json::Value) -> support::TestResponse {
+    app.post_json_as_agent(key, "/api/taskflow/agents/design/compare", &body).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn compare_takes_any_declared_theme_and_refuses_the_rest() {
+    let app = TestApp::new().await;
+    let (_user, project, key) = seeded(&app).await;
+    add_ocean(&app, &key, project).await;
+    // Acceptance 5: three themes, no overrides — valid; no renderer in tests.
+    let ok = compare(&app, &key, json!({ "project": project, "routes": ["/"], "variants": [{ "label": "Current" }], "themes": ["light", "dark", "ocean"] })).await;
+    assert_eq!(ok.status(), 503, "{}", ok.text());
+    let unknown = compare(&app, &key, json!({ "project": project, "routes": ["/"], "variants": [{ "label": "Current" }], "themes": ["light", "sunset"] })).await;
+    assert_eq!(unknown.status(), 400, "{}", unknown.text());
+    assert!(unknown.text().contains("sunset") && unknown.text().contains("light, dark, ocean"), "{}", unknown.text());
+    let bad_variant = compare(&app, &key, json!({
+        "project": project, "routes": ["/"],
+        "variants": [{ "label": "X", "tokens": { "--primary": { "sunset": "#f00" } } }],
+    }))
+    .await;
+    assert_eq!(bad_variant.status(), 400, "{}", bad_variant.text());
+    // Review focus 5: an unsaved single value beats the ocean block on an ocean page.
+    let token = taskflow_design::sandbox::mint(project);
+    let ov = taskflow_design::compare::encode(&taskflow_design::compare::Overrides {
+        tokens: [("--primary".to_string(), taskflow_design::compare::OverrideValue::Both("#448502".into()))].into(),
+        css: None,
+    });
+    let html = app.get_sandbox(&format!("/s/{token}/?theme=ocean&ov={ov}")).await.text();
+    assert!(html.contains(":root[data-theme]{--primary:#448502;}"), "{html}");
+}

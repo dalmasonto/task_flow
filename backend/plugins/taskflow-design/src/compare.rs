@@ -25,19 +25,15 @@ use std::collections::BTreeMap;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use crate::tokens::{OrderedMap, TokenValue, TokensDoc, category_to_var_name};
+use crate::tokens::{LIGHT, OrderedMap, TokenValue, TokensDoc, category_to_var_name, is_theme_name};
 
-/// An override's value: one value for both themes, or per theme.
+/// An override's value: one value for every theme, or per theme
+/// (`{"light"?, "dark"?, "<theme>"?}` — #619: any theme slug).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OverrideValue {
     Both(String),
-    PerTheme {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        light: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        dark: Option<String>,
-    },
+    PerTheme(BTreeMap<String, String>),
 }
 
 /// One variant's unsaved changes.
@@ -95,11 +91,15 @@ pub fn validate(ov: &Overrides) -> Result<(), String> {
         }
         match value {
             OverrideValue::Both(v) => check_value(name, v)?,
-            OverrideValue::PerTheme { light, dark } => {
-                if light.is_none() && dark.is_none() {
-                    return Err(format!("{name}: give a value, or {{light, dark}}"));
+            OverrideValue::PerTheme(themes) => {
+                if themes.is_empty() {
+                    return Err(format!("{name}: give a value, or per theme {{\"light\"?, \"dark\"?, \"<theme>\"?}}"));
                 }
-                for v in [light, dark].into_iter().flatten() {
+                for (theme, v) in themes {
+                    // The key lands in `[data-theme="…"]`: slugs only.
+                    if !is_theme_name(theme) {
+                        return Err(format!("{name}: `{theme}` is not a theme name"));
+                    }
                     check_value(name, v)?;
                 }
             }
@@ -123,30 +123,56 @@ pub fn validate(ov: &Overrides) -> Result<(), String> {
     Ok(())
 }
 
+/// #619: every per-theme override names a theme the project declares — an
+/// undeclared one would never render, and its `apply` patch would be refused.
+pub fn check_override_themes(ov: &Overrides, declared: &[String]) -> Result<(), String> {
+    for (name, value) in &ov.tokens {
+        if let OverrideValue::PerTheme(themes) = value {
+            if let Some(theme) = themes.keys().find(|t| !declared.contains(t)) {
+                return Err(format!(
+                    "{name}: theme `{theme}` is not declared in this project (themes: {})",
+                    declared.join(", ")
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The `<style>` block the composer appends to `<head>`. A single value goes
-/// in both theme blocks, so it also replaces a token's own dark value — which
-/// is what "set --primary to X" means to whoever asked.
+/// in `:root` and in `:root[data-theme]` (later and more specific than every
+/// theme block in tokens.css), so it applies in every theme — which is what
+/// "set --primary to X" means. A per-theme value goes in that theme's own block.
 pub fn style_block(ov: &Overrides) -> String {
     let mut light = String::new();
-    let mut dark = String::new();
+    let mut every = String::new();
+    let mut per_theme: BTreeMap<String, String> = BTreeMap::new();
     for (name, value) in &ov.tokens {
-        let (l, d) = match value {
-            OverrideValue::Both(v) => (Some(v), Some(v)),
-            OverrideValue::PerTheme { light, dark } => (light.as_ref(), dark.as_ref()),
-        };
-        if let Some(v) = l {
-            light.push_str(&format!("{name}:{v};"));
-        }
-        if let Some(v) = d {
-            dark.push_str(&format!("{name}:{v};"));
+        match value {
+            OverrideValue::Both(v) => {
+                light.push_str(&format!("{name}:{v};"));
+                every.push_str(&format!("{name}:{v};"));
+            }
+            OverrideValue::PerTheme(themes) => {
+                for (theme, v) in themes {
+                    if theme == LIGHT {
+                        light.push_str(&format!("{name}:{v};"));
+                    } else {
+                        per_theme.entry(theme.clone()).or_default().push_str(&format!("{name}:{v};"));
+                    }
+                }
+            }
         }
     }
     let mut css = String::new();
     if !light.is_empty() {
         css.push_str(&format!(":root{{{light}}}"));
     }
-    if !dark.is_empty() {
-        css.push_str(&format!(":root[data-theme=\"dark\"]{{{dark}}}"));
+    if !every.is_empty() {
+        css.push_str(&format!(":root[data-theme]{{{every}}}"));
+    }
+    for (theme, decls) in &per_theme {
+        css.push_str(&format!(":root[data-theme=\"{theme}\"]{{{decls}}}"));
     }
     if let Some(extra) = ov.css.as_deref() {
         css.push_str(extra);
@@ -208,21 +234,19 @@ pub fn apply_to(doc: &TokensDoc, ov: &Overrides) -> (TokensDoc, Vec<String>) {
         let token = entries.entry_or_insert_with(&key, TokenValue::default);
         match value {
             OverrideValue::Both(v) => {
+                // As rendered: one value for every theme the token has.
                 token.light = v.clone();
-                if token.themes.contains_key("dark") {
-                    token.set("dark", v.clone());
+                for (_, existing) in token.themes.0.iter_mut() {
+                    *existing = v.clone();
                 }
             }
-            OverrideValue::PerTheme { light, dark } => {
-                if let Some(v) = light {
-                    token.light = v.clone();
-                }
-                if let Some(v) = dark {
-                    token.set("dark", v.clone());
+            OverrideValue::PerTheme(themes) => {
+                for (theme, v) in themes {
+                    token.set(theme, v.clone());
                 }
                 if token.light.is_empty() {
-                    // A dark-only override of a token that had no light value.
-                    token.light = dark.clone().unwrap_or_default();
+                    // A theme-only override of a token that had no light value.
+                    token.light = themes.values().next().cloned().unwrap_or_default();
                 }
             }
         }
@@ -389,8 +413,16 @@ pub fn validate_spec(spec: &GridSpec) -> Result<(), String> {
     if spec.variants.is_empty() || spec.variants.len() > MAX_VARIANTS {
         return Err(format!("variants: give 1–{MAX_VARIANTS}"));
     }
-    if spec.themes.is_empty() || spec.themes.iter().any(|t| t != "light" && t != "dark") || spec.themes.len() > 2 {
-        return Err("themes: light and/or dark".into());
+    // #619: any theme names (the handler checks they are declared); the cell
+    // limit below is the only cap.
+    if spec.themes.is_empty() {
+        return Err("themes: give at least one theme, e.g. [\"light\", \"dark\"]".into());
+    }
+    if let Some(bad) = spec.themes.iter().find(|t| !is_theme_name(t)) {
+        return Err(format!("themes: `{bad}` is not a theme name"));
+    }
+    if (1..spec.themes.len()).any(|i| spec.themes[..i].contains(&spec.themes[i])) {
+        return Err("themes: a theme is listed twice".into());
     }
     let cells = spec.routes.len() * spec.variants.len() * spec.themes.len();
     if cells > MAX_CELLS {
@@ -602,16 +634,88 @@ mod tests {
     }
 
     #[test]
-    fn style_block_puts_single_values_in_both_themes() {
+    fn style_block_puts_single_values_in_every_theme() {
         let mut o = ov(&[("--primary", "#448502")]);
-        o.tokens.insert(
-            "--bg".into(),
-            OverrideValue::PerTheme { light: None, dark: Some("#000".into()) },
-        );
+        o.tokens.insert("--bg".into(), OverrideValue::PerTheme([("dark".to_string(), "#000".to_string())].into()));
         assert_eq!(
             style_block(&o),
-            "<style id=\"tf-override\">:root{--primary:#448502;}:root[data-theme=\"dark\"]{--bg:#000;--primary:#448502;}</style>"
+            "<style id=\"tf-override\">:root{--primary:#448502;}:root[data-theme]{--primary:#448502;}:root[data-theme=\"dark\"]{--bg:#000;}</style>"
         );
+    }
+
+    #[test]
+    fn per_theme_overrides_target_their_own_theme() {
+        let mut o = Overrides::default();
+        o.tokens.insert(
+            "--primary".into(),
+            OverrideValue::PerTheme([("ocean".to_string(), "#0af".to_string()), ("light".to_string(), "#111".to_string())].into()),
+        );
+        assert_eq!(style_block(&o), "<style id=\"tf-override\">:root{--primary:#111;}:root[data-theme=\"ocean\"]{--primary:#0af;}</style>");
+        let bad = Overrides {
+            tokens: [("--p".to_string(), OverrideValue::PerTheme([("Ocean\"]".to_string(), "#0af".to_string())].into()))].into(),
+            css: None,
+        };
+        assert!(validate(&bad).is_err(), "a theme key must be a theme name");
+        let empty = Overrides { tokens: [("--p".to_string(), OverrideValue::PerTheme(BTreeMap::new()))].into(), css: None };
+        assert!(validate(&empty).is_err());
+        // The wire shape is unchanged for light/dark callers.
+        let parsed: Overrides = serde_json::from_str(r##"{"tokens":{"--a":"#000","--b":{"dark":"#fff","ocean":"#0af"}}}"##).expect("parse");
+        assert_eq!(parsed.tokens["--a"], OverrideValue::Both("#000".into()));
+        assert_eq!(parsed.tokens["--b"], OverrideValue::PerTheme([("dark".to_string(), "#fff".to_string()), ("ocean".to_string(), "#0af".to_string())].into()));
+    }
+
+    #[test]
+    fn override_themes_must_be_declared() {
+        let declared = vec!["light".to_string(), "dark".to_string()];
+        let mut o = Overrides::default();
+        o.tokens.insert("--p".into(), OverrideValue::PerTheme([("ocean".to_string(), "#0af".to_string())].into()));
+        assert!(check_override_themes(&o, &declared).unwrap_err().contains("ocean"));
+        assert!(check_override_themes(&ov(&[("--p", "#000")]), &declared).is_ok());
+    }
+
+    #[test]
+    fn apply_writes_a_single_value_into_every_theme_the_token_has() {
+        let doc: TokensDoc = serde_json::from_str(
+            r##"{"version":1,"themes":[{"name":"dark"},{"name":"ocean"}],"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E","ocean":"#00AAFF"}}}}"##,
+        )
+        .expect("doc");
+        let (out, _) = apply_to(&doc, &ov(&[("--primary", "#448502")]));
+        assert_eq!(
+            serde_json::to_value(&out).expect("json")["categories"]["colors"]["primary"],
+            serde_json::json!({ "light": "#448502", "dark": "#448502", "ocean": "#448502" })
+        );
+        let mut only_ocean = Overrides::default();
+        only_ocean.tokens.insert("--primary".into(), OverrideValue::PerTheme([("ocean".to_string(), "#0bf".to_string())].into()));
+        let (out, _) = apply_to(&doc, &only_ocean);
+        assert_eq!(
+            serde_json::to_value(&out).expect("json")["categories"]["colors"]["primary"],
+            serde_json::json!({ "light": "#15803D", "dark": "#22C55E", "ocean": "#0bf" })
+        );
+    }
+
+    #[test]
+    fn a_spec_takes_any_theme_names_up_to_the_cell_limit() {
+        let variant = |label: &str| GridVariant { label: label.into(), overrides: Overrides::default() };
+        let route = |r: &str| GridRoute { route: r.into(), state: None, label: None };
+        let mut spec = GridSpec {
+            routes: vec![route("/")],
+            variants: vec![variant("Current")],
+            themes: vec!["light".into(), "dark".into(), "ocean".into()],
+            width: 393,
+            height: 852,
+            scale: 0.5,
+            checks: vec![],
+        };
+        assert!(validate_spec(&spec).is_ok(), "three themes are fine");
+        let html = grid_html("tok", &spec);
+        assert_eq!(html.matches("<iframe").count(), 3, "acceptance 5: one row per theme");
+        assert!(html.contains("/s/tok/?theme=ocean"), "{html}");
+        spec.themes = vec!["light".into(), "light".into()];
+        assert!(validate_spec(&spec).is_err(), "listed twice");
+        spec.themes = vec!["Ocean".into()];
+        assert!(validate_spec(&spec).is_err(), "not a theme name");
+        spec.themes = vec![];
+        assert!(validate_spec(&spec).is_err(), "at least one");
     }
 
     #[test]

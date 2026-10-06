@@ -217,7 +217,7 @@ async fn apply_diffs_against_the_effective_tokens_not_the_stored_doc() {
     let _ = user;
     let files = taskflow_design::store::list_files(project).await;
     let dark_only = Overrides {
-        tokens: [("--primary".to_string(), OverrideValue::PerTheme { light: None, dark: Some("oklch(0.9 0.1 250)".into()) })].into(),
+        tokens: [("--primary".to_string(), OverrideValue::PerTheme([("dark".to_string(), "oklch(0.9 0.1 250)".to_string())].into()))].into(),
         css: None,
     };
     let variants = vec![GridVariant { label: "Dark".into(), overrides: dark_only }];
