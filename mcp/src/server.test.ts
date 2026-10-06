@@ -23,6 +23,7 @@ const harness = vi.hoisted(() => ({
    * and any `base_version` — as JSON.
    */
   layoutOps: [] as string[],
+  payloads: [] as string[],
   /**
    * The KEYS of that same payload. `JSON.stringify` DROPS a key whose value is
    * `undefined`, so a write carrying `base_version: undefined` and a write
@@ -124,6 +125,36 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.layoutOps.push(JSON.stringify(payload));
       harness.layoutOpKeys.push(Object.keys(payload));
       return { ok: true, version: 2, changed: { groups: ["g1"], routes: [] } };
+    }
+    async writeDesignTokens(project: number, _reason: string, opts: unknown) {
+      harness.calls.push(`writeDesignTokens:${project}`);
+      harness.payloads.push(JSON.stringify(opts));
+      return { ok: true, version: 3, themes: ["light", "dark", "ocean"] };
+    }
+    async designScreenshot(project: number, route: string, viewport: string, _state: string | undefined, opts: { theme?: string }) {
+      harness.calls.push(`designScreenshot:${project}:${route}:${opts.theme ?? "light"}`);
+      if (opts.theme === "all") {
+        return {
+          route, viewport, theme: "all", mime: "image/png", warnings: ["ocean: font did not load"],
+          shots: [
+            { theme: "light", png_base64: "AAAA" },
+            { theme: "dark", png_base64: "BBBB" },
+            { theme: "ocean", png_base64: "CCCC" },
+          ],
+        };
+      }
+      return { route, viewport, theme: opts.theme ?? "light", mime: "image/png", warnings: [], png_base64: "AAAA" };
+    }
+    async designCompare(project: number, input: { themes?: string[] }) {
+      harness.calls.push(`designCompare:${project}:${(input.themes ?? []).join(",")}`);
+      return {
+        mime: "image/png",
+        images: [{ routes: ["/"], png_base64: "AAAA" }],
+        split: false,
+        grid: { columns: ["Current"], rows: (input.themes ?? ["light"]).map((t) => ({ route: "/", theme: t })) },
+        checks: [],
+        warnings: [],
+      };
     }
     async trashDesignPage(project: number, route: string, reason: string) {
       harness.calls.push(`trashDesignPage:${project}:${route}:${reason}`);
@@ -309,6 +340,7 @@ const LIVE_MAIN = {
 beforeEach(() => {
   harness.calls.length = 0;
   harness.layoutOps.length = 0;
+  harness.payloads.length = 0;
   harness.layoutOpKeys.length = 0;
   harness.agents = [];
   harness.listAgentsFails = false;
@@ -1018,5 +1050,56 @@ describe("design_guide", () => {
     const page = tools.find((t) => t.name === "design_write_page");
     expect(page?.description).toContain("bg-primary");
     expect(page?.description).not.toContain("bg-[var(--accent)]");
+  });
+});
+
+describe("named themes (#619)", () => {
+  it("design_write_tokens passes per-theme keys and the themes list through intact", async () => {
+    const client = await connectedClient();
+    const patch = {
+      themes: [{ name: "dark" }, { name: "ocean", label: "Ocean" }, { name: "sea", rename_from: "bay" }],
+      colors: { primary: { ocean: "#0af", dark: null } },
+    };
+    const result = await client.callTool({
+      name: "design_write_tokens",
+      arguments: { profile: "main", reason: "Try an ocean palette", patch },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(harness.payloads[0]!)).toEqual({ patch });
+  });
+
+  it("design_screenshot takes any theme name and returns one image per theme for all", async () => {
+    const client = await connectedClient();
+    const one = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/", theme: "ocean" } });
+    expect(one.isError).toBeFalsy();
+    expect(harness.calls).toContain("designScreenshot:2:/:ocean");
+    const all = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/", theme: "all" } });
+    const content = all.content as Array<{ type: string; text?: string }>;
+    expect(content.filter((c) => c.type === "image")).toHaveLength(3);
+    expect(content.find((c) => c.type === "text")?.text ?? "").toMatch(/light, dark, ocean/);
+    expect(content.find((c) => c.type === "text")?.text ?? "").toMatch(/ocean: font did not load/);
+    const bad = await client.callTool({ name: "design_screenshot", arguments: { profile: "main", route: "/", theme: "Ocean" } });
+    expect(bad.isError).toBe(true);
+  });
+
+  it("design_compare takes three themes with no cap of two", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_compare",
+      arguments: { profile: "main", routes: ["/"], variants: [{ label: "Current" }], themes: ["light", "dark", "ocean"] },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(harness.calls).toContain("designCompare:2:light,dark,ocean");
+  });
+
+  it("descriptions teach themes", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const desc = (name: string) => tools.tools.find((t) => t.name === name)?.description ?? "";
+    expect(desc("design_write_tokens")).toMatch(/Don't overwrite light/);
+    expect(desc("design_write_tokens")).toMatch(/rename_from/);
+    expect(desc("design_get_tokens")).toMatch(/`themes`/);
+    expect(desc("design_screenshot")).toMatch(/'all'/);
+    expect(desc("design_compare")).toMatch(/any theme the project declares/);
   });
 });
