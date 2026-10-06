@@ -29,16 +29,16 @@ Use the `reviewer` profile for review work when the repo defines one.
 - `instructions` holds this agent's role instructions, written by a human on **Connect agents**.
 - `project_instructions` holds instructions for every agent in the project, written by a project owner or admin.
 
-When either has markdown, the MCP also shows it as readable text below the JSON. Precedence, highest first: the human's direct request, then role instructions, then project instructions, then generic defaults. Edits apply on the next `whoami`. Agents can read these blocks but never write them.
+When either has markdown, the MCP (2.12+) also shows it as readable text below the JSON. Precedence, highest first: the human's direct request, then role instructions, then project instructions, then generic defaults. Edits apply on the next `whoami`. Agents can read these blocks but never write them.
 
 Humans set them in the web app, or over REST. Both endpoints take `{"markdown": string | null}`; the key is required and `null` clears the text.
 
 | Endpoint | Who can call it |
 | --- | --- |
 | `PUT /api/taskflow/agents/{agent}/instructions` | The human who linked the agent, a project owner or admin, or a superuser |
-| `PUT /api/taskflow/projects/{project}/agent-instructions` | A project owner or admin |
+| `PUT /api/taskflow/projects/{project}/agent-instructions` | A project owner or admin, or a superuser |
 
-`POST /api/taskflow/agents/link` also accepts `instructions_markdown` to set role instructions at link time.
+`POST /api/taskflow/agents/link` also accepts `instructions_markdown`, but applies it only when the link **creates** the agent. Re-linking an existing agent (same project, display name and profile) ignores it and returns `"instructions_applied": false`; use the agent `PUT` above to change that agent's instructions.
 
 ## Task work
 

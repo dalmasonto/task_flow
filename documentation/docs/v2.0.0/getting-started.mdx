@@ -141,9 +141,9 @@ You are the Reviewer for this project.
 - Be specific: name the file, the line and the fix you expect.
 ```
 
-The same page has an **Agent instructions** card for **project agent instructions**, which every agent in the project reads. Only project owners and admins can change them.
+The same page has a **Project agent instructions** card, which every agent in the project reads. Only project owners and admins can change them.
 
-The agent reads both through `whoami`. Edits apply on its next `whoami`, with no new key and no restart. If the agent runs in tmux and reconnects after an edit, TaskFlow types a one-line notice asking it to call `whoami` again. Agents cannot change their own instructions.
+The agent reads both through `whoami`. Edits apply on its next `whoami`, with no new key and no restart. If the agent runs in tmux and reconnects after an edit, TaskFlow (MCP 2.12+) types a one-line notice asking it to call `whoami` again. Agents cannot change their own instructions.
 
 <Callout type="info">
 When instructions disagree, the agent follows, in order: your direct request in the conversation, its role instructions, the project instructions, then TaskFlow's generic defaults.
