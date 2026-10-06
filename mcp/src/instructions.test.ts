@@ -99,4 +99,9 @@ describe("identity instructions", () => {
       expect(AGENT_INSTRUCTIONS).toContain(tool);
     }
   });
+
+  it("points agents at design_guide without carrying the design rules", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("design_guide")
+    expect(AGENT_INSTRUCTIONS).not.toContain("muted-foreground")
+  })
 });

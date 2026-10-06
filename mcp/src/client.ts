@@ -576,6 +576,14 @@ export class TaskflowClient {
     });
   }
 
+  /** `GET /agents/design/guide` — the design guide index, or one topic. */
+  designGuide(topic?: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/guide`, {
+      query: topic ? { topic } : {},
+      idempotent: true,
+    });
+  }
+
   /** `GET /agents/design/layout` — how the pages are grouped and ordered. */
   readDesignLayout(project: number): Promise<unknown> {
     return this.request("GET", `${API_PREFIX}/agents/design/layout`, {

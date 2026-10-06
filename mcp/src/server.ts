@@ -1052,8 +1052,26 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   }
 
   server.tool(
+    "design_guide",
+    "How to design in this project, on demand. No topic → a short index. Topics: tokens (shadcn colour names, light/dark, radius, the classes to write, what is rejected — read before your first design write), fonts, flow (groups, order, links), primitives (ui-* components), pages (page rules, links, media).",
+    {
+      topic: z.enum(["tokens", "fonts", "flow", "primitives", "pages"]).optional().describe("Omit for the index."),
+      ...profileArg,
+    },
+    async ({ topic, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await picked.client.designGuide(topic));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
     "design_get_tokens",
-    "Read the design token scale as BOTH the json map (`tokens_json`, the source of truth) and generated CSS (`tokens_css`). ALWAYS call this before your first design write: raw hex/px values are rejected — colour and spacing must come from these variables (e.g. bg-[var(--accent)]). The response also includes a `primitives` array documenting the built-in <ui-*> components (ui-accordion/ui-dialog/ui-sheet/ui-tabs) with their attrs and usage examples, and a `guide` string with the sandbox rules that are in no manifest: how a page links to another page, how a back control is written, and what a page may load from outside the sandbox. Read `guide` before your first fragment — it answers questions the registry cannot. The response's `resources` field is the project's styles/resources.json (webfonts loaded once for every page; null when none).",
+    "Read the project's design tokens: `tokens_json` (what the project defines), `tokens_css` (what renders — a shadcn globals.css: :root, .dark, @theme inline), and `defaults` (shadcn names served from built-in values because the project has not set them). Write shadcn classes (bg-primary text-primary-foreground, text-muted-foreground, border-border, rounded-lg); hex/px and Tailwind's raw palette (bg-blue-500) are rejected. Call design_guide (topic \"tokens\") before your first design write. `resources` is styles/resources.json (webfonts).",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1069,7 +1087,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_list_components",
-    "List the project's component registry: every custom element, its attributes, where it is used (usedOn routes + usage counts), and the page routes. Compose pages from THESE — do not invent new tags. Also see the response's `primitives` array for built-in <ui-*> tags (accordion/dialog/sheet/tabs) with names, attrs, and usage examples.",
+    "List the project's component registry: every custom element, its attributes, where it is used (usedOn routes + usage counts), and the page routes. Compose pages from THESE — do not invent new tags. Built-in <ui-*> primitives (accordion/dialog/sheet/tabs) are documented in design_guide topic \"primitives\".",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1477,7 +1495,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_page",
-    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Styling via Tailwind classes on the TOKEN scale only: bg-[#3b82f6] is rejected; bg-[var(--accent)] is not. Do NOT put a webfont <link> or its preconnect in a page — it loads for that page only; load it once in styles/resources.json via design_write_asset (a page that carries one is accepted with a `page-resource-link` warning). Built-in <ui-accordion>/<ui-dialog>/<ui-sheet>/<ui-tabs> primitives are also available server-expanded — see design_get_tokens's `primitives` field for their names, attrs, and usage examples. CREATE SCREEN: this is the tool that adds one. If `route` does not exist yet, this call creates it — routes are derived from the page files, so writing '/billing' is all it takes and the new screen renders at the sandbox URL and appears in the manifest immediately. There is no separate create-page call to look for. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently; omit it when the route is new.",
+    "Write a page's BODY FRAGMENT (no <html>/<head>/<body>, no inline <style>, no raw <header>/<nav>/<footer>/<aside> — use registered components like <app-header>). Style with shadcn classes on the project's tokens (bg-primary text-primary-foreground, bg-card, text-muted-foreground, border-border, rounded-lg); hex/px brackets and Tailwind's raw palette (bg-blue-500) are rejected — see design_guide topic \"tokens\". Do NOT put a webfont <link> or its preconnect in a page — it loads for that page only; load it once in styles/resources.json via design_write_asset (a page that carries one is accepted with a `page-resource-link` warning). Built-in <ui-accordion>/<ui-dialog>/<ui-sheet>/<ui-tabs> primitives are also available server-expanded — see design_guide topic \"primitives\". CREATE SCREEN: this is the tool that adds one. If `route` does not exist yet, this call creates it — routes are derived from the page files, so writing '/billing' is all it takes and the new screen renders at the sandbox URL and appears in the manifest immediately. There is no separate create-page call to look for. Pass base_version from design_read_page so a sibling agent's concurrent edit conflicts loudly instead of being clobbered silently; omit it when the route is new.",
     {
       route: z.string().min(1).describe("Route path to write or CREATE, e.g. '/settings'. A route that does not exist yet is created by this call."),
       html: z.string().min(1).describe("The full replacement fragment."),
@@ -1501,7 +1519,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_component",
-    "Register or update ONE custom element (one per file, light DOM, Tailwind + tokens). Requires `reason` — state why the registry must change; instance tweaks belong in page attributes instead. Banned inside components: fetch/XHR, eval/new Function/import(), localStorage/cookies, attachShadow. The response names every route you just touched.",
+    "Register or update ONE custom element (one per file, light DOM, shadcn classes on the tokens (bg-card, text-muted-foreground…)). Requires `reason` — state why the registry must change; instance tweaks belong in page attributes instead. Banned inside components: fetch/XHR, eval/new Function/import(), localStorage/cookies, attachShadow. The response names every route you just touched.",
     {
       name: z.string().min(1).regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)+$/)
         .describe("Custom element name WITH a hyphen, e.g. 'app-header' — must match the define() in js."),
@@ -1596,7 +1614,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_tokens",
-    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names; null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"accent\":{\"light\":\"#6366f1\",\"dark\":\"#818cf8\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits.",
+    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names; null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"primary\":{\"light\":\"oklch(0.55 0.2 250)\",\"dark\":\"oklch(0.7 0.17 250)\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Use the shadcn names (primary, muted-foreground…; radius is custom.radius) — design_guide topic \"tokens\" lists them. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits.",
     {
       tokens: z
         .record(z.string(), z.any())
@@ -1660,7 +1678,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       tokens: z
         .record(z.string(), z.union([z.string(), z.object({ light: z.string().optional(), dark: z.string().optional() })]))
         .optional()
-        .describe('UNSAVED token overrides to render with, e.g. {"--primary": "#448502"} or {"--bg": {"dark": "#0b0b0c"}}. Nothing is written.'),
+        .describe('UNSAVED token overrides to render with, e.g. {"--primary": "#448502"} or {"--background": {"dark": "oklch(0.15 0 0)"}}. Nothing is written.'),
       css: z.string().optional().describe("UNSAVED extra CSS for what tokens cannot express (no url(), @, or comments)."),
       max_px: z
         .number()
@@ -1726,7 +1744,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     "design_compare",
     "Render several screens × several UNSAVED design variants × light/dark as ONE labelled image grid — the way to answer 'which colour/type/spacing?' with your human. " +
       "Columns are variants (a variant with no overrides is the live design — include it as 'Current'), rows are route × theme. Nothing is written. " +
-      "Each variant's `tokens` are CSS custom-property overrides ({\"--primary\": \"#448502\"} or per theme {\"--bg\": {\"light\": …, \"dark\": …}}); `css` is extra CSS for what tokens cannot express. " +
+      "Each variant's `tokens` are CSS custom-property overrides ({\"--primary\": \"#448502\"} or per theme {\"--background\": {\"light\": …, \"dark\": …}}); `css` is extra CSS for what tokens cannot express. " +
       "`checks` measure WCAG contrast of fg on bg per variant and theme, as rendered. " +
       "Top-level `tokens`/`css` apply to EVERY variant (e.g. CSS forcing a sheet open) — a variant's own win. " +
       "`include_apply: true` adds, per variant, the PATCH that would make it the design: pass apply[label].patch as `patch` to design_write_tokens (with base_version = tokens_version). Leave it off when you are only looking. " +

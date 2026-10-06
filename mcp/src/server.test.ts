@@ -1007,3 +1007,16 @@ describe("#508 user-flow tools", () => {
     expect(harness.layoutOps.length).toBe(before);
   });
 });
+
+describe("design_guide", () => {
+  it("is registered with an optional topic, and page writes teach shadcn classes", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const guide = tools.find((t) => t.name === "design_guide");
+    expect(guide).toBeDefined();
+    expect((guide?.inputSchema.required ?? []) as string[]).not.toContain("topic");
+    const page = tools.find((t) => t.name === "design_write_page");
+    expect(page?.description).toContain("bg-primary");
+    expect(page?.description).not.toContain("bg-[var(--accent)]");
+  });
+});
