@@ -37,7 +37,7 @@ export type ExportOptions = {
   /// A FRESH sandbox token, asked for per screen: a token lives ten minutes
   /// and a long export outlives one (`lib/sandbox-token.ts`).
   getSandboxToken: () => Promise<string>
-  theme: "light" | "dark"
+  theme: string
   /// What each screen is dressed in (see `ExportDress`).
   dress: ExportDress
   /// Corner radius in CSS px for a bare screenshot.
@@ -400,7 +400,7 @@ export async function downloadScreen(input: {
   device: DevicePreset
   projectId: number
   getSandboxToken: () => Promise<string>
-  theme: "light" | "dark"
+  theme: string
   dress: ExportDress
 }): Promise<void> {
   const picture = await renderScreen(input.route, {
