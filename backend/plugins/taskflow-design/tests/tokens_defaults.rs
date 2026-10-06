@@ -82,3 +82,25 @@ fn no_radius_means_no_radius_scale() {
     assert!(!bridge.contains("--radius-sm"));
     assert!(bridge.contains("--color-x: var(--x);"));
 }
+
+#[test]
+fn project_radius_step_is_not_overridden_by_the_bridge() {
+    let project = doc(r#"{"version":1,"categories":{"radius":{"md":{"light":"8px"}}}}"#);
+    let eff = effective_tokens(&project);
+    let bridge = theme_bridge(&eff);
+    assert!(!bridge.contains("--radius-md"), "{bridge}");
+    assert!(bridge.contains("--radius-sm:") && bridge.contains("--radius-lg:"), "{bridge}");
+    assert!(tokens_json_to_css(&eff).contains("--radius-md: 8px"));
+}
+
+#[test]
+fn bridge_skips_non_ident_colour_keys() {
+    let mut project = doc(r#"{"version":1,"categories":{"colors":{"ok":{"light":"red"}}}}"#);
+    project
+        .categories
+        .entry_or_insert_with("colors", taskflow_design::tokens::OrderedMap::new)
+        .insert("x;} body{display:none}".to_string(), taskflow_design::tokens::TokenValue { light: "red".into(), dark: None });
+    let bridge = theme_bridge(&effective_tokens(&project));
+    assert!(bridge.contains("--color-ok: var(--ok);"));
+    assert!(!bridge.contains("body{"), "{bridge}");
+}

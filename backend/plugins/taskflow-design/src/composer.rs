@@ -821,8 +821,8 @@ pub fn compose_document(
     let resources = resources_tags(&manifest.resources);
     let bridge = escape_for_inline_style(&manifest.tokens_bridge);
 
-    // `tokens.css` is GENERATED from `styles/tokens.json` when that row exists
-    // and served from the legacy `styles/tokens.css` row otherwise, so its
+    // `tokens.css` is GENERATED from the stored tokens (the json row, else the
+    // legacy css row imported) plus the built-in defaults, so its
     // revision is whichever of the two backs it — the same precedence
     // `views::effective_tokens_css` resolves on the serve side.
     let tokens_rev = rev_of(versions, "styles/tokens.json")

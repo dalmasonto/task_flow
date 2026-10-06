@@ -223,10 +223,10 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
     // Tokens: prefer the tokens.json source of truth (Task 1's TokensDoc),
     // grouped by its own categories using the SAME name convention the
     // json<->css codec uses (`category_to_var_name`), so a bare color like
-    // `--accent` lands in "colors" instead of being misclassified. Fall back
-    // to a regex-ish scan of legacy `styles/tokens.css` only when there's no
-    // json row (or it fails to parse, which validation should prevent, but
-    // don't panic the manifest builder over it).
+    // `--accent` lands in "colors" instead of being misclassified. Stored
+    // tokens are the json row, else the legacy `styles/tokens.css` row
+    // imported; the built-in shadcn defaults fill every gap (an unparseable
+    // json row falls through rather than panicking the manifest builder).
     let project_doc = crate::tokens::project_tokens_doc(files);
     let effective = crate::defaults::effective_tokens(&project_doc);
     let tokens = token_groups_from_doc(&effective);

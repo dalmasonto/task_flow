@@ -67,3 +67,38 @@ fn generated_css_round_trips_without_bridge_pollution() {
     assert!(root.contains("  --primary: oklch(0.205 0 0);"));
     assert!(root.contains("  --radius: 0.625rem;"));
 }
+
+#[test]
+fn a_real_shadcn_globals_css_imports_its_dark_values() {
+    let css = r#"@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+  --color-primary: var(--primary);
+  --radius-lg: var(--radius);
+}
+:root {
+  --radius: 0.625rem;
+  --primary: oklch(0.205 0 0);
+}
+.dark {
+  --primary: oklch(0.922 0 0);
+}
+"#;
+    let doc = css_to_tokens_json(css);
+    let p = &doc.categories.iter().find(|(c, _)| c == "custom").expect("custom").1
+        .iter().find(|(k, _)| k == "--primary").expect("--primary").1;
+    assert_eq!(p.light, "oklch(0.205 0 0)");
+    assert_eq!(p.dark.as_deref(), Some("oklch(0.922 0 0)"));
+    let json = serde_json::to_string(&doc).unwrap();
+    assert!(!json.contains("--color-") && !json.contains("\"lg\""), "{json}");
+}
+
+#[test]
+fn token_keys_must_be_identifiers() {
+    use taskflow_design::validation::validate_tokens_json;
+    let bad = r#"{"version":1,"categories":{"colors":{"x;} body{display:none} @theme inline{--y":{"light":"red"}}}}"#;
+    let v = validate_tokens_json(bad);
+    assert!(!v.ok);
+    assert_eq!(v.errors[0].rule, "token-key");
+    assert!(validate_tokens_json(r#"{"version":1,"categories":{"colors":{"ok-1_a":{"light":"red"}},"custom":{"--radius":{"light":"1px"},"radius":{"light":"1px"}}}}"#).ok);
+}

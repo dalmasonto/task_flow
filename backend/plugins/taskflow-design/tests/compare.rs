@@ -208,3 +208,23 @@ async fn a_token_patch_merges_and_refuses_a_stale_base_version() {
         .await;
     assert_eq!(both.status(), 422, "{}", both.text());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn apply_diffs_against_the_effective_tokens_not_the_stored_doc() {
+    let app = TestApp::new().await;
+    let (user, project) = app.create_member_with_project().await;
+    // A fresh project: no tokens row, `--primary` is served from the defaults.
+    let _ = user;
+    let files = taskflow_design::store::list_files(project).await;
+    let dark_only = Overrides {
+        tokens: [("--primary".to_string(), OverrideValue::PerTheme { light: None, dark: Some("oklch(0.9 0.1 250)".into()) })].into(),
+        css: None,
+    };
+    let variants = vec![GridVariant { label: "Dark".into(), overrides: dark_only }];
+    let (apply, _) = taskflow_design::agent_views::compare_apply(&files, &variants);
+    assert_eq!(
+        apply["Dark"]["patch"],
+        json!({"colors":{"primary":{"light":"oklch(0.205 0 0)","dark":"oklch(0.9 0.1 250)"}}})
+    );
+    assert!(apply["Dark"].get("added_to_custom").is_none(), "{apply}");
+}

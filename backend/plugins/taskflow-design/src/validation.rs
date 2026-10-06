@@ -446,10 +446,7 @@ pub fn validate_page_fragment(
         return v.fail(ValidationError {
             line: line_of(content, offset),
             rule: "raw-color",
-            message: format!(
-                "{found} is not allowed. Raw hex/px values bypass the token scale. Use a \
-                 semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\"."
-            ),
+            message: raw_value_message(&found, &prop),
             found: Some(found),
             suggest: Some(raw_color_suggestion(&prop)),
         });
@@ -613,9 +610,47 @@ fn semantic_suggestion(class: &str) -> &'static str {
     }
 }
 
+const UPDATE_MCP_HINT: &str = " (update the TaskFlow MCP if design_guide is missing)";
+
+/// Utilities whose arbitrary value is a length on the spacing/sizing scale,
+/// not a colour.
+fn is_scale_prop(prop: &str) -> bool {
+    matches!(
+        prop,
+        "p" | "px" | "py" | "pt" | "pr" | "pb" | "pl" | "ps" | "pe"
+            | "m" | "mx" | "my" | "mt" | "mr" | "mb" | "ml" | "ms" | "me"
+            | "gap" | "space" | "w" | "h" | "size" | "min" | "max"
+            | "inset" | "top" | "right" | "bottom" | "left" | "rounded"
+    )
+}
+
+fn raw_value_message(found: &str, prop: &str) -> String {
+    if is_scale_prop(prop) {
+        let sug = raw_color_suggestion(prop);
+        let what = if prop == "rounded" { "the radius scale" } else { "the spacing scale" };
+        format!(
+            "{found} is not allowed. Arbitrary px values bypass {what}. Use it instead, e.g. \
+             {sug} — see design_guide topic \"tokens\".{UPDATE_MCP_HINT}"
+        )
+    } else {
+        format!(
+            "{found} is not allowed. Raw hex/px values bypass the token scale. Use a \
+             semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\".{UPDATE_MCP_HINT}"
+        )
+    }
+}
+
 /// Get the suggested value for a raw-color error based on the utility property.
 fn raw_color_suggestion(prop: &str) -> String {
-    if prop == "text" || prop == "placeholder" || prop == "decoration" {
+    if is_scale_prop(prop) {
+        if prop == "rounded" {
+            "rounded-lg".into()
+        } else if matches!(prop, "w" | "h" | "size" | "min" | "max") {
+            "w-72".into()
+        } else {
+            "p-4".into()
+        }
+    } else if prop == "text" || prop == "placeholder" || prop == "decoration" {
         "text-foreground".into()
     } else if prop == "border" || prop == "divide" || prop == "ring" || prop == "outline" {
         "border-border".into()
@@ -632,7 +667,7 @@ fn palette_error(content: &str, found: String, offset: usize) -> ValidationError
         message: format!(
             "{found} uses Tailwind's raw palette, which does not follow the project's theme and \
              does not port to a shadcn app. Use a semantic class instead: {suggest} (or \
-             bg-[var(--your-token)] for a custom token). See design_guide topic \"tokens\"."
+             bg-[var(--your-token)] for a custom token). See design_guide topic \"tokens\".{UPDATE_MCP_HINT}"
         ),
         found: Some(found),
         suggest: Some(suggest.to_string()),
@@ -849,6 +884,20 @@ pub fn validate_tokens_json(content: &str) -> Validation {
 
     for (category, tokens) in doc.categories.iter() {
         for (key, value) in tokens.iter() {
+            let bare = if category == "custom" { key.strip_prefix("--").unwrap_or(key) } else { key };
+            if !crate::tokens::is_ident(bare) {
+                return v.fail(ValidationError {
+                    line: 0,
+                    rule: "token-key",
+                    message: format!(
+                        "Token key `{category}.{key}` is not a valid name. A token key is \
+                         letters, digits, `-` and `_` only (a `custom` key may also start \
+                         with `--`), because it becomes a CSS variable name."
+                    ),
+                    found: Some(key.clone()),
+                    suggest: None,
+                });
+            }
             for value in [Some(&value.light), value.dark.as_ref()].into_iter().flatten() {
                 if value.contains("http://") || value.contains("https://") {
                     return v.fail(ValidationError {
@@ -1043,10 +1092,7 @@ pub fn validate_write(
             return base.fail(ValidationError {
                 line: line_of(content, offset),
                 rule: "raw-color",
-                message: format!(
-                    "{found} is not allowed. Raw hex/px values bypass the token scale. Use a \
-                     semantic class such as bg-primary or text-muted-foreground — see design_guide topic \"tokens\"."
-                ),
+                message: raw_value_message(&found, &prop),
                 found: Some(found),
                 suggest: Some(raw_color_suggestion(&prop)),
             });

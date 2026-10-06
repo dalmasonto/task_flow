@@ -253,13 +253,18 @@ pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
 /// shadcn colour names, which an effective doc always defines somewhere), and
 /// the radius scale derived from `--radius` when the doc defines it. `inline`
 /// keeps the `var()` reference, so a theme switch restyles at runtime.
+/// A bare CSS-identifier-ish token key: `[A-Za-z0-9_-]+`.
+pub fn is_ident(key: &str) -> bool {
+    !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 pub fn theme_bridge(doc: &TokensDoc) -> String {
     let mut names: Vec<String> = Vec::new();
     let mut defined: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (category, tokens) in doc.categories.iter() {
         for (key, _) in tokens.iter() {
             defined.insert(category_to_var_name(category, key));
-            if category == "colors" && !names.contains(key) {
+            if category == "colors" && is_ident(key) && !names.contains(key) {
                 names.push(key.clone());
             }
         }
@@ -284,6 +289,10 @@ pub fn theme_bridge(doc: &TokensDoc) -> String {
             ("3xl", "calc(var(--radius) * 2.2)"),
             ("4xl", "calc(var(--radius) * 2.6)"),
         ] {
+            // A project's own `radius.<step>` token wins over the derived one.
+            if defined.contains(&format!("--radius-{step}")) {
+                continue;
+            }
             out.push_str(&format!("  --radius-{step}: {expr};\n"));
         }
     }
@@ -302,6 +311,24 @@ fn extract_block<'a>(css: &'a str, selector: &str) -> Option<&'a str> {
     let body_start = &after_selector[brace + 1..];
     let end = body_start.find('}')?;
     Some(&body_start[..end])
+}
+
+/// Like [`extract_block`], but `selector` must be a real selector: the first
+/// occurrence directly followed (modulo whitespace) by `{`, so a mention such
+/// as `@custom-variant dark (&:is(.dark *));` is not mistaken for it.
+fn extract_selector_block<'a>(css: &'a str, selector: &str) -> Option<&'a str> {
+    let mut from = 0;
+    while let Some(i) = css[from..].find(selector) {
+        let at = from + i + selector.len();
+        let rest = &css[at..];
+        if rest.trim_start().starts_with('{') {
+            let body = &rest[rest.find('{')? + 1..];
+            let end = body.find('}')?;
+            return Some(&body[..end]);
+        }
+        from = at;
+    }
+    None
 }
 
 /// `css` with every `@theme inline { … }` block removed.
@@ -382,7 +409,7 @@ pub fn css_to_tokens_json(css: &str) -> TokensDoc {
     // only what's missing).
     let mut darks: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for selector in ["[data-theme=\"dark\"]", ".dark"] {
-        if let Some(block) = extract_block(css, selector) {
+        if let Some(block) = extract_selector_block(&legacy_css, selector) {
             for (name, value) in parse_decls(block) {
                 darks.entry(name).or_insert(value);
             }
@@ -487,17 +514,28 @@ pub fn apply_patch(doc: &mut TokensDoc, patch: &serde_json::Value) -> Result<(),
 /// `defaults::effective_tokens` for that.
 pub fn project_tokens_doc(files: &[crate::models::DesignFile]) -> TokensDoc {
     use crate::models::DesignFileKind;
-    files
-        .iter()
-        .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.json")
-        .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
-        .or_else(|| {
-            files
-                .iter()
-                .find(|f| f.kind == DesignFileKind::Token && f.path == "styles/tokens.css")
-                .map(|f| css_to_tokens_json(&f.content))
-        })
+    let content = |path: &str| {
+        files
+            .iter()
+            .find(|f| f.kind == DesignFileKind::Token && f.path == path)
+            .map(|f| f.content.as_str())
+    };
+    project_tokens_doc_from(content("styles/tokens.json"), content("styles/tokens.css"))
+}
+
+/// The one place the precedence lives: a parseable `styles/tokens.json` row
+/// wins, else the legacy `styles/tokens.css` row imported, else empty.
+pub fn project_tokens_doc_from(json: Option<&str>, css: Option<&str>) -> TokensDoc {
+    json.and_then(|j| serde_json::from_str::<TokensDoc>(j).ok())
+        .or_else(|| css.map(css_to_tokens_json))
         .unwrap_or_default()
+}
+
+/// [`project_tokens_doc`] loading only the two token rows (not every file).
+pub async fn load_project_tokens_doc(project_id: i64) -> TokensDoc {
+    let json = crate::store::load_file(project_id, "styles/tokens.json").await;
+    let css = crate::store::load_file(project_id, "styles/tokens.css").await;
+    project_tokens_doc_from(json.as_ref().map(|f| f.content.as_str()), css.as_ref().map(|f| f.content.as_str()))
 }
 
 #[cfg(test)]

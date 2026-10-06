@@ -65,3 +65,10 @@ async fn operator_defaults_list_is_member_only() {
     let (other, _) = app.create_member_with_project().await;
     assert_eq!(app.get_as(other.id, &format!("/api/design/{project}/tokens/defaults")).await.status(), 403);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn guide_requires_an_agent_key() {
+    let app = TestApp::new().await;
+    let r = app.get_sandbox("/api/taskflow/agents/design/guide").await;
+    assert_eq!(r.status(), 401);
+}

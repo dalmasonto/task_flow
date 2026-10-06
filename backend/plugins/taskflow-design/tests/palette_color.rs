@@ -72,3 +72,19 @@ fn oversize_component_with_palette_color_is_rejected() {
     let err = v.errors.first().unwrap();
     assert_eq!(err.rule, "palette-color", "error should be palette-color, not component-size");
 }
+
+#[test]
+fn spacing_arbitrary_values_do_not_suggest_a_colour() {
+    for (html, want) in [
+        (r#"<div class="p-[13px]">"#, "p-4"),
+        (r#"<div class="mt-[42px]">"#, "p-4"),
+        (r#"<div class="gap-[10px]">"#, "p-4"),
+        (r#"<div class="w-[300px]">"#, "w-72"),
+        (r#"<div class="rounded-[12px]">"#, "rounded-lg"),
+        (r#"<div class="bg-[#fff]">"#, "bg-primary"),
+    ] {
+        let v = validate_page_fragment("pages/index.html", html, &[]);
+        let e = v.errors.first().unwrap_or_else(|| panic!("{html} should fail"));
+        assert_eq!(e.suggest.as_deref(), Some(want), "{html}: {}", e.message);
+    }
+}

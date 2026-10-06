@@ -1260,7 +1260,8 @@ pub async fn serve_file(
 
     // `styles/tokens.css` is GENERATED from the `styles/tokens.json` source
     // when that row exists; only a project that has never migrated off
-    // hand-authored CSS falls through to serving the legacy row verbatim.
+    // hand-authored CSS has its legacy row imported. Either way the served
+    // sheet is generated: stored tokens plus the built-in shadcn defaults.
     if path == "styles/tokens.css" {
         let css = effective_tokens_css(project_id).await;
         let mut response = css.into_response();
@@ -1297,8 +1298,7 @@ pub async fn serve_file(
 /// legacy css row imported) with the shadcn defaults filling every gap, in
 /// globals.css shape. Always answers — an empty project renders the defaults.
 async fn effective_tokens_css(project_id: i64) -> String {
-    let files = store::list_files(project_id).await;
-    let project = crate::tokens::project_tokens_doc(&files);
+    let project = crate::tokens::load_project_tokens_doc(project_id).await;
     tokens_json_to_css(&crate::defaults::effective_tokens(&project))
 }
 
@@ -1331,8 +1331,8 @@ pub async fn token_defaults(
     Path(project_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_member(user_id, project_id).await?;
-    let files = store::list_files(project_id).await;
-    let missing = crate::defaults::missing_defaults(&crate::tokens::project_tokens_doc(&files));
+    let missing =
+        crate::defaults::missing_defaults(&crate::tokens::load_project_tokens_doc(project_id).await);
     Ok(Json(serde_json::json!({ "missing": missing })))
 }
 
@@ -1395,10 +1395,10 @@ pub async fn export_page_html(
     // (`styles/tokens.json` row when present, else the legacy hand-authored
     // `styles/tokens.css` row) — never a raw file read, and never a hard
     // 404 here: a page with no tokens configured yet still exports.
-    let tokens_css = effective_tokens_css(project_id).await;
-    let bridge = crate::tokens::theme_bridge(&crate::defaults::effective_tokens(
-        &crate::tokens::project_tokens_doc(&files),
-    ));
+    let effective =
+        crate::defaults::effective_tokens(&crate::tokens::project_tokens_doc(&files));
+    let tokens_css = tokens_json_to_css(&effective);
+    let bridge = crate::tokens::theme_bridge(&effective);
 
     let components: Vec<(String, String)> = files
         .iter()

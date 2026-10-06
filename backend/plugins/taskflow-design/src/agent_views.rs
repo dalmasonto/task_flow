@@ -100,7 +100,8 @@ pub async fn context(
         "note": "Colour, radius and type come from these tokens — write shadcn classes \
                  (bg-primary, text-muted-foreground, rounded-lg). Names in `defaults` are \
                  built-in shadcn values the project has not overridden. Read design_guide \
-                 (topic \"tokens\") before your first design write."
+                 (topic \"tokens\") before your first design write (update the TaskFlow MCP if \
+                 design_guide is missing)."
     })))
 }
 
@@ -1913,28 +1914,37 @@ pub async fn compare(
     // (just the tokens it changes) that makes it the design via
     // `design_write_tokens({patch})`.
     if input.include_apply {
-        let doc = files
-            .iter()
-            .find(|f| f.path == "styles/tokens.json")
-            .and_then(|f| serde_json::from_str::<TokensDoc>(&f.content).ok())
-            .unwrap_or_default();
-        let base_version = files.iter().find(|f| f.path == "styles/tokens.json").map(|f| f.version);
-        let mut apply = serde_json::Map::new();
-        for v in spec.variants.iter().filter(|v| !v.overrides.tokens.is_empty()) {
-            let (patch, added) = crate::compare::apply_diff(&doc, &v.overrides);
-            let mut entry = json!({ "patch": patch });
-            if !added.is_empty() {
-                entry["added_to_custom"] = json!(added);
-            }
-            if v.overrides.css.is_some() {
-                entry["css_not_applied"] = json!(true);
-            }
-            apply.insert(v.label.clone(), entry);
-        }
-        body["apply"] = json!(apply);
+        let (apply, base_version) = compare_apply(&files, &spec.variants);
+        body["apply"] = apply;
         body["tokens_version"] = json!(base_version);
     }
     Ok(Json(body).into_response())
+}
+
+/// `design_compare`'s `apply`, per variant with token overrides: the PATCH
+/// (just the tokens it changes) that makes it the design via
+/// `design_write_tokens({patch})`, plus the stored tokens row's version.
+/// Diffs against what RENDERS (stored tokens + built-in defaults), so a token
+/// served from the defaults is a change, not an addition.
+pub fn compare_apply(
+    files: &[crate::models::DesignFile],
+    variants: &[crate::compare::GridVariant],
+) -> (serde_json::Value, Option<i64>) {
+    let doc: TokensDoc = crate::defaults::effective_tokens(&crate::tokens::project_tokens_doc(files));
+    let base_version = files.iter().find(|f| f.path == "styles/tokens.json").map(|f| f.version);
+    let mut apply = serde_json::Map::new();
+    for v in variants.iter().filter(|v| !v.overrides.tokens.is_empty()) {
+        let (patch, added) = crate::compare::apply_diff(&doc, &v.overrides);
+        let mut entry = json!({ "patch": patch });
+        if !added.is_empty() {
+            entry["added_to_custom"] = json!(added);
+        }
+        if v.overrides.css.is_some() {
+            entry["css_not_applied"] = json!(true);
+        }
+        apply.insert(v.label.clone(), entry);
+    }
+    (json!(apply), base_version)
 }
 
 /// Width and height of a PNG, from its IHDR chunk.
