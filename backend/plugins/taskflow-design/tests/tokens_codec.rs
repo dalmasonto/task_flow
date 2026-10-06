@@ -24,8 +24,10 @@ fn json_generates_css_with_root_and_dark_preserving_var_names() {
     let dark = &css[css.find(dark_sel).expect("dark block")..];
     assert!(dark.contains("--accent: #818cf8"));
     assert!(dark.contains("--bg: #0b0b10"));
-    // @theme block present (Tailwind scale container, matches existing contract).
-    assert!(css.contains("@theme"));
+    // shadcn globals.css shape: dark also under .dark; the bridge, not raw @theme.
+    assert!(css.contains(":root[data-theme=\"dark\"], .dark {"));
+    assert!(!css.contains("@theme {"));
+    assert!(css.contains("@theme inline {"));
 }
 
 #[test]

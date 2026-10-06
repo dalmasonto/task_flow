@@ -202,20 +202,23 @@ pub fn var_name_to_category(var_name: &str) -> (&'static str, String) {
     ("custom", var_name.to_string())
 }
 
-/// Generate the served CSS from the JSON tokens document.
+/// Generate the served CSS from a (normally EFFECTIVE) tokens document, in
+/// shadcn's `globals.css` shape:
 ///
-/// Emits, in order: `@theme { <light values> }` (all light values, so
-/// Tailwind's scale container is present), `:root { <light values> }` (the
-/// runtime vars pages reference), then `:root[data-theme="dark"] { <only tokens
-/// with a dark value> }`. The dark selector matches how the sandbox applies the
-/// theme — `document.documentElement.dataset.theme = "dark"` (composer.rs), i.e.
-/// `<html data-theme="dark">` — NOT a `.dark` class, so the theme toggle
-/// actually swaps the variables. Category/key iteration order follows
-/// `doc.categories`' insertion order so the output is stable and diffable.
+/// 1. `:root { <light values> }`
+/// 2. `:root[data-theme="dark"], .dark { <dark values> }` — the sandbox toggles
+///    `data-theme` (composer.rs); `.dark` makes the file drop into a shadcn app.
+///    Emitted only when some token has a dark value.
+/// 3. [`theme_bridge`] — `@theme inline`, mapping tokens into Tailwind's
+///    namespaces. A plain stylesheet ignores it; the composer feeds the same
+///    block to the Tailwind browser build as `text/tailwindcss`.
+///
+/// There is deliberately NO raw `@theme { values }` block any more: the browser
+/// never compiled it, and in an app it would register `--primary` itself as a
+/// theme variable.
 pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
     let mut light_lines: Vec<String> = Vec::new();
     let mut dark_lines: Vec<String> = Vec::new();
-
     for (category, tokens) in doc.categories.iter() {
         for (key, value) in tokens.iter() {
             let var_name = category_to_var_name(category, key);
@@ -226,28 +229,65 @@ pub fn tokens_json_to_css(doc: &TokensDoc) -> String {
         }
     }
 
-    let mut out = String::new();
-    out.push_str("@theme {\n");
-    for line in &light_lines {
-        out.push_str(line);
-        out.push('\n');
-    }
-    out.push_str("}\n\n:root {\n");
+    let mut out = String::from(":root {\n");
     for line in &light_lines {
         out.push_str(line);
         out.push('\n');
     }
     out.push_str("}\n");
-
     if !dark_lines.is_empty() {
-        out.push_str("\n:root[data-theme=\"dark\"] {\n");
+        out.push_str("\n:root[data-theme=\"dark\"], .dark {\n");
         for line in &dark_lines {
             out.push_str(line);
             out.push('\n');
         }
         out.push_str("}\n");
     }
+    out.push('\n');
+    out.push_str(&theme_bridge(doc));
+    out
+}
 
+/// The `@theme inline` block that makes Tailwind utilities read the tokens:
+/// `--color-<k>: var(--<k>)` for every colour (the doc's `colors` keys plus the
+/// shadcn colour names, which an effective doc always defines somewhere), and
+/// the radius scale derived from `--radius` when the doc defines it. `inline`
+/// keeps the `var()` reference, so a theme switch restyles at runtime.
+pub fn theme_bridge(doc: &TokensDoc) -> String {
+    let mut names: Vec<String> = Vec::new();
+    let mut defined: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (category, tokens) in doc.categories.iter() {
+        for (key, _) in tokens.iter() {
+            defined.insert(category_to_var_name(category, key));
+            if category == "colors" && !names.contains(key) {
+                names.push(key.clone());
+            }
+        }
+    }
+    for name in crate::defaults::default_color_names() {
+        if defined.contains(&format!("--{name}")) && !names.iter().any(|n| n == name) {
+            names.push(name.to_string());
+        }
+    }
+
+    let mut out = String::from("@theme inline {\n");
+    for name in &names {
+        out.push_str(&format!("  --color-{name}: var(--{name});\n"));
+    }
+    if defined.contains("--radius") {
+        for (step, expr) in [
+            ("sm", "calc(var(--radius) * 0.6)"),
+            ("md", "calc(var(--radius) * 0.8)"),
+            ("lg", "var(--radius)"),
+            ("xl", "calc(var(--radius) * 1.4)"),
+            ("2xl", "calc(var(--radius) * 1.8)"),
+            ("3xl", "calc(var(--radius) * 2.2)"),
+            ("4xl", "calc(var(--radius) * 2.6)"),
+        ] {
+            out.push_str(&format!("  --radius-{step}: {expr};\n"));
+        }
+    }
+    out.push_str("}\n");
     out
 }
 
