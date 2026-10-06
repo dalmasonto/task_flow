@@ -3,10 +3,10 @@ import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setAgentInstructions, setGithubAutoMirror, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setAgentInstructions, setGithubAutoMirror, setProjectAgentInstructions, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Input } from "@/components/ui/input"
 import { AgentInstructionsDialog, InstructionsEditor } from "@/components/instructions-editor"
-import { agentInstructionsOf, instructionsSnippet, latestInstructions, normalizeInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
+import { agentInstructionsOf, instructionsChanged, instructionsSnippet, latestInstructions, normalizeInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
 import { Link } from "react-router-dom"
 import { PageShell } from "@/components/layout"
 import { cn } from "@/lib/utils"
@@ -171,6 +171,10 @@ export function ApiBasePage({
           }))
         }}
       />
+
+      {workspace?.project && workspace.project.id === numericProjectId ? (
+        <ProjectInstructionsCard key={workspace.project.id} project={workspace.project} />
+      ) : null}
 
       <section className="rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -830,6 +834,68 @@ export function AgentsList({
           onSave={(markdown) => onSaveInstructions(editing.id, markdown)}
         />
       ) : null}
+    </section>
+  )
+}
+
+/// #616: the instructions every agent in this project reads through whoami,
+/// beside its own role instructions. Everyone can read them here; only owners
+/// and admins can save (the server answers 403 otherwise, shown inline).
+/// Mounted with `key={project.id}` so the draft starts from that project.
+function ProjectInstructionsCard({ project }: { project: TaskflowWorkspace["project"] }) {
+  const [local, setLocal] = useState<InstructionsBlock | undefined>(undefined)
+  const saved = latestInstructions(
+    { markdown: project.agent_instructions_markdown ?? null, updated_at: project.agent_instructions_updated_at ?? null },
+    local
+  )
+  const [draft, setDraft] = useState(saved.markdown ?? "")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const dirty = instructionsChanged(saved.markdown, draft)
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await setProjectAgentInstructions(project.id, normalizeInstructions(draft))
+      setLocal({ markdown: result.markdown, updated_at: result.updated_at })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save the project instructions.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-lg border bg-card p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <FileTextIcon className="size-4 text-primary" />
+        Project agent instructions
+      </div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        Markdown every agent in this project reads through <code className="rounded bg-muted px-1 py-0.5 text-xs">whoami</code>,
+        beside its own role instructions. An agent follows its human's direct request first, then its role instructions,
+        then these. Edits apply on each agent's next whoami. Only project owners and admins can save.
+      </p>
+      <div className="mt-3">
+        <InstructionsEditor
+          label="Project agent instructions"
+          value={draft}
+          onChange={setDraft}
+          disabled={busy}
+          placeholder={"## How we work here\n- Branch from main; one PR per task.\n- Run the tests before partial_done."}
+        />
+      </div>
+      {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button type="button" size="sm" disabled={busy || !dirty} onClick={() => void save()}>
+          <CheckCircle2Icon />
+          {busy ? "Saving…" : "Save instructions"}
+        </Button>
+        {saved.updated_at ? (
+          <span className="text-xs text-muted-foreground">Last updated {formatLiveDate(saved.updated_at, "—")}</span>
+        ) : null}
+      </div>
     </section>
   )
 }
