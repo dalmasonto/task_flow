@@ -86,37 +86,42 @@ describe("ArtboardHeader — a frame that has gone elsewhere", () => {
 })
 
 /** A framed board for `deviceId` wrapping a stand-in page, as `ArtboardCard` draws it. */
-function framed(deviceId: string, chrome: Parameters<typeof FramedBoard>[0]["chrome"], safeArea: { top: number; bottom: number }) {
+function framed(deviceId: string, chrome: Parameters<typeof FramedBoard>[0]["chrome"]) {
   return renderToStaticMarkup(
     // `children` in the props (not the third argument) so the required prop type-checks.
-    createElement(FramedBoard, { device: deviceById(deviceId), chrome, safeArea, children: createElement("div", { id: "page" }) }),
+    createElement(FramedBoard, { device: deviceById(deviceId), chrome, children: createElement("div", { id: "page" }) }),
   )
 }
 
-describe("FramedBoard safe areas (#626)", () => {
-  const padded = { ink: "light", stripFill: null, screenBackground: "rgb(21, 128, 61)", colorScheme: "light" } as const
-  const unpadded = { ink: "light", stripFill: "rgb(15, 23, 42)", screenBackground: "rgb(15, 23, 42)", colorScheme: "dark" } as const
+describe("FramedBoard geometry and strip (#632)", () => {
+  const navy = { ink: "light", stripFill: "rgb(15, 23, 42)", screenBackground: "rgb(15, 23, 42)", colorScheme: "dark" } as const
+  const white = { ink: "dark", stripFill: "rgb(255, 255, 255)", screenBackground: "rgb(255, 255, 255)", colorScheme: "light" } as const
 
-  it("the page starts at the top of the screen, under the strip", () => {
-    const html = framed("iphone-16-pro", padded, { top: 59, bottom: 34 })
-    expect(html).toMatch(/top:0;left:0;width:393px;height:836px/)
+  it("the page starts BELOW the status bar and is the export's capture viewport tall", () => {
+    // iPhone 14 Pro frame: 44px strip; (830 - 44) * 393/390 = 792.
+    const html = framed("iphone-16-pro", navy)
+    expect(html).toMatch(/position:absolute;top:44px;left:0;width:393px;height:792px/)
     expect(html).toContain('id="page"')
   })
 
-  it("a page that pads under the bar gets a transparent strip with white icons", () => {
-    const html = framed("iphone-16-pro", padded, { top: 59, bottom: 34 })
-    expect(html).toMatch(/width:393px;height:59px;background:transparent/)
+  it("fills the strip with the page's top colour and inks it as resolved", () => {
+    const html = framed("iphone-16-pro", navy)
+    expect(html).toMatch(/data-status-strip="" class="[^"]*" style="width:390px;height:44px;background:rgb\(15, 23, 42\);/)
+    // A 1px skirt in the same colour, above the page: covers the iframe's
+    // sub-pixel top row at fractional canvas zooms (a hairline otherwise).
+    expect(html).toContain("box-shadow:0 1px 0 rgb(15, 23, 42);z-index:1")
     expect(html).toContain("color:#f5f5f5")
-  })
-
-  it("a page that does not pad gets the strip filled with its own colour", () => {
-    const html = framed("iphone-16-pro", unpadded, { top: 59, bottom: 34 })
-    expect(html).toMatch(/height:59px;background:rgb\(15, 23, 42\)/)
     expect(html).toContain("color-scheme:dark")
+    expect(framed("iphone-16-pro", white)).toContain("color:#0a0a0a")
   })
 
-  it("draws the home indicator only when there is a bottom inset", () => {
-    expect(framed("iphone-16-pro", padded, { top: 59, bottom: 34 })).toContain('data-home-indicator=""')
-    expect(framed("iphone-se", padded, { top: 20, bottom: 0 })).not.toContain("data-home-indicator")
+  it("draws nothing over the page: no home indicator, as the export draws none", () => {
+    expect(framed("iphone-16-pro", navy)).not.toContain("data-home-indicator")
+  })
+
+  it("a frame without a status bar (iPad) has no strip and the page at the top", () => {
+    const html = framed("ipad-mini", white)
+    expect(html).not.toContain("data-status-strip")
+    expect(html).toMatch(/position:absolute;top:0(px)?;left:0/)
   })
 })

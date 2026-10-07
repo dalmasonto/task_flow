@@ -26,6 +26,7 @@ import { DEVICE_GROUP_LABELS, DEVICE_PRESETS, deviceById } from "@/lib/design-de
 import type { LayoutDoc } from "@/lib/design-layout"
 import { cn } from "@/lib/utils"
 import { exportDress, exportFileName, exportItems, frameFor, screensPerPage, type DressStyle, type ExportScope } from "./export-plan"
+import type { ThemeAppearance } from "../status-bar"
 
 type ScopeKind = ExportScope["kind"]
 
@@ -119,6 +120,8 @@ export function ExportDialog({
   getSandboxToken,
   projectName,
   theme,
+  appearance = null,
+  themeBackground = null,
   defaultDeviceId,
   defaultDress,
 }: {
@@ -135,6 +138,10 @@ export function ExportDialog({
   getSandboxToken: () => Promise<string>
   projectName: string
   theme: string
+  /// #632: the active theme's appearance and `--background` swatch, for a
+  /// device frame's status strip (see `ExportOptions`).
+  appearance?: ThemeAppearance | null
+  themeBackground?: string | null
   defaultDeviceId: string
   /// The frame style the canvas is showing — the export starts from it.
   defaultDress: DressStyle
@@ -214,6 +221,8 @@ export function ExportDialog({
           projectId,
           getSandboxToken,
           theme,
+          appearance,
+          themeBackground,
           dress: exportDress(deviceId, dressStyle),
           radius,
           fullPage,

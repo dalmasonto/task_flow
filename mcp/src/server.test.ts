@@ -1133,12 +1133,13 @@ describe("named themes (#619)", () => {
     expect(bad.isError).toBe(true);
   });
 
-  it("descriptions teach appearance and safe areas (#626)", async () => {
+  it("descriptions teach appearance and the reserved status bar (#626, #632)", async () => {
     const client = await connectedClient();
     const tools = await client.listTools();
     const desc = (name: string) => tools.tools.find((t) => t.name === name)?.description ?? "";
     expect(desc("design_write_tokens")).toMatch(/"appearance":"dark"/);
-    expect(desc("design_write_tokens")).toMatch(/--safe-top/);
+    expect(desc("design_write_tokens")).toMatch(/viewport starts below the status bar/);
+    expect(desc("design_write_tokens")).not.toMatch(/--safe-top/);
     expect(desc("design_get_tokens")).toMatch(/appearance/);
   });
 

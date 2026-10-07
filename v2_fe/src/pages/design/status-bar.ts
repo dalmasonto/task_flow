@@ -1,8 +1,10 @@
-/// #626: the device frame's status bar and home indicator — what colour the
-/// icons are, and whether the frame fills the strip — decided from what the
-/// page reports (`design:status-bar`, sent by the composer's status runtime),
-/// the active theme's `appearance` and its `--background`. Pure, so it is
-/// tested; `FramedBoard` only draws the answer.
+/// #626/#632: the device frame's status bar — what colour its icons are and
+/// what fills its strip — decided from what the page reports
+/// (`design:status-bar`, sent by the composer's status runtime), the active
+/// theme's `appearance` and its `--background`. Pure, so it is tested;
+/// `FramedBoard` (canvas) and `export-run.inDeviceFrame` (download/export) only
+/// draw the answer. The renderer (`backend/renderer/status-chrome.mjs`) is a
+/// line-for-line port, pinned to this module by `renderer-status-chrome.test.ts`.
 
 import { safeSwatchColor } from "./theme-options"
 
@@ -15,15 +17,16 @@ export type StatusBarReport = {
   mode: StatusInk | null
   /** The solid colour at the top of the page, as `rgb(r, g, b)`. */
   background: string | null
-  /** Something at the top pads by `--safe-top` (the page draws the strip). */
+  /** #626 legacy: something at the top pads by `--safe-top`. Since #632 no
+   *  surface injects an inset, so this is always false and decides nothing. */
   padsTop: boolean
   padsBottom: boolean
 }
 
 export type FrameChrome = {
   ink: StatusInk
-  /** What fills the status strip, or null for transparent (the page pads). */
-  stripFill: string | null
+  /** What fills the status strip: the page's top colour, never default white. */
+  stripFill: string
   /** The device screen behind the page (seen while it loads). */
   screenBackground: string
   colorScheme: "light" | "dark" | "normal"
@@ -156,9 +159,11 @@ export function inkColour(ink: StatusInk): string {
 
 /// Everything `FramedBoard` paints around the page. The report's background is
 /// already a validated `rgb()`; the theme's swatch is agent-authored, so it is
-/// painted only through `safeColour` (the switcher's allowlist). Until the
-/// page has reported, the strip is FILLED (never a white gap); once it says it
-/// pads under the bar, the strip is transparent and the page's own bar shows.
+/// painted only through `safeColour` (the switcher's allowlist). #632: the page
+/// viewport starts BELOW the strip, so nothing of the page is under it and the
+/// strip is always filled — with the page's top colour once it has reported,
+/// the theme's background before that, and only then a plain fallback that
+/// follows the ink (never a white strip behind white icons).
 export function frameChrome(
   input: { report: StatusBarReport | null; appearance: ThemeAppearance | null; themeBackground: string | null },
   safeColour: (v: string | null | undefined) => string | undefined = (v) => safeSwatchColor(v),
@@ -174,7 +179,7 @@ export function frameChrome(
   const fallback = ink === "light" ? DARK_INK : "#ffffff"
   return {
     ink,
-    stripFill: report?.padsTop ? null : (background ?? fallback),
+    stripFill: background ?? fallback,
     screenBackground: background ?? fallback,
     colorScheme: appearance ?? "normal",
   }

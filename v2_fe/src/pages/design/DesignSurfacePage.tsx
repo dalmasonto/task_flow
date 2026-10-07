@@ -672,6 +672,9 @@ export function DesignSurfacePage({
             projectId,
             getSandboxToken,
             theme: activeTheme,
+            // #632: the strip's ink and fallback fill, as the canvas resolves them.
+            appearance: activeAppearance,
+            themeBackground: activeThemeBackground,
             // "Download w Frame" wears what the canvas shows: the classic
             // bezel when Classic is on, the device frame otherwise.
             dress: exportDress(deviceId, !withFrame ? "none" : frameMode === "classic" ? "classic" : "device"),
@@ -683,7 +686,7 @@ export function DesignSurfacePage({
         // for one failed download.
         .catch((err: Error) => setCanvasNotice({ text: err.message, tone: "error" }))
     },
-    [sandboxToken, projectId, getSandboxToken, activeTheme, frameMode],
+    [sandboxToken, projectId, getSandboxToken, activeTheme, activeAppearance, activeThemeBackground, frameMode],
   )
 
   const restorePage = useCallback(
@@ -1306,6 +1309,8 @@ export function DesignSurfacePage({
         getSandboxToken={getSandboxToken}
         projectName={project?.name ?? "Design"}
         theme={activeTheme}
+        appearance={activeAppearance}
+        themeBackground={activeThemeBackground}
         defaultDeviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
         defaultDress={frameMode === "outline" ? "none" : frameMode}
       />

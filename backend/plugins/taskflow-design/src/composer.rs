@@ -331,13 +331,14 @@ const PICKER_RUNTIME: &str = r#"(() => {
 
 /// #626: what every composed page declares before Tailwind, the tokens and the
 /// page, so `var(--safe-top)` / `calc(0.75rem + var(--safe-bottom))` always
-/// resolve. Only the canvas's device frame raises them, at runtime, by
-/// `design:safe-area` — a frameless board, a screenshot or an export renders
-/// with 0px and so exactly as before.
+/// resolve. #632: nothing raises them any more — a device frame now starts the
+/// page's viewport BELOW its status bar on every surface — so they are 0px
+/// everywhere; kept so a page written for #626 still composes unchanged.
 pub const SAFE_AREA_DEFAULTS: &str = ":root { --safe-top: 0px; --safe-bottom: 0px; }";
 
-/// #626: the device frame's half of the safe-area protocol, SYSTEM-owned like
-/// the picker. It applies `design:safe-area {top, bottom}` as inline style on
+/// #626: the device frame's half of the status-bar protocol, SYSTEM-owned like
+/// the picker. (#632: the canvas no longer sends `design:safe-area`; the
+/// handler stays harmless, and the report now only colours the frame's strip.) It applies `design:safe-area {top, bottom}` as inline style on
 /// `<html>`, sets `color-scheme` from `design:theme`'s `appearance`, and
 /// reports what the frame needs to colour its status bar:
 /// `design:status-bar {mode, background, padsTop, padsBottom}`.
@@ -434,6 +435,19 @@ const STATUS_BAR_RUNTIME: &str = r#"(() => {
       report();
     }
   });
+  // #632: the same measure, for the renderer (design-render.mjs evaluates it
+  // in-page before it dresses a device frame), plus what the canvas and the
+  // export know from the manifest: the active theme's appearance (from
+  // `__tfAppearances`, composed by the server per page) and its
+  // `--background`, normalised to rgb() like the top colour.
+  window.__tfStatusBar = () => {
+    const m = measure();
+    const map = window.__tfAppearances || {};
+    const a = Object.prototype.hasOwnProperty.call(map, root.dataset.theme || 'light') ? map[root.dataset.theme || 'light'] : null;
+    return { mode: m.mode, background: m.background,
+      appearance: a === 'light' || a === 'dark' ? a : null,
+      themeBackground: solidRgb(getComputedStyle(root).getPropertyValue('--background').trim()) };
+  };
   addEventListener('load', report);
   addEventListener('resize', report);
 })();"#;
@@ -441,6 +455,23 @@ const STATUS_BAR_RUNTIME: &str = r#"(() => {
 /// The status runtime, escaped for an inline `<script>` (see [`STATUS_BAR_RUNTIME`]).
 pub fn status_bar_script() -> String {
     escape_for_inline_script(STATUS_BAR_RUNTIME)
+}
+
+/// #632: `window.__tfAppearances = {"light":"light","ocean":"dark",…};` — each
+/// declared theme's appearance (null = automatic), which the status runtime's
+/// `__tfStatusBar` reads for the theme the page is in. The renderer has only
+/// the theme's NAME (`?theme=`); this is how its device frame inks the status
+/// bar by the same rule the canvas and the export use.
+pub fn theme_appearances_script(themes: &[crate::manifest::ThemeInfo]) -> String {
+    let map: serde_json::Map<String, serde_json::Value> = themes
+        .iter()
+        .map(|t| {
+            let a = t.appearance.as_deref().filter(|a| *a == "light" || *a == "dark");
+            (t.name.clone(), a.map_or(serde_json::Value::Null, |a| serde_json::Value::String(a.into())))
+        })
+        .collect();
+    let json = serde_json::Value::Object(map).to_string();
+    escape_for_inline_script(&format!("window.__tfAppearances = {json};"))
 }
 
 /// Escape text for interpolation into HTML.
@@ -987,7 +1018,7 @@ pub fn compose_document(
     // the frame can navigate to. Computed once, here, and passed down.
     let routes: Vec<String> = manifest.routes.iter().map(|r| r.path.clone()).collect();
     let nav_guard = nav_guard_script(token, &routes);
-    let status_runtime = status_bar_script();
+    let status_runtime = format!("{}\n{}", theme_appearances_script(&manifest.themes), status_bar_script());
     // `route` is not only for diagnostics: which page this IS decides how a
     // RELATIVE href resolves (see [`rewrite_hrefs`]), because the root frame's
     // document URL has no trailing slash.
@@ -1486,5 +1517,30 @@ mod tests {
         assert!(js.contains("setTimeout("), "coalesced with a timer, not rAF (throttled off-screen)");
         assert!(!js.contains("requestAnimationFrame"));
         assert!(!js.to_ascii_lowercase().contains("</script"));
+        // #632: the renderer's in-page read of the same measure.
+        assert!(js.contains("window.__tfStatusBar = () =>"));
+        assert!(js.contains("getPropertyValue('--background')"));
+    }
+
+    #[test]
+    fn composed_pages_carry_each_themes_appearance_for_the_renderer() {
+        use crate::manifest::{ThemeInfo, ThemeSwatch};
+        let info = |name: &str, appearance: Option<&str>| ThemeInfo {
+            name: name.into(),
+            label: name.into(),
+            appearance: appearance.map(str::to_string),
+            swatch: ThemeSwatch { primary: None, background: None },
+        };
+        let themes = vec![info("light", Some("light")), info("ocean-dark", Some("dark")), info("auto", None), info("odd", Some("dim"))];
+        let js = theme_appearances_script(&themes);
+        assert_eq!(
+            js,
+            r#"window.__tfAppearances = {"auto":null,"light":"light","ocean-dark":"dark","odd":null};"#
+        );
+        let mut manifest = empty_manifest();
+        manifest.themes = themes;
+        let html = compose_document("tok", &manifest, "/", "pages/index.html", "<p>x</p>", &[], "ocean-dark", None);
+        let map = html.find("window.__tfAppearances = ").expect("the appearance map is composed");
+        assert!(map < html.find("window.__tfStatusBar").expect("runtime"), "declared before the runtime reads it");
     }
 }
