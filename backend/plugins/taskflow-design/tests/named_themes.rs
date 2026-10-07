@@ -122,12 +122,12 @@ async fn the_manifest_and_context_list_themes_with_swatches() {
     let themes = manifest["themes"].clone();
     assert_eq!(themes.as_array().map(|t| t.len()), Some(2), "legacy: light + dark: {themes}");
     assert_eq!(themes[0]["name"], "light");
-    assert_eq!(themes[1], json!({ "name": "dark", "label": "Dark", "swatch": { "primary": "#22C55E", "background": "oklch(0.145 0 0)" } }));
+    assert_eq!(themes[1], json!({ "name": "dark", "label": "Dark", "appearance": "dark", "swatch": { "primary": "#22C55E", "background": "oklch(0.145 0 0)" } }));
 
     add_ocean(&app, &key, project).await;
     let themes = app.get_as(user, &format!("/api/design/{project}/manifest")).await.json()["themes"].clone();
     // Ruling 3: ocean sets no background, so it inherits the LIGHT default.
-    assert_eq!(themes[2], json!({ "name": "ocean", "label": "Ocean", "swatch": { "primary": "#0af", "background": "oklch(1 0 0)" } }));
+    assert_eq!(themes[2], json!({ "name": "ocean", "label": "Ocean", "appearance": null, "swatch": { "primary": "#0af", "background": "oklch(1 0 0)" } }));
 
     let ctx = app
         .get_as_agent(&key, &format!("/api/taskflow/agents/design/context?project={project}"))
@@ -232,4 +232,33 @@ async fn screenshot_themes_are_checked_before_rendering() {
             .await;
         assert_eq!(res.status(), 400, "{theme}: {}", res.text());
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn appearance_reaches_the_manifest_and_get_tokens() {
+    let app = TestApp::new().await;
+    let (user, project, key) = seeded(&app).await;
+    let res = patch(&app, &key, project, json!({ "themes": [{ "name": "dark" }, { "name": "forest", "appearance": "dark" }] })).await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(stored(project).await["themes"], json!([{ "name": "dark" }, { "name": "forest", "appearance": "dark" }]));
+
+    let themes = app.get_as(user, &format!("/api/design/{project}/manifest")).await.json()["themes"].clone();
+    let appearances: Vec<serde_json::Value> = themes.as_array().expect("themes").iter().map(|t| t["appearance"].clone()).collect();
+    assert_eq!(appearances, vec![json!("light"), json!("dark"), json!("dark")]);
+
+    // design_get_tokens reads the agent context.
+    let ctx = app
+        .get_as_agent(&key, &format!("/api/taskflow/agents/design/context?project={project}"))
+        .await
+        .json();
+    assert_eq!(ctx["themes"][2]["appearance"], "dark");
+
+    // A rename keeps it; a bad value is refused and stores nothing.
+    let res = patch(&app, &key, project, json!({ "themes": [{ "name": "dark" }, { "name": "woods", "rename_from": "forest" }] })).await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(stored(project).await["themes"][1], json!({ "name": "woods", "appearance": "dark" }));
+    let before = stored(project).await;
+    let res = patch(&app, &key, project, json!({ "themes": [{ "name": "dark", "appearance": "dim" }, { "name": "woods" }] })).await;
+    assert_eq!(res.status(), 422, "{}", res.text());
+    assert_eq!(stored(project).await, before);
 }

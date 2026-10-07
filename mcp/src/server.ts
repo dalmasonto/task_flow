@@ -1084,7 +1084,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_get_tokens",
-    "Read the project's design tokens: `tokens_json` (what the project defines), `tokens_css` (what renders — a shadcn globals.css: :root, .dark, @theme inline), and `defaults` (shadcn names served from built-in values because the project has not set them). Write shadcn classes (bg-primary text-primary-foreground, text-muted-foreground, border-border, rounded-lg); hex/px and Tailwind's raw palette (bg-blue-500) are rejected. Call design_guide (topic \"tokens\") before your first design write. `resources` is styles/resources.json (webfonts). `themes` is the ordered theme list (light first) with each theme's label and swatch; tokens_json values are {light, <theme>?…} per token.",
+    "Read the project's design tokens: `tokens_json` (what the project defines), `tokens_css` (what renders — a shadcn globals.css: :root, .dark, @theme inline), and `defaults` (shadcn names served from built-in values because the project has not set them). Write shadcn classes (bg-primary text-primary-foreground, text-muted-foreground, border-border, rounded-lg); hex/px and Tailwind's raw palette (bg-blue-500) are rejected. Call design_guide (topic \"tokens\") before your first design write. `resources` is styles/resources.json (webfonts). `themes` is the ordered theme list (light first) with each theme's label, appearance (light|dark|null = automatic) and swatch; tokens_json values are {light, <theme>?…} per token.",
     { ...designProjectArg, ...profileArg },
     async ({ project, profile }) => {
       try {
@@ -1627,7 +1627,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_write_tokens",
-    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names ({\"colors\":{\"primary\":{\"ocean\":\"#0af\"}}}); {\"ocean\": null} drops that theme's value; a token: null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"primary\":{\"light\":\"oklch(0.55 0.2 250)\",\"dark\":\"oklch(0.7 0.17 250)\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Use the shadcn names (primary, muted-foreground…; radius is custom.radius) — design_guide topic \"tokens\" lists them. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits. THEMES: light is the base; add/rename/reorder/delete themes with patch.themes — the FULL ordered list besides light ([{\"name\":\"dark\"},{\"name\":\"ocean\",\"label\":\"Ocean\"}]; a theme left out is DELETED with its values; rename with {\"name\":\"sea\",\"rename_from\":\"ocean\"}). To try a palette, add a theme with design_write_tokens and compare themes. Don't overwrite light.",
+    "Change the design tokens. Touches EVERY route and component at once — requires `reason`. Pass EXACTLY ONE of: `patch` (PREFERRED for edits: only the tokens you change, merged into the stored document — {\"colors\":{\"primary\":{\"light\":\"#448502\"}}}; a token replaces only the themes it names ({\"colors\":{\"primary\":{\"ocean\":\"#0af\"}}}); {\"ocean\": null} drops that theme's value; a token: null removes it; design_compare's apply[label].patch is exactly this), `tokens` (the whole document, for a real replacement: {\"version\":1,\"categories\":{\"colors\":{\"primary\":{\"light\":\"oklch(0.55 0.2 250)\",\"dark\":\"oklch(0.7 0.17 250)\"}}}}) or `css` (legacy tokens.css text). `base_version` refuses with a conflict if the tokens changed since you read them. Prefer adding variables over changing existing ones mid-project. Use the shadcn names (primary, muted-foreground…; radius is custom.radius) — design_guide topic \"tokens\" lists them. Changing the typeface: set typography.font-sans here AND the webfont stylesheet in styles/resources.json (design_write_asset) — no page edits. THEMES: light is the base; add/rename/reorder/delete themes with patch.themes — the FULL ordered list besides light ([{\"name\":\"dark\"},{\"name\":\"ocean\",\"label\":\"Ocean\"}]; a theme left out is DELETED with its values; rename with {\"name\":\"sea\",\"rename_from\":\"ocean\"}; {\"name\":\"forest\",\"appearance\":\"dark\"} tells the Design view's phone frames the theme is dark (white status-bar icons, dark color-scheme) — \"light\"|\"dark\", omit to keep, null for automatic). Pages pad their top bar with pt-[var(--safe-top)] and tab bar with pb-[calc(0.75rem+var(--safe-bottom))] (0px outside the device frame); data-status-bar=\"light\" on the top element forces white icons. To try a palette, add a theme with design_write_tokens and compare themes. Don't overwrite light.",
     {
       tokens: z
         .record(z.string(), z.any())
@@ -1639,7 +1639,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       patch: z
         .object({
           themes: z
-            .array(z.object({ name: themeName, label: z.string().min(1).max(40).optional(), rename_from: themeName.optional() }))
+            .array(
+              z.object({
+                name: themeName,
+                label: z.string().min(1).max(40).optional(),
+                rename_from: themeName.optional(),
+                appearance: z.enum(["light", "dark"]).nullable().optional(),
+              }),
+            )
             .max(7)
             .optional()
             .describe("The FULL ordered theme list besides light; omitted themes are deleted. Omit to keep the list."),

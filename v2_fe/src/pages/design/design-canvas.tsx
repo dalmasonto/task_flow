@@ -71,7 +71,9 @@ import {
   type Artboard,
   type ChromeStyle,
   type DevicePreset,
+  type SafeArea,
   HEADER_H,
+  boardSafeArea,
   classicChrome,
   boardContentOrigin,
   boardHeight,
@@ -94,6 +96,15 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { type CanvasTool } from "./canvas-tools"
 import { boardKeyForSource } from "./design-frame-source"
+import {
+  frameChrome,
+  inkColour,
+  parseStatusBarReport,
+  sameStatusBarReport,
+  type FrameChrome,
+  type StatusBarReport,
+  type ThemeAppearance,
+} from "./status-bar"
 import {
   divergedRoute,
   reportedRoute,
@@ -136,6 +147,12 @@ export type DesignCanvasProps = {
   onTransformChange: (t: CanvasTransform) => void
   picking: boolean
   theme: string
+  /** #626: the active theme's appearance (`themeAppearance`). Sent with
+   *  `design:theme` so a frame sets its `color-scheme`, and the frame chrome's
+   *  second rule for the status-bar ink. */
+  appearance?: ThemeAppearance | null
+  /** #626: the active theme's `--background` swatch — the strip's last fallback. */
+  themeBackground?: string | null
   /** Owning project, for the per-artboard Copy HTML / Download actions
    * (`GET /api/design/{project}/page.html`). Null while the surface is still
    * resolving its project — those actions are hidden until it lands. */
@@ -218,6 +235,8 @@ export const DesignCanvas = memo(function DesignCanvas({
   onTransformChange,
   picking,
   theme,
+  appearance = null,
+  themeBackground = null,
   projectId,
   labelFor,
   canvasTool = "select",
@@ -367,13 +386,14 @@ export const DesignCanvas = memo(function DesignCanvas({
     return () => window.removeEventListener("message", onMessage)
   }, [artboards, onSelect, contentEpoch, boardEpochs, sandboxToken])
 
-  // Broadcast picking/theme state to every mounted frame.
+  // Broadcast picking/theme state to every mounted frame. `appearance` rides
+  // along on `design:theme` (#626); a frame from before it ignores the field.
   useEffect(() => {
     for (const frame of mountedFrames()) {
       frame.contentWindow?.postMessage({ type: "design:mode", picking }, "*")
-      frame.contentWindow?.postMessage({ type: "design:theme", theme }, "*")
+      frame.contentWindow?.postMessage({ type: "design:theme", theme, appearance }, "*")
     }
-  }, [picking, theme])
+  }, [picking, theme, appearance])
 
   // --- nodes and (Flow view) links ------------------------------------------
   const panMode = spaceDown || canvasTool === "pan"
@@ -406,6 +426,8 @@ export const DesignCanvas = memo(function DesignCanvas({
             epoch: contentEpoch + (boardEpochs.get(board.key) ?? 0),
             registerReport: registerBoardReport,
             theme,
+            appearance,
+            themeBackground,
             picking,
             deviceIds,
             onReloadBoard,
@@ -422,7 +444,7 @@ export const DesignCanvas = memo(function DesignCanvas({
         }
       }),
     [
-      artboards, labelFor, contentEpoch, boardEpochs, registerBoardReport, theme, picking, deviceIds,
+      artboards, labelFor, contentEpoch, boardEpochs, registerBoardReport, theme, appearance, themeBackground, picking, deviceIds,
       onReloadBoard, onOpenBoard, onDuplicateBoard, onRemoveBoard, onDownloadImage, onDeletePage,
       sandboxToken, projectId, panMode, inFlow,
     ],
@@ -592,6 +614,8 @@ type BoardNodeData = {
   epoch: number
   registerReport: (key: string, sink: (report: FrameReport) => void) => () => void
   theme: string
+  appearance: ThemeAppearance | null
+  themeBackground: string | null
   picking: boolean
   deviceIds: string[]
   onReloadBoard: (key: string) => void
@@ -666,6 +690,8 @@ const ArtboardCard = memo(function ArtboardCard({
   epoch,
   registerReport,
   theme,
+  appearance,
+  themeBackground,
   picking,
   deviceIds,
   onReloadBoard,
@@ -692,6 +718,10 @@ const ArtboardCard = memo(function ArtboardCard({
    *  held by the BOARD and not by the canvas). */
   registerReport: (key: string, sink: (report: FrameReport) => void) => () => void
   theme: string
+  /** #626: see `DesignCanvasProps.appearance`. */
+  appearance: ThemeAppearance | null
+  /** #626: see `DesignCanvasProps.themeBackground`. */
+  themeBackground: string | null
   picking: boolean
   deviceIds: string[]
   /** Remount this board's frame — what the header's reset control and the ⋯
@@ -727,6 +757,25 @@ const ArtboardCard = memo(function ArtboardCard({
   // token — this reads as nothing and the header goes back to naming the
   // board's own page.
   const strayRoute = divergedRoute(board.route, reportedRoute(report, epoch, sandboxToken))
+  // #626: the insets this board injects (a device frame only — classic and
+  // outline boards draw nothing over the page, so they send 0/0), and what the
+  // frame last said about its top. Accepted by WindowProxy IDENTITY, exactly
+  // like a route report; the payload is validated by `parseStatusBarReport`.
+  // Held across a remount on purpose: the new document reports on `load`.
+  const safeArea = boardSafeArea(device)
+  const [statusReport, setStatusReport] = useState<StatusBarReport | null>(null)
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const next = parseStatusBarReport(event.data)
+      if (!next) return
+      if (boardKeyForSource(frameSources(), event.source as Window | null) !== board.key) return
+      setStatusReport((current) => (sameStatusBarReport(current, next) ? current : next))
+    }
+    window.addEventListener("message", onMessage)
+    return () => window.removeEventListener("message", onMessage)
+  }, [board.key])
+  // Named apart from the classic `chrome` below, which shadows inside the IIFE.
+  const statusChrome = frameChrome({ report: statusReport, appearance, themeBackground })
 
   return (
     // Positioned by its React Flow node, which is placed at (board.x, board.y).
@@ -761,6 +810,9 @@ const ArtboardCard = memo(function ArtboardCard({
               height={frameHeight}
               name={board.key}
               theme={theme}
+              appearance={appearance}
+              safeTop={safeArea.top}
+              safeBottom={safeArea.bottom}
               picking={picking}
               epoch={epoch}
             />
@@ -772,7 +824,7 @@ const ArtboardCard = memo(function ArtboardCard({
           // always the outline.
           if (canvasFrame(device)) {
             return (
-              <FramedBoard device={device} theme={theme}>
+              <FramedBoard device={device} chrome={statusChrome} safeArea={safeArea}>
                 {page}
               </FramedBoard>
             )
@@ -1107,31 +1159,32 @@ export function ArtboardHeader({
   )
 }
 
-
-/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
-/// (IntersectionObserver margin) → mount, and it stays mounted. A static
-/// placeholder keeps the canvas free of holes while unmounted. Frames are never
-/// released, so a long session on a large canvas costs one live document per
-/// board seen: that is the accepted price of keeping pages comparable side by
-/// side, not an oversight.
 /// A board in its REAL device frame (devices.css, MIT). The frame is scaled so
 /// its screen is exactly `device.width` wide, and the page inside is scaled
 /// back so it renders 1:1 — its breakpoints honest, its text the usual size,
-/// and a position it reports needing only `boardContentOrigin`'s offset. The
-/// screen's status-bar strip (under a notch or Dynamic Island) stays clear.
+/// and a position it reports needing only `boardContentOrigin`'s offset.
+///
+/// #626: the page fills the WHOLE screen and draws under the status bar, which
+/// is overlaid on it in page px, `safeArea.top` tall — exactly the region the
+/// page pads by `--safe-top`. `chrome` (`status-bar.ts`, tested) decides the
+/// ink, and whether the strip is filled (the page does not pad) or transparent
+/// (its own bar shows). The home indicator sits over the bottom inset.
 export function FramedBoard({
   device,
-  theme,
+  chrome,
+  safeArea,
   children,
 }: {
   device: DevicePreset
-  theme: string
+  chrome: FrameChrome
+  safeArea: SafeArea
   children: React.ReactNode
 }) {
   const framed = canvasFrame(device)
   if (!framed) return <>{children}</>
   const { frame, metrics: m, scale: k } = framed
-  const dark = theme === "dark"
+  const ink = inkColour(chrome.ink)
+  const barStyle = statusBarStyle(frame)
   return (
     <div className="relative" style={{ width: Math.round(m.w * k), height: Math.round(m.h * k) }}>
       <div
@@ -1141,16 +1194,12 @@ export function FramedBoard({
         <div className="device-frame">
           <div
             className="device-screen"
-            style={{ position: "relative", overflow: "hidden", background: dark ? "#0a0a0a" : "#ffffff" }}
+            style={{ position: "relative", overflow: "hidden", background: chrome.screenBackground, colorScheme: chrome.colorScheme }}
           >
-            {/* The strip a notch or Dynamic Island sits in, drawn as the status
-                bar a real phone shows there — in the page's theme, so it reads
-                as part of the device rather than a gap above the page. */}
-            {m.statusBar ? <StatusBar frame={frame} width={m.screenW} height={m.statusBar} dark={dark} /> : null}
             <div
               style={{
                 position: "absolute",
-                top: m.statusBar,
+                top: 0,
                 left: 0,
                 width: device.width,
                 height: framedViewportHeight(device),
@@ -1159,6 +1208,33 @@ export function FramedBoard({
               }}
             >
               {children}
+              {safeArea.top ? (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute z-10"
+                  style={{ top: 0, left: 0, width: device.width, height: safeArea.top, background: chrome.stripFill ?? "transparent" }}
+                  // Static, trusted markup from `lib/design-frames`; the ink is
+                  // one of two constants.
+                  dangerouslySetInnerHTML={
+                    barStyle ? { __html: statusBarHtml(barStyle, device.width, safeArea.top, ink) } : undefined
+                  }
+                />
+              ) : null}
+              {safeArea.bottom ? (
+                <div
+                  aria-hidden
+                  data-home-indicator=""
+                  className="pointer-events-none absolute z-10 rounded-full"
+                  style={{
+                    left: "50%",
+                    bottom: Math.round(safeArea.bottom * 0.25),
+                    width: Math.min(134, Math.round(device.width * 0.36)),
+                    height: 5,
+                    transform: "translateX(-50%)",
+                    background: ink,
+                  }}
+                />
+              ) : null}
             </div>
           </div>
         </div>
@@ -1170,21 +1246,6 @@ export function FramedBoard({
         <div className="device-home" />
       </div>
     </div>
-  )
-}
-
-/// The device's own status bar (see `statusBarHtml`: each phone lays it out as
-/// its platform does). Static, trusted markup built in `lib/design-frames` —
-/// the export draws the very same string.
-function StatusBar({ frame, width, height, dark }: { frame: string; width: number; height: number; dark: boolean }) {
-  const style = statusBarStyle(frame)
-  if (!style) return null
-  return (
-    <div
-      aria-hidden
-      className="absolute top-0 left-0"
-      dangerouslySetInnerHTML={{ __html: statusBarHtml(style, width, height, dark ? "#f5f5f5" : "#0a0a0a") }}
-    />
   )
 }
 
@@ -1244,6 +1305,13 @@ export function OutlineBoard({ device, children }: { device: DevicePreset; child
   )
 }
 
+/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
+/// (IntersectionObserver margin) → mount, and it stays mounted. A static
+/// placeholder keeps the canvas free of holes while unmounted. Frames are never
+/// released, so a long session on a large canvas costs one live document per
+/// board seen: that is the accepted price of keeping pages comparable side by
+/// side, not an oversight.
+///
 /// Memoised for the same reason as `ArtboardCard` above, one level down: a
 /// board that re-renders for its own reasons (the header's menus, `panMode`)
 /// must not drag a live iframe's element tree with it. Every prop is a
@@ -1256,6 +1324,9 @@ export const LazyFrame = memo(function LazyFrame({
   height,
   name,
   theme,
+  appearance,
+  safeTop,
+  safeBottom,
   picking,
   epoch,
 }: {
@@ -1264,6 +1335,11 @@ export const LazyFrame = memo(function LazyFrame({
   height: number
   name: string
   theme: string
+  /** #626: sent with `design:theme`; also this iframe's own `color-scheme`. */
+  appearance: ThemeAppearance | null
+  /** #626: the board's insets, sent as `design:safe-area` (0/0 resets). */
+  safeTop: number
+  safeBottom: number
   picking: boolean
   epoch: number
 }) {
@@ -1291,22 +1367,26 @@ export const LazyFrame = memo(function LazyFrame({
     return () => observer.disconnect()
   }, [])
 
-  // Push mode/theme into the frame when it announces readiness, and whenever
-  // the state changes for frames already up.
+  // Push mode/theme/safe area into the frame when it announces readiness, and
+  // whenever the state changes for frames already up. Only THIS frame's
+  // `design:ready` triggers a re-push; every board hears every ready.
   const pushRef = useRef<() => void>(() => {})
   useEffect(() => {
     pushRef.current = () => {
       const win = hostRef.current?.querySelector("iframe")?.contentWindow
       win?.postMessage({ type: "design:mode", picking }, "*")
-      win?.postMessage({ type: "design:theme", theme }, "*")
+      win?.postMessage({ type: "design:theme", theme, appearance }, "*")
+      win?.postMessage({ type: "design:safe-area", top: safeTop, bottom: safeBottom }, "*")
     }
     pushRef.current()
-  }, [picking, theme, epoch])
+  }, [picking, theme, appearance, safeTop, safeBottom, epoch])
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const m = e.data as { type?: string } | undefined
-      if (m?.type === "design:ready") pushRef.current()
+      if (m?.type !== "design:ready") return
+      if (e.source !== hostRef.current?.querySelector("iframe")?.contentWindow) return
+      pushRef.current()
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
@@ -1344,6 +1424,9 @@ export const LazyFrame = memo(function LazyFrame({
           title={`Design preview ${name}`}
           src={frameSrc}
           className="h-full w-full border-0"
+          /* #626: when the iframe element's color-scheme matches the
+             document's, Chrome keeps the frame's backdrop transparent. */
+          style={{ colorScheme: appearance ?? "normal" }}
           /* allow-same-origin is required so the composed page's CSP `'self'`
              resolves: without a real origin, tokens.css and component scripts
              are CSP-blocked. Safe because the sandbox is served from a DIFFERENT

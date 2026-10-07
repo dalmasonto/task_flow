@@ -329,6 +329,120 @@ const PICKER_RUNTIME: &str = r#"(() => {
   addEventListener('popstate', announce);
 })();"#;
 
+/// #626: what every composed page declares before Tailwind, the tokens and the
+/// page, so `var(--safe-top)` / `calc(0.75rem + var(--safe-bottom))` always
+/// resolve. Only the canvas's device frame raises them, at runtime, by
+/// `design:safe-area` — a frameless board, a screenshot or an export renders
+/// with 0px and so exactly as before.
+pub const SAFE_AREA_DEFAULTS: &str = ":root { --safe-top: 0px; --safe-bottom: 0px; }";
+
+/// #626: the device frame's half of the safe-area protocol, SYSTEM-owned like
+/// the picker. It applies `design:safe-area {top, bottom}` as inline style on
+/// `<html>`, sets `color-scheme` from `design:theme`'s `appearance`, and
+/// reports what the frame needs to colour its status bar:
+/// `design:status-bar {mode, background, padsTop, padsBottom}`.
+/// * `mode` — `data-status-bar` on the element at the top centre or an
+///   ancestor (`light` = white icons), else null.
+/// * `background` — the first solid (alpha >= 0.5) background walking up from
+///   that element, normalised to `rgb(r, g, b)` through a 1×1 canvas: Chrome
+///   computes oklch tokens as `oklch(...)`, and the chrome accepts rgb only.
+/// * `padsTop` / `padsBottom` — whether something at that edge pads by the
+///   inset (padding >= inset, or fixed/sticky offset by it). False at 0.
+/// Reports are coalesced with a timer: rAF is throttled in off-screen
+/// cross-origin frames, which is where lazily mounted boards start.
+/// Composed BEFORE the picker: the picker posts `design:ready`, and the
+/// canvas answers it with `design:safe-area`, so this listener must already
+/// exist when ready goes out.
+const STATUS_BAR_RUNTIME: &str = r#"(() => {
+  const root = document.documentElement;
+  let safeTop = 0, safeBottom = 0, pending = false;
+  const clampPx = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 0), 200) : 0;
+  };
+  const probe = document.createElement('canvas');
+  probe.width = 1; probe.height = 1;
+  const paint = probe.getContext('2d', { willReadFrequently: true });
+  const solidRgb = (colour) => {
+    if (!paint || !colour) return null;
+    paint.clearRect(0, 0, 1, 1);
+    paint.fillStyle = 'rgba(0, 0, 0, 0)';
+    paint.fillStyle = colour;
+    paint.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
+    return a >= 128 ? 'rgb(' + r + ', ' + g + ', ' + b + ')' : null;
+  };
+  const padsEdge = (edge) => {
+    const inset = edge === 'top' ? safeTop : safeBottom;
+    if (!inset) return false;
+    const h = innerHeight, x = Math.floor(innerWidth / 2);
+    const ys = edge === 'top' ? [1, inset + 1] : [h - 1, h - inset - 1];
+    const seen = new Set();
+    for (const y of ys) {
+      for (const hit of document.elementsFromPoint(x, y)) {
+        for (let el = hit; el && el.nodeType === 1 && !seen.has(el); el = el.parentElement) {
+          seen.add(el);
+          const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+          const pad = parseFloat(edge === 'top' ? cs.paddingTop : cs.paddingBottom) || 0;
+          const atEdge = edge === 'top' ? r.top <= 1 : r.bottom >= h - 1;
+          if (atEdge && pad >= inset - 1) return true;
+          const pinned = cs.position === 'fixed' || cs.position === 'sticky';
+          const offset = parseFloat(edge === 'top' ? cs.top : cs.bottom) || 0;
+          const gap = edge === 'top' ? r.top : h - r.bottom;
+          if (pinned && Math.abs(gap - inset) <= 1 && offset >= inset - 1) return true;
+        }
+      }
+    }
+    return false;
+  };
+  const measure = () => {
+    const top = document.elementFromPoint(Math.floor(innerWidth / 2), 1);
+    const marked = top && top.closest ? top.closest('[data-status-bar]') : null;
+    const declared = marked ? String(marked.getAttribute('data-status-bar')).toLowerCase() : '';
+    const mode = declared === 'light' || declared === 'dark' ? declared : null;
+    let background = null;
+    for (let el = top || root; el && el.nodeType === 1 && !background; el = el.parentElement) {
+      background = solidRgb(getComputedStyle(el).backgroundColor);
+    }
+    if (!background) background = solidRgb(getComputedStyle(root).backgroundColor);
+    return { mode, background, padsTop: padsEdge('top'), padsBottom: padsEdge('bottom') };
+  };
+  const report = () => {
+    if (pending) return;
+    pending = true;
+    setTimeout(() => {
+      pending = false;
+      try {
+        const m = measure();
+        parent.postMessage({ type: 'design:status-bar', mode: m.mode, background: m.background,
+          padsTop: m.padsTop, padsBottom: m.padsBottom }, '*');
+      } catch (_) {}
+    }, 0);
+  };
+  addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'design:safe-area') {
+      safeTop = clampPx(m.top);
+      safeBottom = clampPx(m.bottom);
+      root.style.setProperty('--safe-top', safeTop + 'px');
+      root.style.setProperty('--safe-bottom', safeBottom + 'px');
+      report();
+    }
+    if (m.type === 'design:theme') {
+      root.style.colorScheme = m.appearance === 'light' || m.appearance === 'dark' ? m.appearance : '';
+      report();
+    }
+  });
+  addEventListener('load', report);
+  addEventListener('resize', report);
+})();"#;
+
+/// The status runtime, escaped for an inline `<script>` (see [`STATUS_BAR_RUNTIME`]).
+pub fn status_bar_script() -> String {
+    escape_for_inline_script(STATUS_BAR_RUNTIME)
+}
+
 /// Escape text for interpolation into HTML.
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -873,6 +987,7 @@ pub fn compose_document(
     // the frame can navigate to. Computed once, here, and passed down.
     let routes: Vec<String> = manifest.routes.iter().map(|r| r.path.clone()).collect();
     let nav_guard = nav_guard_script(token, &routes);
+    let status_runtime = status_bar_script();
     // `route` is not only for diagnostics: which page this IS decides how a
     // RELATIVE href resolves (see [`rewrite_hrefs`]), because the root frame's
     // document URL has no trailing slash.
@@ -961,6 +1076,7 @@ window.__tfStateReady = new Promise((settle) => {{
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>{SAFE_AREA_DEFAULTS}</style>
   <style>
     /* Sandbox-only thin scrollbar so laptop/tablet previews scroll with a slim
        track instead of the ~16px OS desktop scrollbar inside the fixed device
@@ -981,7 +1097,8 @@ window.__tfStateReady = new Promise((settle) => {{
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style type="text/tailwindcss">{bridge}</style>
   {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css?v={tokens_rev}">
-  {component_tags}<script>{PICKER_RUNTIME}</script>
+  {component_tags}<script>{status_runtime}</script>
+  <script>{PICKER_RUNTIME}</script>
   <script>{nav_guard}</script>
   {state_script}
 </head>
@@ -1087,6 +1204,7 @@ pub fn compose_export_document(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>{SAFE_AREA_DEFAULTS}</style>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style type="text/tailwindcss">{safe_bridge}</style>
   {resource_tags}<style>{safe_tokens_css}</style>
@@ -1317,5 +1435,56 @@ mod tests {
         assert!(!doc.contains("<script src=\"/s/"));
         assert!(!doc.contains("design:select"), "picker runtime must not be present in an export");
         assert!(!doc.contains("data-src="));
+    }
+
+    fn empty_manifest() -> crate::manifest::DesignManifest {
+        crate::manifest::DesignManifest {
+            project: 1,
+            routes: vec![],
+            components: vec![],
+            tokens: vec![],
+            revision: 1,
+            resources: vec![],
+            tokens_bridge: String::new(),
+            themes: vec![],
+        }
+    }
+
+    #[test]
+    fn every_composed_page_declares_zero_safe_areas_before_the_tokens() {
+        let html = compose_document("tok", &empty_manifest(), "/", "pages/index.html", "<p>x</p>", &[], "light", None);
+        let defaults = html.find(SAFE_AREA_DEFAULTS).expect("the defaults are declared");
+        assert!(defaults < html.find("@tailwindcss/browser").expect("tailwind"), "before Tailwind");
+        assert!(defaults < html.find("/f/styles/tokens.css").expect("tokens"), "before the tokens");
+        assert!(html.contains("type: 'design:status-bar'"), "the sandbox page carries the status runtime");
+        let status = html.find("type: 'design:status-bar'").expect("status runtime");
+        let ready = html.find("type: 'design:ready'").expect("the picker posts ready");
+        assert!(status < ready, "the status runtime listens before the picker posts design:ready");
+        let export = compose_export_document("pages/index.html", "<p>x</p>", "light", ":root{}", "", &[], &[]);
+        let defaults = export.find(SAFE_AREA_DEFAULTS).expect("the export declares them too");
+        assert!(defaults < export.find("<style>:root{}</style>").expect("inlined tokens"));
+        assert!(!export.contains("design:status-bar"), "an export carries no runtime");
+    }
+
+    #[test]
+    fn the_status_bar_runtime_applies_safe_areas_and_reports_back() {
+        let js = status_bar_script();
+        // In: the device's insets, clamped, as inline style on <html>.
+        assert!(js.contains("m.type === 'design:safe-area'"));
+        assert!(js.contains("Math.min(Math.max(Math.round(n), 0), 200)"));
+        assert!(js.contains("root.style.setProperty('--safe-top', safeTop + 'px')"));
+        assert!(js.contains("root.style.setProperty('--safe-bottom', safeBottom + 'px')"));
+        // In: the theme's appearance drives color-scheme; anything else clears it.
+        assert!(js.contains("m.type === 'design:theme'"));
+        assert!(js.contains("root.style.colorScheme = m.appearance === 'light' || m.appearance === 'dark' ? m.appearance : ''"));
+        // Out: the report, and when it is sent.
+        assert!(js.contains("type: 'design:status-bar'"));
+        assert!(js.contains("closest('[data-status-bar]')"));
+        assert!(js.contains("getImageData(0, 0, 1, 1)"), "backgrounds are normalised to rgb() through a canvas");
+        assert!(js.contains("addEventListener('load', report)"));
+        assert!(js.contains("addEventListener('resize', report)"));
+        assert!(js.contains("setTimeout("), "coalesced with a timer, not rAF (throttled off-screen)");
+        assert!(!js.contains("requestAnimationFrame"));
+        assert!(!js.to_ascii_lowercase().contains("</script"));
     }
 }

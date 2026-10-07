@@ -6,6 +6,8 @@ import {
   resolveActiveTheme,
   safeSwatchColor,
   switcherMode,
+  themeAppearance,
+  themeBackground,
   themeSelectItems,
   toggledTheme,
   type ThemeOption,
@@ -124,5 +126,33 @@ describe("safeSwatchColor allowlist", () => {
   })
   it("refuses when CSS is undefined", () => {
     expect(safeSwatchColor("#fff")).toBeUndefined()
+  })
+})
+
+describe("themeAppearance / themeBackground (#626)", () => {
+  const withAppearance = (name: string, appearance: "light" | "dark" | null, background: string | null = null): ThemeOption => ({
+    name,
+    label: name,
+    appearance,
+    swatch: { primary: null, background },
+  })
+
+  it("reads the manifest's resolved appearance", () => {
+    const themes = [withAppearance("light", "light"), withAppearance("dark", "dark"), withAppearance("forest", "dark"), withAppearance("ocean", null)]
+    expect(themeAppearance(themes, "forest")).toBe("dark")
+    expect(themeAppearance(themes, "ocean")).toBeNull()
+  })
+
+  it("falls back to the names light and dark for a backend that predates appearance", () => {
+    expect(themeAppearance([opt("light"), opt("dark"), opt("ocean")], "light")).toBe("light")
+    expect(themeAppearance([opt("light"), opt("dark"), opt("ocean")], "dark")).toBe("dark")
+    expect(themeAppearance([opt("light"), opt("dark"), opt("ocean")], "ocean")).toBeNull()
+    expect(themeAppearance(manifestThemes(null), "dark")).toBe("dark")
+  })
+
+  it("themeBackground is the theme's swatch background, or null", () => {
+    expect(themeBackground([withAppearance("ocean", null, "oklch(0.2 0 0)")], "ocean")).toBe("oklch(0.2 0 0)")
+    expect(themeBackground([opt("light")], "light")).toBeNull()
+    expect(themeBackground([], "nope")).toBeNull()
   })
 })

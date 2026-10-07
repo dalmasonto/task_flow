@@ -62,6 +62,10 @@ pub struct TokenGroup {
 pub struct ThemeInfo {
     pub name: String,
     pub label: String,
+    /// #626: `light` | `dark` | null (automatic) — `TokensDoc::theme_appearance`.
+    /// Serialised as null rather than omitted, so a reader can tell
+    /// "automatic" from "a backend that predates appearance".
+    pub appearance: Option<String>,
     /// What the switcher's swatch shows: the theme's resolved primary and background.
     pub swatch: ThemeSwatch,
 }
@@ -81,6 +85,7 @@ pub fn theme_infos(effective: &TokensDoc) -> Vec<ThemeInfo> {
         .into_iter()
         .map(|name| ThemeInfo {
             label: effective.theme_label(&name),
+            appearance: effective.theme_appearance(&name),
             swatch: ThemeSwatch {
                 primary: effective.resolve_var("--primary", &name).map(str::to_string),
                 background: effective.resolve_var("--background", &name).map(str::to_string),

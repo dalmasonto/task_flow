@@ -42,7 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ThemeSwitcher } from "./theme-switcher"
-import { manifestThemes, resolveActiveTheme } from "./theme-options"
+import { manifestThemes, resolveActiveTheme, themeAppearance, themeBackground } from "./theme-options"
 import { ExportDialog } from "./export/export-dialog"
 import { exportDress } from "./export/export-plan"
 import { setCanvasFrameMode, type CanvasFrameMode } from "@/lib/design-frames"
@@ -207,6 +207,9 @@ export function DesignSurfacePage({
   // is what gets persisted); what renders is that choice while it exists, else light.
   const themeOptions = useMemo(() => manifestThemes(manifest), [manifest])
   const activeTheme = resolveActiveTheme(theme, themeOptions)
+  // #626: what the device frames colour their status bar and color-scheme by.
+  const activeAppearance = themeAppearance(themeOptions, activeTheme)
+  const activeThemeBackground = themeBackground(themeOptions, activeTheme)
   /** Bumped on server-side file changes so iframes remount with fresh content.
    *  It is part of EVERY frame's key, so one bump remounts every board at every
    *  device — which is why nothing here writes it directly: a burst of writes
@@ -1166,6 +1169,8 @@ export function DesignSurfacePage({
               picking={picking}
               canvasTool={canvasTool}
               theme={activeTheme}
+              appearance={activeAppearance}
+              themeBackground={activeThemeBackground}
               projectId={projectId}
               labelFor={labelFor}
               sandboxToken={sandboxToken}

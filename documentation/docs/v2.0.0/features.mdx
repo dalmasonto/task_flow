@@ -53,6 +53,15 @@ Tokens support named themes: `light` is the base and always exists, and `dark` o
 - **Token panel**: the Theme tab shows a theme strip. Add, rename, duplicate, delete and reorder themes there. The panel edits one theme's values at a time; tokens a theme has not overridden show light's value as inherited.
 - **Canvas**: with exactly light and dark the canvas shows a sun/moon toggle. Any other set of two or more themes (light and ocean, or light, dark and ocean) gets a dropdown with a swatch per theme, and light alone gets no control. Switching re-renders every page in that theme.
 - **Agents**: `design_write_tokens` adds, renames, reorders and deletes themes and sets one theme's values (for example `{"colors":{"primary":{"ocean":"#0af"}}}`); `design_screenshot` takes `theme: "<name>"` or `"all"`; `design_compare` takes `themes: ["light","ocean"]` and lays them out as grid rows. To try a palette, add a theme and compare themes; don't overwrite light.
+- **Appearance**: each theme can declare `appearance: "light"` or `"dark"` (the token panel's chip menu: Appearance → Light / Dark / Auto). It colours the device frame's status bar and sets the page's `color-scheme`, so scrollbars and form controls match. Auto leaves it to the page. The `light` theme is always light, and a theme named `dark` with no value counts as dark. Agents omit `appearance` to keep a theme's current value and send `null` for Auto. `patch.themes` is the full list of themes besides light, so list every theme you keep: `{"themes":[{"name":"dark"},{"name":"forest","appearance":"dark"}]}`.
+
+### Device safe areas
+
+In device-frame mode the page draws under the phone's status bar, as an app does. The frame sets two CSS variables on the page: `--safe-top` (the status bar: 20px on iPhone SE, 59px on iPhone 15/16, 62px on 16 Pro Max, about 32–40px on Android, 24px on iPad) and `--safe-bottom` (the home indicator: 34px on notched iPhones, 24px on Android, 20px on iPad, 0 on iPhone SE). Everywhere else — frameless boards, Classic and Outline frames, screenshots, exports and `page.html` — both are `0px`, so nothing shifts.
+
+- Pad the top bar with `pt-[var(--safe-top)]`; its own background then fills the status-bar strip.
+- Pad a tab bar or sticky footer with `pb-[calc(0.75rem+var(--safe-bottom))]` so its labels clear the home indicator.
+- Status-bar icon colour: `data-status-bar="light"` (white icons) or `"dark"` on the page's top element wins; then the theme's `appearance`; then the colour at the top of the page. If the appearance's icon colour would be under 3:1 contrast against the page's top colour (a light theme with a dark header that does not pad), the top colour decides instead. A page that does not pad yet gets the strip filled with its own top colour.
 
 ## GitHub integration
 

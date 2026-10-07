@@ -95,7 +95,9 @@ export type TokenGroup = {
 export type DesignTokenValue = { light: string; [theme: string]: string }
 
 /// A declared theme besides light. `label` is optional display text.
-export type DesignThemeDecl = { name: string; label?: string }
+/// #626: `appearance` sets the device frame's status-bar ink and the page's
+/// `color-scheme`; absent = automatic (the frame reads the page).
+export type DesignThemeDecl = { name: string; label?: string; appearance?: "light" | "dark" }
 
 /// Mirrors the backend's `TokensDoc` (styles/tokens.json): a version counter,
 /// the ordered themes besides light (absent = the legacy light/dark pair),
@@ -112,6 +114,10 @@ export type DesignTokensDoc = {
 export type DesignThemeInfo = {
   name: string
   label: string
+  /// #626: resolved by the server (light -> light, an undeclared dark -> dark,
+  /// else the declared value or null). Absent from an older backend; read it
+  /// through `themeAppearance`.
+  appearance?: "light" | "dark" | null
   swatch: { primary: string | null; background: string | null }
 }
 

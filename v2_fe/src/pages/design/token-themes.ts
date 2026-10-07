@@ -20,6 +20,36 @@ export function themeDecls(doc: DesignTokensDoc): DesignThemeDecl[] {
   return doc.themes ?? [{ name: "dark" }]
 }
 
+/// #626: the appearance the document STORES for a theme (light is always
+/// light); null = automatic.
+export function themeAppearanceSetting(doc: DesignTokensDoc, name: string): "light" | "dark" | null {
+  if (name === LIGHT) return "light"
+  return themeDecls(doc).find((t) => t.name === name)?.appearance ?? null
+}
+
+/// What the theme resolves to, as the server does: the stored value, else
+/// dark for a theme named dark.
+export function resolvedThemeAppearance(doc: DesignTokensDoc, name: string): "light" | "dark" | null {
+  return themeAppearanceSetting(doc, name) ?? (name === "dark" && declaredThemes(doc).includes("dark") ? "dark" : null)
+}
+
+/// Set (or with null, clear) a theme's appearance. Light's is fixed.
+export function setThemeAppearance(
+  doc: DesignTokensDoc,
+  name: string,
+  appearance: "light" | "dark" | null,
+): DesignTokensDoc {
+  if (name === LIGHT) return doc
+  const themes = themeDecls(doc).map((t) => {
+    if (t.name !== name) return t
+    const next: DesignThemeDecl = { ...t }
+    if (appearance) next.appearance = appearance
+    else delete next.appearance
+    return next
+  })
+  return { ...doc, themes }
+}
+
 /// Every theme the document renders in, light first.
 export function declaredThemes(doc: DesignTokensDoc): string[] {
   return [LIGHT, ...themeDecls(doc).map((t) => t.name)]
@@ -66,9 +96,10 @@ export function addTheme(doc: DesignTokensDoc, name: string, label?: string): De
 
 /// A new theme starting as a copy of `source`'s overrides — the fastest way to
 /// start a palette. Duplicating light adds a theme with no overrides (it
-/// already renders exactly like light).
+/// already renders exactly like light). The copy keeps the source's resolved
+/// appearance (#626), so a copy of dark stays dark.
 export function duplicateTheme(doc: DesignTokensDoc, source: string, name: string): DesignTokensDoc {
-  const withTheme = addTheme(doc, name)
+  const withTheme = setThemeAppearance(addTheme(doc, name), name, resolvedThemeAppearance(doc, source))
   if (source === LIGHT) return withTheme
   return mapTokens(withTheme, (value) => (value[source] !== undefined ? { ...value, [name]: value[source] } : value))
 }

@@ -9,8 +9,8 @@ import type { DesignManifest, DesignThemeInfo } from "@/lib/design-api"
 export type ThemeOption = DesignThemeInfo
 
 const LEGACY: ThemeOption[] = [
-  { name: "light", label: "Light", swatch: { primary: null, background: null } },
-  { name: "dark", label: "Dark", swatch: { primary: null, background: null } },
+  { name: "light", label: "Light", appearance: "light", swatch: { primary: null, background: null } },
+  { name: "dark", label: "Dark", appearance: "dark", swatch: { primary: null, background: null } },
 ]
 
 /// The manifest's ordered themes, or — before the manifest loads, or from a
@@ -77,4 +77,20 @@ export function safeSwatchColor(
   if (!value || !supports) return undefined
   if (!isPlainColour(value)) return undefined
   return supports("color", value) ? value : undefined
+}
+
+/// #626: the theme's appearance as the server resolved it; for a backend that
+/// predates the field, the names light and dark still answer for themselves.
+export function themeAppearance(themes: ThemeOption[], name: string): "light" | "dark" | null {
+  const theme = themes.find((t) => t.name === name)
+  if (theme?.appearance === "light" || theme?.appearance === "dark") return theme.appearance
+  if (theme?.appearance === undefined && (name === "light" || name === "dark")) return name
+  return null
+}
+
+/// #626: the theme's resolved `--background` (its swatch), the frame's last
+/// fallback for the status strip. Agent-authored: paint it only through
+/// `safeSwatchColor`.
+export function themeBackground(themes: ThemeOption[], name: string): string | null {
+  return themes.find((t) => t.name === name)?.swatch.background ?? null
 }

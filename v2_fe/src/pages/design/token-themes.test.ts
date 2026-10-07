@@ -10,7 +10,10 @@ import {
   overrideFromDefault,
   ownThemeValue,
   renameTheme,
+  resolvedThemeAppearance,
+  setThemeAppearance,
   setThemeValue,
+  themeAppearanceSetting,
   themeLabel,
   themeNameError,
   themeOverrideCount,
@@ -137,5 +140,34 @@ describe("themeOverrideCount", () => {
     }
     expect(themeOverrideCount(doc, "ocean")).toBe(2)
     expect(themeOverrideCount(doc, "dark")).toBe(0)
+  })
+})
+
+describe("theme appearance (#626)", () => {
+  it("sets, clears and never touches light", () => {
+    const set = setThemeAppearance(legacy(), "dark", "dark")
+    expect(set.themes).toEqual([{ name: "dark", appearance: "dark" }])
+    expect(themeAppearanceSetting(set, "dark")).toBe("dark")
+    const cleared = setThemeAppearance(set, "dark", null)
+    expect(cleared.themes).toEqual([{ name: "dark" }])
+    expect(themeAppearanceSetting(cleared, "dark")).toBeNull()
+    expect(setThemeAppearance(legacy(), "light", "dark")).toEqual(legacy())
+    expect(themeAppearanceSetting(legacy(), "light")).toBe("light")
+  })
+
+  it("resolves an undeclared dark as dark and keeps the input untouched", () => {
+    const doc = legacy()
+    expect(resolvedThemeAppearance(doc, "dark")).toBe("dark")
+    expect(resolvedThemeAppearance(addTheme(doc, "ocean"), "ocean")).toBeNull()
+    setThemeAppearance(doc, "dark", "light")
+    expect(doc.themes).toBeUndefined()
+  })
+
+  it("a rename keeps it and a duplicate copies the source's resolved appearance", () => {
+    const forest = setThemeAppearance(addTheme(legacy(), "forest"), "forest", "dark")
+    expect(themeAppearanceSetting(renameTheme(forest, "forest", "woods"), "woods")).toBe("dark")
+    expect(themeAppearanceSetting(duplicateTheme(legacy(), "dark", "night"), "night")).toBe("dark")
+    expect(themeAppearanceSetting(duplicateTheme(legacy(), "light", "paper"), "paper")).toBe("light")
+    expect(themeAppearanceSetting(duplicateTheme(addTheme(legacy(), "ocean"), "ocean", "sea"), "sea")).toBeNull()
   })
 })

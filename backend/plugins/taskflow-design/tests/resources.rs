@@ -434,9 +434,16 @@ async fn enabled_links_reach_both_the_composed_page_and_the_download() {
     let resource_at = downloaded
         .find(preconnect)
         .expect("the download must carry the preconnect too");
-    let tokens_at = downloaded
-        .find("<style>")
-        .expect("the export inlines the generated tokens stylesheet");
+    // #626: the safe-area defaults are also a bare `<style>`, declared first;
+    // look for the tokens stylesheet after them.
+    let after_defaults = downloaded
+        .find(taskflow_design::composer::SAFE_AREA_DEFAULTS)
+        .map(|i| i + taskflow_design::composer::SAFE_AREA_DEFAULTS.len())
+        .expect("the download declares the safe-area defaults");
+    let tokens_at = after_defaults
+        + downloaded[after_defaults..]
+            .find("<style>")
+            .expect("the export inlines the generated tokens stylesheet");
     assert!(
         resource_at < tokens_at,
         "in page.html the resource tags must come BEFORE the inlined tokens stylesheet \

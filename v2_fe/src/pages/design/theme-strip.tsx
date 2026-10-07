@@ -12,7 +12,11 @@ import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -26,6 +30,8 @@ import {
   duplicateTheme,
   moveTheme,
   renameTheme,
+  resolvedThemeAppearance,
+  setThemeAppearance,
   themeLabel,
   themeNameError,
   themeOverrideCount,
@@ -109,7 +115,7 @@ export function ThemeStrip({
               >
                 <MoreHorizontalIcon className="size-3" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-40" align="start">
+              <DropdownMenuContent className="w-44" align="start">
                 <DropdownMenuItem onClick={() => start({ mode: "duplicate", source: name }, `${name === LIGHT ? "new" : name}-copy`)}>
                   Duplicate
                 </DropdownMenuItem>
@@ -125,6 +131,28 @@ export function ThemeStrip({
                     >
                       Move right
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {/* #626: what the device frame's status bar and the page's
+                        color-scheme follow. Auto = the frame reads the page. */}
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={resolvedThemeAppearance(doc, name) ?? "auto"}
+                        onValueChange={(value) =>
+                          onDocChange(setThemeAppearance(doc, name, value === "light" || value === "dark" ? value : null))
+                        }
+                      >
+                        <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          value="auto"
+                          disabled={name === "dark"}
+                          title={name === "dark" ? "A theme named dark is always dark" : undefined}
+                        >
+                          Auto
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       variant="destructive"

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { sandboxUrl, type ComponentEntry } from "@/lib/design-api"
 import { ThemeSwitcher } from "./theme-switcher"
-import { resolveActiveTheme, type ThemeOption } from "./theme-options"
+import { resolveActiveTheme, themeAppearance, type ThemeOption } from "./theme-options"
 
 /// A small, dialog-scoped set of viewport widths — a quick sanity check, not
 /// the full responsive-review device picker the toolbar has.
@@ -50,6 +50,7 @@ export function ComponentDialog({
     }
   }, [open, component?.name])
   const activeTheme = resolveActiveTheme(theme, themes)
+  const appearance = themeAppearance(themes, activeTheme)
 
   if (!component) return null
 
@@ -128,6 +129,7 @@ export function ComponentDialog({
                 sandboxToken={sandboxToken}
                 componentName={component.name}
                 theme={activeTheme}
+                appearance={appearance}
                 width={width}
               />
             ) : (
@@ -149,18 +151,20 @@ function ComponentSandboxFrame({
   sandboxToken,
   componentName,
   theme,
+  appearance,
   width,
 }: {
   sandboxToken: string
   componentName: string
   theme: string
+  appearance: "light" | "dark" | null
   width: number | null
 }) {
   const frameRef = React.useRef<HTMLIFrameElement>(null)
 
   const pushTheme = React.useCallback(() => {
-    frameRef.current?.contentWindow?.postMessage({ type: "design:theme", theme }, "*")
-  }, [theme])
+    frameRef.current?.contentWindow?.postMessage({ type: "design:theme", theme, appearance }, "*")
+  }, [theme, appearance])
 
   // Push whenever the toggle changes (frame already up) …
   React.useEffect(() => {

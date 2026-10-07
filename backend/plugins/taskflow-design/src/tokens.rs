@@ -157,17 +157,24 @@ pub fn default_theme_label(name: &str) -> String {
         .join(" ")
 }
 
-/// One declared theme besides light: `{"name": "ocean", "label"?: "Ocean"}`.
+/// What a theme LOOKS like, for the device frame's status-bar ink and the
+/// page's `color-scheme` (#626). Absent on a decl means automatic.
+pub const APPEARANCES: &[&str] = &["light", "dark"];
+
+/// One declared theme besides light: `{"name": "ocean", "label"?: "Ocean", "appearance"?: "dark"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeDecl {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// #626: "light" | "dark". Absent = automatic (the frame reads the page).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<String>,
 }
 
 impl ThemeDecl {
     pub fn named(name: impl Into<String>) -> Self {
-        ThemeDecl { name: name.into(), label: None }
+        ThemeDecl { name: name.into(), label: None, appearance: None }
     }
 }
 
@@ -304,6 +311,17 @@ impl TokensDoc {
             .unwrap_or_else(|| default_theme_label(theme))
     }
 
+    /// #626: the theme's resolved appearance: `light` for light, the declared
+    /// value, else `dark` for a theme named dark; None (automatic) otherwise,
+    /// including for a name this document does not declare.
+    pub fn theme_appearance(&self, theme: &str) -> Option<String> {
+        if theme == LIGHT {
+            return Some(LIGHT.to_string());
+        }
+        let decl = self.theme_decls().into_iter().find(|t| t.name == theme)?;
+        decl.appearance.or_else(|| (theme == DARK).then(|| DARK.to_string()))
+    }
+
     /// What the `--var` (emitted name) renders with in `theme`, found through
     /// the emitter's own naming rule, so `custom["--primary"]` counts too.
     pub fn resolve_var(&self, var: &str, theme: &str) -> Option<&str> {
@@ -352,6 +370,13 @@ pub fn check_theme_list(themes: &[ThemeDecl]) -> Result<(), String> {
         if let Some(label) = &theme.label {
             if label.trim().is_empty() || label.chars().count() > 40 {
                 return Err(format!("theme `{name}`: a label is 1-40 characters"));
+            }
+        }
+        if let Some(appearance) = &theme.appearance {
+            if !APPEARANCES.contains(&appearance.as_str()) {
+                return Err(format!(
+                    "theme `{name}`: appearance is \"light\" or \"dark\" (leave it out for automatic), not `{appearance}`"
+                ));
             }
         }
     }
@@ -759,6 +784,20 @@ struct ThemePatchEntry {
     label: Option<String>,
     #[serde(default)]
     rename_from: Option<String>,
+    /// #626: absent keeps the stored appearance (of `rename_from`'s theme,
+    /// else of this name); `null` clears it; "light"/"dark" sets it.
+    #[serde(default, deserialize_with = "present")]
+    appearance: Option<Option<String>>,
+}
+
+/// Distinguishes a PRESENT `null` (`Some(None)`) from an absent key (`None`,
+/// via `#[serde(default)]`).
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 /// Replace the document's theme list with a patch's `themes` — the FULL
@@ -771,9 +810,21 @@ fn apply_theme_list(doc: &mut TokensDoc, raw: &serde_json::Value) -> Result<Them
              [{{\"name\":\"dark\"}},{{\"name\":\"ocean\",\"label\":\"Ocean\"}}]: {e}"
         )
     })?;
+    let before = doc.theme_decls();
     let next: Vec<ThemeDecl> = entries
         .iter()
-        .map(|e| ThemeDecl { name: e.name.clone(), label: e.label.clone() })
+        .map(|e| {
+            let source = e.rename_from.as_deref().unwrap_or(e.name.as_str());
+            let stored = before.iter().find(|t| t.name == source).and_then(|t| t.appearance.clone());
+            ThemeDecl {
+                name: e.name.clone(),
+                label: e.label.clone(),
+                appearance: match &e.appearance {
+                    Some(value) => value.clone(),
+                    None => stored,
+                },
+            }
+        })
         .collect();
     check_theme_list(&next).map_err(|e| format!("patch.themes: {e}"))?;
     let declared_before = doc.declared_themes();
@@ -1065,6 +1116,38 @@ mod patch_tests {
         assert_eq!(primary["c"], "#0b0");
         assert_eq!(primary["a"], "#00c");
         assert_eq!(primary["light"], "#15803D");
+    }
+
+    #[test]
+    fn appearance_is_set_kept_moved_by_a_rename_and_cleared_by_null() {
+        let mut d = doc();
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean", "appearance": "dark" }] })).expect("set");
+        assert_eq!(d.theme_appearance("ocean").as_deref(), Some("dark"));
+        // Omitted: the stored value is kept (a label edit must not reset it).
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "ocean", "label": "Ocean" }] })).expect("keep");
+        assert_eq!(d.theme_appearance("ocean").as_deref(), Some("dark"));
+        // A rename carries it to the new name.
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "sea", "rename_from": "ocean" }] })).expect("rename");
+        assert_eq!(d.theme_appearance("sea").as_deref(), Some("dark"));
+        // null clears it (Auto).
+        apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark" }, { "name": "sea", "appearance": null }] })).expect("clear");
+        assert_eq!(d.theme_appearance("sea"), None);
+        assert_eq!(serde_json::to_value(&d).expect("json")["themes"], serde_json::json!([{ "name": "dark" }, { "name": "sea" }]));
+        // Only light or dark.
+        let err = apply_patch(&mut d, &serde_json::json!({ "themes": [{ "name": "dark", "appearance": "dim" }] })).unwrap_err();
+        assert!(err.contains("appearance"), "{err}");
+    }
+
+    #[test]
+    fn resolved_appearance_is_light_for_light_dark_for_an_undeclared_dark_else_declared() {
+        let legacy = doc();
+        assert_eq!(legacy.theme_appearance("light").as_deref(), Some("light"));
+        assert_eq!(legacy.theme_appearance("dark").as_deref(), Some("dark"), "implicit dark");
+        assert_eq!(legacy.theme_appearance("nope"), None, "not a theme here");
+        let mut named = doc();
+        apply_patch(&mut named, &serde_json::json!({ "themes": [{ "name": "dark", "appearance": "light" }, { "name": "ocean" }] })).expect("ok");
+        assert_eq!(named.theme_appearance("dark").as_deref(), Some("light"), "a declared value wins");
+        assert_eq!(named.theme_appearance("ocean"), None, "a named theme with none is automatic");
     }
 
     #[test]

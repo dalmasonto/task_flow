@@ -97,13 +97,15 @@ export function frameStretch(metrics: FrameMetrics, shot: { width: number; heigh
   return Math.max(0, Math.ceil(shown - room))
 }
 
-/// The page's viewport height inside a framed board: the frame's screen below
-/// its status bar, at the canvas scale. Close to the preset's height — a real
-/// phone loses the same strip to its status bar.
+/// The page's viewport height inside a framed board: the frame's WHOLE screen,
+/// at the canvas scale. #626: the page draws under the status bar (which the
+/// board overlays, see `FramedBoard`) and pads itself by `--safe-top`, as an
+/// app does on a real phone. Exports keep their own capture rule
+/// (`export-plan.captureViewport`), which is deliberately unchanged.
 export function framedViewportHeight(device: DevicePreset): number {
   const f = canvasFrame(device)
   if (!f) return device.height
-  return Math.round((f.metrics.screenH - f.metrics.statusBar) * f.scale)
+  return Math.round(f.metrics.screenH * f.scale)
 }
 
 /// How a device lays out its status bar — each follows its platform:
