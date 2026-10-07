@@ -106,7 +106,10 @@ describe("FramedBoard geometry and strip (#632)", () => {
 
   it("fills the strip with the page's top colour and inks it as resolved", () => {
     const html = framed("iphone-16-pro", navy)
-    expect(html).toMatch(/data-status-strip="" class="[^"]*" style="width:390px;height:44px;background:rgb\(15, 23, 42\)"/)
+    expect(html).toMatch(/data-status-strip="" class="[^"]*" style="width:390px;height:44px;background:rgb\(15, 23, 42\);/)
+    // A 1px skirt in the same colour, above the page: covers the iframe's
+    // sub-pixel top row at fractional canvas zooms (a hairline otherwise).
+    expect(html).toContain("box-shadow:0 1px 0 rgb(15, 23, 42);z-index:1")
     expect(html).toContain("color:#f5f5f5")
     expect(html).toContain("color-scheme:dark")
     expect(framed("iphone-16-pro", white)).toContain("color:#0a0a0a")

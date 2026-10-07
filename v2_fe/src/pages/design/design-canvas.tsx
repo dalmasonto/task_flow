@@ -1231,7 +1231,11 @@ function StatusBar({ frame, width, height, fill, ink }: { frame: string; width: 
       aria-hidden
       data-status-strip=""
       className="pointer-events-none absolute top-0 left-0"
-      style={{ width, height, background: fill }}
+      // Above the page, with a 1px skirt in its own colour: at a fractional
+      // canvas zoom the iframe's top device-pixel row blends in the page's root
+      // background, a hairline under the strip. The skirt covers that row; it
+      // is the page's own top colour, so nothing of the page visibly changes.
+      style={{ width, height, background: fill, boxShadow: `0 1px 0 ${fill}`, zIndex: 1 }}
       dangerouslySetInnerHTML={style ? { __html: statusBarHtml(style, width, height, ink) } : undefined}
     />
   )
