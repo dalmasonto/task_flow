@@ -55,7 +55,7 @@ Names: a name starts with a lowercase letter, then lowercase letters, digits or 
 
 ## Device safe areas
 In the Design view's phone frames the page draws under the status bar. Pad the top bar with pt-[var(--safe-top)] and the tab bar or sticky footer with pb-[calc(0.75rem+var(--safe-bottom))]; both are 0px in screenshots and exports, so nothing shifts there.
-Status-bar icons: data-status-bar="light" (white icons) or "dark" on the page's top element wins; else the theme's appearance ({"themes":[{"name":"dark"},{"name":"forest","appearance":"dark"}]}, "light"|"dark", null = automatic); else the colour at the top of the page decides.
+Status-bar icons: data-status-bar="light" (white icons) or "dark" on the page's top element wins; else the theme's appearance ({"themes":[{"name":"dark"},{"name":"forest","appearance":"dark"}]}, "light"|"dark"; omit to keep, null for automatic); else the colour at the top of the page decides.
 
 ## Porting
 The served tokens.css IS a shadcn globals.css (:root, .dark, @theme inline): paste it into the app and the classes in these pages work unchanged."#;

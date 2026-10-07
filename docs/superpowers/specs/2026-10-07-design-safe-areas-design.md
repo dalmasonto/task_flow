@@ -119,6 +119,8 @@ Frameless boards, screenshots and exports must not change by a single pixel.
    2. The active theme's `appearance` (`dark` gives light icons, `light` gives dark icons).
    3. The luminance of the reported `background`, then of the theme's `--background` swatch.
 
+   Contrast guard: when the appearance's ink is under 3:1 contrast against the reported `background`, the background's luminance decides instead (an explicit page `mode` is never overridden).
+
    This logic lives in pure, tested `.ts` helpers. When `padsTop` is false the strip is filled with the reported background (else the theme background, else a neutral). The strip overlays a full-height iframe.
 5. **Theme `appearance`.**
    - `ThemeDecl.appearance?: "light"|"dark"` is validated in `check_theme_list` and round-trips through `patch.themes`.
