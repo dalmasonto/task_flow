@@ -15,6 +15,14 @@ import { sandboxUrl } from "@/lib/design-api"
 import { inlineFontCss } from "./font-inline"
 import { inlineImage } from "./image-inline"
 import { frameStretch, statusBarHtml, statusBarStyle } from "@/lib/design-frames"
+import {
+  frameChrome,
+  inkColour,
+  parseStatusBarReport,
+  type FrameChrome,
+  type StatusBarReport,
+  type ThemeAppearance,
+} from "../status-bar"
 import type { ChromeStyle, DevicePreset } from "@/lib/design-devices"
 import {
   CAPTION_H,
@@ -38,6 +46,11 @@ export type ExportOptions = {
   /// and a long export outlives one (`lib/sandbox-token.ts`).
   getSandboxToken: () => Promise<string>
   theme: string
+  /// #632: the active theme's appearance and `--background` swatch — what a
+  /// device frame's status strip is inked and (as a last resort) filled by,
+  /// exactly as the canvas's `FramedBoard` (`status-bar.frameChrome`).
+  appearance?: ThemeAppearance | null
+  themeBackground?: string | null
   /// What each screen is dressed in (see `ExportDress`).
   dress: ExportDress
   /// Corner radius in CSS px for a bare screenshot.
@@ -57,6 +70,10 @@ type Picture = { dataUrl: string; width: number; height: number }
 /// failed to fetch. The screen still shows, with a placeholder card drawn
 /// where each one was (`composer.rs`, `IMAGE_PLACEHOLDER`).
 type CaptureResult = Picture & { missingImages: string[] }
+/// #632: a capture also carries the page's own `design:status-bar` report —
+/// its top colour and `data-status-bar` — measured in the very viewport it was
+/// pictured at. Null when the page never reported (it predates the runtime).
+type PageCapture = CaptureResult & { statusReport: StatusBarReport | null }
 
 /// The export's result: the file, and the assets it stands in for. Every
 /// screen is in the file — an asset is the only thing an export goes
@@ -76,7 +93,7 @@ const CAPTURE_TIMEOUT_MS = 45_000
 /// Load `route` in a hidden iframe at the device's viewport and ask the page to
 /// picture itself. Resolves with a PNG data URL at up to 2× (a phone's 3× is
 /// more pixels than any PDF shows, and each one costs memory).
-function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult> {
+function capturePage(route: string, opts: ExportOptions): Promise<PageCapture> {
   const { device } = opts
   // The frame's own screen when the screen is dressed in one (see
   // `captureViewport`): the page lays out for the area it will be shown in.
@@ -99,6 +116,7 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
     })
     const id = `cap-${Math.random().toString(36).slice(2)}`
     let asked = false
+    let statusReport: StatusBarReport | null = null
     const missingImages = new Set<string>()
     const done = (fn: () => void) => {
       clearTimeout(timer)
@@ -127,6 +145,13 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
         url?: unknown
       }
       if (!data || typeof data !== "object") return
+      // #632: the page's status runtime reports its top on load and after the
+      // theme push below; the latest one before the capture is what it shows.
+      const status = parseStatusBarReport(data)
+      if (status) {
+        statusReport = status
+        return
+      }
       // One of the page's external images, fetched through the server and
       // handed back inline (see `image-inline.ts`). Only for this capture.
       // A null answer is sent as such: the page then lets the library draw
@@ -150,7 +175,7 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
       }
       if (data.type === "design:ready" && !asked) {
         asked = true
-        frame.contentWindow?.postMessage({ type: "design:theme", theme: opts.theme }, "*")
+        frame.contentWindow?.postMessage({ type: "design:theme", theme: opts.theme, appearance: opts.appearance ?? null }, "*")
         // A beat for the Tailwind runtime and the theme switch to settle.
         window.setTimeout(() => {
           frame.contentWindow?.postMessage(
@@ -168,6 +193,7 @@ function capturePage(route: string, opts: ExportOptions): Promise<CaptureResult>
             width: data.width ?? viewport.width,
             height: data.height ?? viewport.height,
             missingImages: [...missingImages],
+            statusReport,
           }
           done(() => resolve(picture))
         }
@@ -228,8 +254,9 @@ async function roundAndShadow(shot: Picture, radiusCss: number): Promise<Picture
 }
 
 
-/// The screenshot's top-left colour — what the status-bar strip is filled
-/// with, so the page appears to run up under it.
+/// The screenshot's top-left colour — the strip's colour for a page that did
+/// not report its own (`design:status-bar`), so it still appears to run up
+/// under the bar.
 async function topColor(src: string): Promise<string> {
   const img = await loadImage(src)
   const canvas = document.createElement("canvas")
@@ -241,16 +268,24 @@ async function topColor(src: string): Promise<string> {
   return `rgb(${r}, ${g}, ${b})`
 }
 
-/// Whether a CSS rgb() colour is dark (perceived luminance under half).
-function isDark(rgb: string): boolean {
-  const [r, g, b] = (rgb.match(/\d+/g) ?? ["255", "255", "255"]).map(Number)
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128
+/// #632: the status strip's fill and ink for one captured screen — the very
+/// rules the canvas's `FramedBoard` paints by (`status-bar.frameChrome`): the
+/// page's `data-status-bar`, then the theme's appearance (with the contrast
+/// guard), then the top colour; the strip filled with the page's top colour,
+/// else the theme's background. A page that sent no report is read off its
+/// picture's top-left pixel instead.
+async function stripChrome(
+  shot: Picture & { statusReport?: StatusBarReport | null },
+  opts: Pick<ExportOptions, "appearance" | "themeBackground">,
+): Promise<FrameChrome> {
+  const report = shot.statusReport ?? { mode: null, background: await topColor(shot.dataUrl), padsTop: false, padsBottom: false }
+  return frameChrome({ report, appearance: opts.appearance ?? null, themeBackground: opts.themeBackground ?? null })
 }
 
 /// A screenshot inside an open-source device frame (devices.css, MIT). The
 /// frame is real DOM in THIS document, rasterised with the screenshot as its
 /// screen, at a scale that keeps the screenshot's own resolution.
-async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
+async function inDeviceFrame(shot: Picture, frame: string, chrome: FrameChrome): Promise<Picture> {
   const { domToPng } = await import("modern-screenshot")
   const holder = document.createElement("div")
   Object.assign(holder.style, { position: "fixed", left: "-20000px", top: "0", padding: "24px", background: "transparent" })
@@ -262,7 +297,6 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
       <div class="device-power"></div><div class="device-home"></div>
     </div>`
   const img = holder.querySelector("img")!
-  const top = await topColor(shot.dataUrl)
   const metrics = FRAME_METRICS[frame]
   // The frame's screen has its own proportions; cover it from the top, the
   // part of a page a viewer looks at first.
@@ -270,16 +304,17 @@ async function inDeviceFrame(shot: Picture, frame: string): Promise<Picture> {
     objectFit: "cover",
     objectPosition: "top",
     boxSizing: "border-box",
-    // The status-bar strip a notch or Dynamic Island sits in stays clear.
+    // The status-bar strip a notch or Dynamic Island sits in stays clear,
+    // filled with the page's top colour (#632: `stripChrome`)...
     paddingTop: `${metrics?.statusBar ?? 0}px`,
-    background: top,
+    background: chrome.stripFill,
   })
-  // ...and shows the status bar a real phone draws there, as the canvas does:
-  // light ink on a dark page, dark ink on a light one.
+  // ...and shows the status bar a real phone draws there, inked exactly as
+  // the canvas inks it.
   const barStyle = statusBarStyle(frame)
   if (metrics?.statusBar && barStyle) {
     const bar = document.createElement("div")
-    bar.innerHTML = statusBarHtml(barStyle, metrics.screenW, metrics.statusBar, isDark(top) ? "#f5f5f5" : "#0a0a0a")
+    bar.innerHTML = statusBarHtml(barStyle, metrics.screenW, metrics.statusBar, inkColour(chrome.ink))
     Object.assign(bar.style, { position: "absolute", left: `${metrics.screenX}px`, top: `${metrics.screenY}px`, zIndex: "2" })
     holder.querySelector(".device")!.appendChild(bar)
   }
@@ -387,14 +422,19 @@ type Dressed = { item: ExportItem; picture: Picture }
 /// page, for the board menu's single-screen download.
 export async function renderScreen(
   route: string,
-  opts: Pick<ExportOptions, "device" | "projectId" | "getSandboxToken" | "theme" | "dress" | "radius" | "fullPage">,
+  opts: Pick<
+    ExportOptions,
+    "device" | "projectId" | "getSandboxToken" | "theme" | "appearance" | "themeBackground" | "dress" | "radius" | "fullPage"
+  >,
 ): Promise<CaptureResult> {
   const shot = await capturePage(route, opts as ExportOptions)
   const { missingImages } = shot
   const dressed = await (() => {
     switch (opts.dress.kind) {
-      case "device":
-        return inDeviceFrame(shot, opts.dress.frame)
+      case "device": {
+        const { frame } = opts.dress
+        return stripChrome(shot, opts).then((chrome) => inDeviceFrame(shot, frame, chrome))
+      }
       case "classic":
         return inClassicChrome(shot, opts.dress.chrome)
       case "none":
@@ -413,6 +453,9 @@ export async function downloadScreen(input: {
   projectId: number
   getSandboxToken: () => Promise<string>
   theme: string
+  /** #632: see `ExportOptions.appearance` / `themeBackground`. */
+  appearance?: ThemeAppearance | null
+  themeBackground?: string | null
   dress: ExportDress
   /** The whole scrolled page instead of the visible screen. */
   fullPage?: boolean
@@ -422,6 +465,8 @@ export async function downloadScreen(input: {
     projectId: input.projectId,
     getSandboxToken: input.getSandboxToken,
     theme: input.theme,
+    appearance: input.appearance ?? null,
+    themeBackground: input.themeBackground ?? null,
     dress: input.dress,
     radius: 8,
     fullPage: input.fullPage ?? false,
