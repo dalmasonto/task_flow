@@ -848,8 +848,17 @@ pub fn annotate_sources(fragment: &str, file: &str) -> String {
     let mut i = 0usize;
     while i < bytes.len() {
         if bytes[i] != b'<' || i + 1 >= bytes.len() {
-            out.push(bytes[i] as char);
-            i += 1;
+            // Copy the whole text run up to the next `<` as a str slice. Never
+            // push `bytes[i] as char`: that re-encodes each UTF-8 byte as a
+            // Latin-1 code point ("•" became "â\u{80}¢", #633). `<` is ASCII,
+            // so the slice always ends on a char boundary.
+            // (A `<` reaching this branch is the fragment's last byte.)
+            let end = match fragment[i..].find('<') {
+                Some(0) | None => bytes.len(),
+                Some(n) => i + n,
+            };
+            out.push_str(&fragment[i..end]);
+            i = end;
             continue;
         }
         let next = bytes[i + 1];
