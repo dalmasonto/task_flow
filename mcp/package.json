@@ -1,6 +1,6 @@
 {
   "name": "@dalmasonto/taskflow-mcp",
-  "version": "2.13.0",
+  "version": "2.13.1",
   "description": "TaskFlow MCP server for AI coding agents (Claude Code, Codex, Gemini CLI, Cursor, opencode) — multi-agent task board, realtime chat, reviews, terminal streaming, activity logging, plus Claude Code hooks and a taskflow init setup walkthrough.",
   "type": "module",
   "bin": {
