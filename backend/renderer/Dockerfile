@@ -21,7 +21,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
 # devices.css: the MIT device frames the Design Surface draws (frames.mjs).
 RUN npm install --no-audit --no-fund puppeteer@25.12.0 devices.css@0.2.0 && npm cache clean --force
 
-COPY design-render.mjs frames.mjs frame-data.json server.mjs ./
+COPY design-render.mjs frames.mjs status-chrome.mjs frame-data.json server.mjs ./
 
 USER node
 ENV HOME=/tmp

@@ -269,9 +269,17 @@ async function shoot(browser, pageTheme, remaining) {
     }
 
     if (fullPage) await growToPage(page);
+    // #632: what a device frame's status strip is filled and inked by — the
+    // page's own top colour and `data-status-bar`, the theme's appearance and
+    // `--background` — read by the composer's status runtime in THIS viewport
+    // (the frame's screen below the bar), as the canvas and the export read it.
+    const status =
+      frame === "device"
+        ? await page.evaluate(() => (typeof window.__tfStatusBar === "function" ? window.__tfStatusBar() : null)).catch(() => null)
+        : null;
     let png = Buffer.from(await page.screenshot({ type: "png" }));
     if (frame !== "none") {
-      png = await frameCapture(browser, { png, frame, device, width, dpr, fullPage, mobile, warn });
+      png = await frameCapture(browser, { png, frame, device, width, dpr, fullPage, mobile, warn, status });
     }
     return png;
   } finally {

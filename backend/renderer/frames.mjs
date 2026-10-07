@@ -9,6 +9,8 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
+import { frameChrome, inkColour, statusFromPage } from "./status-chrome.mjs";
+
 const data = JSON.parse(readFileSync(new URL("./frame-data.json", import.meta.url), "utf8"));
 const devicesCss = readFileSync(createRequire(import.meta.url).resolve("devices.css/dist/devices.min.css"), "utf8");
 
@@ -43,7 +45,7 @@ const pngSize = (png) => ({ w: png.readUInt32BE(16), h: png.readUInt32BE(20) });
 /// Dress `png` (captured at `width` CSS px and `dpr`) in `frame`, returning a
 /// new PNG buffer. Anything that cannot be drawn as asked falls back one step
 /// (device → classic → none) and says so through `warn`.
-export async function frameCapture(browser, { png, frame, device, width, dpr, fullPage, mobile, warn }) {
+export async function frameCapture(browser, { png, frame, device, width, dpr, fullPage, mobile, warn, status = null }) {
   const size = pngSize(png);
   const shot = { dataUrl: `data:image/png;base64,${png.toString("base64")}`, width, height: size.h / dpr };
 
@@ -73,12 +75,23 @@ export async function frameCapture(browser, { png, frame, device, width, dpr, fu
       await page.setContent(
         `<!doctype html><html><head><style>${devicesCss}${data.frameCss}html,body{margin:0;background:transparent}</style></head><body></body></html>`,
       );
+      // #632: the strip's fill and ink by the canvas's rules (status-chrome.mjs,
+      // pinned to v2_fe's status-bar.ts). A page without the status runtime is
+      // read off its picture's top-left pixel, as the UI export does.
+      const measured = statusFromPage(status) ?? {
+        report: { mode: null, background: await page.evaluate(topPixel, shot.dataUrl) },
+        appearance: null,
+        themeBackground: null,
+      };
+      const chrome = frameChrome(measured);
       await page.evaluate(inDeviceFrame, {
         shot,
         frame: name,
         metrics,
         barStyle: data.statusStyles[name] ?? null,
         statusBarSource: statusBarHtml.toString(),
+        fill: chrome.stripFill,
+        ink: inkColour(chrome.ink),
       });
       const holder = await page.$("#holder");
       return Buffer.from(await holder.screenshot({ type: "png", omitBackground: true }));
@@ -98,24 +111,26 @@ export async function frameCapture(browser, { png, frame, device, width, dpr, fu
 // `page.evaluate`, so it may use only browser globals and its own argument.
 // ---------------------------------------------------------------------------
 
-async function inDeviceFrame({ shot, frame, metrics, barStyle, statusBarSource }) {
-  const statusBarHtml = new Function(`return (${statusBarSource})`)();
-  const loadImage = (src) =>
-    new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Could not read the captured image."));
-      img.src = src;
-    });
-  const source = await loadImage(shot.dataUrl);
+/// The picture's top-left colour as `rgb(r, g, b)` — the strip's colour for a
+/// page that has no status runtime (`topColor` in the UI export).
+async function topPixel(src) {
+  const source = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not read the captured image."));
+    img.src = src;
+  });
   const probe = document.createElement("canvas");
   probe.width = 1;
   probe.height = 1;
   const pctx = probe.getContext("2d");
   pctx.drawImage(source, 2, 2, 1, 1, 0, 0, 1, 1);
   const [r, g, b] = pctx.getImageData(0, 0, 1, 1).data;
-  const top = `rgb(${r}, ${g}, ${b})`;
-  const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+async function inDeviceFrame({ shot, frame, metrics, barStyle, statusBarSource, fill, ink }) {
+  const statusBarHtml = new Function(`return (${statusBarSource})`)();
 
   const holder = document.createElement("div");
   holder.id = "holder";
@@ -133,11 +148,11 @@ async function inDeviceFrame({ shot, frame, metrics, barStyle, statusBarSource }
     objectPosition: "top",
     boxSizing: "border-box",
     paddingTop: `${metrics.statusBar}px`,
-    background: top,
+    background: fill,
   });
   if (metrics.statusBar && barStyle) {
     const bar = document.createElement("div");
-    bar.innerHTML = statusBarHtml(barStyle, metrics.screenW, metrics.statusBar, dark ? "#f5f5f5" : "#0a0a0a");
+    bar.innerHTML = statusBarHtml(barStyle, metrics.screenW, metrics.statusBar, ink);
     Object.assign(bar.style, { position: "absolute", left: `${metrics.screenX}px`, top: `${metrics.screenY}px`, zIndex: "2" });
     holder.querySelector(".device").appendChild(bar);
   }
