@@ -350,6 +350,9 @@ pub const SAFE_AREA_DEFAULTS: &str = ":root { --safe-top: 0px; --safe-bottom: 0p
 ///   inset (padding >= inset, or fixed/sticky offset by it). False at 0.
 /// Reports are coalesced with a timer: rAF is throttled in off-screen
 /// cross-origin frames, which is where lazily mounted boards start.
+/// Composed BEFORE the picker: the picker posts `design:ready`, and the
+/// canvas answers it with `design:safe-area`, so this listener must already
+/// exist when ready goes out.
 const STATUS_BAR_RUNTIME: &str = r#"(() => {
   const root = document.documentElement;
   let safeTop = 0, safeBottom = 0, pending = false;
@@ -1094,9 +1097,9 @@ window.__tfStateReady = new Promise((settle) => {{
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style type="text/tailwindcss">{bridge}</style>
   {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css?v={tokens_rev}">
-  {component_tags}<script>{PICKER_RUNTIME}</script>
+  {component_tags}<script>{status_runtime}</script>
+  <script>{PICKER_RUNTIME}</script>
   <script>{nav_guard}</script>
-  <script>{status_runtime}</script>
   {state_script}
 </head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
@@ -1454,6 +1457,9 @@ mod tests {
         assert!(defaults < html.find("@tailwindcss/browser").expect("tailwind"), "before Tailwind");
         assert!(defaults < html.find("/f/styles/tokens.css").expect("tokens"), "before the tokens");
         assert!(html.contains("type: 'design:status-bar'"), "the sandbox page carries the status runtime");
+        let status = html.find("type: 'design:status-bar'").expect("status runtime");
+        let ready = html.find("type: 'design:ready'").expect("the picker posts ready");
+        assert!(status < ready, "the status runtime listens before the picker posts design:ready");
         let export = compose_export_document("pages/index.html", "<p>x</p>", "light", ":root{}", "", &[], &[]);
         let defaults = export.find(SAFE_AREA_DEFAULTS).expect("the export declares them too");
         assert!(defaults < export.find("<style>:root{}</style>").expect("inlined tokens"));

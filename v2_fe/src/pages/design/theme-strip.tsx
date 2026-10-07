@@ -30,8 +30,8 @@ import {
   duplicateTheme,
   moveTheme,
   renameTheme,
+  resolvedThemeAppearance,
   setThemeAppearance,
-  themeAppearanceSetting,
   themeLabel,
   themeNameError,
   themeOverrideCount,
@@ -137,14 +137,20 @@ export function ThemeStrip({
                     <DropdownMenuGroup>
                       <DropdownMenuLabel>Appearance</DropdownMenuLabel>
                       <DropdownMenuRadioGroup
-                        value={themeAppearanceSetting(doc, name) ?? "auto"}
+                        value={resolvedThemeAppearance(doc, name) ?? "auto"}
                         onValueChange={(value) =>
                           onDocChange(setThemeAppearance(doc, name, value === "light" || value === "dark" ? value : null))
                         }
                       >
                         <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
                         <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="auto">Auto</DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem
+                          value="auto"
+                          disabled={name === "dark"}
+                          title={name === "dark" ? "A theme named dark is always dark" : undefined}
+                        >
+                          Auto
+                        </DropdownMenuRadioItem>
                       </DropdownMenuRadioGroup>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />

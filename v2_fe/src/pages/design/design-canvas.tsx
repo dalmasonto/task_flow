@@ -1159,13 +1159,6 @@ export function ArtboardHeader({
   )
 }
 
-
-/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
-/// (IntersectionObserver margin) → mount, and it stays mounted. A static
-/// placeholder keeps the canvas free of holes while unmounted. Frames are never
-/// released, so a long session on a large canvas costs one live document per
-/// board seen: that is the accepted price of keeping pages comparable side by
-/// side, not an oversight.
 /// A board in its REAL device frame (devices.css, MIT). The frame is scaled so
 /// its screen is exactly `device.width` wide, and the page inside is scaled
 /// back so it renders 1:1 — its breakpoints honest, its text the usual size,
@@ -1312,6 +1305,13 @@ export function OutlineBoard({ device, children }: { device: DevicePreset; child
   )
 }
 
+/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
+/// (IntersectionObserver margin) → mount, and it stays mounted. A static
+/// placeholder keeps the canvas free of holes while unmounted. Frames are never
+/// released, so a long session on a large canvas costs one live document per
+/// board seen: that is the accepted price of keeping pages comparable side by
+/// side, not an oversight.
+///
 /// Memoised for the same reason as `ArtboardCard` above, one level down: a
 /// board that re-renders for its own reasons (the header's menus, `panMode`)
 /// must not drag a live iframe's element tree with it. Every prop is a
@@ -1368,8 +1368,8 @@ export const LazyFrame = memo(function LazyFrame({
   }, [])
 
   // Push mode/theme/safe area into the frame when it announces readiness, and
-  // whenever the state changes for frames already up. Every message is
-  // idempotent, so the unfiltered `design:ready` re-push is harmless.
+  // whenever the state changes for frames already up. Only THIS frame's
+  // `design:ready` triggers a re-push; every board hears every ready.
   const pushRef = useRef<() => void>(() => {})
   useEffect(() => {
     pushRef.current = () => {
@@ -1384,7 +1384,9 @@ export const LazyFrame = memo(function LazyFrame({
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const m = e.data as { type?: string } | undefined
-      if (m?.type === "design:ready") pushRef.current()
+      if (m?.type !== "design:ready") return
+      if (e.source !== hostRef.current?.querySelector("iframe")?.contentWindow) return
+      pushRef.current()
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
