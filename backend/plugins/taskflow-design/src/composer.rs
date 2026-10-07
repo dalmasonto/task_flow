@@ -337,10 +337,10 @@ const PICKER_RUNTIME: &str = r#"(() => {
 pub const SAFE_AREA_DEFAULTS: &str = ":root { --safe-top: 0px; --safe-bottom: 0px; }";
 
 /// #626: the device frame's half of the status-bar protocol, SYSTEM-owned like
-/// the picker. (#632: the canvas no longer sends `design:safe-area`; the
-/// handler stays harmless, and the report now only colours the frame's strip.) It applies `design:safe-area {top, bottom}` as inline style on
-/// `<html>`, sets `color-scheme` from `design:theme`'s `appearance`, and
-/// reports what the frame needs to colour its status bar:
+/// the picker. It sets `color-scheme` from `design:theme`'s `appearance` and
+/// reports what the frame needs to colour its status bar. (#632: no surface
+/// sends `design:safe-area` any more, so its handler and the `pads*` fields
+/// are inert — kept only so a #626-era sender stays harmless.) The report:
 /// `design:status-bar {mode, background, padsTop, padsBottom}`.
 /// * `mode` — `data-status-bar` on the element at the top centre or an
 ///   ancestor (`light` = white icons), else null.
@@ -352,7 +352,7 @@ pub const SAFE_AREA_DEFAULTS: &str = ":root { --safe-top: 0px; --safe-bottom: 0p
 /// Reports are coalesced with a timer: rAF is throttled in off-screen
 /// cross-origin frames, which is where lazily mounted boards start.
 /// Composed BEFORE the picker: the picker posts `design:ready`, and the
-/// canvas answers it with `design:safe-area`, so this listener must already
+/// canvas answers it with `design:theme`, so this listener must already
 /// exist when ready goes out.
 const STATUS_BAR_RUNTIME: &str = r#"(() => {
   const root = document.documentElement;
