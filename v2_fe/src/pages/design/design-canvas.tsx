@@ -71,9 +71,7 @@ import {
   type Artboard,
   type ChromeStyle,
   type DevicePreset,
-  type SafeArea,
   HEADER_H,
-  boardSafeArea,
   classicChrome,
   boardContentOrigin,
   boardHeight,
@@ -757,12 +755,11 @@ const ArtboardCard = memo(function ArtboardCard({
   // token — this reads as nothing and the header goes back to naming the
   // board's own page.
   const strayRoute = divergedRoute(board.route, reportedRoute(report, epoch, sandboxToken))
-  // #626: the insets this board injects (a device frame only — classic and
-  // outline boards draw nothing over the page, so they send 0/0), and what the
-  // frame last said about its top. Accepted by WindowProxy IDENTITY, exactly
-  // like a route report; the payload is validated by `parseStatusBarReport`.
-  // Held across a remount on purpose: the new document reports on `load`.
-  const safeArea = boardSafeArea(device)
+  // #626/#632: what the frame last said about its top — the colour the device
+  // frame fills its status strip with, and the strip's ink. Accepted by
+  // WindowProxy IDENTITY, exactly like a route report; the payload is validated
+  // by `parseStatusBarReport`. Held across a remount on purpose: the new
+  // document reports on `load`.
   const [statusReport, setStatusReport] = useState<StatusBarReport | null>(null)
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -811,8 +808,6 @@ const ArtboardCard = memo(function ArtboardCard({
               name={board.key}
               theme={theme}
               appearance={appearance}
-              safeTop={safeArea.top}
-              safeBottom={safeArea.bottom}
               picking={picking}
               epoch={epoch}
             />
@@ -824,7 +819,7 @@ const ArtboardCard = memo(function ArtboardCard({
           // always the outline.
           if (canvasFrame(device)) {
             return (
-              <FramedBoard device={device} chrome={statusChrome} safeArea={safeArea}>
+              <FramedBoard device={device} chrome={statusChrome}>
                 {page}
               </FramedBoard>
             )
@@ -1164,27 +1159,24 @@ export function ArtboardHeader({
 /// back so it renders 1:1 — its breakpoints honest, its text the usual size,
 /// and a position it reports needing only `boardContentOrigin`'s offset.
 ///
-/// #626: the page fills the WHOLE screen and draws under the status bar, which
-/// is overlaid on it in page px, `safeArea.top` tall — exactly the region the
-/// page pads by `--safe-top`. `chrome` (`status-bar.ts`, tested) decides the
-/// ink, and whether the strip is filled (the page does not pad) or transparent
-/// (its own bar shows). The home indicator sits over the bottom inset.
+/// #632: the EXPORT's geometry (`export-run.inDeviceFrame`): the page's
+/// viewport starts below the screen's status-bar strip and runs to the bottom
+/// of the screen, so the canvas, a download and `design_screenshot` frame a
+/// page identically. The strip is filled with the page's top colour and its
+/// ink is resolved by `chrome` (`status-bar.ts`, tested) — the same answer the
+/// export and the renderer paint. Nothing is drawn over the page.
 export function FramedBoard({
   device,
   chrome,
-  safeArea,
   children,
 }: {
   device: DevicePreset
   chrome: FrameChrome
-  safeArea: SafeArea
   children: React.ReactNode
 }) {
   const framed = canvasFrame(device)
   if (!framed) return <>{children}</>
   const { frame, metrics: m, scale: k } = framed
-  const ink = inkColour(chrome.ink)
-  const barStyle = statusBarStyle(frame)
   return (
     <div className="relative" style={{ width: Math.round(m.w * k), height: Math.round(m.h * k) }}>
       <div
@@ -1196,10 +1188,16 @@ export function FramedBoard({
             className="device-screen"
             style={{ position: "relative", overflow: "hidden", background: chrome.screenBackground, colorScheme: chrome.colorScheme }}
           >
+            {/* The strip a notch or Dynamic Island sits in, drawn as the status
+                bar a real phone shows there, in the page's top colour — so it
+                reads as part of the page rather than a gap above it. */}
+            {m.statusBar ? (
+              <StatusBar frame={frame} width={m.screenW} height={m.statusBar} fill={chrome.stripFill} ink={inkColour(chrome.ink)} />
+            ) : null}
             <div
               style={{
                 position: "absolute",
-                top: 0,
+                top: m.statusBar,
                 left: 0,
                 width: device.width,
                 height: framedViewportHeight(device),
@@ -1208,33 +1206,6 @@ export function FramedBoard({
               }}
             >
               {children}
-              {safeArea.top ? (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute z-10"
-                  style={{ top: 0, left: 0, width: device.width, height: safeArea.top, background: chrome.stripFill ?? "transparent" }}
-                  // Static, trusted markup from `lib/design-frames`; the ink is
-                  // one of two constants.
-                  dangerouslySetInnerHTML={
-                    barStyle ? { __html: statusBarHtml(barStyle, device.width, safeArea.top, ink) } : undefined
-                  }
-                />
-              ) : null}
-              {safeArea.bottom ? (
-                <div
-                  aria-hidden
-                  data-home-indicator=""
-                  className="pointer-events-none absolute z-10 rounded-full"
-                  style={{
-                    left: "50%",
-                    bottom: Math.round(safeArea.bottom * 0.25),
-                    width: Math.min(134, Math.round(device.width * 0.36)),
-                    height: 5,
-                    transform: "translateX(-50%)",
-                    background: ink,
-                  }}
-                />
-              ) : null}
             </div>
           </div>
         </div>
@@ -1246,6 +1217,23 @@ export function FramedBoard({
         <div className="device-home" />
       </div>
     </div>
+  )
+}
+
+/// The device's own status bar (see `statusBarHtml`: each phone lays it out as
+/// its platform does), on the strip's fill. Static, trusted markup built in
+/// `lib/design-frames` — the export and the renderer draw the very same string;
+/// the ink is one of two constants and the fill a validated colour.
+function StatusBar({ frame, width, height, fill, ink }: { frame: string; width: number; height: number; fill: string; ink: string }) {
+  const style = statusBarStyle(frame)
+  return (
+    <div
+      aria-hidden
+      data-status-strip=""
+      className="pointer-events-none absolute top-0 left-0"
+      style={{ width, height, background: fill }}
+      dangerouslySetInnerHTML={style ? { __html: statusBarHtml(style, width, height, ink) } : undefined}
+    />
   )
 }
 
@@ -1325,8 +1313,6 @@ export const LazyFrame = memo(function LazyFrame({
   name,
   theme,
   appearance,
-  safeTop,
-  safeBottom,
   picking,
   epoch,
 }: {
@@ -1337,9 +1323,6 @@ export const LazyFrame = memo(function LazyFrame({
   theme: string
   /** #626: sent with `design:theme`; also this iframe's own `color-scheme`. */
   appearance: ThemeAppearance | null
-  /** #626: the board's insets, sent as `design:safe-area` (0/0 resets). */
-  safeTop: number
-  safeBottom: number
   picking: boolean
   epoch: number
 }) {
@@ -1367,7 +1350,7 @@ export const LazyFrame = memo(function LazyFrame({
     return () => observer.disconnect()
   }, [])
 
-  // Push mode/theme/safe area into the frame when it announces readiness, and
+  // Push mode/theme into the frame when it announces readiness, and
   // whenever the state changes for frames already up. Only THIS frame's
   // `design:ready` triggers a re-push; every board hears every ready.
   const pushRef = useRef<() => void>(() => {})
@@ -1376,10 +1359,9 @@ export const LazyFrame = memo(function LazyFrame({
       const win = hostRef.current?.querySelector("iframe")?.contentWindow
       win?.postMessage({ type: "design:mode", picking }, "*")
       win?.postMessage({ type: "design:theme", theme, appearance }, "*")
-      win?.postMessage({ type: "design:safe-area", top: safeTop, bottom: safeBottom }, "*")
     }
     pushRef.current()
-  }, [picking, theme, appearance, safeTop, safeBottom, epoch])
+  }, [picking, theme, appearance, epoch])
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {

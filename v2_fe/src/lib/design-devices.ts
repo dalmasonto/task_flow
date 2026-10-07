@@ -207,52 +207,20 @@ export function boardHeight(device: DevicePreset): number {
 /** Where the PAGE's top-left sits inside a board (header included), in canvas
  *  px — what turns a position a frame reports (a picked element, a comment's
  *  anchor) into a place on the canvas. The page renders 1:1 on every board, so
- *  this is an offset only. In a device frame (#626) the page starts at the TOP
- *  of the screen, under the status strip `FramedBoard` overlays, so its origin
- *  is the screen's own corner; the status bar is no longer part of it. A page
- *  keeps clear of the strip itself by padding with `--safe-top`. With classic
- *  chrome the origin is the bezel's padding plus border, and in an outline it
- *  is the border alone. */
+ *  this is an offset only. In a device frame the page starts BELOW the status
+ *  bar — #632: the export's geometry (`export-plan.captureViewport`), so the
+ *  canvas, a download and a screenshot frame a page identically — so its origin
+ *  is the screen's corner plus the strip. With classic chrome the origin is the
+ *  bezel's padding plus border, and in an outline it is the border alone. */
 export function boardContentOrigin(device: DevicePreset): { x: number; y: number } {
   const framed = canvasFrame(device)
   if (framed) {
     const { metrics, scale } = framed
-    return { x: metrics.screenX * scale, y: HEADER_H + metrics.screenY * scale }
+    return { x: metrics.screenX * scale, y: HEADER_H + (metrics.screenY + metrics.statusBar) * scale }
   }
   const chrome = classicChrome(device)
   if (chrome) return { x: CHROME_BORDER + chrome.padding.left, y: HEADER_H + CHROME_BORDER + chrome.padding.top }
   return { x: OUTLINE_BORDER, y: HEADER_H + OUTLINE_BORDER }
-}
-
-/// #626: a device's safe-area insets in CSS px — what the canvas injects as
-/// `--safe-top` / `--safe-bottom` into a device-framed board. Sources are in
-/// docs/superpowers/specs/2026-10-07-design-safe-areas-design.md ("Preset
-/// values"); the Android pair are estimates. A landscape variant, a laptop, a
-/// breakpoint and any unknown id have none.
-export type SafeArea = { top: number; bottom: number }
-
-export const NO_SAFE_AREA: SafeArea = { top: 0, bottom: 0 }
-
-const SAFE_AREAS: Record<string, SafeArea> = {
-  "iphone-se": { top: 20, bottom: 0 },
-  "iphone-16-pro": { top: 59, bottom: 34 },
-  "iphone-16-pro-max": { top: 62, bottom: 34 },
-  "pixel-8": { top: 40, bottom: 24 },
-  "galaxy-s24": { top: 32, bottom: 24 },
-  "ipad-mini": { top: 24, bottom: 20 },
-  "ipad-pro-11": { top: 24, bottom: 20 },
-  "ipad-pro-13": { top: 24, bottom: 20 },
-}
-
-export function safeAreaFor(deviceId: string): SafeArea {
-  return SAFE_AREAS[deviceId] ?? NO_SAFE_AREA
-}
-
-/// The insets a BOARD injects: the device's own only when it wears a real
-/// device frame. Classic and outline boards draw nothing over the page, so
-/// they inject 0/0 and render exactly as before.
-export function boardSafeArea(device: DevicePreset): SafeArea {
-  return canvasFrame(device) ? safeAreaFor(device.id) : NO_SAFE_AREA
 }
 
 /// The canvas's original chrome (`ClassicBoard`), kept as the `classic` frame

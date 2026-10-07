@@ -141,12 +141,12 @@ describe("inkColour", () => {
 })
 
 describe("frameChrome", () => {
-  it("a page that pads under the bar gets a transparent strip: its own bar shows through", () => {
+  it("#632: the strip is filled with the top colour even when the page claims to pad", () => {
     const chrome = frameChrome(
       { report: report({ mode: "light", background: "rgb(21, 128, 61)", padsTop: true }), appearance: "light", themeBackground: "#fff" },
-      passThrough,
+      (v) => v ?? undefined,
     )
-    expect(chrome).toEqual({ ink: "light", stripFill: null, screenBackground: "rgb(21, 128, 61)", colorScheme: "light" })
+    expect(chrome).toEqual({ ink: "light", stripFill: "rgb(21, 128, 61)", screenBackground: "rgb(21, 128, 61)", colorScheme: "light" })
   })
 
   it("a page that does not pad gets the strip filled with its own top colour, never white by default", () => {

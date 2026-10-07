@@ -14,12 +14,11 @@ import {
   layoutBands,
   layoutGroups,
   layoutRows,
-  boardSafeArea,
   makeArtboard,
   rotateDecisionFor,
-  safeAreaFor,
 } from "./design-devices"
 import { framedViewportHeight, setCanvasFrameMode } from "./design-frames"
+import { captureViewport, exportDress } from "@/pages/design/export/export-plan"
 import { DEFAULT_LAYOUT, assignRoute, createGroup, moveRoute, type LayoutDoc } from "./design-layout"
 
 describe("design devices", () => {
@@ -101,9 +100,9 @@ describe("design devices", () => {
     expect(boardHeight(deviceById("iphone-16-pro"))).toBe(Math.round(868 * k))
     // The MacBook frame (740×434, 600px screen) scaled up to a 1280px laptop.
     expect(boardWidth(deviceById("laptop"))).toBe(Math.round(740 * (1280 / 600)))
-    // The page's origin inside the board: under the header, at the TOP of the
-    // screen — #626: the page draws under the status bar, which overlays it.
-    expect(boardContentOrigin(deviceById("iphone-16-pro"))).toEqual({ x: 20 * k, y: HEADER_H + 20 * k })
+    // The page's origin inside the board: under the header, below the screen's
+    // 44px status bar — #632: the export's geometry, not #626's under-the-bar.
+    expect(boardContentOrigin(deviceById("iphone-16-pro"))).toEqual({ x: 20 * k, y: HEADER_H + (20 + 44) * k })
   })
 
   it("a breakpoint width keeps the plain chrome: bezel plus the 1px border", () => {
@@ -721,46 +720,19 @@ describe("rotateDecisionFor", () => {
   })
 })
 
-describe("safe areas (#626)", () => {
-  it("iPhone SE has a 20px status bar and NO bottom inset, so nothing shifts at the bottom", () => {
-    expect(safeAreaFor("iphone-se")).toEqual({ top: 20, bottom: 0 })
+describe("framed viewport (#632)", () => {
+  it("a framed page starts below the status bar: the screen minus the strip", () => {
+    // iPhone 14 Pro frame: 830px screen, 44px strip, at 393/390.
+    expect(framedViewportHeight(deviceById("iphone-16-pro"))).toBe(Math.round((830 - 44) * (393 / 390)))
+    // iPhone 8 frame (SE): 667px screen, 20px strip, at 1:1.
+    expect(framedViewportHeight(deviceById("iphone-se"))).toBe(667 - 20)
   })
 
-  it("notched iPhones leave 34px for the home indicator", () => {
-    expect(safeAreaFor("iphone-16-pro")).toEqual({ top: 59, bottom: 34 })
-    expect(safeAreaFor("iphone-16-pro-max")).toEqual({ top: 62, bottom: 34 })
-  })
-
-  it("Android phones and Face ID iPads have both insets", () => {
-    expect(safeAreaFor("pixel-8")).toEqual({ top: 40, bottom: 24 })
-    expect(safeAreaFor("galaxy-s24")).toEqual({ top: 32, bottom: 24 })
-    for (const id of ["ipad-mini", "ipad-pro-11", "ipad-pro-13"]) expect(safeAreaFor(id)).toEqual({ top: 24, bottom: 20 })
-  })
-
-  it("laptops, breakpoints, landscape variants and unknown ids have none", () => {
-    for (const id of ["laptop", "laptop-l", "desktop", "bp-sm", "bp-2xl", "iphone-16-pro:landscape", "nope"]) {
-      expect(safeAreaFor(id)).toEqual({ top: 0, bottom: 0 })
+  it("is exactly the viewport the export captures a device-framed screen at", () => {
+    for (const d of DEVICE_PRESETS) {
+      const dress = exportDress(d.id, "device")
+      if (dress.kind !== "device") continue
+      expect(framedViewportHeight(d), d.id).toBe(captureViewport(d, dress).height)
     }
-  })
-
-  it("only a device-framed board gets insets; classic and outline get 0/0", () => {
-    const phone = deviceById("iphone-16-pro")
-    expect(boardSafeArea(phone)).toEqual({ top: 59, bottom: 34 })
-    for (const mode of ["classic", "outline"] as const) {
-      setCanvasFrameMode(mode)
-      try {
-        expect(boardSafeArea(phone)).toEqual({ top: 0, bottom: 0 })
-      } finally {
-        setCanvasFrameMode("device")
-      }
-    }
-    expect(boardSafeArea(deviceById("bp-md"))).toEqual({ top: 0, bottom: 0 })
-  })
-
-  it("a framed page is the whole screen tall: it draws under the status bar", () => {
-    // iPhone 14 Pro frame: 830px screen at 393/390.
-    expect(framedViewportHeight(deviceById("iphone-16-pro"))).toBe(Math.round(830 * (393 / 390)))
-    // iPhone 8 frame (SE): 667px screen at 1:1 — exactly the preset.
-    expect(framedViewportHeight(deviceById("iphone-se"))).toBe(667)
   })
 })
