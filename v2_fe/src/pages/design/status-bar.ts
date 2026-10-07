@@ -112,9 +112,23 @@ export function inkForBackground(colour: string | null | undefined): StatusInk |
   return (L + 0.05) ** 2 < 0.0525 ? "light" : "dark"
 }
 
+/// WCAG contrast ratio between two relative luminances: (L1+0.05)/(L2+0.05),
+/// lighter over darker — 1 (none) … 21 (black on white).
+export function contrastRatio(a: number, b: number): number {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+/** Below this the appearance's ink is unreadable on the page's own top colour. */
+const MIN_INK_CONTRAST = 3
+
 /// The ruling's order: the page's `data-status-bar`, then the theme's
 /// `appearance`, then the colour at the top of the page, then the theme's
 /// `--background`; black icons when nothing is known.
+///
+/// Contrast guard: the appearance's ink yields to the reported top colour when
+/// it would be under 3:1 against it (a light theme with a dark brand header
+/// that does not pad gets white icons, not black on navy). An explicit page
+/// `mode` is never second-guessed.
 export function resolveStatusInk(input: {
   mode: StatusInk | null
   appearance: ThemeAppearance | null
@@ -122,7 +136,17 @@ export function resolveStatusInk(input: {
   themeBackground: string | null
 }): StatusInk {
   if (input.mode) return input.mode
-  if (input.appearance) return input.appearance === "dark" ? "light" : "dark"
+  if (input.appearance) {
+    const ink: StatusInk = input.appearance === "dark" ? "light" : "dark"
+    const top = input.background ? relativeLuminance(input.background) : null
+    if (top !== null) {
+      const inkL = relativeLuminance(inkColour(ink))
+      if (inkL !== null && contrastRatio(inkL, top) < MIN_INK_CONTRAST) {
+        return inkForBackground(input.background) ?? ink
+      }
+    }
+    return ink
+  }
   return inkForBackground(input.background) ?? inkForBackground(input.themeBackground) ?? "dark"
 }
 

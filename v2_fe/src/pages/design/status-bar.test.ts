@@ -105,8 +105,23 @@ describe("resolveStatusInk — the order", () => {
   })
 
   it("2. then the theme's appearance: dark → white icons, light → black", () => {
-    expect(resolveStatusInk({ ...base, appearance: "dark", background: "rgb(255, 255, 255)" })).toBe("light")
-    expect(resolveStatusInk({ ...base, appearance: "light", background: "rgb(0, 0, 0)" })).toBe("dark")
+    // Over a readable top colour, or none, the appearance wins over luminance.
+    expect(resolveStatusInk({ ...base, appearance: "dark", background: "rgb(0, 0, 0)" })).toBe("light")
+    expect(resolveStatusInk({ ...base, appearance: "light", background: "rgb(255, 255, 255)" })).toBe("dark")
+    expect(resolveStatusInk({ ...base, appearance: "dark", themeBackground: "#ffffff" })).toBe("light")
+    expect(resolveStatusInk({ ...base, appearance: "light", themeBackground: "#000000" })).toBe("dark")
+  })
+
+  it("2a. contrast guard: the appearance's ink yields to the top colour under 3:1", () => {
+    const navy = "rgb(15, 23, 42)"
+    const white = "rgb(255, 255, 255)"
+    expect(resolveStatusInk({ ...base, appearance: "light", background: navy })).toBe("light")
+    expect(resolveStatusInk({ ...base, appearance: "light", background: white })).toBe("dark")
+    expect(resolveStatusInk({ ...base, appearance: "dark", background: white })).toBe("dark")
+    expect(resolveStatusInk({ ...base, appearance: "dark", background: "rgb(15,23,42)" })).toBe("light")
+    // An explicit page mode is never second-guessed.
+    expect(resolveStatusInk({ ...base, mode: "dark", appearance: "light", background: navy })).toBe("dark")
+    expect(resolveStatusInk({ ...base, mode: "dark", background: navy })).toBe("dark")
   })
 
   it("3. then the page's top colour, then the theme's --background, else black icons", () => {
