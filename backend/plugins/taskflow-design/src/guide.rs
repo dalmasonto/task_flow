@@ -53,8 +53,8 @@ To try a palette, add a theme with design_write_tokens and compare themes. Don't
 - Look: design_screenshot theme "<name>", theme "all" (one image per theme) or theme "both" (light + dark); design_compare themes ["light","dark","ocean"].
 Names: a name starts with a lowercase letter, then lowercase letters, digits or dashes, up to 32 characters; light, both and all are reserved; at most 8 themes including light.
 
-## Device safe areas
-In the Design view's phone frames the page draws under the status bar. Pad the top bar with pt-[var(--safe-top)] and the tab bar or sticky footer with pb-[calc(0.75rem+var(--safe-bottom))]; both are 0px in screenshots and exports, so nothing shifts there.
+## Device frames and the status bar
+In a device frame (the canvas, a download, design_screenshot frame "device") the page's viewport starts BELOW the status bar, and the frame paints the bar in the page's top colour for the selected theme. Do not pad for it: no pt-[var(--safe-top)] / --safe-bottom (they stay 0px); position top controls (absolute top-4) as on any page.
 Status-bar icons: data-status-bar="light" (white icons) or "dark" on the page's top element wins; else the theme's appearance ({"themes":[{"name":"dark"},{"name":"forest","appearance":"dark"}]}, "light"|"dark"; omit to keep, null for automatic); else the colour at the top of the page decides.
 
 ## Porting

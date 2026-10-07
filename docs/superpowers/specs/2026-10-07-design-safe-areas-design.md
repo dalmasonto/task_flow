@@ -2,6 +2,8 @@
 
 Status: approved by the controller (dalmas delegated decisions). Branch `feat/design-safe-areas` from main `38201bf`.
 
+> **Reversed in part by #632 (2026-10-07).** Drawing the page under the status bar on the canvas while the download, export and `design_screenshot` still reserved the bar meant the two disagreed: pages that pin controls near the top (Back/Skip at `absolute top-4`) were hidden under the bar on the canvas but correct in the download. The owner ruled the EXPORT geometry right, so the canvas framed viewport starts below the status bar again (`framedViewportHeight` / `boardContentOrigin` as before #626), the canvas no longer injects `--safe-*` (they stay `0px` everywhere) and draws no home indicator (the export draws none). What survives from #626: the `design:status-bar` report, `data-status-bar`, the theme `appearance` and the contrast guard. They now decide only the strip's fill (the page's top colour, else the theme `--background`) and ink, on the canvas, in the FE export, and in the renderer (`backend/renderer/status-chrome.mjs`, pinned to `status-bar.ts` by a parity test). Guidance to pad with `pt-[var(--safe-top)]` was removed.
+
 ## Goal
 
 The Design view's device frame stops guessing the status-bar colour. Instead the page draws under the status bar like an app on a real phone:

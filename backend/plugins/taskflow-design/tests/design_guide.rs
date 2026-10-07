@@ -25,7 +25,7 @@ async fn each_topic_answers_with_its_essentials() {
     let app = TestApp::new().await;
     let (_p, key) = agent(&app).await;
     for (topic, must) in [
-        ("tokens", "bg-primary"), ("tokens", "muted-foreground"), ("tokens", "custom.radius"), ("tokens", "bg-blue-500"), ("tokens", "pt-[var(--safe-top)]"), ("tokens", "data-status-bar"), ("tokens", "\"appearance\":\"dark\""), ("fonts", "typography.font-sans"),
+        ("tokens", "bg-primary"), ("tokens", "muted-foreground"), ("tokens", "custom.radius"), ("tokens", "bg-blue-500"), ("tokens", "viewport starts BELOW the status bar"), ("tokens", "data-status-bar"), ("tokens", "\"appearance\":\"dark\""), ("fonts", "typography.font-sans"),
         ("fonts", "styles/resources.json"), ("flow", "design_arrange"),
         ("primitives", "ui-accordion"), ("pages", "history.back()"),
     ] {
