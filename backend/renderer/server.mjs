@@ -20,7 +20,7 @@
 // per-shot contract screenshots.rs documents.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -93,10 +93,32 @@ function parseShot(body) {
   };
 }
 
+// Kills every process still using `profile` and deletes it. Puppeteer starts
+// Chromium detached (its own process group), so a child killed before its
+// `finally { browser.close() }` leaves Chromium orphaned under docker-init,
+// holding ~150MB and its tmpfs profile. Every Chromium process (browser,
+// zygote, gpu, renderer, utility) carries --user-data-dir on its command
+// line, which is what finds them. Unreaped, a few slow shots fill /tmp and
+// the 1g memcg, and every later launch fails with "Failed to launch the
+// browser process".
+async function reap(profile) {
+  const flag = `--user-data-dir=${profile}`;
+  for (const pid of await readdir("/proc").catch(() => [])) {
+    if (!/^\d+$/.test(pid)) continue;
+    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+    if (cmdline.split("\0").includes(flag)) {
+      try { process.kill(Number(pid), "SIGKILL"); } catch {}
+    }
+  }
+  await rm(profile, { recursive: true, force: true }).catch(() => {});
+}
+
 // Resolves to { png } or { error }. The child is killed if it outlives its
-// budget or the caller hangs up.
+// budget or the caller hangs up, and its Chromium is reaped either way.
 function renderOnce(shot, signal) {
-  const out = join(tmpdir(), `shot-${randomUUID()}.png`);
+  const id = randomUUID();
+  const out = join(tmpdir(), `shot-${id}.png`);
+  const profile = join(tmpdir(), `profile-${id}`);
   return new Promise((done) => {
     const child = spawn(
       process.execPath,
@@ -114,17 +136,26 @@ function renderOnce(shot, signal) {
         "--device", shot.device,
         "--theme", shot.theme,
         "--max-px", String(shot.maxPx),
+        "--profile-dir", profile,
       ],
       { stdio: ["ignore", "ignore", "pipe"] },
     );
     let stderr = "";
     child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-2000)));
-    const kill = () => child.kill("SIGKILL");
+    // SIGTERM first: Puppeteer's handler closes Chromium itself. SIGKILL only
+    // if that stalls; reap() below catches whatever survives.
+    let hardKill;
+    const kill = () => {
+      child.kill("SIGTERM");
+      hardKill ??= setTimeout(() => child.kill("SIGKILL"), 2000);
+    };
     const timer = setTimeout(kill, shot.timeoutMs + 1500);
     signal.addEventListener("abort", kill, { once: true });
     child.on("close", async (code) => {
       clearTimeout(timer);
+      clearTimeout(hardKill);
       signal.removeEventListener("abort", kill);
+      await reap(profile);
       const report = await readFile(`${out}.json`, "utf8")
         .then((raw) => JSON.parse(raw))
         .catch(() => ({}));

@@ -327,6 +327,9 @@ try {
   browser = await puppeteer.launch({
     headless: true,
     // Disposable: fresh profile per shot, no shared state between renders.
+    // server.mjs passes one it owns, so it can reap this Chromium and delete
+    // the profile even when this process is killed before `finally` runs.
+    userDataDir: args["profile-dir"] || undefined,
     args: [
       "--no-first-run",
       "--no-default-browser-check",
