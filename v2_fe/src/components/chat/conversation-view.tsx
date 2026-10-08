@@ -15,6 +15,7 @@ import { encodeMentions, plainExcerpt, type PickedMention } from "@/lib/mention-
 import { PageMentionContext } from "@/lib/markdown-contexts"
 import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
 import { markChannelRead } from "@/lib/taskflow-api"
+import { isAtBottom, tailChange } from "@/lib/thread-follow"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type UIEvent } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -239,16 +240,73 @@ export function AgentsConversationView({
     setVisibleCount(MESSAGE_PAGE_SIZE)
   }
 
-  // Keep the thread pinned to the latest message: scroll to the bottom when the
-  // conversation changes or a new message arrives (optimistic send, echo, or a
-  // realtime message from someone else). Keyed on the TOTAL message count (and
-  // chatKey), NOT on visibleCount — revealing older messages must preserve the
-  // reading position (see the reveal anchor below), not jump to the bottom.
-  const messageCount = selectedChat?.messages.length ?? 0
+  // #661: follow new messages only while the reader is following. The thread
+  // goes to the bottom when the conversation changes, when the user sends, or
+  // when a message is appended while they are already at the bottom. A reader
+  // scrolled up keeps their place and gets a "new messages" pill instead.
+  // Keyed on the LAST message, not the count: fetching older history also
+  // changes the count, and used to throw the reader to the bottom.
+  const messages = selectedChat?.messages
+  const messageCount = messages?.length ?? 0
+  const lastMessageId = messageCount ? messages![messageCount - 1].id : null
+  // Set from the scroll handler (only when it flips), so during render it holds
+  // where the reader was BEFORE this change.
+  const [atBottom, setAtBottom] = useState(true)
+  const [unseenCount, setUnseenCount] = useState(0)
+  // Bumped to ask the layout effect below to scroll to the bottom.
+  const [pinRequest, setPinRequest] = useState(0)
+  const [tail, setTail] = useState<{ chatKey: string; lastId: string | null }>({ chatKey, lastId: null })
+  if (tail.chatKey !== chatKey || tail.lastId !== lastMessageId) {
+    setTail({ chatKey, lastId: lastMessageId })
+    const change = tailChange(tail.lastId, messages ?? [])
+    // A new conversation, or the first messages to load into this one, starts
+    // at the bottom.
+    if (tail.chatKey !== chatKey || tail.lastId == null) {
+      if (lastMessageId != null) setPinRequest((n) => n + 1)
+      setUnseenCount(0)
+      setAtBottom(true)
+    } else if (change.appended > 0) {
+      if (atBottom || change.ownAppended) {
+        setPinRequest((n) => n + 1)
+        setUnseenCount(0)
+      } else {
+        setUnseenCount((n) => n + change.appended)
+        // The window is the last `visibleCount` messages, so an append would
+        // drop the oldest rendered one and shift what the reader is looking at.
+        // Grow the window instead while they are scrolled up.
+        setVisibleCount((n) => n + change.appended)
+      }
+    }
+  }
+  useLayoutEffect(() => {
+    const el = threadRef.current
+    if (el && pinRequest) el.scrollTop = el.scrollHeight
+  }, [pinRequest])
+  const scrollToBottom = () => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" })
+  }
+
+  // Images and attachment previews load after the message renders and grow the
+  // thread; a reader at the bottom stays there. `load` does not bubble, so this
+  // listens in the capture phase. It reads the DOM, not `atBottom`, so the
+  // listener never needs re-binding.
   useEffect(() => {
     const el = threadRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [chatKey, messageCount])
+    if (!el) return
+    let wasAtBottom = true
+    const track = () => {
+      wasAtBottom = isAtBottom(el)
+    }
+    const repin = () => {
+      if (wasAtBottom) el.scrollTop = el.scrollHeight
+    }
+    el.addEventListener("scroll", track, { passive: true })
+    el.addEventListener("load", repin, true)
+    return () => {
+      el.removeEventListener("scroll", track)
+      el.removeEventListener("load", repin, true)
+    }
+  }, [])
 
   // Mark-read: advance the current user's read cursor to the newest SAVED message
   // whenever this thread is open (mount / channel switch / a new message lands).
@@ -304,6 +362,9 @@ export function AgentsConversationView({
 
   const handleThreadScroll = (event: UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget
+    const nowAtBottom = isAtBottom(el)
+    if (nowAtBottom !== atBottom) setAtBottom(nowAtBottom)
+    if (nowAtBottom && unseenCount) setUnseenCount(0)
     // #56: everything fetched is already revealed — ask the server for older.
     if (el.scrollTop < 48 && visibleCount >= messageCount) onLoadOlder()
     if (el.scrollTop < 48 && visibleCount < messageCount) {
@@ -589,6 +650,19 @@ export function AgentsConversationView({
               />
             )
           )}
+          {/* #661: new messages that arrived while the reader was scrolled up. */}
+          {unseenCount > 0 ? (
+            <div className="pointer-events-none sticky bottom-1 z-20 flex justify-center">
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                className="pointer-events-auto flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-lg ring-1 ring-primary/30 transition hover:bg-primary/90"
+              >
+                <ChevronDownIcon className="size-3.5" />
+                {unseenCount === 1 ? "1 new message" : `${unseenCount} new messages`}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {pendingPrompt ? (
