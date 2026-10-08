@@ -1,4 +1,4 @@
-// server.mjs — the `renderer` sidecar's HTTP front for design-render.mjs.
+// server.mjs — the `renderer` sidecar: Design Surface screenshots over HTTP.
 //
 // The backend never runs Chromium itself: its TASKFLOW_DESIGN_RENDERER is
 // ./client.sh, which POSTs the shot here and writes back the PNG. This box
@@ -14,38 +14,196 @@
 //                    X-Render-Data: base64 JSON of what the page reported
 //                    (`window.__tfResult`), or null
 //   GET  /health   → 200 "ok"
+//   GET  /status   → JSON: the browser's state, the shots in flight, the queue
 //
-// Every shot is a fresh `node design-render.mjs` child — disposable browser,
-// fresh profile, the egress policy that script enforces — exactly the
-// per-shot contract screenshots.rs documents.
-import { spawn } from "node:child_process";
+// ONE BROWSER, A CONTEXT PER SHOT. Chromium is launched on the first shot and
+// kept while shots keep coming. Each shot gets its own browser context (its own
+// cookies, storage and cache, like a private window), closed when the shot ends
+// however it ends — done, timed out or the caller hung up — so no page outlives
+// its request. The browser is closed after IDLE_CLOSE_MS with nothing to do,
+// replaced after RECYCLE_AFTER shots (a long-lived Chromium slowly grows), and
+// relaunched by the next shot if it crashed.
+//
+// This replaced a `node design-render.mjs` child per shot. A child killed on
+// timeout never closed its Chromium (Puppeteer starts it detached), and those
+// orphans filled the memory limit and /tmp until no browser could launch
+// (#656). Here the browser belongs to this long-lived process, and its profile
+// is reaped by path whenever it goes away.
 import { createServer } from "node:http";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import puppeteer from "puppeteer";
+
+import { LAUNCH_ARGS, renderShot } from "./render.mjs";
+
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 // Only sandbox pages on this origin are rendered, so nothing else that can
 // reach this port gets a free "screenshot any URL" service.
 const ALLOWED_ORIGIN = new URL(process.env.RENDER_ALLOWED_ORIGIN ?? "http://invalid").origin;
-// Each Chromium costs a few hundred MB on a shared 8GB box.
-const MAX_CONCURRENT = parseInt(process.env.RENDER_MAX_CONCURRENT ?? "2", 10);
-const MAX_QUEUED = parseInt(process.env.RENDER_MAX_QUEUED ?? "8", 10);
+// Shots rendering at once. A DPR-3 or full-page shot can take 100–300MB of the
+// container's 1g, so this is bounded by memory, not by what Chromium allows;
+// the rest wait in the queue.
+const MAX_CONCURRENT = parseInt(process.env.RENDER_MAX_CONCURRENT ?? "4", 10);
+const MAX_QUEUED = parseInt(process.env.RENDER_MAX_QUEUED ?? "50", 10);
+const IDLE_CLOSE_MS = parseInt(process.env.RENDER_IDLE_CLOSE_MS ?? "60000", 10);
+const RECYCLE_AFTER = parseInt(process.env.RENDER_RECYCLE_AFTER ?? "200", 10);
+// Past the shot's own timeout before the server gives up on it. render.mjs
+// spends at most timeout_ms waiting on the page; this covers framing and the
+// screenshot itself.
+const GRACE_MS = 1500;
+// How long a browser or context gets to close before it is killed outright.
+const CLOSE_MS = 5000;
 const MAX_BODY = 8 * 1024;
-const SCRIPT = new URL("./design-render.mjs", import.meta.url).pathname;
+
+const log = (...parts) => console.log(new Date().toISOString(), ...parts);
+const firstLine = (err) => String(err?.message ?? err).split("\n")[0];
+const within = (promise, ms) =>
+  Promise.race([promise, new Promise((ok) => setTimeout(() => ok("timeout"), ms).unref())]);
+
+// --- the queue --------------------------------------------------------------
 
 let running = 0;
 const waiting = [];
-const acquire = () =>
-  running < MAX_CONCURRENT
-    ? (running++, Promise.resolve())
-    : new Promise((ok) => waiting.push(ok));
+// Resolves to true once a slot is held, or false when the caller hung up while
+// queued (its place is given up at once, not when it reaches the front).
+const acquire = (signal) => {
+  if (running < MAX_CONCURRENT) {
+    running++;
+    return Promise.resolve(true);
+  }
+  return new Promise((ok) => {
+    const entry = { ok, signal };
+    waiting.push(entry);
+    signal.addEventListener(
+      "abort",
+      () => {
+        const i = waiting.indexOf(entry);
+        if (i !== -1) waiting.splice(i, 1);
+        ok(false);
+      },
+      { once: true },
+    );
+  });
+};
 const release = () => {
   const next = waiting.shift();
-  if (next) next();
+  if (next) next.ok(true);
   else running--;
 };
+
+// --- the browser -------------------------------------------------------------
+
+// The browser new shots go to: { ready, profile, active, served, idle, closed },
+// or null when none is running.
+let current = null;
+// Shots by request id, for /status and the logs.
+const inflight = new Map();
+
+// Kills every process still using `profile` and deletes it. browser.close()
+// normally does both; this covers a Chromium that crashed or would not close.
+// Every Chromium process (browser, zygote, gpu, renderer, utility) carries
+// --user-data-dir on its command line, which is what finds them.
+async function reap(profile) {
+  const flag = `--user-data-dir=${profile}`;
+  for (const pid of await readdir("/proc").catch(() => [])) {
+    if (!/^\d+$/.test(pid)) continue;
+    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+    if (cmdline.split("\0").includes(flag)) {
+      try { process.kill(Number(pid), "SIGKILL"); } catch {}
+    }
+  }
+  await rm(profile, { recursive: true, force: true }).catch(() => {});
+}
+
+function launch() {
+  const b = { profile: join(tmpdir(), `profile-${randomUUID()}`), active: 0, served: 0, idle: null, closed: false };
+  const started = Date.now();
+  b.ready = puppeteer.launch({ headless: true, userDataDir: b.profile, args: LAUNCH_ARGS });
+  b.ready.then(
+    (browser) => {
+      log(`browser up in ${Date.now() - started}ms`);
+      browser.on("disconnected", () => {
+        if (!b.closed) shut(b, "crashed");
+      });
+    },
+    (err) => shut(b, `failed to launch: ${firstLine(err)}`),
+  );
+  // A failed launch rejects every shot waiting on it; each handles that itself.
+  b.ready.catch(() => {});
+  return b;
+}
+
+async function shut(b, why) {
+  if (b.closed) return;
+  b.closed = true;
+  clearTimeout(b.idle);
+  if (current === b) current = null;
+  log(`browser closing (${why}) after ${b.served} shot(s)`);
+  await within(b.ready.then((browser) => browser.close()).catch(() => {}), CLOSE_MS);
+  await reap(b.profile);
+}
+
+// The browser for one more shot: the running one, or a new one when there is
+// none or the running one is due for replacement (it finishes its own shots
+// first, then closes).
+function lease() {
+  if (current && current.served >= RECYCLE_AFTER) {
+    const old = current;
+    current = null;
+    if (old.active === 0) shut(old, "recycled");
+  }
+  current ??= launch();
+  const b = current;
+  clearTimeout(b.idle);
+  b.active++;
+  b.served++;
+  return b;
+}
+
+function unlease(b) {
+  b.active--;
+  if (b.active > 0 || b.closed) return;
+  if (b !== current) return void shut(b, "recycled");
+  b.idle = setTimeout(() => {
+    if (b.active === 0) shut(b, "idle");
+  }, IDLE_CLOSE_MS);
+  b.idle.unref();
+}
+
+// --- one shot ----------------------------------------------------------------
+
+// Resolves to { png, warnings, data } or { error }. The shot's context is
+// closed on every path, so whatever the page was doing stops with it.
+async function renderOnce(shot, signal) {
+  const b = lease();
+  let context;
+  let timer;
+  try {
+    const browser = await b.ready;
+    context = await browser.createBrowserContext();
+    const work = renderShot(context, shot);
+    // Once the deadline wins, closing the context fails the work; nobody is
+    // listening by then.
+    work.catch(() => {});
+    const deadline = new Promise((_, fail) => {
+      timer = setTimeout(() => fail(new Error(`render timed out after ${shot.timeoutMs}ms`)), shot.timeoutMs + GRACE_MS);
+      signal.addEventListener("abort", () => fail(new Error("caller hung up")), { once: true });
+    });
+    return await Promise.race([work, deadline]);
+  } catch (err) {
+    return { error: firstLine(err) };
+  } finally {
+    clearTimeout(timer);
+    // A context that will not close means the browser is wedged: replace it.
+    if (context && (await within(context.close().catch(() => {}), CLOSE_MS)) === "timeout") {
+      shut(b, "a context would not close");
+    }
+    unlease(b);
+  }
+}
 
 const intIn = (raw, lo, hi) => {
   const n = Number(raw);
@@ -93,99 +251,30 @@ function parseShot(body) {
   };
 }
 
-// Kills every process still using `profile` and deletes it. Puppeteer starts
-// Chromium detached (its own process group), so a child killed before its
-// `finally { browser.close() }` leaves Chromium orphaned under docker-init,
-// holding ~150MB and its tmpfs profile. Every Chromium process (browser,
-// zygote, gpu, renderer, utility) carries --user-data-dir on its command
-// line, which is what finds them. Unreaped, a few slow shots fill /tmp and
-// the 1g memcg, and every later launch fails with "Failed to launch the
-// browser process".
-async function reap(profile) {
-  const flag = `--user-data-dir=${profile}`;
-  for (const pid of await readdir("/proc").catch(() => [])) {
-    if (!/^\d+$/.test(pid)) continue;
-    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
-    if (cmdline.split("\0").includes(flag)) {
-      try { process.kill(Number(pid), "SIGKILL"); } catch {}
-    }
-  }
-  await rm(profile, { recursive: true, force: true }).catch(() => {});
-}
-
-// Resolves to { png } or { error }. The child is killed if it outlives its
-// budget or the caller hangs up, and its Chromium is reaped either way.
-function renderOnce(shot, signal) {
-  const id = randomUUID();
-  const out = join(tmpdir(), `shot-${id}.png`);
-  const profile = join(tmpdir(), `profile-${id}`);
-  return new Promise((done) => {
-    const child = spawn(
-      process.execPath,
-      [
-        SCRIPT,
-        "--url", shot.url,
-        "--width", String(shot.width),
-        "--height", String(shot.height),
-        "--dpr", String(shot.dpr),
-        "--timeout-ms", String(shot.timeoutMs),
-        "--out", out,
-        "--mobile", shot.mobile ? "1" : "0",
-        "--full-page", shot.fullPage ? "1" : "0",
-        "--frame", shot.frame,
-        "--device", shot.device,
-        "--theme", shot.theme,
-        "--max-px", String(shot.maxPx),
-        "--profile-dir", profile,
-      ],
-      { stdio: ["ignore", "ignore", "pipe"] },
-    );
-    let stderr = "";
-    child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-2000)));
-    // SIGTERM first: Puppeteer's handler closes Chromium itself. SIGKILL only
-    // if that stalls; reap() below catches whatever survives.
-    let hardKill;
-    const kill = () => {
-      child.kill("SIGTERM");
-      hardKill ??= setTimeout(() => child.kill("SIGKILL"), 2000);
-    };
-    const timer = setTimeout(kill, shot.timeoutMs + 1500);
-    signal.addEventListener("abort", kill, { once: true });
-    child.on("close", async (code) => {
-      clearTimeout(timer);
-      clearTimeout(hardKill);
-      signal.removeEventListener("abort", kill);
-      await reap(profile);
-      const report = await readFile(`${out}.json`, "utf8")
-        .then((raw) => JSON.parse(raw))
-        .catch(() => ({}));
-      const warnings = report.warnings ?? [];
-      const data = report.data ?? null;
-      await rm(`${out}.json`, { force: true });
-      if (code !== 0) {
-        await rm(out, { force: true });
-        const last = stderr.trim().split("\n").pop();
-        return done({ error: last || `renderer exited ${code ?? "on a signal"}` });
-      }
-      try {
-        done({ png: await readFile(out), warnings, data });
-      } catch (e) {
-        done({ error: `no screenshot written (${e.message})` });
-      } finally {
-        await rm(out, { force: true });
-      }
-    });
-  });
-}
-
 const send = (res, status, body, type = "text/plain; charset=utf-8", extra = {}) => {
   if (res.headersSent || res.destroyed) return;
   res.writeHead(status, { "content-type": type, "content-length": Buffer.byteLength(body), ...extra });
   res.end(body);
 };
 
+function status() {
+  const now = Date.now();
+  return {
+    browser: current ? (current.closed ? "closing" : "up") : "down",
+    served_by_browser: current?.served ?? 0,
+    rendering: running,
+    queued: waiting.length,
+    max_concurrent: MAX_CONCURRENT,
+    max_queued: MAX_QUEUED,
+    inflight: [...inflight].map(([id, s]) => ({ id, path: s.path, state: s.state, ms: now - s.since })),
+  };
+}
+
 createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") return send(res, 200, "ok");
+  if (req.method === "GET" && req.url === "/status") {
+    return send(res, 200, JSON.stringify(status()), "application/json");
+  }
   if (req.method !== "POST" || req.url !== "/render") return send(res, 404, "not found");
 
   let body = "";
@@ -199,22 +288,36 @@ createServer(async (req, res) => {
   if (running >= MAX_CONCURRENT && waiting.length >= MAX_QUEUED) {
     return send(res, 503, "renderer busy, try again shortly");
   }
+  const id = randomUUID().slice(0, 8);
   const hangup = new AbortController();
   res.on("close", () => hangup.abort());
+  const entry = { path: new URL(shot.url).pathname, state: "queued", since: Date.now() };
+  inflight.set(id, entry);
 
-  await acquire();
   try {
-    if (hangup.signal.aborted) return;
-    const result = await renderOnce(shot, hangup.signal);
-    if (result.error) return send(res, 502, result.error);
-    send(res, 200, result.png, "image/png", {
-      "x-render-warnings": Buffer.from(JSON.stringify(result.warnings)).toString("base64"),
-      // The page's own findings (the comparison grid's contrast checks).
-      "x-render-data": Buffer.from(JSON.stringify(result.data)).toString("base64"),
-    });
+    if (!(await acquire(hangup.signal))) return log(`shot ${id} dropped: caller hung up while queued`);
+    try {
+      entry.state = "rendering";
+      const queuedMs = Date.now() - entry.since;
+      const started = Date.now();
+      const result = await renderOnce(shot, hangup.signal);
+      const took = `${Date.now() - started}ms (queued ${queuedMs}ms)`;
+      if (result.error) {
+        log(`shot ${id} failed in ${took}: ${result.error}`);
+        return send(res, 502, result.error);
+      }
+      log(`shot ${id} ok in ${took}${result.warnings.length ? `, ${result.warnings.length} warning(s)` : ""}`);
+      send(res, 200, result.png, "image/png", {
+        "x-render-warnings": Buffer.from(JSON.stringify(result.warnings)).toString("base64"),
+        // The page's own findings (the comparison grid's contrast checks).
+        "x-render-data": Buffer.from(JSON.stringify(result.data)).toString("base64"),
+      });
+    } finally {
+      release();
+    }
   } finally {
-    release();
+    inflight.delete(id);
   }
 }).listen(PORT, () => {
-  console.log(`renderer listening on :${PORT}, rendering ${ALLOWED_ORIGIN}/s/… only`);
+  log(`renderer listening on :${PORT}, rendering ${ALLOWED_ORIGIN}/s/… only, ${MAX_CONCURRENT} at a time`);
 });
