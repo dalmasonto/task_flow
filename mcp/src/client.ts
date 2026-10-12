@@ -163,10 +163,38 @@ export interface Whoami {
   identifier: string;
   project: number;
   status: string;
+  /** #605: the scopes THIS KEY carries (e.g. `["agents:manage"]`). Absent on a
+   *  backend that predates scopes — treat that as an ordinary key. */
+  scopes?: string[];
   /** #615: this agent's role instructions. Absent on a backend that predates them. */
   instructions?: InstructionsBlock;
   /** #616: the project's instructions for every agent. Absent on an older backend. */
   project_instructions?: InstructionsBlock;
+}
+
+/** #605: the body of `POST /agents/agent/agents`. No `scopes` field exists —
+ *  see `TaskflowClient.createAgent`. */
+export interface CreateAgentInput {
+  display_name: string;
+  profile: string;
+  project_root?: string;
+  runtime?: string;
+  version?: string;
+  instructions_markdown?: string;
+}
+
+/** #605: the reply to a mint — the raw `key` is shown ONCE and never stored. */
+export interface MintedAgent {
+  agent_id: number;
+  identifier: string;
+  display_name: string;
+  project: number;
+  profile: string;
+  instructions_applied: boolean;
+  /** Always empty on this path: an agent-minted key never carries a scope. */
+  scopes: string[];
+  key: string;
+  taskflow_profile: { agent_id: number; key: string; display_name: string };
 }
 
 export interface ChannelSummary {
@@ -635,6 +663,32 @@ export class TaskflowClient {
     const body: { decision: string; body_markdown?: string } = { decision };
     if (bodyMarkdown !== undefined) body.body_markdown = bodyMarkdown;
     return this.request("POST", `${API_PREFIX}/tasks/${task}/agent/review`, { body });
+  }
+
+  // ---- WRITES: agent management (#605, `agents:manage` scope) --------------
+
+  /** `POST /agents/agent/agents` — mint another agent in this project, with the
+   *  same one-time key semantics as the dashboard link. The KEY calling this
+   *  must carry the `agents:manage` scope (a plain key gets 403), and the key it
+   *  mints never carries a scope itself: only a human owner/admin grants one. */
+  createAgent(input: CreateAgentInput): Promise<MintedAgent> {
+    return this.request("POST", `${API_PREFIX}/agents/agent/agents`, { body: input });
+  }
+
+  /** `PUT /agents/agent/agents/{id}/instructions` — replace a peer's role
+   *  instructions (#615's write, agent-authed). `agents:manage` scope required;
+   *  the agent must be in the caller's own project. */
+  setPeerInstructions(agent: number, markdown: string | null): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/agent/agents/${agent}/instructions`, {
+      body: { markdown },
+    });
+  }
+
+  /** `DELETE /agents/agent/agents/{id}` — revoke a peer's identity (its keys,
+   *  sessions and roster rows go with it). `agents:manage` required, and never
+   *  the calling agent itself: the server refuses self-deletion with 403. */
+  deletePeer(agent: number): Promise<void> {
+    return this.request("DELETE", `${API_PREFIX}/agents/agent/agents/${agent}`, {});
   }
 
   // ---- WRITES: sessions / frames / activity --------------------------------

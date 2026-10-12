@@ -1318,6 +1318,10 @@ export type LinkAgentInput = {
   /// #615: optional role instructions. Applied only when the link CREATES the
   /// agent; see `LinkAgentResult.instructions_applied`.
   instructions_markdown?: string
+  /// #605: capabilities the new KEY carries (see lib/agent-scopes). Empty or
+  /// absent mints an ordinary key; a NON-empty list is an owner/admin-only act
+  /// — the server 403s anyone else rather than quietly dropping it.
+  scopes?: string[]
 }
 
 /// The link response. `key` (a `tfk_…` string) is returned ONCE and is never
@@ -1333,6 +1337,8 @@ export type LinkAgentResult = {
   /// #615: false when the identity already existed (a re-link never changes
   /// instructions — only the agent's manager may, via setAgentInstructions).
   instructions_applied?: boolean
+  /// #605: the scopes the minted key actually carries (canonical, validated).
+  scopes?: string[]
   taskflow_profile: {
     agent_id: number
     key: string
@@ -1353,7 +1359,7 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
   if (!response.ok) {
     throw new Error(
       response.status === 403
-        ? "You must be a member of this project to link an agent."
+        ? "Linking an agent needs an active membership; attaching a scope needs a project owner or admin."
         : await readErrorDetail(response, `Could not link the agent (${response.status}).`)
     )
   }

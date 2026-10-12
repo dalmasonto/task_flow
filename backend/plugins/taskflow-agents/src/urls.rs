@@ -76,6 +76,23 @@ pub fn router() -> Router {
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))
+        // #605: the agent-authed management routes — an agent whose credential
+        // carries `agents:manage` runs the project's agent setup itself: mint
+        // agents (`create_agent_as_agent`; never with scopes), write their role
+        // instructions, and revoke them. All three are RequireAgent-gated and
+        // scoped to the agent's own project; a plain key gets 403.
+        .route(
+            "/api/taskflow/agents/agent/agents",
+            post(views::create_agent_as_agent),
+        )
+        .route(
+            "/api/taskflow/agents/agent/agents/{agent}/instructions",
+            put(views::set_agent_instructions_as_agent),
+        )
+        .route(
+            "/api/taskflow/agents/agent/agents/{agent}",
+            delete(views::delete_agent_as_agent),
+        )
         // Remove an agent (human-authed): owner/admin, or whoever linked it.
         .route("/api/taskflow/agents/{agent}", delete(views::delete_agent))
         // #615: replace an agent's role instructions (human-authed): owner/admin,

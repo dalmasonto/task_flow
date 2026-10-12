@@ -441,3 +441,41 @@ describe("extractDetail", () => {
     expect((thrown as TaskflowApiError).message).toContain("1..=2 is valid");
   });
 });
+
+describe("agent management (#605)", () => {
+  it("mints through the agent-authed route, with the body the server expects", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).createAgent({ display_name: "Worker", profile: "worker", instructions_markdown: "review" });
+
+    expect(calls[0].url).toContain("/api/taskflow/agents/agent/agents");
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      display_name: "Worker",
+      profile: "worker",
+      instructions_markdown: "review",
+    });
+    // The agent path takes no scopes — the type has none, and this pins that the
+    // wire body never grows one by accident.
+    expect(Object.keys(JSON.parse(calls[0].init.body))).not.toContain("scopes");
+  });
+
+  it("sets a peer's instructions on the peer route, null included", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).setPeerInstructions(9, null);
+
+    expect(calls[0].url).toContain("/api/taskflow/agents/agent/agents/9/instructions");
+    expect(calls[0].init.method).toBe("PUT");
+    expect(JSON.parse(calls[0].init.body)).toEqual({ markdown: null });
+  });
+
+  it("deletes a peer on the peer route", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).deletePeer(9);
+
+    expect(calls[0].url).toContain("/api/taskflow/agents/agent/agents/9");
+    expect(calls[0].init.method).toBe("DELETE");
+    // The HUMAN route is /agents/9 — the two must not be confused, or an agent
+    // would be calling the human-gated delete with an agent credential.
+    expect(calls[0].url.endsWith("/api/taskflow/agents/9")).toBe(false);
+  });
+});

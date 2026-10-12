@@ -168,6 +168,7 @@ async fn agent_with_headers(project: i64) -> (i64, HeaderMap) {
             key_prefix: format!("tfk_t{n}"),
             key_hash: hash_key(&raw),
             status: TaskflowCredentialStatus::Active,
+            scopes: None,
             expires_at: None,
             revoked_at: None,
             created_at: None,

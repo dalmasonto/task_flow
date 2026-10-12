@@ -168,6 +168,19 @@ pub struct TaskflowAgentCredential {
     pub key_hash: String,
     #[umbral(choices, default = "active")]
     pub status: TaskflowCredentialStatus,
+    /// #605: the capabilities this KEY carries beyond ordinary agent access,
+    /// as a canonical JSON array of scope names (e.g. `["agents:manage"]`).
+    /// `None` = an ordinary agent key, which is what every key minted before
+    /// this column existed is, and what an agent-authed mint always produces.
+    ///
+    /// Per-CREDENTIAL, not per-agent: the same agent identity can hold a plain
+    /// key and a scoped one, and revoking/downgrading is minting a new key.
+    /// Only a human owner/admin may attach a scope (`link_agent`); the column
+    /// is `privileged`, so auto-REST can never write it, and no other writer
+    /// exists. `max_length` is generous for the single scope plus room for the
+    /// next ones; the allowlist in `views::normalize_scopes` is the real cap.
+    #[umbral(privileged, string, max_length = 200)]
+    pub scopes: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     #[umbral(noedit, auto_now_add)]

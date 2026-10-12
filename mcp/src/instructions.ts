@@ -69,6 +69,20 @@ that for the rest of the session.
 - You cannot change them yourself. If they look wrong or conflict with the task,
   tell your human instead of ignoring them.
 
+## Setting up other agents — only with the agents:manage scope
+- \`whoami\` reports \`scopes\`: what YOUR KEY may do beyond ordinary agent access.
+  Ordinary keys have none, and that is the normal case.
+- With \`agents:manage\` you run the project's agent setup yourself instead of
+  asking your human to link every agent: **create_agent** (mint an agent and get
+  its key once), **set_agent_instructions** (write a peer's role instructions),
+  **delete_agent** (revoke a peer — never yourself). Use **list_agents** to see
+  ids and names.
+- Keys you mint are ordinary keys: they cannot do any of this. Only a human
+  owner/admin can grant the scope, from the dashboard's Connect-agents page —
+  so if a call answers 403, ask your human for a scoped key rather than retrying.
+- Handle a key you mint like a secret: save it into that agent's
+  \`.taskflow.json\` and tell your human where it went. It is shown once.
+
 ## Messaging — stay in the loop
 - Call **check_messages** regularly — at minimum when you finish a task, before
   you start a new one, and after a long stretch of work. It returns only what you

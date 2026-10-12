@@ -109,6 +109,12 @@ export type TaskflowTaskStatus = "not_started" | "in_progress" | "paused" | "blo
 /** `light` = Light, `dark` = Dark, `system` = System */
 export type TaskflowUserSettingsTheme = "light" | "dark" | "system";
 
+/** `memory` = Memory, `script` = Script */
+export type ToolboxEntryKind = "memory" | "script";
+
+/** `draft` = Draft, `approved` = Approved, `deprecated` = Deprecated */
+export type ToolboxEntryStatus = "draft" | "approved" | "deprecated";
+
 /**
  * User preference
  * Table `admin_user_pref`, from the `app` plugin.
@@ -329,6 +335,7 @@ export interface TaskflowAgentCredential {
   key_prefix: string;
   key_hash: string;
   status: TaskflowAgentCredentialStatus;
+  scopes: string | null;
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string | null;
@@ -703,6 +710,55 @@ export interface TaskflowUserSettings {
   default_project: number | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** Table `toolbox_entry`, from the `app` plugin. */
+export interface ToolboxEntry {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  kind: ToolboxEntryKind;
+  name: string;
+  title: string;
+  description: string;
+  body_markdown: string;
+  code: string | null;
+  language: string | null;
+  entrypoint: string | null;
+  params_json: string | null;
+  requires_env_json: string | null;
+  tags_json: string | null;
+  author_agent_id: number | null;
+  /** Foreign key into `auth_user`. */
+  author_user: number | null;
+  author_label: string;
+  version: number;
+  status: ToolboxEntryStatus;
+  deprecated_reason: string | null;
+  last_run_at: string | null;
+  last_run_ok: boolean;
+  run_ok_count: number;
+  run_fail_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Table `toolbox_entry_version`, from the `app` plugin. */
+export interface ToolboxEntryVersion {
+  id: number;
+  /** Foreign key: the `id` of a ToolboxEntry (`toolbox_entry`). */
+  entry: number;
+  version: number;
+  body_markdown: string;
+  code: string | null;
+  params_json: string | null;
+  requires_env_json: string | null;
+  description: string;
+  author_label: string;
+  note: string | null;
+  vetted_by: string | null;
+  vetted_note: string | null;
+  created_at: string | null;
 }
 
 /** Filterable query parameters for `admin_user_pref`. Every key is optional and AND-combined server-side. */
@@ -1754,6 +1810,13 @@ export interface TaskflowAgentCredentialFilters {
   "status__icontains"?: string;
   "status__startswith"?: string;
   "status__in"?: TaskflowAgentCredentialStatus[];
+  "scopes"?: string;
+  "scopes__ne"?: string;
+  "scopes__contains"?: string;
+  "scopes__icontains"?: string;
+  "scopes__startswith"?: string;
+  "scopes__in"?: string[];
+  "scopes__isnull"?: boolean;
   "expires_at"?: string;
   "expires_at__ne"?: string;
   "expires_at__gte"?: string;
@@ -1779,7 +1842,7 @@ export interface TaskflowAgentCredentialFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentCredentialOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "issued_by" | "-issued_by" | "name" | "-name" | "key_prefix" | "-key_prefix" | "key_hash" | "-key_hash" | "status" | "-status" | "expires_at" | "-expires_at" | "revoked_at" | "-revoked_at" | "created_at" | "-created_at";
+export type TaskflowAgentCredentialOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "issued_by" | "-issued_by" | "name" | "-name" | "key_prefix" | "-key_prefix" | "key_hash" | "-key_hash" | "status" | "-status" | "scopes" | "-scopes" | "expires_at" | "-expires_at" | "revoked_at" | "-revoked_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_credential`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentCredentialCreate {
   project: number;
@@ -3581,6 +3644,323 @@ export interface TaskflowUserSettingsUpdate {
   default_project?: number | null;
 }
 
+/** Filterable query parameters for `toolbox_entry`. Every key is optional and AND-combined server-side. */
+export interface ToolboxEntryFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "kind"?: ToolboxEntryKind;
+  "kind__ne"?: ToolboxEntryKind;
+  "kind__contains"?: string;
+  "kind__icontains"?: string;
+  "kind__startswith"?: string;
+  "kind__in"?: ToolboxEntryKind[];
+  "name"?: string;
+  "name__ne"?: string;
+  "name__contains"?: string;
+  "name__icontains"?: string;
+  "name__startswith"?: string;
+  "name__in"?: string[];
+  "title"?: string;
+  "title__ne"?: string;
+  "title__contains"?: string;
+  "title__icontains"?: string;
+  "title__startswith"?: string;
+  "title__in"?: string[];
+  "description"?: string;
+  "description__ne"?: string;
+  "description__contains"?: string;
+  "description__icontains"?: string;
+  "description__startswith"?: string;
+  "description__in"?: string[];
+  "body_markdown"?: string;
+  "body_markdown__ne"?: string;
+  "body_markdown__contains"?: string;
+  "body_markdown__icontains"?: string;
+  "body_markdown__startswith"?: string;
+  "body_markdown__in"?: string[];
+  "code"?: string;
+  "code__ne"?: string;
+  "code__contains"?: string;
+  "code__icontains"?: string;
+  "code__startswith"?: string;
+  "code__in"?: string[];
+  "code__isnull"?: boolean;
+  "language"?: string;
+  "language__ne"?: string;
+  "language__contains"?: string;
+  "language__icontains"?: string;
+  "language__startswith"?: string;
+  "language__in"?: string[];
+  "language__isnull"?: boolean;
+  "entrypoint"?: string;
+  "entrypoint__ne"?: string;
+  "entrypoint__contains"?: string;
+  "entrypoint__icontains"?: string;
+  "entrypoint__startswith"?: string;
+  "entrypoint__in"?: string[];
+  "entrypoint__isnull"?: boolean;
+  "params_json"?: string;
+  "params_json__ne"?: string;
+  "params_json__contains"?: string;
+  "params_json__icontains"?: string;
+  "params_json__startswith"?: string;
+  "params_json__in"?: string[];
+  "params_json__isnull"?: boolean;
+  "requires_env_json"?: string;
+  "requires_env_json__ne"?: string;
+  "requires_env_json__contains"?: string;
+  "requires_env_json__icontains"?: string;
+  "requires_env_json__startswith"?: string;
+  "requires_env_json__in"?: string[];
+  "requires_env_json__isnull"?: boolean;
+  "tags_json"?: string;
+  "tags_json__ne"?: string;
+  "tags_json__contains"?: string;
+  "tags_json__icontains"?: string;
+  "tags_json__startswith"?: string;
+  "tags_json__in"?: string[];
+  "tags_json__isnull"?: boolean;
+  "author_agent_id"?: number;
+  "author_agent_id__ne"?: number;
+  "author_agent_id__gte"?: number;
+  "author_agent_id__lte"?: number;
+  "author_agent_id__gt"?: number;
+  "author_agent_id__lt"?: number;
+  "author_agent_id__in"?: number[];
+  "author_agent_id__isnull"?: boolean;
+  "author_user"?: number;
+  "author_user__ne"?: number;
+  "author_user__in"?: number[];
+  "author_user__isnull"?: boolean;
+  "author_label"?: string;
+  "author_label__ne"?: string;
+  "author_label__contains"?: string;
+  "author_label__icontains"?: string;
+  "author_label__startswith"?: string;
+  "author_label__in"?: string[];
+  "version"?: number;
+  "version__ne"?: number;
+  "version__gte"?: number;
+  "version__lte"?: number;
+  "version__gt"?: number;
+  "version__lt"?: number;
+  "version__in"?: number[];
+  "status"?: ToolboxEntryStatus;
+  "status__ne"?: ToolboxEntryStatus;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: ToolboxEntryStatus[];
+  "deprecated_reason"?: string;
+  "deprecated_reason__ne"?: string;
+  "deprecated_reason__contains"?: string;
+  "deprecated_reason__icontains"?: string;
+  "deprecated_reason__startswith"?: string;
+  "deprecated_reason__in"?: string[];
+  "deprecated_reason__isnull"?: boolean;
+  "last_run_at"?: string;
+  "last_run_at__ne"?: string;
+  "last_run_at__gte"?: string;
+  "last_run_at__lte"?: string;
+  "last_run_at__gt"?: string;
+  "last_run_at__lt"?: string;
+  "last_run_at__in"?: string[];
+  "last_run_at__isnull"?: boolean;
+  "last_run_ok"?: boolean;
+  "last_run_ok__ne"?: boolean;
+  "last_run_ok__in"?: boolean[];
+  "run_ok_count"?: number;
+  "run_ok_count__ne"?: number;
+  "run_ok_count__gte"?: number;
+  "run_ok_count__lte"?: number;
+  "run_ok_count__gt"?: number;
+  "run_ok_count__lt"?: number;
+  "run_ok_count__in"?: number[];
+  "run_fail_count"?: number;
+  "run_fail_count__ne"?: number;
+  "run_fail_count__gte"?: number;
+  "run_fail_count__lte"?: number;
+  "run_fail_count__gt"?: number;
+  "run_fail_count__lt"?: number;
+  "run_fail_count__in"?: number[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type ToolboxEntryOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "name" | "-name" | "title" | "-title" | "description" | "-description" | "body_markdown" | "-body_markdown" | "code" | "-code" | "language" | "-language" | "entrypoint" | "-entrypoint" | "params_json" | "-params_json" | "requires_env_json" | "-requires_env_json" | "tags_json" | "-tags_json" | "author_agent_id" | "-author_agent_id" | "author_user" | "-author_user" | "author_label" | "-author_label" | "version" | "-version" | "status" | "-status" | "deprecated_reason" | "-deprecated_reason" | "last_run_at" | "-last_run_at" | "last_run_ok" | "-last_run_ok" | "run_ok_count" | "-run_ok_count" | "run_fail_count" | "-run_fail_count" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `toolbox_entry`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface ToolboxEntryCreate {
+  project: number;
+  kind?: ToolboxEntryKind;
+  name: string;
+  title: string;
+  description: string;
+  body_markdown: string;
+  code?: string | null;
+  language?: string | null;
+  entrypoint?: string | null;
+  params_json?: string | null;
+  requires_env_json?: string | null;
+  tags_json?: string | null;
+  author_agent_id?: number | null;
+  author_user?: number | null;
+  author_label: string;
+  version: number;
+  status?: ToolboxEntryStatus;
+  deprecated_reason?: string | null;
+  last_run_at?: string | null;
+  last_run_ok?: boolean;
+  run_ok_count?: number;
+  run_fail_count?: number;
+  updated_at?: string | null;
+}
+/** Body for updating a `toolbox_entry` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface ToolboxEntryUpdate {
+  project?: number;
+  kind?: ToolboxEntryKind;
+  name?: string;
+  title?: string;
+  description?: string;
+  body_markdown?: string;
+  code?: string | null;
+  language?: string | null;
+  entrypoint?: string | null;
+  params_json?: string | null;
+  requires_env_json?: string | null;
+  tags_json?: string | null;
+  author_agent_id?: number | null;
+  author_user?: number | null;
+  author_label?: string;
+  version?: number;
+  status?: ToolboxEntryStatus;
+  deprecated_reason?: string | null;
+}
+
+/** Filterable query parameters for `toolbox_entry_version`. Every key is optional and AND-combined server-side. */
+export interface ToolboxEntryVersionFilters {
+  "entry"?: number;
+  "entry__ne"?: number;
+  "entry__in"?: number[];
+  "version"?: number;
+  "version__ne"?: number;
+  "version__gte"?: number;
+  "version__lte"?: number;
+  "version__gt"?: number;
+  "version__lt"?: number;
+  "version__in"?: number[];
+  "body_markdown"?: string;
+  "body_markdown__ne"?: string;
+  "body_markdown__contains"?: string;
+  "body_markdown__icontains"?: string;
+  "body_markdown__startswith"?: string;
+  "body_markdown__in"?: string[];
+  "code"?: string;
+  "code__ne"?: string;
+  "code__contains"?: string;
+  "code__icontains"?: string;
+  "code__startswith"?: string;
+  "code__in"?: string[];
+  "code__isnull"?: boolean;
+  "params_json"?: string;
+  "params_json__ne"?: string;
+  "params_json__contains"?: string;
+  "params_json__icontains"?: string;
+  "params_json__startswith"?: string;
+  "params_json__in"?: string[];
+  "params_json__isnull"?: boolean;
+  "requires_env_json"?: string;
+  "requires_env_json__ne"?: string;
+  "requires_env_json__contains"?: string;
+  "requires_env_json__icontains"?: string;
+  "requires_env_json__startswith"?: string;
+  "requires_env_json__in"?: string[];
+  "requires_env_json__isnull"?: boolean;
+  "description"?: string;
+  "description__ne"?: string;
+  "description__contains"?: string;
+  "description__icontains"?: string;
+  "description__startswith"?: string;
+  "description__in"?: string[];
+  "author_label"?: string;
+  "author_label__ne"?: string;
+  "author_label__contains"?: string;
+  "author_label__icontains"?: string;
+  "author_label__startswith"?: string;
+  "author_label__in"?: string[];
+  "note"?: string;
+  "note__ne"?: string;
+  "note__contains"?: string;
+  "note__icontains"?: string;
+  "note__startswith"?: string;
+  "note__in"?: string[];
+  "note__isnull"?: boolean;
+  "vetted_by"?: string;
+  "vetted_by__ne"?: string;
+  "vetted_by__contains"?: string;
+  "vetted_by__icontains"?: string;
+  "vetted_by__startswith"?: string;
+  "vetted_by__in"?: string[];
+  "vetted_by__isnull"?: boolean;
+  "vetted_note"?: string;
+  "vetted_note__ne"?: string;
+  "vetted_note__contains"?: string;
+  "vetted_note__icontains"?: string;
+  "vetted_note__startswith"?: string;
+  "vetted_note__in"?: string[];
+  "vetted_note__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type ToolboxEntryVersionOrdering = "id" | "-id" | "entry" | "-entry" | "version" | "-version" | "body_markdown" | "-body_markdown" | "code" | "-code" | "params_json" | "-params_json" | "requires_env_json" | "-requires_env_json" | "description" | "-description" | "author_label" | "-author_label" | "note" | "-note" | "vetted_by" | "-vetted_by" | "vetted_note" | "-vetted_note" | "created_at" | "-created_at";
+/** Body for creating a `toolbox_entry_version`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface ToolboxEntryVersionCreate {
+  entry: number;
+  version: number;
+  body_markdown: string;
+  code?: string | null;
+  params_json?: string | null;
+  requires_env_json?: string | null;
+  description: string;
+  author_label: string;
+  note?: string | null;
+  vetted_by?: string | null;
+  vetted_note?: string | null;
+}
+/** Body for updating a `toolbox_entry_version` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface ToolboxEntryVersionUpdate {
+  entry?: number;
+  version?: number;
+  body_markdown?: string;
+  code?: string | null;
+  params_json?: string | null;
+  requires_env_json?: string | null;
+  description?: string;
+  author_label?: string;
+  note?: string | null;
+  vetted_by?: string | null;
+  vetted_note?: string | null;
+}
+
 /** A list response. `results` + `count` are always present; the rest depend on the paginator. */
 export interface Paginated<T> {
   results: T[];
@@ -3629,6 +4009,8 @@ export interface UmbralResources {
   "taskflow_task_session": { row: TaskflowTaskSession; filters: TaskflowTaskSessionFilters; ordering: TaskflowTaskSessionOrdering; create: TaskflowTaskSessionCreate; update: TaskflowTaskSessionUpdate; id: number };
   "taskflow_terminal_input": { row: TaskflowTerminalInput; filters: TaskflowTerminalInputFilters; ordering: TaskflowTerminalInputOrdering; create: TaskflowTerminalInputCreate; update: TaskflowTerminalInputUpdate; id: number };
   "taskflow_user_settings": { row: TaskflowUserSettings; filters: TaskflowUserSettingsFilters; ordering: TaskflowUserSettingsOrdering; create: TaskflowUserSettingsCreate; update: TaskflowUserSettingsUpdate; id: number };
+  "toolbox_entry": { row: ToolboxEntry; filters: ToolboxEntryFilters; ordering: ToolboxEntryOrdering; create: ToolboxEntryCreate; update: ToolboxEntryUpdate; id: number };
+  "toolbox_entry_version": { row: ToolboxEntryVersion; filters: ToolboxEntryVersionFilters; ordering: ToolboxEntryVersionOrdering; create: ToolboxEntryVersionCreate; update: ToolboxEntryVersionUpdate; id: number };
 }
 
 export interface UmbralOptions {

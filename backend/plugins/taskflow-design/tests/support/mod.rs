@@ -427,6 +427,7 @@ pub async fn seed_agent(project: i64, display_name: &str) -> (i64, String) {
             key_prefix: prefix,
             key_hash: hash_key(&raw_key),
             status: TaskflowCredentialStatus::Active,
+            scopes: None,
             expires_at: None,
             revoked_at: None,
             created_at: None,

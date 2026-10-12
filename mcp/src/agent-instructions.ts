@@ -11,11 +11,30 @@ import type { InstructionsBlock } from "./client.js";
 export type InstructionsCarrier = {
   instructions?: InstructionsBlock | null;
   project_instructions?: InstructionsBlock | null;
+  /** #605: the scopes this key carries. Absent on a backend that predates them. */
+  scopes?: string[];
 };
 
 /** The one line typed into the pane when the instructions changed. */
 export const INSTRUCTIONS_UPDATED_NOTICE =
   "[taskflow] your role/project instructions were updated — call whoami";
+
+/**
+ * #605: the readable line for a key that carries `agents:manage`. Rendered in
+ * the same block as the instructions (rather than only inside the JSON) because
+ * it changes what the agent should DO — set up the team itself instead of
+ * asking the human to link every agent.
+ */
+export function renderScopeNotice(identity: InstructionsCarrier): string | null {
+  if (!identity.scopes?.includes("agents:manage")) return null;
+  return (
+    "## Your key can manage agents (agents:manage)\n\n" +
+    "You may mint agents in this project (`create_agent`), set their role instructions " +
+    "(`set_agent_instructions`) and revoke them (`delete_agent`). Keys you mint are ordinary " +
+    "keys — they cannot do this themselves, because only a human owner/admin grants this scope. " +
+    "Use it to finish the project's agent setup yourself rather than asking your human to link each agent."
+  );
+}
 
 const text = (block: InstructionsBlock | null | undefined): string | null =>
   block?.markdown && block.markdown.trim() ? block.markdown : null;

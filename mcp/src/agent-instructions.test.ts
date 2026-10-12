@@ -3,6 +3,7 @@ import {
   INSTRUCTIONS_UPDATED_NOTICE,
   createInstructionsWatcher,
   instructionsStamp,
+  renderScopeNotice,
   renderInstructions,
 } from "./agent-instructions.js";
 
@@ -62,5 +63,22 @@ describe("INSTRUCTIONS_UPDATED_NOTICE", () => {
     expect(INSTRUCTIONS_UPDATED_NOTICE).toBe(
       "[taskflow] your role/project instructions were updated — call whoami",
     );
+  });
+});
+
+describe("renderScopeNotice", () => {
+  it("stays silent for an ordinary key, and for a backend without scopes", () => {
+    expect(renderScopeNotice({ scopes: [] })).toBeNull();
+    expect(renderScopeNotice({ scopes: ["some:other"] })).toBeNull();
+    expect(renderScopeNotice({})).toBeNull();
+  });
+
+  it("names the three things the scope unlocks, once", () => {
+    const notice = renderScopeNotice({ scopes: ["agents:manage"] });
+    expect(notice).toContain("agents:manage");
+    for (const tool of ["create_agent", "set_agent_instructions", "delete_agent"]) {
+      expect(notice).toContain(tool);
+    }
+    expect(notice).toContain("a human owner/admin grants this scope");
   });
 });

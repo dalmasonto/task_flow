@@ -2536,6 +2536,7 @@ function App() {
                   <ApiBasePage
                     project={activeProject}
                     workspace={activeLiveWorkspace}
+                    currentUser={currentUser}
                     onContract={() => setDialogMode("api-contract")}
                     onUpdateProject={handleUpdateProject}
                     onWorkspaceUpdate={applyWorkspaceUpdate}

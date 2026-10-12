@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/auth-api"
-import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, FileTextIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, TerminalIcon, Trash2Icon } from "lucide-react"
+import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, FileTextIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, ShieldCheckIcon, TerminalIcon, Trash2Icon } from "lucide-react"
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -7,6 +7,8 @@ import { GithubNeedsConnectError, addGithubProjectRepo, deleteAgent, fetchGithub
 import { Input } from "@/components/ui/input"
 import { AgentInstructionsDialog, InstructionsEditor } from "@/components/instructions-editor"
 import { agentInstructionsOf, instructionsChanged, instructionsSnippet, latestInstructions, normalizeInstructions, patchAgentInstructions, patchProjectInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
+import { AGENT_SCOPE_MANAGE, agentScopesOf, mayGrantAgentScopes, scopeLabel } from "@/lib/agent-scopes"
+import { type AuthUser } from "@/lib/auth-api"
 import { Link } from "react-router-dom"
 import { PageShell } from "@/components/layout"
 import { cn } from "@/lib/utils"
@@ -23,11 +25,16 @@ const INSTALL_NPM = "npm install -g @dalmasonto/taskflow-mcp && taskflow init"
 export function ApiBasePage({
   project,
   workspace,
+  currentUser,
   onContract,
   onWorkspaceUpdate,
 }: {
   project: Project
   workspace: TaskflowWorkspace | null
+  /// The signed-in user, for the one control on this page whose visibility
+  /// depends on their ROLE (#605's scope checkbox) — the backend enforces the
+  /// same rule regardless, this only hides a button that would 403.
+  currentUser?: AuthUser | null
   onContract: () => void
   onUpdateProject?: (event: FormEvent<HTMLFormElement>) => void
   /// App's `applyWorkspaceUpdate`: an instructions save patches the shared
@@ -36,13 +43,17 @@ export function ApiBasePage({
 }) {
   const agents = useMemo(() => workspace?.agents ?? [], [workspace?.agents])
   const numericProjectId = liveId(project.id)
+  // #605: who may grant a scope — an ACTIVE owner/admin (or a superuser), the
+  // same rule the backend applies at link time.
+  const me = currentUser ? workspace?.members.find((member) => member.user === currentUser.id) : undefined
+  const canGrantScopes = mayGrantAgentScopes(me, !!currentUser?.is_superuser)
   // Agents linked from this page, shown at once: the roster in `workspace` is
   // the core load's and is not refetched by a link, so without these a new
   // agent would not appear until a reload.
   // Agents deleted from this page, hidden at once for the same reason.
   const [deletedAgentIds, setDeletedAgentIds] = useState<number[]>([])
   const [localInstructions, setLocalInstructions] = useState<Record<number, InstructionsBlock>>({})
-  const [justLinked, setJustLinked] = useState<{ agent: TaskflowWorkspace["agents"][number]; keyPrefix: string }[]>([])
+  const [justLinked, setJustLinked] = useState<{ agent: TaskflowWorkspace["agents"][number]; keyPrefix: string; scopesText: string | null }[]>([])
   const projectAgents = useMemo(() => {
     if (numericProjectId == null) return []
     const known = agents.filter((agent) => agent.project === numericProjectId)
@@ -63,6 +74,7 @@ export function ApiBasePage({
         key_prefix: entry.keyPrefix,
         key_hash: "",
         status: "active" as const,
+        scopes: entry.scopesText,
         expires_at: null,
         revoked_at: null,
         created_at: null,
@@ -144,6 +156,7 @@ export function ApiBasePage({
         <LinkAgentCard
           projectId={numericProjectId}
           projectAgents={projectAgents}
+          canGrantScopes={canGrantScopes}
           onLinked={(linked, instructions) => {
             // A re-link's fallback save (or a create with instructions) lands in
             // the workspace like any other save, not only in the hidden entry.
@@ -170,6 +183,10 @@ export function ApiBasePage({
                   created_at: null,
                 },
                 keyPrefix: linked.key.slice(0, 16),
+                // #605: the scopes the freshly-minted key carries, in the same
+                // canonical JSON form the credential row stores, so the badge
+                // shows for a just-linked agent without re-reading the table.
+                scopesText: linked.scopes?.length ? JSON.stringify(linked.scopes) : null,
               },
             ])
           }}
@@ -521,10 +538,15 @@ export function CopyButton({ value, label = "Copy", className }: { value: string
 export function LinkAgentCard({
   projectId,
   projectAgents,
+  canGrantScopes = false,
   onLinked,
 }: {
   projectId: number | null
   projectAgents: TaskflowWorkspace["agents"]
+  /// #605: show the "can manage agents" checkbox. True only for an active
+  /// owner/admin (or superuser) — the server refuses the scope for anyone else,
+  /// so offering it would only produce a 403.
+  canGrantScopes?: boolean
   /// Called with each new link, so the page can list the agent at once.
   onLinked?: (linked: LinkAgentResult, instructions: InstructionsBlock) => void
 }) {
@@ -542,6 +564,10 @@ export function LinkAgentCard({
   const [hadAgents, setHadAgents] = useState(false)
   const [instructions, setInstructions] = useState("")
   const [instructionsWarning, setInstructionsWarning] = useState<string | null>(null)
+  /// #605: mint the key with `agents:manage`, so this agent can run the rest of
+  /// the project's agent setup itself. Off by default — an ordinary agent key is
+  /// the safer, common case.
+  const [grantScope, setGrantScope] = useState(false)
 
   // The first agent is `main` (the profile the MCP picks by default); later
   // ones must be named.
@@ -580,6 +606,9 @@ export function LinkAgentCard({
           display_name: name,
           profile: effectiveProfile,
           ...(markdown ? { instructions_markdown: markdown } : {}),
+          // #605: only send the key when the box was actually ticked — an empty
+          // list would be equivalent, but absent is the honest wire form.
+          ...(grantScope ? { scopes: [AGENT_SCOPE_MANAGE] } : {}),
         })
         let block: InstructionsBlock = linked.instructions_applied
           ? { markdown, updated_at: new Date().toISOString() }
@@ -605,7 +634,7 @@ export function LinkAgentCard({
         setPending(false)
       }
     },
-    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked, instructions]
+    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked, instructions, grantScope]
   )
 
   const handleReset = useCallback(() => {
@@ -615,6 +644,7 @@ export function LinkAgentCard({
     setProfile("")
     setInstructions("")
     setInstructionsWarning(null)
+    setGrantScope(false)
   }, [])
 
   // The BACKEND origin, not this page's: an agent runs headless and must not
@@ -746,6 +776,26 @@ export function LinkAgentCard({
               time; the agent picks up changes on its next whoami.
             </span>
           </div>
+          {canGrantScopes ? (
+            <label className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-primary"
+                checked={grantScope}
+                onChange={(event) => setGrantScope(event.target.checked)}
+                disabled={pending}
+              />
+              <span className="grid gap-0.5">
+                <span className="text-xs font-medium">
+                  {scopeLabel(AGENT_SCOPE_MANAGE)} <span className="text-muted-foreground">({AGENT_SCOPE_MANAGE})</span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  This key may mint and revoke agents in this project and set their role instructions — so it can
+                  finish the setup by itself. Give it to an orchestrator, not to a worker.
+                </span>
+              </span>
+            </label>
+          ) : null}
           {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
           <Button type="submit" size="sm" disabled={pending || projectId == null}>
             <BotIcon />
@@ -812,6 +862,9 @@ export function AgentsList({
               .pop()
             const keys = credentials.filter((c) => c.agent === agent.id)
             const active = keys.find((c) => c.status === "active")
+            // #605: the scopes on the LIVE key — the badge answers "what can this
+            // agent do beyond talking?" for the human who granted it.
+            const activeScopes = active ? agentScopesOf(active) : []
             const profile = profileOf(agent.identifier)
             const snippet = instructionsSnippet(blockOf(agent).markdown)
             return (
@@ -864,6 +917,20 @@ export function AgentsList({
                   ) : (
                     <span className="text-rose-600">No active key</span>
                   )}
+                  {activeScopes.length ? (
+                    <div className="mt-1">
+                      {activeScopes.map((scope) => (
+                        <span
+                          key={scope}
+                          className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
+                          title={`This key carries the ${scope} scope.`}
+                        >
+                          <ShieldCheckIcon className="size-3" />
+                          {scopeLabel(scope)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 {onSaveInstructions ? (
                   <Button

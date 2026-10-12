@@ -39,6 +39,11 @@ pub struct AgentIdentity {
     pub agent_id: i64,
     pub project_id: i64,
     pub display_name: String,
+    /// #605: the scopes THIS CREDENTIAL carries (already allowlist-filtered by
+    /// [`crate::scopes::parse_scopes`]). Empty for an ordinary key. Resolved
+    /// here, at the one place a key becomes an identity, so no handler can
+    /// disagree about which credential the caller presented.
+    pub scopes: Vec<String>,
 }
 
 /// Extractor that yields the authenticated [`AgentIdentity`] or rejects with a
@@ -172,6 +177,7 @@ pub async fn resolve_agent(raw_key: &str) -> Option<AgentIdentity> {
         agent_id: agent.id,
         project_id: agent.project.id(),
         display_name: agent.display_name,
+        scopes: crate::scopes::parse_scopes(credential.scopes.as_deref()),
     })
 }
 

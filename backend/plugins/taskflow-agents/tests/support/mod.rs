@@ -294,6 +294,18 @@ impl TestApp {
         }
     }
 
+    /// DELETE authenticated as an AGENT — the `Authorization: Agent <key>`
+    /// counterpart of [`delete_as`], for the agent-authed management routes.
+    pub async fn delete_as_agent(&self, key: &str, path: &str) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        TestResponse {
+            inner: self.client.delete(path).await,
+        }
+    }
+
     /// PUT JSON as a human user (bearer token), like [`post_as`].
     pub async fn put_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
         let token = self

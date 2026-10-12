@@ -24,6 +24,8 @@ pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
 pub mod posting;
 pub mod questions;
+// #605: credential scopes — the allowlist and the canonical stored form.
+pub mod scopes;
 pub mod signals;
 pub mod urls;
 pub mod views;

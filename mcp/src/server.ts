@@ -25,7 +25,7 @@ import {
   type TaskflowConfig,
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError, type AgentSummary, type DesignLayoutOp } from "./client.js";
-import { renderInstructions } from "./agent-instructions.js";
+import { renderInstructions, renderScopeNotice } from "./agent-instructions.js";
 import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
@@ -70,6 +70,27 @@ function fail(err: unknown): CallToolResult {
         ? err.message
         : String(err);
   return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+}
+
+/// #605: the failure of an agent-management call. A bare 403 would read as "not
+/// allowed" with no way forward, and the way forward is specific: the human
+/// mints a key that carries the `agents:manage` scope. Say so.
+function failAgentsManage(err: unknown): CallToolResult {
+  if (err instanceof TaskflowApiError && err.status === 403) {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            "Error: this agent key cannot manage agents — it does not carry the `agents:manage` scope. " +
+            "Ask your human to mint one from the dashboard's Connect-agents page (tick " +
+            "\"Can manage agents\" while linking), then switch to it. A key minted by an agent never carries a scope.",
+        },
+      ],
+      isError: true,
+    };
+  }
+  return fail(err);
 }
 
 /**
@@ -444,8 +465,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           ...(toolbox ? { toolbox } : {}),
         });
         // #615/#616: the JSON escapes every newline, so long markdown is
-        // unreadable there. Show it again as plain text when there is any.
-        const readable = renderInstructions(identity);
+        // unreadable there. Show it again as plain text when there is any —
+        // #605's scope notice rides in the same block, because both change what
+        // the agent should DO next.
+        const readable = [renderInstructions(identity), renderScopeNotice(identity)]
+          .filter((part): part is string => !!part)
+          .join("\n\n");
         if (readable) result.content.push({ type: "text", text: readable });
         const toolboxText = renderToolboxIndex(toolbox);
         if (toolboxText) result.content.push({ type: "text", text: toolboxText });
@@ -569,6 +594,93 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         return ok(await client.listAgents());
       } catch (err) {
         return fail(err);
+      }
+    },
+  );
+
+  // ---- agent management (#605) ---------------------------------------------
+  // These three need `agents:manage` on YOUR key. Without it the server answers
+  // 403 and the human must mint a scoped key from the dashboard's Connect-agents
+  // page — so the error text says exactly that instead of leaving a bare 403.
+
+  server.tool(
+    "create_agent",
+    "Mint another agent in this project and return its key ONCE — use it to set up a worker without asking your human to link it. Requires the agents:manage scope on YOUR OWN key; the key you mint never carries a scope (only a human owner/admin can grant one).",
+    {
+      display_name: z.string().min(1).describe("How the new agent appears in chat, on tasks and in activity."),
+      agent_profile: z
+        .string()
+        .min(1)
+        .describe("Its profile name inside .taskflow.json (lowercase letters, digits, - or _; e.g. reviewer)."),
+      instructions_markdown: z
+        .string()
+        .optional()
+        .describe("Its role instructions, applied at creation. It reads them through whoami."),
+      project_root: z.string().optional().describe("The repo the new agent will run in (absolute path)."),
+      runtime: z.string().optional().describe("Its runtime, e.g. claude-code."),
+      version: z.string().optional().describe("Its runtime version."),
+      ...profileArg,
+    },
+    async ({ display_name, agent_profile, instructions_markdown, project_root, runtime, version, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        const minted = await client.createAgent({
+          display_name,
+          profile: agent_profile,
+          ...(instructions_markdown !== undefined ? { instructions_markdown } : {}),
+          ...(project_root !== undefined ? { project_root } : {}),
+          ...(runtime !== undefined ? { runtime } : {}),
+          ...(version !== undefined ? { version } : {}),
+        });
+        return ok({
+          ...minted,
+          next:
+            "The key is shown once — save it in the new agent's .taskflow.json now. It is an ordinary key: it cannot mint agents.",
+        });
+      } catch (err) {
+        return failAgentsManage(err);
+      }
+    },
+  );
+
+  server.tool(
+    "set_agent_instructions",
+    "Replace another agent's role instructions in this project (it picks them up on its next whoami, no new key, no restart). Requires the agents:manage scope on your key. Pass null to clear them.",
+    {
+      agent: z.number().int().describe("The agent's id (from list_agents)."),
+      markdown: z.string().nullable().describe("The markdown role instructions, or null to clear them."),
+      ...profileArg,
+    },
+    async ({ agent, markdown, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.setPeerInstructions(agent, markdown));
+      } catch (err) {
+        return failAgentsManage(err);
+      }
+    },
+  );
+
+  server.tool(
+    "delete_agent",
+    "Revoke another agent in this project: its keys, sessions and rosters go with it, so its key stops working at once; what it said (messages, reviews, task authorship) stays under its name. Requires the agents:manage scope, and an agent can never delete itself — ask your human for that.",
+    {
+      agent: z.number().int().describe("The agent's id (from list_agents)."),
+      ...profileArg,
+    },
+    async ({ agent, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        await client.deletePeer(agent);
+        return ok({ deleted: agent });
+      } catch (err) {
+        return failAgentsManage(err);
       }
     },
   );

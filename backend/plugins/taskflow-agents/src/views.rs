@@ -1334,6 +1334,13 @@ pub struct LinkAgentInput {
     /// uses the manager-gated PUT. Otherwise a re-link would bypass that rule.
     #[serde(default)]
     pub instructions_markdown: Option<String>,
+    /// #605: capabilities the new KEY should carry (see `crate::scopes`). An
+    /// empty/absent list mints an ordinary key. Anything outside the allowlist
+    /// is a 400 — never silently dropped. Attaching a NON-empty list requires
+    /// the caller to be an owner/admin of the project, because a scope is
+    /// authority over the project's agents rather than ordinary membership.
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
 }
 
 /// `POST /api/taskflow/agents/link` (human-authed) — mint an agent identity.
@@ -1348,6 +1355,13 @@ pub struct LinkAgentInput {
 /// an ACTIVE member of `project` (else 403) — you can only link an agent into a
 /// project you belong to. The agent + credential land together in one
 /// transaction so a failure never leaves an agent without a key or vice versa.
+///
+/// #605: a NON-empty `scopes` list raises the gate to owner/admin — a scope is
+/// authority over the project's agents, which ordinary membership does not
+/// carry. This is the ONLY way a scope ever reaches a credential: the
+/// agent-authed mint (`create_agent_as_agent`) accepts none, so authority flows
+/// humans → agents and never agent → agent. An unrecognized scope is a 400
+/// naming it, before anything is written.
 pub async fn link_agent(
     RequireAuth(user_id): RequireAuth<i64>,
     Json(input): Json<LinkAgentInput>,
@@ -1373,6 +1387,30 @@ pub async fn link_agent(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::FORBIDDEN)?;
 
+    // #605: validate first, then gate. An unknown scope is refused whoever asks
+    // (a 400 that NAMES it — silently dropping it would mint a key weaker than
+    // the caller asked for, and the response would not say so); a KNOWN one is
+    // refused to anyone below owner/admin. Both refusals happen before the
+    // transaction, so a refused scope never leaves an agent or a credential.
+    let scopes = match crate::scopes::normalize_scopes(&input.scopes.unwrap_or_default()) {
+        Ok(scopes) => scopes,
+        Err(offending) => {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "unknown_scope", "scope": offending })),
+            )
+                .into_response());
+        }
+    };
+    if scopes.is_some()
+        && !matches!(
+            caller_member.role,
+            TaskflowProjectRole::Owner | TaskflowProjectRole::Admin
+        )
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     // A human-readable label for who linked the agent. Prefer the caller's
     // project-member display name; fall back to their account username.
     let linked_user_label = if caller_member.display_name.trim().is_empty() {
@@ -1386,6 +1424,59 @@ pub async fn link_agent(
     } else {
         caller_member.display_name.clone()
     };
+
+    mint_agent_core(AgentMintSpec {
+        project_id,
+        display_name,
+        profile,
+        project_root: input.project_root,
+        runtime: input.runtime,
+        version: input.version,
+        instructions_markdown: input.instructions_markdown,
+        scopes,
+        issued_by: Some(user_id),
+        created_by_label: Some(linked_user_label),
+    })
+    .await
+}
+
+/// Everything either mint path fixes BEFORE the shared core runs: whose agent
+/// this is, what the key carries, and who gets the credit. Built by the human
+/// path ([`link_agent`]) and the agent path ([`create_agent_as_agent`]) so the
+/// identity rules — the stable `identifier`, the one-time raw key, the
+/// `linked_user_label` semantics — exist exactly once.
+struct AgentMintSpec {
+    project_id: i64,
+    display_name: String,
+    profile: String,
+    project_root: Option<String>,
+    runtime: Option<String>,
+    version: Option<String>,
+    instructions_markdown: Option<String>,
+    /// Canonical JSON from `scopes::normalize_scopes`, or `None` for an
+    /// ordinary key. Never assembled by hand.
+    scopes: Option<String>,
+    /// The human who issued the key — `None` when an agent minted it, since
+    /// there is no human behind that call; `created_by_label` then names the
+    /// agent, which is what the "linked by …" line in the dashboard shows.
+    issued_by: Option<i64>,
+    created_by_label: Option<String>,
+}
+
+/// The shared body of both mint paths — see [`link_agent`] for the contract.
+async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
+    let AgentMintSpec {
+        project_id,
+        display_name,
+        profile,
+        project_root,
+        runtime,
+        version,
+        instructions_markdown,
+        scopes,
+        issued_by,
+        created_by_label,
+    } = spec;
 
     // Stable identity: the same (project, display_name, profile) always maps to
     // the same `identifier`, so re-linking reuses the agent id + history.
@@ -1411,11 +1502,9 @@ pub async fn link_agent(
 
     let tx_display_name = display_name.clone();
     let tx_identifier = identifier.clone();
-    let project_root = input.project_root.clone();
-    let runtime = input.runtime.clone();
-    let version = input.version.clone();
-    let instructions = normalize_markdown(input.instructions_markdown.clone());
+    let instructions = normalize_markdown(instructions_markdown);
     let tx_instructions = instructions.clone();
+    let tx_scopes = scopes.clone();
 
     let (agent_id, created) = umbral::transaction(move |tx| {
         Box::pin(async move {
@@ -1436,8 +1525,8 @@ pub async fn link_agent(
                             runtime: runtime.clone(),
                             version: version.clone(),
                             status: TaskflowAgentStatus::Offline,
-                            linked_by: Some(ForeignKey::new(user_id)),
-                            linked_user_label: Some(linked_user_label.clone()),
+                            linked_by: issued_by.map(ForeignKey::new),
+                            linked_user_label: created_by_label.clone(),
                             instructions_markdown: tx_instructions.clone(),
                             instructions_updated_at: stamped,
                             last_seen_at: None,
@@ -1454,11 +1543,12 @@ pub async fn link_agent(
                     id: 0,
                     project: ForeignKey::new(project_id),
                     agent: Some(ForeignKey::new(agent.id)),
-                    issued_by: Some(ForeignKey::new(user_id)),
+                    issued_by: issued_by.map(ForeignKey::new),
                     name: credential_name.clone(),
                     key_prefix: key_prefix.clone(),
                     key_hash: key_hash.clone(),
                     status: TaskflowCredentialStatus::Active,
+                    scopes: tx_scopes.clone(),
                     expires_at: None,
                     revoked_at: None,
                     created_at: None,
@@ -1495,6 +1585,8 @@ pub async fn link_agent(
 
     // The raw key appears here and NOWHERE else. `taskflow_profile` is the block
     // the caller pastes into `.taskflow.json` under `profiles.<profile>`.
+    // `scopes` echoes what the key actually carries (canonical, validated) so
+    // the caller can show it without re-reading the credential row.
     Ok((
         StatusCode::OK,
         Json(json!({
@@ -1504,6 +1596,7 @@ pub async fn link_agent(
             "project": project_id,
             "profile": profile,
             "instructions_applied": created && instructions.is_some(),
+            "scopes": crate::scopes::parse_scopes(scopes.as_deref()),
             "key": raw_key,
             "taskflow_profile": {
                 "agent_id": agent_id,
@@ -1513,6 +1606,129 @@ pub async fn link_agent(
         })),
     )
         .into_response())
+}
+
+/// The gate every agent-authed management handler shares: the caller's
+/// CREDENTIAL must carry `scope`. 403, not 404 — the agent is authenticated and
+/// knows its own name; it simply is not allowed. The scope is read from the
+/// resolved identity (the credential actually presented), never from a body.
+fn require_agent_scope(identity: &AgentIdentity, scope: &str) -> Result<(), StatusCode> {
+    if identity.scopes.iter().any(|s| s == scope) {
+        Ok(())
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
+}
+
+/// Load an agent that this caller may manage: it must exist AND belong to the
+/// caller's own project. Cross-project and missing answer the same 404 — a key
+/// must not be able to probe another project's agent ids.
+async fn load_agent_in_project(
+    agent_id: i64,
+    project_id: i64,
+) -> Result<TaskflowAgent, StatusCode> {
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id) & taskflow_agent::PROJECT.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(agent)
+}
+
+/// The body of `POST /api/taskflow/agents/agent/agents`. Same fields as
+/// [`LinkAgentInput`] minus `project` (the caller's own, never a choice) and
+/// minus `scopes` — see the handler.
+#[derive(Debug, Deserialize)]
+pub struct AgentCreateAgentInput {
+    pub display_name: String,
+    pub profile: String,
+    #[serde(default)]
+    pub project_root: Option<String>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub instructions_markdown: Option<String>,
+}
+
+/// `POST /api/taskflow/agents/agent/agents` (agent-authed) — #605: an agent that
+/// holds `agents:manage` mints another agent, in ITS OWN project, with the same
+/// one-time key semantics as [`link_agent`].
+///
+/// DELIBERATELY takes no `scopes` field. A scope is authority, and the only
+/// authority over scopes is a human owner/admin — if an agent could pass one,
+/// privilege would propagate agent → agent with no human in the loop, and the
+/// "minted by owner/admin" rule would be decoration. So a key minted here is
+/// always an ordinary one, whatever the caller holds.
+///
+/// There is no human behind the call, so `linked_by` stays null and
+/// `linked_user_label` names the minting AGENT — which is what the dashboard's
+/// "linked by …" line then shows, and why the project's owner/admin (who always
+/// may manage any agent, see [`authorize_agent_manager`]) remains able to revoke
+/// whatever this produced.
+pub async fn create_agent_as_agent(
+    RequireAgent(identity): RequireAgent,
+    Json(input): Json<AgentCreateAgentInput>,
+) -> Result<Response, StatusCode> {
+    require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
+
+    let display_name = input.display_name.trim().to_string();
+    let profile = input.profile.trim().to_string();
+    if display_name.is_empty() || profile.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    mint_agent_core(AgentMintSpec {
+        project_id: identity.project_id,
+        display_name,
+        profile,
+        project_root: input.project_root,
+        runtime: input.runtime,
+        version: input.version,
+        instructions_markdown: input.instructions_markdown,
+        scopes: None,
+        issued_by: None,
+        created_by_label: Some(identity.display_name.clone()),
+    })
+    .await
+}
+
+/// `PUT /api/taskflow/agents/agent/agents/{agent}/instructions` (agent-authed) —
+/// #605: an agent that holds `agents:manage` writes any agent's role
+/// instructions in its own project. The body and the write are the human path's
+/// verbatim ([`apply_agent_instructions`]); only the gate differs.
+pub async fn set_agent_instructions_as_agent(
+    RequireAgent(identity): RequireAgent,
+    Path(agent_id): Path<i64>,
+    Json(input): Json<SetInstructionsInput>,
+) -> Result<Response, StatusCode> {
+    require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
+    let agent = load_agent_in_project(agent_id, identity.project_id).await?;
+    apply_agent_instructions(agent, input.markdown).await
+}
+
+/// `DELETE /api/taskflow/agents/agent/agents/{agent}` (agent-authed) — #605: an
+/// agent that holds `agents:manage` revokes another agent's identity (its keys,
+/// sessions and roster rows cascade away with it, exactly as on the human path).
+///
+/// REFUSES self-deletion with 403. Deleting the agent the CALLER is running as
+/// revokes the very key making the request: the key dies at the end of the
+/// request, mid-run, with no way back — a foot-gun whose only fix is a human
+/// re-linking. A human's DELETE of its own orchestrator is unaffected; that is
+/// the intended, recoverable route.
+pub async fn delete_agent_as_agent(
+    RequireAgent(identity): RequireAgent,
+    Path(agent_id): Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
+    if agent_id == identity.agent_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let agent = load_agent_in_project(agent_id, identity.project_id).await?;
+    delete_agent_row(agent.id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// The body of `POST /api/taskflow/agents/agent/messages`. Identical to the
@@ -4101,6 +4317,10 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
             "identifier": row.identifier,
             "project": row.project.id(),
             "status": status,
+            // #605: the capabilities THIS KEY carries, so the agent (and the MCP
+            // on its behalf) knows what it may do without probing a manage route
+            // and reading a 403. Empty for an ordinary key.
+            "scopes": agent.scopes,
             "instructions": instructions_block(
                 row.instructions_markdown.as_deref(),
                 row.instructions_updated_at,
@@ -5324,12 +5544,20 @@ pub async fn delete_agent(
         .ok_or(StatusCode::NOT_FOUND)?;
     authorize_agent_manager(&identity, &agent).await?;
 
+    delete_agent_row(agent.id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The shared remove of both delete paths (human and agent, #605): the row goes,
+/// and its credentials, sessions, terminal frames, prompts and roster rows
+/// cascade away with it — so its key stops authenticating on the next call.
+async fn delete_agent_row(agent_id: i64) -> Result<(), StatusCode> {
     TaskflowAgent::objects()
         .filter(taskflow_agent::ID.eq(agent_id))
         .delete()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }
 
 /// The body of `PUT /api/taskflow/agents/{agent}/instructions`. The `markdown`
@@ -5368,8 +5596,18 @@ pub async fn set_agent_instructions(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     authorize_agent_manager(&identity, &agent).await?;
+    apply_agent_instructions(agent, input.markdown).await
+}
 
-    let next = normalize_markdown(input.markdown);
+/// The shared write of both instruction paths (human and agent, #605): replace
+/// an agent's role instructions, stamp `instructions_updated_at` only on a real
+/// change, and announce it on realtime. The GATES live in the callers; this owns
+/// the write so the two cannot drift.
+async fn apply_agent_instructions(
+    agent: TaskflowAgent,
+    markdown: Option<String>,
+) -> Result<Response, StatusCode> {
+    let next = normalize_markdown(markdown);
     let (markdown, updated_at) = if next == agent.instructions_markdown {
         (agent.instructions_markdown, agent.instructions_updated_at)
     } else {
