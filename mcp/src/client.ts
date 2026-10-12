@@ -264,7 +264,10 @@ export type DesignLayoutOp =
   | { link_pages: { from: string; to: string; label?: string } }
   | { unlink_pages: { edge_id: string } | { from: string; to: string } }
   | { update_link: { edge_id: string; label?: string } }
-  | { place_page: { route: string; x: number; y: number } };
+  | { place_page: { route: string; x: number; y: number } }
+  // #682: a page's Pages-panel label. Omit `label` (or send "") to clear it
+  // back to the manifest title. Bulk renames are a batch of these.
+  | { set_label: { route: string; label?: string } };
 
 export class TaskflowClient {
   private readonly server: string;
@@ -588,6 +591,15 @@ export class TaskflowClient {
     return this.request("GET", `${API_PREFIX}/agents/design/context`, {
       query: { project },
       idempotent: true,
+    });
+  }
+
+  /** `POST /agents/design/rename-route` — #682: move a page's route, with
+   * every reference following it (links in other pages, flow order, groups,
+   * the label, arrows, pinned position). One lock hold, one response. */
+  designRenameRoute(project: number, from: string, to: string): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/design/rename-route`, {
+      body: { project, from, to },
     });
   }
 

@@ -1115,6 +1115,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   server.tool(
+    "design_rename_route",
+    "Move a page's ROUTE — `/ai-coach` becomes `/pulse` — with every reference following it: the page file, links to it inside other pages (rewritten through the same validator, one recorded write each), the flow order, group memberships, the page's label, both ends of every arrow, and its pinned Flow position. The old page goes to the TRASH (restore it from the Pages panel if the rename was wrong); nothing else is deleted, and the response names what changed — including any page that could not be rewritten because someone edited it concurrently. This is not a label change: for the NAME the Pages panel shows, use design_arrange's set_label instead, which touches no route and no link.",
+    {
+      from: z.string().min(1).describe("The route as it is now, e.g. '/ai-coach'."),
+      to: z.string().min(1).describe("The route it should become, e.g. '/pulse'. Must not already serve a page."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ from, to, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.designRenameRoute(await resolveDesignProject(client, project), from, to));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
     "design_list_versions",
     "Every recorded version of ONE design file, newest first — #520's history. `path` is a file path (`pages/index.html`, `components/app-header.js`, `styles/tokens.json`). Each entry carries `version` (the file version to pass to design_read_version / design_restore_version), `project_revision` (its place in the project timeline), `bytes`, `updated_by`, and `deleted` (a trash is recorded too). Content is NOT included: read the version you want. Use this before assuming an old design is gone — a page's last 20 versions are kept, along with the tokens and components they rendered with.",
     {
@@ -1546,7 +1567,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "design_arrange",
-    "Apply SEVERAL arrangement edits as ONE write: `ops` is an ordered list, each item exactly one of {\"create_group\":{name}}, {\"update_group\":{group_id,name}}, {\"reorder_group\":{group_id,position}}, {\"reorder_page\":{route,group_id?,position?}}, {\"delete_group\":{group_id}}, and for the USER FLOW on the Flow canvas (arrows showing how a user moves between screens): {\"link_pages\":{from,to,label?}}, {\"unlink_pages\":{edge_id} or {from,to}}, {\"update_link\":{edge_id,label?}} (relabel an arrow; omit label to clear it), {\"place_page\":{route,x,y}} (pin a page's node at canvas coordinates, clamped to ±100000; this is NOT reorder_page, which moves a page in the list) — the same rules as the single tools of those names. Use it to file many pages into groups, reorder a whole section, or lay out a whole flow (link the screens and place each node) in one call. Link ids are minted by the server and reported in `changed.edges`; placed routes in `changed.positions`. The ops run in order, each on the result of the one before, and the batch is ALL OR NOTHING: if any op is refused, none is stored and the error names the failing index (`ops[2] (reorder_page) ...`). The whole batch is one version. A group created in the batch gets its id minted by the server, so a later op in the SAME batch cannot name it — create first, then arrange with the id from `changed.groups`. 1 to 100 ops; a one-item list behaves exactly like the single tool. " +
+    "Apply SEVERAL arrangement edits as ONE write: `ops` is an ordered list, each item exactly one of {\"create_group\":{name}}, {\"update_group\":{group_id,name}}, {\"reorder_group\":{group_id,position}}, {\"reorder_page\":{route,group_id?,position?}}, {\"delete_group\":{group_id}}, and for the USER FLOW on the Flow canvas (arrows showing how a user moves between screens): {\"link_pages\":{from,to,label?}}, {\"unlink_pages\":{edge_id} or {from,to}}, {\"update_link\":{edge_id,label?}} (relabel an arrow; omit label to clear it), {\"place_page\":{route,x,y}} (pin a page's node at canvas coordinates, clamped to ±100000; this is NOT reorder_page, which moves a page in the list), and {\"set_label\":{route,label}} (name a page for the Pages panel; omit label (or send an empty string) to clear it back to the page's own title — bulk renaming a set of pages is a batch of these) — the same rules as the single tools of those names. Use it to file many pages into groups, reorder a whole section, or lay out a whole flow (link the screens and place each node) in one call. Link ids are minted by the server and reported in `changed.edges`; placed routes in `changed.positions`. The ops run in order, each on the result of the one before, and the batch is ALL OR NOTHING: if any op is refused, none is stored and the error names the failing index (`ops[2] (reorder_page) ...`). The whole batch is one version. A group created in the batch gets its id minted by the server, so a later op in the SAME batch cannot name it — create first, then arrange with the id from `changed.groups`. 1 to 100 ops; a one-item list behaves exactly like the single tool. " +
       baseVersionNote,
     {
       ...designProjectArg,

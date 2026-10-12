@@ -155,6 +155,12 @@ pub fn router() -> Router {
             "/api/taskflow/agents/design/restore-version",
             post(agent_views::restore_version),
         )
+        // #682: a route rename touches the page, other pages' links and the
+        // arrangement, so it is ONE operation and never a sequence of calls.
+        .route(
+            "/api/taskflow/agents/design/rename-route",
+            post(agent_views::rename_route),
+        )
         .route(
             "/api/taskflow/agents/design/compare",
             post(agent_views::compare),

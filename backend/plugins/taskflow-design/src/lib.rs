@@ -37,6 +37,7 @@ pub mod manifest;
 pub mod models;
 pub mod primitives;
 pub mod remote_fetch;
+pub mod rename;
 pub mod resources;
 pub mod sandbox;
 pub mod search;

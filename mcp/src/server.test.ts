@@ -118,6 +118,10 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.calls.push(`readDesignLayout:${project}`);
       return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
     }
+    async designRenameRoute(project: number, from: string, to: string) {
+      harness.calls.push(`designRenameRoute:${project}:${from}:${to}`);
+      return { ok: true, from, to, pages_rewritten: ["pages/index.html"], pages_skipped: [], layout_updated: true };
+    }
     async designVersions(project: number, path: string) {
       harness.calls.push(`designVersions:${project}:${path}`);
       return { path, versions: [{ version: 2, project_revision: 9, bytes: 12, deleted: false, updated_by: "x", created_at: null }] };
@@ -651,6 +655,37 @@ describe("design_read_layout", () => {
     // have resolved to before it asked for anything.
     expect(harness.calls).toContain("readDesignLayout:2");
     expect(JSON.stringify(result.content)).toMatch(/Auth/);
+  });
+});
+
+describe("design_rename_route (#682)", () => {
+  it("is registered, and separates a route rename from a label rename", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_rename_route");
+    expect(tool, "design_rename_route must be registered").toBeDefined();
+    const description = tool?.description ?? "";
+    // The two asks are different operations, and an agent that confuses them
+    // either breaks links or leaves the URL alone.
+    expect(description).toMatch(/set_label/);
+    expect(description).toMatch(/trash/i);
+    expect(description).toMatch(/links/i);
+  });
+
+  it("passes both routes through", async () => {
+    const client = await connectedClient();
+    await client.callTool({
+      name: "design_rename_route",
+      arguments: { from: "/ai-coach", to: "/pulse", profile: "main" },
+    });
+    expect(harness.calls).toContain("designRenameRoute:2:/ai-coach:/pulse");
+  });
+
+  it("documents set_label in design_arrange", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const arrange = tools.tools.find((t) => t.name === "design_arrange");
+    expect(arrange?.description ?? "").toContain("set_label");
   });
 });
 

@@ -1049,6 +1049,14 @@ pub enum LayoutOp {
     /// #508: pin a page's node at `(x, y)` on the Flow canvas. Not to be
     /// confused with `ReorderPage`, which moves a page in the LIST.
     PlacePage { route: String, x: f64, y: f64 },
+    /// #682: rename one page's LABEL (the name the Pages panel lists). An
+    /// absent, null or blank label CLEARS it, falling back to the manifest
+    /// title. Bulk renames are a batch of these — see `design_arrange`.
+    SetLabel {
+        route: String,
+        #[serde(default)]
+        label: Option<String>,
+    },
 }
 
 impl LayoutOp {
@@ -1064,6 +1072,7 @@ impl LayoutOp {
             LayoutOp::UnlinkPages { .. } => "unlink_pages",
             LayoutOp::UpdateLink { .. } => "update_link",
             LayoutOp::PlacePage { .. } => "place_page",
+            LayoutOp::SetLabel { .. } => "set_label",
         }
     }
 }
@@ -1144,6 +1153,9 @@ fn apply_layout_op(
         }
         LayoutOp::PlacePage { route, x, y } => {
             layout_doc::set_position(doc, known, route, *x, *y).map(none)
+        }
+        LayoutOp::SetLabel { route, label } => {
+            layout_doc::set_label(doc, known, route, label.as_deref()).map(none)
         }
     }
 }
@@ -1404,7 +1416,10 @@ pub async fn write_layout(
                     LayoutOp::LinkPages { .. }
                     | LayoutOp::UnlinkPages { .. }
                     | LayoutOp::UpdateLink { .. }
-                    | LayoutOp::PlacePage { .. } => None,
+                    | LayoutOp::PlacePage { .. }
+                    // #682: a label moves no membership; the response echoes it
+                    // with the other group-less ops.
+                    | LayoutOp::SetLabel { .. } => None,
                 };
                 if let Some(id) = named {
                     if !changed_groups.contains(&id) {
@@ -2277,5 +2292,94 @@ pub async fn restore_version(
         store::RestoreVersionOutcome::UnknownVersion => Err(StatusCode::NOT_FOUND),
         store::RestoreVersionOutcome::Rejected(v) => Ok(rejection_response(&v)),
         store::RestoreVersionOutcome::Conflict(row) => Ok(conflict_response(&row)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #682: renaming a page's route
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AgentRenameRouteInput {
+    pub project: i64,
+    /// The route as it is now, e.g. `/ai-coach`.
+    pub from: String,
+    /// The route it should become, e.g. `/pulse`.
+    pub to: String,
+}
+
+/// `POST /api/taskflow/agents/design/rename-route` — move a page's route, with
+/// every reference following it: links inside other pages, the flow order, the
+/// groups, the label, the arrows and the pinned position. The old page goes to
+/// the trash, and the whole change is one lock hold.
+pub async fn rename_route(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentRenameRouteInput>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, input.project)?;
+    let by = format!("{} ({})", agent.display_name, agent.agent_id);
+    let from = input.from.clone();
+    let to = input.to.clone();
+    let outcome = crate::views::project_locks()
+        .with_lock(agent.project_id, || async move {
+            crate::rename::rename_route(agent.project_id, &from, &to, &by).await
+        })
+        .await;
+    match outcome {
+        Ok(report) => {
+            // The realtime events are emitted by `rename::rename_route` itself
+            // — one widened event per file it moved or rewrote, from inside the
+            // one place that holds their ids and versions.
+            Ok((
+                StatusCode::OK,
+                Json(json!({
+                    "ok": true,
+                    "from": report.from,
+                    "to": report.to,
+                    "from_path": report.from_path,
+                    "to_path": report.to_path,
+                    "pages_rewritten": report.pages_rewritten,
+                    "pages_skipped": report.pages_skipped,
+                    "layout_updated": report.layout_updated,
+                    "note": format!(
+                        "{} is now {}. {} page(s) had links rewritten{}{}. The old page is in the trash (restore it from the Pages panel if this was a mistake).",
+                        report.from,
+                        report.to,
+                        report.pages_rewritten.len(),
+                        if report.pages_skipped.is_empty() {
+                            String::new()
+                        } else {
+                            format!("; {} page(s) were edited concurrently and now link to a missing route: {}", report.pages_skipped.len(), report.pages_skipped.join(", "))
+                        },
+                        if report.layout_updated { ", and the arrangement followed" } else { "" },
+                    ),
+                })),
+            )
+                .into_response())
+        }
+        Err(crate::rename::RenameError::BadRoute(route)) => Ok(tokens_validation_error(
+            "bad-route",
+            format!("`{route}` cannot name a page: routes are a single flat segment like `/pricing`."),
+        )),
+        Err(crate::rename::RenameError::SamePage) => Ok(tokens_validation_error(
+            "same-page",
+            "`from` and `to` name the same page file; nothing to rename.".to_string(),
+        )),
+        Err(crate::rename::RenameError::NoSuchPage(route)) => Ok(tokens_validation_error(
+            "unknown-route",
+            format!("No page serves `{route}`. design_read_layout lists the routes."),
+        )),
+        Err(crate::rename::RenameError::TargetExists(route)) => Ok(tokens_validation_error(
+            "target-exists",
+            format!("`{route}` already serves a page; a rename never overwrites one."),
+        )),
+        Err(crate::rename::RenameError::TargetInTrash(route)) => Ok(tokens_validation_error(
+            "target-in-trash",
+            format!("`{route}` is a trashed page. Restore or discard it from the Pages panel first — writing there would destroy it."),
+        )),
+        Err(crate::rename::RenameError::Rejected { path, message }) => Ok(tokens_validation_error(
+            "rename-rejected",
+            format!("The page was refused at `{path}`: {message}"),
+        )),
     }
 }

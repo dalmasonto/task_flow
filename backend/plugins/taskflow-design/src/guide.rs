@@ -68,7 +68,8 @@ Pages sit in named groups that read as the screens of one journey (e.g. "Onboard
 - design_arrange — the whole arrangement in ONE call (groups, membership, order, links). Use it when setting up or reorganising a flow.
 - Single operations for small edits: design_create_group, design_update_group (rename), design_reorder_group, design_reorder_page, design_delete_group (pages move to Ungrouped), design_link_pages / design_unlink_pages (arrows between screens, with an optional label like "Sign in").
 - Pass base_version from design_read_layout so a concurrent edit conflicts instead of being overwritten.
-- Group names are unique (case-insensitive), at most 40 characters."#;
+- Group names are unique (case-insensitive), at most 40 characters.
+- RENAMING (two different things, do not confuse them): a page's LABEL — the name the panel shows — is `{"set_label":{route,label}}` inside design_arrange, and a batch of those renames many pages in one call; pass no label to clear it back to the page's own title. A page's ROUTE/URL is design_rename_route, which moves the file and rewrites every link, arrow, group membership and pinned position with it."#;
 
 const PAGES_RULES: &str = r#"# Pages
 

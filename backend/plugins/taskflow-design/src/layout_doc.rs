@@ -750,3 +750,123 @@ pub fn filter_to_known(doc: LayoutDoc, known_routes: &[String]) -> LayoutDoc {
             .collect(),
     }
 }
+
+/// #682: rename one page's LABEL — the name the Pages panel lists it under.
+/// `None` (or a blank string) CLEARS it, which is the honest way back to the
+/// manifest title: a label is an override, so removing it is a value, not an
+/// error. The route must exist; a label names a page.
+pub fn set_label(
+    doc: LayoutDoc,
+    known_routes: &[String],
+    route: &str,
+    label: Option<&str>,
+) -> Result<LayoutDoc, String> {
+    if !known_routes.iter().any(|known| known == route) {
+        return Err(format!("\"{route}\" is not a page in this project"));
+    }
+    let mut doc = doc;
+    match label.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(label) => {
+            if label.chars().count() > MAX_LABEL {
+                return Err(format!("a page label is limited to {MAX_LABEL} characters"));
+            }
+            doc.page_labels.insert(route.to_string(), label.to_string());
+        }
+        None => {
+            doc.page_labels.remove(route);
+        }
+    }
+    Ok(doc)
+}
+
+/// #682: move a page's ROUTE, with every reference in the arrangement
+/// following it: its place in the flow order, its group memberships, its
+/// label, both ends of every arrow that touched it, and its pinned position.
+///
+/// Pure because the alternative — a route rename that updates the page file
+/// but leaves the arrangement pointing at a route nobody serves — is a silent
+/// half-migration, and this is the half that can be tested exhaustively.
+/// (The other half, references inside page fragments, is `rename::rewrite_hrefs`.)
+pub fn rename_route(doc: LayoutDoc, from: &str, to: &str) -> LayoutDoc {
+    let mut doc = doc;
+    for route in doc.route_order.iter_mut() {
+        if route == from {
+            *route = to.to_string();
+        }
+    }
+    for group in doc.groups.iter_mut() {
+        for route in group.routes.iter_mut() {
+            if route == from {
+                *route = to.to_string();
+            }
+        }
+    }
+    if let Some(label) = doc.page_labels.remove(from) {
+        doc.page_labels.insert(to.to_string(), label);
+    }
+    for edge in doc.edges.iter_mut() {
+        if edge.from == from {
+            edge.from = to.to_string();
+        }
+        if edge.to == from {
+            edge.to = to.to_string();
+        }
+    }
+    if let Some(position) = doc.positions.remove(from) {
+        doc.positions.insert(to.to_string(), position);
+    }
+    doc
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    fn doc() -> LayoutDoc {
+        LayoutDoc {
+            view: DesignView::Groups,
+            route_order: vec!["/a".into(), "/b".into()],
+            groups: vec![LayoutGroup { id: "g1".into(), name: "One".into(), routes: vec!["/a".into(), "/b".into()] }],
+            page_labels: [("/a".to_string(), "Alpha".to_string())].into_iter().collect(),
+            edges: vec![FlowEdge { id: "e1".into(), from: "/a".into(), to: "/b".into(), label: Some("next".into()) }],
+            positions: [("/a".to_string(), FlowPosition { x: 1.0, y: 2.0 })].into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn renaming_a_route_moves_every_reference() {
+        let next = rename_route(doc(), "/a", "/renamed");
+        assert_eq!(next.route_order, ["/renamed", "/b"]);
+        assert_eq!(next.groups[0].routes, ["/renamed", "/b"]);
+        assert_eq!(next.page_labels.get("/renamed").map(String::as_str), Some("Alpha"));
+        assert!(!next.page_labels.contains_key("/a"), "the old key is gone, not duplicated");
+        assert_eq!(next.edges[0].from, "/renamed");
+        assert_eq!(next.edges[0].to, "/b", "the other end is untouched");
+        assert!(next.positions.contains_key("/renamed"));
+        assert!(!next.positions.contains_key("/a"));
+    }
+
+    #[test]
+    fn renaming_an_end_of_an_arrow_moves_that_end_only() {
+        let next = rename_route(doc(), "/b", "/c");
+        assert_eq!(next.edges[0].from, "/a");
+        assert_eq!(next.edges[0].to, "/c");
+    }
+
+    #[test]
+    fn set_label_sets_clears_and_refuses_unknown_routes() {
+        let known = vec!["/a".to_string(), "/b".to_string()];
+        let labelled = set_label(doc(), &known, "/b", Some("  Beta  ")).unwrap();
+        assert_eq!(labelled.page_labels.get("/b").map(String::as_str), Some("Beta"), "trimmed");
+        assert_eq!(labelled.page_labels.get("/a").map(String::as_str), Some("Alpha"), "others kept");
+
+        let cleared = set_label(labelled.clone(), &known, "/a", None).unwrap();
+        assert!(!cleared.page_labels.contains_key("/a"));
+        let blanked = set_label(labelled, &known, "/a", Some("   ")).unwrap();
+        assert!(!blanked.page_labels.contains_key("/a"), "a blank label clears, it does not error");
+
+        assert!(set_label(doc(), &known, "/ghost", Some("x")).is_err(), "a label names a page");
+        let too_long = "x".repeat(MAX_LABEL + 1);
+        assert!(set_label(doc(), &known, "/a", Some(&too_long)).is_err());
+    }
+}
