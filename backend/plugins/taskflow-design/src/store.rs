@@ -94,13 +94,24 @@ async fn count_files(project_id: i64) -> usize {
 }
 
 async fn total_bytes(project_id: i64) -> usize {
-    // Content lengths summed in-process: the table is capped at 200 rows, so
-    // this stays cheap and works identically on SQLite and Postgres.
+    // Content lengths summed in-process: there is no `SUM(LENGTH(content))`
+    // through the ORM's aggregates (they sum a COLUMN, not an expression), and
+    // hand-rolled per-backend SQL would fork the soft-delete and read-routing
+    // seams this query relies on. The cost is bounded and paid off the hot
+    // path — only a write that ADDS a file checks the caps (see `write_file`),
+    // plus a restore, so an edit never runs this. At #665's 500-file cap that
+    // is at most one project's worth of content (~16 MiB) per added file.
+    // `.values(&["content"])` fetches the one column being summed, so the cost
+    // is the text itself, not also decoding 500 full model rows.
     DesignFile::objects()
         .filter(design_file::PROJECT.eq(project_id))
-        .fetch()
+        .values(&["content"])
         .await
-        .map(|rows| rows.iter().map(|r| r.content.len()).sum())
+        .map(|rows| {
+            rows.iter()
+                .map(|row| row["content"].as_str().map(str::len).unwrap_or(0))
+                .sum()
+        })
         .unwrap_or(0)
 }
 
@@ -191,7 +202,7 @@ pub async fn write_file(
                 validation::ValidationError {
                     line: 0,
                     rule: "project-size-cap",
-                    message: "Writing this file would exceed the 4 MB per-project cap.".into(),
+                    message: "Writing this file would exceed the 16 MB per-project cap.".into(),
                     found: None,
                     suggest: None,
                 },
@@ -340,14 +351,18 @@ pub async fn list_trashed(project_id: i64) -> Vec<DesignFile> {
     rows
 }
 
-/// #501: move one live file to the trash, returning its row id — `None` when
-/// no live file has that path. Runs inside the caller's project lock, like
-/// every other write here. The ORM's soft `delete()` sets `deleted_at`; from
-/// then on every default query skips the row.
+/// #501: move one live file to the trash, returning `(row id, version)` —
+/// `None` when no live file has that path. Runs inside the caller's project
+/// lock, like every other write here. The ORM's soft `delete()` sets
+/// `deleted_at`; from then on every default query skips the row.
+///
+/// The version rides along because the caller announces the trash on realtime
+/// (`views::trash_page_by_route` → `signals::emit_file_event`), and the row it
+/// would otherwise re-read is hidden from every default query by then.
 ///
 /// Callers send the realtime event themselves: the ORM's delete payload has no
 /// `project` to route it by (see `backend/src/realtime.rs`, DESIGN_FILES).
-pub async fn trash_file(project_id: i64, path: &str) -> Option<i64> {
+pub async fn trash_file(project_id: i64, path: &str) -> Option<(i64, i64)> {
     let row = load_file(project_id, path).await?;
     let trashed = DesignFile::objects()
         .filter(design_file::ID.eq(row.id))
@@ -367,7 +382,7 @@ pub async fn trash_file(project_id: i64, path: &str) -> Option<i64> {
             .delete()
             .await;
     }
-    Some(row.id)
+    Some((row.id, row.version))
 }
 
 /// Why a restore did not happen.
@@ -411,7 +426,7 @@ pub async fn restore_file(project_id: i64, path: &str) -> Result<i64, RestoreErr
             validation::ValidationError {
                 line: 0,
                 rule: "project-size-cap",
-                message: "Restoring this file would exceed the 4 MB per-project cap.".into(),
+                message: "Restoring this file would exceed the 16 MB per-project cap.".into(),
                 found: None,
                 suggest: None,
             },

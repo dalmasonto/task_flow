@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde_json::json;
 
 use umbral::web::{IntoResponse, Json, Path, Query, Response, StatusCode};
-use umbral_realtime::Realtime;
 use taskflow_agents::agent_auth::RequireAgent;
 
 use crate::layout_doc::{self, LayoutDoc};
@@ -444,9 +443,10 @@ pub struct AgentDeleteComponentInput {
 /// inside the project lock. Returned rather than responded to from inside the
 /// closure so the response is built after the lock is released.
 enum DeleteOutcome {
-    /// The row was there and is gone; carries its primary key, which is what
-    /// the realtime event names (the row itself no longer exists to re-read).
-    Deleted(i64),
+    /// The row was there and is gone; carries its primary key and the version
+    /// it held, which are what the realtime event names (the row itself no
+    /// longer exists to re-read).
+    Deleted(i64, i64),
     /// No such component in this project.
     NotFound,
     /// Referenced by at least one page fragment; carries the routes and the
@@ -533,33 +533,41 @@ pub async fn delete_component(
                     entry.map(|c| c.usage_count).unwrap_or(0),
                 );
             }
-            let row_id = files
+            let (row_id, version) = files
                 .iter()
                 .find(|f| f.path == path)
-                .map(|f| f.id)
-                .unwrap_or(0);
+                .map(|f| (f.id, f.version))
+                .unwrap_or((0, 0));
             if !store::delete_file(agent.project_id, &path).await {
                 return DeleteOutcome::NotFound;
             }
-            DeleteOutcome::Deleted(row_id)
+            DeleteOutcome::Deleted(row_id, version)
         })
         .await;
 
     match outcome {
-        DeleteOutcome::Deleted(row_id) => {
+        DeleteOutcome::Deleted(row_id, version) => {
             // The realtime event, from the one place that still knows the
             // project. Not from the ORM: see the handler's doc comment — its
-            // delete payload carries no `project`, so `Expose` would route this
-            // to `taskflow:projects` and a viewer of THIS project would hear
-            // nothing but a random sidebar entry might disappear.
+            // delete payload carries no `project`, so a group derived from the
+            // row would be lost, and a viewer of THIS project would hear
+            // nothing while a random sidebar entry might disappear.
             //
             // Sent AFTER the lock is released and after the row is gone, so a
             // subscriber that reacts by refetching cannot read the row back and
-            // resurrect it. Id-only, like every other event on this group: the
-            // chrome refetches content and recomputes the manifest over REST.
-            Realtime::to_group(crate::signals::files_group(agent.project_id))
-                .send("deleted", &json!({ "id": row_id }))
-                .await;
+            // resurrect it. `affected_routes` is empty because it MUST be: the
+            // delete was allowed only past the `InUse` refusal above, so no
+            // page fragment references this component and nothing rendered
+            // changed — the manifest refetch alone drops it from the registry.
+            crate::signals::emit_file_event(
+                agent.project_id,
+                "deleted",
+                row_id,
+                &path,
+                version,
+                Vec::new(),
+            )
+            .await;
             Ok((
                 StatusCode::OK,
                 Json(json!({
@@ -683,7 +691,8 @@ fn asset_path_refusal(message: String) -> Response {
 ///
 /// NO validation is relaxed for this route. The same `store::write_file` runs,
 /// so the path regex, `MAX_FILE_BYTES` (rule `size-cap`), the image-extension
-/// set, and the 200-file / 4 MiB caps on new rows all apply unchanged. Content
+/// set, and the file-count / project-byte caps on new rows all apply unchanged
+/// (see `validation`'s cap constants). Content
 /// is TEXT like every other design write — there is no multipart in this
 /// plugin — so raster bytes go in as `data:<mime>;base64,<payload>`, which is
 /// the shape `views::serve_file` already decodes on the way out.

@@ -579,16 +579,17 @@ pub(crate) async fn trash_page_by_route(
 ) -> Result<(String, i64), StatusCode> {
     let path = manifest::page_path_for_route(route).ok_or(StatusCode::BAD_REQUEST)?;
     let lock_path = path.clone();
-    let id = project_locks()
+    let (id, version) = project_locks()
         .with_lock(project_id, || async move { store::trash_file(project_id, &lock_path).await })
         .await
         .ok_or(StatusCode::NOT_FOUND)?;
-    // Sent by the writer, after the lock: the ORM's delete payload has no
-    // `project` to route by (backend/src/realtime.rs, DESIGN_FILES). Id-only;
-    // the chrome refetches the manifest, which no longer lists the page.
-    Realtime::to_group(signals::files_group(project_id))
-        .send("deleted", &json!({ "id": id }))
-        .await;
+    // Sent by the writer, after the lock: the soft delete fires only
+    // `bulk_post_delete` (ids, no instance), which `signals.rs` cannot route
+    // by project — see `backend/src/realtime.rs`, DESIGN_FILES. The payload
+    // names the trashed page's own route, so a viewer's canvas remounts that
+    // one board (and learns the page is gone) instead of the whole epoch.
+    let affected = manifest::route_for_page(&path).into_iter().collect();
+    signals::emit_file_event(project_id, "deleted", id, &path, version, affected).await;
     Ok((path, id))
 }
 
@@ -652,10 +653,14 @@ pub async fn restore_trashed(
         .with_lock(project_id, || async move { store::restore_file(project_id, &path).await })
         .await;
     match outcome {
-        Ok(id) => {
-            Realtime::to_group(signals::files_group(project_id))
-                .send("updated", &json!({ "id": id }))
-                .await;
+        Ok(_id) => {
+            // No realtime send here, deliberately: a restore is a plain
+            // `update_values` on the trashed row, so `signals.rs`'s bulk bridge
+            // already emits the widened event for it. An explicit send on top
+            // (which this route used to make) broadcast every restore TWICE,
+            // with the same `updated` name — invisible while the client
+            // coalesced everything into one remount, a doubled remount the
+            // moment invalidations are scoped.
             Ok((StatusCode::OK, Json(json!({ "ok": true, "restored": input.path }))).into_response())
         }
         Err(store::RestoreError::NotInTrash) => Err(StatusCode::NOT_FOUND),
@@ -665,26 +670,27 @@ pub async fn restore_trashed(
 
 /// Routes whose rendered output depends on `path`: the file's own route for a
 /// page, EVERY route for tokens, or the routes using a component. Powers the
-/// "`app-header updated; N routes changed`" response line and the chrome's
-/// reload decision.
+/// "`app-header updated; N routes changed`" response line, the chrome's
+/// reload decision, and the realtime event's `affected_routes`
+/// (`signals::emit_file`), which is why it is `pub`.
+///
+/// A page's answer is pure (`manifest::route_for_page`), so the common case —
+/// an edit of one page — costs no database work here; only a token or
+/// component write needs the manifest (all routes / the component's `used_on`).
 pub async fn affected_routes_for(path: &str, project_id: i64) -> Vec<String> {
-    let files = store::list_files(project_id).await;
-    let m = manifest::build(project_id, &files, 0);
     match DesignFileKind::for_path(path) {
         Some(DesignFileKind::Page) => manifest::route_for_page(path).into_iter().collect(),
-        Some(DesignFileKind::Token) => m.routes.iter().map(|r| r.path.clone()).collect(),
+        Some(DesignFileKind::Token) => {
+            let m = manifest::build(project_id, &store::list_files(project_id).await, 0);
+            m.routes.iter().map(|r| r.path.clone()).collect()
+        }
         Some(DesignFileKind::Component) => {
-            let name = path
-                .strip_prefix("components/")
-                .and_then(|p| p.strip_suffix(".js"));
-            name.map(|n| {
-                m.components
-                    .iter()
-                    .find(|c| c.name == n)
-                    .map(|c| c.used_on.clone())
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default()
+            let m = manifest::build(project_id, &store::list_files(project_id).await, 0);
+            path.strip_prefix("components/")
+                .and_then(|p| p.strip_suffix(".js"))
+                .and_then(|n| m.components.iter().find(|c| c.name == n))
+                .map(|c| c.used_on.clone())
+                .unwrap_or_default()
         }
         _ => Vec::new(),
     }

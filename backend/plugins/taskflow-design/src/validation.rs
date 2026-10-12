@@ -64,9 +64,19 @@ impl Validation {
 // Caps (§6.3 path rules)
 // ---------------------------------------------------------------------------
 
-pub const MAX_FILES_PER_PROJECT: usize = 200;
+/// #665: raised 200 → 500. The owner's projects run to ~500 boards, and this
+/// counts FILES (pages + components + styles + assets), so 500 boards plus
+/// their components sits comfortably inside it — while the count still bounds
+/// every operation that walks a project's files (the manifest build, the
+/// sandbox, export). Pinned by `tests/caps.rs`, from both sides.
+pub const MAX_FILES_PER_PROJECT: usize = 500;
 pub const MAX_FILE_BYTES: usize = 128 * 1024;
-pub const MAX_PROJECT_BYTES: usize = 4 * 1024 * 1024;
+/// #665: raised 4 → 16 MiB. This is the cap that actually bites first: 500
+/// files × ~8 KB is ~4 MB, so the old total would have refused the 500th file
+/// long before the file count did. 16 MiB gives ~32 KB of average page at
+/// full count, and the budget bounds the one read that sums rows (a NEW file's
+/// write, and a restore — see `store::total_bytes`).
+pub const MAX_PROJECT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Components above this size draw a split-it warning (never a rejection).
 const COMPONENT_SOFT_SIZE_BYTES: usize = 6 * 1024;

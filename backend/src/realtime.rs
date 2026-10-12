@@ -31,14 +31,14 @@ use taskflow_agents::models::{
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
     TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview, TaskflowTerminalInput,
 };
-use taskflow_design::models::{DesignComment, DesignFile, DesignLayout};
+use taskflow_design::models::{DesignComment, DesignLayout};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
 };
 use taskflow_tasks::models::{
     TaskflowTask, TaskflowTaskActivity, TaskflowTaskRelation, TaskflowTaskSession,
 };
-use umbral_realtime::{Expose, ModelAction, PresenceSpec, RealtimePlugin};
+use umbral_realtime::{Expose, PresenceSpec, RealtimePlugin};
 
 const PROJECTS_GROUP: &str = "taskflow:projects";
 
@@ -284,48 +284,49 @@ pub fn plugin() -> RealtimePlugin {
         // Design Surface: file writes (agent or operator), comment updates and
         // arrangement changes ping their project groups; `GET
         // /api/design/{project}/events` serves exactly these three groups to
-        // members. Files are id-only — the chrome refetches content +
-        // recomputes the manifest over REST, so a stale projection can never
-        // render. Comments are projected inline: pins and status badges render
+        // members. Comments are projected inline: pins and status badges render
         // straight from the event, and a comment row is already readable by
-        // every project member over REST. The layout is id-only too, and
+        // every project member over REST. The layout is id-only, and
         // deliberately so: it is a SHARED project-level document (not a
         // per-viewer one), and the client adopts it by refetching, which keeps
         // the per-user viewport half of its state untouched.
         //
-        // DELETED IS EXCLUDED, and this is the one registration where dropping
-        // an action is load-bearing rather than tidiness. A group here is
-        // derived from a COLUMN (`project`), and the ORM's delete payload cannot
-        // supply it: `QuerySet::delete` emits its per-row `post_delete` with the
-        // primary key alone — `{ "instance": { "id": N } }`, by design, because
-        // the row is gone and a pre-image SELECT per delete was not worth it
-        // (`umbral-core/src/orm/queryset/mod.rs`, the `gaps3 #29` note). So
-        // `group_for` finds no `project` and takes its `PROJECTS_GROUP` fallback,
-        // and a design_file delete would land on `taskflow:projects` — the group
-        // the frontend maps to `taskflowTables.projects`, whose handler is
-        // `setWorkspaceProjects(current => current.filter(p => p.id !== rowId))`
-        // plus, on a match, `setLiveWorkspace(null)`. `design_file.id` and
-        // `taskflow_project.id` are independent sequences over the same small
-        // integers, so that is a coin-toss at removing an unrelated project from
-        // the sidebar and blanking the open workspace.
+        // FILES ARE EMITTED ELSEWHERE, and that is what #665 changed. Every
+        // design-file event carries `{id, version, path, affected_routes}` so a
+        // canvas remounts only the boards whose render changed — and one
+        // payload shape must serve BOTH save signals: the per-row
+        // `post_save` (queryset `create` — the first write of a page) and
+        // `bulk_post_save` (`update_values` — every edit of an existing page),
+        // which `Expose` never saw. So both subscriptions and the payload
+        // builder live in `taskflow_design::signals` (subscribed from the
+        // design plugin's `on_ready`, which every boot that writes design files
+        // has), and there is deliberately NO registration for `DesignFile`
+        // here: one here as well would broadcast every create twice — proven,
+        // not theorized, by the `[DIAG]`-style double delivery this
+        // registration produced before it was removed.
         //
-        // Creates and updates are unaffected: `post_save` carries the whole row,
-        // so `project` is there. Deletes are served by the WRITER instead —
-        // `taskflow_design::agent_views::delete_component` sends the id-only
-        // `deleted` event on `signals::files_group` itself, where the project id
-        // is in hand and cannot be lost in a payload. A `bulk_post_delete`
-        // bridge in `taskflow_design::signals` cannot do that job for the same
-        // reason the payload is bare: the row is already gone.
+        // DELETED IS UNREACHABLE for the same reason it used to be excluded
+        // here, and the reason is worth keeping written down: a group is
+        // derived from a COLUMN (`project`), and the ORM's delete payload
+        // cannot supply it. `QuerySet::delete` emits its per-row `post_delete`
+        // with the primary key alone — `{ "instance": { "id": N } }`, by
+        // design, because the row is gone and a pre-image SELECT per delete was
+        // not worth it (`umbral-core/src/orm/queryset/mod.rs`, the `gaps3 #29`
+        // note). A soft delete (`store::trash_file`) is even further out of
+        // reach: it is an UPDATE firing ONLY `bulk_post_delete`, which carries
+        // ids and no instance at all. Deletes are therefore served by the
+        // WRITER — `views::trash_page_by_route` and
+        // `agent_views::delete_component` send their own event from
+        // `taskflow_design::signals`, where the project id is in hand — and
+        // nothing subscribes any delete signal, so a misrouted event (to
+        // `taskflow:projects`, whose frontend handler filters the whole sidebar
+        // by id) is never sent.
         //
         // The two sibling registrations below have the same latent shape and are
         // deliberately left as they are: nothing deletes a comment or a layout
         // row today, so their `Deleted` action is unreachable. Whoever adds one
-        // must either exclude the action here too or emit from the writer, as
-        // `delete_component` does.
-        .expose::<DesignFile>(
-            Expose::to_group_with(|ev| group_for(DESIGN_FILES, &ev.instance))
-                .actions(&[ModelAction::Created, ModelAction::Updated]),
-        )
+        // must exclude the action or emit from the writer, as the file writers
+        // do.
         .expose::<DesignComment>(
             Expose::to_group_with(|ev| group_for(DESIGN_COMMENTS, &ev.instance)),
         )

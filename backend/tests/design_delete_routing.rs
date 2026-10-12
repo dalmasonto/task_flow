@@ -185,7 +185,9 @@ async fn a_deleted_design_file_reaches_its_project_and_not_the_projects_group() 
 
     // POSITIVE CONTROL — a create still routes by the row's project. Without
     // this, dropping the whole `DesignFile` registration would satisfy every
-    // "nothing on taskflow:projects" assertion below.
+    // "nothing on taskflow:projects" assertion below. Since #665 the payload is
+    // the widened one (`path`/`version`/`affected_routes`); routing is what this
+    // test pins, and the payload shape is asserted in the plugin's own suite.
     let kept = seed_component(project, "app-nav").await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     let created = drain(&mut files_rx);
@@ -194,7 +196,12 @@ async fn a_deleted_design_file_reaches_its_project_and_not_the_projects_group() 
         vec![(
             files_group.clone(),
             "created".to_string(),
-            serde_json::json!({ "id": kept.id })
+            serde_json::json!({
+                "id": kept.id,
+                "version": 1,
+                "path": "components/app-nav.js",
+                "affected_routes": [],
+            })
         )],
         "a create must still arrive on the project's own group"
     );

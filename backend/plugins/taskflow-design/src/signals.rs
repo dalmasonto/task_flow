@@ -21,47 +21,65 @@
 //! trap `taskflow_tasks::session_timer` bridges for tasks — see its module
 //! docs for the two-signal reasoning.
 //!
-//! ## Scope: the BULK signal only
+//! ## Scope: BOTH save signals, one payload builder
 //!
-//! The per-row `post_save` half is already covered by the `Expose`
-//! registrations in `backend/src/realtime.rs`; subscribing to it here as well
-//! would broadcast every per-row write twice. Comments (`design_comment`) are
-//! written with `Manager::save` only, so they need no bridge at all.
+//! #665 merged what used to be two emitters. `backend/src/realtime.rs` exposed
+//! `DesignFile` through `Expose`, which subscribes to the per-row
+//! `post_save:<table>` signal; this module subscribed to the bulk one. Two
+//! emitters meant two payload definitions, and widening the payload (to carry
+//! `affected_routes`) would have meant widening both and keeping them in step
+//! forever. Now BOTH signals land here:
 //!
-//! ## Deletes: neither half, and neither could
+//! - `post_save:design_file` — a `Manager::save` or a queryset `create`: the
+//!   first write of a page, and any per-row update. Subscribed HERE, not by the
+//!   backend's realtime plugin: a registration there as well broadcast every
+//!   create twice (both subscriptions fire for one write), so the backend
+//!   deliberately registers nothing for `DesignFile` — see the comment where
+//!   that registration used to be, in `backend/src/realtime.rs`.
+//! - `bulk_post_save:design_file` — a queryset `update_values`:
+//!   `store::write_file`'s update branch, i.e. every edit of an EXISTING page,
+//!   which fires `bulk_post_save` ONLY (carrying `{ids, created}` and no
+//!   instance).
 //!
-//! This module deliberately does NOT bridge deletes, and that is not the same
-//! claim it used to make ("no design row is ever deleted"). A `design_file` row
-//! IS deleted now — `agent_views::delete_component` retires a component — and
-//! the gap is in the ORM's payloads rather than in the absence of a delete:
-//!
-//! - The per-row `post_delete` **does** fire (`QuerySet::delete` emits it,
-//!   `umbral-core/src/orm/queryset/mod.rs`), but with the primary key alone —
-//!   `{ "instance": { "id": N } }` — because the row is gone by then. `Expose`
-//!   routes on the row's `project` column, does not find one, and takes
-//!   `group_for`'s `taskflow:projects` fallback. So the event is not missing, it
-//!   is MISROUTED: the project's own viewers hear nothing and an unrelated
-//!   sidebar entry can vanish.
-//! - `bulk_post_delete` carries `{ "ids": [...] }` and no instance at all, so a
-//!   bridge here could not resolve a project from it either — re-reading is not
-//!   an option, the row is gone.
-//!
-//! Both halves are therefore closed at their SOURCE instead, and there are two
-//! of them, together: `backend/src/realtime.rs` drops `ModelAction::Deleted`
-//! from its `DesignFile` registration (so the misrouted event is never sent),
-//! and the deleting handler sends the correct one itself on
-//! [`files_group`], where the project id is in hand. See that registration's
-//! comment for the frontend handler the misroute would have triggered.
+//! Both funnel into [`emit_file`], so there is exactly one payload shape.
 //!
 //! ## What it emits
 //!
-//! Indistinguishable from `Expose`'s own output, so the client's existing
-//! handlers work unchanged: the same `project:{id}:{suffix}` group, the same
-//! `created` / `updated` event name, an ID-ONLY payload, and the same
-//! `Realtime::to_group(..).send(..)` call `Expose` itself makes. Design rows
-//! are id-only by contract — the chrome refetches the file and recomputes the
-//! manifest over REST, and refetches the arrangement — so nothing richer is
-//! projected here.
+//! Every page-file event carries `{id, version, path, affected_routes}`:
+//!
+//! - `affected_routes` names the routes whose rendered output changed, so the
+//!   canvas remounts only those boards instead of the whole epoch. An EMPTY
+//!   list is authoritative ("nothing renders this file" — e.g. a component
+//!   delete that was allowed only because no page used it); ABSENT or null
+//!   would mean "scope unknown, remount everything", which is what a client
+//!   meeting a design-file event without the field must do.
+//! - `version` is the row's version AFTER the write, for cache keys client-side.
+//!
+//! The payload is still small (a page write names one route); a token write
+//! names every route, which is exactly the truth: tokens feed every document.
+//!
+//! ## Deletes: neither half, and neither could
+//!
+//! This module deliberately does NOT subscribe to any delete signal, and that
+//! is not the same claim it used to make ("no design row is ever deleted"). A
+//! `design_file` row IS deleted now — `agent_views::delete_component` retires a
+//! component, and `store::trash_file` soft-deletes a page — and the ORM's
+//! delete payloads cannot route:
+//!
+//! - The per-row `post_delete` **does** fire (`QuerySet::delete` emits it,
+//!   `umbral-core/src/orm/queryset/mod.rs`), but with the primary key alone —
+//!   `{ "instance": { "id": N } }` — because the row is gone by then.
+//! - `bulk_post_delete` carries `{ "ids": [...] }` and no instance at all, and
+//!   a soft delete fires ONLY this one (the soft path is an UPDATE that emits
+//!   no `bulk_post_save`: `soft_delete_update`).
+//!
+//! So neither could resolve a project from the payload. Deletes are served by
+//! the WRITER instead — `views::trash_page_by_route` and
+//! `agent_views::delete_component` call [`emit_file_event`] themselves, where
+//! the project id is in hand and cannot be lost in a payload — and the backend
+//! registration drops `ModelAction::Deleted` so a misrouted event is never
+//! sent. See that registration's comment for the frontend handler a misroute
+//! would have triggered.
 
 use serde_json::json;
 use umbral_realtime::Realtime;
@@ -97,7 +115,19 @@ pub fn subscribe() {
     // twice.
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        // Page files: `store::write_file` edits an existing row via
+        // Page files, per-row path: `Manager::save` and queryset `create` —
+        // the first write of a page.
+        umbral::signals::subscribe_async("post_save:design_file", |payload| {
+            let id = payload["instance"]["id"].as_i64();
+            let created = created_from(payload);
+            async move {
+                if let Some(id) = id {
+                    emit_file(id, created).await;
+                }
+            }
+        });
+
+        // Page files, bulk path: `store::write_file` edits an existing row via
         // `update_values`.
         umbral::signals::subscribe_async("bulk_post_save:design_file", |payload| {
             let ids = ids_from(payload);
@@ -147,17 +177,55 @@ fn action_name(created: bool) -> &'static str {
     }
 }
 
-/// Broadcast one id-only page-file event. The row is re-read by id — the bulk
-/// payload carries no instance, and the signal fires after the write commits —
-/// which also resolves the `project` FK the group is keyed on. One re-read per
-/// edited page, bounded by `validation::MAX_FILE_BYTES` (128 KB); a row that is
-/// gone by now (or unreadable) is skipped rather than guessed at.
-async fn emit_file(id: i64, created: bool) {
+/// Broadcast one page-file event for a row that still exists. The row is
+/// re-read by id — the bulk payload carries no instance, and the signal fires
+/// after the write commits — which also resolves the `project` FK the group is
+/// keyed on. One re-read per write, bounded by `validation::MAX_FILE_BYTES`
+/// (128 KB); a row that is gone by now (or unreadable) is skipped rather than
+/// guessed at.
+pub async fn emit_file(id: i64, created: bool) {
     let Ok(row) = DesignFile::objects().get(design_file::ID.eq(id)).await else {
         return;
     };
-    Realtime::to_group(files_group(row.project.id()))
-        .send(action_name(created), &json!({ "id": row.id }))
+    // The manifest build is only needed for token/component writes — see
+    // `views::affected_routes_for`, whose page fast path is pure.
+    let affected = crate::views::affected_routes_for(&row.path, row.project.id()).await;
+    emit_file_event(
+        row.project.id(),
+        action_name(created),
+        row.id,
+        &row.path,
+        row.version,
+        affected,
+    )
+    .await;
+}
+
+/// Broadcast one design-file event from explicit values — for writers that
+/// hold the project id directly and whose row may already be gone (a trash, a
+/// component delete), or whose update signal is not one this module bridges
+/// (restores are plain `update_values`, so `emit_file` covers them; a trash is
+/// a soft delete, which fires only `bulk_post_delete`).
+///
+/// `action` is the wire event name: `"created" | "updated" | "deleted"`.
+pub async fn emit_file_event(
+    project_id: i64,
+    action: &str,
+    id: i64,
+    path: &str,
+    version: i64,
+    affected_routes: Vec<String>,
+) {
+    Realtime::to_group(files_group(project_id))
+        .send(
+            action,
+            &json!({
+                "id": id,
+                "version": version,
+                "path": path,
+                "affected_routes": affected_routes,
+            }),
+        )
         .await;
 }
 

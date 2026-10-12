@@ -120,7 +120,7 @@ import { readUIState, writeUIState } from "./design-ui-state"
 import { shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 import { PagesPanel } from "./pages-panel"
-import { createContentEpoch } from "./content-epoch"
+import { createContentEpoch, eventAffectedRoutes, invalidatedBoardKeys } from "./content-epoch"
 
 /** A selection plus the board it was captured on — the key the canvas overlay
  *  draws its rect against and the frame `design:flash` posts into. */
@@ -210,24 +210,52 @@ export function DesignSurfacePage({
   // #626: what the device frames colour their status bar and color-scheme by.
   const activeAppearance = themeAppearance(themeOptions, activeTheme)
   const activeThemeBackground = themeBackground(themeOptions, activeTheme)
-  /** Bumped on server-side file changes so iframes remount with fresh content.
-   *  It is part of EVERY frame's key, so one bump remounts every board at every
-   *  device — which is why nothing here writes it directly: a burst of writes
-   *  must reach it ONCE. All three writers below go through `contentEpochGate`,
-   *  whose trailing-edge settle is `settle-gate` (the canvas's pan/zoom gate,
-   *  imported rather than reimplemented — see `content-epoch.ts` for the full
-   *  mechanism, including why the invalidation cannot be scoped per route). */
+  /** The canvas's content invalidation, committed once per burst of server-side
+   *  file changes. A SCOPED change (`routes`) bumps only the boards of the
+   *  routes it names — layered on `boardEpochs` below, the same per-board
+   *  counters a Reload uses — while an unscoped one (`routes: null`: tokens
+   *  when the backend cannot enumerate, an older backend, a payload this build
+   *  cannot read) moves this global epoch and remounts everything. It is part
+   *  of EVERY frame's key, which is why nothing here writes it directly: a
+   *  burst of writes must reach it ONCE. All writers below go through
+   *  `contentEpochGate`, whose trailing-edge settle is `settle-gate` (the
+   *  canvas's pan/zoom gate, imported rather than reimplemented — see
+   *  `content-epoch.ts` for the full mechanism, including how a burst's routes
+   *  are UNIONED before the gate's replace semantics can drop them). */
   const [contentEpoch, setContentEpoch] = useState(0)
   const [contentEpochGate] = useState(() => createContentEpoch())
+  /** The viewport a scoped commit resolves against — which routes are open, at
+   *  which devices. Held in a REF rather than read from the commit's closure
+   *  because the commit fires from a TIMER that outlives the render which
+   *  armed the gate: by commit time the human may have opened or closed routes
+   *  (or switched devices), and the bump must land on the boards open NOW.
+   *  Synced after every render by the effect below. */
+  const scopedInvalidationRef = useRef<{ openRoutes: string[]; deviceIds: string[] }>({
+    openRoutes: [],
+    deviceIds: [],
+  })
   // Set ONCE, not per render — unlike the canvas's transform gate, whose commit
-  // is a PROP and can change identity. `setContentEpoch` is a `useState`
-  // setter, which React guarantees is stable for the life of the component, so
+  // is a PROP and can change identity. The commit closes over `setContentEpoch`
+  // (a `useState` setter, stable for the life of the component) plus a ref, so
   // a later render cannot leave a stale callback behind. A LAYOUT effect, so
   // the commit is in place before the subscription below (a passive effect,
   // therefore later) can deliver an event: a settle that fires with no commit
   // set throws rather than dropping the bump.
   useLayoutEffect(() => {
-    contentEpochGate.setCommit(setContentEpoch)
+    contentEpochGate.setCommit((change) => {
+      if (change.routes === null) {
+        setContentEpoch(change.epoch)
+        return
+      }
+      const { openRoutes: open, deviceIds: devices } = scopedInvalidationRef.current
+      const keys = invalidatedBoardKeys(change.routes, open, devices)
+      if (keys.length === 0) return
+      setBoardEpochs((current) => {
+        const next = new Map(current)
+        for (const key of keys) next.set(key, (next.get(key) ?? 0) + 1)
+        return next
+      })
+    })
   }, [contentEpochGate])
   // A pending bump must not outlive its subscriber: committing after this page
   // has gone (or after a project switch) would remount a canvas nobody is
@@ -274,6 +302,14 @@ export function DesignSurfacePage({
   // their order. It is deliberately NOT the flow itself — the flow is shared
   // (`layout`), and this is per-user viewport state.
   const [openRoutes, setOpenRoutes] = useState<string[]>([])
+  // No dep array on purpose: `openRoutes` and `deviceIds` are read fresh every
+  // render, and a scoped commit firing from a timer (see the gate's commit
+  // above) must resolve against THIS render's viewport, not the one that armed
+  // the gate. A dependency array of `[openRoutes, deviceIds]` would be
+  // equivalent but easy to under-specify the day a third input joins.
+  useEffect(() => {
+    scopedInvalidationRef.current = { openRoutes, deviceIds }
+  })
   const seededProjectRef = useRef<number | null>(null)
   /** The SHARED arrangement (view + groups + page labels). Server-owned; see
    *  `design-layout`. */
@@ -367,13 +403,14 @@ export function DesignSurfacePage({
     const unsubscribe = onDesignRealtimeEvent((event) => {
       if (event.table === taskflowTables.designFiles) {
         refreshManifest()
-        // The event is id-only — it says "a design file changed", never which
-        // one — so this remounts the whole canvas whatever changed (the
-        // `affected_routes` list the write's own response carries does not
-        // reach this browser; see `content-epoch.ts`). Coalescing is therefore
-        // the whole lever here: an editing session's burst of writes is ONE
-        // remount, not one per write.
-        contentEpochGate.fileChanged()
+        // The widened payload (#665) names the routes whose render changed, so
+        // only their boards remount. `eventAffectedRoutes` answers null for an
+        // id-only event (an older backend, a payload this build cannot read) —
+        // the gate then widens the burst to the whole canvas, the behavior
+        // every design-file event produced before the widening. Either way the
+        // burst is ONE commit: an agent's edits land as one remount of their
+        // routes, not one remount per write.
+        contentEpochGate.fileChanged(eventAffectedRoutes(event))
       } else if (event.table === taskflowTables.designComments) {
         refreshComments()
       } else if (event.table === taskflowTables.designLayout) {

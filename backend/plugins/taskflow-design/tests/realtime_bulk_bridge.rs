@@ -13,10 +13,15 @@
 //! `update_values` fires `bulk_post_save` and never `post_save`, so before the
 //! bridge the FIRST save of a row broadcast (that path is a `create`) and every
 //! later change was silent: a second viewer kept a stale canvas until they
-//! reloaded. Both halves are asserted below — the create path emits nothing
-//! here (it is `Expose`'s job, and `Expose` is registered by the backend, not
-//! by this harness), and the update path must emit exactly one id-only event on
-//! the project's group.
+//! reloaded.
+//!
+//! #665 merged the two emitters. `signals::subscribe` now owns BOTH the per-row
+//! `post_save:design_file` signal (every `create`) and the `bulk_post_save`
+//! bridge (every edit of an existing row); the backend's former
+//! `Expose::<DesignFile>` registration is gone, so there is exactly ONE payload
+//! definition. Every design-file event now carries the file's `path`, its
+//! `version` and the `affected_routes` whose rendered output changed, so a
+//! viewer's canvas remounts only the boards that actually changed.
 
 mod support;
 
@@ -27,6 +32,13 @@ use support::TestApp;
 use taskflow_design::models::{DesignFile, DesignLayout, design_file, design_layout};
 use umbral_realtime::Event;
 use umbral_realtime::Realtime;
+
+/// A minimal valid tokens document, and an edited copy for the update path
+/// (a no-op rewrite would be rejected as an identical write).
+const TOKENS_JSON: &str =
+    r##"{"version":1,"categories":{"colors":{"primary":{"light":"#15803D","dark":"#22C55E"}}}}"##;
+const TOKENS_JSON_EDITED: &str =
+    r##"{"version":1,"categories":{"colors":{"primary":{"light":"#166534","dark":"#22C55E"}}}}"##;
 
 /// Watch one group the way the SSE handler does — minus the handshake, which is
 /// policy's business, not this bridge's.
@@ -105,13 +117,16 @@ async fn re_arranging_an_existing_layout_broadcasts_to_the_project_group() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn editing_an_existing_page_broadcasts_to_the_project_group() {
+async fn creating_a_page_broadcasts_its_own_route() {
+    // The per-row `post_save` path — a queryset `create`, which is the first
+    // write of a page. Since #665 this path emits from `signals.rs` too, with
+    // the same widened payload as an edit, so a viewer remounts only this
+    // page's boards when an agent creates one.
     let app = TestApp::new_with_realtime().await;
     let (user, project) = app.create_member_with_project().await;
     let group = format!("project:{project}:design_files");
     let mut rx = watch(&group).await;
 
-    // Save #1 creates the page (per-row `post_save`, Expose's path).
     let first = app
         .put_json_as(
             user.id,
@@ -120,10 +135,43 @@ async fn editing_an_existing_page_broadcasts_to_the_project_group() {
         )
         .await;
     assert_eq!(first.status(), 201, "{}", first.text());
-    assert!(
-        drain(&mut rx).is_empty(),
-        "the create path belongs to Expose, not to the bulk bridge"
+    let row_id = first.json()["file"]["id"].as_i64().expect("the created row id");
+
+    let events = drain(&mut rx);
+    assert_eq!(events.len(), 1, "one broadcast per create: {events:?}");
+    let (channel, event, data) = &events[0];
+    assert_eq!(channel, &group, "the event must land on the project's group");
+    assert_eq!(event, "created", "a create, not an update");
+    assert_eq!(
+        data,
+        &json!({
+            "id": row_id,
+            "version": 1,
+            "path": "pages/index.html",
+            "affected_routes": ["/"],
+        }),
+        "a new page's own route is the whole blast radius"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn editing_an_existing_page_broadcasts_its_own_route() {
+    let app = TestApp::new_with_realtime().await;
+    let (user, project) = app.create_member_with_project().await;
+    let group = format!("project:{project}:design_files");
+    let mut rx = watch(&group).await;
+
+    // Save #1 creates the page (per-row `post_save`); its own broadcast is
+    // asserted by the create test above, so it is drained away here.
+    let first = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project}/file"),
+            &json!({ "path": "pages/index.html", "content": "<p>v1</p>" }),
+        )
+        .await;
+    assert_eq!(first.status(), 201, "{}", first.text());
+    drain(&mut rx);
 
     let row = DesignFile::objects()
         .filter(design_file::PROJECT.eq(project))
@@ -132,8 +180,9 @@ async fn editing_an_existing_page_broadcasts_to_the_project_group() {
         .expect("read the file row")
         .expect("the first write created one");
 
-    // Save #2 goes through `store::write_file`'s update branch — the edit that
-    // used to leave every other viewer's canvas stale until a reload.
+    // Save #2 goes through `store::write_file`'s update branch — the bulk
+    // signal, and the edit that used to leave every other viewer's canvas
+    // stale until a reload.
     let second = app
         .put_json_as(
             user.id,
@@ -150,9 +199,74 @@ async fn editing_an_existing_page_broadcasts_to_the_project_group() {
     assert_eq!(event, "updated", "an update, not a create");
     assert_eq!(
         data,
-        &json!({ "id": row.id }),
-        "id-only payload — the chrome refetches content over REST"
+        &json!({
+            "id": row.id,
+            "version": 2,
+            "path": "pages/index.html",
+            "affected_routes": ["/"],
+        }),
+        "an edit of one page affects that page's route alone"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn editing_the_tokens_broadcasts_every_route() {
+    // Tokens feed every composed document, so a token write's blast radius is
+    // the whole manifest — the one scope that legitimately remounts the canvas.
+    let app = TestApp::new_with_realtime().await;
+    let (user, project) = app.create_member_with_project().await;
+    let group = format!("project:{project}:design_files");
+    let mut rx = watch(&group).await;
+
+    for (path, content) in [
+        ("pages/index.html", "<main><h1>Home</h1></main>"),
+        ("pages/setup.html", "<main><h1>Setup</h1></main>"),
+        ("styles/tokens.json", TOKENS_JSON),
+    ] {
+        let res = app
+            .put_json_as(
+                user.id,
+                &format!("/api/design/{project}/file"),
+                &json!({ "path": path, "content": content }),
+            )
+            .await;
+        assert_eq!(res.status(), 201, "seed {path}: {}", res.text());
+    }
+    // The three creates' own broadcasts; this test is about the edit below.
+    assert_eq!(drain(&mut rx).len(), 3, "each seed broadcasts its create");
+
+    let edited = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project}/file"),
+            &json!({
+                "path": "styles/tokens.json",
+                "content": TOKENS_JSON_EDITED,
+                "base_version": 1,
+            }),
+        )
+        .await;
+    assert_eq!(edited.status(), 201, "{}", edited.text());
+
+    let events = drain(&mut rx);
+    assert_eq!(events.len(), 1, "one broadcast per token edit: {events:?}");
+    let (channel, event, data) = &events[0];
+    assert_eq!(channel, &group);
+    assert_eq!(event, "updated");
+    let mut routes: Vec<&str> = data["affected_routes"]
+        .as_array()
+        .expect("affected_routes is a list")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    routes.sort_unstable();
+    assert_eq!(
+        routes,
+        ["/", "/setup"],
+        "a token write affects EVERY route, and the list must name them"
+    );
+    assert_eq!(data["path"], "styles/tokens.json");
+    assert_eq!(data["version"], 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -194,6 +308,9 @@ async fn retiring_a_component_broadcasts_a_delete_to_the_project_group() {
         .await;
     assert_eq!(seeded.status(), 201, "{}", seeded.text());
     let row_id = seeded.json()["file"]["id"].as_i64().expect("the created row id");
+    // The seed's own create broadcast — the per-row path, owned by this module
+    // since #665 (its payload is asserted in the page create test).
+    assert_eq!(drain(&mut rx).len(), 1, "the seed broadcasts its create");
 
     let deleted = app
         .delete_json_as_agent(
@@ -224,10 +341,17 @@ async fn retiring_a_component_broadcasts_a_delete_to_the_project_group() {
     assert_eq!(event, "deleted", "a delete, not an update");
     assert_eq!(
         data,
-        &json!({ "id": row_id }),
-        "id-only, the same projection every other event on this group carries — \
-         the row is gone, so there is nothing else to send and the chrome \
-         refetches over REST"
+        &json!({
+            "id": row_id,
+            "version": 1,
+            "path": "components/app-header.js",
+            // The delete was only allowed because NOTHING used the component
+            // (`DeleteOutcome::InUse` refuses otherwise), so the blast radius
+            // is authoritatively empty — the canvas remounts nothing, and the
+            // manifest refetch alone drops the component from the registry.
+            "affected_routes": [],
+        }),
+        "a component delete names nothing to remount, and says so explicitly"
     );
 }
 
@@ -312,5 +436,97 @@ async fn an_agents_rearrangement_broadcasts_to_the_project_group() {
         data,
         &json!({ "id": row.id }),
         "id-only, the same projection the operator's write emits"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn trashing_a_page_broadcasts_its_own_route() {
+    // The trash emits from the WRITER (the ORM's delete payload cannot route);
+    // it carries the same widened shape, so a viewer who has this page open
+    // remounts that one board — which then learns the page is gone — and every
+    // other board on the canvas stays untouched.
+    let app = TestApp::new_with_realtime().await;
+    let (user, project) = app.create_member_with_project().await;
+    let group = format!("project:{project}:design_files");
+    let mut rx = watch(&group).await;
+
+    let seeded = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project}/file"),
+            &json!({ "path": "pages/about.html", "content": "<p>about</p>" }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 201, "{}", seeded.text());
+    let row_id = seeded.json()["file"]["id"].as_i64().expect("the created row id");
+    drain(&mut rx);
+
+    let trashed = app
+        .delete_as(user.id, &format!("/api/design/{project}/page?route=/about"))
+        .await;
+    assert_eq!(trashed.status(), 200, "{}", trashed.text());
+
+    let events = drain(&mut rx);
+    assert_eq!(events.len(), 1, "one broadcast per trash: {events:?}");
+    let (channel, event, data) = &events[0];
+    assert_eq!(channel, &group);
+    assert_eq!(event, "deleted", "a trash is a delete to every viewer");
+    assert_eq!(
+        data,
+        &json!({
+            "id": row_id,
+            "version": 1,
+            "path": "pages/about.html",
+            "affected_routes": ["/about"],
+        }),
+        "the trashed page's own route is the whole blast radius"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restoring_a_page_broadcasts_its_own_route() {
+    let app = TestApp::new_with_realtime().await;
+    let (user, project) = app.create_member_with_project().await;
+    let group = format!("project:{project}:design_files");
+    let mut rx = watch(&group).await;
+
+    let seeded = app
+        .put_json_as(
+            user.id,
+            &format!("/api/design/{project}/file"),
+            &json!({ "path": "pages/about.html", "content": "<p>about</p>" }),
+        )
+        .await;
+    assert_eq!(seeded.status(), 201, "{}", seeded.text());
+    let row_id = seeded.json()["file"]["id"].as_i64().expect("the created row id");
+    let trashed = app
+        .delete_as(user.id, &format!("/api/design/{project}/page?route=/about"))
+        .await;
+    assert_eq!(trashed.status(), 200, "{}", trashed.text());
+    drain(&mut rx);
+
+    let restored = app
+        .post_json_as(
+            user.id,
+            &format!("/api/design/{project}/trash/restore"),
+            &json!({ "path": "pages/about.html" }),
+        )
+        .await;
+    assert_eq!(restored.status(), 200, "{}", restored.text());
+
+    let events = drain(&mut rx);
+    assert_eq!(events.len(), 1, "one broadcast per restore: {events:?}");
+    let (channel, event, data) = &events[0];
+    assert_eq!(channel, &group);
+    assert_eq!(event, "updated", "a restore brings the row back");
+    assert_eq!(
+        data,
+        &json!({
+            "id": row_id,
+            "version": 1,
+            "path": "pages/about.html",
+            "affected_routes": ["/about"],
+        }),
+        "the restored page's own route is the whole blast radius"
     );
 }
