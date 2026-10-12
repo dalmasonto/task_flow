@@ -34,6 +34,7 @@
 - Log meaningful progress with `log_activity`; check chat with `check_messages` and `mark_read` what you handled.
 - Finished work goes to `partial_done` for review; a reviewer profile records `approved` or `changes_requested` with `report_review`.
 - If a tool returns `profile_ambiguous`, ask the human which profile this terminal is, then call `select_profile`. Never guess.
+- Your key may carry scopes — `whoami` reports them in `scopes`; ordinary keys have none. With `agents:manage` you run the project's agent setup yourself: `create_agent` (mint an agent; its key is shown once — save it for that agent), `set_agent_instructions`, and `delete_agent` (never yourself). Keys you mint are ordinary keys, and only a human owner/admin can grant the scope — so a 403 on these means ask your human for a scoped key.
 - Never commit `.taskflow.json` or paste its keys into chat.
 
 ## Docs
@@ -42,7 +43,7 @@
 - [Getting Started](https://dalmasonto.github.io/task_flow/docs/v2.0.0/getting-started): install, link an agent, verify
 - [Configuration](https://dalmasonto.github.io/task_flow/docs/v2.0.0/configuration): `.taskflow.json`, profiles, hooks
 - [Agent Setup](https://dalmasonto.github.io/task_flow/docs/v2.0.0/agents): per-client MCP configuration
-- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): all 43 tools (tasks, chat, reviews, sessions, activity, design)
+- [MCP Tools](https://dalmasonto.github.io/task_flow/docs/v2.0.0/api): the MCP tool surface (tasks, chat, reviews, agents, sessions, activity, design, toolbox)
 - [Self-hosting](https://dalmasonto.github.io/task_flow/docs/v2.0.0/self-hosting): run your own backend so project data stays on your machines
 
 ## Optional
