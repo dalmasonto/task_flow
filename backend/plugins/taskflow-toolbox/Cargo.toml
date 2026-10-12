@@ -22,3 +22,6 @@ taskflow-agents = { path = "../taskflow-agents" }
 umbral-testing = "0.0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 http = "1"
+# #700: the test harness boots the agents plugin (agent credentials resolve
+# through it), and it declares taskflow-tasks as a dependency.
+taskflow-tasks = { path = "../taskflow-tasks" }

@@ -336,6 +336,7 @@ export interface TaskflowAgentCredential {
   key_hash: string;
   status: TaskflowAgentCredentialStatus;
   scopes: string | null;
+  denied_scopes: string | null;
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string | null;
@@ -1817,6 +1818,13 @@ export interface TaskflowAgentCredentialFilters {
   "scopes__startswith"?: string;
   "scopes__in"?: string[];
   "scopes__isnull"?: boolean;
+  "denied_scopes"?: string;
+  "denied_scopes__ne"?: string;
+  "denied_scopes__contains"?: string;
+  "denied_scopes__icontains"?: string;
+  "denied_scopes__startswith"?: string;
+  "denied_scopes__in"?: string[];
+  "denied_scopes__isnull"?: boolean;
   "expires_at"?: string;
   "expires_at__ne"?: string;
   "expires_at__gte"?: string;
@@ -1842,7 +1850,7 @@ export interface TaskflowAgentCredentialFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentCredentialOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "issued_by" | "-issued_by" | "name" | "-name" | "key_prefix" | "-key_prefix" | "key_hash" | "-key_hash" | "status" | "-status" | "scopes" | "-scopes" | "expires_at" | "-expires_at" | "revoked_at" | "-revoked_at" | "created_at" | "-created_at";
+export type TaskflowAgentCredentialOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "issued_by" | "-issued_by" | "name" | "-name" | "key_prefix" | "-key_prefix" | "key_hash" | "-key_hash" | "status" | "-status" | "scopes" | "-scopes" | "denied_scopes" | "-denied_scopes" | "expires_at" | "-expires_at" | "revoked_at" | "-revoked_at" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_credential`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentCredentialCreate {
   project: number;

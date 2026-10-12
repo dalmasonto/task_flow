@@ -181,6 +181,14 @@ pub struct TaskflowAgentCredential {
     /// next ones; the allowlist in `views::normalize_scopes` is the real cap.
     #[umbral(privileged, string, max_length = 200)]
     pub scopes: Option<String>,
+    /// #700: the DEFAULT-ON capabilities this key is NOT allowed to use, as a
+    /// canonical JSON array (e.g. `["design:write"]`). `None` = nothing denied,
+    /// which is every key minted before the column existed. Same rules as
+    /// `scopes`: per-credential, written only by `link_agent` for an
+    /// owner/admin, `privileged` so auto-REST cannot write it. The effective set
+    /// is `DEFAULT_CAPABILITIES − denied ∪ scopes` (see `scopes::effective_capabilities`).
+    #[umbral(privileged, string, max_length = 200)]
+    pub denied_scopes: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     #[umbral(noedit, auto_now_add)]

@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/auth-api"
-import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, FileTextIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, ShieldCheckIcon, TerminalIcon, Trash2Icon } from "lucide-react"
+import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, FileJsonIcon, FileTextIcon, GitBranchIcon, KeyRoundIcon, LockIcon, RotateCcwIcon, ShieldCheckIcon, ShieldOffIcon, TerminalIcon, Trash2Icon } from "lucide-react"
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -7,7 +7,7 @@ import { GithubNeedsConnectError, addGithubProjectRepo, deleteAgent, fetchGithub
 import { Input } from "@/components/ui/input"
 import { AgentInstructionsDialog, InstructionsEditor } from "@/components/instructions-editor"
 import { agentInstructionsOf, instructionsChanged, instructionsSnippet, latestInstructions, normalizeInstructions, patchAgentInstructions, patchProjectInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
-import { AGENT_SCOPE_MANAGE, agentScopesOf, mayGrantAgentScopes, scopeLabel } from "@/lib/agent-scopes"
+import { AGENT_CAPABILITIES, agentScopesOf, capabilityLabel, deniedCapabilitiesOf, effectiveCapabilities, mayGrantAgentScopes, scopeLabel } from "@/lib/agent-scopes"
 import { type AuthUser } from "@/lib/auth-api"
 import { Link } from "react-router-dom"
 import { PageShell } from "@/components/layout"
@@ -53,7 +53,12 @@ export function ApiBasePage({
   // Agents deleted from this page, hidden at once for the same reason.
   const [deletedAgentIds, setDeletedAgentIds] = useState<number[]>([])
   const [localInstructions, setLocalInstructions] = useState<Record<number, InstructionsBlock>>({})
-  const [justLinked, setJustLinked] = useState<{ agent: TaskflowWorkspace["agents"][number]; keyPrefix: string; scopesText: string | null }[]>([])
+  const [justLinked, setJustLinked] = useState<{
+    agent: TaskflowWorkspace["agents"][number]
+    keyPrefix: string
+    scopesText: string | null
+    deniedText: string | null
+  }[]>([])
   const projectAgents = useMemo(() => {
     if (numericProjectId == null) return []
     const known = agents.filter((agent) => agent.project === numericProjectId)
@@ -75,6 +80,7 @@ export function ApiBasePage({
         key_hash: "",
         status: "active" as const,
         scopes: entry.scopesText,
+        denied_scopes: entry.deniedText,
         expires_at: null,
         revoked_at: null,
         created_at: null,
@@ -187,6 +193,9 @@ export function ApiBasePage({
                 // canonical JSON form the credential row stores, so the badge
                 // shows for a just-linked agent without re-reading the table.
                 scopesText: linked.scopes?.length ? JSON.stringify(linked.scopes) : null,
+                // #700: the denials ride along the same way, so a just-linked
+                // restricted key badges correctly without a reload.
+                deniedText: linked.denied_scopes?.length ? JSON.stringify(linked.denied_scopes) : null,
               },
             ])
           }}
@@ -567,7 +576,11 @@ export function LinkAgentCard({
   /// #605: mint the key with `agents:manage`, so this agent can run the rest of
   /// the project's agent setup itself. Off by default — an ordinary agent key is
   /// the safer, common case.
-  const [grantScope, setGrantScope] = useState(false)
+  /// #700: unchecked default-on capabilities (sent as `denied_scopes`) and
+  /// checked default-off ones (sent as `scopes`). Two lists because the backend
+  /// keeps two columns; the single checkbox list above is their UI.
+  const [deniedCapabilities, setDeniedCapabilities] = useState<string[]>([])
+  const [grantedScopes, setGrantedScopes] = useState<string[]>([])
 
   // The first agent is `main` (the profile the MCP picks by default); later
   // ones must be named.
@@ -579,6 +592,24 @@ export function LinkAgentCard({
       ? "Lowercase letters, numbers, - and _ only (e.g. main, reviewer)."
       : null
   const profileTakenBy = usedProfiles.get(effectiveProfile)
+
+  const toggleCapability = useCallback((id: string, defaultOn: boolean, checked: boolean) => {
+    // The two lists point in OPPOSITE directions, which is why this is not one
+    // generic "add or remove":
+    //   * a default-on capability is TICKED means allowed, and the stored list
+    //     is what is DENIED — so ticking REMOVES from it;
+    //   * a grant is TICKED means the key has it, and the stored list is the
+    //     grants themselves — so ticking ADDS to it.
+    if (defaultOn) {
+      setDeniedCapabilities((list) =>
+        checked ? list.filter((entry) => entry !== id) : [...new Set([...list, id])]
+      )
+    } else {
+      setGrantedScopes((list) =>
+        checked ? [...new Set([...list, id])] : list.filter((entry) => entry !== id)
+      )
+    }
+  }, [])
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -606,9 +637,10 @@ export function LinkAgentCard({
           display_name: name,
           profile: effectiveProfile,
           ...(markdown ? { instructions_markdown: markdown } : {}),
-          // #605: only send the key when the box was actually ticked — an empty
-          // list would be equivalent, but absent is the honest wire form.
-          ...(grantScope ? { scopes: [AGENT_SCOPE_MANAGE] } : {}),
+          // #605/#700: only send what changed — absent lists mean "no grant,
+          // nothing denied", which is the ordinary key.
+          ...(grantedScopes.length ? { scopes: grantedScopes } : {}),
+          ...(deniedCapabilities.length ? { denied_scopes: deniedCapabilities } : {}),
         })
         let block: InstructionsBlock = linked.instructions_applied
           ? { markdown, updated_at: new Date().toISOString() }
@@ -634,7 +666,7 @@ export function LinkAgentCard({
         setPending(false)
       }
     },
-    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked, instructions, grantScope]
+    [projectId, displayName, profileProblem, effectiveProfile, projectAgents.length, onLinked, instructions, grantedScopes, deniedCapabilities]
   )
 
   const handleReset = useCallback(() => {
@@ -644,7 +676,8 @@ export function LinkAgentCard({
     setProfile("")
     setInstructions("")
     setInstructionsWarning(null)
-    setGrantScope(false)
+    setDeniedCapabilities([])
+    setGrantedScopes([])
   }, [])
 
   // The BACKEND origin, not this page's: an agent runs headless and must not
@@ -777,24 +810,42 @@ export function LinkAgentCard({
             </span>
           </div>
           {canGrantScopes ? (
-            <label className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 accent-primary"
-                checked={grantScope}
-                onChange={(event) => setGrantScope(event.target.checked)}
-                disabled={pending}
-              />
-              <span className="grid gap-0.5">
-                <span className="text-xs font-medium">
-                  {scopeLabel(AGENT_SCOPE_MANAGE)} <span className="text-muted-foreground">({AGENT_SCOPE_MANAGE})</span>
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  This key may mint and revoke agents in this project and set their role instructions — so it can
-                  finish the setup by itself. Give it to an orchestrator, not to a worker.
-                </span>
-              </span>
-            </label>
+            <fieldset className="rounded-lg border bg-muted/40 p-3" disabled={pending}>
+              <legend className="px-1 text-xs font-medium">What this key may do</legend>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Everything an agent normally does is on. Switch off what this one should not touch — it still reads
+                everything, it just cannot change it. Only a project owner or admin can change this.
+              </p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {AGENT_CAPABILITIES.map((capability) => {
+                  // Default-on capabilities start ticked and DENY when unticked;
+                  // the grant starts unticked and GRANTS when ticked. One list,
+                  // two meanings, spelled out in the labels.
+                  const checked = capability.defaultOn
+                    ? !deniedCapabilities.includes(capability.id)
+                    : grantedScopes.includes(capability.id)
+                  return (
+                    <label key={capability.id} className="flex items-start gap-2" title={capability.description}>
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-4 accent-primary"
+                        checked={checked}
+                        onChange={(event) => toggleCapability(capability.id, capability.defaultOn, event.target.checked)}
+                      />
+                      <span className="grid gap-0.5">
+                        <span className="text-xs font-medium">
+                          {capability.label}
+                          {capability.defaultOn ? null : (
+                            <span className="ml-1 text-muted-foreground">(off by default)</span>
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{capability.description}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
           ) : null}
           {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}
           <Button type="submit" size="sm" disabled={pending || projectId == null}>
@@ -865,6 +916,11 @@ export function AgentsList({
             // #605: the scopes on the LIVE key — the badge answers "what can this
             // agent do beyond talking?" for the human who granted it.
             const activeScopes = active ? agentScopesOf(active) : []
+            // #700: what the live key may NOT do — the visible half of a
+            // restricted key, so a human can tell "worker" from "orchestrator"
+            // at a glance.
+            const activeDenied = active ? deniedCapabilitiesOf(active) : []
+            const effective = active ? effectiveCapabilities(active).length : 0
             const profile = profileOf(agent.identifier)
             const snippet = instructionsSnippet(blockOf(agent).markdown)
             return (
@@ -917,8 +973,8 @@ export function AgentsList({
                   ) : (
                     <span className="text-rose-600">No active key</span>
                   )}
-                  {activeScopes.length ? (
-                    <div className="mt-1">
+                  {activeScopes.length || activeDenied.length ? (
+                    <div className="mt-1 flex flex-wrap justify-end gap-1">
                       {activeScopes.map((scope) => (
                         <span
                           key={scope}
@@ -927,6 +983,16 @@ export function AgentsList({
                         >
                           <ShieldCheckIcon className="size-3" />
                           {scopeLabel(scope)}
+                        </span>
+                      ))}
+                      {activeDenied.map((capability) => (
+                        <span
+                          key={capability}
+                          className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                          title={`This key cannot change anything in the ${capabilityLabel(capability)} group (it can still read). ${effective} capabilities are on.`}
+                        >
+                          <ShieldOffIcon className="size-3" />
+                          No {capabilityLabel(capability).toLowerCase()}
                         </span>
                       ))}
                     </div>

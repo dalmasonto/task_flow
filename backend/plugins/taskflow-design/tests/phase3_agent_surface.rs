@@ -58,6 +58,7 @@ async fn seed_agent(
             key_hash: hash_key(&raw_key),
             status: TaskflowCredentialStatus::Active,
             scopes: None,
+            denied_scopes: None,
             expires_at: None,
             revoked_at: None,
             created_at: None,

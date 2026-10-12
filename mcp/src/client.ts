@@ -120,10 +120,21 @@ export class TaskflowApiError extends Error {
   readonly method: string;
   readonly path: string;
   /** The backend's machine code when the body carried one (its `error` field,
-   *  e.g. `cannot_delete_self`). A tool that must say something more specific
-   *  than the human sentence keys off this — never off the sentence's wording. */
+   *  e.g. `cannot_delete_self` or `capability_denied`). A tool that must say
+   *  something more specific than the human sentence keys off this — never off
+   *  the sentence's wording. */
   readonly code?: string;
-  constructor(method: string, path: string, status: number, detail: string, code?: string) {
+  /** #700: the capability a `capability_denied` refusal is about, so the
+   *  message can name it instead of restating the prose. */
+  readonly capability?: string;
+  constructor(
+    method: string,
+    path: string,
+    status: number,
+    detail: string,
+    code?: string,
+    capability?: string,
+  ) {
     super(`${method} ${path} → ${status}: ${detail}`);
     this.name = "TaskflowApiError";
     this.status = status;
@@ -131,6 +142,7 @@ export class TaskflowApiError extends Error {
     this.method = method;
     this.path = path;
     this.code = code;
+    this.capability = capability;
   }
 }
 
@@ -171,6 +183,12 @@ export interface Whoami {
   /** #605: the scopes THIS KEY carries (e.g. `["agents:manage"]`). Absent on a
    *  backend that predates scopes — treat that as an ordinary key. */
   scopes?: string[];
+  /** #700: the default-on capabilities this key may NOT use. */
+  denied_scopes?: string[];
+  /** #700: the EFFECTIVE set — defaults minus denials plus grants. What the key
+   *  can actually do; absent on a backend that predates #700, in which case
+   *  every ordinary agent ability applies. */
+  capabilities?: string[];
   /** #615: this agent's role instructions. Absent on a backend that predates them. */
   instructions?: InstructionsBlock;
   /** #616: the project's instructions for every agent. Absent on an older backend. */
@@ -445,7 +463,15 @@ export class TaskflowClient {
 
     const raw = await res.text();
     if (!res.ok) {
-      throw new TaskflowApiError(method, path, res.status, extractDetail(raw, res.statusText), extractCode(raw));
+      const line = parseErrorLine(raw);
+      throw new TaskflowApiError(
+        method,
+        path,
+        res.status,
+        extractDetail(raw, res.statusText),
+        line.code,
+        line.capability,
+      );
     }
     if (!raw) {
       return undefined as T;
@@ -1052,19 +1078,28 @@ export class TaskflowClient {
  * real failure.
  */
 /**
- * The backend's machine code from a JSON error body, or undefined. Distinct
- * from [`extractDetail`], which prefers the human sentence: a caller that must
- * branch on WHICH error it got reads this, so it never has to match prose.
+ * The machine-readable fields of a JSON error body: `error` (the code) and, for
+ * a `capability_denied` refusal, `capability` (#700). Distinct from
+ * [`extractDetail`], which prefers the human sentence — a caller that must
+ * branch on WHICH error it got reads these, so it never has to match prose.
  */
-export function extractCode(raw: string): string | undefined {
+export function parseErrorLine(raw: string): { code?: string; capability?: string } {
   const trimmed = raw.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) return {};
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    return typeof parsed.error === "string" ? parsed.error : undefined;
+    return {
+      code: typeof parsed.error === "string" ? parsed.error : undefined,
+      capability: typeof parsed.capability === "string" ? parsed.capability : undefined,
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+/** The code alone — kept for callers that only need it. */
+export function extractCode(raw: string): string | undefined {
+  return parseErrorLine(raw).code;
 }
 
 export function extractDetail(raw: string, statusText: string): string {

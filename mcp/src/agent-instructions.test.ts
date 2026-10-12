@@ -82,3 +82,26 @@ describe("renderScopeNotice", () => {
     expect(notice).toContain("a human owner/admin grants this scope");
   });
 });
+
+describe("renderScopeNotice — restrictions (#700)", () => {
+  it("says nothing for an unrestricted key", () => {
+    expect(renderScopeNotice({ denied_scopes: [] })).toBeNull();
+    expect(renderScopeNotice({})).toBeNull();
+  });
+
+  it("names what was switched off, and says not to retry", () => {
+    const notice = renderScopeNotice({ denied_scopes: ["design:write", "reviews:write"] })
+    expect(notice).toContain("design:write")
+    expect(notice).toContain("reviews:write")
+    expect(notice).toContain("capability_denied")
+    expect(notice).toContain("do not retry")
+    expect(notice).toContain("Reading is never restricted")
+  });
+
+  it("carries both notices when the key is restricted AND can manage agents", () => {
+    const notice = renderScopeNotice({ denied_scopes: ["chat:send"], scopes: ["agents:manage"] })
+    expect(notice).toContain("chat:send")
+    expect(notice).toContain("agents:manage")
+    expect(notice!.indexOf("restricted")).toBeLessThan(notice!.indexOf("manage agents"));
+  });
+});

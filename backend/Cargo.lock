@@ -3685,6 +3685,7 @@ dependencies = [
  "sqlx",
  "taskflow-agents",
  "taskflow-projects",
+ "taskflow-tasks",
  "tokio",
  "umbral",
  "umbral-auth",

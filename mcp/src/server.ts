@@ -26,7 +26,7 @@ import {
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError, type AgentSummary, type DesignLayoutOp } from "./client.js";
 import { renderInstructions, renderScopeNotice } from "./agent-instructions.js";
-import { agentsManageFailure } from "./agents-manage.js";
+import { agentsManageFailure, capabilityFailure } from "./agents-manage.js";
 import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
@@ -62,8 +62,17 @@ function ok(value: unknown): CallToolResult {
   return { content: [{ type: "text", text }] };
 }
 
-/** Wrap an error as a tool error result carrying the backend detail. */
+/** Wrap an error as a tool error result carrying the backend detail.
+ *
+ * #700: a capability refusal is answered for EVERY tool, not just the agent
+ * ones — a denied `design_write_page` should tell the agent which capability it
+ * lacks and who can grant it, exactly like a denied `create_agent`.
+ */
 function fail(err: unknown): CallToolResult {
+  if (err instanceof TaskflowApiError) {
+    const refusal = capabilityFailure(err);
+    if (refusal) return { content: [{ type: "text", text: refusal }], isError: true };
+  }
   const message =
     err instanceof TaskflowApiError
       ? err.message

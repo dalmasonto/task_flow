@@ -138,7 +138,7 @@ pub async fn read_page(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     authorized_project(&agent, q.project)?;
     let Some(path) = manifest::page_path_for_route(&q.route) else {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     };
     match store::load_file(agent.project_id, &path).await {
         Some(row) => Ok(Json(json!({
@@ -370,7 +370,8 @@ pub struct AgentWritePageInput {
 pub async fn write_page(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentWritePageInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let path = manifest::page_path_for_route(input.route.trim())
         .ok_or(StatusCode::BAD_REQUEST)?;
@@ -382,6 +383,7 @@ pub async fn write_page(
         input.base_version,
     )
     .await
+    .map_err(Into::into)
 }
 
 #[derive(Debug, Deserialize)]
@@ -399,12 +401,13 @@ pub struct AgentWriteComponentInput {
 pub async fn write_component(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentWriteComponentInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let name = input.name.trim();
     let reason = input.reason.trim();
     if name.is_empty() || reason.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     if reason.len() < 8 {
         return Ok((
@@ -430,6 +433,7 @@ pub async fn write_component(
         input.base_version,
     )
     .await
+    .map_err(Into::into)
 }
 
 #[derive(Debug, Deserialize)]
@@ -493,12 +497,13 @@ enum DeleteOutcome {
 pub async fn delete_component(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentDeleteComponentInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let name = input.name.trim();
     let reason = input.reason.trim();
     if name.is_empty() || reason.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     if reason.len() < 8 {
         return Ok(tokens_validation_error(
@@ -581,7 +586,7 @@ pub async fn delete_component(
             )
                 .into_response())
         }
-        DeleteOutcome::NotFound => Err(StatusCode::NOT_FOUND),
+        DeleteOutcome::NotFound => Err(StatusCode::NOT_FOUND.into()),
         DeleteOutcome::InUse(used_on, usage_count) => Ok((
             StatusCode::CONFLICT,
             Json(json!({
@@ -627,7 +632,8 @@ pub struct AgentTrashPageInput {
 pub async fn trash_page(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentTrashPageInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     if input.reason.trim().len() < 8 {
         return Ok(tokens_validation_error(
@@ -707,11 +713,12 @@ fn asset_path_refusal(message: String) -> Response {
 pub async fn write_asset(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentWriteAssetInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let raw = input.path.trim();
     if raw.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     let path = if raw.contains('/') {
         raw.to_string()
@@ -736,6 +743,7 @@ pub async fn write_asset(
         input.base_version,
     )
     .await
+    .map_err(Into::into)
 }
 
 #[derive(Debug, Deserialize)]
@@ -785,7 +793,8 @@ fn tokens_validation_error(rule: &'static str, message: String) -> Response {
 pub async fn write_tokens(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentWriteTokensInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let reason = input.reason.trim();
     if reason.is_empty() || reason.len() < 8 {
@@ -1196,7 +1205,8 @@ enum LayoutOutcome {
 pub async fn write_layout(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentLayoutWrite>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     // Exactly one of `op` / `ops`, and a batch that is neither empty nor huge.
     let ops: Vec<LayoutOp> = match (input.op, input.ops) {
@@ -1935,11 +1945,12 @@ pub async fn resolve_comment(
     RequireAgent(agent): RequireAgent,
     Path(comment_row_id): Path<i64>,
     Json(input): Json<ResolveCommentInput>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let note = input.note.trim();
     if note.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     let mut row = DesignComment::objects()
         .filter(
@@ -2139,7 +2150,8 @@ pub struct AgentRestoreVersionInput {
 pub async fn restore_version(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentRestoreVersionInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     validation::validate_path(&input.path).map_err(|_| StatusCode::BAD_REQUEST)?;
     let by = format!("{} ({})", agent.display_name, agent.agent_id);
@@ -2163,7 +2175,7 @@ pub async fn restore_version(
             })),
         )
             .into_response()),
-        store::RestoreVersionOutcome::UnknownVersion => Err(StatusCode::NOT_FOUND),
+        store::RestoreVersionOutcome::UnknownVersion => Err(StatusCode::NOT_FOUND.into()),
         store::RestoreVersionOutcome::Rejected(v) => Ok(rejection_response(&v)),
         store::RestoreVersionOutcome::Conflict(row) => Ok(conflict_response(&row)),
     }
@@ -2189,7 +2201,8 @@ pub struct AgentRenameRouteInput {
 pub async fn rename_route(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentRenameRouteInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, taskflow_agents::scopes::CapabilityError> {
+    agent.require(taskflow_agents::scopes::DESIGN_WRITE)?;
     authorized_project(&agent, input.project)?;
     let by = format!("{} ({})", agent.display_name, agent.agent_id);
     let from = input.from.clone();

@@ -69,6 +69,17 @@ that for the rest of the session.
 - You cannot change them yourself. If they look wrong or conflict with the task,
   tell your human instead of ignoring them.
 
+## What your key may do — capabilities
+- \`whoami\` reports \`capabilities\` (everything your key may do) and
+  \`denied_scopes\` (what a human switched OFF for it). An ordinary key has every
+  default and no denials.
+- A call your key is not allowed to make answers 403 with
+  \`capability_denied\` and the capability's name. That is a policy, not a
+  glitch: do NOT retry it. Tell your human which capability the work needs, or
+  find another way.
+- Reading is never restricted — a key that cannot write the design surface can
+  still read it.
+
 ## Setting up other agents — only with the agents:manage scope
 - \`whoami\` reports \`scopes\`: what YOUR KEY may do beyond ordinary agent access.
   Ordinary keys have none, and that is the normal case.

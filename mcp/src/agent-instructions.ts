@@ -13,6 +13,10 @@ export type InstructionsCarrier = {
   project_instructions?: InstructionsBlock | null;
   /** #605: the scopes this key carries. Absent on a backend that predates them. */
   scopes?: string[];
+  /** #700: the default-on capabilities this key may NOT use. */
+  denied_scopes?: string[];
+  /** #700: everything this key may do, defaults included. */
+  capabilities?: string[];
 };
 
 /** The one line typed into the pane when the instructions changed. */
@@ -20,20 +24,37 @@ export const INSTRUCTIONS_UPDATED_NOTICE =
   "[taskflow] your role/project instructions were updated — call whoami";
 
 /**
- * #605: the readable line for a key that carries `agents:manage`. Rendered in
- * the same block as the instructions (rather than only inside the JSON) because
- * it changes what the agent should DO — set up the team itself instead of
- * asking the human to link every agent.
+ * #605/#700: the readable lines about what THIS KEY may do. Rendered in the
+ * same block as the instructions (rather than only inside the JSON) because
+ * they change what the agent should DO — set up the team itself, or plan around
+ * a capability it does not have instead of discovering that with a 403.
+ *
+ * A RESTRICTED key is told first: an agent that assumes it can write and is
+ * refused mid-task has wasted the work.
  */
 export function renderScopeNotice(identity: InstructionsCarrier): string | null {
-  if (!identity.scopes?.includes("agents:manage")) return null;
-  return (
-    "## Your key can manage agents (agents:manage)\n\n" +
-    "You may mint agents in this project (`create_agent`), set their role instructions " +
-    "(`set_agent_instructions`) and revoke them (`delete_agent`). Keys you mint are ordinary " +
-    "keys — they cannot do this themselves, because only a human owner/admin grants this scope. " +
-    "Use it to finish the project's agent setup yourself rather than asking your human to link each agent."
-  );
+  const denied = identity.denied_scopes ?? [];
+  const parts: string[] = [];
+
+  if (denied.length) {
+    parts.push(
+      "## Your key is restricted — plan around it\n\n" +
+        `A project owner/admin switched OFF: ${denied.map((cap) => `\`${cap}\``).join(", ")}. ` +
+        "Calls that need those are refused with `capability_denied` (not a transient error — do not retry). " +
+        "Reading is never restricted. If the work needs one of them, tell your human which capability is missing " +
+        "rather than working around it silently."
+    );
+  }
+  if (identity.scopes?.includes("agents:manage")) {
+    parts.push(
+      "## Your key can manage agents (agents:manage)\n\n" +
+        "You may mint agents in this project (`create_agent`), set their role instructions " +
+        "(`set_agent_instructions`) and revoke them (`delete_agent`). Keys you mint are ordinary " +
+        "keys — they cannot do this themselves, because only a human owner/admin grants this scope. " +
+        "Use it to finish the project's agent setup yourself rather than asking your human to link each agent."
+    );
+  }
+  return parts.length ? parts.join("\n\n") : null;
 }
 
 const text = (block: InstructionsBlock | null | undefined): string | null =>

@@ -44,6 +44,11 @@ pub struct AgentIdentity {
     /// here, at the one place a key becomes an identity, so no handler can
     /// disagree about which credential the caller presented.
     pub scopes: Vec<String>,
+    /// #700: the default-on capabilities this credential DENIES, likewise
+    /// filtered at parse time. Empty for an ordinary key, and for every key
+    /// minted before the column existed. Together with `scopes` this is the
+    /// whole policy: see [`crate::scopes::effective_capabilities`].
+    pub denied: Vec<String>,
 }
 
 /// Extractor that yields the authenticated [`AgentIdentity`] or rejects with a
@@ -178,6 +183,7 @@ pub async fn resolve_agent(raw_key: &str) -> Option<AgentIdentity> {
         project_id: agent.project.id(),
         display_name: agent.display_name,
         scopes: crate::scopes::parse_scopes(credential.scopes.as_deref()),
+        denied: crate::scopes::parse_denied(credential.denied_scopes.as_deref()),
     })
 }
 

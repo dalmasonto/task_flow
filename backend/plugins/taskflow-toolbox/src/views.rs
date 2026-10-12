@@ -34,6 +34,15 @@ fn rejected(detail: Value) -> ApiError {
     (StatusCode::BAD_REQUEST, Json(detail))
 }
 
+/// #700: the toolbox's write gate, in THIS plugin's error shape. The envelope
+/// comes from `scopes::CapabilityError::into_status_json` so it is the same
+/// object the agents plugin sends — one envelope, two error types.
+fn require_toolbox_write(agent: &taskflow_agents::agent_auth::AgentIdentity) -> Result<(), ApiError> {
+    agent
+        .require(taskflow_agents::scopes::TOOLBOX_WRITE)
+        .map_err(taskflow_agents::scopes::CapabilityError::into_status_json)
+}
+
 async fn ensure_member(user_id: i64, project_id: i64) -> Result<(), ApiError> {
     if taskflow_projects::scope::can_access_project(user_id, project_id).await {
         Ok(())
@@ -721,6 +730,7 @@ pub async fn agent_save(
     Path(name): Path<String>,
     Json(body): Json<SaveBody>,
 ) -> Result<Response, ApiError> {
+    require_toolbox_write(&agent)?;
     let dry_run = body.dry_run;
     let label = agent.display_name.clone();
     let (entry, redactions) =
@@ -749,6 +759,7 @@ pub async fn agent_report_run(
     Path(name): Path<String>,
     Json(body): Json<ReportRunBody>,
 ) -> Result<Json<Value>, ApiError> {
+    require_toolbox_write(&agent)?;
     let mut entry = load_entry(agent.project_id, &name).await?;
     entry.last_run_at = Some(chrono::Utc::now());
     entry.last_run_ok = body.ok;
@@ -777,6 +788,7 @@ pub async fn agent_deprecate(
     Path(name): Path<String>,
     Json(body): Json<DeprecateBody>,
 ) -> Result<Json<Value>, ApiError> {
+    require_toolbox_write(&agent)?;
     if body.reason.trim().is_empty() {
         return Err(rejected(json!({ "error": "a deprecation needs a reason" })));
     }
@@ -844,6 +856,7 @@ pub async fn agent_vet(
     Path(name): Path<String>,
     Json(body): Json<VetBody>,
 ) -> Result<Json<Value>, ApiError> {
+    require_toolbox_write(&agent)?;
     if body.vetted_note.trim().is_empty() {
         return Err(rejected(json!({ "error": "vetted_note is required" })));
     }

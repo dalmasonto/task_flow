@@ -1322,6 +1322,9 @@ export type LinkAgentInput = {
   /// absent mints an ordinary key; a NON-empty list is an owner/admin-only act
   /// — the server 403s anyone else rather than quietly dropping it.
   scopes?: string[]
+  /// #700: default-on capabilities to switch OFF for this key. Same
+  /// owner/admin rule as `scopes`.
+  denied_scopes?: string[]
 }
 
 /// The link response. `key` (a `tfk_…` string) is returned ONCE and is never
@@ -1339,6 +1342,11 @@ export type LinkAgentResult = {
   instructions_applied?: boolean
   /// #605: the scopes the minted key actually carries (canonical, validated).
   scopes?: string[]
+  /// #700: the default-on capabilities it may NOT use.
+  denied_scopes?: string[]
+  /// #700: the EFFECTIVE set — defaults minus denials plus grants. What the key
+  /// can actually do; `scopes` alone says nothing about denials.
+  capabilities?: string[]
   taskflow_profile: {
     agent_id: number
     key: string

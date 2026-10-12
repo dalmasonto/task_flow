@@ -8,7 +8,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use http::header::AUTHORIZATION;
 use http::HeaderValue;
@@ -18,6 +18,47 @@ use umbral_auth::{AuthPlugin, AuthUser, token::AuthToken};
 use umbral_testing::{TestClient, boot, seq};
 
 use taskflow_projects::TaskflowProjectsPlugin;
+use umbral::plugin::{AppContext, Plugin, PluginError};
+use umbral::storage::{Storage, StorageError, StoredFile, set_storage};
+
+/// #700: the agents + tasks plugins declare `FileField`s, and the storage
+/// system check fails without a backend. The toolbox never reads or writes a
+/// blob; this exists so the harness can boot those plugins for their credential
+/// tables, exactly as `taskflow-agents/tests/support` does.
+#[derive(Debug, Default)]
+struct MemoryStorage;
+
+#[umbral::storage::async_trait]
+impl Storage for MemoryStorage {
+    async fn store(&self, filename: &str, _content_type: &str, bytes: &[u8]) -> Result<StoredFile, StorageError> {
+        let key = format!("{}-{filename}", seq());
+        Ok(StoredFile { url: format!("/media/{key}"), key, size: bytes.len() as u64 })
+    }
+    async fn retrieve(&self, _key: &str) -> Result<Vec<u8>, StorageError> {
+        Err(StorageError::NotFound)
+    }
+    async fn delete(&self, _key: &str) -> Result<(), StorageError> {
+        Ok(())
+    }
+    fn url(&self, key: &str) -> String {
+        format!("/media/{key}")
+    }
+}
+
+struct MediaTestPlugin;
+
+impl Plugin for MediaTestPlugin {
+    fn name(&self) -> &'static str {
+        "mem_media_test_toolbox"
+    }
+    fn provides_storage(&self) -> bool {
+        true
+    }
+    fn on_ready(&self, _ctx: &AppContext) -> Result<(), PluginError> {
+        set_storage(Arc::new(MemoryStorage));
+        Ok(())
+    }
+}
 use taskflow_projects::models::{
     TaskflowMembershipStatus, TaskflowProject, TaskflowProjectMember, TaskflowProjectRole,
     TaskflowProjectStatus,
@@ -54,7 +95,13 @@ impl TestApp {
         boot(|b| {
             b.plugin(AuthPlugin::<AuthUser>::default())
                 .plugin(TaskflowProjectsPlugin)
+                // #700: the agent routes resolve credentials to identities, so
+                // the agents plugin (and its tables) must be booted even though
+                // every route under test is the toolbox's own.
+                .plugin(taskflow_tasks::TaskflowTasksPlugin)
+                .plugin(taskflow_agents::TaskflowAgentsPlugin)
                 .plugin(taskflow_toolbox::TaskflowToolboxPlugin)
+                .plugin(MediaTestPlugin)
         })
         .await;
         Self {
@@ -101,6 +148,24 @@ impl TestApp {
     pub async fn post_json_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
         self.set_bearer(user_id);
         TestResponse { inner: self.client.post_json(path, &body).await }
+    }
+
+    /// #700: POST as an AGENT (`Authorization: Agent <key>`).
+    pub async fn post_json_as_agent(&self, key: &str, path: &str, body: Value) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        TestResponse { inner: self.client.post_json(path, &body).await }
+    }
+
+    /// #700: GET as an AGENT.
+    pub async fn get_as_agent(&self, key: &str, path: &str) -> TestResponse {
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Agent {key}")).expect("agent header"),
+        );
+        TestResponse { inner: self.client.get(path).await }
     }
 
     fn set_bearer(&self, user_id: i64) {
@@ -176,4 +241,72 @@ pub async fn seed_member(project: i64, user: i64, role: &str) -> i64 {
         .await
         .expect("create membership")
         .id
+}
+
+/// #700: a real agent credential for `project`, optionally with denied
+/// capabilities. `denied` goes in unvalidated on purpose — these tests are
+/// about enforcement, not about minting policy.
+pub async fn seed_agent_key(project: i64, denied: &[&str]) -> String {
+    use taskflow_agents::agent_auth::hash_key;
+    use taskflow_agents::models::{
+        TaskflowAgent, TaskflowAgentCredential, TaskflowAgentStatus, TaskflowCredentialStatus,
+    };
+    use umbral::orm::ForeignKey;
+
+    let n = seq();
+    let agent = TaskflowAgent::objects()
+        .create(TaskflowAgent {
+            id: 0,
+            project: ForeignKey::new(project),
+            display_name: format!("Toolbox Agent {n}"),
+            identifier: format!("toolbox-agent-{n}"),
+            fingerprint: None,
+            project_root: None,
+            taskflow_file_path: None,
+            runtime: Some("test".into()),
+            version: None,
+            status: TaskflowAgentStatus::Offline,
+            linked_by: None,
+            linked_user_label: None,
+            instructions_markdown: None,
+            instructions_updated_at: None,
+            last_seen_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("seed agent");
+
+    // `tfk_<prefix>_<secret>` — `RequireAgent` indexes by everything up to the
+    // SECOND underscore, so the raw key needs one.
+    let raw_key = format!("tfk_tb{n:08x}_{}", uuid_like(n));
+    let prefix = format!("tfk_tb{n:08x}");
+    TaskflowAgentCredential::objects()
+        .create(TaskflowAgentCredential {
+            id: 0,
+            project: ForeignKey::new(project),
+            agent: Some(ForeignKey::new(agent.id)),
+            issued_by: None,
+            name: format!("test key {n}"),
+            key_prefix: prefix,
+            key_hash: hash_key(&raw_key),
+            status: TaskflowCredentialStatus::Active,
+            scopes: None,
+            denied_scopes: if denied.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(denied).expect("denied list serialises"))
+            },
+            expires_at: None,
+            revoked_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("seed credential");
+
+    raw_key
+}
+
+fn uuid_like(n: u64) -> String {
+    let hex = format!("{n:016x}{:016x}", n.wrapping_mul(0x9E3779B97F4A7C15));
+    format!("{}{}", &hex[..12], &hex[12..])
 }

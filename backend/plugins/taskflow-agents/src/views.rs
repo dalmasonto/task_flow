@@ -23,6 +23,7 @@ use umbral_auth::{AuthUser, CurrentIdentity, RequireAuth, auth_user};
 use uuid::Uuid;
 
 use crate::agent_auth::{AgentIdentity, RequireAgent, hash_key};
+use crate::scopes::CapabilityError;
 use crate::models::{
     MessageTarget,
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
@@ -270,7 +271,8 @@ pub async fn upload_task_attachment_as_agent(
     Path(task_id): Path<i64>,
     headers: HeaderMap,
     raw_body: Bytes,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::TASKS_WRITE)?;
     // Authorize BEFORE parsing. `parse_attachment_files` buffers and parses up
     // to the raised body limit, so doing it first lets any authenticated agent
     // make the server chew through a large multipart body aimed at a task it
@@ -282,7 +284,7 @@ pub async fn upload_task_attachment_as_agent(
         .unwrap_or_default()
         .to_string();
     let files = parse_attachment_files(&content_type, raw_body).await?;
-    store_task_attachments(&task, files).await
+    store_task_attachments(&task, files).await.map_err(Into::into)
 }
 
 /// Serialize one message with its attachments into a JSON object.
@@ -1341,6 +1343,11 @@ pub struct LinkAgentInput {
     /// authority over the project's agents rather than ordinary membership.
     #[serde(default)]
     pub scopes: Option<Vec<String>>,
+    /// #700: default-on capabilities to SWITCH OFF for this key (see
+    /// `crate::scopes`). Absent/empty = every default stays on. Same
+    /// owner/admin rule as `scopes` — resting a capability is authority too.
+    #[serde(default)]
+    pub denied_scopes: Option<Vec<String>>,
 }
 
 /// `POST /api/taskflow/agents/link` (human-authed) — mint an agent identity.
@@ -1402,7 +1409,17 @@ pub async fn link_agent(
                 .into_response());
         }
     };
-    if scopes.is_some()
+    let denied_scopes = match crate::scopes::normalize_denied(&input.denied_scopes.unwrap_or_default()) {
+        Ok(denied) => denied,
+        Err(offending) => {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "unknown_capability", "capability": offending })),
+            )
+                .into_response());
+        }
+    };
+    if (scopes.is_some() || denied_scopes.is_some())
         && !matches!(
             caller_member.role,
             TaskflowProjectRole::Owner | TaskflowProjectRole::Admin
@@ -1434,6 +1451,7 @@ pub async fn link_agent(
         version: input.version,
         instructions_markdown: input.instructions_markdown,
         scopes,
+        denied_scopes,
         issued_by: Some(user_id),
         created_by_label: Some(linked_user_label),
     })
@@ -1456,6 +1474,9 @@ struct AgentMintSpec {
     /// Canonical JSON from `scopes::normalize_scopes`, or `None` for an
     /// ordinary key. Never assembled by hand.
     scopes: Option<String>,
+    /// #700: canonical JSON from `scopes::normalize_denied` — the default-on
+    /// capabilities this key may NOT use. `None` = nothing denied.
+    denied_scopes: Option<String>,
     /// The human who issued the key — `None` when an agent minted it, since
     /// there is no human behind that call; `created_by_label` then names the
     /// agent, which is what the "linked by …" line in the dashboard shows.
@@ -1474,6 +1495,7 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
         version,
         instructions_markdown,
         scopes,
+        denied_scopes,
         issued_by,
         created_by_label,
     } = spec;
@@ -1505,6 +1527,7 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
     let instructions = normalize_markdown(instructions_markdown);
     let tx_instructions = instructions.clone();
     let tx_scopes = scopes.clone();
+    let tx_denied = denied_scopes.clone();
 
     let (agent_id, created) = umbral::transaction(move |tx| {
         Box::pin(async move {
@@ -1549,6 +1572,7 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
                     key_hash: key_hash.clone(),
                     status: TaskflowCredentialStatus::Active,
                     scopes: tx_scopes.clone(),
+                    denied_scopes: tx_denied.clone(),
                     expires_at: None,
                     revoked_at: None,
                     created_at: None,
@@ -1597,6 +1621,11 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
             "profile": profile,
             "instructions_applied": created && instructions.is_some(),
             "scopes": crate::scopes::parse_scopes(scopes.as_deref()),
+            "denied_scopes": crate::scopes::parse_denied(denied_scopes.as_deref()),
+            "capabilities": crate::scopes::effective_capabilities(
+                &crate::scopes::parse_scopes(scopes.as_deref()),
+                &crate::scopes::parse_denied(denied_scopes.as_deref()),
+            ),
             "key": raw_key,
             "taskflow_profile": {
                 "agent_id": agent_id,
@@ -1606,18 +1635,6 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
         })),
     )
         .into_response())
-}
-
-/// The gate every agent-authed management handler shares: the caller's
-/// CREDENTIAL must carry `scope`. 403, not 404 — the agent is authenticated and
-/// knows its own name; it simply is not allowed. The scope is read from the
-/// resolved identity (the credential actually presented), never from a body.
-fn require_agent_scope(identity: &AgentIdentity, scope: &str) -> Result<(), StatusCode> {
-    if identity.scopes.iter().any(|s| s == scope) {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
-    }
 }
 
 /// Load an agent that this caller may manage: it must exist AND belong to the
@@ -1671,13 +1688,13 @@ pub struct AgentCreateAgentInput {
 pub async fn create_agent_as_agent(
     RequireAgent(identity): RequireAgent,
     Json(input): Json<AgentCreateAgentInput>,
-) -> Result<Response, StatusCode> {
-    require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
+) -> Result<Response, CapabilityError> {
+    identity.require(crate::scopes::AGENTS_MANAGE)?;
 
     let display_name = input.display_name.trim().to_string();
     let profile = input.profile.trim().to_string();
     if display_name.is_empty() || profile.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
 
     mint_agent_core(AgentMintSpec {
@@ -1689,10 +1706,14 @@ pub async fn create_agent_as_agent(
         version: input.version,
         instructions_markdown: input.instructions_markdown,
         scopes: None,
+        // An agent-minted key carries no policy at all: neither a grant nor a
+        // denial. Only a human owner/admin sets either.
+        denied_scopes: None,
         issued_by: None,
         created_by_label: Some(identity.display_name.clone()),
     })
     .await
+    .map_err(Into::into)
 }
 
 /// `PUT /api/taskflow/agents/agent/agents/{agent}/instructions` (agent-authed) —
@@ -1703,10 +1724,10 @@ pub async fn set_agent_instructions_as_agent(
     RequireAgent(identity): RequireAgent,
     Path(agent_id): Path<i64>,
     Json(input): Json<SetInstructionsInput>,
-) -> Result<Response, StatusCode> {
-    require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
+) -> Result<Response, CapabilityError> {
+    identity.require(crate::scopes::AGENTS_MANAGE)?;
     let agent = load_agent_in_project(agent_id, identity.project_id).await?;
-    apply_agent_instructions(agent, input.markdown).await
+    apply_agent_instructions(agent, input.markdown).await.map_err(Into::into)
 }
 
 /// `DELETE /api/taskflow/agents/agent/agents/{agent}` (agent-authed) — #605: an
@@ -1721,8 +1742,8 @@ pub async fn set_agent_instructions_as_agent(
 pub async fn delete_agent_as_agent(
     RequireAgent(identity): RequireAgent,
     Path(agent_id): Path<i64>,
-) -> Result<Response, StatusCode> {
-    require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
+) -> Result<Response, CapabilityError> {
+    identity.require(crate::scopes::AGENTS_MANAGE)?;
     if agent_id == identity.agent_id {
         // A BODY, not a bare status: this 403 is not "you lack the scope" (the
         // caller just passed that gate) but "not this one" — and the caller's
@@ -1789,7 +1810,8 @@ pub async fn send_message_as_agent(
     RequireAgent(agent): RequireAgent,
     headers: HeaderMap,
     raw_body: Bytes,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::CHAT_SEND)?;
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -1909,12 +1931,12 @@ pub async fn send_message_as_agent(
 
     let body = body_markdown.trim();
     if body.chars().count() > MAX_BODY_CHARS {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     // Body may be empty ONLY when at least one file is attached — a file-only
     // message is valid, an empty text-only message is not.
     if body.is_empty() && files.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
 
     // Reject an oversized file BEFORE anything is written, so a too-large file
@@ -1935,9 +1957,9 @@ pub async fn send_message_as_agent(
     // guessed nonce must not let a non-member read back a stored message.
     let channel = match crate::posting::postable_channel(&agent, channel_id).await {
         Ok(channel) => channel,
-        Err(crate::posting::PostError::ChannelNotFound) => return Err(StatusCode::NOT_FOUND),
-        Err(crate::posting::PostError::NotAllowed) => return Err(StatusCode::FORBIDDEN),
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(crate::posting::PostError::ChannelNotFound) => return Err(StatusCode::NOT_FOUND.into()),
+        Err(crate::posting::PostError::NotAllowed) => return Err(StatusCode::FORBIDDEN.into()),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR.into()),
     };
     // The DESTINATION decides, exactly as on the human path — `is_design` is
     // true when this message lands in the project's design room, whatever the
@@ -1965,7 +1987,7 @@ pub async fn send_message_as_agent(
                 .fetch()
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            return message_response(&row, &attachments);
+            return message_response(&row, &attachments).map_err(Into::into);
         }
     }
 
@@ -2039,7 +2061,7 @@ pub async fn send_message_as_agent(
         }
     }
 
-    message_response(&message, &attachments)
+    message_response(&message, &attachments).map_err(Into::into)
 }
 
 // ---------------------------------------------------------------------------
@@ -3003,21 +3025,22 @@ pub struct AgentCreateTaskInput {
 pub async fn create_task_as_agent(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentCreateTaskInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::TASKS_WRITE)?;
     if let Some(repo) = input.repo.as_deref().map(str::trim).filter(|repo| !repo.is_empty()) {
         validate_task_repo(agent.project_id, repo).await?;
     }
     let title = input.title.trim().to_string();
     if title.is_empty() || title.chars().count() > MAX_TASK_TITLE_CHARS {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     let description = input.description_markdown.unwrap_or_default();
     if description.chars().count() > MAX_TASK_TEXT_CHARS {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     if let Some(notes) = input.notes_markdown.as_deref() {
         if notes.chars().count() > MAX_TASK_TEXT_CHARS {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(StatusCode::BAD_REQUEST.into());
         }
     }
 
@@ -3121,25 +3144,26 @@ pub async fn update_task_as_agent(
     RequireAgent(agent): RequireAgent,
     Path(task_id): Path<i64>,
     Json(input): Json<AgentUpdateTaskInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::TASKS_WRITE)?;
     let mut task = load_task_in_project(task_id, agent.project_id).await?;
 
     if let Some(title) = input.title {
         let title = title.trim().to_string();
         if title.is_empty() || title.chars().count() > MAX_TASK_TITLE_CHARS {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(StatusCode::BAD_REQUEST.into());
         }
         task.title = title;
     }
     if let Some(description) = input.description_markdown {
         if description.chars().count() > MAX_TASK_TEXT_CHARS {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(StatusCode::BAD_REQUEST.into());
         }
         task.description_markdown = description;
     }
     if let Some(notes) = input.notes_markdown {
         if notes.chars().count() > MAX_TASK_TEXT_CHARS {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(StatusCode::BAD_REQUEST.into());
         }
         task.notes_markdown = Some(notes);
     }
@@ -3192,7 +3216,8 @@ pub async fn update_task_status_as_agent(
     RequireAgent(agent): RequireAgent,
     Path(task_id): Path<i64>,
     Json(input): Json<AgentUpdateStatusInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::TASKS_WRITE)?;
     let mut task = load_task_in_project(task_id, agent.project_id).await?;
     let old_status = task.status;
     task.status = input.status;
@@ -3231,7 +3256,8 @@ pub async fn update_task_status_as_agent(
 pub async fn claim_task_as_agent(
     RequireAgent(agent): RequireAgent,
     Path(task_id): Path<i64>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::TASKS_WRITE)?;
     let mut task = load_task_in_project(task_id, agent.project_id).await?;
     task.assigned_agent_id = Some(agent.agent_id);
     task.assignee_label = Some(agent.display_name.clone());
@@ -3996,7 +4022,8 @@ pub async fn review_task_as_agent(
     RequireAgent(agent): RequireAgent,
     Path(task_id): Path<i64>,
     Json(input): Json<ReviewInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::REVIEWS_WRITE)?;
     let task = load_task_in_project(task_id, agent.project_id).await?;
     apply_review(
         task,
@@ -4007,6 +4034,7 @@ pub async fn review_task_as_agent(
         input,
     )
     .await
+    .map_err(Into::into)
 }
 
 // ---------------------------------------------------------------------------
@@ -4122,13 +4150,14 @@ async fn scoped_task_link(
 pub async fn post_activity_as_agent(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<PostActivityInput>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, CapabilityError> {
+    agent.require(crate::scopes::ACTIVITY_WRITE)?;
     let events = match input {
         PostActivityInput::Batch { events } => events,
         PostActivityInput::Single(event) => vec![event],
     };
     if events.is_empty() || events.len() > MAX_ACTIVITY_BATCH {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     // Validate every event up front so the batch lands whole or not at all — a
     // bad action in event 3 must not leave events 1–2 already written.
@@ -4331,6 +4360,14 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
             // on its behalf) knows what it may do without probing a manage route
             // and reading a 403. Empty for an ordinary key.
             "scopes": agent.scopes,
+            // #700: the EFFECTIVE set — defaults minus what this key may not do,
+            // plus what it was granted. This is what a caller should check; the
+            // raw `scopes` list is the grant column and says nothing about
+            // denials.
+            "capabilities": agent.effective_capabilities(),
+            // The denial column itself, so a caller can see WHY a capability is
+            // missing instead of inferring it from the effective list.
+            "denied_scopes": agent.denied,
             "instructions": instructions_block(
                 row.instructions_markdown.as_deref(),
                 row.instructions_updated_at,

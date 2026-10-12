@@ -386,6 +386,13 @@ impl TestResponse {
 /// (`sha256(raw)` stored, prefix indexed), so the key is a real credential as
 /// far as `RequireAgent` is concerned.
 pub async fn seed_agent(project: i64, display_name: &str) -> (i64, String) {
+    seed_agent_with_denied(project, display_name, &[]).await
+}
+
+/// #700: the same seeded credential, with `denied_scopes` filled in — the key
+/// an owner restricted. `denied` goes in UNVALIDATED on purpose: these tests
+/// are about what enforcement does with a policy, not about minting it.
+pub async fn seed_agent_with_denied(project: i64, display_name: &str, denied: &[&str]) -> (i64, String) {
     use taskflow_agents::agent_auth::hash_key;
     use taskflow_agents::models::{
         TaskflowAgent, TaskflowAgentCredential, TaskflowAgentStatus, TaskflowCredentialStatus,
@@ -428,6 +435,11 @@ pub async fn seed_agent(project: i64, display_name: &str) -> (i64, String) {
             key_hash: hash_key(&raw_key),
             status: TaskflowCredentialStatus::Active,
             scopes: None,
+            denied_scopes: if denied.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(denied).expect("denied list serialises"))
+            },
             expires_at: None,
             revoked_at: None,
             created_at: None,
