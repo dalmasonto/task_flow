@@ -118,6 +118,18 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.calls.push(`readDesignLayout:${project}`);
       return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
     }
+    async designVersions(project: number, path: string) {
+      harness.calls.push(`designVersions:${project}:${path}`);
+      return { path, versions: [{ version: 2, project_revision: 9, bytes: 12, deleted: false, updated_by: "x", created_at: null }] };
+    }
+    async designVersion(project: number, path: string, version: number) {
+      harness.calls.push(`designVersion:${project}:${path}:${version}`);
+      return { path, version, project_revision: 9, deleted: false, updated_by: "x", content: "<p>old</p>", preview_revision: 9 };
+    }
+    async designRestoreVersion(project: number, path: string, version: number) {
+      harness.calls.push(`designRestoreVersion:${project}:${path}:${version}`);
+      return { ok: true, file: { version: 3, content: "<p>old</p>" }, restored_from: version };
+    }
     async designSearch(project: number, params: { query: string; wholeWord?: boolean; scope?: string }) {
       // The PARAMS are recorded, not just the call: the whole point of #664 is
       // that the defaults an agent never spells out (whole word on, code scope
@@ -639,6 +651,43 @@ describe("design_read_layout", () => {
     // have resolved to before it asked for anything.
     expect(harness.calls).toContain("readDesignLayout:2");
     expect(JSON.stringify(result.content)).toMatch(/Auth/);
+  });
+});
+
+describe("design version history (#520)", () => {
+  it("registers the three tools, and says a restore is a NEW write", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    for (const name of ["design_list_versions", "design_read_version", "design_restore_version"]) {
+      expect(tools.tools.find((t) => t.name === name), `${name} must be registered`).toBeDefined();
+    }
+    const restore = tools.tools.find((t) => t.name === "design_restore_version");
+    // The sentence that keeps an agent from believing this is a rewind, or
+    // from fearing it destroys what it replaces.
+    expect(restore?.description ?? "").toMatch(/NEW WRITE/i);
+    const list = tools.tools.find((t) => t.name === "design_list_versions");
+    expect(list?.description ?? "").toMatch(/project_revision/);
+    const read = tools.tools.find((t) => t.name === "design_read_version");
+    expect(read?.description ?? "").toMatch(/preview_revision/);
+  });
+
+  it("passes path and version through to the endpoints", async () => {
+    const client = await connectedClient();
+    await client.callTool({
+      name: "design_list_versions",
+      arguments: { path: "pages/index.html", profile: "main" },
+    });
+    await client.callTool({
+      name: "design_read_version",
+      arguments: { path: "pages/index.html", version: 2, profile: "main" },
+    });
+    await client.callTool({
+      name: "design_restore_version",
+      arguments: { path: "pages/index.html", version: 2, profile: "main" },
+    });
+    expect(harness.calls).toContain("designVersions:2:pages/index.html");
+    expect(harness.calls).toContain("designVersion:2:pages/index.html:2");
+    expect(harness.calls).toContain("designRestoreVersion:2:pages/index.html:2");
   });
 });
 

@@ -17,6 +17,18 @@ pub fn router() -> Router {
             get(views::get_manifest),
         )
         .route(
+            "/api/design/{project}/versions",
+            get(views::list_versions),
+        )
+        .route(
+            "/api/design/{project}/version",
+            get(views::read_version),
+        )
+        .route(
+            "/api/design/{project}/version/restore",
+            post(views::restore_version),
+        )
+        .route(
             "/api/design/{project}/sandbox-token",
             get(views::mint_sandbox_token),
         )
@@ -128,6 +140,20 @@ pub fn router() -> Router {
         .route(
             "/api/taskflow/agents/design/search",
             get(crate::search::search),
+        )
+        // #520: history. Reads are plain; a restore is a WRITE and runs
+        // through the same lock, validator and versioning as any other.
+        .route(
+            "/api/taskflow/agents/design/versions",
+            get(agent_views::list_versions),
+        )
+        .route(
+            "/api/taskflow/agents/design/version",
+            get(agent_views::read_version),
+        )
+        .route(
+            "/api/taskflow/agents/design/restore-version",
+            post(agent_views::restore_version),
         )
         .route(
             "/api/taskflow/agents/design/compare",

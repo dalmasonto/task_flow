@@ -551,6 +551,46 @@ export async function fetchPageHtmlFragment(projectId: number, route: string): P
   return res.text()
 }
 
+/// #520: one recorded version of a file, from `GET /api/design/{project}/versions`.
+export type DesignFileVersionSummary = {
+  version: number
+  project_revision: number
+  bytes: number
+  deleted: boolean
+  updated_by: string
+  created_at: string | null
+}
+
+export async function fetchDesignVersions(
+  projectId: number,
+  path: string
+): Promise<DesignFileVersionSummary[]> {
+  const res = await designFetch(
+    `/api/design/${projectId}/versions?path=${encodeURIComponent(path)}`
+  )
+  if (!res.ok) throw new Error(`Could not load versions (${res.status}).`)
+  const body = await readJson<{ versions?: DesignFileVersionSummary[] }>(res)
+  return body.versions ?? []
+}
+
+/// #520: bring an old version back — the server writes it as a NEW version and
+/// broadcasts it like any other edit, so every viewer's canvas updates itself.
+export async function restoreDesignVersion(
+  projectId: number,
+  path: string,
+  version: number
+): Promise<void> {
+  const res = await designFetch(`/api/design/${projectId}/version/restore`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path, version }),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    throw new Error(detail || `Could not restore version ${version} (${res.status}).`)
+  }
+}
+
 export async function fetchDesignComments(
   projectId: number,
   status?: string

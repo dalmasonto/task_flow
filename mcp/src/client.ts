@@ -591,6 +591,32 @@ export class TaskflowClient {
     });
   }
 
+  /** `GET /agents/design/versions` — #520: every recorded version of one
+   * file, newest first, and each with the `project_revision` that orders the
+   * timeline. No content: designVersion reads the one version wanted. */
+  designVersions(project: number, path: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/versions`, {
+      query: { project, path },
+      idempotent: true,
+    });
+  }
+
+  /** `GET /agents/design/version` — #520: one recorded version's content. */
+  designVersion(project: number, path: string, version: number): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/version`, {
+      query: { project, path, version },
+      idempotent: true,
+    });
+  }
+
+  /** `POST /agents/design/restore-version` — #520: bring an old version back
+   * as a NEW write (validated, versioned, recorded — undoable in turn). */
+  designRestoreVersion(project: number, path: string, version: number): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/design/restore-version`, {
+      body: { project, path, version },
+    });
+  }
+
   /** `GET /agents/design/search` — #664: find what the pages SAY.
    *
    * One call replaces reading every page to find a term: the server scans

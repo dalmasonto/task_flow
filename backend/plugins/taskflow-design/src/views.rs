@@ -1148,7 +1148,15 @@ async fn serve_sandbox_page(
         Some(raw) => crate::compare::decode(raw).map_err(|_| StatusCode::BAD_REQUEST)?,
         None => crate::compare::Overrides::default(),
     };
-    let files = store::list_files(project_id).await;
+    // #520: `?rev=R` renders the project AS IT WAS at revision R — that page,
+    // those tokens, those components — which is what previewing a version
+    // means. Absent (and for any unparsable value), the live files. A revision
+    // older than retention renders with what survives, the same graceful
+    // degradation the version list has.
+    let files = match query.and_then(|q| query_param(q, "rev")).and_then(|raw| raw.parse::<i64>().ok()) {
+        Some(rev) => store::files_at(project_id, rev).await,
+        None => store::list_files(project_id).await,
+    };
     // `?theme=<name>` renders the page in that theme from the first byte, the
     // same `data-theme` the canvas sets with `design:theme` after load — so a
     // screenshot has no light first paint to catch. #619: any theme the
@@ -1280,7 +1288,13 @@ pub async fn serve_file(
     // hand-authored CSS has its legacy row imported. Either way the served
     // sheet is generated: stored tokens plus the built-in shadcn defaults.
     if path == "styles/tokens.css" {
-        let css = effective_tokens_css(project_id).await;
+        // #520: the `?v=` a past-revision document carries names the tokens OF
+        // ITS TIME; generating from today's row would render an old page with
+        // tokens it never had.
+        let css = match version_param(req.uri().query()) {
+            Some(requested) => effective_tokens_css_at(project_id, requested).await,
+            None => effective_tokens_css(project_id).await,
+        };
         let mut response = css.into_response();
         apply_subresource_headers(&mut response, &token, versioned);
         response
@@ -1289,19 +1303,32 @@ pub async fn serve_file(
         return Ok(response);
     }
 
-    let row = store::load_file(project_id, &path)
-        .await
-        .ok_or(StatusCode::NOT_FOUND)?;
+    // #520: the same rule for components and assets — a request naming a
+    // version the live row is NOT serves the recorded version of that path.
+    let requested = version_param(req.uri().query());
+    let live = store::load_file(project_id, &path).await;
+    let content = match requested {
+        Some(version) if live.as_ref().map(|row| row.version) != Some(version) => {
+            match store::read_version(project_id, &path, version).await {
+                Some(row) => row.content,
+                // Not in the retained history (or no history yet): the live row
+                // is the honest answer — a version older than retention serves
+                // what survives, exactly as `?rev=` does.
+                None => live.map(|row| row.content).ok_or(StatusCode::NOT_FOUND)?,
+            }
+        }
+        _ => live.map(|row| row.content).ok_or(StatusCode::NOT_FOUND)?,
+    };
 
     let mut response = if path.starts_with("assets/") {
         // Raster assets may be stored base64-wrapped (`data:<mime>;base64,…`)
         // because the storage column is TEXT; decode on serve. SVG ships as
         // plain text like any other file.
-        decoded_asset_bytes(&row.content)
-            .unwrap_or_else(|| row.content.clone().into_bytes())
+        decoded_asset_bytes(&content)
+            .unwrap_or_else(|| content.clone().into_bytes())
             .into_response()
     } else {
-        row.content.into_response()
+        content.into_response()
     };
 
     apply_subresource_headers(&mut response, &token, versioned);
@@ -1316,6 +1343,24 @@ pub async fn serve_file(
 /// globals.css shape. Always answers — an empty project renders the defaults.
 async fn effective_tokens_css(project_id: i64) -> String {
     let project = crate::tokens::load_project_tokens_doc(project_id).await;
+    tokens_json_to_css(&crate::defaults::effective_tokens(&project))
+}
+
+/// The tokens CSS as of a named VERSION — what a past revision's document
+/// points at. Falls back to the live sheet when the version IS the live one,
+/// when nothing matches (aged out of history), or when the project has no
+/// token rows at all.
+async fn effective_tokens_css_at(project_id: i64, version: i64) -> String {
+    let live = store::load_file(project_id, "styles/tokens.json").await;
+    if live.as_ref().map(|row| row.version) == Some(version) {
+        return effective_tokens_css(project_id).await;
+    }
+    let json = store::read_version(project_id, "styles/tokens.json", version).await.map(|row| row.content);
+    let css = store::read_version(project_id, "styles/tokens.css", version).await.map(|row| row.content);
+    if json.is_none() && css.is_none() {
+        return effective_tokens_css(project_id).await;
+    }
+    let project = crate::tokens::project_tokens_doc_from(json.as_deref(), css.as_deref());
     tokens_json_to_css(&crate::defaults::effective_tokens(&project))
 }
 
@@ -1479,4 +1524,91 @@ fn decoded_asset_bytes(content: &str) -> Option<Vec<u8>> {
     let rest = content.strip_prefix("data:")?;
     let (_mime, b64) = rest.split_once(";base64,")?;
     base64::engine::general_purpose::STANDARD.decode(b64.trim()).ok()
+}
+
+// ---------------------------------------------------------------------------
+// #520: version history (operator)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct VersionsQuery {
+    pub path: String,
+}
+
+/// `GET /api/design/{project}/versions?path=` — the file's recorded versions,
+/// newest first, without content.
+pub async fn list_versions(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Query(params): Query<VersionsQuery>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let versions = store::list_versions(project_id, &params.path).await;
+    Ok((StatusCode::OK, Json(json!({ "path": params.path, "versions": versions }))).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VersionQuery {
+    pub path: String,
+    pub version: i64,
+}
+
+/// `GET /api/design/{project}/version?path=&version=` — one version's content.
+pub async fn read_version(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Query(params): Query<VersionQuery>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let row = store::read_version(project_id, &params.path, params.version)
+        .await
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "path": row.path,
+            "version": row.version,
+            "project_revision": row.project_revision,
+            "deleted": row.deleted,
+            "updated_by": row.updated_by,
+            "content": row.content,
+        })),
+    )
+        .into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RestoreVersionInput {
+    pub path: String,
+    pub version: i64,
+}
+
+/// `POST /api/design/{project}/version/restore` — put an old version back as a
+/// NEW write (same lock, validator and versioning as any edit).
+pub async fn restore_version(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<RestoreVersionInput>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    let caller = load_caller(user_id).await?;
+    let by = operator_attribution(&caller);
+    let path = input.path.clone();
+    let outcome = project_locks()
+        .with_lock(project_id, || async move {
+            store::restore_version(project_id, &path, input.version, &by).await
+        })
+        .await;
+    match outcome {
+        store::RestoreVersionOutcome::Restored(row) => {
+            // The same widened event every other file write sends, so other
+            // viewers remount only this page's boards.
+            let affected = affected_routes_for(&row.path, project_id).await;
+            signals::emit_file_event(project_id, "updated", row.id, &row.path, row.version, affected).await;
+            Ok((StatusCode::OK, Json(json!({ "ok": true, "file": row, "restored_from": input.version }))).into_response())
+        }
+        store::RestoreVersionOutcome::UnknownVersion => Err(StatusCode::NOT_FOUND),
+        store::RestoreVersionOutcome::Rejected(v) => Ok(rejection_response(&v)),
+        store::RestoreVersionOutcome::Conflict(row) => Ok(conflict_response(&row)),
+    }
 }

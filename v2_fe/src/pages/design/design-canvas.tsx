@@ -39,6 +39,7 @@ import {
   RotateCwIcon,
   CopyIcon,
   ExternalLinkIcon,
+  HistoryIcon,
   RefreshCwIcon,
   Undo2Icon,
   XIcon,
@@ -204,6 +205,9 @@ export type DesignCanvasProps = {
   /** Move this board's PAGE to the trash (after the menu's confirm dialog).
    *  Absent: the menu offers no delete. */
   onDeletePage?: (route: string) => void
+  /** #520: open the page's version history (list, preview, restore).
+   *  Absent: the menu offers no history. */
+  onVersionHistory?: (route: string) => void
   /** #508: the Flow view. Present, the canvas draws the layout's links
    *  between screens, lets screens be dragged (positions persist) and links be
    *  drawn, named and removed. Absent, it is a board canvas. */
@@ -259,6 +263,7 @@ export const DesignCanvas = memo(function DesignCanvas({
   onRemoveBoard,
   onDownloadImage,
   onDeletePage,
+  onVersionHistory,
   flow,
   selection,
   pins,
@@ -507,6 +512,7 @@ export const DesignCanvas = memo(function DesignCanvas({
             onRemoveBoard,
             onDownloadImage,
             onDeletePage,
+            onVersionHistory,
             sandboxToken,
             projectId,
             panMode,
@@ -518,7 +524,7 @@ export const DesignCanvas = memo(function DesignCanvas({
       }),
     [
       artboards, labelFor, contentEpoch, boardEpochs, registerBoardReport, theme, appearance, themeBackground, picking, deviceIds,
-      onReloadBoard, onOpenBoard, onDuplicateBoard, onRemoveBoard, onDownloadImage, onDeletePage,
+      onReloadBoard, onOpenBoard, onDuplicateBoard, onRemoveBoard, onDownloadImage, onDeletePage, onVersionHistory,
       sandboxToken, projectId, panMode, inFlow, snapshotStamps, getSandboxToken,
     ],
   )
@@ -710,6 +716,7 @@ type BoardNodeData = {
   onRemoveBoard: (route: string) => void
   onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   onDeletePage?: (route: string) => void
+  onVersionHistory?: (route: string) => void
   sandboxToken: string | null
   projectId: number | null
   panMode: boolean
@@ -789,6 +796,7 @@ const ArtboardCard = memo(function ArtboardCard({
   onRemoveBoard,
   onDownloadImage,
   onDeletePage,
+  onVersionHistory,
   sandboxToken,
   projectId,
   panMode,
@@ -824,6 +832,8 @@ const ArtboardCard = memo(function ArtboardCard({
   onRemoveBoard: (route: string) => void
   onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   onDeletePage?: (route: string) => void
+  /** #520: open this page's version history. Absent: the menu offers none. */
+  onVersionHistory?: (route: string) => void
   sandboxToken: string | null
   projectId: number | null
   /** Pan tool active or Space held: the iframe must not swallow the drag that
@@ -890,6 +900,7 @@ const ArtboardCard = memo(function ArtboardCard({
         onRemoveBoard={onRemoveBoard}
         onDownloadImage={onDownloadImage}
         onDeletePage={onDeletePage}
+        onVersionHistory={onVersionHistory}
       />
       </div>
       {/* `nodrag`: the page is for using — scroll it, pick in it — never for
@@ -965,6 +976,7 @@ export function ArtboardHeader({
   onRemoveBoard,
   onDownloadImage,
   onDeletePage,
+  onVersionHistory,
 }: {
   /** This board's `route@device` key — what the per-board actions are keyed by
    *  (`route` alone is not unique: one route renders once per device). */
@@ -1002,6 +1014,8 @@ export function ArtboardHeader({
   onDownloadImage?: (route: string, label: string, deviceId: string, withFrame: boolean, fullPage: boolean) => void
   /** Trash this page; only ever called from the confirm dialog below. */
   onDeletePage?: (route: string) => void
+  /** #520: open this page's version history. Absent: the menu offers none. */
+  onVersionHistory?: (route: string) => void
 }) {
   /// The delete confirmation. Held here, beside the menu that opens it: the
   /// menu closes on the click, and the dialog must outlive it.
@@ -1213,6 +1227,12 @@ export function ArtboardHeader({
             <XIcon className="size-3.5" />
             Remove
           </DropdownMenuItem>
+          {onVersionHistory ? (
+            <DropdownMenuItem onClick={() => onVersionHistory(route)}>
+              <HistoryIcon className="size-3.5" />
+              Version history…
+            </DropdownMenuItem>
+          ) : null}
           {onDeletePage ? (
             <>
               <DropdownMenuSeparator />

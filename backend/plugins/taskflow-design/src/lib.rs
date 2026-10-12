@@ -70,6 +70,8 @@ impl Plugin for TaskflowDesignPlugin {
             umbral::migrate::ModelMeta::for_::<models::DesignFile>(),
             umbral::migrate::ModelMeta::for_::<models::DesignComment>(),
             umbral::migrate::ModelMeta::for_::<models::DesignLayout>(),
+            // #520: append-only history, one row per accepted write.
+            umbral::migrate::ModelMeta::for_::<models::DesignFileVersion>(),
         ]
     }
 

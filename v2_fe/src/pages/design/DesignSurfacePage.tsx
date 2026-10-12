@@ -119,6 +119,7 @@ import { nextDesignTab, type DesignTab } from "./design-tabs"
 import { readUIState, writeUIState } from "./design-ui-state"
 import { dropMissingRoutes, shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
+import { VersionHistoryDialog } from "./version-history-dialog"
 import { PagesPanel } from "./pages-panel"
 import { createContentEpoch, eventAffectedRoutes, invalidatedBoardKeys } from "./content-epoch"
 import { invalidateRoutes, routeVisualStamps } from "./design-snapshots"
@@ -161,6 +162,8 @@ export function DesignSurfacePage({
 }) {
   const navigate = useNavigate()
   const [manifest, setManifest] = useState<DesignManifest | null>(null)
+  /** #520: which page's version history is open, by route (null = closed). */
+  const [historyRoute, setHistoryRoute] = useState<string | null>(null)
   /** #665: per-route snapshot stamps — the versions a cached board image must
    *  still match to be shown (see `design-snapshots.ts`). Recomputed with the
    *  manifest; an empty map while it loads means boards capture but never
@@ -367,6 +370,24 @@ export function DesignSurfacePage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [layout, openRoutes, deviceIds, frameMode],
   )
+
+  /// #520: the manifest entry for the page whose history is open — its `file`
+  /// is what the versions endpoints are keyed by. Null when the route has no
+  /// entry (never for an open board, but a stale route must not crash the
+  /// dialog).
+  const historyEntry = useMemo(
+    () => (historyRoute ? (manifest?.routes.find((r) => r.path === historyRoute) ?? null) : null),
+    [historyRoute, manifest],
+  )
+  /// A restore already broadcasts on the realtime feed (this browser included),
+  /// so this only keeps the panel's own reads current without waiting for the
+  /// echo.
+  const refreshManifestNow = useCallback(() => {
+    if (projectId === null) return
+    void fetchDesignManifest(projectId)
+      .then((m) => setManifest(m))
+      .catch(() => null)
+  }, [projectId])
 
   const refreshComments = useCallback(() => {
     if (!projectId) return
@@ -1266,6 +1287,7 @@ export function DesignSurfacePage({
               onRemoveBoard={handleRemoveBoard}
               onDownloadImage={downloadBoardImage}
               onDeletePage={trashPage}
+              onVersionHistory={setHistoryRoute}
               // The Flow view: links between screens, draggable screens. Every
               // edit is a layout edit — the same save, realtime echo and
               // deleted-page filter as any other.
@@ -1396,6 +1418,22 @@ export function DesignSurfacePage({
         defaultDeviceId={deviceIds[0] ?? DEFAULT_DEVICE_ID}
         defaultDress={frameMode === "outline" ? "none" : frameMode}
       />
+      {/* #520: the open page's version history. Closed unless a board's ⋯ menu
+          asked, and keyed to the route — the dialog loads its own versions. */}
+      {historyRoute && projectId !== null && historyEntry ? (
+        <VersionHistoryDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setHistoryRoute(null)
+          }}
+          projectId={projectId}
+          route={historyRoute}
+          path={historyEntry.file}
+          label={labelFor(historyRoute)}
+          getSandboxToken={getSandboxToken}
+          onRestored={refreshManifestNow}
+        />
+      ) : null}
     </section>
   )
 }

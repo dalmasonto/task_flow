@@ -1115,6 +1115,68 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   server.tool(
+    "design_list_versions",
+    "Every recorded version of ONE design file, newest first — #520's history. `path` is a file path (`pages/index.html`, `components/app-header.js`, `styles/tokens.json`). Each entry carries `version` (the file version to pass to design_read_version / design_restore_version), `project_revision` (its place in the project timeline), `bytes`, `updated_by`, and `deleted` (a trash is recorded too). Content is NOT included: read the version you want. Use this before assuming an old design is gone — a page's last 20 versions are kept, along with the tokens and components they rendered with.",
+    {
+      path: z.string().min(1).describe("File path, e.g. 'pages/index.html'."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ path, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.designVersions(await resolveDesignProject(client, project), path));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_read_version",
+    "One recorded version's content, with `preview_revision` — the project revision to render it at, so the version can be SEEN with the tokens and components of its time (the sandbox takes `?rev=<preview_revision>`, and design_read_page/design_write_page work on the LIVE file). Reach for this when the owner says \"bring back how the pricing page looked last week\": list the versions, read the one they mean, then design_restore_version it.",
+    {
+      path: z.string().min(1).describe("File path, e.g. 'pages/index.html'."),
+      version: z.number().int().describe("The file version from design_list_versions."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ path, version, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.designVersion(await resolveDesignProject(client, project), path, version));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "design_restore_version",
+    "Bring an old version back (#520). This is a NEW WRITE, not a rewind: the old content is written as a new version through the normal validator, so the history stays complete and the restore can itself be undone by restoring the version it replaced. Read the version first (design_read_version) when it matters what is in it — the restore does not ask. Answers with the new version and a `restored_from`.",
+    {
+      path: z.string().min(1).describe("File path, e.g. 'pages/index.html'."),
+      version: z.number().int().describe("The file version to bring back."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ path, version, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(await client.designRestoreVersion(await resolveDesignProject(client, project), path, version));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
     "design_search",
     "Find what the design SAYS, without reading every page: one call answers \"which pages mention this term, and where\". USE THIS FIRST for any rename, audit or copy review (e.g. renaming \"AI coach\" to \"Pulse\"): search, then design_read_page / design_write_page ONLY the pages it returns. Never read every page to find a term. " +
       "Searches stored design files server-side, not raw HTML: `text` (default scope) matches visible text runs; `attributes` matches the accessibility attributes a rename must not miss (alt, title, aria-label, placeholder, value); `code` matches class names, ids, data-* and scripts and is OFF unless you ask for it, so \"coach\" inside class=\"coach-card\" is not reported as copy; `page_names` matches page titles and Pages-panel labels; `groups` and `flow_labels` match the arrangement. Components are searched whole and reported ONCE with `used_by_routes` — one edit to a component fixes every route that uses it, so do not treat those routes as separate edits. " +

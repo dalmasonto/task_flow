@@ -2178,3 +2178,104 @@ mod all_shots_tests {
         assert!(detail.contains("light: Renderer timed out") && detail.contains("ocean: skipped: time budget"), "{detail}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// #520: version history — what a screen was, and how to bring it back
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AgentVersionsQuery {
+    pub project: i64,
+    pub path: String,
+}
+
+/// `GET /api/taskflow/agents/design/versions?project=&path=` — every recorded
+/// version of one file, newest first, WITHOUT content (the follow-up read
+/// fetches the one whose content is wanted).
+pub async fn list_versions(
+    RequireAgent(agent): RequireAgent,
+    Query(q): Query<AgentVersionsQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    authorized_project(&agent, q.project)?;
+    validation::validate_path(&q.path).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let versions = store::list_versions(agent.project_id, &q.path).await;
+    Ok(Json(json!({
+        "path": q.path,
+        "versions": versions,
+        "note": "Newest first. `project_revision` orders the timeline: a version shown as of a revision renders with the tokens and components of that moment (see design_read_version's `preview_revision`).",
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentVersionQuery {
+    pub project: i64,
+    pub path: String,
+    pub version: i64,
+}
+
+/// `GET /api/taskflow/agents/design/version` — one recorded version's content,
+/// with the revision to preview it at.
+pub async fn read_version(
+    RequireAgent(agent): RequireAgent,
+    Query(q): Query<AgentVersionQuery>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, q.project)?;
+    let row = store::read_version(agent.project_id, &q.path, q.version)
+        .await
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(json!({
+        "path": row.path,
+        "version": row.version,
+        "project_revision": row.project_revision,
+        "deleted": row.deleted,
+        "updated_by": row.updated_by,
+        "content": row.content,
+        // The revision to render a sandbox page at, so the version can be seen
+        // with the tokens and components it actually had.
+        "preview_revision": row.project_revision,
+    }))
+    .into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentRestoreVersionInput {
+    pub project: i64,
+    pub path: String,
+    pub version: i64,
+}
+
+/// `POST /api/taskflow/agents/design/restore-version` — bring an old version
+/// back. It is a NEW WRITE: validated like any write, recorded as a new
+/// version, and undoable by restoring the version it replaced.
+pub async fn restore_version(
+    RequireAgent(agent): RequireAgent,
+    Json(input): Json<AgentRestoreVersionInput>,
+) -> Result<Response, StatusCode> {
+    authorized_project(&agent, input.project)?;
+    validation::validate_path(&input.path).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let by = format!("{} ({})", agent.display_name, agent.agent_id);
+    let path = input.path.clone();
+    let outcome = project_locks()
+        .with_lock(agent.project_id, || async {
+            store::restore_version(agent.project_id, &path, input.version, &by).await
+        })
+        .await;
+    match outcome {
+        store::RestoreVersionOutcome::Restored(row) => Ok((
+            StatusCode::CREATED,
+            Json(json!({
+                "ok": true,
+                "file": row,
+                "restored_from": input.version,
+                "note": format!(
+                    "{} is now v{} with the content of v{}. The version it replaced is still in the history.",
+                    input.path, row.version, input.version
+                ),
+            })),
+        )
+            .into_response()),
+        store::RestoreVersionOutcome::UnknownVersion => Err(StatusCode::NOT_FOUND),
+        store::RestoreVersionOutcome::Rejected(v) => Ok(rejection_response(&v)),
+        store::RestoreVersionOutcome::Conflict(row) => Ok(conflict_response(&row)),
+    }
+}

@@ -93,6 +93,52 @@ pub struct DesignFile {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+/// #520: one row per ACCEPTED WRITE — the history `design_file` cannot keep.
+///
+/// `design_file.version` is an optimistic-concurrency guard, not history: the
+/// row is overwritten in place and the old content is gone. This table is
+/// append-only, and it is the reason a screen can be shown "as it was": a page
+/// renders through the project's tokens, components and resources, so a saved
+/// version has to be read back as part of the WHOLE project state at its
+/// revision, not as a file on its own.
+///
+/// `project_revision` is a per-project counter incremented by every accepted
+/// write, trash or restore — NOT the manifest's `revision`, which is
+/// `max(file.version)` and does not move when a low-version file changes.
+/// Point-in-time reads take, per path, the newest row with
+/// `project_revision <= R`; a `deleted` row (a trash) means the path did not
+/// exist at R.
+///
+/// `bytes` is content's length, stored rather than computed so the pruning
+/// pass can weigh rows without loading their content.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+pub struct DesignFileVersion {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(choices, default = "page")]
+    pub kind: DesignFileKind,
+    #[umbral(string, max_length = 80)]
+    pub path: String,
+    #[umbral(string, max_length = 262_144, widget = "textarea")]
+    pub content: String,
+    /// The FILE version this row records (`design_file.version` after the
+    /// write). Not unique on its own: it restarts per path, and a restore
+    /// re-records an existing one.
+    pub version: i64,
+    /// #520: the project-wide revision of the write that produced this row.
+    pub project_revision: i64,
+    /// Content length, for pruning without loading content.
+    pub bytes: i64,
+    /// A tombstone: this row records a TRASH, not a save.
+    #[umbral(default = "false")]
+    pub deleted: bool,
+    #[umbral(string, max_length = 120)]
+    pub updated_by: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
 /// How far a comment's change should reach. `component` edits the shared
 /// component file; `instance` expresses the change as attributes on the one
 /// usage (the reversible default).
