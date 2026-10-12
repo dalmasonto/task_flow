@@ -15,6 +15,12 @@ const TOKENS_JSON: &str = r##"{"version":1,"categories":{
 }}"##;
 
 async fn seeded(app: &TestApp) -> i64 {
+    seeded_with_user(app).await.1
+}
+
+/// The same seed, with the member who owns it — the operator route authorizes
+/// on exactly that.
+async fn seeded_with_user(app: &TestApp) -> (support::TestUser, i64) {
     let (user, project_id) = app.create_member_with_project().await;
     for (path, content) in [
         ("pages/index.html", "<main><h1>Home</h1></main>"),
@@ -26,7 +32,7 @@ async fn seeded(app: &TestApp) -> i64 {
             .await;
         assert_eq!(res.status(), 201, "seed {path}: {}", res.text());
     }
-    project_id
+    (user, project_id)
 }
 
 fn lime() -> Overrides {
@@ -141,6 +147,75 @@ fn base64_url(raw: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
 }
 
+/// #523: the OPERATOR twin of the compare endpoint. Same spec, same refusals
+/// before anything renders — but authorized as a project member and with the
+/// project in the PATH, because the caller has no agent credential to carry
+/// it. This is what the Design Surface's Compare drawer calls.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_operator_compare_route_refuses_what_the_agent_route_refuses() {
+    let app = TestApp::new().await;
+    let (user, project_id) = seeded_with_user(&app).await;
+    let url = format!("/api/design/{project_id}/compare");
+
+    // A body with no `project` at all — the path is the authority here.
+    let post = |body: serde_json::Value| {
+        let app = &app;
+        let url = url.clone();
+        async move { app.post_json_as(user.id, &url, &body).await }
+    };
+
+    let unknown = post(json!({ "routes": ["/nope"], "variants": [{ "label": "Current" }] })).await;
+    assert_eq!(unknown.status(), 400, "{}", unknown.text());
+    assert!(unknown.text().contains("not a page in this project"), "{}", unknown.text());
+
+    let bad_value = post(json!({ "routes": ["/setup"], "variants": [{ "label": "X", "tokens": { "--primary": "url(https://x)" } }] })).await;
+    assert_eq!(bad_value.status(), 400, "{}", bad_value.text());
+
+    let too_many = post(json!({
+        "routes": ["/", "/setup", "/", "/setup", "/", "/setup"],
+        "variants": [{ "label": "a" }, { "label": "b" }, { "label": "c" }],
+        "themes": ["light", "dark"],
+    }))
+    .await;
+    assert_eq!(too_many.status(), 400, "{}", too_many.text());
+    assert!(too_many.text().contains("over the limit"));
+
+    let undeclared_theme = post(json!({ "routes": ["/"], "variants": [{ "label": "a" }], "themes": ["ocean"] })).await;
+    assert_eq!(undeclared_theme.status(), 400, "{}", undeclared_theme.text());
+    assert!(undeclared_theme.text().contains("not declared in this project"), "{}", undeclared_theme.text());
+
+    // A `project` in the body that contradicts the path is refused, not
+    // rerouted: the caller would otherwise believe the wrong project rendered.
+    let mismatch = post(json!({ "project": project_id + 999, "routes": ["/"], "variants": [{ "label": "a" }] })).await;
+    assert_eq!(mismatch.status(), 400, "{}", mismatch.text());
+    assert!(mismatch.text().contains("does not match"), "{}", mismatch.text());
+
+    // `deliver` is the AGENT tool's (it posts the render into a channel as an
+    // agent identity). A human caller has no agent to post as, so the field is
+    // refused rather than silently ignored.
+    let agent_only = post(json!({ "routes": ["/"], "variants": [{ "label": "a" }], "deliver": "message", "deliver_channel": 1 })).await;
+    assert_eq!(agent_only.status(), 400, "{}", agent_only.text());
+    assert!(agent_only.text().contains("agent"), "{}", agent_only.text());
+
+    // Valid, but no renderer in the test environment: it got as far as rendering.
+    let valid = post(json!({
+        "routes": ["/", { "route": "/setup", "label": "Setup" }],
+        "variants": [{ "label": "Current" }, { "label": "Lime", "tokens": { "--primary": "#448502" } }],
+        "themes": ["light", "dark"],
+        "checks": [{ "fg": "--primary-foreground", "bg": "--primary" }],
+        "include_apply": true,
+    }))
+    .await;
+    assert_eq!(valid.status(), 503, "{}", valid.text());
+
+    // A caller with no access to the project learns nothing about it. (A real
+    // user, a member of a DIFFERENT project — the module's support has no
+    // userless-user helper, and this is exactly the shape of "not a member".)
+    let (stranger, _their_project) = app.create_member_with_project().await;
+    let denied = app.post_json_as(stranger.id, &url, &json!({ "routes": ["/"], "variants": [{ "label": "a" }] })).await;
+    assert_eq!(denied.status(), 403, "{}", denied.text());
+}
+
 /// Builder's upgrade §2.2: `design_write_tokens({patch})` changes only what
 /// it names, and a stale `base_version` is a 409, not a silent overwrite.
 #[tokio::test(flavor = "multi_thread")]
@@ -221,7 +296,7 @@ async fn apply_diffs_against_the_effective_tokens_not_the_stored_doc() {
         css: None,
     };
     let variants = vec![GridVariant { label: "Dark".into(), overrides: dark_only }];
-    let (apply, _) = taskflow_design::agent_views::compare_apply(&files, &variants);
+    let (apply, _) = taskflow_design::compare_api::compare_apply(&files, &variants);
     assert_eq!(
         apply["Dark"]["patch"],
         json!({"colors":{"primary":{"light":"oklch(0.205 0 0)","dark":"oklch(0.9 0.1 250)"}}})

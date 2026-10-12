@@ -683,3 +683,41 @@ export async function saveLayout(projectId: number, doc: LayoutDoc): Promise<Lay
   if (!res.ok) throw new Error(`Could not save the canvas layout (${res.status}).`)
   return normalizeLayout(await readJson(res))
 }
+
+/// #523: the compare response — one PNG per grid part (base64), the grid's
+/// labels, the contrast checks measured as rendered, and what did not load.
+export type DesignCompareResult = {
+  mime: string
+  images: { routes: string[]; size: { width: number; height: number }; png_base64: string }[]
+  split: boolean
+  grid: {
+    columns: string[]
+    rows: { route: string; theme: string; label?: string | null }[]
+    cell: { width: number; height: number; scale: number }
+  }
+  checks: { variant: string; theme: string; fg: string; bg: string; label?: string; ratio: number; aa: boolean; aaLarge: boolean; fgValue?: string; bgValue?: string }[]
+  warnings: string[]
+  apply?: Record<string, { patch: Record<string, Record<string, DesignTokenValue>>; css_not_applied?: boolean }>
+  tokens_version?: number | null
+}
+
+/// Render screens × variants × themes as ONE labelled grid of UNSAVED
+/// overrides — the same `compare_api::render_grid` the agent's `design_compare`
+/// calls. Nothing is written; Apply is a separate, deliberate write.
+export async function compareDesignVariants(
+  projectId: number,
+  body: unknown
+): Promise<DesignCompareResult> {
+  const res = await designFetch(`/api/design/${projectId}/compare`, jsonInit("POST", body))
+  if (res.status === 503) {
+    throw new Error("The screenshot renderer is not configured on this backend — ask your human to set it up.")
+  }
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((value: { detail?: string }) => value.detail)
+      .catch(() => undefined)
+    throw new Error(detail ?? `Could not render the comparison (${res.status}).`)
+  }
+  return readJson(res)
+}

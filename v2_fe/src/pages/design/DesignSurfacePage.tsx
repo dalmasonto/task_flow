@@ -120,6 +120,7 @@ import { readUIState, writeUIState } from "./design-ui-state"
 import { dropMissingRoutes, shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 import { VersionHistoryDialog } from "./version-history-dialog"
+import { CompareDrawer } from "./compare-drawer"
 import { PagesPanel } from "./pages-panel"
 import { createContentEpoch, eventAffectedRoutes, invalidatedBoardKeys } from "./content-epoch"
 import { invalidateRoutes, routeVisualStamps } from "./design-snapshots"
@@ -520,6 +521,8 @@ export function DesignSurfacePage({
   const [paletteOpen, setPaletteOpen] = useState(false)
   // #507: the export dialog.
   const [exportOpen, setExportOpen] = useState(false)
+  // #523: the Compare drawer — unsaved token variants rendered as one grid.
+  const [compareOpen, setCompareOpen] = useState(false)
   // A short status over the canvas (a single-screen download in progress, or
   // why it failed). Cleared by the action that set it, or dismissed.
   const [canvasNotice, setCanvasNotice] = useState<{ text: string; tone: "info" | "error" } | null>(null)
@@ -1174,6 +1177,20 @@ export function DesignSurfacePage({
           <Button variant="outline" size="sm" onClick={responsiveReview}>
             Responsive review
           </Button>
+          {/* #523: render unsaved token variants beside the artboard — the
+              operator's door onto the same grid agents get from
+              `design_compare`. */}
+          <Button
+            variant={compareOpen ? "secondary" : "outline"}
+            size="sm"
+            title="Compare token variants across screens and themes"
+            aria-pressed={compareOpen}
+            disabled={!manifest || manifest.routes.length === 0}
+            onClick={() => setCompareOpen((open) => !open)}
+          >
+            <ColumnsIcon className="size-4" />
+            Compare
+          </Button>
           <ThemeSwitcher themes={themeOptions} value={activeTheme} onChange={setTheme} />
           <Button
             variant={picking ? "default" : "outline"}
@@ -1299,6 +1316,22 @@ export function DesignSurfacePage({
               getSandboxToken={getSandboxToken}
             />
           )}
+          {/* #523: the Compare drawer, over the canvas on the right. The
+              artboard stays visible on its left; nothing it renders is stored
+              until a column is Applied. */}
+          {compareOpen && projectId !== null && manifest ? (
+            <CompareDrawer
+              projectId={projectId}
+              routes={manifest.routes.map((entry) => ({ path: entry.path, title: entry.title }))}
+              labelFor={labelFor}
+              groups={layout.groups}
+              themes={themeOptions.map((option) => ({ name: option.name, label: option.label }))}
+              activeTheme={activeTheme}
+              viewport={deviceIds[0] ?? DEFAULT_DEVICE_ID}
+              onClose={() => setCompareOpen(false)}
+              onApplied={() => contentEpochGate.fileChanged()}
+            />
+          ) : null}
         </main>
 
         {/* RIGHT: Inspect / Components / Tokens / Pages — one panel, four

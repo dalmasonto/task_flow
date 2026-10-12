@@ -184,6 +184,38 @@ pub struct CreateScreenshotInput {
     pub max_px: u32,
 }
 
+/// `POST /api/design/{project}/compare` — #523's operator door onto the same
+/// grid `design_compare` renders for agents, for the Design Surface's Compare
+/// drawer.
+///
+/// The differences from the agent route are exactly the ones that must differ:
+/// the caller is a project MEMBER (not an agent credential), the project comes
+/// from the PATH (a member is not scoped to one project), and the agent-only
+/// powers — `deliver` (posting the render into a channel as an agent) — are
+/// refused rather than silently ignored. Everything else, the spec shape and
+/// the render, is `compare_api::render_grid`, shared with the agent route so
+/// the two cannot drift.
+pub async fn compare_variants(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<crate::compare_api::CompareInput>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    if let Some(body_project) = input.project {
+        if body_project != project_id {
+            return Ok(bad_request(format!(
+                "`project` in the body ({body_project}) does not match the path ({project_id})"
+            )));
+        }
+    }
+    if input.deliver.is_some() {
+        return Ok(bad_request(
+            "`deliver` is the agent tool's: a render posted into a channel goes out as an agent identity".to_string(),
+        ));
+    }
+    crate::compare_api::render_grid(project_id, input, crate::compare_api::GridDelivery::Inline).await
+}
+
 /// `POST /api/design/{project}/screenshots` — render a route at a viewport and
 /// return the PNG. 503 (not 500) when the renderer service is not configured:
 /// that is an environment state the operator can fix, not a bug.
@@ -483,6 +515,13 @@ pub struct WriteFileInput {
     pub content: String,
     #[serde(default)]
     pub base_version: Option<i64>,
+}
+
+/// A 400 carrying `{ "detail": ... }` — the shape every design route's
+/// refusals use. Shared by the user routes and `compare_api` (the two doors
+/// onto the compare grid answer identically).
+pub(crate) fn bad_request(detail: String) -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({ "detail": detail }))).into_response()
 }
 
 pub(crate) fn rejection_response(verdict: &crate::validation::Validation) -> Response {

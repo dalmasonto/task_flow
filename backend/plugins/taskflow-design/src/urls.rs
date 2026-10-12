@@ -40,6 +40,12 @@ pub fn router() -> Router {
             "/api/design/{project}/screenshots",
             post(views::create_screenshot),
         )
+        // #523: the operator's compare — the same grid the agent tool renders,
+        // for the Design Surface's Compare drawer. See `views::compare_variants`.
+        .route(
+            "/api/design/{project}/compare",
+            post(views::compare_variants),
+        )
         .route("/api/design/{project}/files", get(views::list_files))
         // The export's image proxy: fetch one of a page's external images
         // server-side, under `remote_fetch`'s policy, for the capture to
