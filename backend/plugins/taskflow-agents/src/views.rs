@@ -2721,6 +2721,35 @@ async fn emit_task_activity(
     Ok(())
 }
 
+/// Treat a PRESENT field as `Some(...)` whatever its value, so `null` reads as
+/// `Some(None)` ("clear it") rather than vanishing into `None` ("leave it").
+fn present_option<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+/// #606: validate a task's repo. `owner/name`, and one the project actually
+/// links — the same rule publish enforces, applied where the value is written
+/// so a typo is refused at the call that made it. Empty/absent means "the
+/// project default".
+async fn validate_task_repo(project_id: i64, repo: &str) -> Result<(), StatusCode> {
+    if !taskflow_github::repos::valid_repo(repo) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !taskflow_github::repos::is_linked(&project, repo).await {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
 /// The body of `POST /api/taskflow/agents/tasks` (agent-authed). Only content
 /// fields — `project` (the agent's own), `created_by`, and the assignee trio are
 /// all derived server-side, so there is nothing to forge. `claim` self-assigns
@@ -2736,6 +2765,9 @@ pub struct AgentCreateTaskInput {
     pub notes_markdown: Option<String>,
     #[serde(default)]
     pub claim: Option<bool>,
+    /// #606: the project repo this task belongs to. Omitted = the default.
+    #[serde(default)]
+    pub repo: Option<String>,
 }
 
 /// `POST /api/taskflow/agents/tasks` (agent-authed) — an agent authors a task in
@@ -2746,6 +2778,9 @@ pub async fn create_task_as_agent(
     RequireAgent(agent): RequireAgent,
     Json(input): Json<AgentCreateTaskInput>,
 ) -> Result<Response, StatusCode> {
+    if let Some(repo) = input.repo.as_deref().map(str::trim).filter(|repo| !repo.is_empty()) {
+        validate_task_repo(agent.project_id, repo).await?;
+    }
     let title = input.title.trim().to_string();
     if title.is_empty() || title.chars().count() > MAX_TASK_TITLE_CHARS {
         return Err(StatusCode::BAD_REQUEST);
@@ -2792,6 +2827,7 @@ pub async fn create_task_as_agent(
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: input.repo.as_deref().map(str::trim).filter(|repo| !repo.is_empty()).map(str::to_string),
             updated_at: None,
         })
         .await
@@ -2840,6 +2876,13 @@ pub struct AgentUpdateTaskInput {
     pub notes_markdown: Option<String>,
     #[serde(default)]
     pub priority: Option<TaskflowTaskPriority>,
+    /// #606: move the task to a project repo; `null` clears it back to the
+    /// project default. `Option<Option<..>>` so "absent" (leave alone) and
+    /// "explicitly null" (clear) are different requests — which is what
+    /// `present_option` is for: serde maps a JSON `null` to `None` for a plain
+    /// `Option`, which would make "clear" indistinguishable from "absent".
+    #[serde(default, deserialize_with = "present_option")]
+    pub repo: Option<Option<String>>,
 }
 
 /// `POST /api/taskflow/agents/tasks/{task}` (agent-authed) — an agent corrects a
@@ -2876,6 +2919,15 @@ pub async fn update_task_as_agent(
     }
     if let Some(priority) = input.priority {
         task.priority = priority;
+    }
+    // #606: `Some(None)` clears the repo (back to the project default);
+    // `Some(Some(name))` moves it, validated like the create path.
+    if let Some(repo) = input.repo {
+        let repo = repo.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        if let Some(repo) = repo.as_deref() {
+            validate_task_repo(agent.project_id, repo).await?;
+        }
+        task.github_repo = repo;
     }
 
     task.updated_at = Some(chrono::Utc::now());

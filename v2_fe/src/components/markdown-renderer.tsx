@@ -34,11 +34,23 @@ function remarkTaskChips() {
               type: "link",
               url:
                 segment.type === "github"
-                  ? `#gh-issue-${segment.issue}`
+                  ? segment.repo
+                    ? `#gh-issue-${segment.repo}/${segment.issue}`
+                    : `#gh-issue-${segment.issue}`
                   : segment.type === "message"
                     ? `#chat-message-${segment.message}`
                     : `#task-${segment.id}`,
-              children: [{ type: "text", value: segment.raw }],
+              children: [
+                {
+                  type: "text",
+                  // #606: a qualified reference reads as `owner/repo#12` — the
+                  // repo IS the point of writing it that way.
+                  value:
+                    segment.type === "github" && segment.repo
+                      ? `${segment.repo}#${segment.issue}`
+                      : segment.raw,
+                },
+              ],
             })
           }
         }
@@ -74,8 +86,11 @@ function TaskChip({ taskId, children }: { taskId: number; children?: ReactNode }
 /// One `#gh<n>` chip. Deliberately styled unlike the task chip — telling the two
 /// apart at a glance is the entire point of #54. Links out when the project has a
 /// repo; otherwise inert with a reason, never a dead click.
-function GithubIssueChip({ issue, children }: { issue: number; children?: ReactNode }) {
-  const repo = useContext(GithubRepoContext)
+function GithubIssueChip({ issue, repo: named, children }: { issue: number; repo?: string; children?: ReactNode }) {
+  const contextRepo = useContext(GithubRepoContext)
+  // #606: a reference that named its repo uses it; one that did not means the
+  // project's default.
+  const repo = named ?? contextRepo
   const chipClass =
     "inline-flex items-center gap-0.5 rounded-md bg-muted px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-muted-foreground ring-1 ring-border"
   if (!repo) {
@@ -169,8 +184,13 @@ const markdownComponents: Components = {
     if (mention) return <MentionChip kind={mention.kind} id={mention.id}>{children}</MentionChip>
     const taskMatch = /^#task-(\d+)$/.exec(href ?? "")
     if (taskMatch) return <TaskChip taskId={Number(taskMatch[1])}>{children}</TaskChip>
-    const issueMatch = /^#gh-issue-(\d+)$/.exec(href ?? "")
-    if (issueMatch) return <GithubIssueChip issue={Number(issueMatch[1])}>{children}</GithubIssueChip>
+    const issueMatch = /^#gh-issue-(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/)?(\d+)$/.exec(href ?? "")
+    if (issueMatch)
+      return (
+        <GithubIssueChip issue={Number(issueMatch[2])} repo={issueMatch[1] ?? undefined}>
+          {children}
+        </GithubIssueChip>
+      )
     const messageMatch = /^#chat-message-(\d+)$/.exec(href ?? "")
     if (messageMatch) return <MessageChip message={Number(messageMatch[1])}>{children}</MessageChip>
     return (

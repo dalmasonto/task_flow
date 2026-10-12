@@ -359,6 +359,7 @@ async fn seed_task_attachment(project: i64) -> String {
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await

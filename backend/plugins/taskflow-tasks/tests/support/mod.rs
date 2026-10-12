@@ -153,6 +153,7 @@ pub async fn seed_task(project: i64) -> i64 {
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await
@@ -199,6 +200,7 @@ pub async fn seed_task_with_operator(
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await
@@ -262,6 +264,7 @@ pub async fn seed_closed_task(project: i64, closed_at: chrono::DateTime<chrono::
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await

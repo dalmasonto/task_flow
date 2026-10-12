@@ -443,6 +443,7 @@ async fn a_review_on_a_roomless_project_still_reports_back() {
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await

@@ -1963,10 +1963,16 @@ export function archiveTaskflowProject(projectId: number) {
 // backend's `409 {error:"needs_connect"}` contract as a typed, catchable error
 // so every button can route the user into the OAuth connect flow.
 
+export type GithubProjectRepo = { repo: string; is_default: boolean }
+
 export type GithubProjectStatus = {
   user_connected: boolean
   project_linked: boolean
+  /// The DEFAULT repo (the legacy shape every reader has always seen).
   github_repo: string | null
+  /// #606: every linked repo, default first. Absent from a backend that
+  /// predates multiple repos, which is why readers fall back to `github_repo`.
+  repos?: GithubProjectRepo[]
   can_publish: boolean
   post_as_me: boolean
   auto_mirror: boolean
@@ -2092,6 +2098,33 @@ export async function linkGithubProject(
   repo: string,
 ): Promise<{ github_repo: string }> {
   const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/link`, { repo })
+  return readJson(response)
+}
+
+// #606: a project may link several repos. The first one added also becomes the
+// default (the backend mirrors `TaskflowProject.github_repo`), so "add" is the
+// one call the UI needs to link a project at all.
+export async function addGithubProjectRepo(
+  projectId: number,
+  repo: string,
+): Promise<{ ok: true; repo: string; is_default: boolean }> {
+  const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/repos`, { repo })
+  return readJson(response)
+}
+
+export async function removeGithubProjectRepo(
+  projectId: number,
+  repo: string,
+): Promise<{ ok: true; removed: string }> {
+  const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/repos/remove`, { repo })
+  return readJson(response)
+}
+
+export async function setDefaultGithubProjectRepo(
+  projectId: number,
+  repo: string,
+): Promise<{ ok: true; repo: string }> {
+  const response = await githubMutate(`/api/taskflow/github/projects/${projectId}/repos/default`, { repo })
   return readJson(response)
 }
 

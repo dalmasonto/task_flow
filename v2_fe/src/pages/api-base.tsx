@@ -3,7 +3,7 @@ import { BookOpenIcon, BotIcon, CheckCircle2Icon, ClipboardCheckIcon, CopyIcon, 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GithubNeedsConnectError, deleteAgent, fetchGithubProjectStatus, linkAgent, linkGithubProject, setAgentInstructions, setGithubAutoMirror, setProjectAgentInstructions, setGithubPostAsMe, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { GithubNeedsConnectError, addGithubProjectRepo, deleteAgent, fetchGithubProjectStatus, linkAgent, setAgentInstructions, setGithubAutoMirror, setProjectAgentInstructions, setGithubPostAsMe, removeGithubProjectRepo, setDefaultGithubProjectRepo, type GithubProjectStatus, type LinkAgentResult, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Input } from "@/components/ui/input"
 import { AgentInstructionsDialog, InstructionsEditor } from "@/components/instructions-editor"
 import { agentInstructionsOf, instructionsChanged, instructionsSnippet, latestInstructions, normalizeInstructions, patchAgentInstructions, patchProjectInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
@@ -216,7 +216,10 @@ export function ApiBasePage({
         ) : (
           <>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Link this project to a GitHub repository to publish tasks as issues.
+              {/* #606: a project may span several repos. Tasks that name none
+                  use the default; a task can name one of these. */}
+              Link this project to one or more GitHub repositories to publish tasks as issues. Tasks use the default
+              repo unless they name another.
             </p>
             {!ghStatus.user_connected ? (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
@@ -243,8 +246,13 @@ export function ApiBasePage({
                   setGhBusy(true)
                   setGhError(null)
                   try {
-                    const result = await linkGithubProject(numericProjectId, ghRepoInput.trim())
-                    setGhStatus({ ...ghStatus, project_linked: true, github_repo: result.github_repo, can_publish: true })
+                    // #606: one call adds a repo; the FIRST one also becomes
+                    // the default and mirrors the legacy `github_repo` column,
+                    // so a project that had none is linked by the same action.
+                    await addGithubProjectRepo(numericProjectId, ghRepoInput.trim())
+                    setGhRepoInput("")
+                    const refreshed = await fetchGithubProjectStatus(numericProjectId)
+                    setGhStatus(refreshed)
                   } catch (error) {
                     setGhError(
                       error instanceof GithubNeedsConnectError
@@ -256,13 +264,65 @@ export function ApiBasePage({
                   }
                 }}
               >
-                {ghStatus.project_linked ? "Update repo" : "Link repo"}
+                Add repo
               </Button>
             </div>
             {ghStatus.project_linked && ghStatus.github_repo ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Linked to <span className="font-mono">{ghStatus.github_repo}</span>.
-              </p>
+              <div className="mt-2 space-y-1">
+                {((ghStatus.repos?.length ? ghStatus.repos : [{ repo: ghStatus.github_repo, is_default: true }])).map(
+                  (row) => (
+                    <div key={row.repo} className="flex items-center gap-2 text-xs">
+                      <span className="font-mono">{row.repo}</span>
+                      {row.is_default ? (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          default
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-[10px] text-muted-foreground underline hover:text-foreground"
+                          disabled={ghBusy}
+                          onClick={async () => {
+                            if (numericProjectId === null) return
+                            setGhBusy(true)
+                            setGhError(null)
+                            try {
+                              await setDefaultGithubProjectRepo(numericProjectId, row.repo)
+                              setGhStatus(await fetchGithubProjectStatus(numericProjectId))
+                            } catch (error) {
+                              setGhError((error as Error).message)
+                            } finally {
+                              setGhBusy(false)
+                            }
+                          }}
+                        >
+                          make default
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="text-[10px] text-muted-foreground underline hover:text-destructive"
+                        disabled={ghBusy}
+                        onClick={async () => {
+                          if (numericProjectId === null) return
+                          setGhBusy(true)
+                          setGhError(null)
+                          try {
+                            await removeGithubProjectRepo(numericProjectId, row.repo)
+                            setGhStatus(await fetchGithubProjectStatus(numericProjectId))
+                          } catch (error) {
+                            setGhError((error as Error).message)
+                          } finally {
+                            setGhBusy(false)
+                          }
+                        }}
+                      >
+                        remove
+                      </button>
+                    </div>
+                  ),
+                )}
+              </div>
             ) : null}
             {ghError ? <p className="mt-2 text-xs text-destructive">{ghError}</p> : null}
             <div className="mt-4 flex items-center justify-between gap-4">

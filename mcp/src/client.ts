@@ -245,6 +245,9 @@ export interface CreateTaskInput {
   priority?: string;
   notes_markdown?: string;
   claim?: boolean;
+  /// #606: the project repo this task belongs to (`owner/name`). Omit for the
+  /// project's default repo.
+  repo?: string;
 }
 
 /**
@@ -260,6 +263,9 @@ export interface UpdateTaskInput {
   description_markdown?: string;
   notes_markdown?: string;
   priority?: string;
+  /// #606: move the task to one of the project's linked repos, or pass `null`
+  /// to put it back on the project default.
+  repo?: string | null;
 }
 
 export interface RegisterSessionInput {

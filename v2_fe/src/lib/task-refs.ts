@@ -9,7 +9,10 @@ export type TaskRefSegment =
   /// #54: an issue on the project's linked GitHub repo. Written `#gh12` so it is
   /// distinguishable from a task — a bare `#12` meaning a GitHub issue used to
   /// render as a task chip and click through to a task that does not exist.
-  | { type: "github"; issue: number; raw: string }
+  ///
+  /// #606: `repo` is the repo the issue lives in when the reference named one
+  /// (`acme/api#gh7`); absent means the project's default repo.
+  | { type: "github"; issue: number; repo?: string; raw: string }
   /// A message in this project's chat. Written `#msg12` for the same reason
   /// `#gh12` exists: a bare `#12` is read as a task, so an unqualified message
   /// reference points confidently at the wrong thing.
@@ -25,7 +28,11 @@ export type TaskRefSegment =
 // With `#` first, `#gh12` would match `#` and then fail on `g`, and the reference
 // would silently fall through as plain text. Group 1 is the prefix (which form
 // matched), group 2 is always the number.
-const TASK_REF = /(TASK#|#gh|#msg|#)(\d+)/gi
+// #606: an optional `owner/repo` may precede `#gh`, because an issue number
+// alone does not say which repo it came from once a project links several. The
+// prefix is only consumed when it is IMMEDIATELY attached to `#gh`; a repo-like
+// word before a plain `#7` still reads as text plus a task.
+const TASK_REF = /((?:[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#gh|TASK#|#msg|#)(\d+)/gi
 
 /**
  * Split a run of text into plain-text and reference segments. `TASK#10` (or
@@ -43,9 +50,10 @@ export function splitTaskRefs(text: string): TaskRefSegment[] {
   while ((match = TASK_REF.exec(text))) {
     if (match.index > last) segments.push({ type: "text", value: text.slice(last, match.index) })
     const prefix = match[1].toLowerCase()
+    const repoQualified = /^([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)#gh$/i.exec(match[1])
     segments.push(
-      prefix === "#gh"
-        ? { type: "github", issue: Number(match[2]), raw: match[0] }
+      prefix === "#gh" || repoQualified
+        ? { type: "github", issue: Number(match[2]), repo: repoQualified?.[1], raw: match[0] }
         : prefix === "#msg"
           ? { type: "message", message: Number(match[2]), raw: match[0] }
           : { type: "task", id: Number(match[2]), raw: match[0] },

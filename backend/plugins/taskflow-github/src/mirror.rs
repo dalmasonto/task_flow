@@ -47,9 +47,9 @@ pub async fn mirror_comment(
         .await
         .map_err(|_| MirrorError::Db)?
         .ok_or(MirrorError::Db)?;
-    let Some(repo) = project.github_repo.clone() else {
+    if project.github_repo.is_none() {
         return Ok(MirrorOutcome::NotLinked);
-    };
+    }
 
     let task = TaskflowTask::objects()
         .filter(taskflow_task::ID.eq(task_id) & taskflow_task::PROJECT.eq(project_id))
@@ -57,6 +57,11 @@ pub async fn mirror_comment(
         .await
         .map_err(|_| MirrorError::Db)?
         .ok_or(MirrorError::Db)?;
+    // #606: the comment belongs to the TASK's issue, so it goes to the task's
+    // repo — publishing pinned the task to the repo the issue was created in.
+    let Some(repo) = crate::repos::for_task(task.github_repo.as_deref(), &project) else {
+        return Ok(MirrorOutcome::NotLinked);
+    };
     let Some(issue_number) = task.github_issue_number else {
         return Ok(MirrorOutcome::NotPublished);
     };

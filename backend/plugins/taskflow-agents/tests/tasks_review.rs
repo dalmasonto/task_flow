@@ -407,6 +407,7 @@ async fn human_review_notifies_the_operator_agent_when_not_assigned() {
             github_issue_number: None,
             github_issue_url: None,
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await

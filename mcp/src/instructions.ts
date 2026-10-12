@@ -97,7 +97,13 @@ that for the rest of the session.
   as \`#msg12\` — never a bare \`#12\` for either.
   A bare \`#12\` meaning a GitHub issue becomes a task chip pointing at TaskFlow
   task 12, which is a different thing or does not exist at all, and it misleads
-  whoever reads it. \`#gh12\` renders as a distinct chip linking to the issue on
+  whoever reads it. A project may link SEVERAL GitHub repos (#606): \`#gh12\`
+  resolves against the project's DEFAULT repo, and \`owner/repo#12\` names a
+  specific one — use the long form whenever the issue is not on the default,
+  because a number alone does not say which repo it came from. Tasks can name
+  their repo (\`create_task\`/\`update_task\`'s \`repo\`); a task that names none
+  publishes and mirrors against the default.
+  \`#gh12\` renders as a distinct chip linking to the issue on
   the project's linked repo.
 - **download_attachment** fetches a file a teammate attached. It returns a PATH,
   not the contents — open it with your own file tools, and check \`size_bytes\`

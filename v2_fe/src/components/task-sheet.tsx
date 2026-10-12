@@ -5,7 +5,7 @@ import { githubMirrorState } from "@/lib/github-mirror-state"
 import { ActivityIcon, AlertCircleIcon, ArrowRightIcon, BotIcon, CheckIcon, ClipboardCheckIcon, Clock3Icon, FileTextIcon, GitBranchIcon, LinkIcon, LockIcon, MessageSquareIcon, PaperclipIcon, PauseIcon, PencilIcon, PlayIcon, ShieldCheckIcon, TimerIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChatDockContext } from "@/lib/markdown-contexts"
-import { GithubNeedsConnectError, commentOnIssueAsMe, createTaskflowTaskRelation, deleteTaskflowTaskRelation, fetchGithubProjectStatus, githubConnectUrl, publishTaskAsIssue, type GithubProjectStatus, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { GithubNeedsConnectError, commentOnIssueAsMe, createTaskflowTaskRelation, deleteTaskflowTaskRelation, fetchGithubProjectStatus, githubConnectUrl, publishTaskAsIssue, updateTaskflowTask, type GithubProjectStatus, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { Link } from "react-router-dom"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { RELATION_KIND_OPTIONS, formatDuration, getFallbackTaskActivity, getLiveTaskActivity, getLiveTaskRelations, getLiveTaskReviews, getLiveTaskSessions, getRunningLiveTaskSession, getTaskAttachments, getTaskDescription, getTaskLinks, getTaskNotes, getTaskRelations, getTaskSessionTotalSeconds, getTaskSessions, isAgentOnline, liveId } from "@/lib/live-mappers"
@@ -168,6 +168,30 @@ export function TaskDetailSheet({
   }, [project.id])
   const issueNumber = localIssue?.number ?? rawTask?.github_issue_number ?? null
   const issueUrl = localIssue?.url ?? rawTask?.github_issue_url ?? null
+  // #606: which repo THIS task works in — its own, else the project default.
+  // `undefined` follows the row; a value is what the reader just picked.
+  const [repoDraft, setRepoDraft] = useState<string | null | undefined>(undefined)
+  const taskRepo = repoDraft === undefined ? (rawTask?.github_repo ?? null) : repoDraft
+  const effectiveRepo = taskRepo ?? ghStatus?.github_repo ?? null
+  // The repos to choose from: the project's list, or the one legacy link.
+  const repoOptions = ghStatus?.repos?.length
+    ? ghStatus.repos.map((row) => row.repo)
+    : ghStatus?.github_repo
+      ? [ghStatus.github_repo]
+      : []
+  const setTaskRepo = async (value: string | null) => {
+    const taskId = liveId(task.id)
+    if (taskId === null) return
+    const previous = repoDraft
+    setRepoDraft(value)
+    setGhActionError(null)
+    try {
+      await updateTaskflowTask(taskId, { github_repo: value })
+    } catch (error) {
+      setRepoDraft(previous)
+      setGhActionError(error instanceof Error ? error.message : "Could not change the task's repo.")
+    }
+  }
   const canCommentAsMe = Boolean(issueNumber && ghStatus?.user_connected && ghStatus?.post_as_me)
   // #25: one resolver drives the banner, the per-row button, and the composer
   // checkbox — so a blocked gate is stated once instead of silently hiding three
@@ -303,7 +327,8 @@ export function TaskDetailSheet({
                     className="inline-flex items-center gap-1 rounded-full bg-background/80 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-border hover:underline"
                   >
                     <GitBranchIcon className="size-3.5" />
-                    {`#${issueNumber}`}
+                    {/* #606: an issue number is only meaningful with its repo. */}
+                    {effectiveRepo ? `${effectiveRepo}#${issueNumber}` : `#${issueNumber}`}
                   </a>
                 ) : ghStatus?.project_linked ? (
                   <Button
@@ -316,6 +341,25 @@ export function TaskDetailSheet({
                     <GitBranchIcon className="size-3.5" />
                     {publishing ? "Publishing…" : "Publish as issue"}
                   </Button>
+                ) : null}
+                {repoOptions.length > 1 ? (
+                  <label className="inline-flex items-center gap-1 rounded-full bg-background/80 px-2 py-0.5 text-xs ring-1 ring-border">
+                    <GitBranchIcon className="size-3.5 text-muted-foreground" />
+                    <span className="sr-only">Repository for this task</span>
+                    <select
+                      aria-label="Repository for this task"
+                      className="max-w-56 bg-transparent text-xs outline-none"
+                      value={taskRepo ?? ""}
+                      onChange={(event) => void setTaskRepo(event.target.value || null)}
+                    >
+                      <option value="">Project default</option>
+                      {repoOptions.map((repo) => (
+                        <option key={repo} value={repo}>
+                          {repo}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 ) : null}
               </div>
               {ghActionError ? <p className="mt-2 text-xs text-destructive">{ghActionError}</p> : null}

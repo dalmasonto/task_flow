@@ -8,6 +8,7 @@ use axum::extract::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use umbral::orm::ForeignKey;
 use umbral::web::{Json, Path, StatusCode};
 use umbral_auth::{CurrentIdentity, RequireAuth};
 
@@ -20,7 +21,8 @@ use taskflow_tasks::models::{TaskflowTask, taskflow_task};
 use crate::GithubDeps;
 use crate::api::NewIssue;
 use crate::mirror::{MirrorError, MirrorOutcome, mirror_comment};
-use crate::models::{TaskflowGithubPref, taskflow_github_pref};
+use crate::models::{TaskflowGithubPref, TaskflowProjectRepo, taskflow_github_pref, taskflow_project_repo};
+use crate::repos;
 use crate::tokens::{TokenOutcome, resolve_owner_token};
 
 type ApiError = (StatusCode, Json<Value>);
@@ -65,10 +67,9 @@ pub async fn publish_issue(
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "project"))?;
 
     // The project must be GitHub-linked before anything can be published.
-    let repo = project
-        .github_repo
-        .clone()
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "not_linked"))?;
+    if project.github_repo.is_none() {
+        return Err(err(StatusCode::NOT_FOUND, "not_linked"));
+    }
 
     // Owner / tracking key. Absent linker or token => disabled, never a fallback.
     let linked_by = project.github_linked_by.as_ref().map(|fk| fk.id());
@@ -83,6 +84,20 @@ pub async fn publish_issue(
         .await
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "task"))?;
+
+    // #606: the task's own repo wins over the project default, and it must be
+    // one the project still links — an old row naming a dropped repo must not
+    // be able to push there.
+    let repo = match repos::for_task(task.github_repo.as_deref(), &project) {
+        Some(repo) if repos::is_linked(&project, &repo).await => repo,
+        Some(repo) => {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                &format!("repo `{repo}` is not linked to this project"),
+            ));
+        }
+        None => return Err(err(StatusCode::NOT_FOUND, "not_linked")),
+    };
 
     let issue = deps
         .api
@@ -100,10 +115,17 @@ pub async fn publish_issue(
     TaskflowTask::objects()
         .filter(taskflow_task::ID.eq(task_id))
         .update_values(
-            json!({ "github_issue_number": issue.number, "github_issue_url": issue.url })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
+            json!({
+                "github_issue_number": issue.number,
+                "github_issue_url": issue.url,
+                // #606: pin the task to the repo its issue lives in. A later
+                // default change would otherwise leave the number pointing at
+                // the wrong repo (issue numbers are only meaningful with one).
+                "github_repo": repo,
+            })
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
         )
         .await
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "store"))?;
@@ -405,10 +427,20 @@ pub async fn get_status(
         .map(|p| p.post_as_me)
         .unwrap_or(false);
 
+    // #606: every linked repo, default first. `github_repo` stays the default
+    // (the legacy shape the badge has always read), so an older client sees
+    // exactly what it saw before.
+    let linked = repos::linked(project_id).await;
+    let repo_list: Vec<Value> = linked
+        .iter()
+        .map(|row| json!({ "repo": row.repo, "is_default": row.is_default }))
+        .collect();
+
     Ok(Json(json!({
         "user_connected": user_connected,
         "project_linked": project.github_repo.is_some(),
         "github_repo": project.github_repo,
+        "repos": repo_list,
         "can_publish": can_publish,
         "post_as_me": post_as_me,
         "auto_mirror": project.github_auto_mirror,
@@ -521,4 +553,184 @@ pub async fn get_me(
 ) -> Result<Json<Value>, ApiError> {
     let connected = deps.tokens.token_for_user(user_id).await.is_some();
     Ok(Json(json!({ "connected": connected })))
+}
+
+// ---------------------------------------------------------------------------
+// #606: managing a project's linked repos
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct RepoBody {
+    pub repo: String,
+}
+
+/// `GET /api/taskflow/github/projects/{project}/repos` — every linked repo,
+/// default first. Admin-gated like the link itself: it names other people's
+/// repositories, which is not a visitor's business.
+pub async fn list_repos(
+    CurrentIdentity(identity): CurrentIdentity,
+    Path(project_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
+    let rows = repos::linked(project_id).await;
+    Ok(Json(json!({
+        "repos": rows
+            .iter()
+            .map(|row| json!({ "repo": row.repo, "is_default": row.is_default }))
+            .collect::<Vec<_>>(),
+    })))
+}
+
+/// `POST .../repos` `{ "repo": "owner/name" }` — link one more repo.
+///
+/// The FIRST repo a project links also becomes its default (`github_repo`), so
+/// linking here and linking through the legacy endpoint leave the project in
+/// the same state.
+pub async fn add_repo(
+    Path(project_id): Path<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
+    Json(body): Json<RepoBody>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
+    let repo = body.repo.trim().to_string();
+    if !repos::valid_repo(&repo) {
+        return Err(err(StatusCode::BAD_REQUEST, "repo must be owner/name"));
+    }
+    let project = TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .first()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "project"))?;
+
+    if repos::is_linked(&project, &repo).await {
+        return Err(err(StatusCode::BAD_REQUEST, "already linked"));
+    }
+    let is_default = project.github_repo.is_none();
+    TaskflowProjectRepo::objects()
+        .create(TaskflowProjectRepo {
+            id: 0,
+            project: ForeignKey::new(project_id),
+            repo: repo.clone(),
+            is_default,
+            created_at: None,
+        })
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    if is_default {
+        // Keep the mirror honest: `github_repo` IS the default repo.
+        TaskflowProject::objects()
+            .filter(taskflow_project::ID.eq(project_id))
+            .update_values(
+                json!({ "github_repo": repo, "github_linked_by": user_id })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+            .await
+            .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    }
+    Ok(Json(json!({ "ok": true, "repo": repo, "is_default": is_default })))
+}
+
+/// `POST .../repos/remove` `{ "repo": ... }` — unlink one repo.
+///
+/// The default repo can only be removed when it is the LAST one: that leaves
+/// the project unlinked, which is a state the UI already understands. Removing
+/// it while others exist would leave every task that never named a repo with no
+/// repo at all — set another default first.
+pub async fn remove_repo(
+    Path(project_id): Path<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
+    Json(body): Json<RepoBody>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
+    let repo = body.repo.trim().to_string();
+    let rows = repos::linked(project_id).await;
+    let target = rows.iter().find(|row| row.repo == repo);
+    // A repo that is only the legacy `github_repo` (no row yet) is still
+    // removable: it is a linked repo by every definition that matters.
+    match target {
+        None => {
+            return Err(err(StatusCode::BAD_REQUEST, "not linked"));
+        }
+        Some(row) if row.is_default && rows.len() > 1 => {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "this is the default repo — make another repo the default first",
+            ));
+        }
+        Some(_) => {}
+    }
+
+    TaskflowProjectRepo::objects()
+        .filter(taskflow_project_repo::PROJECT.eq(project_id) & taskflow_project_repo::REPO.eq(&repo))
+        .delete()
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+
+    let mut values = serde_json::Map::new();
+    if target.map(|row| row.is_default).unwrap_or(false) {
+        values.insert("github_repo".to_string(), Value::Null);
+        values.insert("github_linked_by".to_string(), Value::Null);
+        values.insert("github_default_branch".to_string(), Value::Null);
+    }
+    if !values.is_empty() {
+        TaskflowProject::objects()
+            .filter(taskflow_project::ID.eq(project_id))
+            .update_values(values)
+            .await
+            .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    }
+    Ok(Json(json!({ "ok": true, "removed": repo })))
+}
+
+/// `POST .../repos/default` `{ "repo": ... }` — make one linked repo the
+/// default. `TaskflowProject.github_repo` follows, because it IS the default.
+pub async fn set_default_repo(
+    Path(project_id): Path<i64>,
+    CurrentIdentity(identity): CurrentIdentity,
+    Json(body): Json<RepoBody>,
+) -> Result<Json<Value>, ApiError> {
+    let user_id: i64 = identity
+        .pk()
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "identity"))?;
+    require_admin(user_id, identity.is_superuser, project_id).await?;
+
+    let repo = body.repo.trim().to_string();
+    let rows = repos::linked(project_id).await;
+    if !rows.iter().any(|row| row.repo == repo) {
+        return Err(err(StatusCode::BAD_REQUEST, "not linked"));
+    }
+
+    for row in rows.iter().filter(|row| row.is_default != (row.repo == repo)) {
+        TaskflowProjectRepo::objects()
+            .filter(taskflow_project_repo::ID.eq(row.id))
+            .update_values(json!({ "is_default": row.repo == repo }).as_object().cloned().unwrap_or_default())
+            .await
+            .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    }
+    TaskflowProject::objects()
+        .filter(taskflow_project::ID.eq(project_id))
+        .update_values(
+            json!({ "github_repo": repo, "github_linked_by": user_id })
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    Ok(Json(json!({ "ok": true, "repo": repo })))
 }

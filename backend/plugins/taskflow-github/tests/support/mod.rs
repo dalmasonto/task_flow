@@ -95,6 +95,9 @@ impl TestResponse {
     pub fn json(&self) -> Value {
         self.inner.body_json()
     }
+    pub fn text(&self) -> String {
+        self.inner.body_text()
+    }
 }
 
 pub struct TestApp {
@@ -312,6 +315,28 @@ async fn seed_project_inner(linked_by: Option<i64>, repo: Option<String>) -> i64
         .id
 }
 
+/// #606: put a task in a named repo (or back to "the project default" with
+/// `None`), the way the task write paths do.
+pub async fn set_task_repo(task: i64, repo: &str) {
+    TaskflowTask::objects()
+        .filter(taskflow_task::ID.eq(task))
+        .update_values(
+            json!({ "github_repo": repo }).as_object().cloned().unwrap_or_default(),
+        )
+        .await
+        .expect("set task repo");
+}
+
+/// The repo column as stored — `None` means "the project's default".
+pub async fn task_repo_column(task: i64) -> Option<String> {
+    TaskflowTask::objects()
+        .filter(taskflow_task::ID.eq(task))
+        .first()
+        .await
+        .expect("read task")
+        .and_then(|row| row.github_repo)
+}
+
 pub async fn seed_task(project: i64, title: &str) -> i64 {
     seed_task_inner(project, title, None).await
 }
@@ -345,6 +370,7 @@ async fn seed_task_inner(project: i64, title: &str, issue_number: Option<i64>) -
             github_issue_number: issue_number,
             github_issue_url: issue_number.map(|n| format!("https://github.com/acme/widgets/issues/{n}")),
             created_at: None,
+            github_repo: None,
             updated_at: None,
         })
         .await

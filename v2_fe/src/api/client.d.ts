@@ -543,6 +543,16 @@ export interface TaskflowProjectMember {
   joined_at: string | null;
 }
 
+/** Table `taskflow_project_repo`, from the `app` plugin. */
+export interface TaskflowProjectRepo {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  repo: string;
+  is_default: boolean;
+  created_at: string | null;
+}
+
 /** Table `taskflow_realtime_ticket`, from the `app` plugin. */
 export interface TaskflowRealtimeTicket {
   id: number;
@@ -581,6 +591,7 @@ export interface TaskflowTask {
   closed_at: string | null;
   github_issue_number: number | null;
   github_issue_url: string | null;
+  github_repo: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -2795,6 +2806,43 @@ export interface TaskflowProjectMemberUpdate {
   invited_by?: number | null;
 }
 
+/** Filterable query parameters for `taskflow_project_repo`. Every key is optional and AND-combined server-side. */
+export interface TaskflowProjectRepoFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "repo"?: string;
+  "repo__ne"?: string;
+  "repo__contains"?: string;
+  "repo__icontains"?: string;
+  "repo__startswith"?: string;
+  "repo__in"?: string[];
+  "is_default"?: boolean;
+  "is_default__ne"?: boolean;
+  "is_default__in"?: boolean[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowProjectRepoOrdering = "id" | "-id" | "project" | "-project" | "repo" | "-repo" | "is_default" | "-is_default" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_project_repo`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowProjectRepoCreate {
+  project: number;
+  repo: string;
+  is_default?: boolean;
+}
+/** Body for updating a `taskflow_project_repo` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowProjectRepoUpdate {
+  project?: number;
+  repo?: string;
+  is_default?: boolean;
+}
+
 /** Filterable query parameters for `taskflow_realtime_ticket`. Every key is optional and AND-combined server-side. */
 export interface TaskflowRealtimeTicketFilters {
   "user"?: number;
@@ -2978,6 +3026,13 @@ export interface TaskflowTaskFilters {
   "github_issue_url__startswith"?: string;
   "github_issue_url__in"?: string[];
   "github_issue_url__isnull"?: boolean;
+  "github_repo"?: string;
+  "github_repo__ne"?: string;
+  "github_repo__contains"?: string;
+  "github_repo__icontains"?: string;
+  "github_repo__startswith"?: string;
+  "github_repo__in"?: string[];
+  "github_repo__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -2995,7 +3050,7 @@ export interface TaskflowTaskFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "closed_at" | "-closed_at" | "github_issue_number" | "-github_issue_number" | "github_issue_url" | "-github_issue_url" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "closed_at" | "-closed_at" | "github_issue_number" | "-github_issue_number" | "github_issue_url" | "-github_issue_url" | "github_repo" | "-github_repo" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_task`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowTaskCreate {
   project: number;
@@ -3018,6 +3073,7 @@ export interface TaskflowTaskCreate {
   closed_at?: string | null;
   github_issue_number?: number | null;
   github_issue_url?: string | null;
+  github_repo?: string | null;
   updated_at?: string | null;
 }
 /** Body for updating a `taskflow_task` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
@@ -3042,6 +3098,7 @@ export interface TaskflowTaskUpdate {
   closed_at?: string | null;
   github_issue_number?: number | null;
   github_issue_url?: string | null;
+  github_repo?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_task_activity`. Every key is optional and AND-combined server-side. */
@@ -3562,6 +3619,7 @@ export interface UmbralResources {
   "taskflow_project_api_endpoint": { row: TaskflowProjectApiEndpoint; filters: TaskflowProjectApiEndpointFilters; ordering: TaskflowProjectApiEndpointOrdering; create: TaskflowProjectApiEndpointCreate; update: TaskflowProjectApiEndpointUpdate; id: number };
   "taskflow_project_invite": { row: TaskflowProjectInvite; filters: TaskflowProjectInviteFilters; ordering: TaskflowProjectInviteOrdering; create: TaskflowProjectInviteCreate; update: TaskflowProjectInviteUpdate; id: number };
   "taskflow_project_member": { row: TaskflowProjectMember; filters: TaskflowProjectMemberFilters; ordering: TaskflowProjectMemberOrdering; create: TaskflowProjectMemberCreate; update: TaskflowProjectMemberUpdate; id: number };
+  "taskflow_project_repo": { row: TaskflowProjectRepo; filters: TaskflowProjectRepoFilters; ordering: TaskflowProjectRepoOrdering; create: TaskflowProjectRepoCreate; update: TaskflowProjectRepoUpdate; id: number };
   "taskflow_realtime_ticket": { row: TaskflowRealtimeTicket; filters: TaskflowRealtimeTicketFilters; ordering: TaskflowRealtimeTicketOrdering; create: TaskflowRealtimeTicketCreate; update: TaskflowRealtimeTicketUpdate; id: number };
   "taskflow_task": { row: TaskflowTask; filters: TaskflowTaskFilters; ordering: TaskflowTaskOrdering; create: TaskflowTaskCreate; update: TaskflowTaskUpdate; id: number };
   "taskflow_task_activity": { row: TaskflowTaskActivity; filters: TaskflowTaskActivityFilters; ordering: TaskflowTaskActivityOrdering; create: TaskflowTaskActivityCreate; update: TaskflowTaskActivityUpdate; id: number };

@@ -469,6 +469,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .describe("Task priority (default: normal)."),
       notes: z.string().optional().describe("Markdown notes."),
       claim: z.boolean().optional().describe("If true, assign the new task to this agent."),
+      repo: z
+        .string()
+        .optional()
+        .describe(
+          "Which of the project's linked GitHub repos this task belongs to (owner/name). Omit for the project's default. Publish uses this repo, and an issue number is only meaningful with it.",
+        ),
       files: z
         .array(z.string())
         .optional()
@@ -477,7 +483,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         ),
       ...profileArg,
     },
-    async ({ title, description, notes, priority, claim, files, profile }) => {
+    async ({ title, description, notes, priority, claim, files, repo, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -488,6 +494,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           notes_markdown: notes,
           priority,
           claim,
+          repo,
         })) as { id?: number };
 
         if (!files?.length) return ok(task);
@@ -546,9 +553,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .describe(
           "Paths to attach to this task, relative to the project root (or absolute, inside it). Max 25MB each. Attaching is additive — it never removes existing attachments.",
         ),
+      repo: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Move the task to one of the project's linked GitHub repos (owner/name), or pass null to put it back on the project default. Omit to leave it as it is.",
+        ),
       ...profileArg,
     },
-    async ({ task, title, description, notes, priority, files, profile }) => {
+    async ({ task, title, description, notes, priority, files, repo, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -560,11 +574,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           title !== undefined ||
           description !== undefined ||
           notes !== undefined ||
-          priority !== undefined;
+          priority !== undefined ||
+          repo !== undefined;
         if (!hasFields && !files?.length) {
           return fail(
             new Error(
-              "Nothing to update: pass at least one of title, description, notes, priority or files.",
+              "Nothing to update: pass at least one of title, description, notes, priority, repo or files.",
             ),
           );
         }
@@ -576,6 +591,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             description_markdown: description,
             notes_markdown: notes,
             priority,
+            repo,
           });
         }
 

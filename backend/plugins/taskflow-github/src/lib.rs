@@ -3,7 +3,7 @@
 //! Layout mirrors the other taskflow plugins:
 //!   src/
 //!     lib.rs     — the `Plugin` impl (this file)
-//!     models.rs  — `TaskflowGithubPref`
+//!     models.rs  — `TaskflowGithubPref`, `TaskflowProjectRepo`
 //!     api.rs     — the `GithubApi` boundary (trait + fake + real reqwest impl)
 //!     tokens.rs  — key-selection logic (owner vs actor)
 //!     views.rs   — HTTP handlers
@@ -13,6 +13,7 @@
 //! All GitHub/OAuth access sits behind the `api`/`tokens` traits, so the
 //! handlers are testable against in-memory fakes with no network.
 
+pub mod repos;
 pub mod adapters;
 pub mod api;
 pub mod mirror;
@@ -47,7 +48,11 @@ impl Plugin for TaskflowGithubPlugin {
     }
 
     fn models(&self) -> Vec<umbral::migrate::ModelMeta> {
-        vec![umbral::migrate::ModelMeta::for_::<models::TaskflowGithubPref>()]
+        vec![
+            umbral::migrate::ModelMeta::for_::<models::TaskflowGithubPref>(),
+            // #606: a project may link several repos.
+            umbral::migrate::ModelMeta::for_::<models::TaskflowProjectRepo>(),
+        ]
     }
 
     fn routes(&self) -> Router {

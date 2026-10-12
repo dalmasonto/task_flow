@@ -48,6 +48,24 @@ describe("splitTaskRefs", () => {
 // #54: a GitHub issue written as a bare `#12` was parsed as a TaskFlow task, so
 // clicking it led to a task that does not exist. `#gh12` is the explicit form.
 describe("splitTaskRefs — GitHub issue references", () => {
+  it("parses owner/repo#gh<n> as a github reference that names its repo", () => {
+    // #606: an issue number is only meaningful with its repo, so the qualified
+    // form carries one — and the default form still means "the project's repo".
+    expect(splitTaskRefs("acme/api#gh7")).toEqual([
+      { type: "github", issue: 7, repo: "acme/api", raw: "acme/api#gh7" },
+    ])
+    expect(splitTaskRefs("see acme/api#gh7 now")).toEqual([
+      { type: "text", value: "see " },
+      { type: "github", issue: 7, repo: "acme/api", raw: "acme/api#gh7" },
+      { type: "text", value: " now" },
+    ])
+    // A repo-shaped prefix that is not attached to `#gh` stays plain text.
+    expect(splitTaskRefs("acme/api#7")).toEqual([
+      { type: "text", value: "acme/api" },
+      { type: "task", id: 7, raw: "#7" },
+    ])
+  })
+
   it("parses #gh<n> as a github reference, not a task", () => {
     expect(splitTaskRefs("fixed in #gh123")).toEqual([
       { type: "text", value: "fixed in " },

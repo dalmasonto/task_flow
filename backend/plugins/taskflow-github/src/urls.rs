@@ -25,6 +25,19 @@ pub fn router(deps: GithubDeps) -> Router {
             "/api/taskflow/github/projects/{project}/pref",
             get(views::get_pref).post(views::set_pref),
         )
+        // #606: the project's linked repos — list, add, remove, set default.
+        .route(
+            "/api/taskflow/github/projects/{project}/repos",
+            get(views::list_repos).post(views::add_repo),
+        )
+        .route(
+            "/api/taskflow/github/projects/{project}/repos/remove",
+            post(views::remove_repo),
+        )
+        .route(
+            "/api/taskflow/github/projects/{project}/repos/default",
+            post(views::set_default_repo),
+        )
         // One call the UI reads to render every enabled/disabled state.
         .route(
             "/api/taskflow/github/projects/{project}/status",

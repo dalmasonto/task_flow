@@ -112,6 +112,13 @@ pub struct TaskflowTask {
     /// Convenience: full issue URL, so the UI links out without rebuilding it.
     #[umbral(string, max_length = 400)]
     pub github_issue_url: Option<String>,
+    /// #606: the project repo THIS task belongs to (`owner/name`). `None` means
+    /// the project's default repo — which is what every task written before
+    /// this field existed says, and why this is a plain nullable string rather
+    /// than a foreign key: the resolution is "the task's, else the project's",
+    /// and both live where each is authored.
+    #[umbral(string, max_length = 200)]
+    pub github_repo: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]
