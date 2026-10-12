@@ -591,6 +591,41 @@ export class TaskflowClient {
     });
   }
 
+  /** `GET /agents/design/search` — #664: find what the pages SAY.
+   *
+   * One call replaces reading every page to find a term: the server scans
+   * stored design files (pages tokenized so markup and class names are not
+   * copy; components whole), and answers which files mention it, where, and
+   * in what form — so a rename touches only the pages that carry it. */
+  designSearch(
+    project: number,
+    params: {
+      query: string
+      regex?: boolean
+      caseSensitive?: boolean
+      wholeWord?: boolean
+      scope?: string
+      in?: string
+      cursor?: string
+      limit?: number
+    },
+  ): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/design/search`, {
+      query: {
+        project,
+        q: params.query,
+        ...(params.regex ? { regex: "true" } : {}),
+        ...(params.caseSensitive ? { case_sensitive: "true" } : {}),
+        ...(params.wholeWord === undefined ? {} : { whole_word: String(params.wholeWord) }),
+        ...(params.scope ? { scope: params.scope } : {}),
+        ...(params.in ? { in: params.in } : {}),
+        ...(params.cursor ? { cursor: params.cursor } : {}),
+        ...(params.limit ? { limit: String(params.limit) } : {}),
+      },
+      idempotent: true,
+    });
+  }
+
   /** `GET /agents/design/guide` — the design guide index, or one topic. */
   designGuide(topic?: string): Promise<unknown> {
     return this.request("GET", `${API_PREFIX}/agents/design/guide`, {

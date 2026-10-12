@@ -1115,6 +1115,50 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   server.tool(
+    "design_search",
+    "Find what the design SAYS, without reading every page: one call answers \"which pages mention this term, and where\". USE THIS FIRST for any rename, audit or copy review (e.g. renaming \"AI coach\" to \"Pulse\"): search, then design_read_page / design_write_page ONLY the pages it returns. Never read every page to find a term. " +
+      "Searches stored design files server-side, not raw HTML: `text` (default scope) matches visible text runs; `attributes` matches the accessibility attributes a rename must not miss (alt, title, aria-label, placeholder, value); `code` matches class names, ids, data-* and scripts and is OFF unless you ask for it, so \"coach\" inside class=\"coach-card\" is not reported as copy; `page_names` matches page titles and Pages-panel labels; `groups` and `flow_labels` match the arrangement. Components are searched whole and reported ONCE with `used_by_routes` — one edit to a component fixes every route that uses it, so do not treat those routes as separate edits. " +
+      "Matching is whole-word by default (`whole_word: false` to match inside words, e.g. \"coach\" inside \"coaching\") and case-insensitive (`case_sensitive: true` to pin it). `regex: true` treats the query as a Rust regex. " +
+      "The answer is `total` (matches across the whole project), `variants` (each surface form with its count — a rename that ignores a variant leaves it behind), `files` (kind, route/name, file, version, count, and per-hit `what` + `line` + a `snippet` with the hit wrapped in <<>>), `labels` (matches that live in the arrangement, not in a file), and `next_cursor` when more files remain: pass it back as `cursor`. Each file's `version` is what a write's `base_version` takes.",
+    {
+      query: z.string().min(1).describe("The term to find, e.g. 'AI coach'."),
+      regex: z.boolean().optional().describe("Treat the query as a Rust regex (default false)."),
+      case_sensitive: z.boolean().optional().describe("Default false: matching ignores case."),
+      whole_word: z.boolean().optional().describe("Default TRUE: 'coach' does not match 'coaching'. Pass false for substring matching."),
+      scope: z
+        .string()
+        .optional()
+        .describe("Comma-separated: text (default), attributes, code, page_names, groups, flow_labels."),
+      in: z.enum(["pages", "components", "both"]).optional().describe("Where to search (default both)."),
+      cursor: z.string().optional().describe("next_cursor from the previous call; files after it are returned."),
+      limit: z.number().int().min(1).max(100).optional().describe("Files per page (default 25, max 100)."),
+      ...designProjectArg,
+      ...profileArg,
+    },
+    async ({ query, regex, case_sensitive, whole_word, scope, in: where, cursor, limit, project, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const { client } = picked;
+        return ok(
+          await client.designSearch(await resolveDesignProject(client, project), {
+            query,
+            regex,
+            caseSensitive: case_sensitive,
+            wholeWord: whole_word,
+            scope,
+            in: where,
+            cursor,
+            limit,
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
     "design_read_layout",
     "Read how the project's PAGES ARE ARRANGED: the named page groups and what each one holds, the flow (the order the pages are presented in and the canvas draws in), and the name each page is listed under. design_list_components returns the registry as a FLAT array with no group and no order, so the arrangement cannot be recovered from it — if you need to know how pages are grouped, or in which order they come, ask THIS. Nothing to select: the arrangement is one document per project, so there is no route, group id or name to pass. `view` is the canvas arrangement (rows/bands/groups/flow — `flow` is the user-flow canvas) and the grouping reads the same in every one. `version` is THIS arrangement's version — hand it to a layout write as `base_version` to be told if someone rearranged the board under you. (Note `revision` next to it is a different number: the manifest's, which moves when a page changes.) It also returns the USER FLOW drawn as arrows on the Flow canvas: `edges` is a list of `{id, from, to, label?}` — a user goes from route `from` to route `to`, and the optional label names the path (\"new user\" / \"existing user\") — and `positions` maps a route to its fixed `{x, y}` node on that canvas (an unlisted page is auto-placed). Arrange the board with design_create_group, design_update_group, design_reorder_group, design_reorder_page and design_delete_group; draw the flow with design_link_pages and design_unlink_pages — or several edits at once with design_arrange (which also takes update_link and place_page) — all of which take operations — never PUT a document built from this response back, because this is the panel's view and not the stored form.",
     // The arrangement is one document per project, so there is nothing to

@@ -73,6 +73,8 @@ Pages sit in named groups that read as the screens of one journey (e.g. "Onboard
 const PAGES_RULES: &str = r#"# Pages
 
 A page is a BODY FRAGMENT: no <html>/<head>/<body>, no <style> blocks, no raw <header>/<nav>/<footer>/<aside> — register a component (design_write_component) and use it, so every page shares it. Repeat UI once as a component, not five times as markup. Use the ui-* primitives (topic "primitives") for accordions, dialogs, sheets and tabs.
+
+BEFORE renaming or auditing copy anywhere in the design (a product name, a phrase that should be gone, a consistency pass), call design_search first — ONE call answers "which pages mention this, and where", so you read and edit ONLY the pages (and components) it returns. Reading every page to find a term is never the right move, and a component it names is edited ONCE for every route that uses it. Search is whole-word by default; add scope "attributes" for alt/title/aria-label/placeholder/value, and scope "code" when you also mean class names and ids.
 "#;
 
 /// Moved verbatim from the old `AUTHORING_GUIDE`: links, back, media.

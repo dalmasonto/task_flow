@@ -123,6 +123,12 @@ pub fn router() -> Router {
             "/api/taskflow/agents/design/screenshot",
             get(agent_views::screenshot),
         )
+        // #664: the content search. Read-only, but it reads EVERY file, so it
+        // is its own tool rather than a flag on a reader.
+        .route(
+            "/api/taskflow/agents/design/search",
+            get(crate::search::search),
+        )
         .route(
             "/api/taskflow/agents/design/compare",
             post(agent_views::compare),

@@ -118,6 +118,20 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.calls.push(`readDesignLayout:${project}`);
       return { groups: [{ id: "g1", name: "Auth", routes: ["/settings"] }] };
     }
+    async designSearch(project: number, params: { query: string; wholeWord?: boolean; scope?: string }) {
+      // The PARAMS are recorded, not just the call: the whole point of #664 is
+      // that the defaults an agent never spells out (whole word on, code scope
+      // off) are the ones the server applies, so a tool that dropped them would
+      // hand the agent a different search than the one it asked for.
+      harness.calls.push(
+        `designSearch:${project}:${params.query}:wholeWord=${params.wholeWord ?? "unset"}:scope=${params.scope ?? "unset"}`,
+      );
+      return {
+        total: 1,
+        variants: { "AI coach": 1 },
+        files: [{ kind: "page", route: "/settings", file: "pages/settings.html", version: 2, count: 1 }],
+      };
+    }
     async writeLayoutOp(input: { project: number; op?: unknown; ops?: unknown[]; base_version?: number }) {
       // The project is asserted through `calls` — it is resolved from `whoami`
       // and handed in, not chosen here — and the REST is recorded for the shape
@@ -625,6 +639,51 @@ describe("design_read_layout", () => {
     // have resolved to before it asked for anything.
     expect(harness.calls).toContain("readDesignLayout:2");
     expect(JSON.stringify(result.content)).toMatch(/Auth/);
+  });
+});
+
+describe("design_search", () => {
+  // #664's whole value is behavioural: an agent that does not know this tool
+  // exists reads every page. So the description has to say WHEN to reach for
+  // it, and the tool has to pass the caller's flags through UNSPELLED rather
+  // than inventing its own defaults.
+  it("is registered, and says to search before reading every page", async () => {
+    const client = await connectedClient();
+    const tools = await client.listTools();
+    const tool = tools.tools.find((t) => t.name === "design_search");
+
+    expect(tool, "design_search must be registered").toBeDefined();
+    const description = tool?.description ?? "";
+    expect(description).toMatch(/rename/i);
+    expect(description).toMatch(/never read every page/i);
+    // The scopes an agent must not have to guess at.
+    expect(description).toMatch(/code/);
+    expect(description).toMatch(/whole_word/);
+    expect(description).toMatch(/used_by_routes/);
+  });
+
+  it("searches THIS credential's project and leaves the defaults to the server", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_search",
+      arguments: { query: "AI coach", profile: "main" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(result.content)).toMatch(/AI coach/);
+    // wholeWord and scope are NOT sent when the caller did not choose them —
+    // the server owns those defaults (whole word ON, code scope OFF), and a
+    // client that hardcoded them here would drift from it.
+    expect(harness.calls).toContain("designSearch:2:AI coach:wholeWord=unset:scope=unset");
+  });
+
+  it("passes whole_word=false and a scope through when given", async () => {
+    const client = await connectedClient();
+    await client.callTool({
+      name: "design_search",
+      arguments: { query: "coach", whole_word: false, scope: "text,code", profile: "main" },
+    });
+    expect(harness.calls).toContain("designSearch:2:coach:wholeWord=false:scope=text,code");
   });
 });
 

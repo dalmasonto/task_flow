@@ -39,6 +39,7 @@ pub mod primitives;
 pub mod remote_fetch;
 pub mod resources;
 pub mod sandbox;
+pub mod search;
 pub mod screenshots;
 pub mod signals;
 pub mod store;

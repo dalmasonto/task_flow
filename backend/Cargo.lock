@@ -3598,6 +3598,7 @@ dependencies = [
  "chrono",
  "hmac",
  "http",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

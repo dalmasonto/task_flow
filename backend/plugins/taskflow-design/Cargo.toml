@@ -19,6 +19,10 @@ sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "ch
 chrono = { version = "0.4", features = ["serde"] }
 # Writes are serialized per project through an async mutex registry.
 tokio = { version = "1", features = ["sync", "rt", "process", "io-util", "fs", "time", "macros"] }
+# #664: `design_search` compiles the query (literal or regex) once per call —
+# the engine gives Unicode case folding and `\b` word boundaries for both, so
+# the literal path is the regex path and the two flags cannot drift apart.
+regex = "1"
 # Sandbox tokens are HMAC-SHA256 over (project_id, expiry).
 hmac = "0.12"
 sha2 = "0.10"
