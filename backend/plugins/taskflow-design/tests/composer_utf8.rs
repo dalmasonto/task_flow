@@ -20,6 +20,8 @@ fn manifest() -> DesignManifest {
         components: vec![],
         tokens: vec![],
         revision: 1,
+        tokens_version: 1,
+        resources_version: 0,
         resources: vec![],
         tokens_bridge: String::new(),
         themes: vec![],

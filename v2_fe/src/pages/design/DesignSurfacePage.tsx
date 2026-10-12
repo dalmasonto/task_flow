@@ -121,6 +121,8 @@ import { shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 import { PagesPanel } from "./pages-panel"
 import { createContentEpoch, eventAffectedRoutes, invalidatedBoardKeys } from "./content-epoch"
+import { invalidateRoutes, routeVisualStamps } from "./design-snapshots"
+import { readCachedManifest, writeCachedManifest } from "./design-cache"
 
 /** A selection plus the board it was captured on — the key the canvas overlay
  *  draws its rect against and the frame `design:flash` posts into. */
@@ -159,6 +161,14 @@ export function DesignSurfacePage({
 }) {
   const navigate = useNavigate()
   const [manifest, setManifest] = useState<DesignManifest | null>(null)
+  /** #665: per-route snapshot stamps — the versions a cached board image must
+   *  still match to be shown (see `design-snapshots.ts`). Recomputed with the
+   *  manifest; an empty map while it loads means boards capture but never
+   *  present a stale image. */
+  const snapshotStamps = useMemo(
+    () => (manifest ? routeVisualStamps(manifest) : new Map<string, string>()),
+    [manifest],
+  )
   // #501: the project's trashed PAGES, for the Pages panel's Trash section.
   // Keyed by project so a list read for the previous project is never shown.
   const [trashState, setTrashState] = useState<{ project: number; files: TrashedDesignFile[] } | null>(null)
@@ -410,7 +420,15 @@ export function DesignSurfacePage({
         // every design-file event produced before the widening. Either way the
         // burst is ONE commit: an agent's edits land as one remount of their
         // routes, not one remount per write.
-        contentEpochGate.fileChanged(eventAffectedRoutes(event))
+        const affected = eventAffectedRoutes(event)
+        contentEpochGate.fileChanged(affected)
+        // #665: cached board snapshots of the same routes are stale the moment
+        // this event arrives — dropped here rather than left to the stamp,
+        // because the stamp cannot move until the refreshed manifest lands,
+        // and a just-written page showing its old picture in that window is
+        // exactly the "stale but pretty" failure the cache must not have.
+        // (null = the event could not be scoped: drop the whole project's.)
+        invalidateRoutes(projectId, affected)
       } else if (event.table === taskflowTables.designComments) {
         refreshComments()
       } else if (event.table === taskflowTables.designLayout) {
@@ -441,6 +459,15 @@ export function DesignSurfacePage({
     hydratedRef.current = false
     hydratedProjectRef.current = null
     let cancelled = false
+    // #665: paint the last-known manifest from IndexedDB FIRST — at 500 files
+    // it is the one document that makes opening the design page wait on the
+    // network — then let the fetch below replace it. Guarded on the manifest's
+    // own project id so a record from the project we just left can never be
+    // painted over the one we arrived at.
+    void readCachedManifest(projectId).then((cached) => {
+      if (cancelled || !cached || cached.manifest.project !== projectId) return
+      setManifest((current) => (current && current.project === projectId ? current : cached.manifest))
+    })
     Promise.all([
       fetchDesignManifest(projectId),
       getSandboxToken(),
@@ -449,6 +476,9 @@ export function DesignSurfacePage({
       .then(([m, token, doc]) => {
         if (cancelled) return
         setManifest(m)
+        // Revalidate the cache with what the server actually has. Fire and
+        // forget: a manifest that cannot be cached is a slower next visit.
+        void writeCachedManifest(projectId, m.revision, m)
         setSandboxToken(token)
         setLayout(doc)
         setError(null)
@@ -1230,6 +1260,8 @@ export function DesignSurfacePage({
               selection={selectionOverlay}
               pins={pinLayer}
               onSelect={handleSelect}
+              snapshotStamps={snapshotStamps}
+              getSandboxToken={getSandboxToken}
             />
           )}
         </main>

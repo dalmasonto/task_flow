@@ -90,10 +90,32 @@ export class ExportCancelled extends Error {}
 
 const CAPTURE_TIMEOUT_MS = 45_000
 
+/// What [`capturePage`] needs — a subset of [`ExportOptions`], so an export
+/// passes itself and a board SNAPSHOT (#665, `design-snapshots.ts`) passes
+/// exactly these, without inventing items, a format or a progress callback it
+/// has no use for. The two callers share one implementation of the sandbox's
+/// `design:capture` protocol on purpose: it is a cross-origin handshake with a
+/// settle delay and three round-trips (fonts, images, the capture itself), and
+/// a second copy of it is a second place to get that wrong.
+export type CaptureOptions = {
+  device: DevicePreset
+  /// The project the pages belong to: the capture's image proxy is per project.
+  projectId: number
+  /// A FRESH sandbox token, asked for per capture: a token lives ten minutes
+  /// and a long capture session outlives one (`lib/sandbox-token.ts`).
+  getSandboxToken: () => Promise<string>
+  theme: string
+  appearance?: ThemeAppearance | null
+  /// What the screen is dressed in (see `ExportDress`). A snapshot is
+  /// frameless: the canvas draws the chrome itself.
+  dress: ExportDress
+  fullPage: boolean
+}
+
 /// Load `route` in a hidden iframe at the device's viewport and ask the page to
 /// picture itself. Resolves with a PNG data URL at up to 2× (a phone's 3× is
 /// more pixels than any PDF shows, and each one costs memory).
-function capturePage(route: string, opts: ExportOptions): Promise<PageCapture> {
+export function capturePage(route: string, opts: CaptureOptions): Promise<PageCapture> {
   const { device } = opts
   // The frame's own screen when the screen is dressed in one (see
   // `captureViewport`): the page lays out for the area it will be shown in.

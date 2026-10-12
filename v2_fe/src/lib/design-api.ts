@@ -63,7 +63,15 @@ export function sandboxUrl(token: string, route: string): string {
 
 export type DesignFileKind = "token" | "component" | "page" | "asset"
 
-export type RouteEntry = { path: string; file: string; title: string }
+export type RouteEntry = {
+  path: string
+  file: string
+  title: string
+  /// #665: the page file's row version. Snapshot caches key on it; absent from
+  /// a backend that predates the field, and `routeVisualStamps` treats that as
+  /// "cannot trust this snapshot" rather than "never changed".
+  version?: number
+}
 
 export type ComponentEntry = {
   name: string
@@ -71,6 +79,9 @@ export type ComponentEntry = {
   attrs: string[]
   usedOn: string[]
   usageCount: number
+  /// #665: the component file's row version — an input to every route that
+  /// uses it. See `RouteEntry.version`.
+  version?: number
 }
 
 export type TokenGroup = {
@@ -144,6 +155,13 @@ export type DesignManifest = {
   /// reader should not have to go and check what `Vec<(bool, ResourceLink)>`
   /// turned into.
   resources: [boolean, ResourceLink][]
+  /// #665: the token document's row version, and the external resources
+  /// document's — the two style inputs every route renders with. Optional so a
+  /// backend that predates them still parses; `routeVisualStamps` refuses to
+  /// reuse a snapshot when either is missing, and a display that has to choose
+  /// between "stale but pretty" and "placeholder" chooses the placeholder.
+  tokensVersion?: number
+  resourcesVersion?: number
   /// #619: the declared themes, light first. Absent from a backend that
   /// predates named themes — read it through `manifestThemes`.
   themes?: DesignThemeInfo[]

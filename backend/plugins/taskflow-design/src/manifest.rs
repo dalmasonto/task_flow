@@ -22,6 +22,10 @@ pub struct RouteEntry {
     pub file: String,
     /// Human title derived from the filename (`settings.html` → `Settings`).
     pub title: String,
+    /// #665: the page file's row version. The chrome keys its cached board
+    /// snapshots on this (with the versions below), so a stale image of a
+    /// route cannot outlive the write that changed it.
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +40,10 @@ pub struct ComponentEntry {
     pub used_on: Vec<String>,
     /// Total number of times the tag appears across all fragments.
     pub usage_count: usize,
+    /// #665: the component file's row version, for the same snapshot keys as
+    /// [`RouteEntry::version`] — a component used on a route is one of that
+    /// route's inputs.
+    pub version: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +113,15 @@ pub struct DesignManifest {
     /// Monotonic stamp bumped on every accepted write so consumers can cheaply
     /// detect "manifest changed" without diffing.
     pub revision: i64,
+    /// #665: the token document's row version (tokens.json, else the legacy
+    /// tokens.css), 0 when there is no such row. Every route's render depends
+    /// on it, so a snapshot cache keys on it for the whole project.
+    pub tokens_version: i64,
+    /// #665: the external resources document's row version, 0 when absent.
+    /// Separate from `tokens_version` because they change independently: one
+    /// shared maximum would MISS a change to the lower-versioned file — and a
+    /// missed change means a stale snapshot that looks like a fresh one.
+    pub resources_version: i64,
     /// The project's external resources — web fonts and their companion links —
     /// as `(is_script, link)` pairs, in document order, from ENABLED sets only.
     /// Derived from the `styles/resources.json` row by the same forgiving read
@@ -215,7 +232,7 @@ fn usage_of(name: &str, pages: &[(String, String)]) -> (Vec<String>, usize) {
 pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignManifest {
     let mut pages: Vec<(String, String)> = Vec::new(); // (route, content)
     let mut routes: Vec<RouteEntry> = Vec::new();
-    let mut component_rows: Vec<(String, String)> = Vec::new(); // (name, content)
+    let mut component_rows: Vec<(String, String, i64)> = Vec::new(); // (name, content, version)
 
     for f in files {
         match f.kind {
@@ -231,13 +248,14 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
                                 .and_then(|p| p.strip_suffix(".html"))
                                 .unwrap_or("page"),
                         ),
+                        version: f.version,
                     });
                 }
             }
             DesignFileKind::Component => {
                 let name = f.path.strip_prefix("components/").and_then(|p| p.strip_suffix(".js"));
                 if let Some(name) = name {
-                    component_rows.push((name.to_string(), f.content.clone()));
+                    component_rows.push((name.to_string(), f.content.clone(), f.version));
                 }
             }
             _ => {}
@@ -248,7 +266,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
 
     let components: Vec<ComponentEntry> = component_rows
         .iter()
-        .map(|(name, js)| {
+        .map(|(name, js, version)| {
             let (used_on, usage_count) = usage_of(name, &pages);
             ComponentEntry {
                 name: name.clone(),
@@ -256,6 +274,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
                 attrs: observed_attributes(js),
                 used_on,
                 usage_count,
+                version: *version,
             }
         })
         .collect();
@@ -276,12 +295,24 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
 
     let resources = resources_from(files);
 
+    // The tokens row the document is actually read from wins, mirroring
+    // `tokens::project_tokens_doc`'s precedence: a max across both would let a
+    // legacy file's higher version mask an edit to the real source.
+    let version_of = |path: &str| files.iter().find(|f| f.path == path).map(|f| f.version).unwrap_or(0);
+    let tokens_version = {
+        let json = version_of("styles/tokens.json");
+        if json > 0 { json } else { version_of("styles/tokens.css") }
+    };
+    let resources_version = version_of(crate::resources::RESOURCES_PATH);
+
     DesignManifest {
         project: project_id,
         routes,
         components,
         tokens,
         revision,
+        tokens_version,
+        resources_version,
         resources,
         tokens_bridge,
         themes,
@@ -608,17 +639,19 @@ mod tests {
         ];
         let m = to_json(&build(1, &files, 1));
 
-        // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys).
-        assert_eq!(keys(&m), ["components", "project", "resources", "revision", "routes", "themes", "tokens", "tokensBridge"]);
+        // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys —
+        // except #665's two-word `tokensVersion`/`resourcesVersion`, which are
+        // exactly why the container's rename is read and not the field's).
+        assert_eq!(keys(&m), ["components", "project", "resources", "resourcesVersion", "revision", "routes", "themes", "tokens", "tokensBridge", "tokensVersion"]);
 
         // `RouteEntry` — NO `rename_all`, and still right only because none of
         // its keys has a second word. Add one and the two spellings part company.
-        assert_eq!(keys(&m["routes"][0]), ["file", "path", "title"]);
+        assert_eq!(keys(&m["routes"][0]), ["file", "path", "title", "version"]);
 
         // `ComponentEntry` — camelCase: this is where `usedOn`/`usageCount` come
         // from, and `phase1_storage_composer.rs` reads the SAME two off a served
         // response, so the pair is pinned end to end.
-        assert_eq!(keys(&m["components"][0]), ["attrs", "file", "name", "usageCount", "usedOn"]);
+        assert_eq!(keys(&m["components"][0]), ["attrs", "file", "name", "usageCount", "usedOn", "version"]);
 
         // `TokenGroup` — camelCase, and `variablesDark` is why this test exists:
         // the Rust field is `variables_dark` and it carries no `rename_all` of

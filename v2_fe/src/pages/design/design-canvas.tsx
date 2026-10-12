@@ -33,7 +33,7 @@ import {
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react"
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   MaximizeIcon,
   RotateCwIcon,
@@ -93,6 +93,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { type CanvasTool } from "./canvas-tools"
+import { SNAPSHOT_WINDOW, liveBoardKeys, type LiveBoard } from "./canvas-live"
+import { UNKNOWN_STAMP, useBoardSnapshot } from "./design-snapshots"
 import { boardKeyForSource } from "./design-frame-source"
 import {
   frameChrome,
@@ -213,6 +215,14 @@ export type DesignCanvasProps = {
   } | null
   /** Rendered comment pins, positioned in world space. */
   pins?: React.ReactNode
+  /** #665: per-route snapshot stamps from the manifest (`routeVisualStamps`).
+   *  A route missing from the map snapshots under `UNKNOWN_STAMP` — displayable
+   *  for the session, never trusted across a reload. */
+  snapshotStamps: Map<string, string>
+  /** #665: a FRESH sandbox token for a snapshot capture. Stable (the surface
+   *  memoises it) — this component and the boards under it are memoised on
+   *  prop identity, so a fresh arrow here would re-render all of them. */
+  getSandboxToken: () => Promise<string>
 }
 
 /// Memoised, because the surface re-renders for reasons that have nothing to do
@@ -252,8 +262,26 @@ export const DesignCanvas = memo(function DesignCanvas({
   flow,
   selection,
   pins,
+  snapshotStamps,
+  getSandboxToken,
 }: DesignCanvasProps) {
   const rfRef = useRef<ReactFlowInstance<BoardNodeType, Edge> | null>(null)
+  /** #665: the canvas's own box, which is the viewport the live window is
+   *  computed against. Measured, not assumed: the pane is a flex child, and
+   *  the rail opening or the window resizing changes it without a re-render of
+   *  anything holding that number. */
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = surfaceRef.current
+    if (!el) return
+    const measure = () => setViewportSize({ width: el.clientWidth, height: el.clientHeight })
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   /// True while React Flow is running a gesture: the committed `transform`
   /// prop is then behind what is on screen, and must not be pushed back into
   /// the viewport (that would snap the canvas back under a moving hand).
@@ -291,6 +319,51 @@ export const DesignCanvas = memo(function DesignCanvas({
   const selectionBoard = selection
     ? artboards.find((b) => b.key === selection.boardKey)
     : undefined
+
+  // --- the live window (#665) -----------------------------------------------
+  // Which boards may keep a live iframe, and which are somewhere a human can
+  // see (and so may request a snapshot). Both are pure geometry over state the
+  // canvas already has — see `canvas-live.ts` for the rules and why they are
+  // computed rather than observed. Recomputed on the COMMITTED transform, the
+  // boards and the pane size: React Flow paints a gesture itself and commits
+  // once at its end, so a pan is one recomputation, not one per frame.
+  const boardRects: LiveBoard[] = useMemo(
+    () =>
+      artboards.map((board) => {
+        const device = deviceById(board.deviceId)
+        return {
+          key: board.key,
+          x: board.x,
+          y: board.y,
+          width: boardWidth(device),
+          height: HEADER_H + boardHeight(device),
+        }
+      }),
+    [artboards],
+  )
+  const liveKeys = useMemo(
+    () => liveBoardKeys(boardRects, transform, viewportSize),
+    [boardRects, transform, viewportSize],
+  )
+  /** Boards within the approach margin at ANY zoom — the ones worth a picture.
+   *  Capped: a zoomed-out canvas holds hundreds of them, and a queue that long
+   *  is a machine that never finishes. */
+  const snapshotWantedKeys = useMemo(
+    () =>
+      liveBoardKeys(boardRects, transform, viewportSize, {
+        budget: SNAPSHOT_WINDOW,
+        minScale: 0,
+      }),
+    [boardRects, transform, viewportSize],
+  )
+  /** Delivered by context rather than through node data ON PURPOSE: it changes
+   *  every pan and zoom, and node data changes re-render every board's card and
+   *  header. A context change re-renders only the consumers — the frames, which
+   *  is exactly what has to change. */
+  const liveWindow = useMemo(
+    () => ({ live: liveKeys, wanted: snapshotWantedKeys }),
+    [liveKeys, snapshotWantedKeys],
+  )
 
 
   // --- viewport -------------------------------------------------------------
@@ -438,13 +511,15 @@ export const DesignCanvas = memo(function DesignCanvas({
             projectId,
             panMode,
             inFlow,
+            snapshotStamp: snapshotStamps.get(board.route) ?? UNKNOWN_STAMP,
+            getSandboxToken,
           },
         }
       }),
     [
       artboards, labelFor, contentEpoch, boardEpochs, registerBoardReport, theme, appearance, themeBackground, picking, deviceIds,
       onReloadBoard, onOpenBoard, onDuplicateBoard, onRemoveBoard, onDownloadImage, onDeletePage,
-      sandboxToken, projectId, panMode, inFlow,
+      sandboxToken, projectId, panMode, inFlow, snapshotStamps, getSandboxToken,
     ],
   )
 
@@ -487,9 +562,11 @@ export const DesignCanvas = memo(function DesignCanvas({
 
   return (
     <div
+      ref={surfaceRef}
       className="relative h-full w-full bg-[#0b0b0f] select-none"
       data-testid="design-canvas-surface"
     >
+      <LiveWindowContext.Provider value={liveWindow}>
       <ReactFlow<BoardNodeType, Edge>
         nodes={nodes}
         edges={edges}
@@ -597,6 +674,7 @@ export const DesignCanvas = memo(function DesignCanvas({
           </Panel>
         ) : null}
       </ReactFlow>
+      </LiveWindowContext.Provider>
     </div>
   )
 })
@@ -605,6 +683,16 @@ export const DesignCanvas = memo(function DesignCanvas({
 /// comment). An event, not a prop: the callers are all over the surface, and
 /// the viewport belongs to React Flow.
 export const FOCUS_BOARD_EVENT = "design:focus-board"
+
+/// #665: which boards keep a live iframe and which are visible enough to want
+/// a snapshot, for the CURRENT committed transform. Context rather than node
+/// data: it changes on every pan commit, and node data changes re-render every
+/// board's card and header, while a context change re-renders only the frames
+/// that consume it. The default (empty sets) is for a frame rendered outside a
+/// canvas — a test, a story — where nothing is live, which is the honest
+/// answer: without a canvas there is no viewport to be live in.
+type LiveWindow = { live: ReadonlySet<string>; wanted: ReadonlySet<string> }
+const LiveWindowContext = createContext<LiveWindow>({ live: new Set(), wanted: new Set() })
 
 type BoardNodeData = {
   board: Artboard
@@ -626,6 +714,9 @@ type BoardNodeData = {
   projectId: number | null
   panMode: boolean
   inFlow: boolean
+  /** #665: this route's snapshot stamp (see `DesignCanvasProps.snapshotStamps`). */
+  snapshotStamp: string
+  getSandboxToken: () => Promise<string>
 }
 type BoardNodeType = Node<BoardNodeData, "board">
 
@@ -701,6 +792,8 @@ const ArtboardCard = memo(function ArtboardCard({
   sandboxToken,
   projectId,
   panMode,
+  snapshotStamp,
+  getSandboxToken,
 }: {
   /** Flow view: the header becomes the drag handle (ignored elsewhere). */
   inFlow?: boolean
@@ -736,6 +829,10 @@ const ArtboardCard = memo(function ArtboardCard({
   /** Pan tool active or Space held: the iframe must not swallow the drag that
    * starts over it, so the surface below gets pointer events instead. */
   panMode: boolean
+  /** #665: this route's snapshot stamp (see `BoardNodeData.snapshotStamp`). */
+  snapshotStamp: string
+  /** #665: a fresh sandbox token for a snapshot capture. */
+  getSandboxToken: () => Promise<string>
 }) {
   const device = deviceById(board.deviceId)
   const src = sandboxToken ? sandboxUrl(sandboxToken, board.route) : null
@@ -806,10 +903,15 @@ const ArtboardCard = memo(function ArtboardCard({
               width={device.width}
               height={frameHeight}
               name={board.key}
+              route={board.route}
+              deviceId={board.deviceId}
               theme={theme}
               appearance={appearance}
               picking={picking}
               epoch={epoch}
+              projectId={projectId}
+              snapshotStamp={snapshotStamp}
+              getSandboxToken={getSandboxToken}
             />
           ) : (
             <FrameError width={device.width} height={frameHeight} reason="No sandbox token — reload the surface." />
@@ -1297,62 +1399,85 @@ export function OutlineBoard({ device, children }: { device: DevicePreset; child
   )
 }
 
-/// Mount an iframe once it comes near the viewport (§9.2): within ~1.5 viewports
-/// (IntersectionObserver margin) → mount, and it stays mounted. A static
-/// placeholder keeps the canvas free of holes while unmounted. Frames are never
-/// released, so a long session on a large canvas costs one live document per
-/// board seen: that is the accepted price of keeping pages comparable side by
-/// side, not an oversight.
+/// A board's document area: a live iframe while the board is in the canvas's
+/// live window, a snapshot image of that page when it is not, and a skeleton
+/// when neither is available (yet).
+///
+/// #665 REPLACED THE OLD LATCH. This used to mount on first approach and never
+/// unmount, so a session on a large canvas accumulated one live document per
+/// board ever seen. Liveness is now decided by the canvas (`canvas-live.ts`:
+/// zoom threshold, approach margin, nearest-N budget) and delivered through
+/// `LiveWindowContext`; a board that leaves the window loses its iframe and
+/// falls back to a cached image (`design-snapshots.ts`), which is what keeps a
+/// 500-board canvas bounded without turning it into a wall of grey.
 ///
 /// Memoised for the same reason as `ArtboardCard` above, one level down: a
 /// board that re-renders for its own reasons (the header's menus, `panMode`)
 /// must not drag a live iframe's element tree with it. Every prop is a
-/// primitive or a string here, so a shallow compare is exact — and the one prop
-/// that MUST re-render it, `epoch`, is the whole inventory of "this frame's
-/// document has changed".
+/// primitive, a stable callback or a string here, so a shallow compare is
+/// exact — and the one prop that MUST re-render it, `epoch`, is the whole
+/// inventory of "this frame's document has changed". The live-window sets
+/// arrive by CONTEXT on purpose: they change on every pan commit, and context
+/// reaches the consumers without re-rendering the cards above them.
 export const LazyFrame = memo(function LazyFrame({
   src,
   width,
   height,
   name,
+  route,
+  deviceId,
   theme,
   appearance,
   picking,
   epoch,
+  projectId,
+  snapshotStamp,
+  getSandboxToken,
 }: {
   src: string
   width: number
   height: number
   name: string
+  route: string
+  deviceId: string
   theme: string
   /** #626: sent with `design:theme`; also this iframe's own `color-scheme`. */
   appearance: ThemeAppearance | null
   picking: boolean
   epoch: number
+  /** Owning project — part of a snapshot's cache key. Null while the surface
+   *  is still resolving its project: no snapshots are taken then. */
+  projectId: number | null
+  /** #665: everything the route's render depends on (see `design-snapshots`). */
+  snapshotStamp: string
+  /** #665: a fresh sandbox token for a capture. */
+  getSandboxToken: () => Promise<string>
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const [near, setNear] = useState(false)
+  const { live, wanted } = useContext(LiveWindowContext)
+  const isLive = live.has(name)
   /** A load failure, STAMPED with the epoch of the frame that produced it. */
   const [failed, setFailed] = useState<{ epoch: number; reason: string } | null>(null)
 
-  useLayoutEffect(() => {
-    const el = hostRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // Latch: mount on first sight, never unmount. A page that vanishes when
-        // scrolled past cannot be compared against its neighbour, and reloading
-        // it on return throws away exactly the live state the comparison needs.
-        // Initial mounting stays lazy — a frame nobody has scrolled to still
-        // costs nothing, which is what keeps a large canvas from mounting a
-        // dozen documents at once.
-        for (const entry of entries) if (entry.isIntersecting) setNear(true)
-      },
-      { root: null, rootMargin: "150%", threshold: 0 }
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  const snapshotUrl = useBoardSnapshot({
+    project: projectId ?? 0,
+    route,
+    device: deviceId,
+    theme,
+    stamp: snapshotStamp,
+    // Only boards a human can see may ask for a capture — the promise that a
+    // queue of page loads is not running behind a canvas nobody is looking at.
+    wanted: wanted.has(name) && projectId !== null,
+    getSandboxToken,
+  })
+
+  // A board that goes cold takes its failure with it: the stamp below belongs
+  // to the document that failed, and that document is being unmounted. Without
+  // this, a frame that failed once would come back as an error the next time
+  // the board re-entered the window — a fresh mount that never got its chance.
+  useEffect(() => {
+    if (!isLive) setFailed(null)
+  }, [isLive])
 
   // Push mode/theme into the frame when it announces readiness, and
   // whenever the state changes for frames already up. Only THIS frame's
@@ -1390,9 +1515,7 @@ export const LazyFrame = memo(function LazyFrame({
   // epoch failed" and avoids an error-state flash on every reload (an effect
   // runs after render, so `failed` would paint once more first). Nothing in the
   // failure path moves the epoch, so a retry that fails again simply re-arms
-  // this and cannot loop. `near` is untouched, so the latch above still holds —
-  // and that is why this is a stamp and NOT a `key` on LazyFrame: remounting
-  // the component would reset `near` to false and undo the latch.
+  // this and cannot loop.
   const failure = failed && failed.epoch === epoch ? failed.reason : null
 
   if (failure) {
@@ -1401,7 +1524,7 @@ export const LazyFrame = memo(function LazyFrame({
 
   return (
     <div ref={hostRef} style={{ width, height }} className="relative bg-zinc-900">
-      {near ? (
+      {isLive ? (
         <iframe
           key={`${frameSrc}|${epoch}`}
           data-design-frame
@@ -1423,6 +1546,21 @@ export const LazyFrame = memo(function LazyFrame({
              belongs to, so the comparison above reads as fresh. An unstamped
              failure would go stale immediately and never show. */
           onError={() => setFailed({ epoch, reason: "The sandbox refused this frame." })}
+        />
+      ) : snapshotUrl ? (
+        /* The page as it last rendered, to scale. `object-cover` + `object-top`
+           because the capture is the device viewport and this box is the same
+           area: any drift crops the bottom rather than shifting the page. The
+           image is inert — it is a picture, and clicking through it would lie
+           about what is interactive. */
+        <img
+          src={snapshotUrl}
+          alt={`${route} — snapshot`}
+          width={width}
+          height={height}
+          draggable={false}
+          className="h-full w-full select-none object-cover object-top"
+          style={{ colorScheme: appearance ?? "normal" }}
         />
       ) : (
         <PlaceholderSkeleton width={width} height={height} label={name} />
