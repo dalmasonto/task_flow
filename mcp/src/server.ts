@@ -26,6 +26,7 @@ import {
 } from "./config.js";
 import { TaskflowClient, TaskflowApiError, type AgentSummary, type DesignLayoutOp } from "./client.js";
 import { renderInstructions, renderScopeNotice } from "./agent-instructions.js";
+import { agentsManageFailure } from "./agents-manage.js";
 import { resolveAttachments } from "./attachments.js";
 import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
@@ -73,22 +74,12 @@ function fail(err: unknown): CallToolResult {
 }
 
 /// #605: the failure of an agent-management call. A bare 403 would read as "not
-/// allowed" with no way forward, and the way forward is specific: the human
-/// mints a key that carries the `agents:manage` scope. Say so.
+/// allowed" with no way forward, and the way forward is specific — and DIFFERENT
+/// for the two 403s (missing scope vs. self-revoke). See `agentsManageFailure`.
 function failAgentsManage(err: unknown): CallToolResult {
-  if (err instanceof TaskflowApiError && err.status === 403) {
-    return {
-      content: [
-        {
-          type: "text",
-          text:
-            "Error: this agent key cannot manage agents — it does not carry the `agents:manage` scope. " +
-            "Ask your human to mint one from the dashboard's Connect-agents page (tick " +
-            "\"Can manage agents\" while linking), then switch to it. A key minted by an agent never carries a scope.",
-        },
-      ],
-      isError: true,
-    };
+  if (err instanceof TaskflowApiError) {
+    const message = agentsManageFailure(err);
+    if (message) return { content: [{ type: "text", text: message }], isError: true };
   }
   return fail(err);
 }

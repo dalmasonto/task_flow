@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TaskflowClient, extractDetail, TaskflowApiError, type FetchLike } from "./client.js";
+import { TaskflowClient, extractCode, extractDetail, TaskflowApiError, type FetchLike } from "./client.js";
 
 function stubFetch() {
   const calls: { url: string; init: any }[] = [];
@@ -477,5 +477,21 @@ describe("agent management (#605)", () => {
     // The HUMAN route is /agents/9 — the two must not be confused, or an agent
     // would be calling the human-gated delete with an agent credential.
     expect(calls[0].url.endsWith("/api/taskflow/agents/9")).toBe(false);
+  });
+});
+
+describe("extractCode", () => {
+  it("keeps the machine code apart from the human sentence", () => {
+    const body = JSON.stringify({ error: "cannot_delete_self", message: "Ask your human." });
+    expect(extractCode(body)).toBe("cannot_delete_self");
+    // extractDetail prefers `message` — which is exactly why the code needs its
+    // own field: a caller that branches on WHICH error must not read prose.
+    expect(extractDetail(body, "Forbidden")).toBe("Ask your human.");
+  });
+
+  it("is undefined for bodies without a code", () => {
+    expect(extractCode("")).toBeUndefined();
+    expect(extractCode("not json")).toBeUndefined();
+    expect(extractCode(JSON.stringify({ detail: "nope" }))).toBeUndefined();
   });
 });

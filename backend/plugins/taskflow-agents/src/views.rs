@@ -1721,14 +1721,24 @@ pub async fn set_agent_instructions_as_agent(
 pub async fn delete_agent_as_agent(
     RequireAgent(identity): RequireAgent,
     Path(agent_id): Path<i64>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<Response, StatusCode> {
     require_agent_scope(&identity, crate::scopes::AGENTS_MANAGE)?;
     if agent_id == identity.agent_id {
-        return Err(StatusCode::FORBIDDEN);
+        // A BODY, not a bare status: this 403 is not "you lack the scope" (the
+        // caller just passed that gate) but "not this one" — and the caller's
+        // remedy is different, so the MCP maps the two to different messages.
+        return Ok((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "cannot_delete_self",
+                "message": "An agent cannot revoke itself: that would kill the key making this call. Ask your human to delete this agent.",
+            })),
+        )
+            .into_response());
     }
     let agent = load_agent_in_project(agent_id, identity.project_id).await?;
     delete_agent_row(agent.id).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// The body of `POST /api/taskflow/agents/agent/messages`. Identical to the

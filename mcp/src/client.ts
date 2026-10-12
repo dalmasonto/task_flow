@@ -119,13 +119,18 @@ export class TaskflowApiError extends Error {
   readonly detail: string;
   readonly method: string;
   readonly path: string;
-  constructor(method: string, path: string, status: number, detail: string) {
+  /** The backend's machine code when the body carried one (its `error` field,
+   *  e.g. `cannot_delete_self`). A tool that must say something more specific
+   *  than the human sentence keys off this — never off the sentence's wording. */
+  readonly code?: string;
+  constructor(method: string, path: string, status: number, detail: string, code?: string) {
     super(`${method} ${path} → ${status}: ${detail}`);
     this.name = "TaskflowApiError";
     this.status = status;
     this.detail = detail;
     this.method = method;
     this.path = path;
+    this.code = code;
   }
 }
 
@@ -440,7 +445,7 @@ export class TaskflowClient {
 
     const raw = await res.text();
     if (!res.ok) {
-      throw new TaskflowApiError(method, path, res.status, extractDetail(raw, res.statusText));
+      throw new TaskflowApiError(method, path, res.status, extractDetail(raw, res.statusText), extractCode(raw));
     }
     if (!raw) {
       return undefined as T;
@@ -1046,6 +1051,22 @@ export class TaskflowClient {
  * else the status line. Kept resilient — a malformed body must never mask the
  * real failure.
  */
+/**
+ * The backend's machine code from a JSON error body, or undefined. Distinct
+ * from [`extractDetail`], which prefers the human sentence: a caller that must
+ * branch on WHICH error it got reads this, so it never has to match prose.
+ */
+export function extractCode(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    return typeof parsed.error === "string" ? parsed.error : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function extractDetail(raw: string, statusText: string): string {
   const trimmed = raw.trim();
   if (trimmed) {

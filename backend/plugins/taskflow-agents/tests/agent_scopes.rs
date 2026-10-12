@@ -257,11 +257,14 @@ async fn a_scoped_key_sets_a_peers_instructions_and_revokes_it_but_not_itself() 
     assert_eq!(app.get_as_agent(&worker_key, "/api/taskflow/agents/whoami").await.status(), 401);
 
     // …but never itself: an orchestrator that deletes its own key mid-run is a
-    // foot-gun with no recovery, so the human's DELETE is the only way out.
+    // foot-gun with no recovery, so the human's DELETE is the only way out. The
+    // refusal carries a machine code, because the MCP must tell this 403 apart
+    // from the missing-scope one (their remedies differ).
     let myself = app
         .delete_as_agent(&orch_key, &format!("/api/taskflow/agents/agent/agents/{}", agent_id_of(&orchestrator)))
         .await;
     assert_eq!(myself.status(), 403);
+    assert_eq!(body_of(&myself).await["error"], json!("cannot_delete_self"));
     assert_eq!(app.get_as_agent(&orch_key, "/api/taskflow/agents/whoami").await.status(), 200);
 }
 
