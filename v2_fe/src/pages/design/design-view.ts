@@ -13,3 +13,21 @@ export function shouldSeedRoutes(stored: DesignUIState | null, alreadySeeded: bo
   if (!stored) return true
   return stored.openRoutes.length === 0
 }
+
+/// #681: the open routes minus the ones the manifest no longer lists — a page
+/// someone deleted (the trash does not keep it in the manifest; nobody deletes
+/// a page and expects its board to stay open). Without this the board keeps an
+/// iframe whose route is gone: a 404 rendered inside a device frame, which is
+/// the "empty broken screen" the owner reported.
+///
+/// Returns the SAME array when nothing is missing: the caller is a `useState`
+/// updater, and a fresh array on every manifest refetch would re-render the
+/// canvas and re-persist the viewport for nothing.
+export function dropMissingRoutes(
+  openRoutes: string[],
+  manifestRoutes: readonly string[],
+): string[] {
+  const known = new Set(manifestRoutes)
+  const kept = openRoutes.filter((route) => known.has(route))
+  return kept.length === openRoutes.length ? openRoutes : kept
+}

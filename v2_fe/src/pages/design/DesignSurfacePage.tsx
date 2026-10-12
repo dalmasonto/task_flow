@@ -117,7 +117,7 @@ import {
 import { CommandPalette, type PaletteItem } from "./design-palette"
 import { nextDesignTab, type DesignTab } from "./design-tabs"
 import { readUIState, writeUIState } from "./design-ui-state"
-import { shouldSeedRoutes } from "./design-view"
+import { dropMissingRoutes, shouldSeedRoutes } from "./design-view"
 import { ComponentDialog } from "./component-dialog"
 import { PagesPanel } from "./pages-panel"
 import { createContentEpoch, eventAffectedRoutes, invalidatedBoardKeys } from "./content-epoch"
@@ -574,7 +574,7 @@ export function DesignSurfacePage({
         // order. Reconciling would mean filtering and re-sorting persisted state
         // against a manifest that may itself be a project behind — the guard
         // above — for a divergence that cannot currently arise.
-        setOpenRoutes(stored.openRoutes)
+        setOpenRoutes(dropMissingRoutes(stored.openRoutes, manifest.routes.map((r) => r.path)))
         setDeviceIds(stored.deviceIds)
         setTransform(stored.transform)
         setCanvasTool(stored.canvasTool)
@@ -594,6 +594,19 @@ export function DesignSurfacePage({
       cancelled = true
     }
   }, [projectId, currentUser, manifest])
+
+  // #681: a page deleted while its board is open takes the board with it —
+  // whoever deleted it (this viewer, an agent, the trash panel) and however
+  // this browser hears about it, which is a manifest refresh. Runs on every
+  // manifest MOVE, not on every refetch of the same content: when nothing is
+  // missing `dropMissingRoutes` returns the array it was handed and React
+  // skips the update. Gated on the manifest belonging to THIS project and on
+  // hydration having finished, so neither a stale manifest nor the async
+  // stored-state restore can be read as a deletion.
+  useEffect(() => {
+    if (!manifest || manifest.project !== projectId || !hydratedRef.current) return
+    setOpenRoutes((current) => dropMissingRoutes(current, manifest.routes.map((r) => r.path)))
+  }, [manifest, projectId])
 
   // --- persist the viewport (debounced: panning fires on every pointermove) --
   useEffect(() => {
