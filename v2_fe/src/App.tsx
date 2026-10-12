@@ -1380,6 +1380,16 @@ function App() {
     taskDetailId: openTaskNumericId,
   } = sliceGatesFor({ pathname: location.pathname, chatSurfaceMounted, dockOpen, openTaskId })
 
+  /// #663: whether the floating Chat launcher owns the bottom-right corner.
+  /// Hoisted from its JSX so the sessions dock (rendered above this line) can
+  /// stack ABOVE the launcher instead of over it — one condition, one owner.
+  /// The Agents page is excluded because it already IS the chat.
+  const showChatLauncher =
+    Boolean(activeProject) &&
+    !dockOpen &&
+    !chatSurfaceMounted &&
+    !location.pathname.startsWith("/dashboard/agents")
+
   useEffect(() => {
     if (!activeLiveProjectId || !activeLiveWorkspace) return
     const projectId = activeLiveProjectId
@@ -2814,6 +2824,8 @@ function App() {
       <TaskSessionDock
         tasks={projectTasks}
         liveWorkspace={activeLiveWorkspace}
+        // #663: the launcher below occupies the same corner while it shows.
+        stackedAbove={showChatLauncher}
         onOpenTask={openTaskDetails}
         onStartSession={handleStartTaskSession}
         onPauseSession={handlePauseTaskSession}
@@ -2882,7 +2894,7 @@ function App() {
           signals the `chat` gate reads — the mount is the honest one, the path
           check covers the frame before it mounts. This click is also what loads
           the chat slice now, so the button is the dock's own fetch trigger. */}
-      {activeProject && !dockOpen && !chatSurfaceMounted && !location.pathname.startsWith("/dashboard/agents") ? (
+      {showChatLauncher ? (
         <button
           type="button"
           className="fixed bottom-4 right-4 z-[60] flex cursor-pointer items-center gap-1.5 rounded-3xl bg-primary px-3 py-3.5 text-sm font-medium text-primary-foreground shadow-lg transition hover:opacity-90"

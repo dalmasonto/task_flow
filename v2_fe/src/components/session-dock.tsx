@@ -14,6 +14,7 @@ export function TaskSessionDock({
   onStartSession,
   onPauseSession,
   onStopSession,
+  stackedAbove,
 }: {
   tasks: Task[]
   liveWorkspace?: TaskflowWorkspace | null
@@ -21,6 +22,11 @@ export function TaskSessionDock({
   onStartSession: (task: Task) => void
   onPauseSession: (task: Task) => void
   onStopSession: (task: Task, finalStatus: Extract<TaskflowTaskStatus, "done" | "partial_done" | "blocked">) => void
+  /** #663: the floating Chat launcher owns the bottom-right corner. While it is
+   *  showing, the dock sits ABOVE it instead of on top of it — the two used to
+   *  share the corner, and the pill (z-65) swallowed the launcher's clicks.
+   *  The caller owns the launcher's visibility, so the caller decides. */
+  stackedAbove?: boolean
 }) {
   const [tick, setTick] = useState(0)
   // #35: minimized by default so the dock never covers the chat input / terminal
@@ -49,6 +55,11 @@ export function TaskSessionDock({
   const sessionCount = runningSessions.length + pausedTasks.length
   if (!liveWorkspace || sessionCount === 0) return null
 
+  // #663: the corner is shared with the Chat launcher (~3rem tall plus its
+  // bottom-4). Stacked, the dock starts above it and aligns to the launcher's
+  // right edge; unstacked (the launcher hidden) it takes the corner itself.
+  const corner = stackedAbove ? "bottom-[4.5rem] right-4" : "bottom-3 right-3"
+
   // Minimized: a compact pill in the corner so it never overlaps the chat input
   // or terminal keypad (which live at the bottom-center). Click to expand.
   if (!expanded) {
@@ -57,7 +68,7 @@ export function TaskSessionDock({
         type="button"
         onClick={() => setExpanded(true)}
         title="Show active sessions"
-        className="fixed bottom-3 right-3 z-[65] inline-flex items-center gap-2 rounded-full border bg-background/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur transition hover:bg-muted"
+        className={`fixed ${corner} z-[65] inline-flex items-center gap-2 rounded-full border bg-background/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur transition hover:bg-muted`}
       >
         <TimerIcon className="size-4 text-primary" />
         {runningSessions.length ? (
@@ -70,7 +81,7 @@ export function TaskSessionDock({
   }
 
   return (
-    <section className="fixed bottom-3 right-3 z-[65] flex max-h-[60vh] w-[min(30rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border bg-background/95 shadow-2xl backdrop-blur">
+    <section className={`fixed ${corner} z-[65] flex max-h-[60vh] w-[min(30rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border bg-background/95 shadow-2xl backdrop-blur`}>
       <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
           <TimerIcon className="size-4 text-primary" />
