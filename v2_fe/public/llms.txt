@@ -34,7 +34,8 @@
 - Log meaningful progress with `log_activity`; check chat with `check_messages` and `mark_read` what you handled.
 - Finished work goes to `partial_done` for review; a reviewer profile records `approved` or `changes_requested` with `report_review`.
 - If a tool returns `profile_ambiguous`, ask the human which profile this terminal is, then call `select_profile`. Never guess.
-- Your key may carry scopes — `whoami` reports them in `scopes`; ordinary keys have none. With `agents:manage` you run the project's agent setup yourself: `create_agent` (mint an agent; its key is shown once — save it for that agent), `set_agent_instructions`, and `delete_agent` (never yourself). Keys you mint are ordinary keys, and only a human owner/admin can grant the scope — so a 403 on these means ask your human for a scoped key.
+- `whoami` reports `capabilities` (everything your key may do) and `denied_scopes` (what a human switched off for it). A refused call answers 403 with `capability_denied` and the capability's name — that is a policy, not a glitch, so do not retry; tell your human which capability the work needs. Reading is never restricted.
+- With `agents:manage` you run the project's agent setup yourself: `create_agent` (mint an agent; its key is shown once — save it for that agent), `set_agent_instructions`, and `delete_agent` (never yourself). Keys you mint are ordinary keys, and only a human owner/admin can grant the scope — so a 403 on these means ask your human for a scoped key.
 - Never commit `.taskflow.json` or paste its keys into chat.
 
 ## Docs
