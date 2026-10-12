@@ -65,6 +65,14 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/members",
             post(views::add_channel_member),
         )
+        // #660: a conversation's files, newest first — the Files tab's source.
+        // A dedicated route (not auto-REST) because each item carries the
+        // SENDER of the message it arrived on, and because the tab wants a
+        // keyset cursor rather than page numbers.
+        .route(
+            "/api/taskflow/channels/{channel}/attachments",
+            get(views::list_channel_attachments),
+        )
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))

@@ -153,6 +153,12 @@ impl TestResponse {
     pub async fn json(&self) -> Value {
         self.inner.body_json()
     }
+
+    /// The raw body — for a failure message that must not hide behind a JSON
+    /// parse error.
+    pub fn text(&self) -> String {
+        self.inner.body_text()
+    }
 }
 
 pub struct TestApp {
@@ -250,6 +256,24 @@ impl TestApp {
 
         TestResponse {
             inner: self.client.post_json(path, &body).await,
+        }
+    }
+
+    /// GET as a human user (bearer token), like [`post_as`].
+    pub async fn get_as(&self, user_id: i64, path: &str) -> TestResponse {
+        let token = self
+            .tokens
+            .lock()
+            .expect("tokens poisoned")
+            .get(&user_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no bearer token seeded for user {user_id}"));
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"),
+        );
+        TestResponse {
+            inner: self.client.get(path).await,
         }
     }
 

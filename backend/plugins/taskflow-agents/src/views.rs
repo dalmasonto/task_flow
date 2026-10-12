@@ -5289,3 +5289,147 @@ pub async fn set_agent_instructions(
     )
         .into_response())
 }
+
+// ---------------------------------------------------------------------------
+// #660: a channel's files, newest first
+// ---------------------------------------------------------------------------
+
+/// May `user_id` see `channel_id`? The SAME rule `rest.rs::visible_channel_ids`
+/// applies to the chat tables, expressed through the shared membership helper:
+/// the channel's project must be one the caller belongs to, and a PRIVATE room
+/// (a DM or a user-created group) additionally requires a roster row. Shared
+/// project rooms follow project membership alone.
+///
+/// Not-found and forbidden answer the same way (404) on purpose: a caller who
+/// cannot see a channel must not learn that it exists.
+async fn ensure_channel_visible(user_id: i64, channel_id: i64) -> Result<TaskflowAgentChannel, StatusCode> {
+    let channel = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::ID.eq(channel_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if !taskflow_projects::scope::can_access_project(user_id, channel.project.id()).await {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if matches!(channel.kind, TaskflowChannelKind::Direct | TaskflowChannelKind::Group) {
+        let on_roster = TaskflowAgentChannelMember::objects()
+            .filter(
+                taskflow_agent_channel_member::CHANNEL.eq(channel.id)
+                    & taskflow_agent_channel_member::USER.eq(user_id),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .is_some();
+        if !on_roster {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
+    Ok(channel)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelAttachmentsQuery {
+    /// Newest-first keyset cursor: the LAST attachment id of the previous page.
+    #[serde(default)]
+    pub cursor: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `GET /api/taskflow/channels/{channel}/attachments` — every attachment in a
+/// conversation, newest first, one page at a time (#660's Files tab).
+///
+/// A dedicated route rather than an auto-REST read because each item carries
+/// the SENDER of the message it arrived on, which is a join the REST layer
+/// cannot express — and because the Files tab wants a keyset cursor, not page
+/// numbers: attachments accumulate while the tab is open, and an offset cursor
+/// would skip or repeat rows when one lands.
+///
+/// Design-room messages need no `is_design` clause here, exactly as in the
+/// thread: the CHANNEL is the filter, and the flag is derived from the
+/// destination, so filtering on it would drop legitimate rows written before
+/// the derivation existed.
+pub async fn list_channel_attachments(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(channel_id): Path<i64>,
+    Query(query): Query<ChannelAttachmentsQuery>,
+) -> Result<Response, StatusCode> {
+    ensure_channel_visible(user_id, channel_id).await?;
+
+    const DEFAULT_LIMIT: u32 = 50;
+    const MAX_LIMIT: u32 = 100;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+
+    // One extra row tells us whether another page exists without a COUNT.
+    let mut rows = {
+        let mut q = TaskflowMessageAttachment::objects()
+            .filter(taskflow_message_attachment::CHANNEL.eq(channel_id));
+        if let Some(cursor) = query.cursor {
+            q = q.filter(taskflow_message_attachment::ID.lt(cursor));
+        }
+        q.order_by(taskflow_message_attachment::ID.desc())
+            .limit(u64::from(limit) + 1)
+            .fetch()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+    let has_more = rows.len() as u32 > limit;
+    rows.truncate(limit as usize);
+
+    // The senders: one query for the page's messages. A message that is gone
+    // (or unreadable) degrades to an unattributed row rather than dropping the
+    // attachment — the file is still in the conversation.
+    let message_ids: Vec<i64> = rows.iter().map(|row| row.message.id()).collect();
+    let messages = if message_ids.is_empty() {
+        Vec::new()
+    } else {
+        TaskflowAgentMessage::objects()
+            .filter(taskflow_agent_message::ID.in_(&message_ids))
+            .fetch()
+            .await
+            .unwrap_or_default()
+    };
+    let by_id: std::collections::HashMap<i64, &TaskflowAgentMessage> =
+        messages.iter().map(|message| (message.id, message)).collect();
+
+    let items: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let message = by_id.get(&row.message.id());
+            // The sender trio, resolved the same way the message list resolves
+            // it: kind + the id of that kind + the label the writer stored.
+            let (sender_kind, sender_id, display_name) = match message {
+                Some(message) => (
+                    match message.sender_kind {
+                        TaskflowChannelMemberKind::User => "user",
+                        TaskflowChannelMemberKind::Agent => "agent",
+                    },
+                    message.sender_user.as_ref().map(|fk| fk.id()).or_else(|| message.sender_agent.as_ref().map(|fk| fk.id())),
+                    message.sender_label.clone(),
+                ),
+                None => ("unknown", None, String::new()),
+            };
+            json!({
+                "id": row.id,
+                "name": row.name,
+                "content_type": row.content_type,
+                "size_bytes": row.size_bytes,
+                "url": row.file.url(),
+                "file": row.file.key(),
+                "channel": channel_id,
+                "message_id": row.message.id(),
+                "created_at": message.and_then(|m| m.created_at).or(row.created_at),
+                "sender": { "kind": sender_kind, "id": sender_id, "display_name": display_name },
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "attachments": items,
+        "next_cursor": if has_more { rows.last().map(|row| row.id) } else { None },
+    }))
+    .into_response())
+}

@@ -1,6 +1,7 @@
 import { AgentChatBubble, StagedFileList } from "@/components/chat/bubbles"
 import { AgentPromptCard } from "@/components/chat/prompt-card"
 import { AgentTerminalPanel } from "@/components/chat/terminal"
+import { ChatFilesTab } from "@/components/chat/files-tab"
 import { AgentsConversationEmpty, type AgentsOutletContext } from "@/pages/agents"
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, RadioIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -223,6 +224,16 @@ export function AgentsConversationView({
   const chatKey = selectedChat?.id ?? ""
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [terminalChatId, setTerminalChatId] = useState(chatKey)
+  // #660: Messages | Files. The Files pane is not mounted until the tab is
+  // FIRST opened (its page-1 fetch is the whole point of "only when opened");
+  // after that it stays mounted, hidden, so its loaded pages and its realtime
+  // prepend survive switching back and forth.
+  const [chatTab, setChatTab] = useState<"messages" | "files">("messages")
+  const [filesOpened, setFilesOpened] = useState(false)
+  // A "jump to message" from the Files tab that needs the message rendered
+  // before it can be scrolled to. Held as state (not a ref) so the effect
+  // below runs after the grown window has painted.
+  const [fileJumpTarget, setFileJumpTarget] = useState<string | null>(null)
   // Client-side window: the thread renders only the last `visibleCount` messages
   // and reveals another page of MESSAGE_PAGE_SIZE as the user scrolls to the top.
   const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
@@ -238,6 +249,11 @@ export function AgentsConversationView({
     setPickedMentions([])
     // Switching conversations starts a fresh window at the most recent page.
     setVisibleCount(MESSAGE_PAGE_SIZE)
+    // ...and on the Messages tab, with the Files tab unmounted until asked for
+    // again in THIS conversation.
+    setChatTab("messages")
+    setFilesOpened(false)
+    setFileJumpTarget(null)
   }
 
   // #661: follow new messages only while the reader is following. The thread
@@ -344,6 +360,33 @@ export function AgentsConversationView({
     [selectedChat, messageCount, visibleCount]
   )
   const hasMoreOlder = visibleCount < messageCount
+
+  /// #660: a "jump to message" from the Files tab. Two differences from the
+  /// bubble's own `jumpToMessage`: the target may be in a page the client has
+  /// fetched but is not RENDERING (the window shows the last `visibleCount`),
+  /// so the window grows to cover it first; and the answer is honest — `false`
+  /// when the message is older than everything loaded, which the Files tab
+  /// relays to the reader instead of doing nothing. A refused jump does not
+  /// switch tabs: there would be nothing to see.
+  const jumpToFileMessage = (messageId: number): boolean => {
+    const list = messages ?? []
+    const index = list.findIndex((message) => message.id === String(messageId))
+    if (index < 0) return false
+    if (index < messageCount - visibleCount) setVisibleCount(messageCount - index)
+    setChatTab("messages")
+    setFileJumpTarget(String(messageId))
+    return true
+  }
+  // The scroll itself, one frame after the grown window renders. Keyed on
+  // `visibleCount` too, because growing the window is a separate render.
+  useEffect(() => {
+    if (!fileJumpTarget) return
+    const frame = requestAnimationFrame(() => {
+      jumpToMessage(fileJumpTarget)
+      setFileJumpTarget(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [fileJumpTarget, visibleCount])
 
   // Reverse-infinite-scroll anchor: revealing older messages grows the container
   // at the top, which would shove the reading position down. We snapshot the
@@ -600,6 +643,46 @@ export function AgentsConversationView({
           </div>
         </div>
 
+        {/* #660: Messages | Files. A segmented control rather than a header
+            icon, because the compact dock and the design rail both draw their
+            own headers and an icon there would be a second meaning for the
+            same corner. */}
+        {liveChannelId != null ? (
+          <div className="flex shrink-0 items-center px-3 pt-2">
+            <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5" role="tablist" aria-label="Conversation view">
+              {(
+                [
+                  ["messages", "Messages"],
+                  ["files", "Files"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={chatTab === value}
+                  onClick={() => {
+                    if (value === "files") setFilesOpened(true)
+                    setChatTab(value)
+                  }}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    chatTab === value
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* The thread stays MOUNTED behind the Files pane (which overlays it),
+            so switching tabs never costs the reader their scroll position or
+            drops the mark-read follow. */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={threadRef}
           onScroll={handleThreadScroll}
@@ -665,7 +748,23 @@ export function AgentsConversationView({
           ) : null}
         </div>
 
-        {pendingPrompt ? (
+        {/* #660: the Files pane, mounted on first open and overlaid from then
+            on. Keyed by conversation so a chat switch starts it over. */}
+        {filesOpened && liveChannelId != null ? (
+          <div className={cn("absolute inset-0 z-10 bg-background", chatTab === "files" ? "flex" : "hidden")}>
+            <ChatFilesTab
+              key={chatKey}
+              channelId={liveChannelId}
+              messages={messages ?? []}
+              currentUserId={currentUser?.id ?? null}
+              dense={compact}
+              onJumpToMessage={jumpToFileMessage}
+            />
+          </div>
+        ) : null}
+        </div>
+
+        {chatTab === "messages" && pendingPrompt ? (
           <div className="shrink-0 border-t bg-background px-3 pt-3">
             <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} onDismiss={onDismissPrompt} />
           </div>

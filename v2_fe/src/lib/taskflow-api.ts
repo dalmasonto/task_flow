@@ -31,6 +31,7 @@ import type {
 import { API_BASE_URL, getStoredToken, readJson } from "@/lib/auth-api"
 import { normalizeInstructions, type InstructionsBlock } from "@/lib/agent-instructions"
 import { BOARD_COLUMN_IDS, columnStatuses, type BoardColumnId } from "@/lib/board-columns"
+import type { ChannelAttachmentRow } from "@/lib/chat-files"
 import { fetchAllReferencePages } from "@/lib/reference-pages"
 import type { ChatMessage } from "@/lib/message-store"
 
@@ -964,6 +965,32 @@ export async function fetchAttachmentsForMessages(
     .orderBy("message", "id")
     .list()
   return res.results
+}
+
+/// #660: one page of a conversation's files, newest first — what the Files tab
+/// loads. `cursor` is the previous page's `nextCursor` (the last attachment id
+/// of that page); a keyset, not an offset, so a file arriving between two
+/// requests neither shifts nor repeats a row. The caller loads page 1 when the
+/// tab opens, then one page per "Load more".
+export const CHAT_FILES_PAGE_SIZE = 50
+
+export async function fetchChannelAttachments(
+  channelId: number,
+  cursor?: number | null
+): Promise<{ rows: ChannelAttachmentRow[]; nextCursor: number | null }> {
+  const params = new URLSearchParams({ limit: String(CHAT_FILES_PAGE_SIZE) })
+  if (cursor != null) params.set("cursor", String(cursor))
+  const response = await fetch(
+    `${API_BASE_URL}/api/taskflow/channels/${channelId}/attachments?${params}`,
+    { credentials: "include", headers: bearerHeaders() }
+  )
+  if (!response.ok) {
+    throw new Error(
+      await readErrorDetail(response, `Could not load this conversation's files (${response.status}).`)
+    )
+  }
+  const body = await readJson<{ attachments?: ChannelAttachmentRow[]; next_cursor?: number | null }>(response)
+  return { rows: body.attachments ?? [], nextCursor: body.next_cursor ?? null }
 }
 
 /// All attachments the caller can see in a project, from both chat + tasks.
