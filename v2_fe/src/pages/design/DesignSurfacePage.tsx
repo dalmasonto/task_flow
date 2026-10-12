@@ -1143,7 +1143,7 @@ export function DesignSurfacePage({
           <Button
             variant="outline"
             size="sm"
-            title="Export the screens as a PDF or images"
+            title="Export the screens as a PDF, images or HTML"
             disabled={!manifest || manifest.routes.length === 0}
             onClick={() => setExportOpen(true)}
           >

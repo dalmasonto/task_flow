@@ -506,6 +506,18 @@ function filenameFromContentDisposition(header: string | null): string | null {
   return match ? match[1] : null
 }
 
+/// The fully composed standalone document for `route` (`<!doctype html>` and
+/// all, tokens CSS and components inlined) as TEXT — the same document
+/// [`downloadPageHtml`] saves, for callers that collect pages rather than save
+/// one file: the HTML export zips these (#692).
+export async function fetchPageHtmlDocument(projectId: number, route: string): Promise<string> {
+  const res = await designFetch(
+    `/api/design/${projectId}/page.html?route=${encodeURIComponent(route)}`
+  )
+  if (!res.ok) throw new Error(`Could not export page HTML for ${route} (${res.status}).`)
+  return res.text()
+}
+
 /// Triggers a browser download of the fully composed standalone page (real
 /// divs, no `<ui-*>` primitives, `<!doctype html>` and all) for `route`. Same
 /// fetch-then-save-as-blob approach as `exportTokensCss` above — keeps the SPA

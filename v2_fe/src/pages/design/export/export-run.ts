@@ -30,10 +30,12 @@ import {
   PAGE_MARGIN,
   bestPageSetup,
   captureViewport,
+  htmlFileName,
   screenFileName,
   screensPerPage,
   slotOrigin,
   type ExportDress,
+  type ExportFormat,
   type ExportItem,
 } from "./export-plan"
 
@@ -57,7 +59,8 @@ export type ExportOptions = {
   radius: number
   /// The whole page length rather than one screen's worth.
   fullPage: boolean
-  format: "pdf" | "png"
+  /// `html` (#692): the composed pages themselves, zipped — see `runExport`.
+  format: ExportFormat
   projectName: string
   scopeLabel: string
   onProgress: (done: number, total: number, phase: string) => void
@@ -534,9 +537,28 @@ async function captureAll(opts: ExportOptions): Promise<Captured> {
 /// The whole export: capture, dress, assemble. Resolves with the file to save
 /// and the assets it stands in for.
 export async function runExport(opts: ExportOptions): Promise<ExportResult> {
+  // #692: HTML is not a picture of anything — it is the composed document
+  // itself, fetched per page. No capture, no fonts-to-inline round trip, and
+  // no missing-image report: the server's export already inlines what the
+  // sandbox serves, and it renders straight off disk.
+  if (opts.format === "html") {
+    return { blob: await buildHtmlZip(opts), missingImages: [] }
+  }
   const { dressed, missingImages } = await captureAll(opts)
   const blob = opts.format === "pdf" ? await buildPdf(dressed, opts) : await buildZip(dressed)
   return { blob, missingImages }
+}
+
+async function buildHtmlZip(opts: ExportOptions): Promise<Blob> {
+  const { default: JSZip } = await import("jszip")
+  const { fetchPageHtmlDocument } = await import("@/lib/design-api")
+  const zip = new JSZip()
+  for (const item of opts.items) {
+    if (opts.isCancelled()) throw new ExportCancelled()
+    opts.onProgress?.(item.n, opts.items.length, `Writing ${item.label}`)
+    zip.file(htmlFileName(item.route), await fetchPageHtmlDocument(opts.projectId, item.route))
+  }
+  return zip.generateAsync({ type: "blob" })
 }
 
 async function buildZip(dressed: Dressed[]): Promise<Blob> {

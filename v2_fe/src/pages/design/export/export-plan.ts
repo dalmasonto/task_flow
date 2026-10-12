@@ -16,6 +16,11 @@ export type ExportScope =
   | { kind: "open" }
   | { kind: "pick"; routes: string[] }
 
+/// The export's file formats (#507, #692): a PDF document, one PNG per screen
+/// in a ZIP, or — the pages themselves — one standalone `.html` per screen in
+/// a ZIP.
+export type ExportFormat = "pdf" | "png" | "html"
+
 /// One screen in the export, in the order it is printed.
 export type ExportItem = {
   route: string
@@ -178,12 +183,21 @@ export function slotOrigin(setup: PageSetup, index: number): { x: number; y: num
 
 /// The export's file name: project and device, safe for any file system.
 export function exportFileName(project: string, deviceId: string, ext: "pdf" | "zip"): string {
-  const slug = (text: string) =>
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "design"
-  return `${slug(project)}-${slug(deviceById(deviceId).label)}-screens.${ext}`
+  return `${fileSlug(project)}-${fileSlug(deviceById(deviceId).label)}-screens.${ext}`
+}
+
+/// #692: the HTML export's archive name. No device: the HTML export ships the
+/// pages themselves and the dialog hides the device control for it, so a name
+/// claiming a viewport would be a lie about what is inside.
+export function exportHtmlFileName(project: string): string {
+  return `${fileSlug(project)}-html.zip`
+}
+
+function fileSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "design"
 }
 
 /// One PNG's name inside the ZIP: its number, then its name — so the files
@@ -192,4 +206,13 @@ export function screenFileName(item: ExportItem, total: number): string {
   const width = String(total).length
   const slug = item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page"
   return `${String(item.n).padStart(Math.max(2, width), "0")}-${slug}.png`
+}
+
+/// The name a page's standalone HTML takes inside the HTML export's ZIP
+/// (#692), mirroring the server's own `views::safe_filename_for_route` — the
+/// download already arrives named this way, and `/` becoming `index.html` is
+/// what makes an unzipped folder open as a little site.
+export function htmlFileName(route: string): string {
+  const trimmed = route.trim().replace(/^\/+|\/+$/g, "")
+  return trimmed ? `${trimmed}.html` : "index.html"
 }

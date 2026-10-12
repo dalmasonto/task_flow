@@ -25,7 +25,7 @@ import type { DesignManifest } from "@/lib/design-api"
 import { DEVICE_GROUP_LABELS, DEVICE_PRESETS, deviceById } from "@/lib/design-devices"
 import type { LayoutDoc } from "@/lib/design-layout"
 import { cn } from "@/lib/utils"
-import { exportDress, exportFileName, exportItems, frameFor, screensPerPage, type DressStyle, type ExportScope } from "./export-plan"
+import { exportDress, exportFileName, exportHtmlFileName, exportItems, frameFor, screensPerPage, type DressStyle, type ExportFormat, type ExportScope } from "./export-plan"
 import type { ThemeAppearance } from "../status-bar"
 
 type ScopeKind = ExportScope["kind"]
@@ -168,7 +168,7 @@ export function ExportDialog({
   // otherwise for this export.
   const [title, setTitle] = useState(projectName)
   const [fullPage, setFullPage] = useState(false)
-  const [format, setFormat] = useState<"pdf" | "png">("pdf")
+  const [format, setFormat] = useState<ExportFormat>("pdf")
   const [progress, setProgress] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   /// The assets the last export stood in for, shown once it has saved: the
@@ -207,7 +207,9 @@ export function ExportDialog({
           : "Selected pages"
 
   const start = async () => {
-    if (!sandboxToken || projectId === null || !items.length) return
+    // The HTML export fetches composed documents; only the picture formats
+    // need a sandbox token (they load pages in a frame).
+    if ((format !== "html" && !sandboxToken) || projectId === null || !items.length) return
     cancelled.current = false
     setError(null)
     setReport(null)
@@ -232,7 +234,8 @@ export function ExportDialog({
           onProgress: (done, total, phase) => setProgress({ done, total, phase }),
           isCancelled: () => cancelled.current,
         })
-        saveBlob(blob, exportFileName(title.trim() || projectName, deviceId, format === "pdf" ? "pdf" : "zip"))
+        const name = title.trim() || projectName
+        saveBlob(blob, format === "html" ? exportHtmlFileName(name) : exportFileName(name, deviceId, format === "pdf" ? "pdf" : "zip"))
         if (missingImages.length) {
           setReport({ total: items.length, missingImages })
         } else {
@@ -261,7 +264,8 @@ export function ExportDialog({
         <DialogHeader>
           <DialogTitle>Export screens</DialogTitle>
           <DialogDescription>
-            A PDF to share, or the screens as PNG images. Rendered here in your browser from the live pages.
+            A PDF to share, the screens as PNG images, or the pages themselves as HTML.
+            Pictures are rendered here in your browser; HTML comes composed from the project.
           </DialogDescription>
         </DialogHeader>
 
@@ -332,13 +336,14 @@ export function ExportDialog({
 
           <section className="space-y-2">
             <p className={fieldLabel}>Export as</p>
-            {/* Two formats, side by side — a choice this central is not hidden
+            {/* The formats, side by side — a choice this central is not hidden
                 in a dropdown. */}
-            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Export format">
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Export format">
               {(
                 [
                   { id: "pdf", title: "PDF document", hint: `${screensPerPage(device)} screens per page, with a cover` },
                   { id: "png", title: "Images", hint: "One PNG per screen, in a .zip" },
+                  { id: "html", title: "HTML", hint: "The pages themselves, one .html per screen in a .zip" },
                 ] as const
               ).map((option) => (
                 <button
@@ -360,8 +365,19 @@ export function ExportDialog({
             </div>
           </section>
 
-          <section className="space-y-1.5">
-            <p className={fieldLabel}>Device</p>
+          {/* The device, frame and length choices are about RENDERING a
+              screen; the HTML export ships the pages as they are, so the
+              controls would be decoration (#692). */}
+          {format === "html" ? (
+            <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+              Each page ships as a standalone document — its markup, the project's tokens and every
+              component it uses, inlined — so the files open straight from the folder with no server.
+              The device and frame choices do not apply.
+            </p>
+          ) : (
+            <>
+              <section className="space-y-1.5">
+                <p className={fieldLabel}>Device</p>
             <Select
               value={deviceId}
               items={DEVICE_ITEMS}
@@ -433,6 +449,8 @@ export function ExportDialog({
               Whole page length (not just the first screen)
             </CheckRow>
           </section>
+            </>
+          )}
 
           {running ? (
             <div className="space-y-1.5" aria-live="polite">
@@ -449,7 +467,9 @@ export function ExportDialog({
           ) : null}
           {error ? <p className="text-sm text-rose-600 dark:text-rose-300">{error}</p> : null}
           {report ? <ExportReportNote report={report} /> : null}
-          {!sandboxToken ? <p className="text-sm text-muted-foreground">Waiting for the design preview to load…</p> : null}
+          {!sandboxToken && format !== "html" ? (
+            <p className="text-sm text-muted-foreground">Waiting for the design preview to load…</p>
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -462,8 +482,8 @@ export function ExportDialog({
               Close
             </Button>
           )}
-          <Button disabled={running || !items.length || !sandboxToken} onClick={() => void start()}>
-            {running ? "Exporting…" : format === "pdf" ? "Export PDF" : "Export images"}
+          <Button disabled={running || !items.length || (!sandboxToken && format !== "html")} onClick={() => void start()}>
+            {running ? "Exporting…" : format === "pdf" ? "Export PDF" : format === "html" ? "Export HTML" : "Export images"}
           </Button>
         </DialogFooter>
       </DialogContent>

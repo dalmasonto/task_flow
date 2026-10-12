@@ -10,8 +10,10 @@ import {
   PAGE_MARGIN,
   bestPageSetup,
   exportFileName,
+  exportHtmlFileName,
   exportItems,
   frameFor,
+  htmlFileName,
   screenFileName,
   screensPerPage,
   slotOrigin,
@@ -103,6 +105,27 @@ describe("frames and names (#507)", () => {
   it("names files so they sort in export order", () => {
     expect(exportFileName("TaskFlow v2", "iphone-16-pro", "pdf")).toBe("taskflow-v2-iphone-15-16-screens.pdf")
     expect(screenFileName({ route: "/", label: "Sign up!", group: null, n: 3 }, 12)).toBe("03-sign-up.png")
+  })
+
+  it("names HTML files the way the SERVER names them (#692)", () => {
+    // The download the export zips up is the same document the per-board
+    // "Download HTML" saves, and the backend already named it
+    // (`views::safe_filename_for_route`). `/` becoming `index.html` is what
+    // makes the unzipped folder open as a little site rather than a mystery.
+    expect(htmlFileName("/")).toBe("index.html")
+    expect(htmlFileName("/pricing")).toBe("pricing.html")
+    expect(htmlFileName("pricing")).toBe("pricing.html")
+  })
+
+  it("gives the HTML zip a .zip name like the images export", () => {
+    expect(exportFileName("TaskFlow v2", "laptop", "zip")).toBe("taskflow-v2-laptop-screens.zip")
+  })
+
+  it("names the HTML archive without a device, which it does not use (#692)", () => {
+    // Picking a device for an HTML export is meaningless (the dialog hides the
+    // control), so the archive must not claim one either.
+    expect(exportHtmlFileName("TaskFlow v2")).toBe("taskflow-v2-html.zip")
+    expect(exportHtmlFileName("  ")).toBe("design-html.zip")
   })
 })
 
