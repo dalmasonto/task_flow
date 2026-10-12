@@ -26,6 +26,7 @@ import {
   ShieldCheckIcon,
   PlugIcon,
   UserRoundPlusIcon,
+  PackageIcon,
 } from "lucide-react"
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
@@ -116,6 +117,12 @@ export function AppSidebar({
       url: "/dashboard/agents",
       icon: <MessageSquareIcon />,
       badge: onlineAgents ? String(onlineAgents) : undefined,
+      onSelect: closeMobileSidebar,
+    },
+    {
+      title: "Toolbox",
+      url: "/dashboard/toolbox",
+      icon: <PackageIcon />,
       onSelect: closeMobileSidebar,
     },
     {

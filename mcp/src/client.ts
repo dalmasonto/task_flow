@@ -476,6 +476,65 @@ export class TaskflowClient {
     });
   }
 
+  // ---- #617: the project toolbox -------------------------------------------
+
+  /** `GET /agents/toolbox` — the index. Never carries code. */
+  toolboxList(params: { kind?: string; tag?: string; query?: string } = {}): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/toolbox`, {
+      query: { kind: params.kind, tag: params.tag, query: params.query },
+      idempotent: true,
+    });
+  }
+
+  /** `GET /agents/toolbox/{name}` — the full entry, code included. */
+  toolboxGet(name: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}`, { idempotent: true });
+  }
+
+  /** `POST /agents/toolbox/{name}` — create or update (the version gate is the
+   *  server's: a stale `base_version` is a 409). */
+  toolboxSave(name: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}`, { body: input });
+  }
+
+  /** `POST /agents/toolbox/{name}/run` — record how a run went. */
+  toolboxReportRun(name: string, ok: boolean, note?: string): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}/run`, {
+      body: { ok, note },
+    });
+  }
+
+  /** `POST /agents/toolbox/{name}/deprecate` — retire an entry, with a reason. */
+  toolboxDeprecate(name: string, reason: string): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}/deprecate`, {
+      body: { reason },
+    });
+  }
+
+  /** `GET /agents/toolbox/{name}/versions` — history + who vetted what. */
+  toolboxVersions(name: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}/versions`, {
+      idempotent: true,
+    });
+  }
+
+  /** `GET /agents/toolbox/{name}/versions/{version}` — one past version, with
+   *  its code, so an update can be diffed before re-vetting. */
+  toolboxGetVersion(name: string, version: number): Promise<unknown> {
+    return this.request(
+      "GET",
+      `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}/versions/${version}`,
+      { idempotent: true },
+    );
+  }
+
+  /** `POST /agents/toolbox/{name}/vet` — record an install's vetting note. */
+  toolboxVet(name: string, version: number, vettedBy: string, vettedNote: string): Promise<unknown> {
+    return this.request("POST", `${API_PREFIX}/agents/toolbox/${encodeURIComponent(name)}/vet`, {
+      body: { version, vetted_by: vettedBy, vetted_note: vettedNote },
+    });
+  }
+
   /** `GET /agents/activity?task=&limit=` — recent activity, newest first. */
   listActivity(params: { task?: number; limit?: number } = {}): Promise<unknown[]> {
     return this.request("GET", `${API_PREFIX}/agents/activity`, {

@@ -336,6 +336,7 @@ dependencies = [
  "taskflow-github",
  "taskflow-projects",
  "taskflow-tasks",
+ "taskflow-toolbox",
  "tokio",
  "tracing-subscriber",
  "umbral",
@@ -3665,6 +3666,26 @@ dependencies = [
  "taskflow-projects",
  "tokio",
  "tracing",
+ "umbral",
+ "umbral-auth",
+ "umbral-testing",
+]
+
+[[package]]
+name = "taskflow-toolbox"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "taskflow-agents",
+ "taskflow-projects",
+ "tokio",
  "umbral",
  "umbral-auth",
  "umbral-testing",

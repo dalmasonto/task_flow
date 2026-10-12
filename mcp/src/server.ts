@@ -31,6 +31,13 @@ import { getMirrorStatus } from "./mirror.js";
 import { downloadAttachment } from "./attachment-download.js";
 import { detectTmuxPane } from "./tmux.js";
 import { AGENT_INSTRUCTIONS } from "./instructions.js";
+import {
+  diffLines,
+  installScript,
+  installedStatus,
+  uninstallScript,
+  type InstallableEntry,
+} from "./toolbox.js";
 import { sessionIdentifier } from "./session-identifier.js";
 import { getConnectionStatus } from "./connect.js";
 import { selectProfile } from "./runtime.js";
@@ -163,6 +170,108 @@ export interface BuildServerOptions {
  * Construct the MCP server with all tools registered. The config is loaded
  * eagerly so a broken `.taskflow.json` fails fast at startup with a clear error.
  */
+/// #617: the connect-time toolbox index. Compact by construction — a count,
+/// then one `name — description` line per entry, marked with what is installed
+/// locally — and NO code, ever (progressive disclosure: code reaches the
+/// context only through `toolbox_get`). Returns null when the toolbox cannot be
+/// reached, so a missing index degrades whoami instead of failing it.
+export interface ToolboxIndex {
+  count: number
+  entries: {
+    name: string
+    kind: string
+    description: string
+    status: string
+    version: number
+    install_state: string
+    installed_version: number | null
+    local_edit: boolean
+  }[]
+}
+
+/// The label a vetting record carries: the agent's own display name, so a
+/// teammate reading "vetted by Build 3" knows who to ask.
+async function agentLabelFor(client: { whoami: () => Promise<unknown> }): Promise<string> {
+  try {
+    const identity = (await client.whoami()) as { display_name?: string; agent?: { display_name?: string } };
+    return identity?.display_name ?? identity?.agent?.display_name ?? "an agent";
+  } catch {
+    return "an agent";
+  }
+}
+
+async function toolboxIndexFor(
+  client: { toolboxList: () => Promise<unknown> },
+  projectRoot: string,
+): Promise<ToolboxIndex | null> {
+  try {
+    const listed = (await client.toolboxList()) as { entries?: unknown[] };
+    const entries = (listed?.entries ?? []) as {
+      name: string
+      kind: string
+      description: string
+      status: string
+      version: number;
+    }[];
+    const scripts = entries.filter((entry) => entry.kind === "script");
+    const statuses = scripts.length
+      ? await installedStatus({
+          projectRoot,
+          serverScripts: scripts.map((script) => ({ name: script.name, version: script.version })),
+        })
+      : [];
+    const byName = new Map(statuses.map((status) => [status.name, status]));
+    return {
+      count: entries.length,
+      entries: entries.map((entry) => {
+        const status = byName.get(entry.name);
+        return {
+          name: entry.name,
+          kind: entry.kind,
+          description: entry.description,
+          status: entry.status,
+          version: entry.version,
+          install_state: status?.state ?? "n/a",
+          installed_version: status?.installed_version ?? null,
+          local_edit: status?.local_edit ?? false,
+        };
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The readable half of the index: what an agent reads without calling anything
+ *  else. Kept SHORT — entries are one line each, and code never appears. */
+function renderToolboxIndex(index: ToolboxIndex | null): string | null {
+  if (!index || index.count === 0) return null;
+  const lines = [
+    `Project toolbox — ${index.count} entr${index.count === 1 ? "y" : "ies"} already saved for this project:`,
+  ];
+  for (const entry of index.entries.slice(0, 24)) {
+    const marker =
+      entry.kind === "memory"
+        ? "[memory]"
+        : entry.install_state === "current"
+          ? `[installed v${entry.installed_version}]`
+          : entry.install_state === "update-available"
+            ? `[installed v${entry.installed_version}, update available: v${entry.version}]`
+            : entry.install_state === "locally-edited"
+              ? `[installed v${entry.installed_version}, EDITED LOCALLY — save the fix with toolbox_save or reinstall]`
+              : "[script, not installed]";
+    const status = entry.status !== "approved" ? ` (${entry.status})` : "";
+    lines.push(`- ${entry.name} ${marker}${status} — ${entry.description}`);
+  }
+  if (index.entries.length > 24) {
+    lines.push(`…and ${index.entries.length - 24} more: call toolbox_list.`);
+  }
+  lines.push(
+    "Read one with toolbox_get (nothing loads code into your context until you ask). Check the toolbox BEFORE building tooling, and save what works.",
+  );
+  return lines.join("\n");
+}
+
 export function buildServer(options: BuildServerOptions = {}): McpServer {
   const configPath = findConfigPath({
     configPath: options.configPath,
@@ -318,6 +427,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
         const identity = await client.whoami();
+        // #617: the toolbox index at connect. Progressive disclosure is the
+        // whole point: names and one-line descriptions (never code), plus what
+        // is already installed locally and what has a newer version — so the
+        // agent knows what exists and what it can run WITHOUT loading any of
+        // it. A toolbox that is unreachable must not break whoami.
+        const toolbox = await toolboxIndexFor(client, dirname(configPath));
         // The mirror's health rides along with identity because a dead mirror
         // is otherwise invisible: it only ever wrote one line to stderr, which
         // nobody reads, so "the dashboard terminal is stale" could only be
@@ -326,11 +441,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           ...(identity as object),
           connection: getConnectionStatus(),
           mirror: getMirrorStatus(),
+          ...(toolbox ? { toolbox } : {}),
         });
         // #615/#616: the JSON escapes every newline, so long markdown is
         // unreadable there. Show it again as plain text when there is any.
         const readable = renderInstructions(identity);
         if (readable) result.content.push({ type: "text", text: readable });
+        const toolboxText = renderToolboxIndex(toolbox);
+        if (toolboxText) result.content.push({ type: "text", text: toolboxText });
         return result;
       } catch (err) {
         return fail(err);
@@ -2189,6 +2307,264 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           throw new Error(`Unreadable comment id '${id}'.`);
         }
         return ok(await client.resolveDesignComment(projectId, rowId, note));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+
+  // ---- #617: the project toolbox -------------------------------------------
+  //
+  // Progressive disclosure, enforced and not merely described: `toolbox_list`
+  // returns names and descriptions and NEVER code, `toolbox_get` is the only
+  // way code reaches the context, and installing is gated on having seen the
+  // exact version this session (by fetching it, diffing to it, or writing it).
+
+  // name -> versions this session has SEEN. Process-local, so a reconnect
+  // starts clean and cannot install on an earlier session's reading.
+  const toolboxSeen = new Map<string, Set<number>>();
+  const markSeen = (name: string, version: number) => {
+    const set = toolboxSeen.get(name) ?? new Set<number>();
+    set.add(version);
+    toolboxSeen.set(name, set);
+  };
+
+  server.tool(
+    "toolbox_list",
+    "What this project's toolbox already knows: memories (project facts, gotchas) and scripts other agents built, tested and saved. Titles, descriptions, tags, status, version and run stats ONLY — no code, no bodies. Call this BEFORE building tooling for a project: the report script you are about to reinvent probably already exists.",
+    {
+      kind: z.enum(["memory", "script"]).optional().describe("Filter to one kind."),
+      tag: z.string().optional().describe("Only entries carrying this tag."),
+      query: z.string().optional().describe("Free text over name, title and description."),
+      ...profileArg,
+    },
+    async ({ kind, tag, query, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await picked.client.toolboxList({ kind, tag, query }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_get",
+    "Read ONE toolbox entry in full: a memory's text, or a script's code with its params, requires_env and usage notes. The ONLY tool that puts an entry's code in front of you — use it when you need the entry, never to browse. For a script, read the code before running it; then toolbox_install to put it where you can run it.",
+    {
+      name: z.string().min(1).describe("Entry name from toolbox_list or the connect-time index."),
+      ...profileArg,
+    },
+    async ({ name, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const entry = (await picked.client.toolboxGet(name)) as { name?: string; version?: number };
+        if (entry?.name && typeof entry.version === "number") markSeen(entry.name, entry.version);
+        return ok(entry);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_save",
+    "Save a memory or a SCRIPT into the project toolbox, so every agent on the project — including on your colleagues' machines — starts from what you learned. A memory for a non-obvious project fact or gotcha; a script once you have RUN it and it works, not before. NEVER put credentials, tokens or private keys in the code: they are refused outright, and the right shape is requires_env plus reading the values at run time. Hosts, emails and IPs are REPLACED on save and reported back — parameterise them instead. Updating an existing entry needs `base_version` (from toolbox_get); a stale one is a 409.",
+    {
+      name: z
+        .string()
+        .min(1)
+        .describe("Unique slug for this project: lowercase letters, digits, `-`, `_`. The handle everything else uses."),
+      kind: z.enum(["memory", "script"]).describe("memory = prose an agent reads; script = code an agent runs locally."),
+      title: z.string().min(1).describe("Human title."),
+      description: z
+        .string()
+        .min(1)
+        .describe("ONE line, and it must say WHEN to use the entry — this is what the index shows, so it is the retrieval signal."),
+      body_markdown: z.string().optional().describe("The memory itself, or a script's usage notes."),
+      code: z.string().optional().describe("Scripts only: the full source."),
+      language: z.string().optional().describe("Scripts only: bash, python, node, …"),
+      entrypoint: z.string().optional().describe("Scripts only: the file to run (defaults from the name and language)."),
+      params: z
+        .array(z.object({ name: z.string(), description: z.string().optional(), required: z.boolean().optional() }))
+        .optional()
+        .describe("Scripts only: the arguments a caller passes."),
+      requires_env: z
+        .array(z.string())
+        .optional()
+        .describe("Scripts only: environment VARIABLE NAMES the script reads. Never values."),
+      tags: z.array(z.string()).optional(),
+      base_version: z.number().int().optional().describe("Required to update an existing entry: the version you are editing."),
+      note: z.string().optional().describe("Why this version replaces the last — what a diff reader wants."),
+      dry_run: z.boolean().optional().describe("Check the redaction report without saving, so you can fix the source first."),
+      ...profileArg,
+    },
+    async (input) => {
+      try {
+        const picked = await clientFor(input.profile);
+        if (!picked.ok) return picked.refusal;
+        const { name, profile: _profile, ...fields } = input;
+        const saved = (await picked.client.toolboxSave(name, fields)) as {
+          entry?: { name?: string; version?: number };
+        };
+        if (!input.dry_run && saved?.entry?.name && typeof saved.entry.version === "number") {
+          // The author has necessarily read what it wrote, so this version is
+          // installable without a separate get.
+          markSeen(saved.entry.name, saved.entry.version);
+        }
+        return ok(saved);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_report_run",
+    "Say how a toolbox script's run went, after you ran it. This is the feedback loop that makes a broken script visible as broken (and a fixed one as fixed) to the whole project — call it every time you run one.",
+    {
+      name: z.string().min(1),
+      ok: z.boolean().describe("Did it do its job?"),
+      note: z.string().optional().describe("What happened, briefly — especially when ok is false."),
+      ...profileArg,
+    },
+    async ({ name, ok: ranOk, note, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await picked.client.toolboxReportRun(name, ranOk, note));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_deprecate",
+    "Retire a toolbox entry with a reason: a script a newer one replaces, a memory that stopped being true. Prefer this to leaving wrong knowledge in place — the reason is what the next agent reads.",
+    {
+      name: z.string().min(1),
+      reason: z.string().min(1).describe("Why it should no longer be used."),
+      ...profileArg,
+    },
+    async ({ name, reason, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await picked.client.toolboxDeprecate(name, reason));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_diff",
+    "Show ONLY what changed between two versions of a script, so re-vetting an update is quick reading instead of re-reading everything. Use it when the connect-time index says an installed script has a newer version.",
+    {
+      name: z.string().min(1),
+      from: z.number().int().describe("The version you vetted (the index's 'installed vX')."),
+      to: z.number().int().describe("The newer version."),
+      ...profileArg,
+    },
+    async ({ name, from, to, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const [before, after] = await Promise.all([
+          picked.client.toolboxGetVersion(name, from),
+          picked.client.toolboxGetVersion(name, to),
+        ]);
+        const beforeCode = (before as { code?: string | null }).code ?? "";
+        const afterCode = (after as { code?: string | null }).code ?? "";
+        markSeen(name, to);
+        return ok({
+          name,
+          from,
+          to,
+          identical: beforeCode === afterCode,
+          diff: diffLines(beforeCode, afterCode),
+          before,
+          after,
+        });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_install",
+    "Install a REVIEWED script into .taskflow/scripts/<name>/ in this checkout, so it runs directly from now on with no fetching and no re-reading. Requires `vetted_note`: your own sentence about what you checked ('read-only SSH, runs df and journalctl, prints to stdout, no deletes'). You must have seen THIS version already — via toolbox_get, toolbox_diff, or writing it yourself — because installing code nobody read is exactly what the gate prevents. The checkout keeps running its installed version; a newer server version is reported at connect but is NOT installed until you review the diff and install again.",
+    {
+      name: z.string().min(1),
+      version: z.number().int().optional().describe("Defaults to the current version."),
+      vetted_note: z.string().min(4).describe("What you checked in the code before installing it."),
+      ...profileArg,
+    },
+    async ({ name, version, vetted_note, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        const entry = (await picked.client.toolboxGet(name)) as InstallableEntry & { kind?: string };
+        if (entry?.kind !== "script") {
+          return fail(new Error(`'${name}' is not a script — there is nothing to install. Read it with toolbox_get instead.`));
+        }
+        const target = version ?? entry.version;
+        if (!toolboxSeen.get(name)?.has(target)) {
+          return fail(
+            new Error(
+              `Read '${name}' v${target} first: toolbox_get, or toolbox_diff from the version you vetted. Installing a script you have not read is what the vetting gate prevents.`,
+            ),
+          );
+        }
+        const source =
+          target === entry.version
+            ? entry
+            : ((await picked.client.toolboxGetVersion(name, target)) as InstallableEntry);
+        const agentLabel = await agentLabelFor(picked.client);
+        const install = await installScript({
+          projectRoot: dirname(configPath),
+          entry: { ...source, name, version: target } as InstallableEntry,
+          vettedBy: agentLabel,
+          vettedNote: vetted_note,
+        });
+        // Record the vetting server-side so teammates can see who checked what.
+        // Best-effort: a failed record must not undo an install already on disk.
+        const vetted = await picked.client
+          .toolboxVet(name, target, agentLabel, vetted_note)
+          .then(() => true)
+          .catch(() => false);
+        return ok({
+          ...install,
+          vetted_recorded: vetted,
+          note: `Installed. Run it as ${install.run_command}, then call toolbox_report_run with how it went.${
+            install.missing_env.length
+              ? ` This machine is missing ${install.missing_env.join(", ")} — ask your human to set them (values never go through TaskFlow).`
+              : ""
+          }`,
+        });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.tool(
+    "toolbox_uninstall",
+    "Remove an installed script from this checkout — its folder and its manifest row. The server copy is untouched; this only cleans the local scripts directory.",
+    {
+      name: z.string().min(1),
+      ...profileArg,
+    },
+    async ({ name, profile }) => {
+      try {
+        const picked = await clientFor(profile);
+        if (!picked.ok) return picked.refusal;
+        return ok(await uninstallScript({ projectRoot: dirname(configPath), name }));
       } catch (err) {
         return fail(err);
       }

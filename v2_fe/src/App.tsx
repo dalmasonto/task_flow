@@ -50,6 +50,7 @@ import { ALL_TOOLS } from "@/lib/activity-filter"
 /// preference and the create path cannot drift apart.
 import { ActivityLogPage } from "@/pages/activity"
 import { DesignSurfacePage } from "@/pages/design/DesignSurfacePage"
+import { ToolboxPage } from "@/pages/toolbox"
 import { AgentsConversationEmpty, AgentsConversationRoute, AgentsPage } from "@/pages/agents"
 import { ApiBasePage } from "@/pages/api-base"
 import { AuthGateScreen, AuthPage } from "@/pages/auth"
@@ -2431,6 +2432,16 @@ function App() {
               <Route index element={<AgentsConversationEmpty />} />
               <Route path=":conversationId" element={<AgentsConversationRoute />} />
             </Route>
+            <Route
+              path="/dashboard/toolbox"
+              element={
+                activeProject ? (
+                  <ToolboxPage projectId={activeProject ? Number(liveId(activeProject.id)) : null} />
+                ) : (
+                  <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
+                )
+              }
+            />
             <Route
               path="/dashboard/reviews"
               element={

@@ -39,6 +39,7 @@ const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180)
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_design::TaskflowDesignPlugin;
 use taskflow_github::TaskflowGithubPlugin;
+use taskflow_toolbox::TaskflowToolboxPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
 use umbral::prelude::*;
@@ -198,6 +199,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // TaskFlow GitHub linking: publish-as-issue + comment-as-actor. Reads
         // linked tokens from the OAuth SocialAccount model above.
         .plugin(TaskflowGithubPlugin::default())
+        // #617: the project toolbox — shared memories and reusable scripts.
+        // The plugin never runs anything; the guardrails it enforces are the
+        // secret scan (a save carrying a credential is refused) and the
+        // identifier redaction (IPs, emails, phones are replaced, and the save
+        // reports what it replaced).
+        .plugin(TaskflowToolboxPlugin::default())
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a
         // fresh admin isn't empty — add your own with `.dashboard_section`.

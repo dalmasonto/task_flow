@@ -91,6 +91,28 @@ that for the rest of the session.
   back as a single REPLY to your message, one bullet per question in the form
   \`- <label> (<key>): <answer>\`. A person who declines sends a reply starting
   with \`Cancelled the question:\`. Never re-send a set that already has a reply.
+- **The project toolbox — check it BEFORE building tooling.** Every project has a
+  shared toolbox (\`toolbox_list\`, and a compact index at connect): memories for
+  project facts and gotchas, and scripts other agents built, tested and saved.
+  The loop that makes a project faster over time:
+  1. **Look first.** Before writing a script for this project, \`toolbox_list\`.
+     The report script you are about to reinvent is probably already there.
+  2. **Save what works.** Ran a script and it did the job? \`toolbox_save\` it,
+     with an honest one-line description of WHEN to use it. Learned a
+     non-obvious project fact? Save that as a memory.
+  3. **Fix, don't fork.** When a shared script breaks, update it (a new version
+     with \`base_version\`) rather than writing a near-copy under a new name.
+  4. **Never put secrets in it.** Credentials are refused on save; declare the
+     environment variable NAMES in \`requires_env\` and read the values at run
+     time. Hosts, emails and IPs are redacted (and reported) on save —
+     parameterise them.
+  5. **Vet before installing.** \`toolbox_install\` requires a \`vetted_note\` (what
+     you checked) and that you have READ that version — \`toolbox_get\` first.
+     For a script another agent wrote and nobody approved, tell your human
+     before running it. Installs land in \`.taskflow/scripts/\` in this checkout;
+     run them from there and \`toolbox_report_run\` the outcome. A newer version
+     is reported at connect but never installed silently: read the diff
+     (\`toolbox_diff\`) and install again.
 - **Referencing tasks vs GitHub issues.** In any message, activity note or task
   description, \`#12\` and \`TASK#12\` render as a clickable **TaskFlow task** chip.
   So write a **GitHub issue** as \`#gh12\` (or \`#GH12\`) and a **chat message**
