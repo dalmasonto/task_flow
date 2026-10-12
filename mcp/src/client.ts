@@ -54,6 +54,13 @@ export type DesignScreenshotOptions = {
   tokens?: Record<string, DesignOverrideValue>;
   css?: string;
   max_px?: number;
+  /** #525: where the render goes. `to` is `inline` (default) | `message` |
+   *  `url`; `message` needs `channel`. Flat on the wire — these four become
+   *  query parameters, because the route is a GET. */
+  deliver?: "inline" | "message" | "url";
+  deliver_channel?: number;
+  deliver_body?: string;
+  deliver_reply_to?: number;
 };
 
 /** `design_compare` request body (minus `project`). */
@@ -73,11 +80,19 @@ export type DesignCompareInput = {
   css?: string;
   include_apply?: boolean;
   max_px?: number;
+  /** #525: `inline` (default) | `message` (needs `deliver_channel`) | `url`. */
+  deliver?: "inline" | "message" | "url";
+  deliver_channel?: number;
+  deliver_body?: string;
+  deliver_reply_to?: number;
 };
 
 export type DesignCompareResult = {
   mime: string;
-  images: { routes: string[]; size?: { width: number; height: number }; png_base64: string }[];
+  images: { routes: string[]; size?: { width: number; height: number }; png_base64?: string }[];
+  /** #525: present when `deliver` sent the render somewhere else — ids and
+   *  sizes instead of pixels, and then `images[]` carries no base64. */
+  delivered?: unknown;
   split: boolean;
   grid: { columns: string[]; rows: { route: string; theme: string; label?: string | null }[] };
   checks: {
@@ -834,6 +849,9 @@ export class TaskflowClient {
     warnings?: string[]
     mime: string
     png_base64?: string
+    /** #525: where a `deliver`ed render went (ids, urls, sizes) — and then
+     *  `png_base64`/`shots[].png_base64` are absent. */
+    delivered?: unknown
     /** `theme: "all"`: one shot per declared theme, in order. */
     shots?: { theme: string; image?: { width: number; height: number }; png_base64?: string; error?: string }[]
   }> {

@@ -164,8 +164,20 @@ vi.mock("./client.js", async (importOriginal) => {
       harness.payloads.push(JSON.stringify(opts));
       return { ok: true, version: 3, themes: ["light", "dark", "ocean"] };
     }
-    async designScreenshot(project: number, route: string, viewport: string, _state: string | undefined, opts: { theme?: string }) {
+    async designScreenshot(project: number, route: string, viewport: string, _state: string | undefined, opts: { theme?: string; deliver?: string; deliver_channel?: number }) {
       harness.calls.push(`designScreenshot:${project}:${route}:${opts.theme ?? "light"}`);
+      // The opts as the tool passed them: #525's flattening is asserted on this.
+      harness.payloads.push(JSON.stringify(opts));
+      // #525: a delivered render has NO base64 and a `delivered` block instead.
+      if (opts.deliver && opts.deliver !== "inline") {
+        return {
+          route, viewport, theme: opts.theme ?? "light", mime: "image/png", warnings: [], size: { width: 800, height: 600, dpr: 2, mobile: false },
+          delivered:
+            opts.deliver === "message"
+              ? { to: "message", message_id: 41, channel: opts.deliver_channel, attachments: [{ url: "/media/a.png", name: "x.png", bytes: 10 }] }
+              : { to: "url", images: [{ url: "/media/a.png", file: "a", bytes: 10 }] },
+        };
+      }
       if (opts.theme === "all" && route === "/partial") {
         return {
           route, viewport, theme: "all", mime: "image/png", warnings: [],
@@ -194,8 +206,19 @@ vi.mock("./client.js", async (importOriginal) => {
       }
       return { route, viewport, theme: opts.theme ?? "light", mime: "image/png", warnings: [], png_base64: "AAAA" };
     }
-    async designCompare(project: number, input: { themes?: string[] }) {
+    async designCompare(project: number, input: { themes?: string[]; deliver?: string; deliver_channel?: number }) {
       harness.calls.push(`designCompare:${project}:${(input.themes ?? []).join(",")}`);
+      if (input.deliver && input.deliver !== "inline") {
+        return {
+          mime: "image/png",
+          images: [{ routes: ["/settings"] }],
+          delivered: { to: "message", message_id: 42, channel: input.deliver_channel, attachments: [{ url: "/media/g.png" }] },
+          split: false,
+          grid: { columns: ["Current"], rows: [{ route: "/settings", theme: "light" }] },
+          checks: [],
+          warnings: [],
+        };
+      }
       return {
         mime: "image/png",
         images: [{ routes: ["/"], png_base64: "AAAA" }],
@@ -655,6 +678,72 @@ describe("design_read_layout", () => {
     // have resolved to before it asked for anything.
     expect(harness.calls).toContain("readDesignLayout:2");
     expect(JSON.stringify(result.content)).toMatch(/Auth/);
+  });
+});
+
+describe("deliver (#525)", () => {
+  it("flattens deliver into the four query parameters the GET route takes", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_screenshot",
+      arguments: {
+        route: "/settings",
+        deliver: { to: "message", channel: 36, body: "the colours, side by side" },
+        profile: "main",
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(harness.calls).toContain("designScreenshot:2:/settings:light");
+    // The call itself carries the flattened shape (recorded via harness.payloads
+    // in the fake, which stringifies opts).
+    const call = harness.payloads.find((p) => p.includes("deliver_channel"));
+    expect(call, "the delivery travelled flattened").toBeTruthy();
+    // NO image block: the render went to the channel.
+    const content = (result as { content: { type: string }[] }).content;
+    expect(content.some((c) => c.type === "image")).toBe(false);
+    expect(JSON.stringify(content)).toMatch(/DELIVERED to channel 36/);
+    expect(JSON.stringify(content)).toMatch(/do not re-send it/);
+  });
+
+  it("returns the URL form without an image either", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_screenshot",
+      arguments: { route: "/settings", deliver: { to: "url" }, profile: "main" },
+    });
+    expect(result.isError).toBeFalsy();
+    const content = (result as { content: { type: string }[] }).content;
+    expect(content.some((c) => c.type === "image")).toBe(false);
+    expect(JSON.stringify(content)).toMatch(/DELIVERED as file/);
+  });
+
+  it("keeps inline delivery exactly as it was: image plus text", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_screenshot",
+      arguments: { route: "/settings", profile: "main" },
+    });
+    expect(result.isError).toBeFalsy();
+    const content = (result as { content: { type: string }[] }).content;
+    expect(content.some((c) => c.type === "image")).toBe(true);
+    expect(JSON.stringify(content)).not.toMatch(/DELIVERED/);
+  });
+
+  it("delivers a compare grid to the channel and says so", async () => {
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "design_compare",
+      arguments: {
+        routes: ["/settings"],
+        variants: [{ label: "Current" }],
+        deliver: { to: "message", channel: 36 },
+        profile: "main",
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    const content = (result as { content: { type: string }[] }).content;
+    expect(content.some((c) => c.type === "image")).toBe(false);
+    expect(JSON.stringify(content)).toMatch(/DELIVERED to channel 36/);
   });
 });
 

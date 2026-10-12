@@ -1560,6 +1560,29 @@ pub struct AgentScreenshotQuery {
     /// reads at; 0 = full resolution, e.g. for a human).
     #[serde(default)]
     pub max_px: Option<u32>,
+    /// #525: where the render goes — `inline` (default), `message` (posted to
+    /// `deliver_channel` as attachments) or `url`. Flat query names rather
+    /// than a nested object: this is a GET, and a JSON blob in a query string
+    /// is the shape that breaks first.
+    #[serde(default)]
+    pub deliver: Option<String>,
+    #[serde(default)]
+    pub deliver_channel: Option<i64>,
+    #[serde(default)]
+    pub deliver_body: Option<String>,
+    #[serde(default)]
+    pub deliver_reply_to: Option<i64>,
+}
+
+impl AgentScreenshotQuery {
+    fn delivery(&self) -> crate::delivery::Deliver {
+        crate::delivery::Deliver {
+            to: self.deliver.clone(),
+            channel: self.deliver_channel,
+            body: self.deliver_body.clone(),
+            reply_to: self.deliver_reply_to,
+        }
+    }
 }
 
 fn default_viewport() -> String {
@@ -1575,6 +1598,12 @@ pub async fn screenshot(
 ) -> Result<Response, StatusCode> {
     use base64::Engine as _;
     authorized_project(&agent, q.project)?;
+    // #525: parse the delivery BEFORE anything renders — an unknown mode or a
+    // `message` with no channel is a 400, not a wasted page load.
+    let delivery = match q.delivery().parse() {
+        Ok(delivery) => delivery,
+        Err(detail) => return Ok(bad_request(detail)),
+    };
     let tokens = match q.tokens.as_deref().filter(|t| !t.trim().is_empty()) {
         Some(raw) => match serde_json::from_str(raw) {
             Ok(map) => map,
@@ -1643,11 +1672,33 @@ pub async fn screenshot(
     // A custom size is not the preset it was sent alongside.
     let viewport = if q.width.is_some() { "custom".to_string() } else { q.viewport.clone() };
     if is_all {
+        // Deliver BEFORE the base64 payloads are built: the bytes exist here
+        // and only here.
+        let images: Vec<crate::delivery::RenderedImage> = outcomes
+            .iter()
+            .filter_map(|(theme, rendered)| {
+                rendered.as_ref().ok().map(|shot| delivered_image(&q.route, theme.as_str(), shot))
+            })
+            .collect();
+        let delivered = match crate::delivery::deliver(&agent, &delivery, images).await {
+            Ok(value) => value,
+            Err((code, detail)) => {
+                return Ok((code, Json(json!({ "detail": detail }))).into_response())
+            }
+        };
         let parts = match all_shots(&outcomes) {
             Ok(parts) => parts,
             Err(err) => return Ok(err),
         };
-        return Ok(Json(json!({
+        let mut shots = parts.shots.clone();
+        if delivered.is_some() {
+            for shot in shots.iter_mut() {
+                if let Some(object) = shot.as_object_mut() {
+                    object.remove("png_base64");
+                }
+            }
+        }
+        let mut body = json!({
             "route": q.route,
             "viewport": viewport,
             "size": parts.size,
@@ -1656,27 +1707,44 @@ pub async fn screenshot(
             "frame": q.frame,
             "warnings": parts.warnings,
             "mime": "image/png",
-            "shots": parts.shots,
-        }))
-        .into_response());
+            "shots": shots,
+        });
+        if let Some(delivered) = delivered {
+            body["delivered"] = delivered;
+        }
+        return Ok(Json(body).into_response());
     }
     let Some((_, Ok(shot))) = outcomes.into_iter().next() else {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&shot.png);
-    Ok(Json(json!({
+    let image = png_size(&shot.png);
+    let delivered = {
+        let images = vec![delivered_image(&q.route, q.theme.as_str(), &shot)];
+        match crate::delivery::deliver(&agent, &delivery, images).await {
+            Ok(value) => value,
+            Err((code, detail)) => {
+                return Ok((code, Json(json!({ "detail": detail }))).into_response())
+            }
+        }
+    };
+    let mut body = json!({
         "route": q.route,
         "viewport": viewport,
         "size": shot.viewport,
-        "image": png_size(&shot.png),
+        "image": image,
         "theme": q.theme,
         "full_page": q.full_page,
         "frame": q.frame,
         "warnings": shot.warnings,
         "mime": "image/png",
-        "png_base64": b64,
-    }))
-    .into_response())
+    });
+    match delivered {
+        Some(delivered) => body["delivered"] = delivered,
+        None => {
+            body["png_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(&shot.png));
+        }
+    }
+    Ok(Json(body).into_response())
 }
 
 /// Why one theme of an `all` run has no picture.
@@ -1930,6 +1998,17 @@ pub struct AgentCompareInput {
     pub width: Option<u32>,
     #[serde(default)]
     pub height: Option<u32>,
+    /// #525: where the render goes — `inline` (default), `message` (posted to
+    /// `deliver_channel` as attachments) or `url`. See `AgentScreenshotQuery`
+    /// for why these are flat rather than one object.
+    #[serde(default)]
+    pub deliver: Option<String>,
+    #[serde(default)]
+    pub deliver_channel: Option<i64>,
+    #[serde(default)]
+    pub deliver_body: Option<String>,
+    #[serde(default)]
+    pub deliver_reply_to: Option<i64>,
     #[serde(default)]
     pub checks: Vec<crate::compare::ContrastCheck>,
     /// Cell scale, 0.2–1 (default 0.5).
@@ -1963,6 +2042,17 @@ pub async fn compare(
 ) -> Result<Response, StatusCode> {
     use base64::Engine as _;
     authorized_project(&agent, input.project)?;
+    // #525: refused before any grid renders.
+    let deliver_spec = crate::delivery::Deliver {
+        to: input.deliver.clone(),
+        channel: input.deliver_channel,
+        body: input.deliver_body.clone(),
+        reply_to: input.deliver_reply_to,
+    };
+    let delivery = match deliver_spec.parse() {
+        Ok(delivery) => delivery,
+        Err(detail) => return Ok(bad_request(detail)),
+    };
 
     let viewport_id = input.viewport.clone().unwrap_or_else(|| "iphone-16-pro".to_string());
     let size = match crate::screenshots::resolve_viewport(&crate::screenshots::ScreenshotRequest {
@@ -2051,6 +2141,7 @@ pub async fn compare(
     }
 
     let mut images = Vec::new();
+    let mut deliverable: Vec<crate::delivery::RenderedImage> = Vec::new();
     let mut checks: Vec<serde_json::Value> = Vec::new();
     let mut seen_checks = std::collections::HashSet::new();
     let mut warnings = Vec::new();
@@ -2083,13 +2174,28 @@ pub async fn compare(
                 checks.push(check.clone());
             }
         }
+        let routes: Vec<String> = part.routes.iter().map(|r| r.route.clone()).collect();
+        deliverable.push(delivered_image(&routes.join("+"), "grid", &shot));
         images.push(json!({
-            "routes": part.routes.iter().map(|r| r.route.clone()).collect::<Vec<_>>(),
+            "routes": routes,
             "size": png_size(&shot.png),
             "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
         }));
     }
 
+    // #525: deliver the grid parts; the reply then carries ids and sizes
+    // instead of pixels. `checks`, labels and warnings ride along in every mode.
+    let delivered = match crate::delivery::deliver(&agent, &delivery, deliverable).await {
+        Ok(value) => value,
+        Err((code, detail)) => return Ok((code, Json(json!({ "detail": detail }))).into_response()),
+    };
+    if delivered.is_some() {
+        for image in images.iter_mut() {
+            if let Some(object) = image.as_object_mut() {
+                object.remove("png_base64");
+            }
+        }
+    }
     let mut body = json!({
         "mime": "image/png",
         "images": images,
@@ -2114,6 +2220,9 @@ pub async fn compare(
         let (apply, base_version) = compare_apply(&files, &spec.variants);
         body["apply"] = apply;
         body["tokens_version"] = json!(base_version);
+    }
+    if let Some(delivered) = delivered {
+        body["delivered"] = delivered;
     }
     Ok(Json(body).into_response())
 }
@@ -2145,6 +2254,28 @@ pub fn compare_apply(
 }
 
 /// Width and height of a PNG, from its IHDR chunk.
+/// #525: the PNG's pixel size, decoded from its IHDR — the numbers a
+/// delivery record reports.
+fn png_pixels(png: &[u8]) -> (u32, u32) {
+    let read = |at: usize| {
+        png.get(at..at + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+            .unwrap_or(0)
+    };
+    (read(16), read(20))
+}
+
+/// One rendered shot on its way to `delivery`.
+fn delivered_image(route: &str, suffix: &str, shot: &crate::screenshots::Rendered) -> crate::delivery::RenderedImage {
+    let (width, height) = png_pixels(&shot.png);
+    crate::delivery::RenderedImage {
+        filename: crate::delivery::render_filename(route, suffix),
+        png: shot.png.clone(),
+        width,
+        height,
+    }
+}
+
 fn png_size(png: &[u8]) -> serde_json::Value {
     let read = |at: usize| png.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
     json!({ "width": read(16), "height": read(20) })

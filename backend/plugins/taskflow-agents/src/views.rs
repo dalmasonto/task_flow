@@ -51,7 +51,9 @@ const MAX_BODY_CHARS: usize = 10 * 1024 * 1024;
 /// before the message is created, so an oversized file rejects the whole
 /// request (413) cleanly — the message is never saved half-formed rather than
 /// created and then left without the attachment that failed to store.
-const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
+/// The attachment cap, shared with  (#525): a delivered render and
+/// an uploaded file meet the same limit.
+pub const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
 
 pub async fn health() -> &'static str {
     "taskflow-agents:ok"
@@ -1643,42 +1645,23 @@ pub async fn send_message_as_agent(
         return Ok((StatusCode::PAYLOAD_TOO_LARGE, Json(json!({ "detail": detail }))).into_response());
     }
 
-    let channel = TaskflowAgentChannel::objects()
-        .filter(taskflow_agent_channel::ID.eq(channel_id))
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
+    // The channel and the membership rule come from `posting` (#525): ONE
+    // implementation, shared with the design tools' `deliver`, so a message
+    // posted from inside another tool can never land where a sentence could
+    // not. Membership is the authorization boundary and is checked BEFORE the
+    // idempotency lookup below, for the same reason as on the human path: a
+    // guessed nonce must not let a non-member read back a stored message.
+    let channel = match crate::posting::postable_channel(&agent, channel_id).await {
+        Ok(channel) => channel,
+        Err(crate::posting::PostError::ChannelNotFound) => return Err(StatusCode::NOT_FOUND),
+        Err(crate::posting::PostError::NotAllowed) => return Err(StatusCode::FORBIDDEN),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
     // The DESTINATION decides, exactly as on the human path — `is_design` is
     // true when this message lands in the project's design room, whatever the
     // agent declared. See `send_message` for what a mismatched declaration sees
     // (it is discarded, not rejected).
     let is_design = channel.is_design;
-
-    // Membership is the authorization boundary. Checked BEFORE the idempotency
-    // lookup for the same reason as the human path: a guessed nonce must not let
-    // a non-member read back a stored message.
-    let is_roster_member = TaskflowAgentChannelMember::objects()
-        .filter(
-            taskflow_agent_channel_member::CHANNEL.eq(channel.id)
-                & taskflow_agent_channel_member::AGENT.eq(agent.agent_id),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .is_some();
-
-    if !is_roster_member {
-        // No roster row. DMs are private to their explicit roster.
-        if channel.kind == TaskflowChannelKind::Direct {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        // Shared project room: the agent may post only in its own project's rooms.
-        if channel.project.id() != agent.project_id {
-            return Err(StatusCode::FORBIDDEN);
-        }
-    }
 
     // #317: a reply must answer a message in this same channel. Checked
     // after membership, so a non-member cannot probe which ids a room holds.

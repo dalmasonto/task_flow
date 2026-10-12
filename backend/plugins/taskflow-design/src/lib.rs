@@ -30,6 +30,8 @@ pub mod agent_views;
 pub mod compare;
 pub mod composer;
 pub mod defaults;
+// #525: deliver a render to a channel (or a URL) instead of to the agent.
+pub mod delivery;
 pub mod dispatch;
 pub mod guide;
 pub mod layout_doc;

@@ -1519,6 +1519,30 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   // tools make, in the route's own wire shape (plus #508's update_link and
   // place_page, which exist only here).
   const coord = z.number().finite();
+  /** #525: the text a delivered render contributes — where it went, and the
+   *  reminder that the pixels are NOT in this reply. */
+  const deliveredNote = (delivered: unknown): string => {
+    if (!delivered || typeof delivered !== "object") return "";
+    const record = delivered as {
+      to?: string;
+      message_id?: number;
+      channel?: number;
+      attachments?: unknown[];
+      images?: { url?: string }[];
+    };
+    if (record.to === "message") {
+      const count = Array.isArray(record.attachments) ? record.attachments.length : 0;
+      return `\n\nDELIVERED to channel ${record.channel} as message ${record.message_id} (${count} attachment(s)). The image is NOT in this reply — the human has it; do not re-send it.`;
+    }
+    if (record.to === "url") {
+      const urls = Array.isArray(record.images)
+        ? record.images.map((image) => image.url).filter(Boolean).join(", ")
+        : "";
+      return `\n\nDELIVERED as file(s): ${urls}. The image is NOT in this reply.`;
+    }
+    return "";
+  };
+
   const layoutOpSchema = z.union([
     z.object({ create_group: z.object({ name: z.string() }).strict() }).strict(),
     z.object({ update_group: z.object({ group_id: z.string(), name: z.string() }).strict() }).strict(),
@@ -1805,6 +1829,20 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
+  const deliverArg = z
+    .object({
+      to: z
+        .enum(["inline", "message", "url"])
+        .describe("'inline' (default, the image comes to you) | 'message' (post it to a channel) | 'url' (store it, get the URL)."),
+      channel: z.number().int().optional().describe("Required by 'message': the channel id to post in (see list_channels)."),
+      body: z.string().optional().describe("The message text when delivering to a channel."),
+      reply_to: z.number().int().optional().describe("Post as a reply to this message id, in the same channel."),
+    })
+    .optional()
+    .describe(
+      "Send the render to a PERSON instead of into your context (#525): use it whenever the human asked to see the design, and the picture costs you no tokens. The same rules as send_message apply (you must be able to post in that channel). `max_px`/`scale` still control the delivered file — pass max_px 0 for full resolution.",
+    );
+
   server.tool(
     "design_screenshot",
     "Render a route in headless Chromium and return a PNG. You cannot see the UI otherwise — call this on a route BEFORE and AFTER your edits and self-critique the result. " +
@@ -1842,10 +1880,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .optional()
         .describe("Longest side of the returned image (default 1568, what you can read; 0 = full resolution, e.g. to hand to a human)."),
       state: z.string().optional().describe("Overlay state to open on load, e.g. 'dialog:confirm-delete'."),
+      deliver: deliverArg,
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, tokens, css, max_px, state, project, profile }) => {
+    async ({ route, viewport, width, height, dpr, mobile, full_page, frame, theme, tokens, css, max_px, state, deliver, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -1862,6 +1901,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           tokens,
           css,
           max_px,
+          // Flattened: the route is a GET, so `deliver` travels as four query
+          // parameters rather than one nested object.
+          ...(deliver
+            ? {
+                deliver: deliver.to,
+                ...(deliver.channel === undefined ? {} : { deliver_channel: deliver.channel }),
+                ...(deliver.body === undefined ? {} : { deliver_body: deliver.body }),
+                ...(deliver.reply_to === undefined ? {} : { deliver_reply_to: deliver.reply_to }),
+              }
+            : {}),
         });
         // `all` may be partial: an entry with an error and no picture becomes a
         // text line, not an image.
@@ -1872,7 +1921,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             : [];
         const images = entries.filter((e): e is typeof e & { png_base64: string } => !!e.png_base64);
         const failed = entries.filter((e) => !e.png_base64);
-        if (!images.length) {
+        // #525: a delivered render has no image BY DESIGN; that is not a failed
+        // render, and it must not throw.
+        if (!images.length && !shot.delivered) {
           throw new Error(
             failed.length
               ? `No theme could be rendered. ${failed.map((f) => `${f.theme}: ${f.error ?? "no image"}`).join("; ")}`
@@ -1899,12 +1950,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           : "";
         return {
           content: [
-            ...images.map((image) => ({ type: "image" as const, data: image.png_base64, mimeType: "image/png" })),
+            ...images
+              .filter((image) => image.png_base64)
+              .map((image) => ({ type: "image" as const, data: image.png_base64 as string, mimeType: "image/png" })),
             {
               type: "text",
               text:
                 `Screenshot of ${shot.route} at ${shot.viewport}${size}${shade}${shot.full_page ? ", full page" : ""}${dress}. ` +
-                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}${failures}`,
+                `Self-critique it against the tokens scale and your instruction before calling it done.${warnings}${failures}` +
+                deliveredNote(shot.delivered),
             },
           ],
         };
@@ -1961,10 +2015,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       css: z.string().optional().describe("CSS every variant gets (before its own)."),
       include_apply: z.boolean().optional().describe("Return apply[label].patch per variant (default false)."),
       max_px: z.number().int().min(0).max(8000).optional().describe("Longest side of each image (default 1568; 0 = full size)."),
+      deliver: deliverArg,
       ...designProjectArg,
       ...profileArg,
     },
-    async ({ routes, variants, themes, viewport, width, height, checks, scale, tokens, css, include_apply, max_px, project, profile }) => {
+    async ({ routes, variants, themes, viewport, width, height, checks, scale, tokens, css, include_apply, max_px, deliver, project, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -1983,8 +2038,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           css,
           include_apply,
           max_px,
+          ...(deliver
+            ? {
+                deliver: deliver.to,
+                ...(deliver.channel === undefined ? {} : { deliver_channel: deliver.channel }),
+                ...(deliver.body === undefined ? {} : { deliver_body: deliver.body }),
+                ...(deliver.reply_to === undefined ? {} : { deliver_reply_to: deliver.reply_to }),
+              }
+            : {}),
         });
-        if (!out.images?.length) throw new Error("Renderer returned no image.");
+        // #525: a delivered grid has no images BY DESIGN.
+        if (!out.images?.length && !out.delivered) throw new Error("Renderer returned no image.");
         const lines = [
           `Compare grid: columns ${out.grid.columns.join(" | ")}; rows ${out.grid.rows.map((r) => `${r.label ?? r.route} (${r.theme})`).join(", ")}.`,
         ];
@@ -2012,9 +2076,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         if (out.warnings.length) {
           lines.push("", "WARNINGS — the picture differs from a real browser here:", ...out.warnings.map((w) => `- ${w}`));
         }
+        const delivered = deliveredNote(out.delivered);
+        if (delivered) lines.push(delivered);
         return {
           content: [
-            ...out.images.map((image) => ({ type: "image" as const, data: image.png_base64, mimeType: "image/png" })),
+            // #525: a delivered render carries no base64 — never an image
+            // block with `undefined` data.
+            ...out.images
+              .filter((image) => image.png_base64)
+              .map((image) => ({ type: "image" as const, data: image.png_base64 as string, mimeType: "image/png" })),
             { type: "text", text: lines.join("\n") },
           ],
         };
