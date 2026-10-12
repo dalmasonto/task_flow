@@ -23,6 +23,7 @@ pub mod agent_auth;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
 pub mod posting;
+pub mod questions;
 pub mod signals;
 pub mod urls;
 pub mod views;

@@ -110,6 +110,7 @@ pub async fn post_agent_message(
             client_nonce: None,
             edited_at: None,
             reply_to,
+            questions: None,
             created_at: None,
         })
         .await

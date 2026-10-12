@@ -165,6 +165,7 @@ pub async fn dispatch_comments(
             client_nonce: None,
             edited_at: None,
             reply_to: None,
+            questions: None,
             created_at: None,
         })
         .await
@@ -282,6 +283,7 @@ pub async fn send_prompt(
             client_nonce: None,
             edited_at: None,
             reply_to: None,
+            questions: None,
             created_at: None,
         })
         .await

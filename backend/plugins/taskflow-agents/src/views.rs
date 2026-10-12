@@ -90,6 +90,11 @@ pub struct SendMessageInput {
     /// #317: the id of the message this one replies to (same channel).
     #[serde(default)]
     pub reply_to: Option<i64>,
+    /// #644: a structured question set (see `questions::validate`). JSON posts
+    /// send an OBJECT; multipart carries the same JSON as a string field. The
+    /// answers come back as an ordinary reply — nothing else is stored.
+    #[serde(default)]
+    pub questions: Option<serde_json::Value>,
 }
 
 /// The single attachment projection, shared by every path that returns one.
@@ -298,6 +303,22 @@ fn message_json(
     Ok(value)
 }
 
+/// A 400 carrying WHY — the question-set validator's sentence. Both send paths
+/// answer this way for `questions`, because the caller is usually an agent that
+/// can fix its own call from the text.
+fn questions_rejection(detail: String) -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({ "detail": detail }))).into_response()
+}
+
+/// #644: validate the raw question JSON both transports normalise to. `Ok(None)`
+/// when the field was absent or empty.
+fn validated_questions(raw: Option<String>) -> Result<Option<String>, Response> {
+    match raw.filter(|raw| !raw.trim().is_empty()) {
+        None => Ok(None),
+        Some(raw) => crate::questions::validate(&raw).map(Some).map_err(questions_rejection),
+    }
+}
+
 /// Serialize a message plus its attachments into the endpoint's response body.
 ///
 /// The message's own fields are emitted exactly as the JSON path always
@@ -389,6 +410,7 @@ pub async fn send_message(
         files,
         _declared_is_design,
         reply_to,
+        questions_raw,
     ): (
         i64,
         String,
@@ -399,6 +421,7 @@ pub async fn send_message(
         Vec<FilePart>,
         bool,
         Option<i64>,
+        Option<String>,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
             .await
@@ -412,6 +435,7 @@ pub async fn send_message(
         let mut targets_field: Option<String> = None;
         let mut is_design_field: Option<String> = None;
         let mut reply_field: Option<String> = None;
+        let mut questions_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
@@ -422,6 +446,8 @@ pub async fn send_message(
                 "targets" => targets_field = Some(value),
                 "is_design" => is_design_field = Some(value),
                 "reply_to" => reply_field = Some(value),
+                // #644: the same JSON as the JSON transport's object field.
+                "questions" => questions_field = Some(value),
                 _ => {}
             }
         }
@@ -474,6 +500,7 @@ pub async fn send_message(
             files,
             is_design,
             parse_reply_field(reply_field.as_deref()),
+            questions_field,
         )
     } else {
         // JSON path: preserve the original behaviour exactly. A malformed body
@@ -490,7 +517,15 @@ pub async fn send_message(
             Vec::new(),
             input.is_design,
             input.reply_to,
+            input.questions.map(|value| value.to_string()),
         )
+    };
+
+    // #644: the question set is validated BEFORE any other work — a set the UI
+    // could not render must be refused, not stored and shipped.
+    let questions = match validated_questions(questions_raw) {
+        Ok(questions) => questions,
+        Err(response) => return Ok(response),
     };
 
     let body = body_markdown.trim();
@@ -657,6 +692,8 @@ pub async fn send_message(
             client_nonce: client_nonce.clone(),
             edited_at: None,
             reply_to,
+            // #644: the validated question set (None for an ordinary message).
+            questions,
             created_at: None,
         })
         .await
@@ -1499,6 +1536,11 @@ pub struct AgentSendMessageInput {
     /// #317: the id of the message this one replies to (same channel).
     #[serde(default)]
     pub reply_to: Option<i64>,
+    /// #644: a structured question set (see `questions::validate`). JSON posts
+    /// send an OBJECT; multipart carries the same JSON as a string field. The
+    /// answers come back as an ordinary reply — nothing else is stored.
+    #[serde(default)]
+    pub questions: Option<serde_json::Value>,
 }
 
 /// `POST /api/taskflow/agents/agent/messages` (agent-authed) — the trusted write
@@ -1543,6 +1585,7 @@ pub async fn send_message_as_agent(
         files,
         _declared_is_design,
         reply_to,
+        questions_raw,
     ): (
         i64,
         String,
@@ -1551,6 +1594,7 @@ pub async fn send_message_as_agent(
         Vec<FilePart>,
         bool,
         Option<i64>,
+        Option<String>,
     ) = if is_multipart(content_type) {
         let form = parse_multipart(content_type, raw_body)
             .await
@@ -1562,6 +1606,7 @@ pub async fn send_message_as_agent(
         let mut nonce_field: Option<String> = None;
         let mut is_design_field: Option<String> = None;
         let mut reply_field: Option<String> = None;
+        let mut questions_field: Option<String> = None;
         for (name, value) in form.fields {
             match name.as_str() {
                 "channel" => channel_field = Some(value),
@@ -1570,6 +1615,8 @@ pub async fn send_message_as_agent(
                 "client_nonce" => nonce_field = Some(value),
                 "is_design" => is_design_field = Some(value),
                 "reply_to" => reply_field = Some(value),
+                // #644: the same JSON as the JSON transport's object field.
+                "questions" => questions_field = Some(value),
                 _ => {}
             }
         }
@@ -1610,6 +1657,7 @@ pub async fn send_message_as_agent(
             files,
             is_design,
             parse_reply_field(reply_field.as_deref()),
+            questions_field,
         )
     } else {
         let input: AgentSendMessageInput =
@@ -1622,7 +1670,15 @@ pub async fn send_message_as_agent(
             Vec::new(),
             input.is_design,
             input.reply_to,
+            input.questions.map(|value| value.to_string()),
         )
+    };
+
+    // #644: the question set is validated BEFORE any other work — a set the UI
+    // could not render must be refused, not stored and shipped.
+    let questions = match validated_questions(questions_raw) {
+        Ok(questions) => questions,
+        Err(response) => return Ok(response),
     };
 
     let body = body_markdown.trim();
@@ -1707,6 +1763,8 @@ pub async fn send_message_as_agent(
             client_nonce: client_nonce.clone(),
             edited_at: None,
             reply_to,
+            // #644: the validated question set (None for an ordinary message).
+            questions,
             created_at: None,
         })
         .await
@@ -3583,6 +3641,7 @@ async fn apply_review(
                     client_nonce: None,
                     edited_at: None,
                     reply_to: None,
+                    questions: None,
                     created_at: None,
                 })
                 .await

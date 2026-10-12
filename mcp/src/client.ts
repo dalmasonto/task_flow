@@ -210,6 +210,33 @@ export interface SendMessageInput {
   attachments?: { filename: string; bytes: Buffer }[];
   /** #317: the id of the message this one replies to (same channel). */
   reply_to?: number;
+  /** #644: a structured question set the human answers in a rendered dialog.
+   *  The answers come back as an ordinary REPLY to this message. */
+  questions?: StructuredQuestions;
+}
+
+/// #644: the question set the chat renders. Validated server-side
+/// (`questions::validate`), so a typo comes back as a 400 with the reason.
+export interface StructuredQuestions {
+  title?: string;
+  questions: StructuredQuestion[];
+  submit_label?: string;
+  cancel_label?: string;
+}
+
+export interface StructuredQuestion {
+  /** Stable identity for the answer, unique in the set (`[a-z0-9_-]{1,40}`). */
+  key: string;
+  label: string;
+  type: "radio" | "select" | "text" | "date";
+  /** radio/select only: at least 2. */
+  options?: { value: string; label: string; description?: string }[];
+  /** radio/select only: offer an "Other…" free-text choice. */
+  allow_other?: boolean;
+  required?: boolean;
+  /** text only. */
+  placeholder?: string;
+  multiline?: boolean;
 }
 
 export interface CreateTaskInput {
@@ -467,6 +494,7 @@ export class TaskflowClient {
     if (fields.client_nonce) form.set("client_nonce", fields.client_nonce);
     if (fields.is_design) form.set("is_design", "true");
     if (fields.reply_to !== undefined) form.set("reply_to", String(fields.reply_to));
+    if (fields.questions) form.set("questions", JSON.stringify(fields.questions));
     for (const file of attachments) {
       // The server treats a part as a file only when it carries a non-empty
       // filename (views.rs:180-186), so the basename must be preserved.

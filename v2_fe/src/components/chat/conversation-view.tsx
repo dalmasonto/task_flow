@@ -2,6 +2,7 @@ import { AgentChatBubble, StagedFileList } from "@/components/chat/bubbles"
 import { AgentPromptCard } from "@/components/chat/prompt-card"
 import { AgentTerminalPanel } from "@/components/chat/terminal"
 import { ChatFilesTab } from "@/components/chat/files-tab"
+import { QuestionActionButton, QuestionDialog } from "@/components/chat/structured-question"
 import { AgentsConversationEmpty, type AgentsOutletContext } from "@/pages/agents"
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, MoreHorizontalIcon, PaperclipIcon, RadioIcon, ReplyIcon, SendIcon, SmileIcon, TerminalIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -16,6 +17,7 @@ import { encodeMentions, plainExcerpt, type PickedMention } from "@/lib/mention-
 import { PageMentionContext } from "@/lib/markdown-contexts"
 import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
 import { markChannelRead } from "@/lib/taskflow-api"
+import { cancelBody, parseQuestionSet, questionState, type QuestionSet } from "@/lib/structured-questions"
 import { isAtBottom, tailChange } from "@/lib/thread-follow"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type UIEvent } from "react"
 import { useNavigate } from "react-router-dom"
@@ -234,6 +236,12 @@ export function AgentsConversationView({
   // before it can be scrolled to. Held as state (not a ref) so the effect
   // below runs after the grown window has painted.
   const [fileJumpTarget, setFileJumpTarget] = useState<string | null>(null)
+  // #644: the structured-question dialog. An unanswered question opens it by
+  // DEFAULT (the owner's ask) — ONCE per conversation visit: after this reader
+  // has handled one, a second unanswered question does not pop over their work,
+  // it waits behind the floating red control, which always shows the count.
+  const [questionsHandled, setQuestionsHandled] = useState(false)
+  const [questionOverride, setQuestionOverride] = useState<{ messageId: string; set: QuestionSet } | null>(null)
   // Client-side window: the thread renders only the last `visibleCount` messages
   // and reveals another page of MESSAGE_PAGE_SIZE as the user scrolls to the top.
   const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
@@ -254,6 +262,8 @@ export function AgentsConversationView({
     setChatTab("messages")
     setFilesOpened(false)
     setFileJumpTarget(null)
+    setQuestionsHandled(false)
+    setQuestionOverride(null)
   }
 
   // #661: follow new messages only while the reader is following. The thread
@@ -360,6 +370,37 @@ export function AgentsConversationView({
     [selectedChat, messageCount, visibleCount]
   )
   const hasMoreOlder = visibleCount < messageCount
+
+  // #644: every question in this conversation that still needs an answer. The
+  // STATE comes from the thread itself (a reply answers it, a cancellation
+  // sentence cancels it — no extra field), so it stays right on every surface
+  // and across reloads without a write.
+  const openQuestions = useMemo(() => {
+    const list = messages ?? []
+    return list
+      .filter((message) => message.questions && message.status === "posted" && questionState(message, list) === "open")
+      .map((message) => ({ messageId: message.id, set: parseQuestionSet(message.questions) }))
+      .filter((entry): entry is { messageId: string; set: QuestionSet } => entry.set !== null)
+  }, [messages])
+  // The newest open question — what opens by default (until this visit has
+  // handled one) and what the floating control offers.
+  const defaultQuestion = questionsHandled ? null : (openQuestions[openQuestions.length - 1] ?? null)
+  const activeQuestion = questionOverride ?? defaultQuestion
+  const answerQuestion = (question: { messageId: string; set: QuestionSet }, body: string) => {
+    if (!selectedChat || !body) return
+    // The answer is an ordinary reply — the whole point of #644's design.
+    onSendMessage(selectedChat, body, "normal", [], [], Number(question.messageId))
+    closeQuestion()
+  }
+  const cancelQuestion = (question: { messageId: string; set: QuestionSet }) => {
+    if (!selectedChat) return
+    onSendMessage(selectedChat, cancelBody(question.set), "normal", [], [], Number(question.messageId))
+    closeQuestion()
+  }
+  const closeQuestion = () => {
+    setQuestionsHandled(true)
+    setQuestionOverride(null)
+  }
 
   /// #660: a "jump to message" from the Files tab. Two differences from the
   /// bubble's own `jumpToMessage`: the target may be in a page the client has
@@ -730,20 +771,41 @@ export function AgentsConversationView({
                 }}
                 onJumpTo={jumpToMessage}
                 showDesignBadge={showDesignBadge}
+                // #644: the card inside the bubble reads the question's state
+                // from the thread, and its Answer button targets THIS message.
+                questionState={
+                  item.message.questions ? questionState(item.message, messages ?? []) : undefined
+                }
+                onOpenQuestion={(message) => {
+                  const set = parseQuestionSet(message.questions)
+                  if (set) setQuestionOverride({ messageId: message.id, set })
+                }}
               />
             )
           )}
-          {/* #661: new messages that arrived while the reader was scrolled up. */}
-          {unseenCount > 0 ? (
-            <div className="pointer-events-none sticky bottom-1 z-20 flex justify-center">
-              <button
-                type="button"
-                onClick={scrollToBottom}
-                className="pointer-events-auto flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-lg ring-1 ring-primary/30 transition hover:bg-primary/90"
-              >
-                <ChevronDownIcon className="size-3.5" />
-                {unseenCount === 1 ? "1 new message" : `${unseenCount} new messages`}
-              </button>
+          {/* #661/#644: the bottom row of the thread — the "new messages"
+              pill and the red "needs an answer" control share one sticky
+              container so neither can cover the other. */}
+          {unseenCount > 0 || openQuestions.length ? (
+            <div className="pointer-events-none sticky bottom-1 z-20 flex flex-col items-center gap-1">
+              {openQuestions.length ? (
+                <QuestionActionButton
+                  count={openQuestions.length}
+                  onClick={() =>
+                    setQuestionOverride(openQuestions[openQuestions.length - 1])
+                  }
+                />
+              ) : null}
+              {unseenCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="pointer-events-auto flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-lg ring-1 ring-primary/30 transition hover:bg-primary/90"
+                >
+                  <ChevronDownIcon className="size-3.5" />
+                  {unseenCount === 1 ? "1 new message" : `${unseenCount} new messages`}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1092,6 +1154,17 @@ export function AgentsConversationView({
           </div>
         </form>
       </div>
+
+      {/* #644: the answer dialog. Unanswered questions open it by default;
+          closing it (or answering/cancelling) is remembered for this chat. */}
+      {activeQuestion ? (
+        <QuestionDialog
+          set={activeQuestion.set}
+          onAnswer={(body) => answerQuestion(activeQuestion, body)}
+          onCancel={() => cancelQuestion(activeQuestion)}
+          onClose={() => closeQuestion()}
+        />
+      ) : null}
 
       {terminalOpen && !compact ? (
         // Opened from the header terminal icon: an overlay the size of the chat

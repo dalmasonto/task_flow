@@ -373,6 +373,7 @@ async fn make_message(project: i64, channel: i64, body: &str) -> i64 {
             client_nonce: None,
             edited_at: None,
             reply_to: None,
+            questions: None,
             created_at: None,
         })
         .await

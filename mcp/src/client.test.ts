@@ -97,6 +97,43 @@ describe("sendMessage", () => {
     });
   });
 
+  // #644: a question set rides as a field, not as prose — an object on the
+  // JSON path, the same JSON as a string on the multipart one.
+  it("carries a question set in the JSON body", async () => {
+    const { calls, impl } = stubFetch();
+    const questions = {
+      title: "Which way?",
+      questions: [{ key: "scope", label: "What changes?", type: "radio" as const, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] }],
+    };
+    await client(impl).sendMessage({ channel: 3, body_markdown: "pick one", questions });
+
+    expect(JSON.parse(calls[0].init.body)).toEqual({ channel: 3, body_markdown: "pick one", questions });
+  });
+
+  it("carries a question set as a JSON string on the multipart form", async () => {
+    const { calls, impl } = stubFetch();
+    const questions = { questions: [{ key: "a", label: "A?", type: "text" as const }] };
+    await client(impl).sendMessage({
+      channel: 3,
+      body_markdown: "x",
+      questions,
+      attachments: [{ filename: "a.txt", bytes: Buffer.from("a") }],
+    });
+
+    const body = calls[0].init.body as FormData;
+    expect(JSON.parse(body.get("questions") as string)).toEqual(questions);
+  });
+
+  it("omits questions from the form when there are none", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).sendMessage({
+      channel: 3,
+      body_markdown: "x",
+      attachments: [{ filename: "a.txt", bytes: Buffer.from("a") }],
+    });
+    expect((calls[0].init.body as FormData).get("questions")).toBeNull();
+  });
+
   it("sets is_design=true on the multipart form when attachments are present", async () => {
     const { calls, impl } = stubFetch();
     await client(impl).sendMessage({

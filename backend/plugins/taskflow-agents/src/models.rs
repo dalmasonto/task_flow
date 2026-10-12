@@ -348,6 +348,18 @@ pub struct TaskflowAgentMessage {
     /// parent gone simply shows no quote.
     #[umbral(noedit)]
     pub reply_to: Option<i64>,
+    /// #644: a structured question set attached to this message — a JSON
+    /// object of `{title?, questions: [...], submit_label?, cancel_label?}`
+    /// where each question is a radio, select, text or date input. Stored as a
+    /// JSON STRING, exactly like `targets`, so nothing new is needed to carry
+    /// it; `questions::validate` owns the schema and both send paths run it, so
+    /// a set the UI could not render never reaches a row.
+    ///
+    /// The answers are NOT stored here: they ride back as an ordinary reply
+    /// message, which is the whole point — no new transport, and the agent
+    /// reads prose.
+    #[umbral(noedit, string, max_length = 20_000)]
+    pub questions: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

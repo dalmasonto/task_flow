@@ -1077,6 +1077,7 @@ export function mapLiveChannelMessages(
         designRef: parseDesignRef(message.body_markdown),
         status: "posted",
         priority: mapLiveMessagePriority(message.priority),
+        questions: message.questions,
         seen: seenOwnMessageId != null && message.id === seenOwnMessageId,
         editedAt: message.edited_at,
         canEdit: own,

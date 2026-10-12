@@ -25,6 +25,9 @@ export type DesignCommentStatus = "open" | "sent" | "addressed" | "dismissed";
 /** `token` = Token, `component` = Component, `page` = Page, `asset` = Asset */
 export type DesignFileKind = "token" | "component" | "page" | "asset";
 
+/** `token` = Token, `component` = Component, `page` = Page, `asset` = Asset */
+export type DesignFileVersionKind = "token" | "component" | "page" | "asset";
+
 /** `rows` = Rows, `bands` = Bands, `groups` = Groups, `flow` = Flow */
 export type DesignLayoutView = "rows" | "bands" | "groups" | "flow";
 
@@ -180,6 +183,22 @@ export interface DesignFile {
   created_at: string | null;
   updated_at: string | null;
   deleted_at: string | null;
+}
+
+/** Table `design_file_version`, from the `app` plugin. */
+export interface DesignFileVersion {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  kind: DesignFileVersionKind;
+  path: string;
+  content: string;
+  version: number;
+  project_revision: number;
+  bytes: number;
+  deleted: boolean;
+  updated_by: string;
+  created_at: string | null;
 }
 
 /** Table `design_layout`, from the `app` plugin. */
@@ -339,6 +358,7 @@ export interface TaskflowAgentMessage {
   client_nonce: string | null;
   edited_at: string | null;
   reply_to: number | null;
+  questions: string | null;
   created_at: string | null;
 }
 
@@ -1074,6 +1094,94 @@ export interface DesignFileUpdate {
   updated_by?: string;
 }
 
+/** Filterable query parameters for `design_file_version`. Every key is optional and AND-combined server-side. */
+export interface DesignFileVersionFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "kind"?: DesignFileVersionKind;
+  "kind__ne"?: DesignFileVersionKind;
+  "kind__contains"?: string;
+  "kind__icontains"?: string;
+  "kind__startswith"?: string;
+  "kind__in"?: DesignFileVersionKind[];
+  "path"?: string;
+  "path__ne"?: string;
+  "path__contains"?: string;
+  "path__icontains"?: string;
+  "path__startswith"?: string;
+  "path__in"?: string[];
+  "content"?: string;
+  "content__ne"?: string;
+  "content__contains"?: string;
+  "content__icontains"?: string;
+  "content__startswith"?: string;
+  "content__in"?: string[];
+  "version"?: number;
+  "version__ne"?: number;
+  "version__gte"?: number;
+  "version__lte"?: number;
+  "version__gt"?: number;
+  "version__lt"?: number;
+  "version__in"?: number[];
+  "project_revision"?: number;
+  "project_revision__ne"?: number;
+  "project_revision__gte"?: number;
+  "project_revision__lte"?: number;
+  "project_revision__gt"?: number;
+  "project_revision__lt"?: number;
+  "project_revision__in"?: number[];
+  "bytes"?: number;
+  "bytes__ne"?: number;
+  "bytes__gte"?: number;
+  "bytes__lte"?: number;
+  "bytes__gt"?: number;
+  "bytes__lt"?: number;
+  "bytes__in"?: number[];
+  "deleted"?: boolean;
+  "deleted__ne"?: boolean;
+  "deleted__in"?: boolean[];
+  "updated_by"?: string;
+  "updated_by__ne"?: string;
+  "updated_by__contains"?: string;
+  "updated_by__icontains"?: string;
+  "updated_by__startswith"?: string;
+  "updated_by__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type DesignFileVersionOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "path" | "-path" | "content" | "-content" | "version" | "-version" | "project_revision" | "-project_revision" | "bytes" | "-bytes" | "deleted" | "-deleted" | "updated_by" | "-updated_by" | "created_at" | "-created_at";
+/** Body for creating a `design_file_version`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface DesignFileVersionCreate {
+  project: number;
+  kind?: DesignFileVersionKind;
+  path: string;
+  content: string;
+  version: number;
+  project_revision: number;
+  bytes: number;
+  deleted?: boolean;
+  updated_by: string;
+}
+/** Body for updating a `design_file_version` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface DesignFileVersionUpdate {
+  project?: number;
+  kind?: DesignFileVersionKind;
+  path?: string;
+  content?: string;
+  version?: number;
+  project_revision?: number;
+  bytes?: number;
+  deleted?: boolean;
+  updated_by?: string;
+}
+
 /** Filterable query parameters for `design_layout`. Every key is optional and AND-combined server-side. */
 export interface DesignLayoutFilters {
   "project"?: number;
@@ -1767,6 +1875,13 @@ export interface TaskflowAgentMessageFilters {
   "reply_to__lt"?: number;
   "reply_to__in"?: number[];
   "reply_to__isnull"?: boolean;
+  "questions"?: string;
+  "questions__ne"?: string;
+  "questions__contains"?: string;
+  "questions__icontains"?: string;
+  "questions__startswith"?: string;
+  "questions__in"?: string[];
+  "questions__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -1776,7 +1891,7 @@ export interface TaskflowAgentMessageFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "is_design" | "-is_design" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "reply_to" | "-reply_to" | "created_at" | "-created_at";
+export type TaskflowAgentMessageOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "task" | "-task" | "sender_kind" | "-sender_kind" | "sender_user" | "-sender_user" | "sender_agent" | "-sender_agent" | "target_agent" | "-target_agent" | "targets" | "-targets" | "sender_label" | "-sender_label" | "body_markdown" | "-body_markdown" | "priority" | "-priority" | "is_design" | "-is_design" | "client_nonce" | "-client_nonce" | "edited_at" | "-edited_at" | "reply_to" | "-reply_to" | "questions" | "-questions" | "created_at" | "-created_at";
 /** Body for creating a `taskflow_agent_message`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowAgentMessageCreate {
   project: number;
@@ -1794,6 +1909,7 @@ export interface TaskflowAgentMessageCreate {
   client_nonce?: string | null;
   edited_at?: string | null;
   reply_to?: number | null;
+  questions?: string | null;
 }
 /** Body for updating a `taskflow_agent_message` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowAgentMessageUpdate {
@@ -3426,6 +3542,7 @@ export interface UmbralResources {
   "auth_token": { row: AuthToken; filters: AuthTokenFilters; ordering: AuthTokenOrdering; create: AuthTokenCreate; update: AuthTokenUpdate; id: number };
   "design_comment": { row: DesignComment; filters: DesignCommentFilters; ordering: DesignCommentOrdering; create: DesignCommentCreate; update: DesignCommentUpdate; id: number };
   "design_file": { row: DesignFile; filters: DesignFileFilters; ordering: DesignFileOrdering; create: DesignFileCreate; update: DesignFileUpdate; id: number };
+  "design_file_version": { row: DesignFileVersion; filters: DesignFileVersionFilters; ordering: DesignFileVersionOrdering; create: DesignFileVersionCreate; update: DesignFileVersionUpdate; id: number };
   "design_layout": { row: DesignLayout; filters: DesignLayoutFilters; ordering: DesignLayoutOrdering; create: DesignLayoutCreate; update: DesignLayoutUpdate; id: number };
   "media_file": { row: MediaFile; filters: MediaFileFilters; ordering: MediaFileOrdering; create: MediaFileCreate; update: MediaFileUpdate; id: number };
   "post": { row: Post; filters: PostFilters; ordering: PostOrdering; create: PostCreate; update: PostUpdate; id: number };

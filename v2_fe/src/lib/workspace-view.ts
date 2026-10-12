@@ -138,6 +138,10 @@ export type AgentMessage = {
   /// True when this message belongs to the design conversation (is_design on the
   /// server row). Drives the design rail filter and the /agents "Design" badge.
   isDesign?: boolean
+  /// #644: a structured question set, as the row stores it (a JSON string).
+  /// Parsed by `structured-questions.ts` — a payload it cannot render shows a
+  /// "could not read" line instead of a broken form.
+  questions?: string | null
   /// The inspected-element reference parsed out of the body's design-ref block,
   /// or null. Rendered as a chip; the block itself is stripped from `body`.
   designRef?: import("./design-ref").DesignRef | null

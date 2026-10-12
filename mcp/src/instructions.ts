@@ -84,6 +84,13 @@ that for the rest of the session.
   or anything a teammate should open as a file — pass its path in the **\`files\`
   array**. Do NOT paste large file contents into the message body; attach the
   file instead.
+- **\`send_message\` can carry \`questions\`** — a structured question set the chat
+  renders as a dialog (radio cards, select, text, date inputs, an optional
+  "Other…" on pickers). Prefer ONE question set over several prose questions
+  when you need decisions: the person answers in a form, and their answers come
+  back as a single REPLY to your message, one bullet per question in the form
+  \`- <label> (<key>): <answer>\`. A person who declines sends a reply starting
+  with \`Cancelled the question:\`. Never re-send a set that already has a reply.
 - **Referencing tasks vs GitHub issues.** In any message, activity note or task
   description, \`#12\` and \`TASK#12\` render as a clickable **TaskFlow task** chip.
   So write a **GitHub issue** as \`#gh12\` (or \`#GH12\`) and a **chat message**

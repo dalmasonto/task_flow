@@ -743,6 +743,7 @@ pub async fn seed_message(project: i64, channel: i64) -> i64 {
             client_nonce: None,
             edited_at: None,
             reply_to: None,
+            questions: None,
             created_at: None,
         })
         .await

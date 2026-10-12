@@ -711,9 +711,44 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .describe(
           "Ignored for placement — the destination channel decides where a message lands; kept only for compatibility. Design has its own room (one per project: the channel with is_design true in list_channels), so post design replies there.",
         ),
+      questions: z
+        .object({
+          title: z.string().optional().describe("Heading for the whole form."),
+          questions: z
+            .array(
+              z.object({
+                key: z
+                  .string()
+                  .describe("Stable id for the answer, unique in this set (letters, digits, - _ :), max 40."),
+                label: z.string().describe("The question as the person reads it."),
+                type: z.enum(["radio", "select", "text", "date"]),
+                options: z
+                  .array(
+                    z.object({
+                      value: z.string().describe("What comes back as the answer."),
+                      label: z.string(),
+                      description: z.string().optional().describe("A supporting line under the option."),
+                    }),
+                  )
+                  .optional()
+                  .describe("radio/select: at least 2 required."),
+                allow_other: z.boolean().optional().describe("radio/select: offer an 'Other…' text input."),
+                required: z.boolean().optional().describe("The person cannot submit until it is answered."),
+                placeholder: z.string().optional().describe("text/date only."),
+                multiline: z.boolean().optional().describe("text only: a taller box for prose answers."),
+              }),
+            )
+            .describe("1-8 questions."),
+          submit_label: z.string().optional(),
+          cancel_label: z.string().optional(),
+        })
+        .optional()
+        .describe(
+          "A structured question set rendered as a form in the chat — prefer this over asking several things in prose: the person gets radio cards, a select, text and date inputs, and you get ONE readable reply. The answers arrive as a REPLY to this message, one bullet per question in the form `- <label> (<key>): <answer>`; a person who declines sends a reply starting with `Cancelled the question:`. Do not re-send a set that already has a reply.",
+        ),
       ...profileArg,
     },
-    async ({ channel, body, reply_to, priority, files, is_design, profile }) => {
+    async ({ channel, body, reply_to, priority, files, is_design, questions, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -728,6 +763,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             priority,
             is_design,
             attachments,
+            questions,
             ...(reply_to === undefined ? {} : { reply_to }),
           }),
         );

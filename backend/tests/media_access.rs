@@ -309,6 +309,7 @@ async fn seed_message_attachment(project: i64, channel: i64) -> String {
             client_nonce: None,
             edited_at: None,
             reply_to: None,
+            questions: None,
             created_at: None,
         })
         .await

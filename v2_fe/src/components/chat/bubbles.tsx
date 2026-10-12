@@ -1,4 +1,5 @@
 import { MessageAttachments } from "@/components/message-attachments"
+import { QuestionCard } from "@/components/chat/structured-question"
 import { Button } from "@/components/ui/button"
 import { CheckCheckIcon, CheckIcon, CopyIcon, CrosshairIcon, FileIcon, ImageIcon, PencilIcon, ReplyIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
@@ -175,6 +176,8 @@ export function AgentChatBubble({
   onReply,
   onJumpTo,
   showDesignBadge = true,
+  questionState,
+  onOpenQuestion,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
@@ -189,6 +192,12 @@ export function AgentChatBubble({
   /// so /agents is unchanged; the design rail passes false since every
   /// message shown there is already known to be design.
   showDesignBadge?: boolean
+  /// #644: whether a question set on this message still needs an answer —
+  /// derived by the thread (`questionState`), since the row itself does not
+  /// carry it (an answer is just another message).
+  questionState?: "open" | "answered" | "cancelled"
+  /// #644: open the answer dialog for this message's question set.
+  onOpenQuestion?: (message: AgentMessage) => void
 }) {
   const fromUser = message.from === "user"
   const alignRight = fromUser
@@ -367,6 +376,15 @@ export function AgentChatBubble({
             </div>
           </>
         )}
+        {message.questions ? (
+          <div className="mt-3">
+            <QuestionCard
+              raw={message.questions}
+              state={questionState ?? "answered"}
+              onOpen={() => onOpenQuestion?.(message)}
+            />
+          </div>
+        ) : null}
         {message.attachments?.length ? (
           <div className="mt-3">
             <MessageAttachments attachments={message.attachments} />
