@@ -9,6 +9,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ColumnsIcon,
+  KanbanSquareIcon,
   CrosshairIcon,
   DownloadIcon,
   HandIcon,
@@ -152,6 +153,7 @@ export function DesignSurfacePage({
   onWorkspaceUpdate,
   onRefreshWorkspace,
   onComposeTask,
+  onOpenBoard,
 }: {
   projectId: number | null
   project: Project | null
@@ -160,6 +162,8 @@ export function DesignSurfacePage({
   onWorkspaceUpdate: (updater: (workspace: TaskflowWorkspace) => TaskflowWorkspace) => void
   onRefreshWorkspace: () => Promise<void>
   onComposeTask: (body: string) => void
+  /// #662: open the project board as a dialog, without leaving this page.
+  onOpenBoard?: () => void
 }) {
   const navigate = useNavigate()
   const [manifest, setManifest] = useState<DesignManifest | null>(null)
@@ -1164,6 +1168,14 @@ export function DesignSurfacePage({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* #662: the board as a dialog over the canvas — check a task without
+              leaving the design page (the canvas, chat and scroll stay put). */}
+          {onOpenBoard ? (
+            <Button variant="outline" size="sm" title="Open the task board (⌘/Ctrl+B)" onClick={onOpenBoard}>
+              <KanbanSquareIcon className="size-4" />
+              Board
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"

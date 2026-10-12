@@ -16,18 +16,15 @@ import { InvitationsPage } from "@/pages/account/InvitationsPage"
 import { SettingsPage } from "@/pages/account/SettingsPage"
 import { ProfilePage } from "@/pages/account/ProfilePage"
 import { AccountLayout } from "@/pages/account/AccountLayout"
-import { BOARD_PRIORITIES } from "@/lib/board-filter"
 import { MediaPage } from "@/pages/dashboard/MediaPage"
 import { OverviewPage } from "@/pages/dashboard/OverviewPage"
 import { taskRefState } from "@/lib/task-ref-state"
 import { type TaskRefState } from "@/lib/task-ref-state"
 import { type TaskRefAnswer } from "@/lib/task-ref-state"
-import { filterBoardTasks } from "@/lib/board-filter"
-import { ALL_PRIORITIES } from "@/lib/board-filter"
 import { messageToTask } from "@/lib/message-to-task"
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom"
-import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, MessageSquareIcon, MoreHorizontalIcon, PlayIcon, PlusIcon, SearchIcon, UserRoundPlusIcon } from "lucide-react"
+import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, MessageSquareIcon, PlayIcon, PlusIcon, SearchIcon, UserRoundPlusIcon } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
@@ -56,7 +53,10 @@ import { DesignSurfacePage } from "@/pages/design/DesignSurfacePage"
 import { AgentsConversationEmpty, AgentsConversationRoute, AgentsPage } from "@/pages/agents"
 import { ApiBasePage } from "@/pages/api-base"
 import { AuthGateScreen, AuthPage } from "@/pages/auth"
-import { BoardLoadMoreSentinel, DropIndicator, EndDropIndicator, TaskCard, TaskRefNotice } from "@/components/board"
+import { TaskRefNotice } from "@/components/board"
+import { TaskBoard } from "@/components/task-board"
+import { BoardDialog } from "@/components/board-dialog"
+import { isBoardChord, isBoardShortcut } from "@/lib/board-shortcut"
 import { ChatDock } from "@/components/chat/chat-dock"
 import { GithubHeaderButton, NoProjectEmptyState } from "@/components/layout"
 import { TaskDetailSheet } from "@/components/task-sheet"
@@ -67,7 +67,7 @@ import { MAX_LIVE_ACTIVITY, MAX_LIVE_TERMINAL_FRAMES, PROJECT_ROOM_PLACEHOLDER_I
 import { ReviewsPage, type ReviewChoice } from "@/pages/reviews"
 import { TaskSessionDock } from "@/components/session-dock"
 import { WorkspaceDialog } from "@/components/workspace-dialog"
-import { columns, nextStatus, previousStatus, type ActivityEvent, type AuthGateStatus, type ColumnId, type DialogMode, type DropTarget, type Priority, type Project, type Task } from "@/lib/workspace-view"
+import { type ActivityEvent, type AuthGateStatus, type ColumnId, type DialogMode, type DropTarget, type Priority, type Project, type Task } from "@/lib/workspace-view"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 
 // #56 review: which open-task-detail field a deleted row belongs to, by realtime
@@ -97,8 +97,6 @@ function App() {
   const [workspaceEpoch, setWorkspaceEpoch] = useState(0)
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
-  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   // #56: the last page fetched for each board column. A ref, not state — it
   // guards a fetch and must not be stale inside the sentinel's callback, and it
   // has no business triggering a render of its own.
@@ -120,6 +118,13 @@ function App() {
   // (above applyRealtimeDeletion) because that handler prunes it on delete.
   const [openTaskDetail, setOpenTaskDetail] = useState<({ taskId: number } & WorkspaceTaskDetailSlice) | null>(null)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
+  // #662: the board as a dialog over ANY page — the design page first. Same
+  // store and same components as the board route; the gate below loads its rows.
+  const [boardDialogOpen, setBoardDialogOpen] = useState(false)
+  // Read by the keyboard listener, which is registered once: a listener that
+  // closed over the state would either re-register per render or go stale.
+  const boardDialogOpenRef = useRef(boardDialogOpen)
+  boardDialogOpenRef.current = boardDialogOpen
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null)
   // The task.id being edited; the edit dialog reuses the Create Task form.
   const [editTaskId, setEditTaskId] = useState<string | null>(null)
@@ -257,15 +262,6 @@ function App() {
     () => (activeProject ? tasks.filter((task) => task.projectId === activeProject.id) : []),
     [activeProject, tasks]
   )
-  // Board search + priority filter. Applied only to the board columns, not the
-  // project metrics (those stay whole-project totals).
-  const [boardSearch, setBoardSearch] = useState("")
-  const [boardPriority, setBoardPriority] = useState<string>(ALL_PRIORITIES)
-  const boardFilteredTasks = useMemo(
-    () => filterBoardTasks(projectTasks, { search: boardSearch, priority: boardPriority }),
-    [projectTasks, boardSearch, boardPriority]
-  )
-  const boardFilterActive = boardSearch.trim() !== "" || boardPriority !== ALL_PRIORITIES
   // #315: the project's real task total, from the per-column server counts —
   // `projectTasks` holds only the pages the board has fetched so far.
   const liveTaskCounts = activeLiveWorkspace?.taskCounts
@@ -925,6 +921,21 @@ function App() {
     [applyWorkspaceUpdate]
   )
 
+  // #662: ⌘/Ctrl+B toggles the board dialog. OPENING stays out of text fields
+  // (the chord means bold there, and a chat draft must not summon a board);
+  // CLOSING accepts the chord from anywhere, because once the board is up its
+  // own search box has the focus and the same shortcut has to put it away.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const handle = boardDialogOpenRef.current ? isBoardChord(event) : isBoardShortcut(event)
+      if (!handle) return
+      event.preventDefault()
+      setBoardDialogOpen((open) => !open)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
   const fetchAndApplyRealtimeEvent = useCallback(
     async (event: TaskflowRealtimeEvent, projectId: number | null) => {
       const rowId = realtimeEventRowId(event)
@@ -1378,7 +1389,7 @@ function App() {
     reviews: reviewsNeeded,
     activity: activityNeeded,
     taskDetailId: openTaskNumericId,
-  } = sliceGatesFor({ pathname: location.pathname, chatSurfaceMounted, dockOpen, openTaskId })
+  } = sliceGatesFor({ pathname: location.pathname, chatSurfaceMounted, dockOpen, openTaskId, boardDialogOpen })
 
   /// #663: whether the floating Chat launcher owns the bottom-right corner.
   /// Hoisted from its JSX so the sessions dock (rendered above this line) can
@@ -1850,22 +1861,6 @@ function App() {
         if (removed) setTasks((current) => [removed, ...current])
         setLiveSyncError(umbralErrorMessage(error, "Could not delete the task."))
       })
-    }
-  }
-
-  function handleDrop(event: DragEvent<HTMLElement>, fallbackColumn: ColumnId) {
-    event.preventDefault()
-    if (draggedTaskId) {
-      placeTask(draggedTaskId, dropTarget ?? { columnId: fallbackColumn, taskId: null, position: "after" })
-      setDraggedTaskId(null)
-    }
-    setDropTarget(null)
-  }
-
-  function handleDragLeave(event: DragEvent<HTMLDivElement>, status: ColumnId) {
-    const nextTarget = event.relatedTarget as Node | null
-    if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
-      setDropTarget((current) => (current?.columnId === status ? null : current))
     }
   }
 
@@ -2373,230 +2368,45 @@ function App() {
             <Route path="/dashboard/board" element={!activeProject ? (
           <NoProjectEmptyState onNewProject={() => setDialogMode("new-project")} syncing={isLiveSyncing} />
         ) : (
-          <section className="flex h-full min-h-0 flex-col px-3 py-3 sm:px-4 lg:px-5">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              <div className="shrink-0 rounded-lg border bg-card p-2.5">
-                <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center">
-                    <div className="relative md:w-80">
-                      <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        value={boardSearch}
-                        onChange={(event) => setBoardSearch(event.target.value)}
-                        placeholder="Search #id, title, owner, tag"
-                        className="pl-8"
-                      />
-                    </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      {[ALL_PRIORITIES, ...BOARD_PRIORITIES].map((option) => {
-                        const active = boardPriority === option
-                        return (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setBoardPriority(option)}
-                            className={cn(
-                              "rounded-full px-2.5 py-1 text-xs font-medium capitalize ring-1 transition",
-                              active
-                                ? "bg-primary/10 text-primary ring-primary/30"
-                                : "bg-background text-muted-foreground ring-border hover:bg-muted"
-                            )}
-                          >
-                            {option === ALL_PRIORITIES ? "All" : option}
-                          </button>
-                        )
-                      })}
-                      {boardFilterActive ? (
-                        <>
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            {boardFilteredTasks.length} of {projectTasks.length}
-                            {/* #315: the filter only sees loaded pages, so say so
-                                when the server holds more than the board fetched. */}
-                            {projectTaskTotal > projectTasks.length
-                              ? ` loaded (${projectTaskTotal} total)`
-                              : null}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBoardSearch("")
-                              setBoardPriority(ALL_PRIORITIES)
-                            }}
-                            className="text-xs font-medium text-primary hover:underline"
-                          >
-                            Clear
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/activity")}>
-                      <ActivityIcon />
-                      Activity
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setDialogMode("invite")}>
-                      <UserRoundPlusIcon />
-                      Invite
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setDialogMode("edit-project")}>
-                      <FileTextIcon />
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setDialogMode("api-contract")}>
-                      <GitBranchIcon />
-                      API
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => { setComposeSeed(null); setDialogMode("new-task") }}>
-                      <PlusIcon />
-                      Task
-                    </Button>
-                    <Button size="sm" onClick={() => navigate("/dashboard/agents")}>
-                      <PlayIcon />
-                      Chat
-                    </Button>
-                  </div>
-                </div>
-                {liveSyncError ? (
-                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    {liveSyncError}
-                  </p>
-                ) : null}
-              </div>
-
-              {/* Board columns scroll horizontally. On small screens each column
-                  snaps to ~full screen width (one at a time); from lg up the five
-                  columns flex to fill the row. The region is height-gated: it
-                  takes the remaining vertical space (flex-1 + min-h-0) and each
-                  column's card list scrolls internally, so the header above stays
-                  fixed instead of the whole page scrolling. */}
-              <div className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto pb-2 lg:snap-none">
-                <div className="flex h-full gap-3">
-                  {columns.map((column) => {
-                    // #26: newest first (id descending) so a freshly created task
-                    // — including one arriving over SSE — lands at the TOP, and
-                    // pagination pulls older cards in as you scroll. Dragging a
-                    // card to another column still changes its status; within a
-                    // column the id-sort wins, so manual reordering is dropped.
-                    const columnTasks = boardFilteredTasks
-                      .filter((task) => task.status === column.id)
-                      .sort((a, b) => {
-                        const na = Number(a.id)
-                        const nb = Number(b.id)
-                        if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na
-                        return b.id.localeCompare(a.id)
-                      })
-                    // #56: the column holds only what has been FETCHED, so there
-                    // is nothing left to slice — render all of it. `count` from
-                    // the paginated envelope is the true total, which is what
-                    // says whether another page exists.
-                    const shownColumnTasks = columnTasks
-                    const columnTotal = activeLiveWorkspace?.taskCounts?.[column.id] ?? columnTasks.length
-                    // #314: what the column has FETCHED, before the search /
-                    // priority filter. "Left to load" is total minus this; the
-                    // filtered count made a filter look like 100 unloaded tasks.
-                    const columnLoaded = projectTasks.filter((task) => task.status === column.id).length
-                    const ColumnIcon = column.icon
-                    return (
-                      <div
-                        key={column.id}
-                        className={cn(
-                          "flex h-full max-h-full w-[calc(100vw-2rem)] shrink-0 snap-center flex-col overflow-hidden rounded-lg border bg-card transition sm:w-[21rem] lg:w-auto lg:min-w-0 lg:flex-1 lg:snap-align-none",
-                          draggedTaskId && dropTarget?.columnId === column.id && "border-primary/60 bg-primary/5 ring-2 ring-primary/25"
-                        )}
-                        onDragEnter={() => setDropTarget({ columnId: column.id, taskId: null, position: "after" })}
-                        onDragOver={(event) => {
-                          event.preventDefault()
-                          setDropTarget((current) =>
-                            current?.columnId === column.id && current.taskId === null
-                              ? current
-                              : { columnId: column.id, taskId: null, position: "after" }
-                          )
-                        }}
-                        onDragLeave={(event) => handleDragLeave(event, column.id)}
-                        onDrop={(event) => handleDrop(event, column.id)}
-                      >
-                        <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card px-3 py-3">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className={cn("inline-flex size-7 items-center justify-center rounded-md ring-1", column.tone)}>
-                              <ColumnIcon className="size-3.5" />
-                            </span>
-                            <div className="min-w-0">
-                              <h3 className="truncate text-sm font-semibold">{column.title}</h3>
-                              {/* The column's TOTAL, not how many are loaded — a
-                                  paged column showing "25 tasks" would be a lie. */}
-                              <p className="text-xs text-muted-foreground">{columnTotal} tasks</p>
-                            </div>
-                          </div>
-                          <Button variant="ghost" size="icon-sm" aria-label={`${column.title} actions`}>
-                            <MoreHorizontalIcon />
-                          </Button>
-                        </div>
-                        <div data-board-scroll className="scrollbar-y relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-muted/25 p-2.5">
-                          {draggedTaskId && dropTarget?.columnId === column.id && dropTarget.taskId === null ? (
-                            <EndDropIndicator label={`Drop at end of ${column.title}`} />
-                          ) : null}
-                          {shownColumnTasks.map((task) => (
-                            <div key={task.id} className="relative">
-                              {draggedTaskId && dropTarget?.taskId === task.id && dropTarget.position === "before" ? (
-                                <DropIndicator label={`Drop before ${task.title}`} position="before" />
-                              ) : null}
-                              <TaskCard
-                                task={task}
-                                selected={selectedTask?.id === task.id}
-                                dragging={draggedTaskId === task.id}
-                                onSelect={() => openTaskDetails(task.id)}
-                                onDragStart={() => setDraggedTaskId(task.id)}
-                                onDragOver={(event) => {
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  const bounds = event.currentTarget.getBoundingClientRect()
-                                  const position = event.clientY < bounds.top + bounds.height / 2 ? "before" : "after"
-                                  if (draggedTaskId && draggedTaskId !== task.id) {
-                                    setDropTarget({ columnId: column.id, taskId: task.id, position })
-                                  }
-                                }}
-                                onDrop={(event) => {
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  handleDrop(event, column.id)
-                                }}
-                                onDragEnd={() => {
-                                  setDraggedTaskId(null)
-                                  setDropTarget(null)
-                                }}
-                                onMoveNext={() => moveTask(task.id, nextStatus(task.status))}
-                                onMovePrevious={() => moveTask(task.id, previousStatus(task.status))}
-                              />
-                              {draggedTaskId && dropTarget?.taskId === task.id && dropTarget.position === "after" ? (
-                                <DropIndicator label={`Drop after ${task.title}`} position="after" />
-                              ) : null}
-                            </div>
-                          ))}
-                          {columnTasks.length === 0 ? (
-                            <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-background px-3 text-center text-sm text-muted-foreground">
-                              {boardFilterActive
-                                ? `No loaded tasks in ${column.title.toLowerCase()} match`
-                                : columnLoaded < columnTotal
-                                  ? "Loading tasks…"
-                                  : `No tasks in ${column.title.toLowerCase()}`}
-                            </div>
-                          ) : null}
-                          {columnLoaded < columnTotal ? (
-                            <BoardLoadMoreSentinel
-                              onLoadMore={() => void loadMoreBoardColumn(column.id, columnLoaded)}
-                              remaining={columnTotal - columnLoaded}
-                              loading={loadingColumns.has(column.id)}
-                            />
-                          ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          </section>
+          <TaskBoard
+            tasks={projectTasks}
+            total={projectTaskTotal}
+            selectedTaskId={selectedTask?.id ?? null}
+            loadingColumns={loadingColumns}
+            columnTotals={activeLiveWorkspace?.taskCounts}
+            syncError={liveSyncError}
+            onOpenTask={openTaskDetails}
+            onPlaceTask={placeTask}
+            onLoadMore={(columnId, loaded) => void loadMoreBoardColumn(columnId, loaded)}
+            headerActions={
+              <>
+                <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/activity")}>
+                  <ActivityIcon />
+                  Activity
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setDialogMode("invite")}>
+                  <UserRoundPlusIcon />
+                  Invite
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setDialogMode("edit-project")}>
+                  <FileTextIcon />
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setDialogMode("api-contract")}>
+                  <GitBranchIcon />
+                  API
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => { setComposeSeed(null); setDialogMode("new-task") }}>
+                  <PlusIcon />
+                  Task
+                </Button>
+                <Button size="sm" onClick={() => navigate("/dashboard/agents")}>
+                  <PlayIcon />
+                  Chat
+                </Button>
+              </>
+            }
+          />
         )} />
             <Route
               path="/dashboard/agents"
@@ -2702,6 +2512,9 @@ function App() {
                   }}
                   onRefreshWorkspace={() => loadLiveWorkspace(activeProjectId)}
                   onComposeTask={composeTaskFromMessage}
+                  // #662: the toolbar's Board button — the board as a dialog,
+                  // without leaving the design page.
+                  onOpenBoard={() => setBoardDialogOpen(true)}
                 />
               }
             />
@@ -2742,6 +2555,33 @@ function App() {
               <Route path="*" element={<Navigate to="/account/profile" replace />} />
             </Route>
           </Routes>
+
+          {/* #662: the board dialog. Renders the SAME TaskBoard the board route
+              does, so cards, drag-and-drop, filters and pagination behave
+              identically; the task sheet it opens stacks on top, because that
+              sheet is App's own. */}
+          <BoardDialog
+            open={boardDialogOpen}
+            onOpenChange={setBoardDialogOpen}
+            tasks={projectTasks}
+            total={projectTaskTotal}
+            selectedTaskId={selectedTask?.id ?? null}
+            loadingColumns={loadingColumns}
+            columnTotals={activeLiveWorkspace?.taskCounts}
+            syncError={liveSyncError}
+            onOpenTask={openTaskDetails}
+            onPlaceTask={placeTask}
+            onLoadMore={(columnId, loaded) => void loadMoreBoardColumn(columnId, loaded)}
+            // The task sheet opened from this board is the top layer; Escape
+            // closes it first (see the sheet's own Escape handling).
+            blockEscape={openTaskResolved != null}
+            headerActions={
+              <Button variant="outline" size="sm" onClick={() => { setComposeSeed(null); setDialogMode("new-task") }}>
+                <PlusIcon />
+                New task
+              </Button>
+            }
+          />
         </main>
       </SidebarInset>
       {openTaskRef && openTaskRef.kind !== "ready" ? (

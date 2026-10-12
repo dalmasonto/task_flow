@@ -77,6 +77,9 @@ export type SliceGateInput = {
   dockOpen: boolean
   /// The id of the task the sheet has open, from the route or a chip.
   openTaskId: string | null
+  /// #662: the board rendered as a DIALOG over another page. It shows the
+  /// same task rows the board route does, on a route that loads none of them.
+  boardDialogOpen?: boolean
 }
 
 /// The route test the gates share. A `startsWith` rather than an exact match
@@ -136,7 +139,7 @@ export function invalidateSlices(slices: LoadedSlices, projectId: number | null,
 }
 
 export function sliceGatesFor(input: SliceGateInput): LiveSliceGates {
-  const { pathname, chatSurfaceMounted, dockOpen, openTaskId } = input
+  const { pathname, chatSurfaceMounted, dockOpen, openTaskId, boardDialogOpen } = input
   const onAgents = onRoute(pathname, "/dashboard/agents")
   // The chat slice, for the two surfaces that render a full chat: the agents
   // page (route or mount) and the dock. The design page is NOT here — its rail
@@ -147,6 +150,7 @@ export function sliceGatesFor(input: SliceGateInput): LiveSliceGates {
   return {
     board:
       openTaskId !== null ||
+      boardDialogOpen === true ||
       onRoute(pathname, "/dashboard/board") ||
       onRoute(pathname, "/dashboard/reviews"),
     presence: openTaskId !== null || onRoute(pathname, "/dashboard/api"),

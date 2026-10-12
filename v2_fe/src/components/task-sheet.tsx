@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import { columns, nextStatus, priorityClass, relationTone, statusLabel, type ColumnId, type Project, type Task, type TaskLink, type TaskRelation, type TaskSession } from "@/lib/workspace-view"
 import { reviewDecisionClass, reviewDecisionLabel } from "@/lib/workspace-view"
 import { type TaskflowTaskRelationKind, type TaskflowTaskStatus } from "@/api/client"
-import { useContext, useEffect, useState, type ReactNode } from "react"
+import { useContext, useEffect, useState, useRef, type ReactNode } from "react"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 
 
@@ -58,6 +58,13 @@ export function TaskDetailSheet({
   onUploadAttachment: (files: File[]) => void
   onAddComment: (body: string) => Promise<void>
 }) {
+  const sheetRef = useRef<HTMLElement>(null)
+  // Focus the sheet on mount so the keyboard lands INSIDE it — that is what
+  // makes its Escape handler the one that fires (see the section above).
+  useEffect(() => {
+    sheetRef.current?.focus()
+  }, [])
+
   const currentStatus = columns.find((column) => column.id === task.status)
   const attachments = liveWorkspace ? getTaskAttachments(task, liveWorkspace) : []
   // Two-step delete: the first click arms it, the second confirms — no
@@ -235,14 +242,31 @@ export function TaskDetailSheet({
       <button
         type="button"
         aria-label="Close task details"
-        className="fixed inset-0 z-40 bg-foreground/10"
+        // #662: z-41, one above the board dialog's popup (z-40), so the sheet's
+        // backdrop is over the dialog it was opened from — and the sheet panel
+        // (z-50) over both, under the attachment preview (z-80).
+        className="fixed inset-0 z-41 bg-foreground/10"
         onClick={onClose}
       />
       <section
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-label={`${task.title} details`}
-        className="fixed inset-2 z-50 flex flex-col overflow-hidden rounded-[1.35rem] border bg-card shadow-2xl sm:inset-auto sm:bottom-4 sm:right-4 sm:top-4 sm:w-[min(54rem,calc(100vw-2rem))] sm:border-x sm:border-b"
+        // #662: the sheet is a dialog LAYER, so it takes focus and owns Escape
+        // while it is the top one. Without the focus, Escape fell through to a
+        // dialog underneath (the board dialog) and closed THAT instead; with
+        // `stopPropagation` here, one Escape closes one layer — the top one —
+        // and a dialog beneath stays open. (An attachment preview above this
+        // sheet is a Base UI dialog and handles its own Escape first, because
+        // the event never passes through this subtree.)
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return
+          event.stopPropagation()
+          onClose()
+        }}
+        className="fixed inset-2 z-50 flex flex-col overflow-hidden rounded-[1.35rem] border bg-card shadow-2xl outline-none sm:inset-auto sm:bottom-4 sm:right-4 sm:top-4 sm:w-[min(54rem,calc(100vw-2rem))] sm:border-x sm:border-b"
       >
         <header
           className="relative shrink-0 overflow-hidden px-5 pb-7 pt-5"

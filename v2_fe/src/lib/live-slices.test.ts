@@ -29,6 +29,18 @@ describe("sliceGatesFor", () => {
     })
   })
 
+  // #662: the board can be opened as a DIALOG over any page (the design page
+  // first), and it renders the same task rows the board route does — so the
+  // gate must flip for the dialog, or the dialog opens onto an empty board.
+  it("loads the board's rows when the board dialog is opened elsewhere", () => {
+    expect(gates({ pathname: "/dashboard/design", boardDialogOpen: true })).toMatchObject({
+      board: true,
+    })
+    expect(gates({ pathname: "/dashboard/design", boardDialogOpen: false })).toMatchObject({
+      board: false,
+    })
+  })
+
   it("asks for nothing on a route with no slice of its own", () => {
     for (const route of ["/dashboard/overview", "/dashboard/media", "/dashboard/invites"]) {
       expect(gates({ pathname: route })).toMatchObject({

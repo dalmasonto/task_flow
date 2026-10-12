@@ -65,15 +65,20 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
 /// the whole dialog reads as a rendering bug.
 function DialogContent({
   className,
+  overlayClassName,
   children,
   showCloseButton = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /// For a dialog that must sit BELOW another layer (the board dialog, which
+  /// the task sheet opens over — #662): the backdrop travels with the popup,
+  /// so the two must move together or the dimming lands on top of the sheet.
+  overlayClassName?: string
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
