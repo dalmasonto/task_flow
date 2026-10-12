@@ -12,7 +12,8 @@
 //! before #700, and every `taskflow init`):
 //!
 //!   * [`DEFAULT_CAPABILITIES`] — on for every key, and switchable OFF per key
-//!     through `denied_scopes`. `identity.may(cap)` is the check handlers use.
+//!     through `denied_scopes`. `identity.require(cap)` is the gate handlers
+//!     call at the top.
 //!   * [`GRANTABLE_SCOPES`] — off by default, switched ON per key through
 //!     `scopes`. Reserved for authority beyond ordinary agent work.
 //!
