@@ -541,6 +541,31 @@ describe("numberedPages", () => {
   })
 })
 
+describe("selectAllState counts (#707)", () => {
+  // The bulk control reads as a COUNT now: "3/5" says how much of the project
+  // is on screen, which the action word alone never did. Only pages in the
+  // MANIFEST count — an open route whose page has gone is not a page.
+  it("reports how many of the project's pages are open", () => {
+    const none = selectAllState(MANIFEST, [])
+    expect(none.openCount).toBe(0)
+    expect(none.total).toBe(4)
+
+    const some = selectAllState(MANIFEST, ["/login", "/settings"])
+    expect(some.openCount).toBe(2)
+    expect(some.total).toBe(4)
+
+    const all = selectAllState(MANIFEST, ["/", "/login", "/signup", "/settings"])
+    expect(all.openCount).toBe(4)
+    expect(all.total).toBe(4)
+  })
+
+  it("ignores an open route that is no longer a page", () => {
+    const state = selectAllState(MANIFEST, ["/login", "/deleted-last-week"])
+    expect(state.openCount).toBe(1)
+    expect(state.total).toBe(4)
+  })
+})
+
 describe("selectAllState", () => {
   // Bulk open is the SAME `openRoutes` state the rows write, so what it writes
   // is every page, in the order that state keeps them in — the manifest's, which

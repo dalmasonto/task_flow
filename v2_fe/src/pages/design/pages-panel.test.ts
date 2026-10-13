@@ -260,8 +260,13 @@ const ungroupedRows = (html: string) => {
 /// the bulk control, whose word IS its label. The dialog's field is a `<label>`
 /// too, but it lives in a portal the server never renders.
 const bulk = (html: string) => {
-  const match = /<label[^>]*><span([^>]*role="checkbox"[^>]*)>[\s\S]*?<input[^>]*>([^<]*)<\/label>/.exec(html)
-  return match ? { checked: match[1].includes('aria-checked="true"'), label: match[2] } : null
+  // The action word, then — since #707 — the count it now carries, in its own
+  // span. Both are part of what the control READS, so both are extracted.
+  const match =
+    /<label[^>]*><span([^>]*role="checkbox"[^>]*)>[\s\S]*?<input[^>]*>([^<]*)(?:<span[^>]*>([^<]*)<\/span>)?<\/label>/.exec(html)
+  return match
+    ? { checked: match[1].includes('aria-checked="true"'), label: match[2].trim(), count: match[3]?.trim() ?? null }
+    : null
 }
 
 /// The left inset a class list asks for, in px — the one `pl-*` / `px-*` step
@@ -648,10 +653,14 @@ describe("PagesPanel", () => {
     expect(bulk(render(layout({}), { open: ["/"] }))).toEqual({
       checked: false,
       label: "Select all",
+      // #707: the count says how MUCH of the project is on screen — the action
+      // word never did.
+      count: `1/${MANIFEST.length}`,
     })
     expect(bulk(render(layout({}), { open: MANIFEST.map((route) => route.path) }))).toEqual({
       checked: true,
       label: "Deselect",
+      count: `${MANIFEST.length}/${MANIFEST.length}`,
     })
   })
 
@@ -696,7 +705,10 @@ describe("PagesPanel", () => {
     // claiming "all open". The exact form of this property — a group whose scope
     // is the whole project writing the very list the global control writes — is
     // asserted in `pages-order.test.ts`, where both helpers can be called.
-    expect(bulk(html), `rendered markup:\n${html}`).toEqual({ checked: false, label: "Select all" })
+    // Two of the four pages are open in this fixture (`/login`, `/settings`), so
+    // the count reads 2/4 — the same verdict the group controls reach for their
+    // own scopes.
+    expect(bulk(html), `rendered markup:\n${html}`).toEqual({ checked: false, label: "Select all", count: "2/4" })
 
     // ...and in the other direction, too: with everything open, both read the
     // action that would close their own scope.
@@ -711,7 +723,7 @@ describe("PagesPanel", () => {
       ["2. Ops", { label: "Deselect", checked: true }],
       ["3. Admin", null],
     ])
-    expect(bulk(allOpen)).toEqual({ checked: true, label: "Deselect" })
+    expect(bulk(allOpen)).toEqual({ checked: true, label: "Deselect", count: "4/4" })
   })
 
   // WHERE the control is drawn is part of the feature rather than styling: the

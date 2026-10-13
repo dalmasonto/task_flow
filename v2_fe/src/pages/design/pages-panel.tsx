@@ -640,6 +640,12 @@ export function PagesPanel({
             onCheckedChange={() => onOpenRoutesChange(bulk.next)}
           />
           {bulk.label}
+          {/* #707: the count, because the action word never said how much of the
+              project is on screen. `3/5` reads in both states — the box says
+              what a click does, this says where you are. */}
+          <span className="ml-auto tabular-nums text-muted-foreground">
+            {bulk.openCount}/{bulk.total}
+          </span>
         </label>
       ) : null}
       {/* The Groups section: one block per group, each with its own rows. Its

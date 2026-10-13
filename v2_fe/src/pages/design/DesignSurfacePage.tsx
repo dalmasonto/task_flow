@@ -4,21 +4,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { sandboxTokenIsFresh, sandboxTokenSource } from "@/lib/sandbox-token"
-import { useNavigate } from "react-router-dom"
 import {
   ChevronDownIcon,
-  ChevronLeftIcon,
   ColumnsIcon,
   KanbanSquareIcon,
   CrosshairIcon,
   DownloadIcon,
   HandIcon,
   LayoutGridIcon,
-  MessageSquareIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
   SmartphoneIcon,
   TabletSmartphoneIcon,
   MonitorSmartphoneIcon,
-  PanelRightIcon,
   MousePointer2Icon,
   RowsIcon,
   ScanIcon,
@@ -165,7 +165,6 @@ export function DesignSurfacePage({
   /// #662: open the project board as a dialog, without leaving this page.
   onOpenBoard?: () => void
 }) {
-  const navigate = useNavigate()
   const [manifest, setManifest] = useState<DesignManifest | null>(null)
   /** #520: which page's version history is open, by route (null = closed). */
   const [historyRoute, setHistoryRoute] = useState<string | null>(null)
@@ -312,7 +311,7 @@ export function DesignSurfacePage({
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   // Which pages are open on the canvas — one ROW per open route. Seeded to
   // every route once per project (see the hydration effect below); after that,
-  // purely user-driven (PagePicker / PagesPanel / row close button).
+  // purely user-driven (PagesPanel / row close button).
   //
   // It is kept in MANIFEST order, and that still matters now that the boards are
   // drawn in the document's FLOW: `resolveRouteOrder` appends the pages the flow
@@ -584,7 +583,7 @@ export function DesignSurfacePage({
         // `openRoutes` is restored AS STORED, and it must be in MANIFEST order —
         // the invariant every writer here that ESTABLISHES the order maintains
         // deliberately: the seed below and `openRoute` both rebuild from
-        // `manifest.routes`, `PagePicker` filters the manifest, and
+        // `manifest.routes`, the Pages panel filters the manifest, and
         // `selectAllState.next` is the manifest's paths. The rest of the
         // inventory is not a counterexample: the two close paths
         // (`toggleRouteFromPanel`'s `else` and `closeRoute`) only `filter`, so
@@ -1091,10 +1090,6 @@ export function DesignSurfacePage({
       {/* The toolbar scrolls sideways rather than wrapping or clipping on a
           narrow screen; every control keeps its size (`*:shrink-0`). */}
       <header className="scrollbar-none flex h-14 shrink-0 items-center gap-3 overflow-x-auto border-b px-2 sm:px-4 [&>*]:shrink-0">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard/board")}>
-          <ChevronLeftIcon className="size-4" />
-          <span className="hidden sm:inline">Back</span>
-        </Button>
         <Button
           variant={chatOpen ? "secondary" : "ghost"}
           size="icon"
@@ -1103,17 +1098,8 @@ export function DesignSurfacePage({
           aria-pressed={chatOpen}
           onClick={() => togglePanel("chat")}
         >
-          <MessageSquareIcon className="size-4" />
+          {chatOpen ? <PanelLeftCloseIcon className="size-4" /> : <PanelLeftOpenIcon className="size-4" />}
         </Button>
-        <span className="hidden text-sm font-semibold md:inline">Design</span>
-
-        <PagePicker
-          routes={manifest?.routes ?? []}
-          openRoutes={openRoutes}
-          nameFor={labelFor}
-          onChange={setOpenRoutes}
-        />
-
         <DevicePicker deviceIds={deviceIds} onChange={setDeviceIds} />
 
         <div className="flex items-center gap-0.5">
@@ -1220,7 +1206,7 @@ export function DesignSurfacePage({
             aria-pressed={panelOpen}
             onClick={() => togglePanel("panel")}
           >
-            <PanelRightIcon className="size-4" />
+            {panelOpen ? <PanelRightCloseIcon className="size-4" /> : <PanelRightOpenIcon className="size-4" />}
           </Button>
         </div>
       </header>
@@ -1428,7 +1414,7 @@ export function DesignSurfacePage({
                 onToggleRoute={toggleRouteFromPanel}
                 // The panel's Select all / Deselect writes the whole list, so
                 // it takes the setter itself rather than the per-row toggle —
-                // the same one the toolbar's `PagePicker` bulk-writes through.
+                // the same one the Pages panel's bulk control writes through.
                 // (No focus: `toggleRouteFromPanel` focuses the board a row
                 // just opened, and a bulk open has no single board to focus.)
                 onOpenRoutesChange={setOpenRoutes}
@@ -1613,85 +1599,6 @@ function noDesignRoomMessage(workspace: TaskflowWorkspace | null): string {
 // ---------------------------------------------------------------------------
 // Toolbar pieces
 // ---------------------------------------------------------------------------
-
-/// Multi-select: every checked route gets its own ROW on the canvas (mirrors
-/// `DevicePicker`'s checkbox-list idiom below). Unlike devices, zero open
-/// pages is a valid (if empty) canvas, so nothing here forces one to stay
-/// checked.
-///
-/// Both of its lists are MANIFEST-ordered, and that is a decision rather than an
-/// omission: the menu walks `routes` as the manifest sent them, and the trigger
-/// names `openRoutes[0]` — the first OPEN route in that same order, not the
-/// flow's first. This is a control ("which pages are open"), not a listing
-/// claiming to be the sequence the canvas draws and the Pages panel numbers; the
-/// FLOW is a property of the arrangement, and reordering these rows by it would
-/// also split the array this component is handed in two, because `toggle` writes
-/// `openRoutes` back in manifest order for the panel's sake (see the comment
-/// there). So: deliberately manifest-ordered, in both places, and not the
-/// presentation order.
-function PagePicker({
-  routes,
-  openRoutes,
-  nameFor,
-  onChange,
-}: {
-  routes: { path: string; title: string }[]
-  openRoutes: string[]
-  /** The display name for a route, resolved by the caller through `pageLabel`
-   *  — the same string the canvas headers and the Pages panel show. This picker
-   *  renders a page's name in three places (the trigger, its multi-route
-   *  variant, and every row of the menu), so it takes the resolver rather than
-   *  reaching for `title` itself. */
-  nameFor: (route: string) => string
-  onChange: (routes: string[]) => void
-}) {
-  const toggle = (path: string, next: boolean) => {
-    const set = new Set(openRoutes)
-    if (next) set.add(path)
-    else set.delete(path)
-    // Preserve the manifest's route order for stable row order.
-    onChange(routes.filter((r) => set.has(r.path)).map((r) => r.path))
-  }
-
-  const triggerLabel =
-    openRoutes.length === 0
-      ? "Open"
-      : openRoutes.length === 1
-        ? nameFor(openRoutes[0])
-        : `${nameFor(openRoutes[0])} +${openRoutes.length - 1}`
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="max-w-44 gap-1 font-normal" />}
-      >
-        <span className="truncate">{triggerLabel}</span>
-        <ChevronDownIcon className="size-3.5 opacity-70" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-96 w-56 overflow-y-auto">
-        {/* GroupLabel requires Menu.Group context — keep the label INSIDE the
-            group or Base UI throws "MenuGroupContext is missing" on open. */}
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Pages</DropdownMenuLabel>
-          {routes.map((r) => (
-            <DropdownMenuCheckboxItem
-              key={r.path}
-              checked={openRoutes.includes(r.path)}
-              onCheckedChange={(checked) => toggle(r.path, checked === true)}
-              closeOnClick={false}
-            >
-              <span className="flex-1">{nameFor(r.path)}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">{r.path}</span>
-            </DropdownMenuCheckboxItem>
-          ))}
-        </DropdownMenuGroup>
-        {!routes.length ? (
-          <p className="px-2 py-4 text-center text-xs text-muted-foreground">No pages yet.</p>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
 
 function DevicePicker({
   deviceIds,

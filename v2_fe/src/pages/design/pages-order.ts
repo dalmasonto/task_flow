@@ -176,6 +176,12 @@ export function numberedPages(layout: LayoutDoc, routes: RouteEntry[]): Numbered
 export type SelectAllState = {
   /** Whether every page is open: the state of the control's own box. */
   allOpen: boolean
+  /** #707: how many of the project's pages are open, and how many exist. The
+   *  control reads as `openCount/total` — the action word alone never said how
+   *  MUCH of the project was on screen. Counting the manifest (not the open
+   *  list) is what makes an open route with no page behind it not a page. */
+  openCount: number
+  total: number
   /** What the control reads. The two states are the whole vocabulary. */
   label: "Select all" | "Deselect"
   /** The open routes the control WRITES when it is used: every page in manifest
@@ -204,6 +210,8 @@ export function selectAllState(routes: RouteEntry[], openRoutes: string[]): Sele
   const allOpen = routes.length > 0 && routes.every((entry) => openRoutes.includes(entry.path))
   return {
     allOpen,
+    openCount: routes.filter((entry) => openRoutes.includes(entry.path)).length,
+    total: routes.length,
     label: allOpen ? "Deselect" : "Select all",
     next: allOpen ? [] : routes.map((entry) => entry.path),
   }
