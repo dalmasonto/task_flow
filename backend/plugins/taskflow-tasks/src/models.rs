@@ -61,7 +61,11 @@ pub enum TaskflowSessionState {
     Failed,
 }
 
+/// #701: the board loads one column at a time — `filter({project, status__in})`
+/// ordered newest-first — so the index leads with the filter pair and ends in
+/// the sort key.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["project", "status", "id"]])]
 pub struct TaskflowTask {
     pub id: i64,
     #[umbral(on_delete = "cascade")]
@@ -143,7 +147,10 @@ pub struct TaskflowTaskRelation {
     pub created_at: Option<DateTime<Utc>>,
 }
 
+/// #701: the activity feed reads by task and by project, newest first — the
+/// same shape as the chat, on the biggest table in the database.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["task", "created_at", "id"], ["project", "created_at", "id"]])]
 pub struct TaskflowTaskActivity {
     pub id: i64,
     #[umbral(on_delete = "cascade")]

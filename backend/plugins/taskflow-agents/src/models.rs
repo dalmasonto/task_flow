@@ -300,7 +300,15 @@ pub struct TaskflowAgentChannelMember {
     pub joined_at: Option<DateTime<Utc>>,
 }
 
+/// #701: the two reads the app makes of this table are both
+/// `filter(x).orderBy("-created_at", "-id")` — a channel's thread and a
+/// project's recent messages. Without these, Postgres walks the id index
+/// backwards and discards every row of every OTHER channel, so a page load
+/// costs `total_messages` instead of `page_size`; the chat is the
+/// fastest-growing table, which is what "it gets slower as time goes by"
+/// looks like. Ascending, so a backward scan serves the DESC order.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["channel", "created_at", "id"], ["project", "created_at", "id"]])]
 pub struct TaskflowAgentMessage {
     pub id: i64,
     #[umbral(on_delete = "cascade")]
@@ -394,6 +402,7 @@ pub struct TaskflowAgentMessage {
 /// /api/taskflow/agents/messages`), never client REST — see
 /// `backend::rest::READ_ONLY_PROJECT_SCOPED_TABLES`.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["channel", "created_at", "id"], ["project", "created_at", "id"]])]
 pub struct TaskflowMessageAttachment {
     pub id: i64,
     #[umbral(on_delete = "cascade")]
