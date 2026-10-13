@@ -24,7 +24,14 @@ import {
 /// dock's unknown-list states are pinned as MARKUP instead
 /// (components/chat/chat-dock.test.ts).
 
-type ScriptedTable = { rows: unknown[]; count?: number; pageSize?: number }
+type ScriptedTable = {
+  rows: unknown[]
+  count?: number
+  pageSize?: number
+  /// #706: a non-paginated endpoint's body, returned verbatim instead of an
+  /// envelope (the grouped counts route is not a table list).
+  raw?: unknown
+}
 
 /// The paginated envelope the backend emits (`PageNumberPagination`).
 function envelope(rows: unknown[], count: number, page: number, pageSize: number) {
@@ -53,6 +60,11 @@ function stubApi(tables: Record<string, ScriptedTable>) {
     const table = url.pathname.replace(/^\/api\//, "").replace(/\/+$/, "")
     const script = tables[table]
     if (!script) return Promise.resolve(envelope([], 0, 1, 25))
+    if (script.raw !== undefined) {
+      return Promise.resolve(
+        new Response(JSON.stringify(script.raw), { status: 200, headers: { "content-type": "application/json" } })
+      )
+    }
     // `?id__in=` is the one filter these tests depend on, so the stub applies it:
     // a chunked lookup must come back with only the ids that chunk asked for.
     const idIn = url.searchParams.get("id__in")
@@ -221,24 +233,37 @@ describe("fetchTaskTitles", () => {
 })
 
 describe("fetchTaskflowProjectSummary", () => {
-  // Two counts per project, and each of them used to return a whole task row —
-  // description and notes included — to read one number out of the envelope.
-  it("counts with a sparse fieldset rather than a whole task row", async () => {
+  // #706: the sidebar's per-project counts were 2 x N `page_size=1` count
+  // queries — 30 requests on a 15-project account, fired at once on every
+  // load, so any server hiccup was multiplied by 30. One grouped endpoint
+  // answers all of them; the numbers still come from the server.
+  it("asks ONE grouped counts endpoint, not 2N list requests", async () => {
     const api = stubApi({
       [taskflowTables.projects]: { rows: [{ id: 7, name: "Board" }], count: 1 },
-      [taskflowTables.tasks]: { rows: [{ id: 11 }], count: 4 },
+      "taskflow/projects/counts": { rows: [], raw: { counts: { "7": { tasks: 4, reviews: 1 } } } },
     })
+
     const summary = await fetchTaskflowProjectSummary()
-    const countRequests = api.for(taskflowTables.tasks)
-    expect(countRequests).toHaveLength(2)
-    for (const entry of countRequests) {
-      const params = searchOf(entry)
-      expect(params.get("fields")).toBe("id")
-      expect(params.get("page_size")).toBe("1")
-    }
-    // The numbers come from the envelope, which `fields` does not touch.
+
+    const countCalls = api.requested.filter((entry) => entry.startsWith("/api/taskflow/projects/counts"))
+    expect(countCalls).toHaveLength(1)
+    // Not one task list request: the whole point is that the fan-out is gone.
+    expect(api.for(taskflowTables.tasks)).toHaveLength(0)
     expect(summary.taskCounts).toEqual({ 7: 4 })
-    expect(summary.reviewCounts).toEqual({ 7: 4 })
+    expect(summary.reviewCounts).toEqual({ 7: 1 })
+  })
+
+  it("defaults a project the server did not report (no tasks) to zero", async () => {
+    const api = stubApi({
+      [taskflowTables.projects]: { rows: [{ id: 7, name: "Board" }], count: 1 },
+      "taskflow/projects/counts": { rows: [], raw: { counts: {} } },
+    })
+
+    const summary = await fetchTaskflowProjectSummary()
+
+    expect(api.for(taskflowTables.tasks)).toHaveLength(0)
+    expect(summary.taskCounts).toEqual({ 7: 0 })
+    expect(summary.reviewCounts).toEqual({ 7: 0 })
   })
 })
 

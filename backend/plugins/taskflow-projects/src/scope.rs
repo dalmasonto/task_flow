@@ -78,7 +78,7 @@ pub async fn can_access_project(user_id: i64, project_id: i64) -> bool {
 
 /// Resolve the superuser flag for a user id. A missing user or a query error is
 /// treated as "not a superuser" — fail closed.
-async fn is_superuser(user_id: i64) -> bool {
+pub async fn is_superuser(user_id: i64) -> bool {
     AuthUser::objects()
         .filter(auth_user::ID.eq(user_id))
         .first()

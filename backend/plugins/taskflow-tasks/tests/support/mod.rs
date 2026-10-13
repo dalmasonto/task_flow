@@ -380,6 +380,12 @@ impl TestResponse {
     pub async fn json(&self) -> Value {
         self.inner.body_json()
     }
+
+    /// The raw body — for a failure message that must not hide behind a JSON
+    /// parse error (a 500 with an empty body, say).
+    pub fn text(&self) -> String {
+        self.inner.body_text()
+    }
 }
 
 /// Drives `taskflow_tasks::urls::router()` in-process, authenticating GETs

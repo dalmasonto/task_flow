@@ -478,6 +478,26 @@ export function taskflowRealtimeGroups(projectId: number | null): string[] {
   return groups
 }
 
+/// #706: every project's `{tasks, reviews}` totals in ONE request — what the
+/// sidebar badges read. Backed by `GET /api/taskflow/projects/counts`, one
+/// grouped count scoped to the caller's projects (a project they cannot see is
+/// absent, never zeroed).
+export async function fetchProjectCounts(): Promise<Record<number, { tasks: number; reviews: number }>> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/counts`, {
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response, `Could not load the project counts (${response.status}).`))
+  }
+  const body = (await response.json()) as { counts?: Record<string, { tasks: number; reviews: number }> }
+  const out: Record<number, { tasks: number; reviews: number }> = {}
+  for (const [id, value] of Object.entries(body.counts ?? {})) {
+    out[Number(id)] = value
+  }
+  return out
+}
+
 export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSummary> {
   // #56: no all-project task rows here — the board loads the active project's
   // columns (fetchTaskflowWorkspace), so pulling every project's tasks (~152 KB,
@@ -490,38 +510,27 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
     taskflowApi.from(taskflowTables.agents).orderBy("project", "display_name").param("page_size", REFERENCE_PAGE_SIZE).list(),
   ])
 
-  // #56 review: the sidebar shows a per-project task count AND a Reviews badge.
-  // Instead of pulling task rows (152 KB, capped) just to count them, ask each
-  // project for two COUNTS — page_size=1 returns the envelope total in ~one row.
-  // Cheap and honest (real totals on every page, not 0-until-clicked).
+  // #706: the sidebar shows a per-project task count AND a Reviews badge. This
+  // used to be two `page_size=1` count queries PER PROJECT — 30 requests on a
+  // 15-project account, all fired at once on every load. A HAR showed what that
+  // costs when the server hiccups: every one of them waiting ~3.1s, because the
+  // fan-out multiplies whatever the slowest request costs by its width.
   //
-  // `fields=id` because a count does not need even that one row's content: the
-  // number comes from the ENVELOPE, and a task row carries the two fat markdown
-  // columns this whole change exists to stop fetching. Same count, no body text,
-  // 2N times per load — which is why it is worth the parameter on both queries.
-  const countEntries = await Promise.all(
-    projects.results.map(async (project) => {
-      const [total, review] = await Promise.all([
-        taskflowApi.from(taskflowTables.tasks).filter({ project: project.id }).fields("id").param("page_size", 1).list(),
-        taskflowApi
-          .from(taskflowTables.tasks)
-          .filter({ project: project.id })
-          // `partial_done` is the stored status the board calls the "review" column.
-          .param("status__in", "partial_done")
-          .fields("id")
-          .param("page_size", 1)
-          .list(),
-      ])
-      return { id: project.id, total: total.count, review: review.count }
-    })
-  )
+  // One endpoint answers all of them from a single grouped count, scoped to the
+  // caller's projects. A project with no tasks is absent rather than zero, so
+  // the client defaults it here.
+  const counts = await fetchProjectCounts()
 
   return {
     projects: projects.results,
     members: members.results,
     agents: agents.results,
-    taskCounts: Object.fromEntries(countEntries.map((e) => [e.id, e.total])) as Record<number, number>,
-    reviewCounts: Object.fromEntries(countEntries.map((e) => [e.id, e.review])) as Record<number, number>,
+    taskCounts: Object.fromEntries(
+      projects.results.map((project) => [project.id, counts[project.id]?.tasks ?? 0])
+    ) as Record<number, number>,
+    reviewCounts: Object.fromEntries(
+      projects.results.map((project) => [project.id, counts[project.id]?.reviews ?? 0])
+    ) as Record<number, number>,
   }
 }
 

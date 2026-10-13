@@ -401,3 +401,66 @@ pub async fn project_stats(
         },
     }))
 }
+
+/// `GET /api/taskflow/projects/counts` — every project's task and
+/// pending-review totals, for the sidebar badge, in ONE request.
+///
+/// #706: the sidebar needs two numbers per project on every dashboard load,
+/// and it used to ask for them with a `page_size=1` list per project per
+/// number — 2xN requests (30 on a 15-project account), all fired at once. Each
+/// is individually trivial; together they sit on the critical path of every
+/// load and multiply any server hiccup by 30. A HAR caught exactly that: 30
+/// count requests each waiting ~3.1s while the queries themselves answered in
+/// milliseconds.
+///
+/// One grouped count replaces them. The scope is resolved IN SQL (the same
+/// active-membership rule [`can_access_project`] applies one project at a
+/// time), so the query never reads a project the caller cannot see, and a
+/// project the caller cannot see is ABSENT from the map rather than zeroed —
+/// "nothing here yet" and "not yours" must not look alike.
+///
+/// `sum(case …)` and not `count(*) filter (…)`: the latter needs SQLite 3.30+,
+/// and this app runs on both engines.
+pub async fn project_counts(
+    RequireAuth(user_id): RequireAuth<i64>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    const VISIBLE_COUNTS_SQL: &str = "\
+        select t.project, count(*), sum(case when t.status = 'partial_done' then 1 else 0 end) \
+        from taskflow_task t \
+        where exists ( \
+            select 1 from taskflow_project_member m \
+            where m.project = t.project and m.user = $1 and m.status = 'active' \
+        ) \
+        group by t.project";
+    const ALL_COUNTS_SQL: &str = "\
+        select t.project, count(*), sum(case when t.status = 'partial_done' then 1 else 0 end) \
+        from taskflow_task t \
+        group by t.project";
+
+    // The SQL is identical on both engines; only the executor type differs,
+    // which is why this dispatches instead of building two statements.
+    let scope_to_caller = !taskflow_projects::scope::is_superuser(user_id).await;
+    let rows: Vec<(i64, i64, i64)> = match umbral::db::pool_dispatched() {
+        umbral::db::DbPool::Sqlite(pool) => {
+            if scope_to_caller {
+                sqlx::query_as(VISIBLE_COUNTS_SQL).bind(user_id).fetch_all(pool).await
+            } else {
+                sqlx::query_as(ALL_COUNTS_SQL).fetch_all(pool).await
+            }
+        }
+        umbral::db::DbPool::Postgres(pool) => {
+            if scope_to_caller {
+                sqlx::query_as(VISIBLE_COUNTS_SQL).bind(user_id).fetch_all(pool).await
+            } else {
+                sqlx::query_as(ALL_COUNTS_SQL).fetch_all(pool).await
+            }
+        }
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let counts = rows
+        .into_iter()
+        .map(|(project, tasks, reviews)| (project.to_string(), serde_json::json!({ "tasks": tasks, "reviews": reviews })))
+        .collect::<serde_json::Map<_, _>>();
+    Ok(Json(serde_json::json!({ "counts": counts })))
+}

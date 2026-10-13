@@ -21,6 +21,9 @@ pub fn router() -> Router {
             "/api/taskflow/projects/{project}/activity/actions",
             get(views::activity_actions),
         )
+        // #706: every project's task/review totals in one request, for the
+        // sidebar badges. Replaces a 2xN fan-out of count queries.
+        .route("/api/taskflow/projects/counts", get(views::project_counts))
         // #60: the dashboard's one-call aggregation over a project's
         // sessions, tasks, and activity.
         .route(
