@@ -253,6 +253,30 @@ describe("fetchTaskflowProjectSummary", () => {
     expect(summary.reviewCounts).toEqual({ 7: 1 })
   })
 
+  // A counts endpoint that fails must not take the dashboard with it: the
+  // sidebar badges are a convenience, and the project list, the active project
+  // and every other slice in this call are not. Before this, one bad counts
+  // response rejected the whole summary and the app booted into its error
+  // state — the blast radius of an optional number.
+  it("survives a counts failure, defaulting the badges to zero", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: unknown) => {
+        const url = new URL(String(input), "http://test")
+        if (url.pathname.includes("/projects/counts")) {
+          return Promise.resolve(new Response("nope", { status: 500 }))
+        }
+        return Promise.resolve(envelope([{ id: 7, name: "Board" }], 1, 1, 25))
+      })
+    )
+
+    const summary = await fetchTaskflowProjectSummary()
+
+    expect(summary.projects).toHaveLength(1)
+    expect(summary.taskCounts).toEqual({ 7: 0 })
+    expect(summary.reviewCounts).toEqual({ 7: 0 })
+  })
+
   it("defaults a project the server did not report (no tasks) to zero", async () => {
     const api = stubApi({
       [taskflowTables.projects]: { rows: [{ id: 7, name: "Board" }], count: 1 },

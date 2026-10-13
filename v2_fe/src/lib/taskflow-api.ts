@@ -519,7 +519,11 @@ export async function fetchTaskflowProjectSummary(): Promise<TaskflowProjectSumm
   // One endpoint answers all of them from a single grouped count, scoped to the
   // caller's projects. A project with no tasks is absent rather than zero, so
   // the client defaults it here.
-  const counts = await fetchProjectCounts()
+  // A failed counts call must not take the dashboard down with it: the badges
+  // are a convenience, the project list and the active project are not. Zero is
+  // the honest fallback for "unknown" on a badge, and the next summary load
+  // corrects it.
+  const counts = await fetchProjectCounts().catch(() => ({} as Awaited<ReturnType<typeof fetchProjectCounts>>))
 
   return {
     projects: projects.results,
