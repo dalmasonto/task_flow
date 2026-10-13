@@ -149,6 +149,28 @@ describe("sendMessage", () => {
   });
 });
 
+describe("listTasks", () => {
+  it("pages the board: limit and offset travel as query params", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).listTasks({ status: "in_progress", assigned: "me", limit: 50, offset: 100 });
+
+    expect(calls[0].url).toContain("/agents/tasks");
+    expect(calls[0].url).toContain("status=in_progress");
+    expect(calls[0].url).toContain("assigned=me");
+    expect(calls[0].url).toContain("limit=50");
+    expect(calls[0].url).toContain("offset=100");
+  });
+
+  it("omits paging when not asked, so the server's default page size applies", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).listTasks();
+
+    expect(calls[0].url).toContain("/agents/tasks");
+    expect(calls[0].url).not.toContain("limit=");
+    expect(calls[0].url).not.toContain("offset=");
+  });
+});
+
 describe("updateTask", () => {
   it("posts only the fields it was given, so an edit is not an overwrite", async () => {
     const { calls, impl } = stubFetch();

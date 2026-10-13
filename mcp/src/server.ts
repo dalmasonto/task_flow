@@ -548,18 +548,20 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "list_tasks",
-    "List tasks in the agent's project. Optional filters: status (e.g. not_started, in_progress, partial_done, done) and assigned='me' for tasks this agent has claimed.",
+    "List tasks in the agent's project, ONE PAGE at a time (default 50, max 200). Optional filters: status (e.g. not_started, in_progress, partial_done, done) and assigned='me' for tasks this agent has claimed. Page through the board with offset (offset=50 gets the next 50); a full page means there is likely more.",
     {
       status: z.string().optional().describe("Filter by task status string."),
       assigned: z.string().optional().describe("'me' to show only tasks claimed by this agent."),
+      limit: z.number().int().positive().max(200).optional().describe("Page size (default 50, max 200)."),
+      offset: z.number().int().nonnegative().optional().describe("Rows to skip (default 0). Page with offset=limit, then offset=2*limit, ..."),
       ...profileArg,
     },
-    async ({ status, assigned, profile }) => {
+    async ({ status, assigned, limit, offset, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
         const { client } = picked;
-        return ok(await client.listTasks({ status, assigned }));
+        return ok(await client.listTasks({ status, assigned, limit, offset }));
       } catch (err) {
         return fail(err);
       }

@@ -491,10 +491,17 @@ export class TaskflowClient {
     return this.request("GET", `${API_PREFIX}/agents/whoami`, { idempotent: true });
   }
 
-  /** `GET /agents/tasks?status=&assigned=` — tasks in the agent's project. */
-  listTasks(params: { status?: string; assigned?: string } = {}): Promise<unknown[]> {
+  /** `GET /agents/tasks?status=&assigned=&limit=&offset=` — one page of the agent's project board (default 50, max 200). */
+  listTasks(
+    params: { status?: string; assigned?: string; limit?: number; offset?: number } = {},
+  ): Promise<unknown[]> {
     return this.request("GET", `${API_PREFIX}/agents/tasks`, {
-      query: { status: params.status, assigned: params.assigned },
+      query: {
+        status: params.status,
+        assigned: params.assigned,
+        limit: params.limit,
+        offset: params.offset,
+      },
       idempotent: true,
     });
   }

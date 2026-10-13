@@ -234,3 +234,62 @@ async fn an_agent_cannot_edit_a_task_in_another_project() {
         .await;
     assert_eq!(resp.status(), 403, "an agent must not edit another project's task");
 }
+
+/// The board read is a PAGE, not the board (2026-10-13: it returned every task
+/// plus every attachment in one 279KB payload, and `?limit=` was silently
+/// ignored because the endpoint had no such parameter).
+#[tokio::test]
+async fn the_board_read_is_a_page_not_the_whole_board() {
+    let f = fixture().await;
+
+    for n in 1..=5 {
+        let resp = f
+            .app
+            .post_as_agent(
+                &f.key,
+                "/api/taskflow/agents/tasks",
+                json!({ "title": format!("task {n}"), "description_markdown": "d" }),
+            )
+            .await;
+        assert_eq!(resp.status(), 200, "seed task {n}");
+    }
+
+    // No params: everything HERE, because the default page (50) is bigger than
+    // the board — the bound is a clamp, not a refusal.
+    let all = f.app.get_as_agent(&f.key, "/api/taskflow/agents/tasks").await;
+    assert_eq!(all.status(), 200);
+    let all = all.json().await;
+    let all_ids: Vec<i64> = all
+        .as_array()
+        .expect("a flat array")
+        .iter()
+        .map(|t| t["id"].as_i64().expect("task id"))
+        .collect();
+    assert_eq!(all_ids.len(), 5, "{all}");
+
+    // A page is a page, and offset moves it without overlap, both in the
+    // server's board order.
+    let page1 = f.app.get_as_agent(&f.key, "/api/taskflow/agents/tasks?limit=2").await.json().await;
+    let ids1: Vec<i64> =
+        page1.as_array().unwrap().iter().map(|t| t["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids1, all_ids[0..2].to_vec(), "{page1}");
+
+    let page2 = f
+        .app
+        .get_as_agent(&f.key, "/api/taskflow/agents/tasks?limit=2&offset=2")
+        .await
+        .json()
+        .await;
+    let ids2: Vec<i64> =
+        page2.as_array().unwrap().iter().map(|t| t["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids2, all_ids[2..4].to_vec(), "{page2}");
+
+    // A silly limit is clamped to the max, never an error and never the board.
+    let huge = f
+        .app
+        .get_as_agent(&f.key, "/api/taskflow/agents/tasks?limit=100000")
+        .await
+        .json()
+        .await;
+    assert_eq!(huge.as_array().map(Vec::len), Some(5), "{huge}");
+}

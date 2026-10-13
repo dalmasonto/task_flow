@@ -158,7 +158,8 @@ that for the rest of the session.
 
 ## Tasks — the work
 - Track real work as tasks. **list_tasks** (filter by \`status\`, or
-  \`assigned='me'\`), **create_task**, **claim_task**, **update_task_status**,
+  \`assigned='me'\`; one page at a time — \`limit\`/\`offset\`, default 50),
+  **create_task**, **claim_task**, **update_task_status**,
   **report_review**. Search/list before creating so you don't duplicate an
   existing task.
 - Typical lifecycle: pick a ready task → **claim_task** → set **in_progress** →

@@ -4381,21 +4381,32 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
         .into_response())
 }
 
-/// Query for `GET /api/taskflow/agents/tasks`. Both filters are optional:
+/// Query for `GET /api/taskflow/agents/tasks`. The filters are optional:
 /// `status` narrows to one `TaskflowTaskStatus` (the stored snake_case string),
-/// `assigned=me` narrows to tasks claimed by THIS agent.
+/// `assigned=me` narrows to tasks claimed by THIS agent, and `limit`/`offset`
+/// page the board (default 50 rows, max 200 — the same clamp the message and
+/// activity reads use).
 #[derive(Debug, Deserialize)]
 pub struct ListTasksQuery {
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
     pub assigned: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
-/// `GET /api/taskflow/agents/tasks` (agent-authed) — the tasks in the agent's
-/// project, ordered `sort_order, id` (the board order). `?status=` filters to one
-/// status; `?assigned=me` filters to tasks this agent has claimed. Returns the
-/// full task rows as a flat array.
+/// `GET /api/taskflow/agents/tasks` (agent-authed) — ONE PAGE of the board,
+/// ordered `sort_order, id`. `?status=` filters to one status; `?assigned=me`
+/// filters to tasks this agent has claimed; `?limit=`/`?offset=` page it
+/// (default 50, max 200). Returns the page as a flat array.
+///
+/// The read used to return EVERY task plus every attachment in the project —
+/// 279KB on this project, growing with the board — because the query had no
+/// bound at all. It is a page now for the same reason the sidebar's counts got
+/// their own endpoint: a board read must move a page, not the board.
 pub async fn list_tasks_as_agent(
     RequireAgent(agent): RequireAgent,
     Query(params): Query<ListTasksQuery>,
@@ -4420,19 +4431,28 @@ pub async fn list_tasks_as_agent(
     let tasks = query
         .order_by(taskflow_task::SORT_ORDER.asc())
         .order_by(taskflow_task::ID.asc())
+        .limit(effective_limit(params.limit))
+        .offset(params.offset.unwrap_or(0).max(0) as u64)
         .fetch()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Merge each task's attachments so the agent knows about them and can pull
-    // them with `download_attachment` (via the resolved `/media` url). Fetch the
-    // project's attachments once and group in Rust — the task set is small.
-    let attachments = TaskflowTaskAttachment::objects()
-        .filter(taskflow_task_attachment::PROJECT.eq(agent.project_id))
-        .order_by(taskflow_task_attachment::ID.asc())
-        .fetch()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Merge the page's attachments so the agent knows about them and can pull
+    // them with `download_attachment` (via the resolved `/media` url). Scoped to
+    // the page's task ids — a paged board read must not move every attachment
+    // row in the project either.
+    let page_task_ids: Vec<i64> = tasks.iter().map(|task| task.id).collect();
+    let attachments = if page_task_ids.is_empty() {
+        Vec::new()
+    } else {
+        TaskflowTaskAttachment::objects()
+            .filter(taskflow_task_attachment::PROJECT.eq(agent.project_id))
+            .filter(taskflow_task_attachment::TASK.in_(&page_task_ids))
+            .order_by(taskflow_task_attachment::ID.asc())
+            .fetch()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
 
     let out: Vec<serde_json::Value> = tasks
         .iter()
