@@ -147,10 +147,14 @@ pub struct TaskflowTaskRelation {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-/// #701: the activity feed reads by task and by project, newest first — the
-/// same shape as the chat, on the biggest table in the database.
+/// #701/#712: the activity feed reads by task and by project, newest first — the
+/// same shape as the chat, on the biggest table in the database. #712 added the
+/// (project, action, created_at, id) key: the toolbar filters the feed to one
+/// `action`, and without an index for that filter a single filtered page walked
+/// EVERY row of the project (8 083 rows, 42ms measured on prod) instead of the
+/// 25 it renders. With it: 0.45ms — and flat as the table grows.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
-#[umbral(indexes = [["task", "created_at", "id"], ["project", "created_at", "id"]])]
+#[umbral(indexes = [["task", "created_at", "id"], ["project", "created_at", "id"], ["project", "action", "created_at", "id"]])]
 pub struct TaskflowTaskActivity {
     pub id: i64,
     #[umbral(on_delete = "cascade")]
