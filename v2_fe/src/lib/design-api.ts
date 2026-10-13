@@ -701,6 +701,41 @@ export type DesignCompareResult = {
   tokens_version?: number | null
 }
 
+/// #702: the operator's compare — one PNG PER CELL at device size and full
+/// DPR, rather than the agent's single composed grid (half-scale cells shrunk
+/// into 1568px, which is what made it look soft). Same request body, same
+/// validation, same `checks`/`apply`; the images differ.
+export type DesignCell = {
+  variant: string
+  route: string
+  theme: string
+  label: string
+  size: { width: number; height: number }
+  png_base64: string
+}
+
+export type DesignCompareCellsResult = Omit<DesignCompareResult, "images" | "split"> & {
+  cells: DesignCell[]
+}
+
+export async function compareDesignCells(
+  projectId: number,
+  body: unknown
+): Promise<DesignCompareCellsResult> {
+  const res = await designFetch(`/api/design/${projectId}/compare/cells`, jsonInit("POST", body))
+  if (res.status === 503) {
+    throw new Error("The screenshot renderer is not configured on this backend — ask your human to set it up.")
+  }
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((value: { detail?: string }) => value.detail)
+      .catch(() => undefined)
+    throw new Error(detail ?? `Could not render the comparison (${res.status}).`)
+  }
+  return readJson(res)
+}
+
 /// Render screens × variants × themes as ONE labelled grid of UNSAVED
 /// overrides — the same `compare_api::render_grid` the agent's `design_compare`
 /// calls. Nothing is written; Apply is a separate, deliberate write.

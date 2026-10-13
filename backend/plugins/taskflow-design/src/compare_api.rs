@@ -311,3 +311,185 @@ pub fn compare_apply(
     }
     (json!(apply), base_version)
 }
+
+/// #702: the operator's comparison — one image PER CELL, at device size and
+/// full DPR, instead of one composed grid at the agent's scale.
+///
+/// The grid render (`render_grid`) exists for the MCP: a single image, capped
+/// small because a model pays per pixel. The drawer asked for it too and got
+/// half-scale cells shrunk into 1568px, which is exactly what "low quality"
+/// looked like. Here each cell is the raw sandbox page — the same URL the grid
+/// embeds in an iframe — rendered as the top document, so there is no grid
+/// page, no compositing, and no downscale.
+///
+/// `checks` still come from ONE cheap grid render (scale 0.25): they are
+/// measured from computed styles inside the page, so the pixels the grid uses
+/// do not affect them.
+pub async fn render_cells(project_id: i64, input: CompareInput) -> Result<Response, StatusCode> {
+    use base64::Engine as _;
+    use crate::compare::{GridRoute, GridSpec, GridVariant, Overrides};
+
+    let viewport_id = input.viewport.clone().unwrap_or_else(|| "iphone-16-pro".to_string());
+    let size = match crate::screenshots::resolve_viewport(&crate::screenshots::ScreenshotRequest {
+        viewport: viewport_id.clone(),
+        width: input.width,
+        height: input.height,
+        ..Default::default()
+    }) {
+        Ok(vp) => vp,
+        Err(e) => return Ok(crate::views::bad_request(e.to_string())),
+    };
+    let shared = Overrides { tokens: input.tokens.clone(), css: input.css.clone() };
+    let spec = GridSpec {
+        routes: input
+            .routes
+            .iter()
+            .map(|r| match r {
+                CompareRouteInput::Path(route) => GridRoute { route: route.clone(), state: None, label: None },
+                CompareRouteInput::Full(full) => full.clone(),
+            })
+            .collect(),
+        variants: input
+            .variants
+            .iter()
+            .map(|v| GridVariant {
+                label: v.label.clone(),
+                overrides: crate::compare::layered(&shared, &Overrides { tokens: v.tokens.clone(), css: v.css.clone() }),
+            })
+            .collect(),
+        themes: input.themes.clone().unwrap_or_else(|| vec!["light".to_string()]),
+        width: size.width,
+        height: size.height,
+        scale: 1.0,
+        checks: input.checks.clone(),
+    };
+    if let Err(e) = crate::compare::validate_spec(&spec) {
+        return Ok(crate::views::bad_request(e));
+    }
+    // Same gates as the grid path: every route must be a real page, every theme
+    // declared, every override themed. A cell that 404s would look like a result.
+    let files = store::list_files(project_id).await;
+    let manifest = manifest::build(project_id, &files, 0);
+    let known: std::collections::HashSet<&str> = manifest.routes.iter().map(|r| r.path.as_str()).collect();
+    if let Some(missing) = spec.routes.iter().find(|r| !known.contains(r.route.as_str())) {
+        return Ok(crate::views::bad_request(format!(
+            "`{}` is not a page in this project (routes: {})",
+            missing.route,
+            manifest.routes.iter().map(|r| r.path.as_str()).collect::<Vec<_>>().join(", ")
+        )));
+    }
+    let declared = crate::tokens::project_tokens_doc(&files).declared_themes();
+    if let Some(unknown) = spec.themes.iter().find(|t| !declared.contains(t)) {
+        return Ok(crate::views::bad_request(format!(
+            "theme `{unknown}` is not declared in this project (themes: {}); add it with design_write_tokens first",
+            declared.join(", ")
+        )));
+    }
+    for v in &spec.variants {
+        if let Err(e) = crate::compare::check_override_themes(&v.overrides, &declared) {
+            return Ok(crate::views::bad_request(format!("variant `{}`: {e}", v.label)));
+        }
+    }
+
+    // One task per cell; the sidecar queues past its own concurrency limit.
+    struct Cell {
+        variant: String,
+        route: String,
+        theme: String,
+        label: String,
+    }
+    let mut cells: Vec<Cell> = Vec::new();
+    for route in &spec.routes {
+        for theme in &spec.themes {
+            for variant in &spec.variants {
+                cells.push(Cell {
+                    variant: variant.label.clone(),
+                    route: route.route.clone(),
+                    theme: theme.clone(),
+                    label: route.label.clone().unwrap_or_else(|| route.route.clone()),
+                });
+            }
+        }
+    }
+
+    let handles: Vec<_> = cells
+        .iter()
+        .map(|cell| {
+            let route = spec.routes.iter().find(|r| r.route == cell.route).cloned().expect("route in spec");
+            let variant = spec.variants.iter().find(|v| v.label == cell.variant).cloned().expect("variant in spec");
+            let theme = cell.theme.clone();
+            let spec = spec.clone();
+            tokio::spawn(async move {
+                crate::screenshots::render_cell(&spec, &route, &variant.overrides, &theme, 0, move || {
+                    crate::sandbox::mint(project_id)
+                })
+                .await
+            })
+        })
+        .collect();
+
+    let mut images = Vec::with_capacity(cells.len());
+    let mut warnings = Vec::new();
+    for (cell, handle) in cells.iter().zip(handles) {
+        let shot = match handle.await.unwrap_or_else(|e| {
+            Err(crate::screenshots::RenderError::Failed(format!("render task failed: {e}")))
+        }) {
+            Ok(shot) => shot,
+            Err(crate::screenshots::RenderError::Unconfigured(what)) => {
+                return Ok((
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "detail": format!("Screenshot renderer not configured on this backend ({what}). Ask your human to set it up."),
+                    })),
+                )
+                    .into_response());
+            }
+            Err(e @ crate::screenshots::RenderError::BadOverrides(_)) => {
+                return Ok(crate::views::bad_request(e.to_string()));
+            }
+            Err(other) => {
+                eprintln!("design compare (cells): {other}");
+                return Ok((StatusCode::BAD_GATEWAY, Json(json!({ "detail": other.to_string() }))).into_response());
+            }
+        };
+        warnings.extend(shot.warnings.iter().cloned());
+        images.push(json!({
+            "variant": cell.variant,
+            "route": cell.route,
+            "theme": cell.theme,
+            "label": cell.label,
+            "size": crate::agent_views::png_size(&shot.png),
+            "png_base64": base64::engine::general_purpose::STANDARD.encode(&shot.png),
+        }));
+    }
+
+    // The contrast table: measured from computed styles, so ONE small grid
+    // render yields every cell's numbers without rendering the grid for show.
+    let checks_spec = GridSpec { scale: 0.25, ..spec.clone() };
+    let checks = match crate::screenshots::render_compare(&checks_spec, 900, || crate::sandbox::mint(project_id)).await {
+        Ok(shot) => shot.data["checks"].clone(),
+        Err(_) => json!([]),
+    };
+
+    let mut body = json!({
+        "mime": "image/png",
+        "cells": images,
+        "grid": {
+            "columns": spec.variants.iter().map(|v| v.label.clone()).collect::<Vec<_>>(),
+            "rows": spec
+                .routes
+                .iter()
+                .flat_map(|r| spec.themes.iter().map(move |t| json!({ "route": r.route, "theme": t, "label": r.label })))
+                .collect::<Vec<_>>(),
+            "cell": { "width": spec.width, "height": spec.height },
+        },
+        "checks": checks,
+        "warnings": warnings,
+    });
+    if input.include_apply {
+        let (apply, base_version) = compare_apply(&files, &spec.variants);
+        body["apply"] = apply;
+        body["tokens_version"] = json!(base_version);
+    }
+    Ok(Json(body).into_response())
+}

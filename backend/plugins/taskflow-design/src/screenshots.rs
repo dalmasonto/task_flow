@@ -468,6 +468,50 @@ pub fn fits_budget(elapsed_ms: u64, shot_ms: u64, total_ms: u64) -> bool {
 #[allow(dead_code)]
 fn _assert_async_write_imported<T: AsyncWriteExt>(_: &T) {}
 
+/// #702: render ONE comparison cell as its own image — the same sandbox page
+/// the grid embeds in an iframe, loaded as the top document at the device
+/// viewport and full DPR.
+///
+/// This is the operator-quality path. The grid render exists for the AGENT: one
+/// image, deliberately capped (scale 0.5, `max_px` 1568) because a model pays
+/// per pixel. The operator asked for the screenshots themselves — no grid page,
+/// no iframes, no downscale — so a cell keeps every pixel the device would show
+/// (`max_px` is only a sanity cap; 0 means none).
+pub async fn render_cell(
+    spec: &crate::compare::GridSpec,
+    route: &crate::compare::GridRoute,
+    overrides: &crate::compare::Overrides,
+    theme: &str,
+    max_px: u32,
+    mint_token: impl FnOnce() -> String,
+) -> Result<Rendered, RenderError> {
+    let Some(base) = std::env::var("TASKFLOW_DESIGN_BASE_URL")
+        .ok()
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty())
+    else {
+        return Err(RenderError::Unconfigured("TASKFLOW_DESIGN_BASE_URL"));
+    };
+    let Some(program) = configured_renderer() else {
+        return Err(RenderError::Unconfigured("TASKFLOW_DESIGN_RENDERER"));
+    };
+    let url = format!(
+        "{}{}",
+        base.trim_end_matches('/'),
+        crate::compare::cell_src(&mint_token(), route, theme, overrides)
+    );
+    // The device viewport, 2× like the grid's cells — so a retina screen's
+    // pixels are there to be seen, not thrown away by a shrink.
+    let viewport = Viewport {
+        width: spec.width,
+        height: spec.height,
+        dpr: 2,
+        mobile: spec.width <= 1024,
+    };
+    let req = ScreenshotRequest { full_page: false, max_px, ..Default::default() };
+    render_shot(&program, &url, &viewport, &req, 55_000).await
+}
+
 /// #522: render a comparison grid (`compare::grid_html`) as one full-page
 /// image. The grid page is 2× so each half-scale cell keeps the detail of a
 /// 1× screen, and desktop (not mobile) so the grid itself lays out at its own

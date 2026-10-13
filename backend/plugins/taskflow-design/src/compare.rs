@@ -485,6 +485,22 @@ fn esc(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// #702: the URL of ONE comparison cell — the sandbox page for `route` under
+/// `theme` and `overrides`. The grid page embeds it in an iframe; the operator's
+/// per-cell render loads it directly as the top document, which is why this
+/// exists as one function rather than an inline format! in the grid template.
+pub fn cell_src(token: &str, route: &GridRoute, theme: &str, overrides: &Overrides) -> String {
+    let stem = route.route.trim_start_matches('/');
+    let mut src = format!("/s/{token}/{stem}?theme={theme}");
+    if let Some(state) = route.state.as_deref().filter(|s| !s.is_empty()) {
+        src.push_str(&format!("&state={}", state.replace(':', "%3A").replace('/', "%2F")));
+    }
+    if !overrides.is_empty() {
+        src.push_str(&format!("&ov={}", encode(overrides)));
+    }
+    src
+}
+
 /// The grid document. Row order: each route, then each theme within it;
 /// columns are the variants in the order given.
 pub fn grid_html(token: &str, spec: &GridSpec) -> String {
@@ -505,14 +521,7 @@ pub fn grid_html(token: &str, spec: &GridSpec) -> String {
                 esc(theme)
             ));
             for (vi, v) in spec.variants.iter().enumerate() {
-                let stem = r.route.trim_start_matches('/');
-                let mut src = format!("/s/{token}/{stem}?theme={theme}");
-                if let Some(state) = r.state.as_deref().filter(|s| !s.is_empty()) {
-                    src.push_str(&format!("&state={}", state.replace(':', "%3A").replace('/', "%2F")));
-                }
-                if !v.overrides.is_empty() {
-                    src.push_str(&format!("&ov={}", encode(&v.overrides)));
-                }
+                let src = cell_src(token, r, theme, &v.overrides);
                 rows.push_str(&format!(
                     "<td><div class=\"cell\" style=\"width:{cw}px;height:{ch}px\"><iframe data-v=\"{vi}\" data-theme=\"{theme}\" data-route=\"{route}\" src=\"{src}\" width=\"{w}\" height=\"{h}\" style=\"transform:scale({s})\" onload=\"this.dataset.loaded='1'\"></iframe></div></td>",
                     route = esc(&r.route),
@@ -623,6 +632,27 @@ iframe{{border:0;display:block;transform-origin:0 0;pointer-events:none}}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #702: the grid page and the per-cell render MUST build the same URL —
+    /// the whole claim of the per-cell path is that a cell is the same page the
+    /// grid would have shown in an iframe, minus the iframe and the shrink.
+    #[test]
+    fn a_cell_and_its_iframe_are_one_url() {
+        let route = GridRoute { route: "/pricing".into(), state: None, label: None };
+        assert_eq!(cell_src("tok", &route, "light", &Overrides::default()), "/s/tok/pricing?theme=light");
+
+        // A state is percent-encoded so a `dialog:report` in a query value
+        // cannot smuggle a second parameter.
+        let with_state = GridRoute { route: "/board".into(), state: Some("dialog:confirm/delete".into()), label: None };
+        let url = cell_src("tok", &with_state, "dark", &Overrides::default());
+        assert_eq!(url, "/s/tok/board?theme=dark&state=dialog%3Aconfirm%2Fdelete");
+
+        // Overrides ride as the same base64url the grid used.
+        let over = ov(&[("--primary", "#448502")]);
+        let with_ov = cell_src("tok", &route, "light", &over);
+        assert!(with_ov.starts_with("/s/tok/pricing?theme=light&ov="), "{with_ov}");
+        assert_eq!(encode(&over), with_ov.split("&ov=").nth(1).expect("ov="));
+    }
 
     fn ov(pairs: &[(&str, &str)]) -> Overrides {
         Overrides {

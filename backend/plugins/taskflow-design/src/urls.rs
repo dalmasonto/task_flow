@@ -46,6 +46,12 @@ pub fn router() -> Router {
             "/api/design/{project}/compare",
             post(views::compare_variants),
         )
+        // #702: the same comparison as PER-CELL images at device size, for the
+        // operator's drawer. The composed grid above stays the agent path.
+        .route(
+            "/api/design/{project}/compare/cells",
+            post(views::compare_cells),
+        )
         .route("/api/design/{project}/files", get(views::list_files))
         // The export's image proxy: fetch one of a page's external images
         // server-side, under `remote_fetch`'s policy, for the capture to

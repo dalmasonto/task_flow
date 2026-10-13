@@ -216,6 +216,31 @@ pub async fn compare_variants(
     crate::compare_api::render_grid(project_id, input, crate::compare_api::GridDelivery::Inline).await
 }
 
+/// `POST /api/design/{project}/compare/cells` (#702) — the operator's compare:
+/// one PNG per cell (variant x route x theme) at device size and full DPR,
+/// instead of the agent's one composed grid at half scale. Same validation,
+/// same `checks`, same `apply`; different pixels.
+pub async fn compare_cells(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<crate::compare_api::CompareInput>,
+) -> Result<Response, StatusCode> {
+    ensure_member(user_id, project_id).await?;
+    if let Some(body_project) = input.project {
+        if body_project != project_id {
+            return Ok(bad_request(format!(
+                "`project` in the body ({body_project}) does not match the path ({project_id})"
+            )));
+        }
+    }
+    if input.deliver.is_some() {
+        return Ok(bad_request(
+            "`deliver` is the agent tool's: a render posted into a channel goes out as an agent identity".to_string(),
+        ));
+    }
+    crate::compare_api::render_cells(project_id, input).await
+}
+
 /// `POST /api/design/{project}/screenshots` — render a route at a viewport and
 /// return the PNG. 503 (not 500) when the renderer service is not configured:
 /// that is an environment state the operator can fix, not a bug.

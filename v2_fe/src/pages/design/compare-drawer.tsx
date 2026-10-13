@@ -16,11 +16,12 @@ import { CheckIcon, ColumnsIcon, Loader2Icon, PlusIcon, RotateCcwIcon, XIcon } f
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  compareDesignVariants,
+  compareDesignCells,
   fetchDesignTokens,
   fetchTokenDefaults,
   putDesignTokens,
-  type DesignCompareResult,
+  type DesignCell,
+  type DesignCompareCellsResult,
   type DesignTokensDoc,
 } from "@/lib/design-api"
 import {
@@ -65,10 +66,14 @@ export function CompareDrawer({
   const [chosenThemes, setChosenThemes] = React.useState<string[]>([activeTheme])
   const [editing, setEditing] = React.useState(0)
   const [tokens, setTokens] = React.useState<{ doc: DesignTokensDoc; defaults: DesignTokensDoc } | null>(null)
-  const [result, setResult] = React.useState<DesignCompareResult | null>(null)
+  const [result, setResult] = React.useState<DesignCompareCellsResult | null>(null)
   const [rendering, setRendering] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [applying, setApplying] = React.useState<string | null>(null)
+  /// #702: which cell is open full-size. A real screenshot at device size is
+  /// too small to judge in a drawer column, and the point of the change was
+  /// that the pixels are worth looking at.
+  const [zoom, setZoom] = React.useState<DesignCell | null>(null)
   const [applied, setApplied] = React.useState<string | null>(null)
 
   // The tokens editor's own read: the project's document plus the shadcn
@@ -165,7 +170,7 @@ export function CompareDrawer({
     setApplied(null)
     try {
       const body = { ...buildCompareRequest({ routes: picked, variants, themes: chosenThemes }), viewport }
-      setResult(await compareDesignVariants(projectId, body))
+      setResult(await compareDesignCells(projectId, body))
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : "Could not render the comparison.")
     } finally {
@@ -397,7 +402,7 @@ export function CompareDrawer({
           {problem ? <p className="text-xs text-muted-foreground">{problem}</p> : null}
           <Button onClick={() => void render()} disabled={Boolean(problem) || rendering} className="w-full">
             {rendering ? <Loader2Icon className="animate-spin" /> : <ColumnsIcon className="size-4" />}
-            {rendering ? "Rendering…" : "Render grid"}
+            {rendering ? "Rendering…" : "Render comparison"}
           </Button>
         </div>
 
@@ -405,21 +410,61 @@ export function CompareDrawer({
 
         {result ? (
           <section className="space-y-3">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Result {result.split ? `(${result.images.length} parts — cells split to stay readable)` : ""}
-            </h3>
-            {result.images.map((image, index) => (
-              <figure key={index} className="space-y-1 rounded-lg border p-2">
-                <img
-                  src={`data:image/png;base64,${image.png_base64}`}
-                  alt={`Comparison grid for ${image.routes.map(labelFor).join(", ")}`}
-                  className="w-full rounded"
-                />
-                <figcaption className="text-[11px] text-muted-foreground">
-                  {image.routes.map(labelFor).join(", ")} · {image.size.width}×{image.size.height}
-                </figcaption>
-              </figure>
-            ))}
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Result ({result.cells.length} {result.cells.length === 1 ? "image" : "images"})
+              </h3>
+              <span className="text-[11px] text-muted-foreground">
+                {result.grid.cell.width}×{result.grid.cell.height} per screen · click one to enlarge
+              </span>
+            </div>
+            {/* #702: the cells ARE the images — one per variant × screen × theme,
+                captured at device size and full DPR. No composed sheet, no
+                downscale: the drawer lays them out and the browser shows them. */}
+            <div className="space-y-3">
+              {result.grid.rows.map((row) => (
+                <div key={`${row.route}|${row.theme}`} className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground">{labelFor(row.route)}</span>
+                    {" · "}
+                    {row.theme}
+                  </p>
+                  <div
+                    className="grid gap-2"
+                    style={{ gridTemplateColumns: `repeat(${result.grid.columns.length}, minmax(0, 1fr))` }}
+                  >
+                    {result.grid.columns.map((column) => {
+                      const cell = result.cells.find(
+                        (entry) => entry.variant === column && entry.route === row.route && entry.theme === row.theme
+                      )
+                      return (
+                        <figure key={column} className="min-w-0 space-y-1">
+                          <button
+                            type="button"
+                            className="block w-full cursor-zoom-in overflow-hidden rounded-lg border bg-card"
+                            title={`${column} · ${labelFor(row.route)} · ${row.theme} — click to enlarge`}
+                            onClick={() => cell && setZoom(cell)}
+                          >
+                            {cell ? (
+                              <img
+                                src={`data:image/png;base64,${cell.png_base64}`}
+                                alt={`${column} — ${labelFor(row.route)} in ${row.theme}`}
+                                className="block w-full"
+                              />
+                            ) : (
+                              <span className="block p-6 text-center text-[11px] text-muted-foreground">not rendered</span>
+                            )}
+                          </button>
+                          <figcaption className="truncate text-[11px] text-muted-foreground" title={column}>
+                            {column}
+                          </figcaption>
+                        </figure>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
 
             {result.warnings.length ? (
               <ul className="space-y-0.5 rounded-lg border border-amber-300/60 bg-amber-50/60 p-2 text-[11px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
@@ -477,6 +522,35 @@ export function CompareDrawer({
           </section>
         ) : null}
       </div>
+
+      {/* #702: the enlarged cell. Native pixels, scrollable both ways — a
+          device-size screenshot is taller than the drawer and shrinking it to
+          fit is exactly the problem this replaced. */}
+      {zoom ? (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black/80 p-4"
+          role="dialog"
+          aria-label={`${zoom.variant} — ${zoom.route}`}
+          onClick={() => setZoom(null)}
+        >
+          <div className="mb-2 flex items-center justify-between gap-3 text-xs text-white">
+            <span className="truncate">
+              {zoom.variant} · {labelFor(zoom.route)} · {zoom.theme} · {zoom.size.width}×{zoom.size.height}
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => setZoom(null)}>
+              <XIcon /> Close
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg bg-white">
+            <img
+              src={`data:image/png;base64,${zoom.png_base64}`}
+              alt={`${zoom.variant} — ${labelFor(zoom.route)} in ${zoom.theme}`}
+              className="mx-auto block"
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>
+        </div>
+      ) : null}
     </aside>
   )
 }
