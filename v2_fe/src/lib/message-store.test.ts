@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  MAX_CHANNEL_MESSAGES,
   addPending,
+  capChannelMessages,
   dismissPending,
   findPending,
   isPending,
@@ -184,5 +186,41 @@ describe("removeMessage", () => {
 
     expect(next).toHaveLength(1)
     expect(isPending(next[0])).toBe(true)
+  })
+})
+
+describe("capChannelMessages (#701)", () => {
+  const row = (id: number, channel: number): TaskflowAgentMessage =>
+    ({ id, channel, body_markdown: `m${id}`, priority: "normal" }) as TaskflowAgentMessage
+
+  it("leaves a small history exactly as it is", () => {
+    const messages = [row(1, 1), row(2, 1), row(3, 2)]
+    expect(capChannelMessages(messages, 2)).toBe(messages)
+  })
+
+  it("evicts a channel's OLDEST rows, per channel, not globally", () => {
+    // Channel 1 is over its budget; channel 2 is untouched — a busy room must
+    // not evict a quiet one's history.
+    const messages = [row(1, 1), row(2, 1), row(3, 1), row(4, 2), row(5, 2)]
+    const capped = capChannelMessages(messages, 2)
+    expect(capped.map((m) => (m as TaskflowAgentMessage).id)).toEqual([2, 3, 4, 5])
+  })
+
+  it("never evicts an unsent bubble", () => {
+    const messages = [pending("n1"), row(1, 1), row(2, 1), row(3, 1)]
+    const capped = capChannelMessages(messages, 1)
+    expect(capped.some((m) => isPending(m))).toBe(true)
+    expect(capped.filter((m) => !isPending(m)).map((m) => (m as TaskflowAgentMessage).id)).toEqual([3])
+  })
+})
+
+describe("reconcile caps as it merges", () => {
+  it("keeps the workspace slice bounded through the merge path itself", () => {
+    const row = (id: number): TaskflowAgentMessage =>
+      ({ id, channel: 1, body_markdown: `m${id}`, priority: "normal" }) as TaskflowAgentMessage
+    let messages: ChatMessage[] = []
+    for (let id = 1; id <= MAX_CHANNEL_MESSAGES + 25; id++) messages = reconcile(messages, row(id))
+    expect(messages.length).toBe(MAX_CHANNEL_MESSAGES)
+    expect((messages[0] as TaskflowAgentMessage).id).toBe(26)
   })
 })
