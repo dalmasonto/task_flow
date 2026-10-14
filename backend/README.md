@@ -1,99 +1,55 @@
-# backend
+# TaskFlow backend
 
-Your umbral app.
+The Rust API behind TaskFlow, built on the [Umbral](https://dalmasonto.github.io/umbral/docs/v0.0.1/getting-started/your-first-app) framework. It serves the REST API, the realtime event stream, auth, media, and an admin site.
 
-It starts with one model (`Post`), an admin, a JSON API and an OpenAPI browser, so there
-is something running from the first `cargo run`. All of it is ordinary code in this
-repository — rename it, gut it, replace it.
+Most of the product lives in plugins under `plugins/`:
 
-## What's in the project
+| Plugin | Responsibility |
+| --- | --- |
+| `taskflow-projects` | Projects, members, invites, API bases |
+| `taskflow-tasks` | Tasks, board state, activity |
+| `taskflow-agents` | Agent identities, sessions, chat, terminal streams |
+| `taskflow-design` | Design pages, components, tokens, themes, and rendering |
+| `taskflow-github` | GitHub linking and issue sync |
+| `taskflow-toolbox` | The project's shared scripts and notes |
 
-| File | What it shows |
-|---|---|
-| `src/main.rs` | App wiring: models, plugins, routes, auto-migrate |
-| `Post` model | `ForeignKey<AuthUser>`, ORM QuerySet, `#[derive(Model)]` |
-| `/` route | Template rendering with context |
-| `/api/posts` | JSON endpoint via the ORM |
-| `/dashboard` | `login_required_html("/login")` layer, `LoggedIn<AuthUser>` extractor, transaction |
-| `RestPlugin` | JSON CRUD at `/api/post/` with query-string filtering (`?published=true`) |
-| `AdminPlugin` | Auto CRUD UI at `/admin/` |
-| `OpenApiPlugin` | Swagger UI at `/openapi/` |
-| `SecurityPlugin` | CSRF middleware + hardening headers, with `/api` exempt for token clients |
+`renderer/` is a separate sidecar that takes design screenshots in headless Chromium. It holds no secrets or database access, so a page that escapes the browser has nothing to reach.
 
-## Running
+## Run
+
+The app does not migrate on boot, so run migrations after checkout and after any schema change:
 
 ```bash
-# First run — a bare `cargo run` (no subcommand) auto-migrates the
-# database and then starts the server. Passing an explicit subcommand
-# (like `serve`) SKIPS the auto-migrate, so `serve` alone assumes the
-# schema already exists.
-cargo run
-
-# Separate steps (production pattern) — migrate explicitly, then serve:
 cargo run -- migrate
-cargo run -- serve
-
-# Create a superuser to log in to the admin:
-cargo run -- createsuperuser
-
-# Inspect the schema:
-cargo run -- showmigrations
-cargo run -- makemigrations
+cargo run                     # serves on 127.0.0.1:8000 (see umbral.toml)
+cargo run -- createsuperuser  # admin account for /admin/
 ```
 
-### Create a superuser in Docker (on the server)
-
-The Dockerfile's `ENTRYPOINT` is the `backend` binary, so management commands
-run as subcommands of the `web` service. SSH in and `cd` to the deploy directory
-(where `docker-compose.yml` lives), then:
+Test every crate, including the plugins:
 
 ```bash
-# Interactive — prompts for username, email, then password (no echo, twice):
+cargo test --workspace
+```
+
+## Deploy
+
+`docker-compose.yml` runs Postgres, a one-shot migration, the API on `127.0.0.1:10002`, MinIO storage, the static frontend on `127.0.0.1:10003`, and the renderer. A reverse proxy on the host exposes the API and frontend.
+
+Production settings live in `.prod.env`, which is gitignored. A `sops` and `age` encrypted copy is committed as `secret.env`:
+
+```bash
+bash ../scripts/encrypt_envs.sh <age-public-key>
+sops --decrypt secret.env > .prod.env
+```
+
+The `deploy-backend` workflow builds the binary and frontend in CI, copies them to the server, and restarts the stack. It needs the `AGE_PRIVATE_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, and `SSH_PRIVATE_KEY` repository secrets.
+
+To create an admin on the server, run the command through the `web` service:
+
+```bash
 docker compose run --rm web createsuperuser
-
-# Non-interactive (CI / scripted) — password comes from the env var:
-docker compose run --rm \
-  -e UMBRAL_SUPERUSER_PASSWORD='your-strong-password' \
-  web createsuperuser --username admin --email admin@example.com --noinput
-
-# Reusing the already-running container instead of a throwaway one.
-# NOTE: `exec` bypasses CMD but still runs under the ENTRYPOINT, so the
-# `backend` before `createsuperuser` is REQUIRED here:
-docker compose exec web backend createsuperuser
 ```
 
-`docker compose run` keeps the `backend` entrypoint and appends the subcommand,
-brings up the `postgres` dependency if it isn't running, and (with `--rm`) cleans
-up afterward. It does not publish port 10002, so it won't collide with the live
-`web`. The new account lands with `is_active = is_staff = is_superuser = true`.
+## Vendored Umbral crates
 
-## Styling
-
-The pages use Tailwind, compiled to `static/css/app.css` and served by the
-StoragePlugin at `/static`. That bundle ships **prebuilt**, so this project renders
-correctly with no `npm install`.
-
-You only need Node once you edit a template and reach for a utility class that is not
-already in the bundle:
-
-```bash
-cd styles
-npm install
-npm run build      # or: npm run watch
-```
-
-The palette lives in `styles/input.css` as CSS variables (`--accent` is the violet).
-Change them there and every page follows. There is deliberately no `cdn.tailwindcss.com`
-script: it is versionless, it pulls a third party into every page load, and it is the
-first thing a `default-src 'self'` Content-Security-Policy blocks.
-
-## Where to go next
-
-- Add a plugin: `umbral startapp posts`
-- Your first app: https://dalmasonto.github.io/umbral/docs/v0.0.1/getting-started/your-first-app
-- Models & the ORM: https://dalmasonto.github.io/umbral/docs/v0.0.1/orm/models
-- Migrations: https://dalmasonto.github.io/umbral/docs/v0.0.1/migrations/managed-migrations
-- Admin: https://dalmasonto.github.io/umbral/docs/v0.0.1/plugins/admin
-- REST: https://dalmasonto.github.io/umbral/docs/v0.0.1/rest/index
-- Login & signup pages: https://dalmasonto.github.io/umbral/docs/v0.0.1/auth/login-and-signup-pages
-- The Plugin trait: https://dalmasonto.github.io/umbral/docs/v0.0.1/plugins/the-plugin-trait
+`vendor/` holds patched copies of three Umbral 0.0.10 crates (`umbral-core`, `umbral-rest`, `umbral-storage`), wired in through `[patch.crates-io]` in `Cargo.toml`. The fixes are upstream and ship in Umbral 0.0.11. Do not edit these copies. When 0.0.11 is released, bump every `umbral*` version, delete the patch block and `vendor/`, and run `cargo test --workspace`.
