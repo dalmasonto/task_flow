@@ -114,6 +114,7 @@ import {
   type FrameReport,
 } from "./design-route"
 import { MAX_SCALE, MIN_SCALE, ZOOM_STEP } from "./canvas-zoom"
+import { shouldCommitMoveEnd } from "./canvas-view"
 
 export type CanvasTransform = { x: number; y: number; scale: number }
 
@@ -582,11 +583,15 @@ export const DesignCanvas = memo(function DesignCanvas({
           rfRef.current = instance
           void instance.setViewport({ x: transform.x, y: transform.y, zoom: transform.scale })
         }}
-        onMoveStart={() => {
-          movingRef.current = true
+        // Only a USER gesture (a real event) holds outside changes off: a
+        // programmatic move (null event) marking itself "moving" is what made
+        // the mount-time setViewport swallow the stored zoom on reload.
+        onMoveStart={(event) => {
+          if (event) movingRef.current = true
         }}
-        onMoveEnd={(_, v) => {
+        onMoveEnd={(event, v) => {
           movingRef.current = false
+          if (!shouldCommitMoveEnd(event, v, rfRef.current?.getViewport() ?? null)) return
           onTransformChange({ x: v.x, y: v.y, scale: v.zoom })
         }}
         minZoom={MIN_SCALE}

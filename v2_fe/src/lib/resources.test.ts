@@ -398,6 +398,15 @@ describe("font family", () => {
     expect(fontFamilyProblem("'Poppins', sans-serif")).not.toBeNull()
   })
 
+  it("a blank family is read from the set's own stylesheet url", () => {
+    const linked = normalizeResources({
+      version: 1,
+      sets: [{ id: "p", name: "Poppins", enabled: true, links: [sheet("https://fonts.googleapis.com/css2?family=Poppins:wght@400")] }],
+    })
+    expect(activeFontFamily(linked)).toBe("Poppins")
+    expect(familyFromLinks([{ ...sheet("https://fonts.googleapis.com/css2?family=Poppins"), rel: "preconnect" }])).toBeNull()
+  })
+
   it("the first enabled set with a family is what pages use", () => {
     expect(activeFontFamily(base)).toBeNull()
     const named = setFontFamily(base, "p", "Poppins")

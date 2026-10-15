@@ -195,7 +195,7 @@ export function setFontFamily(doc: ResourcesDoc, id: string, family: string): Re
 /// reads as "Source Sans 3". `null` when no link names one; the user types it.
 export function familyFromLinks(links: ResourceLink[]): string | null {
   for (const link of links) {
-    if (link.isScript || !link.href) continue
+    if (link.isScript || !link.href || link.rel?.trim() !== "stylesheet") continue
     let url: URL
     try {
       url = new URL(link.href)
@@ -212,10 +212,21 @@ export function familyFromLinks(links: ResourceLink[]): string | null {
   return null
 }
 
-/// The family pages will actually use: the first enabled set that names one,
-/// mirroring `resources::enabled_font_family`. `null` = the token applies.
+/// The family a set stands for: the one typed into it, else the one its own
+/// stylesheet url names — `resources::set_font_family`, mirrored.
+export function setFamily(set: ResourceSet): string | null {
+  return set.fontFamily?.trim() || familyFromLinks(set.links)
+}
+
+/// The family pages will actually use: the first enabled set that stands for
+/// one, mirroring `resources::enabled_font_family`. `null` = the token applies.
 export function activeFontFamily(doc: ResourcesDoc): string | null {
-  return doc.sets.find((s) => s.enabled && s.fontFamily?.trim())?.fontFamily?.trim() ?? null
+  for (const set of doc.sets) {
+    if (!set.enabled) continue
+    const family = setFamily(set)
+    if (family) return family
+  }
+  return null
 }
 
 /// Why `addSet` refuses this name, phrased for the person who typed it — or

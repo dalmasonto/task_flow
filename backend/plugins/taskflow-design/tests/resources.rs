@@ -1,6 +1,6 @@
 use taskflow_design::composer;
 use taskflow_design::resources::{
-    enabled_font_family, enabled_links, font_sans_rule, parse, to_json_string, validate,
+    enabled_font_family, enabled_links, family_from_url, font_sans_rule, parse, to_json_string, validate,
     ResourcesDoc, ResourceLink, ResourceSet,
     ALLOWED_REL, MAX_HREF, MAX_LINKS_PER_SET, MAX_SETS, RESOURCES_PATH,
 };
@@ -704,16 +704,17 @@ fn font_family_refuses_anything_that_could_leave_the_css_string() {
 fn the_first_enabled_set_with_a_family_wins() {
     let d = doc(vec![
         font_set("Inter", Some("Inter"), false),
-        font_set("Icons", None, true),
+        set("Icons", vec![link("stylesheet", "https://cdn.example.com/icons.css")]),
         font_set("Poppins", Some("Poppins"), true),
         font_set("Geist", Some("Geist"), true),
     ]);
-    assert_eq!(enabled_font_family(&d), Some("Poppins"));
+    assert_eq!(enabled_font_family(&d).as_deref(), Some("Poppins"));
 }
 
 #[test]
 fn no_enabled_family_leaves_the_token_alone() {
-    let d = doc(vec![font_set("Inter", Some("Inter"), false), font_set("Icons", None, true)]);
+    let icons = set("Icons", vec![link("stylesheet", "https://cdn.example.com/icons.css")]);
+    let d = doc(vec![font_set("Inter", Some("Inter"), false), icons]);
     assert_eq!(enabled_font_family(&d), None);
 }
 
@@ -724,4 +725,31 @@ fn the_rule_keeps_the_token_stack_as_fallback() {
         ":root{--font-sans:\"Poppins\", Inter, system-ui, sans-serif;}"
     );
     assert_eq!(font_sans_rule("Poppins", None), ":root{--font-sans:\"Poppins\", sans-serif;}");
+}
+
+#[test]
+fn a_blank_family_is_read_from_the_sets_own_stylesheet_url() {
+    let poppins = set("Poppins", vec![
+        link("preconnect", "https://fonts.googleapis.com"),
+        link("stylesheet", "https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;1,900&display=swap"),
+    ]);
+    let d = doc(vec![font_set("Inter", None, false), poppins]);
+    assert_eq!(enabled_font_family(&d).as_deref(), Some("Poppins"));
+}
+
+#[test]
+fn a_typed_family_beats_the_url() {
+    let mut s = set("P", vec![link("stylesheet", "https://fonts.googleapis.com/css2?family=Poppins")]);
+    s.font_family = Some("Poppins Custom".into());
+    assert_eq!(enabled_font_family(&doc(vec![s])).as_deref(), Some("Poppins Custom"));
+}
+
+#[test]
+fn family_from_url_reads_every_font_service_spelling() {
+    assert_eq!(family_from_url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400").as_deref(), Some("Source Sans 3"));
+    assert_eq!(family_from_url("https://fonts.googleapis.com/css2?family=Noto%20Sans&display=swap").as_deref(), Some("Noto Sans"));
+    assert_eq!(family_from_url("https://fonts.googleapis.com/css?family=Roboto|Lato").as_deref(), Some("Roboto"));
+    assert_eq!(family_from_url("https://fonts.bunny.net/css?display=swap&family=inter:400").as_deref(), Some("inter"));
+    assert_eq!(family_from_url("https://fonts.googleapis.com"), None);
+    assert_eq!(family_from_url("https://x.example/f.css?family=a%22%7D"), None, "a quote never reaches the css");
 }

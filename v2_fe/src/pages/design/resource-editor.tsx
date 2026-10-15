@@ -203,7 +203,16 @@ function PasteForm({ onPaste }: { onPaste: (text: string) => PasteOutcome }) {
 /// The family this set's stylesheet defines. Typed as the bare name the font
 /// site uses ("Poppins"), not a CSS stack: when the set is enabled this name
 /// becomes `--font-sans` on every page, ahead of the token's own stack.
-function FontFamilyField({ value, onChange }: { value: string; onChange: (family: string) => void }) {
+function FontFamilyField({
+  value,
+  fromLinks,
+  onChange,
+}: {
+  value: string
+  /// What the set's stylesheet url names — used when the field is blank.
+  fromLinks: string | null
+  onChange: (family: string) => void
+}) {
   const problem = fontFamilyProblem(value)
   return (
     <div className="mt-1 pl-5">
@@ -212,7 +221,7 @@ function FontFamilyField({ value, onChange }: { value: string; onChange: (family
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="e.g. Poppins (blank = not a font)"
+          placeholder={fromLinks ? `${fromLinks} (from its link)` : "e.g. Poppins (blank = not a font)"}
           // A NAME, so off mono (see the add-set box below).
           className="h-6 w-44 px-1.5 text-xs md:text-xs"
         />
@@ -265,7 +274,7 @@ function SetRow({
           ×
         </button>
       </div>
-      <FontFamilyField value={set.fontFamily ?? ""} onChange={onFontFamily} />
+      <FontFamilyField value={set.fontFamily ?? ""} fromLinks={familyFromLinks(set.links)} onChange={onFontFamily} />
       {set.links.length ? (
         <div className="mt-1 flex flex-col gap-0.5 pl-5">
           {set.links.map((link, index) => (

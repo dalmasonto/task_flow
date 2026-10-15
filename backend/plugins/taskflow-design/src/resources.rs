@@ -257,11 +257,61 @@ pub fn enabled_links(doc: &ResourcesDoc) -> Vec<(bool, &ResourceLink)> {
 }
 
 /// The family the project's font sets say the pages should use: the FIRST
-/// enabled set that names one, in document order. `None` when no enabled set
+/// enabled set that names one (typed, or read from its stylesheet url — see
+/// [`set_font_family`]), in document order. `None` when no enabled set
 /// names a family — the token's `font-sans` then applies untouched, which is
 /// how every project behaved before sets could name a family.
-pub fn enabled_font_family(doc: &ResourcesDoc) -> Option<&str> {
-    doc.sets.iter().filter(|s| s.enabled).find_map(|s| s.font_family.as_deref())
+pub fn enabled_font_family(doc: &ResourcesDoc) -> Option<String> {
+    doc.sets.iter().filter(|s| s.enabled).find_map(set_font_family)
+}
+
+/// The family a set stands for: the one typed into it, else the one its own
+/// stylesheet url names. A set registered from a Google Fonts snippet says
+/// `family=Poppins` in its link, so it switches the typeface the moment it is
+/// enabled, with nothing else to fill in — the name is read from what the
+/// operator registered, never written into code.
+pub fn set_font_family(set: &ResourceSet) -> Option<String> {
+    if let Some(family) = set.font_family.as_deref() {
+        return Some(family.to_string());
+    }
+    set.links
+        .iter()
+        .filter(|l| !l.is_script && l.rel.as_deref().map(str::trim) == Some("stylesheet"))
+        .filter_map(|l| l.href.as_deref())
+        .find_map(family_from_url)
+}
+
+/// The first `family=` of a font-service css url (Google Fonts css/css2, Bunny
+/// Fonts): `family=Source+Sans+3:wght@400` is "Source Sans 3", and the legacy
+/// `family=Roboto|Lato` is "Roboto". `None` for anything that does not name
+/// one, or names one outside the alphabet `validate` allows for a family.
+pub fn family_from_url(url: &str) -> Option<String> {
+    let query = url.split_once('?')?.1.split('#').next()?;
+    let raw = query.split('&').find_map(|pair| pair.strip_prefix("family="))?;
+    let decoded = percent_decode(&raw.replace('+', " "))?;
+    let family = decoded.split(['|', ':']).next()?.trim().to_string();
+    let ok = !family.is_empty()
+        && family.chars().count() <= MAX_FONT_FAMILY
+        && family.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-' || c == '_');
+    ok.then_some(family)
+}
+
+/// `%XX` decoding, `None` on a malformed escape or non-UTF-8 result.
+fn percent_decode(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = s.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// `:root{--font-sans:"<family>", <fallback>}` — the rule that makes an enabled

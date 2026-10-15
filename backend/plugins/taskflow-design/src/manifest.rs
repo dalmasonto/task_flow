@@ -381,7 +381,7 @@ pub fn font_rule_from(files: &[DesignFile], effective: &TokensDoc) -> String {
         .get("typography")
         .and_then(|t| t.get("font-sans"))
         .map(|v| v.resolve("light"));
-    resources::font_sans_rule(family, fallback)
+    resources::font_sans_rule(&family, fallback)
 }
 
 /// Build [`TokenGroup`]s straight from a [`TokensDoc`] (the tokens.json

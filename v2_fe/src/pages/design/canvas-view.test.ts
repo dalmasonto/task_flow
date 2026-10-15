@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { fitTransform } from "./canvas-view"
+import { fitTransform, shouldCommitMoveEnd } from "./canvas-view"
 import { MIN_SCALE, MAX_SCALE } from "./design-canvas"
 
 // "iphone-se": 375x667 — see lib/design-devices.ts. A card is NOT the bare
@@ -98,5 +98,22 @@ describe("fitTransform", () => {
     expect(t.scale).toBeLessThanOrEqual(MAX_SCALE)
     expect(Number.isFinite(t.x)).toBe(true)
     expect(Number.isFinite(t.y)).toBe(true)
+  })
+})
+
+describe("shouldCommitMoveEnd", () => {
+  const v = (zoom: number) => ({ x: 40, y: 40, zoom })
+
+  it("always commits a user gesture", () => {
+    expect(shouldCommitMoveEnd(new Event("wheel"), v(0.6), v(1))).toBe(true)
+  })
+
+  it("commits a programmatic move that is still the live view (Fit, focus)", () => {
+    expect(shouldCommitMoveEnd(null, v(1.2), v(1.2))).toBe(true)
+  })
+
+  it("drops the late end of the mount-time default once the stored zoom is restored", () => {
+    // onInit set 0.6; the stored 1.0 landed before React Flow's delayed end.
+    expect(shouldCommitMoveEnd(null, v(0.6), v(1))).toBe(false)
   })
 })

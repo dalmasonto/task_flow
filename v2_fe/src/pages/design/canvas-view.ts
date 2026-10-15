@@ -71,3 +71,26 @@ export function fitTransform(
     scale,
   }
 }
+
+/// Whether React Flow's move-END should be committed as the canvas transform.
+///
+/// React Flow fires its move events for PROGRAMMATIC viewport changes too
+/// (`setViewport`, `fitView`), with a null `event`, and delays the end by
+/// 150ms under `panOnScroll`. A user gesture (`event` set) always commits. A
+/// programmatic end commits only while its viewport is STILL the live one: if a
+/// newer change has landed since (the stored zoom being restored on reload),
+/// the late end describes a view nobody is looking at, and committing it was
+/// how a reload snapped the zoom back to the 60% default.
+export function shouldCommitMoveEnd(
+  event: unknown,
+  ended: { x: number; y: number; zoom: number },
+  live: { x: number; y: number; zoom: number } | null
+): boolean {
+  if (event) return true
+  if (!live) return true
+  return (
+    Math.abs(ended.x - live.x) <= 0.5 &&
+    Math.abs(ended.y - live.y) <= 0.5 &&
+    Math.abs(ended.zoom - live.zoom) <= 0.0005
+  )
+}
