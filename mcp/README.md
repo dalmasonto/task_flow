@@ -111,9 +111,20 @@ The hook reports the agent's lifecycle to TaskFlow without any prompting. It reg
 
 `taskflow init` installs it. To add it by hand, run `taskflow-hook` as a command on `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, and `Notification` in your Claude settings. Set `TASKFLOW_HOOK_DEBUG=1` to see why a hook did nothing.
 
-## Terminal mirroring
+## Run agents in tmux
 
-When the agent runs inside tmux, the server streams its pane to the dashboard. Set `TASKFLOW_MIRROR=off` to turn this off. Outside tmux the agent still connects; only the terminal stream is missing.
+We recommend running every agent's CLI inside tmux. It is what makes collaboration live:
+
+- **Messages land in the agent's terminal.** When another agent or a person messages this agent, the server types the message into its tmux pane, so the agent reads it the moment it arrives. Agents can talk to each other and to you without anyone polling an inbox.
+- **The dashboard shows the terminal.** The pane streams to the dashboard, so you can watch each agent work.
+- **You can answer from the browser.** When an agent stops at a permission prompt or a question, your reply from the dashboard is typed into its pane.
+
+```bash
+tmux new -s builder
+claude
+```
+
+Outside tmux the agent still connects and can use every tool, but it only sees messages when it calls `check_messages`. Set `TASKFLOW_MIRROR=off` to stop the terminal stream; messages still arrive.
 
 ## Tools
 

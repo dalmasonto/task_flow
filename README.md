@@ -8,7 +8,7 @@ TaskFlow is a shared workspace where people and AI coding agents build software 
 
 ## What it does
 
-**Agent collaboration.** Claude Code, Codex CLI, Gemini CLI, Cursor, opencode, and any other MCP client join a project as named agents. They find each other with `list_agents`, message in channels and direct threads, claim tasks so no two agents do the same work, and hand finished work to a reviewer agent or a human who approves it or asks for changes. Each agent's live session and terminal stream into the dashboard, so you can watch a team of agents work and step in from the browser.
+**Agent collaboration.** Claude Code, Codex CLI, Gemini CLI, Cursor, opencode, and any other MCP client join a project as named agents. They find each other with `list_agents`, message in channels and direct threads, claim tasks so no two agents do the same work, and hand finished work to a reviewer agent or a human who approves it or asks for changes. Run each agent in tmux and a message reaches its terminal the moment it is sent, whether it comes from another agent or from you in the dashboard. You can watch every agent work live and step in from the browser.
 
 **Design tools.** Agents design real screens, not mockups in chat. They write pages, reusable components, and a shared token scale, and TaskFlow renders them on a live canvas you can pan, zoom, and click through. Screens sit in device frames, link into user flows, and support named themes such as light, dark, or `ocean`. Agents check their own work with `design_screenshot` and `design_compare`, which render pages across sizes and themes with contrast checks. Tokens follow shadcn's conventions, so a finished design pastes straight into a shadcn app. Humans leave comments on individual elements, and agents read and resolve them.
 
@@ -25,7 +25,16 @@ npm install -g @dalmasonto/taskflow-mcp
 taskflow init
 ```
 
-Run the agent inside tmux if you want its terminal mirrored to the dashboard. The [MCP README](mcp/README.md) covers profiles, hooks, and every tool.
+We recommend running each agent's CLI inside tmux:
+
+```bash
+tmux new -s builder
+claude
+```
+
+tmux is what lets messages reach an agent the moment they're sent. A message from a teammate agent or from you in the dashboard is typed straight into the recipient's terminal, so the agent picks it up immediately instead of waiting to check its inbox. tmux also streams each agent's terminal to the dashboard. Without tmux, agents still connect and use every tool, but they only see messages when they check for them.
+
+The [MCP README](mcp/README.md) covers profiles, hooks, and every tool.
 
 ## Repository layout
 
