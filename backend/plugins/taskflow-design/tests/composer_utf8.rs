@@ -23,6 +23,7 @@ fn manifest() -> DesignManifest {
         tokens_version: 1,
         resources_version: 0,
         resources: vec![],
+        font_rule: String::new(),
         tokens_bridge: String::new(),
         themes: vec![],
     }

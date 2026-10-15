@@ -1,6 +1,7 @@
 use taskflow_design::composer;
 use taskflow_design::resources::{
-    enabled_links, parse, to_json_string, validate, ResourcesDoc, ResourceLink, ResourceSet,
+    enabled_font_family, enabled_links, font_sans_rule, parse, to_json_string, validate,
+    ResourcesDoc, ResourceLink, ResourceSet,
     ALLOWED_REL, MAX_HREF, MAX_LINKS_PER_SET, MAX_SETS, RESOURCES_PATH,
 };
 use std::collections::HashMap;
@@ -17,7 +18,7 @@ fn doc(sets: Vec<ResourceSet>) -> ResourcesDoc {
 }
 
 fn set(name: &str, links: Vec<ResourceLink>) -> ResourceSet {
-    ResourceSet { id: format!("set_{name}"), name: name.into(), enabled: true, links }
+    ResourceSet { id: format!("set_{name}"), name: name.into(), enabled: true, links, font_family: None }
 }
 
 #[test]
@@ -158,8 +159,8 @@ fn refuses_duplicate_set_ids() {
     // Distinct names, one id. The name check alone passes this, but the id is
     // what the editor keys a toggle by, so a duplicate makes one switch flip
     // two rows — the document has no stable address for either set.
-    let a = ResourceSet { id: "set_same".into(), name: "One".into(), enabled: true, links: vec![] };
-    let b = ResourceSet { id: "set_same".into(), name: "Two".into(), enabled: true, links: vec![] };
+    let a = ResourceSet { id: "set_same".into(), name: "One".into(), enabled: true, links: vec![], font_family: None };
+    let b = ResourceSet { id: "set_same".into(), name: "Two".into(), enabled: true, links: vec![], font_family: None };
     assert!(validate(doc(vec![a, b])).is_err());
 }
 
@@ -663,4 +664,64 @@ fn rel_and_href_are_read_case_insensitively_and_unquoted() {
     let w = page_resource_link_warnings(page, &["https://x.example/f.css"]);
     assert_eq!(w.len(), 1, "{w:?}");
     assert!(w[0].message.contains("duplicates"), "{w:?}");
+}
+
+// --- fontFamily: an enabled set names the family the pages use -------------
+
+fn font_set(name: &str, family: Option<&str>, enabled: bool) -> ResourceSet {
+    ResourceSet {
+        enabled,
+        font_family: family.map(Into::into),
+        ..set(name, vec![link("stylesheet", "https://fonts.googleapis.com/css2?family=X")])
+    }
+}
+
+#[test]
+fn font_family_is_optional_on_the_wire() {
+    // Every document stored before the field existed must still read.
+    let raw = r#"{"version":1,"sets":[{"id":"a","name":"Inter","enabled":true,"links":[]}]}"#;
+    assert_eq!(parse(raw).unwrap().sets[0].font_family, None);
+}
+
+#[test]
+fn font_family_is_trimmed_and_blank_means_none() {
+    let d = validate(doc(vec![font_set("A", Some("  Poppins "), true), font_set("B", Some("  "), true)])).unwrap();
+    assert_eq!(d.sets[0].font_family.as_deref(), Some("Poppins"));
+    assert_eq!(d.sets[1].font_family, None);
+}
+
+#[test]
+fn font_family_refuses_anything_that_could_leave_the_css_string() {
+    for bad in ["'Poppins', sans-serif", "Poppins\"}body{x:y", "A;B", "A<style>", "A\\B"] {
+        let err = validate(doc(vec![font_set("A", Some(bad), true)])).unwrap_err();
+        assert!(err.contains("font family"), "{bad}: {err}");
+    }
+    assert!(validate(doc(vec![font_set("A", Some("Source Sans 3"), true)])).is_ok());
+    assert!(validate(doc(vec![font_set("A", Some("Noto_Sans-JP"), true)])).is_ok());
+}
+
+#[test]
+fn the_first_enabled_set_with_a_family_wins() {
+    let d = doc(vec![
+        font_set("Inter", Some("Inter"), false),
+        font_set("Icons", None, true),
+        font_set("Poppins", Some("Poppins"), true),
+        font_set("Geist", Some("Geist"), true),
+    ]);
+    assert_eq!(enabled_font_family(&d), Some("Poppins"));
+}
+
+#[test]
+fn no_enabled_family_leaves_the_token_alone() {
+    let d = doc(vec![font_set("Inter", Some("Inter"), false), font_set("Icons", None, true)]);
+    assert_eq!(enabled_font_family(&d), None);
+}
+
+#[test]
+fn the_rule_keeps_the_token_stack_as_fallback() {
+    assert_eq!(
+        font_sans_rule("Poppins", Some("Inter, system-ui, sans-serif")),
+        ":root{--font-sans:\"Poppins\", Inter, system-ui, sans-serif;}"
+    );
+    assert_eq!(font_sans_rule("Poppins", None), ":root{--font-sans:\"Poppins\", sans-serif;}");
 }

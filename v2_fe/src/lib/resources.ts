@@ -32,6 +32,11 @@ export type ResourceSet = {
   name: string
   enabled: boolean
   links: ResourceLink[]
+  /// The CSS family this set's stylesheet defines ("Poppins"). The first
+  /// ENABLED set that names one becomes `--font-sans` on every page, so
+  /// enabling a font set IS the typeface change; the `font-sans` token stays
+  /// behind it as the fallback stack. Absent = this set changes no font.
+  fontFamily?: string
 }
 
 export type ResourcesDoc = {
@@ -47,6 +52,7 @@ export const DEFAULT_RESOURCES_DOC: ResourcesDoc = { version: 1, sets: [] }
 export const MAX_SETS = 24
 export const MAX_SET_NAME = 60
 export const MAX_LINKS_PER_SET = 16
+export const MAX_FONT_FAMILY = 80
 
 // ---------------------------------------------------------------------------
 // Read-side parse
@@ -94,7 +100,9 @@ function normalizeSet(raw: unknown): ResourceSet | null {
   const id = str(s.id)
   const name = str(s.name)
   if (!id || !name) return null
+  const fontFamily = str(s.fontFamily)?.trim()
   return {
+    ...(fontFamily ? { fontFamily } : {}),
     // Only an explicit `false` disables: absent is the server's own default
     // (`#[serde(default = "default_true")]`), and anything else is a document
     // this build should not read as "off".
@@ -146,6 +154,68 @@ export function toggleSet(doc: ResourcesDoc, id: string): ResourcesDoc {
     ...doc,
     sets: doc.sets.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)),
   }
+}
+
+/// Why the server would refuse this family name, or `null` when it would
+/// accept — the same alphabet `resources.rs` enforces (letters, digits, space,
+/// `-`, `_`), because the name lands inside a quoted CSS string. A blank name is
+/// fine: it means "this set changes no font".
+export function fontFamilyProblem(family: string): string | null {
+  const trimmed = family.trim()
+  if (!trimmed) return null
+  if ([...trimmed].length > MAX_FONT_FAMILY) {
+    return `A font family is limited to ${MAX_FONT_FAMILY} characters.`
+  }
+  if (!/^[\p{L}\p{N} _-]+$/u.test(trimmed)) {
+    return "Just the family name, e.g. Poppins — no quotes, commas or fallbacks."
+  }
+  return null
+}
+
+/// Set (or, with a blank name, clear) one set's font family. Unknown id or an
+/// unchanged value returns the document itself.
+export function setFontFamily(doc: ResourcesDoc, id: string, family: string): ResourcesDoc {
+  const set = doc.sets.find((s) => s.id === id)
+  if (!set) return doc
+  const next = family.trim() ? family : undefined
+  if (next === set.fontFamily) return doc
+  return {
+    ...doc,
+    sets: doc.sets.map((s) => {
+      if (s.id !== id) return s
+      // Absent, not `undefined`: the server reads a present key as a value.
+      const rest: ResourceSet = { id: s.id, name: s.name, enabled: s.enabled, links: s.links }
+      return next === undefined ? rest : { ...rest, fontFamily: next }
+    }),
+  }
+}
+
+/// The family a set's links load, when a link says so: the first `family=` of
+/// a Google Fonts (or Bunny Fonts) css url — `family=Source+Sans+3:wght@400`
+/// reads as "Source Sans 3". `null` when no link names one; the user types it.
+export function familyFromLinks(links: ResourceLink[]): string | null {
+  for (const link of links) {
+    if (link.isScript || !link.href) continue
+    let url: URL
+    try {
+      url = new URL(link.href)
+    } catch {
+      continue
+    }
+    const raw = url.searchParams.get("family")
+    if (!raw) continue
+    // css2 has one `family=` per family; the legacy css API packs several as
+    // `A|B`. Either way the first one is the set's main family.
+    const family = raw.split("|")[0].split(":")[0].trim()
+    if (family && fontFamilyProblem(family) === null) return family
+  }
+  return null
+}
+
+/// The family pages will actually use: the first enabled set that names one,
+/// mirroring `resources::enabled_font_family`. `null` = the token applies.
+export function activeFontFamily(doc: ResourcesDoc): string | null {
+  return doc.sets.find((s) => s.enabled && s.fontFamily?.trim())?.fontFamily?.trim() ?? null
 }
 
 /// Why `addSet` refuses this name, phrased for the person who typed it — or

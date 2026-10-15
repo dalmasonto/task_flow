@@ -162,6 +162,10 @@ export type DesignManifest = {
   /// between "stale but pretty" and "placeholder" chooses the placeholder.
   tokensVersion?: number
   resourcesVersion?: number
+  /// The `:root{--font-sans:…}` rule the first enabled font set's family asks
+  /// for, emitted after tokens.css; "" when no enabled set names a family.
+  /// Covered by `resourcesVersion`/`tokensVersion`, its only two inputs.
+  fontRule?: string
   /// #619: the declared themes, light first. Absent from a backend that
   /// predates named themes — read it through `manifestThemes`.
   themes?: DesignThemeInfo[]

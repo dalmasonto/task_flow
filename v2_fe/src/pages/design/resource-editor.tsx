@@ -32,11 +32,15 @@ import {
 } from "@/lib/design-api"
 import {
   MAX_LINKS_PER_SET,
+  activeFontFamily,
   addSet,
   appendLinks,
+  familyFromLinks,
+  fontFamilyProblem,
   parsePastedLinks,
   removeLink,
   removeSet,
+  setFontFamily,
   setNameProblem,
   toggleSet,
   type ResourceLink,
@@ -87,7 +91,17 @@ export function pasteIntoSet(
       },
     }
   }
-  return { doc: result.doc, outcome: { message: `Added ${result.added} ${result.added === 1 ? "link" : "links"}.`, warn: false } }
+  // A font site's snippet names its family in the stylesheet url; filling the
+  // field from it means pasting a Google Fonts set needs no second step. Only
+  // an EMPTY field is filled — a family the user typed is theirs.
+  const set = result.doc.sets.find((s) => s.id === setId)
+  const family = set && !set.fontFamily ? familyFromLinks(set.links) : null
+  const next = family ? setFontFamily(result.doc, setId, family) : result.doc
+  const added = `Added ${result.added} ${result.added === 1 ? "link" : "links"}`
+  return {
+    doc: next,
+    outcome: { message: family ? `${added}; font family set to ${family}.` : `${added}.`, warn: false },
+  }
 }
 
 /// The editor's error list for a refused save: the validator's own messages,
@@ -186,14 +200,38 @@ function PasteForm({ onPaste }: { onPaste: (text: string) => PasteOutcome }) {
   )
 }
 
+/// The family this set's stylesheet defines. Typed as the bare name the font
+/// site uses ("Poppins"), not a CSS stack: when the set is enabled this name
+/// becomes `--font-sans` on every page, ahead of the token's own stack.
+function FontFamilyField({ value, onChange }: { value: string; onChange: (family: string) => void }) {
+  const problem = fontFamilyProblem(value)
+  return (
+    <div className="mt-1 pl-5">
+      <label className="flex items-center gap-1.5">
+        <span className="shrink-0 text-[10px] text-muted-foreground">Font family</span>
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. Poppins (blank = not a font)"
+          // A NAME, so off mono (see the add-set box below).
+          className="h-6 w-44 px-1.5 text-xs md:text-xs"
+        />
+      </label>
+      {problem ? <p className="mt-0.5 text-[9px] text-amber-600">{problem}</p> : null}
+    </div>
+  )
+}
+
 function SetRow({
   set,
   onToggle,
   onRemove,
   onRemoveLink,
   onPaste,
+  onFontFamily,
 }: {
   set: ResourceSet
+  onFontFamily: (family: string) => void
   onToggle: () => void
   onRemove: () => void
   onRemoveLink: (index: number) => void
@@ -227,6 +265,7 @@ function SetRow({
           ×
         </button>
       </div>
+      <FontFamilyField value={set.fontFamily ?? ""} onChange={onFontFamily} />
       {set.links.length ? (
         <div className="mt-1 flex flex-col gap-0.5 pl-5">
           {set.links.map((link, index) => (
@@ -371,6 +410,20 @@ export function ResourceEditor({
       <p className="px-3 pb-1 text-[10px] text-muted-foreground">
         Enabled sets load in every page's head, and in the exported page.html.
       </p>
+      {doc ? (
+        // Which typeface the pages get, said outright — the question a font
+        // switch that "did nothing" left nobody able to answer.
+        <p className="px-3 pb-1 text-[10px] text-muted-foreground">
+          {activeFontFamily(doc) ? (
+            <>
+              Pages use <span className="font-medium text-foreground">{activeFontFamily(doc)}</span> — the
+              first enabled set with a font family.
+            </>
+          ) : (
+            "No enabled set names a font family, so pages use the font-sans token."
+          )}
+        </p>
+      ) : null}
 
       {/* Rendered whenever a load is in flight, like `TokenEditor`'s: gating it
           on `!doc` would leave a Reload press — which hides the body below —
@@ -390,6 +443,7 @@ export function ResourceEditor({
               onRemove={() => setDoc(removeSet(doc, set.id))}
               onRemoveLink={(index) => setDoc(removeLink(doc, set.id, index))}
               onPaste={(text) => handlePaste(set.id, text)}
+              onFontFamily={(family) => setDoc(setFontFamily(doc, set.id, family))}
             />
           ))}
           {!doc.sets.length ? (

@@ -128,6 +128,9 @@ pub struct DesignManifest {
     /// as the tokens above; a project with no such row (most of them) composes
     /// exactly as it did before this field existed.
     pub resources: Vec<(bool, ResourceLink)>,
+    /// The `:root{--font-sans:…}` rule an enabled font set's family asks for
+    /// (see [`font_rule_from`]), empty when no enabled set names a family.
+    pub font_rule: String,
     /// The `@theme inline` bridge for this project's effective tokens; the composer feeds it to Tailwind.
     pub tokens_bridge: String,
     /// #619: the declared themes, light first, for the canvas switcher.
@@ -294,6 +297,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
     let themes = theme_infos(&effective);
 
     let resources = resources_from(files);
+    let font_rule = font_rule_from(files, &effective);
 
     // The tokens row the document is actually read from wins, mirroring
     // `tokens::project_tokens_doc`'s precedence: a max across both would let a
@@ -314,6 +318,7 @@ pub fn build(project_id: i64, files: &[DesignFile], revision: i64) -> DesignMani
         tokens_version,
         resources_version,
         resources,
+        font_rule,
         tokens_bridge,
         themes,
     }
@@ -349,6 +354,34 @@ pub fn resources_from(files: &[DesignFile]) -> Vec<(bool, ResourceLink)> {
         .and_then(|d| resources::validate(d).ok())
         .map(|d| resources::enabled_links(&d).into_iter().map(|(s, l)| (s, l.clone())).collect())
         .unwrap_or_default()
+}
+
+/// The rule that makes the first enabled font set's family the pages' default
+/// `--font-sans`, behind which the effective token value stays as the fallback.
+/// Empty when no enabled set names a family (or the document is absent or
+/// refused — the same forgiving read as [`resources_from`]).
+///
+/// The ONE implementation: the sandbox document (via [`build`]) and the
+/// exported `page.html` both call it, so the download cannot drift from the
+/// artboard.
+pub fn font_rule_from(files: &[DesignFile], effective: &TokensDoc) -> String {
+    let Some(doc) = files
+        .iter()
+        .find(|f| f.path == resources::RESOURCES_PATH)
+        .and_then(|f| resources::parse(&f.content).ok())
+        .and_then(|d| resources::validate(d).ok())
+    else {
+        return String::new();
+    };
+    let Some(family) = resources::enabled_font_family(&doc) else {
+        return String::new();
+    };
+    let fallback = effective
+        .categories
+        .get("typography")
+        .and_then(|t| t.get("font-sans"))
+        .map(|v| v.resolve("light"));
+    resources::font_sans_rule(family, fallback)
 }
 
 /// Build [`TokenGroup`]s straight from a [`TokensDoc`] (the tokens.json
@@ -438,6 +471,25 @@ mod tests {
             content: "<main>x</main>".to_string(),
             ..resource_file("")
         }
+    }
+
+    #[test]
+    fn an_enabled_font_set_sets_font_sans_over_the_token() {
+        let doc = r#"{"version":1,"sets":[
+            {"id":"i","name":"Inter","enabled":false,"fontFamily":"Inter","links":[]},
+            {"id":"p","name":"Poppins","enabled":true,"fontFamily":"Poppins","links":[]}
+        ]}"#;
+        let tokens = r#"{"version":1,"categories":{"typography":{"font-sans":{"light":"Inter, system-ui, sans-serif"}}}}"#;
+        let files = vec![page_file("pages/index.html"), token_file("styles/tokens.json", tokens), resource_file(doc)];
+        let m = build(1, &files, 0);
+        assert_eq!(m.font_rule, ":root{--font-sans:\"Poppins\", Inter, system-ui, sans-serif;}");
+    }
+
+    #[test]
+    fn no_family_on_any_enabled_set_means_no_font_rule() {
+        let doc = r#"{"version":1,"sets":[{"id":"i","name":"Inter","enabled":false,"fontFamily":"Inter","links":[]}]}"#;
+        let m = build(1, &[page_file("pages/index.html"), resource_file(doc)], 0);
+        assert_eq!(m.font_rule, "");
     }
 
     #[test]
@@ -642,7 +694,7 @@ mod tests {
         // `DesignManifest` (`rename_all = "camelCase"`, all single-word keys —
         // except #665's two-word `tokensVersion`/`resourcesVersion`, which are
         // exactly why the container's rename is read and not the field's).
-        assert_eq!(keys(&m), ["components", "project", "resources", "resourcesVersion", "revision", "routes", "themes", "tokens", "tokensBridge", "tokensVersion"]);
+        assert_eq!(keys(&m), ["components", "fontRule", "project", "resources", "resourcesVersion", "revision", "routes", "themes", "tokens", "tokensBridge", "tokensVersion"]);
 
         // `RouteEntry` — NO `rename_all`, and still right only because none of
         // its keys has a second word. Add one and the two spellings part company.
@@ -677,7 +729,7 @@ mod tests {
         // same container attribute, same class of mistake, no manifest needed.
         let doc = serde_json::to_value(resources::parse(&resources_doc).unwrap()).unwrap();
         assert_eq!(keys(&doc), ["sets", "version"]);
-        assert_eq!(keys(&doc["sets"][0]), ["enabled", "id", "links", "name"]);
+        assert_eq!(keys(&doc["sets"][0]), ["enabled", "fontFamily", "id", "links", "name"]);
 
         // `views::FileSummary` — a hand-written view struct with NO rename, so
         // its keys are the column names it chose. `updated_by`/`updated_at` are

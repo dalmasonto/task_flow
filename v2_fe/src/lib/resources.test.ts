@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import {
   MAX_LINKS_PER_SET,
+  activeFontFamily,
+  familyFromLinks,
+  fontFamilyProblem,
+  setFontFamily,
   MAX_SETS,
   MAX_SET_NAME,
   addSet,
@@ -363,5 +367,42 @@ describe("pasted links into a set", () => {
     expect(out.added).toBe(0)
     expect(out.skipped).toBe(1)
     expect(out.doc).toBe(doc)
+  })
+})
+
+describe("font family", () => {
+  const sheet = (href: string) => ({ rel: "stylesheet", href, crossorigin: false, isScript: false, isAsync: false })
+  const base = normalizeResources({
+    version: 1,
+    sets: [
+      { id: "i", name: "Inter", enabled: false, fontFamily: "Inter", links: [] },
+      { id: "p", name: "Poppins", enabled: true, links: [] },
+    ],
+  })
+
+  it("reads fontFamily and drops a blank one", () => {
+    expect(base.sets[0].fontFamily).toBe("Inter")
+    expect("fontFamily" in base.sets[1]).toBe(false)
+  })
+
+  it("reads the family out of a Google Fonts url", () => {
+    expect(familyFromLinks([sheet("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400&display=swap")])).toBe("Poppins")
+    expect(familyFromLinks([sheet("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400")])).toBe("Source Sans 3")
+    expect(familyFromLinks([sheet("https://fonts.googleapis.com/css?family=Roboto|Lato")])).toBe("Roboto")
+    expect(familyFromLinks([sheet("https://fonts.googleapis.com")])).toBeNull()
+  })
+
+  it("refuses what the server refuses", () => {
+    expect(fontFamilyProblem("")).toBeNull()
+    expect(fontFamilyProblem("Source Sans 3")).toBeNull()
+    expect(fontFamilyProblem("'Poppins', sans-serif")).not.toBeNull()
+  })
+
+  it("the first enabled set with a family is what pages use", () => {
+    expect(activeFontFamily(base)).toBeNull()
+    const named = setFontFamily(base, "p", "Poppins")
+    expect(activeFontFamily(named)).toBe("Poppins")
+    expect(setFontFamily(named, "p", "Poppins")).toBe(named)
+    expect("fontFamily" in setFontFamily(named, "p", "  ").sets[1]).toBe(false)
   })
 })

@@ -1523,7 +1523,14 @@ pub async fn export_page_html(
     // 404 here: a page with no tokens configured yet still exports.
     let effective =
         crate::defaults::effective_tokens(&crate::tokens::project_tokens_doc(&files));
-    let tokens_css = tokens_json_to_css(&effective);
+    // The enabled font set's family rides at the END of the inlined tokens
+    // sheet — the same "after tokens.css" placement the sandbox document gives
+    // it — so page.html renders in the font the artboard shows.
+    let tokens_css = format!(
+        "{}{}",
+        tokens_json_to_css(&effective),
+        manifest::font_rule_from(&files, &effective)
+    );
     let bridge = crate::tokens::theme_bridge(&effective);
 
     let components: Vec<(String, String)> = files

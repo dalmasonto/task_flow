@@ -90,3 +90,21 @@ describe("refusalErrors", () => {
     expect(out[0].line).toBe(0)
   })
 })
+
+describe("pasteIntoSet font family", () => {
+  const snippet =
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap">'
+  const emptySet = (fontFamily?: string) =>
+    normalizeResources({ version: 1, sets: [{ id: "a", name: "Poppins", enabled: true, fontFamily, links: [] }] })
+
+  it("fills an empty family from the pasted font url", () => {
+    const { doc, outcome } = pasteIntoSet(emptySet(), "a", snippet)
+    expect(doc.sets[0].fontFamily).toBe("Poppins")
+    expect(outcome.message).toContain("font family set to Poppins")
+  })
+
+  it("never overwrites a family the user typed", () => {
+    const { doc } = pasteIntoSet(emptySet("Poppins Custom"), "a", snippet)
+    expect(doc.sets[0].fontFamily).toBe("Poppins Custom")
+  })
+})

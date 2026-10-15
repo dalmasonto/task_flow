@@ -119,28 +119,34 @@ Images, video and motion
 
 /// Moved verbatim from the old `AUTHORING_GUIDE`: webfonts.
 const FONTS: &str = r#"Web fonts (one global change, never per page)
-  The page font is the `typography.font-sans` token (design_write_tokens):
-  it becomes --font-sans, the whole document's default family. The font FILE
-  is loaded ONCE for every page from styles/resources.json, which the server
-  emits into the head of every page, before the tokens. Write it with
-  design_write_asset (path "styles/resources.json"), e.g. for Inter:
-      {"version":1,"sets":[{"id":"font","name":"Font","enabled":true,
+  A font is a SET in styles/resources.json: its links load the font file in
+  the head of every page, and its `fontFamily` names the family ("Poppins").
+  The FIRST ENABLED set with a fontFamily becomes --font-sans on every page,
+  ahead of the `typography.font-sans` token, which stays as the fallback
+  stack. So switching typeface = enabling one set and disabling the other:
+  ONE write, no token edit, no page edits. Write it with design_write_asset
+  (path "styles/resources.json"), e.g.:
+      {"version":1,"sets":[{"id":"font","name":"Inter","enabled":true,
+        "fontFamily":"Inter",
         "links":[
-          {"rel":"preconnect","href":"https://cdn.jsdelivr.net","crossorigin":true},
-          {"rel":"stylesheet","href":"https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5/index.css"}
+          {"rel":"preconnect","href":"https://fonts.googleapis.com"},
+          {"rel":"preconnect","href":"https://fonts.gstatic.com","crossorigin":true},
+          {"rel":"stylesheet","href":"https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap"}
         ]}]}
-  Links must be https, with rel stylesheet, preconnect or dns-prefetch.
-  The `resources` field of design_get_tokens shows the current document and
-  its version (pass it as base_version when you replace it).
-  The operator often manages these sets from the panel (enable, disable, add).
-  If the document already exists, change only what you need, typically the
-  `enabled` flags, and keep every other set exactly as it is.
+  fontFamily is the bare name (letters, digits, space, - and _), never a
+  quoted stack. Links must be https, with rel stylesheet, preconnect or
+  dns-prefetch. The `resources` field of design_get_tokens shows the current
+  document and its version (pass it as base_version when you replace it).
+  The operator usually manages these sets from the panel (enable, disable,
+  add). If the document exists, change only what you need, typically the
+  `enabled` flags, and keep every other set exactly as it is. Do NOT write a
+  family name into the font-sans token to switch fonts: that fights the
+  panel, and the next toggle there will not show.
 
   Do NOT put a webfont <link> (or its preconnect) in a page fragment: it
   loads for that one page only, so changing the typeface becomes an edit per
   page. A page write that carries one is accepted with a warning (rule
-  `page-resource-link`). To switch typeface: change font-sans in the tokens
-  and the stylesheet href in resources.json — two writes, zero page edits.
+  `page-resource-link`).
 "#;
 
 /// The guide text for `topic`, or the index when `None`.

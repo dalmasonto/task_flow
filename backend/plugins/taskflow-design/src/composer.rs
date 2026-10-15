@@ -1038,6 +1038,13 @@ pub fn compose_document(
     // webfont. Empty — and so invisible — for a project that has none.
     let resources = resources_tags(&manifest.resources);
     let bridge = escape_for_inline_style(&manifest.tokens_bridge);
+    // An enabled font set's family, AFTER tokens.css so it wins over the
+    // token's `--font-sans` at equal specificity. Empty when no set names one.
+    let font_rule = if manifest.font_rule.is_empty() {
+        String::new()
+    } else {
+        format!("<style id=\"tf-font\">{}</style>\n  ", escape_for_inline_style(&manifest.font_rule))
+    };
 
     // `tokens.css` is GENERATED from the stored tokens (the json row, else the
     // legacy css row imported) plus the built-in defaults, so its
@@ -1137,7 +1144,7 @@ window.__tfStateReady = new Promise((settle) => {{
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style type="text/tailwindcss">{bridge}</style>
   {resources}<link rel="stylesheet" href="/s/{token}/f/styles/tokens.css?v={tokens_rev}">
-  {component_tags}<script>{status_runtime}</script>
+  {font_rule}{component_tags}<script>{status_runtime}</script>
   <script>{PICKER_RUNTIME}</script>
   <script>{nav_guard}</script>
   {state_script}
@@ -1390,6 +1397,7 @@ mod tests {
             tokens_version: 1,
             resources_version: 0,
             resources: vec![],
+            font_rule: String::new(),
             tokens_bridge: String::new(),
             themes: vec![],
         };
@@ -1479,6 +1487,17 @@ mod tests {
         assert!(!doc.contains("data-src="));
     }
 
+    #[test]
+    fn the_font_rule_lands_after_tokens_css() {
+        let mut m = empty_manifest();
+        m.font_rule = ":root{--font-sans:\"Poppins\", sans-serif;}".into();
+        let html = compose_document("tok", &m, "/", "pages/index.html", "<p>x</p>", &[], "light", None);
+        let tokens = html.find("/f/styles/tokens.css").expect("tokens");
+        let font = html.find("<style id=\"tf-font\">:root{--font-sans:\"Poppins\"").expect("font rule");
+        assert!(tokens < font, "the family must win over the token");
+        assert!(!compose_document("tok", &empty_manifest(), "/", "pages/index.html", "<p>x</p>", &[], "light", None).contains("tf-font"));
+    }
+
     fn empty_manifest() -> crate::manifest::DesignManifest {
         crate::manifest::DesignManifest {
             project: 1,
@@ -1489,6 +1508,7 @@ mod tests {
             tokens_version: 1,
             resources_version: 0,
             resources: vec![],
+            font_rule: String::new(),
             tokens_bridge: String::new(),
             themes: vec![],
         }

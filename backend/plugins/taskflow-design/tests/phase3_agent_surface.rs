@@ -301,10 +301,12 @@ async fn context_serves_the_link_back_and_media_guidance() {
         "typography.font-sans",
         "styles/resources.json",
         "design_write_asset",
-        "@fontsource-variable/inter@5/index.css",
+        "fonts.googleapis.com/css2?family=Inter",
+        "fontFamily",
+        "FIRST ENABLED set with a fontFamily",
         "Do NOT put a webfont <link>",
         "page-resource-link",
-        "zero page edits",
+        "no page edits",
     ] {
         assert!(guide.contains(needle), "guide is missing {needle:?}: {guide}");
     }
@@ -343,7 +345,8 @@ async fn the_guides_webfont_example_is_a_valid_resources_document() {
     let r = &ctx.json()["resources"];
     assert_eq!(r["path"], "styles/resources.json", "{r}");
     assert_eq!(r["version"], 1, "{r}");
-    assert_eq!(r["doc"]["sets"][0]["links"][1]["rel"], "stylesheet", "{r}");
+    assert_eq!(r["doc"]["sets"][0]["links"][2]["rel"], "stylesheet", "{r}");
+    assert_eq!(r["doc"]["sets"][0]["fontFamily"], "Inter", "{r}");
 }
 
 /// A page carrying its own webfont link is ACCEPTED (warning, not rejection),

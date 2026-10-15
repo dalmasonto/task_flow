@@ -1125,8 +1125,8 @@ pub fn page_resource_link_warnings(content: &str, enabled_hrefs: &[&str]) -> Vec
                 "line {line}: <link rel=\"{rel}\" href=\"{href}\"> loads an external resource \
                  for this ONE page only. A webfont (and its preconnect) belongs in \
                  styles/resources.json — written once with design_write_asset — which puts it \
-                 in the head of every page, so a typeface change is the font-sans token plus \
-                 that one file, never an edit per page. Move it there and drop it from the page."
+                 in the head of every page, and whose enabled set's fontFamily sets the \
+                 typeface, so a font switch is one toggle there, never an edit per page. Move it there and drop it from the page."
             )
         };
         out.push(ValidationWarning { rule: "page-resource-link", message });

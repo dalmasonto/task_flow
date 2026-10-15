@@ -21,6 +21,7 @@ pub const MAX_SETS: usize = 24;
 pub const MAX_LINKS_PER_SET: usize = 16;
 pub const MAX_HREF: usize = 2_048;
 pub const MAX_SET_NAME: usize = 60;
+pub const MAX_FONT_FAMILY: usize = 80;
 
 /// `rel` values we accept on a `<link>`. All three are inert: none executes or
 /// mutates the document, which is what makes them safe to allow alongside a
@@ -63,6 +64,14 @@ pub struct ResourceSet {
     pub enabled: bool,
     #[serde(default)]
     pub links: Vec<ResourceLink>,
+    /// The CSS family name this set's stylesheet defines ("Poppins"), typed
+    /// by the person who registered the set. When an ENABLED set carries one,
+    /// it becomes `--font-sans` on every page, so turning a font set on is the
+    /// whole typeface change — the token's own `font-sans` value stays behind it
+    /// as the fallback stack. Without this, the set loaded a font no page asked
+    /// for, and a switch "did nothing" until someone also edited the token.
+    #[serde(default)]
+    pub font_family: Option<String>,
 }
 
 fn default_true() -> bool { true }
@@ -210,7 +219,27 @@ pub fn validate(doc: ResourcesDoc) -> Result<ResourcesDoc, String> {
             }
             links.push(link);
         }
-        sets.push(ResourceSet { id, name, enabled: set.enabled, links });
+        let font_family = match set.font_family.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(family) => {
+                if family.chars().count() > MAX_FONT_FAMILY {
+                    return Err(format!(
+                        "the font family of \"{name}\" is limited to {MAX_FONT_FAMILY} characters"
+                    ));
+                }
+                // The name is emitted inside a quoted CSS string in a <style>
+                // element, so the alphabet IS the escaping: letters, digits,
+                // space, `-` and `_` cover every real family name and leave no
+                // quote, backslash, `;`, `{` or `<` to break out with.
+                if !family.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '-' || c == '_') {
+                    return Err(format!(
+                        "the font family of \"{name}\" may use only letters, digits, spaces, '-' and '_' (write Poppins, not 'Poppins', sans-serif)"
+                    ));
+                }
+                Some(family.to_string())
+            }
+        };
+        sets.push(ResourceSet { id, name, enabled: set.enabled, links, font_family });
     }
 
     Ok(ResourcesDoc { version: doc.version, sets })
@@ -225,4 +254,27 @@ pub fn enabled_links(doc: &ResourcesDoc) -> Vec<(bool, &ResourceLink)> {
         .filter(|s| s.enabled)
         .flat_map(|s| s.links.iter().map(|l| (l.is_script, l)))
         .collect()
+}
+
+/// The family the project's font sets say the pages should use: the FIRST
+/// enabled set that names one, in document order. `None` when no enabled set
+/// names a family — the token's `font-sans` then applies untouched, which is
+/// how every project behaved before sets could name a family.
+pub fn enabled_font_family(doc: &ResourcesDoc) -> Option<&str> {
+    doc.sets.iter().filter(|s| s.enabled).find_map(|s| s.font_family.as_deref())
+}
+
+/// `:root{--font-sans:"<family>", <fallback>}` — the rule that makes an enabled
+/// set's family the page default. `fallback` is the token's own `font-sans`
+/// stack, kept behind the family so a font that fails to load degrades to
+/// what the token names rather than to the browser default.
+///
+/// Emitted AFTER tokens.css (same `:root` specificity, later wins), and only
+/// from a family `validate` has accepted, whose alphabet cannot leave the
+/// quoted string.
+pub fn font_sans_rule(family: &str, fallback: Option<&str>) -> String {
+    match fallback.map(str::trim).filter(|f| !f.is_empty()) {
+        Some(fallback) => format!(":root{{--font-sans:\"{family}\", {fallback};}}"),
+        None => format!(":root{{--font-sans:\"{family}\", sans-serif;}}"),
+    }
 }
