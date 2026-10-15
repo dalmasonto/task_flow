@@ -178,4 +178,4 @@ SMOKE_SERVER=http://localhost:8000 SMOKE_KEY=tfk_… node scripts/smoke.mjs
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE). Versions up to 2.17.0 were released under MIT.
+Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE).

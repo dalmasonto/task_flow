@@ -67,5 +67,3 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the 
 ## License
 
 TaskFlow is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You can use, study, modify, and share it for personal, research, educational, and other noncommercial purposes. Selling it, redistributing it commercially, or offering it as a paid service needs a separate commercial license; open an issue to ask.
-
-Versions of `@dalmasonto/taskflow-mcp` up to 2.17.0 were released under MIT and remain available under MIT.
