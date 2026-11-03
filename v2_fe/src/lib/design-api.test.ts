@@ -200,3 +200,29 @@ describe("putDesignResources", () => {
     })
   })
 })
+
+// Prod bug (2026-11-03): design calls sent ONLY the session cookie. The app
+// signs in with a long-lived bearer token while the session cookie expires in
+// 14 days, so after two weeks every design call 401'd — a member saw the board
+// and chat but no design screens. Design calls must carry the bearer token
+// like every other API client.
+describe("design requests authenticate with the bearer token", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("sends Authorization: Bearer <stored token> and keeps caller headers", async () => {
+    vi.stubGlobal("window", {
+      localStorage: { getItem: (key: string) => (key === "taskflow.auth.token" ? "tok123" : null) },
+    })
+    const fetchMock = vi.fn((...args: [string, RequestInit?]) => {
+      void args
+      return Promise.resolve(jsonRes({ path: RESOURCES_JSON_PATH, content: "{}", version: 1 }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    await putDesignResources(7, {} as never, 1).catch(() => undefined)
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    const headers = new Headers(init.headers)
+    expect(headers.get("authorization")).toBe("Bearer tok123")
+    expect(headers.get("content-type")).toBe("application/json")
+    expect(init.credentials).toBe("include")
+  })
+})

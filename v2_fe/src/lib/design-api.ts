@@ -8,7 +8,7 @@
 /// falls back to the API base, which keeps every deployment cross-origin
 /// except a fully same-origin dev setup.
 
-import { API_BASE_URL, readJson } from "@/lib/auth-api"
+import { API_BASE_URL, readJson, withBearer } from "@/lib/auth-api"
 import { normalizeLayout, type LayoutDoc } from "@/lib/design-layout"
 import {
   DEFAULT_RESOURCES_DOC,
@@ -246,7 +246,7 @@ async function designFetch(path: string, init?: RequestInit): Promise<Response> 
   // (api.taskflow.supercodehive.com), so the app server answers with index.html
   // and every design call fails. Dev only masks it because the Vite proxy
   // forwards these paths to the backend.
-  return fetch(`${API_BASE_URL}${path}`, { credentials: "include", ...init })
+  return fetch(`${API_BASE_URL}${path}`, withBearer(init))
 }
 
 function jsonInit(method: string, body: unknown): RequestInit {

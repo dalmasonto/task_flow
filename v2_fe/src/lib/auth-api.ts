@@ -33,6 +33,17 @@ export function getStoredToken() {
   return window.localStorage.getItem(AUTH_TOKEN_KEY)
 }
 
+/// `init` with the stored bearer token added (caller headers win) and the
+/// session cookie kept. Use it for every hand-rolled `fetch` to the API: the
+/// session cookie expires after 14 days while the bearer token does not, so a
+/// cookie-only call silently 401s for anyone signed in longer than that.
+export function withBearer(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers)
+  const token = typeof window === "undefined" ? null : getStoredToken()
+  if (token && !headers.has("authorization")) headers.set("authorization", `Bearer ${token}`)
+  return { credentials: "include", ...init, headers }
+}
+
 export function hasStoredAuthSession() {
   return Boolean(getStoredToken())
 }

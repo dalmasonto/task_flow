@@ -5,7 +5,7 @@
 /// `fetchToolboxEntry`, which is what the entry view calls.
 
 import { API_BASE_URL, readJson } from "@/lib/auth-api"
-import { getStoredToken } from "@/lib/auth-api"
+import { getStoredToken, withBearer } from "@/lib/auth-api"
 
 export type ToolboxKind = "memory" | "script"
 export type ToolboxStatus = "draft" | "approved" | "deprecated"
@@ -68,7 +68,7 @@ function headers(): Record<string, string> {
 }
 
 async function toolboxRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: "include", ...init })
+  const response = await fetch(`${API_BASE_URL}${path}`, withBearer(init))
   if (!response.ok) {
     const detail = (await response
       .json()
