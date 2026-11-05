@@ -517,3 +517,43 @@ describe("extractCode", () => {
     expect(extractCode(JSON.stringify({ detail: "nope" }))).toBeUndefined();
   });
 });
+
+describe("database tool (#885)", () => {
+  it("reads the schema, or one model, by query", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).readDbSchema(2);
+    await client(impl).readDbSchema(2, "Agent");
+    expect(calls[0].url).toBe("http://localhost:8000/api/taskflow/agents/db/schema?project=2");
+    expect(calls[1].url).toBe("http://localhost:8000/api/taskflow/agents/db/schema?project=2&model=Agent");
+  });
+
+  it("writes one model as a PUT body with its base_version", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).writeDbModel({ project: 2, base_version: 4, model: { name: "Agent", fields: [] } });
+    expect(calls[0].init.method).toBe("PUT");
+    expect(JSON.parse(calls[0].init.body)).toEqual({ project: 2, base_version: 4, model: { name: "Agent", fields: [] } });
+  });
+
+  it("deletes by query, and samples by body", async () => {
+    const { calls, impl } = stubFetch();
+    await client(impl).deleteDbModel({ project: 2, name: "Old", base_version: 5 });
+    await client(impl).writeDbSamples({ project: 2, base_version: 6, model: "Agent", rows: [{ id: 1 }] });
+    expect(calls[0].init.method).toBe("DELETE");
+    expect(calls[0].url).toBe("http://localhost:8000/api/taskflow/agents/db/model?project=2&name=Old&base_version=5");
+    expect(JSON.parse(calls[1].init.body).rows).toEqual([{ id: 1 }]);
+  });
+
+  it("surfaces a lock refusal's sentence, naming the field", async () => {
+    const body = JSON.stringify({
+      ok: false,
+      error: "locked_by_user",
+      message: "A person changed `display_name` on `Agent`, so it is locked. Ask them first.",
+      fields: ["display_name"],
+    });
+    const impl: FetchLike = async () => ({ ok: false, status: 409, statusText: "Conflict", text: async () => body });
+    const thrown = await client(impl)
+      .writeDbModel({ project: 2, base_version: 2, model: { name: "Agent" } })
+      .then(() => undefined, (e: unknown) => e);
+    expect((thrown as TaskflowApiError).detail).toContain("`display_name`");
+  });
+});

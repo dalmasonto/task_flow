@@ -28,7 +28,9 @@ pub fn save_error(err: SaveError) -> Response {
             .into_response(),
         SaveError::Invalid(errors) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": "invalid_schema", "errors": errors })),
+            // `message` carries the problems too: an agent's tool shows only the
+            // envelope's sentence, and "invalid_schema" alone says nothing.
+            Json(json!({ "ok": false, "error": "invalid_schema", "message": errors.join("; "), "errors": errors })),
         )
             .into_response(),
         SaveError::Locked(conflict) => (

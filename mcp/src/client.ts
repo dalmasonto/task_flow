@@ -899,6 +899,41 @@ export class TaskflowClient {
     });
   }
 
+  // ---- Database tool (#885) ---------------------------------------------------
+
+  /** `GET /agents/db/schema` — the whole schema, or one model with what points at it. */
+  readDbSchema(project: number, model?: string): Promise<unknown> {
+    return this.request("GET", `${API_PREFIX}/agents/db/schema`, {
+      query: { project, model },
+      idempotent: true,
+    });
+  }
+
+  /** `PUT /agents/db/model` — create or replace ONE model, from the version read. */
+  writeDbModel(input: {
+    project: number;
+    base_version: number;
+    model: Record<string, unknown>;
+    override?: boolean;
+  }): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/db/model`, { body: input });
+  }
+
+  /** `DELETE /agents/db/model` — remove one model (refused while referenced or locked). */
+  deleteDbModel(input: { project: number; name: string; base_version: number; override?: boolean }): Promise<unknown> {
+    return this.request("DELETE", `${API_PREFIX}/agents/db/model`, { query: { ...input } });
+  }
+
+  /** `PUT /agents/db/samples` — replace one model's sample rows. */
+  writeDbSamples(input: {
+    project: number;
+    base_version: number;
+    model: string;
+    rows: Record<string, unknown>[];
+  }): Promise<unknown> {
+    return this.request("PUT", `${API_PREFIX}/agents/db/samples`, { body: input });
+  }
+
   /** `PUT /agents/design/layout` — one arrangement operation.
    *
    * The body is an OPERATION, never a document: the read response is the
