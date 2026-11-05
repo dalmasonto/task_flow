@@ -38,6 +38,7 @@ use std::sync::Arc;
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_design::TaskflowDesignPlugin;
+use taskflow_db::TaskflowDbPlugin;
 use taskflow_github::TaskflowGithubPlugin;
 use taskflow_toolbox::TaskflowToolboxPlugin;
 use taskflow_decisions::TaskflowDecisionsPlugin;
@@ -166,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // JSON at /api/design/{project}/..., the origin-isolated sandbox frame
         // at /s/{token}/... (HMAC read token, no cookies).
         .plugin(TaskflowDesignPlugin::default())
+        .plugin(TaskflowDbPlugin::default())
         // GitHub OAuth: social login + account-linking. Requires SessionsPlugin
         // (wired above) for the single-use `state` + PKCE. Providers load from
         // env (UMBRAL_OAUTH_GITHUB_CLIENT_ID/SECRET); absent env => no provider
