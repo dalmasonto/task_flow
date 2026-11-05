@@ -25,7 +25,7 @@ use taskflow_agents::models::{
     TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowChannelKind,
     taskflow_agent_channel_member,
 };
-use umbral_rest::{Action, Identity, ResourceConfig, ScopeDecision};
+use umbral_rest::{Action, Identity, ResourceConfig, RestPlugin, ScopeDecision};
 
 /// Every project-scoped table, keyed by its `project` FK. `taskflow_project`
 /// itself is scoped separately (by its own `id`) via [`project_resource`].
@@ -285,6 +285,28 @@ pub fn user_settings_resource() -> ResourceConfig {
 /// cannot `POST` a row into them at all — closing the self-service membership
 /// escalation that `scope_async` alone leaves open (it governs reads, not
 /// creates).
+/// Register every resource auto-REST serves on `rest` — and make them the ONLY
+/// tables it serves (security, deny by default).
+///
+/// Without `include_only`, auto-REST serves EVERY registered model, and a table
+/// no resource here configures is served UNSCOPED with full CRUD to any
+/// signed-in user. That exposed `auth_token` (a member could mint a token for
+/// any user: account takeover), `oauth_social_account`, realtime tickets, every
+/// project's design files, the toolbox and #885's schema tables. A new plugin's
+/// tables now stay behind their own gated endpoints unless added here on
+/// purpose. `extra` carries resources the caller adds (the binary's demo `Post`).
+pub fn with_exposed_resources(mut rest: RestPlugin, extra: Vec<ResourceConfig>) -> RestPlugin {
+    let mut all = extra;
+    all.push(project_resource());
+    all.push(user_settings_resource());
+    all.extend(project_scoped_resources());
+    rest = rest.include_only(all.iter().map(|r| r.table().to_string()).collect::<Vec<_>>());
+    for resource in all {
+        rest = rest.resource(resource);
+    }
+    rest
+}
+
 pub fn project_scoped_resources() -> Vec<ResourceConfig> {
     let writable = PROJECT_SCOPED_TABLES
         .iter()

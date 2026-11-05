@@ -96,13 +96,10 @@ async fn app() -> &'static (Router, Seed) {
 
         // The REST plugin exactly as main.rs builds it: scoped resources from
         // `backend::rest`.
-        let mut rest = RestPlugin::default()
-            .authenticate(auth)
-            .default_permission(IsAuthenticated)
-            .resource(backend::rest::project_resource());
-        for resource in backend::rest::project_scoped_resources() {
-            rest = rest.resource(resource);
-        }
+        let rest = backend::rest::with_exposed_resources(
+            RestPlugin::default().authenticate(auth).default_permission(IsAuthenticated),
+            vec![],
+        );
 
         let app = umbral::App::builder()
             .settings(settings)
@@ -1267,4 +1264,28 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
     assert_eq!(rstatus, 200);
     assert_eq!(row["instructions_markdown"], "original role");
     assert!(row.as_object().expect("object").contains_key("instructions_updated_at"));
+}
+
+// ---------------------------------------------------------------------------
+// Deny by default: a table no resource configures is not served at all.
+// ---------------------------------------------------------------------------
+
+/// Regression (security): auto-REST used to serve EVERY registered model, so a
+/// member could create an `auth_token` row for another user and sign in as
+/// them. Unconfigured tables must not answer any method.
+#[tokio::test]
+async fn unconfigured_tables_like_auth_token_are_not_served() {
+    let (_, seed) = app().await;
+    let user = seed.alice;
+    // auth_token/auth_user: framework tables. taskflow_realtime_ticket: a PLUGIN
+    // table that rest.rs never names — how #885's tables slipped in, and how
+    // the next plugin's will unless deny-by-default holds.
+    for table in ["auth_token", "auth_user", "taskflow_realtime_ticket"] {
+        let (status, _) = get_as(user, false, &format!("/api/{table}/")).await;
+        assert_eq!(status, 404, "GET /api/{table}/ must not be served");
+        let (status, _) = post_as(user, &format!("/api/{table}/"), serde_json::json!({ "user_id": 1, "key_hash": "x", "name": "x" })).await;
+        assert_eq!(status, 404, "POST /api/{table}/ must not be served");
+    }
+    // A configured resource still answers.
+    assert_eq!(get_as(user, false, "/api/taskflow_project/").await.0, 200);
 }

@@ -240,13 +240,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // "end of data" apart from "end of page" — without it a short
                 // page is indistinguishable from the end, and silent truncation
                 // is the failure mode this whole change has to avoid.
-                .paginate(PageNumberPagination::new(25))
-                .resource(ResourceConfig::new(Post::table_name()))
-                .resource(backend::rest::project_resource())
-                .resource(backend::rest::user_settings_resource());
-            for resource in backend::rest::project_scoped_resources() {
-                rest = rest.resource(resource);
-            }
+                .paginate(PageNumberPagination::new(25));
+            // Deny by default: only the resources `backend::rest` configures are
+            // served (see `with_exposed_resources` for what this closed).
+            rest = backend::rest::with_exposed_resources(rest, vec![ResourceConfig::new(Post::table_name())]);
             rest
         })
         .plugin(PlaygroundPlugin::new("taskflow"))
