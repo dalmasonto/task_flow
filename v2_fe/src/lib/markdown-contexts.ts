@@ -37,3 +37,8 @@ export const ChatDockContext = createContext<ChatDockApi | null>(null)
 /// The design surface provides it (opening the page on the canvas); anywhere
 /// else a page chip is a labelled, inert chip.
 export const PageMentionContext = createContext<((route: string) => void) | null>(null)
+
+/// #TSK1100: opens a `#MSG<n>` chip in place (a dialog over the current surface,
+/// or a scroll when the message is in the chat on screen). v3 provides it; null
+/// (v2, or nowhere to open) renders the chip as labelled, inert text.
+export const MessageRefContext = createContext<((messageId: number) => void) | null>(null)

@@ -66,11 +66,12 @@ describe("AGENT_INSTRUCTIONS", () => {
     expect(AGENT_INSTRUCTIONS).toContain("#msg");
   });
 
-  it("warns against writing a bare #<n> for a GitHub issue", () => {
-    const lower = AGENT_INSTRUCTIONS.toLowerCase();
-    expect(lower).toContain("github issue");
+  it("teaches the typed reference tags and that a bare #<n> links nothing", () => {
+    for (const tag of ["#TSK12", "#MSG3456", "#GHI12", "#GHP44", "#GHI12@owner/name"]) {
+      expect(AGENT_INSTRUCTIONS).toContain(tag);
+    }
     // It must state the consequence, not just the rule.
-    expect(lower).toMatch(/task chip|as a task|taskflow task/);
+    expect(AGENT_INSTRUCTIONS.toLowerCase()).toMatch(/bare `#12` is plain text/);
   });
 });
 

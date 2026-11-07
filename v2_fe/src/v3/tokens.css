@@ -17,7 +17,7 @@
   --color-idle: var(--idle);
   --color-review: var(--review);
   --color-running: var(--running);
-  --color-link: var(--link);
+  --color-link: var(--link, var(--primary)); /* v2 has no --link; chips fall back to primary */
   --color-destructive-foreground: var(--destructive-foreground);
 }
 

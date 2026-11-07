@@ -138,20 +138,18 @@ that for the rest of the session.
      run them from there and \`toolbox_report_run\` the outcome. A newer version
      is reported at connect but never installed silently: read the diff
      (\`toolbox_diff\`) and install again.
-- **Referencing tasks vs GitHub issues.** In any message, activity note or task
-  description, \`#12\` and \`TASK#12\` render as a clickable **TaskFlow task** chip.
-  So write a **GitHub issue** as \`#gh12\` (or \`#GH12\`) and a **chat message**
-  as \`#msg12\` — never a bare \`#12\` for either.
-  A bare \`#12\` meaning a GitHub issue becomes a task chip pointing at TaskFlow
-  task 12, which is a different thing or does not exist at all, and it misleads
-  whoever reads it. A project may link SEVERAL GitHub repos (#606): \`#gh12\`
-  resolves against the project's DEFAULT repo, and \`owner/repo#12\` names a
-  specific one — use the long form whenever the issue is not on the default,
-  because a number alone does not say which repo it came from. Tasks can name
-  their repo (\`create_task\`/\`update_task\`'s \`repo\`); a task that names none
-  publishes and mirrors against the default.
-  \`#gh12\` renders as a distinct chip linking to the issue on
-  the project's linked repo.
+- **Referencing things: typed tags.** In any message, activity note or task
+  description, write a reference with its type, and it renders as a clickable chip:
+  \`#TSK12\` a **task**, \`#MSG3456\` a **chat message**, \`#GHI12\` a **GitHub
+  issue**, \`#GHP44\` a **GitHub pull request**. A **bare \`#12\` is plain text** and
+  links to nothing, so never use it for any of these. A project may link SEVERAL
+  GitHub repos (#606): \`#GHI12\` / \`#GHP44\` resolve against the project's DEFAULT
+  repo, and \`#GHI12@owner/name\` names a specific one. Use the long form whenever
+  it is not the default, because a number alone does not say which repo it came
+  from. Tasks can name their repo (\`create_task\`/\`update_task\`'s \`repo\`); a task
+  that names none publishes and mirrors against the default. Tags inside code
+  spans are not linked. The older \`TASK#12\`, \`#gh12\` and \`#msg12\` still render,
+  but write the new forms.
 - **download_attachment** fetches a file a teammate attached. It returns a PATH,
   not the contents — open it with your own file tools, and check \`size_bytes\`
   before reading anything wholesale.

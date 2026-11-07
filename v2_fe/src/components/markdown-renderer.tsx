@@ -3,17 +3,18 @@ import Markdown, { defaultUrlTransform, type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 
 import { cn } from "@/lib/utils"
-import { splitTaskRefs } from "@/lib/task-refs"
-import { TaskChipContext, GithubRepoContext, PageMentionContext } from "@/lib/markdown-contexts"
+import { parseRefHref, refHref, splitRefs } from "@/lib/refs"
+import { TaskChipContext, GithubRepoContext, MessageRefContext, PageMentionContext } from "@/lib/markdown-contexts"
 import { MENTION_URL, parseMentionHref, type MentionKind } from "@/lib/mention-tokens"
 
-/// Remark plugin: rewrite `TASK#<n>` inside text nodes into link nodes with a
-/// `#task-<n>` fragment url (which the URL sanitizer allows), so the `a`
-/// component below can render them as chips. Skips text inside existing links
-/// (no nested links) and never touches `inlineCode` / `code` — those are their
-/// own node types, so a TASK#n written in backticks stays literal.
+/// Remark plugin: rewrite typed reference tags (`#TSK12`, `#MSG34`, `#GHI5`,
+/// `#GHP6`, `#NOTE7`, plus the legacy prefixed forms; see lib/refs.ts) inside
+/// TEXT nodes into link nodes with a `#ref-…` fragment url (which the URL
+/// sanitizer allows), so the `a` component below renders them as chips. Skips
+/// text inside existing links (no nested links) and never touches `inlineCode` /
+/// `code`: those are their own node types, so a tag in backticks stays literal.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function remarkTaskChips() {
+function remarkRefChips() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const visit = (node: any): void => {
     if (!node || !Array.isArray(node.children) || node.type === "link") return
@@ -21,38 +22,14 @@ function remarkTaskChips() {
     const next: any[] = []
     for (const child of node.children) {
       if (child.type === "text") {
-        const segments = splitTaskRefs(child.value as string)
+        const segments = splitRefs(child.value as string)
         if (segments.length === 1 && segments[0].type === "text") {
           next.push(child)
           continue
         }
         for (const segment of segments) {
-          if (segment.type === "text") {
-            next.push({ type: "text", value: segment.value })
-          } else {
-            next.push({
-              type: "link",
-              url:
-                segment.type === "github"
-                  ? segment.repo
-                    ? `#gh-issue-${segment.repo}/${segment.issue}`
-                    : `#gh-issue-${segment.issue}`
-                  : segment.type === "message"
-                    ? `#chat-message-${segment.message}`
-                    : `#task-${segment.id}`,
-              children: [
-                {
-                  type: "text",
-                  // #606: a qualified reference reads as `owner/repo#12` — the
-                  // repo IS the point of writing it that way.
-                  value:
-                    segment.type === "github" && segment.repo
-                      ? `${segment.repo}#${segment.issue}`
-                      : segment.raw,
-                },
-              ],
-            })
-          }
+          if (segment.type === "text") next.push({ type: "text", value: segment.value })
+          else next.push({ type: "link", url: refHref(segment), children: [{ type: "text", value: segment.raw }] })
         }
       } else {
         visit(child)
@@ -65,7 +42,7 @@ function remarkTaskChips() {
   return (tree: any) => visit(tree)
 }
 
-/// One `TASK#<n>` chip. Clickable when an opener is in context; inert otherwise.
+/// One `#TSK<n>` chip. Clickable when an opener is in context; inert otherwise.
 function TaskChip({ taskId, children }: { taskId: number; children?: ReactNode }) {
   const onOpenTask = useContext(TaskChipContext)
   const chipClass =
@@ -76,7 +53,7 @@ function TaskChip({ taskId, children }: { taskId: number; children?: ReactNode }
       type="button"
       onClick={() => onOpenTask(taskId)}
       className={cn(chipClass, "cursor-pointer transition hover:bg-primary/20")}
-      title={`Open task #${taskId}`}
+      title={`Open task #TSK${taskId}`}
     >
       {children}
     </button>
@@ -86,7 +63,7 @@ function TaskChip({ taskId, children }: { taskId: number; children?: ReactNode }
 /// One `#gh<n>` chip. Deliberately styled unlike the task chip — telling the two
 /// apart at a glance is the entire point of #54. Links out when the project has a
 /// repo; otherwise inert with a reason, never a dead click.
-function GithubIssueChip({ issue, repo: named, children }: { issue: number; repo?: string; children?: ReactNode }) {
+function GithubIssueChip({ issue, repo: named, pull, children }: { issue: number; repo?: string; pull?: boolean; children?: ReactNode }) {
   const contextRepo = useContext(GithubRepoContext)
   // #606: a reference that named its repo uses it; one that did not means the
   // project's default.
@@ -102,28 +79,37 @@ function GithubIssueChip({ issue, repo: named, children }: { issue: number; repo
   }
   return (
     <a
-      href={`https://github.com/${repo}/issues/${issue}`}
+      href={`https://github.com/${repo}/${pull ? "pull" : "issues"}/${issue}`}
       target="_blank"
       rel="noreferrer"
       className={cn(chipClass, "cursor-pointer transition hover:bg-muted/70 hover:text-foreground")}
-      title={`Open ${repo} issue #${issue} on GitHub`}
+      title={`Open ${repo} ${pull ? "pull request" : "issue"} #${issue} on GitHub`}
     >
       {children}
     </a>
   )
 }
 
-/// One `#msg<n>` chip. Styled apart from both the task chip and the GitHub chip —
-/// telling the three references apart at a glance is the entire point. Inert for
-/// now: a message id alone does not say which channel it lives in, and guessing
-/// would reopen exactly the "confidently wrong destination" problem these
-/// explicit prefixes exist to close.
+/// One `#MSG<n>` chip. Styled apart from the task and GitHub chips; telling the
+/// references apart at a glance is the point. Opens in place when a surface
+/// provides an opener (v3); otherwise inert, because a message id alone doesn't
+/// say which channel it lives in and guessing would point at the wrong place.
 function MessageChip({ message, children }: { message: number; children?: ReactNode }) {
+  const open = useContext(MessageRefContext)
+  const chipClass =
+    "inline-flex items-center gap-0.5 rounded-md bg-link/10 px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-link ring-1 ring-link/25"
+  if (!open) return <span className={chipClass} title={`Chat message #MSG${message}`}>{children}</span>
   return (
-    <span
-      className="inline-flex items-center gap-0.5 rounded-md bg-sky-500/10 px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-sky-700 ring-1 ring-sky-500/25 dark:text-sky-300"
-      title={`Chat message #${message}`}
-    >
+    <button type="button" onClick={() => open(message)} className={cn(chipClass, "cursor-pointer transition hover:bg-link/20")} title={`Open message #MSG${message}`}>
+      {children}
+    </button>
+  )
+}
+
+/// `#NOTE<n>`: reserved. Notes don't exist yet, so the chip is labelled and inert.
+function NoteChip({ children }: { children?: ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 align-baseline text-[0.82em] font-medium text-muted-foreground ring-1 ring-border" title="Notes aren't available yet">
       {children}
     </span>
   )
@@ -182,17 +168,16 @@ const markdownComponents: Components = {
   a: ({ children, href }) => {
     const mention = parseMentionHref(href)
     if (mention) return <MentionChip kind={mention.kind} id={mention.id}>{children}</MentionChip>
-    const taskMatch = /^#task-(\d+)$/.exec(href ?? "")
-    if (taskMatch) return <TaskChip taskId={Number(taskMatch[1])}>{children}</TaskChip>
-    const issueMatch = /^#gh-issue-(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/)?(\d+)$/.exec(href ?? "")
-    if (issueMatch)
+    const ref = parseRefHref(href)
+    if (ref?.kind === "task") return <TaskChip taskId={ref.id}>{children}</TaskChip>
+    if (ref?.kind === "message") return <MessageChip message={ref.id}>{children}</MessageChip>
+    if (ref?.kind === "github-issue" || ref?.kind === "github-pr")
       return (
-        <GithubIssueChip issue={Number(issueMatch[2])} repo={issueMatch[1] ?? undefined}>
+        <GithubIssueChip issue={ref.id} repo={ref.repo} pull={ref.kind === "github-pr"}>
           {children}
         </GithubIssueChip>
       )
-    const messageMatch = /^#chat-message-(\d+)$/.exec(href ?? "")
-    if (messageMatch) return <MessageChip message={Number(messageMatch[1])}>{children}</MessageChip>
+    if (ref?.kind === "note") return <NoteChip>{children}</NoteChip>
     return (
       <a
         href={href}
@@ -273,7 +258,7 @@ export function MarkdownRenderer({ content, compact, tone = "default", className
         className
       )}
     >
-      <Markdown remarkPlugins={[remarkGfm, remarkTaskChips]} components={markdownComponents} urlTransform={urlTransform} skipHtml>
+      <Markdown remarkPlugins={[remarkGfm, remarkRefChips]} components={markdownComponents} urlTransform={urlTransform} skipHtml>
         {content}
       </Markdown>
     </div>
