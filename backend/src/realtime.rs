@@ -31,6 +31,9 @@ use taskflow_agents::models::{
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
     TaskflowChannelReadCursor, TaskflowMessageAttachment, TaskflowTaskReview, TaskflowTerminalInput,
 };
+use taskflow_decisions::models::{
+    TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
+};
 use taskflow_design::models::{DesignComment, DesignLayout};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
@@ -55,6 +58,14 @@ const TASK_RELATIONS: &str = "task_relations";
 const TASK_ACTIVITY: &str = "task_activity";
 const TASK_SESSIONS: &str = "task_sessions";
 const TASK_REVIEWS: &str = "task_reviews";
+// #1094: decisions. Projected in full — decisions are project-wide shared state
+// (REST serves every row to every member), so there is no member who may see an
+// id but not the row. The v3 board updates its "Blocked on decision" line from
+// `decision_tasks` events (decision + task ids) without a refetch.
+const DECISIONS: &str = "decisions";
+const DECISION_OPTIONS: &str = "decision_options";
+const DECISION_TASKS: &str = "decision_tasks";
+const DECISION_COMMENTS: &str = "decision_comments";
 const AGENTS: &str = "agents";
 const AGENT_SESSIONS: &str = "agent_sessions";
 const AGENT_CREDENTIALS: &str = "agent_credentials";
@@ -119,6 +130,22 @@ const TERMINAL_INPUT_FIELDS: &[&str] = &["id", "project", "agent", "keys", "text
 /// sessions: the frontend replaces its stored copy with the event payload, so an
 /// omitted column would be blanked on the first live update. `metadata_json` is
 /// included because the detail sheet renders it.
+const DECISION_FIELDS: &[&str] = &[
+    "id", "project", "key", "question", "context_markdown", "status",
+    "asked_by_user", "asked_by_agent", "asked_by_label", "ruler_user", "channel",
+    "ruled_option_id", "ruling_note", "ruled_by_user", "ruled_by_label", "ruled_at",
+    "superseded_by_id", "created_at", "updated_at",
+];
+const DECISION_OPTION_FIELDS: &[&str] = &[
+    "id", "project", "decision", "label", "detail", "sort_order",
+    "recommended_by_user", "recommended_by_agent", "recommended_by_label", "created_at",
+];
+const DECISION_TASK_FIELDS: &[&str] = &["id", "project", "decision", "task", "created_at"];
+const DECISION_COMMENT_FIELDS: &[&str] = &[
+    "id", "project", "decision", "author_user", "author_agent", "author_label",
+    "body_markdown", "created_at",
+];
+
 const TASK_ACTIVITY_FIELDS: &[&str] = &[
     "id",
     "project",
@@ -247,6 +274,22 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowTaskReview>(Expose::to_group_with(|ev| {
             group_for(TASK_REVIEWS, &ev.instance)
         }))
+        // #1094: decisions — projected (see DECISION_FIELDS).
+        .expose::<TaskflowDecision>(
+            Expose::to_group_with(|ev| group_for(DECISIONS, &ev.instance)).fields(DECISION_FIELDS),
+        )
+        .expose::<TaskflowDecisionOption>(
+            Expose::to_group_with(|ev| group_for(DECISION_OPTIONS, &ev.instance))
+                .fields(DECISION_OPTION_FIELDS),
+        )
+        .expose::<TaskflowDecisionTask>(
+            Expose::to_group_with(|ev| group_for(DECISION_TASKS, &ev.instance))
+                .fields(DECISION_TASK_FIELDS),
+        )
+        .expose::<TaskflowDecisionComment>(
+            Expose::to_group_with(|ev| group_for(DECISION_COMMENTS, &ev.instance))
+                .fields(DECISION_COMMENT_FIELDS),
+        )
         .expose::<TaskflowAgent>(Expose::to_group_with(|ev| group_for(AGENTS, &ev.instance)))
         .expose::<TaskflowAgentCredential>(Expose::to_group_with(|ev| {
             group_for(AGENT_CREDENTIALS, &ev.instance)
@@ -433,6 +476,10 @@ const ALL_SUFFIXES: &[&str] = &[
     TASK_ACTIVITY,
     TASK_SESSIONS,
     TASK_REVIEWS,
+    DECISIONS,
+    DECISION_OPTIONS,
+    DECISION_TASKS,
+    DECISION_COMMENTS,
     AGENTS,
     AGENT_SESSIONS,
     AGENT_CREDENTIALS,

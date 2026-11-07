@@ -332,6 +332,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taskflow-agents",
+ "taskflow-decisions",
  "taskflow-design",
  "taskflow-github",
  "taskflow-projects",
@@ -3588,6 +3589,25 @@ dependencies = [
  "umbral-realtime",
  "umbral-testing",
  "uuid",
+]
+
+[[package]]
+name = "taskflow-decisions"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "taskflow-agents",
+ "taskflow-projects",
+ "taskflow-tasks",
+ "tokio",
+ "umbral",
+ "umbral-auth",
+ "umbral-testing",
 ]
 
 [[package]]

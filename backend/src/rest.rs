@@ -115,6 +115,14 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // (allowlisted, member-gated). Read-only + project-scoped keeps them off the
     // unscoped auto-REST default; a client create could fire keys at a pane.
     "taskflow_terminal_input",
+    // #1094: decisions. Written ONLY by the taskflow-decisions endpoints, which
+    // enforce who may ask, recommend and (humans only) rule. A client REST
+    // write could forge a ruling or a recommendation, or flip a status that
+    // unblocks work. Every row carries `project` for this scope.
+    "taskflow_decision",
+    "taskflow_decision_option",
+    "taskflow_decision_task",
+    "taskflow_decision_comment",
 ];
 
 /// Tables whose rows belong to a CHANNEL and must follow its visibility rather

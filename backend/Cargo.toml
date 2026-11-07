@@ -23,6 +23,7 @@ path = "src/lib.rs"
 [dependencies]
 taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-toolbox = { path = "plugins/taskflow-toolbox" }
+taskflow-decisions = { path = "plugins/taskflow-decisions" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }
 taskflow-projects = { path = "plugins/taskflow-projects" }
 taskflow-github = { path = "plugins/taskflow-github" }

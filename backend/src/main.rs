@@ -40,6 +40,7 @@ use taskflow_agents::TaskflowAgentsPlugin;
 use taskflow_design::TaskflowDesignPlugin;
 use taskflow_github::TaskflowGithubPlugin;
 use taskflow_toolbox::TaskflowToolboxPlugin;
+use taskflow_decisions::TaskflowDecisionsPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
 use umbral::prelude::*;
@@ -205,6 +206,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // identifier redaction (IPs, emails, phones are replaced, and the save
         // reports what it replaced).
         .plugin(TaskflowToolboxPlugin::default())
+        // #1094: decisions as first-class objects. Its tables are read-only
+        // over auto-REST (rest.rs); every write goes through its own routes,
+        // and only humans rule.
+        .plugin(TaskflowDecisionsPlugin::default())
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a
         // fresh admin isn't empty — add your own with `.dashboard_section`.
