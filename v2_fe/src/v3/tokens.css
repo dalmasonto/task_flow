@@ -1,0 +1,118 @@
+/* v3 design tokens, from docs/v3-design/tokens.css (the design project).
+ *
+ * Scoped to `html.v3` (set by V3App while a /v3 route is mounted), so v2 keeps its
+ * own palette until it is deleted. The selectors sit on <html>, not on a wrapper,
+ * so portalled shadcn content (dialogs, popovers, toasts) picks them up too.
+ * When v2 is gone, unscope these to :root / .dark and drop v2's values.
+ *
+ * Regenerate from the snapshot rather than hand-editing values.
+ */
+
+@theme inline {
+  --color-terminal: var(--terminal);
+  --color-terminal-foreground: var(--terminal-foreground);
+  --color-blocked: var(--blocked);
+  --color-done: var(--done);
+  --color-failed: var(--failed);
+  --color-idle: var(--idle);
+  --color-review: var(--review);
+  --color-running: var(--running);
+  --color-link: var(--link);
+  --color-destructive-foreground: var(--destructive-foreground);
+}
+
+/* Fonts: v3 uses Geist. --app-font-mono is read by the global --font-mono. */
+@theme {
+    --font-mono: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+html.v3 {
+    font-family: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --app-font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
+  --accent: oklch(0.94 0.008 240);
+  --accent-foreground: oklch(0.2 0.015 240);
+  --background: oklch(0.99 0.002 240);
+  --border: oklch(0.9 0.006 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.185 0.012 230);
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: oklch(0.55 0.12 300);
+  --destructive: oklch(0.58 0.18 28);
+  --foreground: oklch(0.185 0.012 230);
+  --input: oklch(0.875 0.018 230);
+  --muted: oklch(0.96 0.004 240);
+  --muted-foreground: oklch(0.49 0.025 230);
+  --popover: oklch(0.998 0.004 230);
+  --popover-foreground: oklch(0.185 0.012 230);
+  --primary: oklch(0.22 0.015 240);
+  --primary-foreground: oklch(0.985 0.004 240);
+  --ring: oklch(0.58 0.15 245);
+  --secondary: oklch(0.935 0.018 230);
+  --secondary-foreground: oklch(0.245 0.026 230);
+  --sidebar: oklch(0.975 0.003 240);
+  --sidebar-accent: oklch(0.93 0.008 240);
+  --sidebar-accent-foreground: oklch(0.2 0.015 240);
+  --sidebar-border: oklch(0.885 0.018 230);
+  --sidebar-foreground: oklch(0.235 0.02 230);
+  --sidebar-primary: oklch(0.22 0.015 240);
+  --sidebar-primary-foreground: oklch(0.985 0.006 230);
+  --sidebar-ring: oklch(0.62 0.11 238);
+  --terminal: oklch(0.2 0.015 230);
+  --terminal-foreground: oklch(0.9 0.012 230);
+  --blocked: oklch(0.62 0.15 65);
+  --done: oklch(0.52 0.09 195);
+  --failed: oklch(0.56 0.19 25);
+  --idle: oklch(0.62 0.02 230);
+  --review: oklch(0.55 0.17 295);
+  --running: oklch(0.56 0.14 155);
+  --link: oklch(0.5 0.15 250);
+  --destructive-foreground: oklch(0.985 0.004 240);
+  --radius: 0.625rem;
+}
+
+html.v3.dark {
+  --accent: oklch(0.27 0.012 240);
+  --accent-foreground: oklch(0.95 0.006 240);
+  --background: oklch(0.165 0.006 240);
+  --border: oklch(0.3 0.008 240);
+  --card: oklch(0.2 0.007 240);
+  --card-foreground: oklch(0.935 0.01 230);
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: oklch(0.72 0.11 300);
+  --destructive: oklch(0.68 0.17 25);
+  --foreground: oklch(0.935 0.01 230);
+  --input: oklch(0.33 0.025 230);
+  --muted: oklch(0.25 0.008 240);
+  --muted-foreground: oklch(0.72 0.025 230);
+  --popover: oklch(0.205 0.018 230);
+  --popover-foreground: oklch(0.935 0.01 230);
+  --primary: oklch(0.93 0.008 240);
+  --primary-foreground: oklch(0.2 0.015 240);
+  --ring: oklch(0.7 0.13 245);
+  --secondary: oklch(0.255 0.02 230);
+  --secondary-foreground: oklch(0.925 0.01 230);
+  --sidebar: oklch(0.185 0.006 240);
+  --sidebar-accent: oklch(0.27 0.012 240);
+  --sidebar-accent-foreground: oklch(0.95 0.006 240);
+  --sidebar-border: oklch(0.3 0.025 230);
+  --sidebar-foreground: oklch(0.91 0.01 230);
+  --sidebar-primary: oklch(0.93 0.008 240);
+  --sidebar-primary-foreground: oklch(0.16 0.02 238);
+  --sidebar-ring: oklch(0.72 0.13 238);
+  --terminal: oklch(0.13 0.015 230);
+  --terminal-foreground: oklch(0.9 0.012 230);
+  --blocked: oklch(0.8 0.14 75);
+  --done: oklch(0.74 0.1 195);
+  --failed: oklch(0.7 0.17 25);
+  --idle: oklch(0.62 0.02 230);
+  --review: oklch(0.74 0.13 295);
+  --running: oklch(0.74 0.15 155);
+  --link: oklch(0.76 0.12 245);
+  --destructive-foreground: oklch(0.985 0.004 240);
+}
