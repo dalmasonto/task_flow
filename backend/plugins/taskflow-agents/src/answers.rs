@@ -247,7 +247,12 @@ async fn submit(
     // and targeted at whoever asked — the asking agent gets it in its pane.
     let mut body = format!("Answers to #MSG{}:", message.id);
     for (question, value) in &checked {
-        body.push_str(&format!("\n- {} ({}): {}", question.label, question.key, questions::display_answer(question, value)));
+        body.push_str(&format!(
+            "\n- {} ({}): {}",
+            questions::one_line(&question.label),
+            question.key,
+            questions::display_answer(question, value)
+        ));
     }
     let asker_target = match message.sender_kind {
         TaskflowChannelMemberKind::Agent => message.sender_agent.as_ref().map(|a| json!([{ "kind": "agent", "id": a.id() }])),

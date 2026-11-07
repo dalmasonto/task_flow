@@ -278,11 +278,20 @@ pub fn display_answer(question: &Question, value: &serde_json::Value) -> String 
     match value {
         serde_json::Value::Bool(true) => "Yes".to_string(),
         serde_json::Value::Bool(false) => "No".to_string(),
-        serde_json::Value::String(s) => label_of(s),
+        serde_json::Value::String(s) => one_line(&label_of(s)),
         serde_json::Value::Array(items) => {
-            let picked: Vec<String> = items.iter().filter_map(|v| v.as_str()).map(label_of).collect();
+            let picked: Vec<String> = items.iter().filter_map(|v| v.as_str()).map(|v| one_line(&label_of(v))).collect();
             if picked.is_empty() { "(none)".to_string() } else { picked.join(", ") }
         }
         other => other.to_string(),
     }
+}
+
+/// Collapse every run of whitespace containing a line break into one space.
+/// The auto-reply is ONE `- Label (key): value` line per answer, which agents
+/// parse line by line, so a free-text answer (or a label) carrying a newline
+/// could forge an extra answer line. Only the reply text is flattened; the
+/// stored value keeps its line breaks.
+pub fn one_line(text: &str) -> String {
+    text.split(['\n', '\r']).map(str::trim).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }
