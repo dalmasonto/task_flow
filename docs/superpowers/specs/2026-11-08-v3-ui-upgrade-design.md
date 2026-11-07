@@ -211,6 +211,15 @@ markdown renders, in v2 and v3 alike:
 | `#GHI12`, `#GHI12@owner/name` | GitHub issue | open on GitHub; without `@repo`, use the project's default repo |
 | `#GHP44`, `#GHP44@owner/name` | GitHub pull request | same as issues |
 
+- **One renderer, one tag registry** (Dalmas, #MSG5659). Every surface that shows markdown
+  (chat, task description and notes, reviews, design comments, toolbox, dialogs) renders
+  through the one shared markdown component. Tags are entries in a single registry:
+  `{ prefix, pattern, resolve(id), open(id) }`. Adding a shortcut such as `#NOTE12` means
+  adding one entry, never touching a renderer. `#NOTE` is reserved now and resolves once
+  notes exist.
+- **Opening is in place.** `#MSG` (and every tag that has a popup) opens a dialog over the
+  current surface, so a `#MSG` inside a task stays in the task. Scroll-to-message applies
+  only when the message is in the chat currently on screen.
 - Case-insensitive on input, rendered as written. The chip's tooltip names the target, and
   for GitHub tags, the repo it resolved to.
 - **A bare `#123` is plain text.** It no longer triggers a task fetch (Dalmas: "Tasks
@@ -242,6 +251,17 @@ code: **edit message (#107) and message→task already exist in v2**, so they ar
 
 The four backend pieces follow the backend rules. Each is its own small slice, specified in
 the plan.
+
+### Inline message questions (#TSK1099, #MSG5657)
+The reviewer builds the backend: `meta` JSON with `meta.questions`, answers stored on the
+message, and a single answer endpoint. Claude designs the UI (a design page first), then
+builds it in the v3 chat port:
+- Question cards render inline under the message text, with answered and open states. Each
+  answer shows who gave it and when, and an answered card can still be expanded and read.
+- The v3 chat header and the inbox show an open-question count, and the inbox gets a
+  "Waiting on you" filter. Message ids (`#MSG…`) show on hover, with copy-on-click.
+- Submitting writes through the answer endpoint, and the asking agent gets the answer
+  without the human typing a reply. This replaces v2's popup flow in v3.
 
 ### Kept components, rewritten
 The file viewer dialog (`message-attachments.tsx` preview, plus the media page) is rebuilt
