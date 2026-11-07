@@ -70,6 +70,10 @@ import { TaskSessionDock } from "@/components/session-dock"
 import { WorkspaceDialog } from "@/components/workspace-dialog"
 import { type ActivityEvent, type AuthGateStatus, type ColumnId, type DialogMode, type DropTarget, type Priority, type Project, type Task } from "@/lib/workspace-view"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
+import { V3App } from "@/v3/V3App"
+import { V3Public } from "@/v3/V3Public"
+import { V3WorkspaceContext, type V3Workspace } from "@/v3/workspace"
+import { V3_DEFAULT, V3_LOGIN, v3GatePath, v3RouteKind } from "@/v3/routes"
 
 // #56 review: which open-task-detail field a deleted row belongs to, by realtime
 // table. Used to prune `openTaskDetail` on delete so the sheet overlay can't
@@ -522,7 +526,11 @@ function App() {
   const isAccountRoute = publicPath.startsWith("/account")
   // Both areas live inside the authenticated dashboard shell and share the same
   // auth gate and current-user fetch.
-  const isAppRoute = isDashboardRoute || isAccountRoute
+  // v3 (#TSK1100): its own shell under /v3, fed by this component's state and
+  // its one realtime stream through V3WorkspaceContext (see the branch above the
+  // v2 return). "public" pages render before the auth gate.
+  const v3Kind = v3RouteKind(publicPath)
+  const isAppRoute = isDashboardRoute || isAccountRoute || v3Kind === "app"
   const hasAuthSession = hasStoredAuthSession()
   const accountProjects = useMemo(
     () =>
@@ -1390,7 +1398,7 @@ function App() {
     reviews: reviewsNeeded,
     activity: activityNeeded,
     taskDetailId: openTaskNumericId,
-  } = sliceGatesFor({ pathname: location.pathname, chatSurfaceMounted, dockOpen, openTaskId, boardDialogOpen })
+  } = sliceGatesFor({ pathname: v3GatePath(location.pathname), chatSurfaceMounted, dockOpen, openTaskId, boardDialogOpen })
 
   /// #663: whether the floating Chat launcher owns the bottom-right corner.
   /// Hoisted from its JSX so the sessions dock (rendered above this line) can
@@ -1537,8 +1545,13 @@ function App() {
     }
   }, [tasksNeeded, presenceNeeded, chatNeeded, chatChannelsNeeded, activityNeeded, terminalNeeded, settingsNeeded, reviewsNeeded, openTaskNumericId, activeLiveProjectId, activeLiveWorkspace, applyWorkspaceUpdate, rememberActivityRowTitles, sliceRetry, retrySlice, markChannelsFailed, workspaceEpoch])
 
+  if (v3Kind === "public") {
+    return <V3Public />
+  }
+
   if (publicPath === "/") {
-    return <LandingPage />
+    // V3_DEFAULT (off until board, task and chat are ported) makes v3 home.
+    return V3_DEFAULT ? <Navigate to="/v3" replace /> : <LandingPage />
   }
 
   if (authMode) {
@@ -1555,7 +1568,7 @@ function App() {
 
   if (!hasAuthSession) {
     const next = `${location.pathname}${location.search}`
-    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+    return <Navigate to={`${v3Kind === "app" ? V3_LOGIN : "/login"}?next=${encodeURIComponent(next)}`} replace />
   }
 
   if (authGateStatus !== "authenticated") {
@@ -2246,11 +2259,33 @@ function App() {
     }
   }
 
-  async function handleLogout() {
+  async function handleLogout(to = "/login") {
     await logoutUser()
     setCurrentUser(null)
     setAuthGateStatus("anonymous")
-    navigate("/login", { replace: true })
+    navigate(to, { replace: true })
+  }
+
+  if (v3Kind === "app") {
+    // Plain object, no hook: this branch sits after the early returns, and v3
+    // re-renders with App anyway, so memoising would buy nothing.
+    const v3Workspace: V3Workspace = {
+      currentUser,
+      projects: sidebarProjects,
+      activeProject: activeProject ?? null,
+      projectTasks,
+      realtimeStatus,
+      isSyncing: isLiveSyncing,
+      counts: { pendingReviews, pendingInvites, designUnread, onlineAgents: activeProject?.agentsOnline ?? 0 },
+      chooseProject,
+      refresh: () => void loadLiveWorkspace(activeProjectId),
+      logout: () => handleLogout(V3_LOGIN),
+    }
+    return (
+      <V3WorkspaceContext.Provider value={v3Workspace}>
+        <V3App />
+      </V3WorkspaceContext.Provider>
+    )
   }
 
   return (
@@ -2275,7 +2310,7 @@ function App() {
         }}
         onArchiveProject={handleArchiveProject}
         onNavigate={(to) => navigate(to)}
-        onLogout={handleLogout}
+        onLogout={() => void handleLogout()}
       />
       <SidebarInset className="h-svh min-w-0 overflow-hidden">
         <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/95 px-4 backdrop-blur sm:px-6 lg:px-8">

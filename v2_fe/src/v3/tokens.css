@@ -23,12 +23,19 @@
 
 /* Fonts: v3 uses Geist. --app-font-mono is read by the global --font-mono. */
 @theme {
-    --font-mono: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --font-mono: var(
+    --app-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace
+  );
 }
 
 html.v3 {
-    font-family: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
-    --app-font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
+  font-family: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --app-font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
   --accent: oklch(0.94 0.008 240);
   --accent-foreground: oklch(0.2 0.015 240);
   --background: oklch(0.99 0.002 240);

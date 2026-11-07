@@ -1,4 +1,5 @@
 import { ArrowRightIcon, KanbanSquareIcon, LockIcon } from "lucide-react"
+import { defaultHome, safeNextPath, V3_HOME } from "@/v3/routes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Link, useLocation, useNavigate } from "react-router-dom"
@@ -10,7 +11,10 @@ import { type AuthMode } from "@/lib/workspace-view"
 import { useEffect, useState, type FormEvent } from "react"
 
 
-export function AuthPage({ mode }: { mode: AuthMode }) {
+/// `basePath` is "/v3" when the page is served at /v3/login (the v3 foundation
+/// reuses this page until its v3 rebuild lands), so links and the post-login
+/// redirect stay inside v3.
+export function AuthPage({ mode, basePath = "" }: { mode: AuthMode; basePath?: "" | "/v3" }) {
   const navigate = useNavigate()
   const location = useLocation()
   const resetTokenFromUrl = new URLSearchParams(location.search).get("token") ?? ""
@@ -71,7 +75,7 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
       setIsSubmitting(false)
       if (result.ok) {
         const nextPath = new URLSearchParams(location.search).get("next")
-        navigate(nextPath?.startsWith("/dashboard") ? nextPath : "/dashboard/board")
+        navigate(safeNextPath(nextPath, basePath ? V3_HOME : defaultHome()))
       }
       return
     }
@@ -253,7 +257,7 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
               </Button>
             </form>
 
-            <AuthFooter mode={mode} />
+            <AuthFooter mode={mode} basePath={basePath} />
           </div>
         </div>
       </section>
@@ -394,12 +398,12 @@ export function AuthTextInput({
 }
 
 
-export function AuthFooter({ mode }: { mode: AuthMode }) {
+export function AuthFooter({ mode, basePath = "" }: { mode: AuthMode; basePath?: "" | "/v3" }) {
   if (mode === "login") {
     return (
       <p className="mt-5 text-center text-sm text-muted-foreground">
         New to TaskFlow?{" "}
-        <Link to="/signup" className="font-medium text-primary hover:underline">
+        <Link to={`${basePath}/signup`} className="font-medium text-primary hover:underline">
           Create an account
         </Link>
       </p>
@@ -410,7 +414,7 @@ export function AuthFooter({ mode }: { mode: AuthMode }) {
     return (
       <p className="mt-5 text-center text-sm text-muted-foreground">
         Already have access?{" "}
-        <Link to="/login" className="font-medium text-primary hover:underline">
+        <Link to={`${basePath}/login`} className="font-medium text-primary hover:underline">
           Log in
         </Link>
       </p>
@@ -420,7 +424,7 @@ export function AuthFooter({ mode }: { mode: AuthMode }) {
   return (
     <p className="mt-5 text-center text-sm text-muted-foreground">
       Remember your credentials?{" "}
-      <Link to="/login" className="font-medium text-primary hover:underline">
+      <Link to={`${basePath}/login`} className="font-medium text-primary hover:underline">
         Back to login
       </Link>
     </p>
