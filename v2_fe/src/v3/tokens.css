@@ -22,12 +22,17 @@
 }
 
 /* Fonts: v3 uses Geist. --app-font-mono is read by the global --font-mono. */
+/* The fallback is Tailwind's default mono stack, so v2 renders exactly as before. */
 @theme {
   --font-mono: var(
     --app-font-mono,
     ui-monospace,
     SFMono-Regular,
     Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
     monospace
   );
 }

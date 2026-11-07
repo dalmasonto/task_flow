@@ -29,7 +29,10 @@ type RefDef = {
   source: string
 }
 
-const REPO = "[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+"
+/// owner/name. Neither part may END in a dot, so a sentence-ending period after
+/// `#GHI12@acme/app.` stays text instead of becoming part of the repo name.
+const REPO_PART = "[A-Za-z0-9._-]*[A-Za-z0-9_-]"
+const REPO = `${REPO_PART}\\/${REPO_PART}`
 
 /// Order matters only where one form is a prefix of another; longer first.
 export const REF_DEFS: RefDef[] = [

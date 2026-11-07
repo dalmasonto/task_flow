@@ -17,7 +17,7 @@ export function V3Public() {
   const path = pathname.replace(/\/$/, "")
   if (path === "/v3/login") return <AuthPage mode="login" basePath="/v3" />
   if (path === "/v3/signup") return <AuthPage mode="signup" basePath="/v3" />
-  if (path === "/v3/reset-password") return <AuthPage mode="reset" basePath="/v3" />
+  if (path === "/v3/reset-password" || path === "/v3/forgot-password") return <AuthPage mode="reset" basePath="/v3" />
   if (path.startsWith("/v3/confirm-password")) return <AuthPage mode="confirm" basePath="/v3" />
   // The landing page and the not-yet-ported public pages.
   return <Navigate to={hasStoredAuthSession() ? V3_HOME : V3_LOGIN} replace />

@@ -129,7 +129,7 @@ export function AuthPage({ mode, basePath = "" }: { mode: AuthMode; basePath?: "
           }}
         />
         <div className="relative z-10 flex h-full flex-col justify-between p-8">
-          <Link to="/" className="flex items-center gap-2 text-sm font-semibold">
+          <Link to={basePath || "/"} className="flex items-center gap-2 text-sm font-semibold">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <KanbanSquareIcon className="size-4" />
             </span>
@@ -150,7 +150,7 @@ export function AuthPage({ mode, basePath = "" }: { mode: AuthMode; basePath?: "
 
       <section className="flex min-h-svh items-center justify-center px-4 py-8 sm:px-6">
         <div className="w-full max-w-md">
-          <Link to="/" className="mb-8 flex items-center gap-2 text-sm font-semibold lg:hidden">
+          <Link to={basePath || "/"} className="mb-8 flex items-center gap-2 text-sm font-semibold lg:hidden">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <KanbanSquareIcon className="size-4" />
             </span>
@@ -245,7 +245,7 @@ export function AuthPage({ mode, basePath = "" }: { mode: AuthMode; basePath?: "
 
               {isLogin && (
                 <div className="flex justify-end">
-                  <Link to="/reset-password" className="text-sm font-medium text-primary hover:underline">
+                  <Link to={`${basePath}/reset-password`} className="text-sm font-medium text-primary hover:underline">
                     Forgot password?
                   </Link>
                 </div>

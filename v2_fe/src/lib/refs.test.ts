@@ -34,6 +34,22 @@ describe("splitRefs: the typed tags", () => {
   })
 })
 
+describe("splitRefs: punctuation after a repo qualifier", () => {
+  it("leaves a sentence-ending period as text", () => {
+    expect(splitRefs("see #GHI12@acme/app. and")).toEqual([
+      { type: "text", value: "see " },
+      { type: "ref", kind: "github-issue", id: 12, repo: "acme/app", raw: "#GHI12@acme/app" },
+      { type: "text", value: ". and" },
+    ])
+  })
+  it("leaves a trailing comma as text", () => {
+    expect(refs("#GHP3@acme/app, then")).toMatchObject([{ kind: "github-pr", id: 3, repo: "acme/app", raw: "#GHP3@acme/app" }])
+  })
+  it("keeps dots inside a name", () => {
+    expect(refs("#GHI1@a.b/c.d")).toMatchObject([{ repo: "a.b/c.d" }])
+  })
+})
+
 describe("splitRefs: what is NOT a reference", () => {
   it("leaves a bare #123 as plain text", () => {
     expect(splitRefs("the #1 priority, see #886")).toEqual([{ type: "text", value: "the #1 priority, see #886" }])
