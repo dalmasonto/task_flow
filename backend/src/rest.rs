@@ -139,6 +139,9 @@ const CHANNEL_SCOPED_TABLES: &[&str] = &[
     // scope can filter on it — `RestrictIn` is a plain column predicate and
     // cannot reach through `message__channel`.
     "taskflow_message_attachment",
+    // #1099: an answer belongs to its message's conversation. `channel` is
+    // denormalized onto the row for this scope, as for attachments.
+    "taskflow_message_answer",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -385,6 +388,10 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // forward only. A client create/update could forge another member's
             // cursor or move one backwards.
             "taskflow_channel_read_cursor" => config.views([Action::List, Action::Retrieve]),
+            // #1099: answers are written ONLY by the trusted answer endpoints,
+            // which derive the answerer, enforce who may answer, and post the
+            // auto-reply. A client write could forge someone's answer.
+            "taskflow_message_answer" => config.views([Action::List, Action::Retrieve]),
             _ => config,
         }
     });

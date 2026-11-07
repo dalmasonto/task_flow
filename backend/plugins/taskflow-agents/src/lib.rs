@@ -20,6 +20,7 @@
 //! convention — the framework only needs a type that impls `Plugin`.
 
 pub mod agent_auth;
+pub mod answers;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
 pub mod posting;
@@ -54,6 +55,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentChannelMember>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentMessage>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAttachment>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelReadCursor>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentTerminalFrame>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),

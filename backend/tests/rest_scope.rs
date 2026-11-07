@@ -1289,3 +1289,60 @@ async fn unconfigured_tables_like_auth_token_are_not_served() {
     // A configured resource still answers.
     assert_eq!(get_as(user, false, "/api/taskflow_project/").await.0, 200);
 }
+
+// #1099: message answers follow their CHANNEL, and only the trusted answer
+// endpoints write them. An answer in a DM must not leak to the project, and a
+// client must not be able to forge one through auto-REST.
+#[tokio::test]
+async fn message_answers_are_channel_scoped_and_read_only() {
+    use taskflow_agents::models::{
+        TaskflowAgentMessage, TaskflowChannelMemberKind, TaskflowMessageAnswer, taskflow_agent_message,
+    };
+    use umbral::orm::ForeignKey;
+
+    let (_, seed) = app().await;
+    async fn answer_in(channel: i64) -> i64 {
+        let message = TaskflowAgentMessage::objects()
+            .filter(taskflow_agent_message::CHANNEL.eq(channel))
+            .first()
+            .await
+            .unwrap()
+            .expect("a seeded message in the channel");
+        TaskflowMessageAnswer::objects()
+            .create(TaskflowMessageAnswer {
+                id: 0,
+                project: message.project.clone(),
+                channel: ForeignKey::new(channel),
+                message: ForeignKey::new(message.id),
+                key: "k".into(),
+                value_json: "true".into(),
+                answered_by_kind: TaskflowChannelMemberKind::User,
+                answered_by_user: None,
+                answered_by_agent: None,
+                answered_by_label: "seed".into(),
+                reply_message_id: None,
+                created_at: None,
+            })
+            .await
+            .unwrap()
+            .id
+    }
+    let shared = answer_in(seed.shared_channel).await;
+    let carols = answer_in(seed.carol_dm).await;
+
+    let (status, body) = get_as(seed.alice, false, "/api/taskflow_message_answer/").await;
+    assert_eq!(status, 200);
+    let ids = result_ids(&body);
+    assert!(ids.contains(&shared), "an answer in a room alice is on stays visible: {ids:?}");
+    assert!(!ids.contains(&carols), "an answer in carol's DM leaked: {ids:?}");
+    assert_eq!(status_as(seed.alice, &format!("/api/taskflow_message_answer/{carols}")).await, 404);
+
+    let (status, _) = post_as(
+        seed.alice,
+        "/api/taskflow_message_answer/",
+        serde_json::json!({ "project": 1, "channel": seed.shared_channel, "message": 1, "key": "k",
+                            "value_json": "true", "answered_by_kind": "user", "answered_by_label": "forged" }),
+    )
+    .await;
+    assert!(!(200..300).contains(&status), "a client created an answer through REST ({status})");
+}

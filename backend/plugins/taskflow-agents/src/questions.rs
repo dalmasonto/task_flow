@@ -21,13 +21,18 @@ pub const MAX_OPTIONS: usize = 12;
 /// The whole payload, matching the column's own ceiling (`models.rs`).
 pub const MAX_BYTES: usize = 20_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum QuestionKind {
     Radio,
     Select,
     Text,
     Date,
+    /// #1099: a plain yes or no. No options; the answer is a bool.
+    YesNo,
+    /// #1099: checkboxes — pick any number of the options, within
+    /// `min_select`..=`max_select`. The answer is an array of option values.
+    Multi,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +64,13 @@ pub struct Question {
     /// Text questions: a taller box for prose answers.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub multiline: bool,
+    /// Multi questions: the fewest options that may be picked (default 0, or
+    /// 1 when `required`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_select: Option<usize>,
+    /// Multi questions: the most options that may be picked (default: all).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_select: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,7 +131,22 @@ fn validate_set(set: &QuestionSet) -> Result<(), String> {
             return Err(format!("question `{key}` needs a label of 1-200 characters"));
         }
         match question.kind {
-            QuestionKind::Radio | QuestionKind::Select => {
+            QuestionKind::Radio | QuestionKind::Select | QuestionKind::Multi => {
+                if question.kind == QuestionKind::Multi {
+                    if question.allow_other {
+                        return Err(format!("question `{key}`: `allow_other` is for radio and select"));
+                    }
+                    let n = question.options.len();
+                    let min = question.min_select.unwrap_or(0);
+                    let max = question.max_select.unwrap_or(n);
+                    if max == 0 || max > n || min > max {
+                        return Err(format!(
+                            "question `{key}`: min_select/max_select must satisfy 0 <= min <= max <= {n} and max >= 1"
+                        ));
+                    }
+                } else if question.min_select.is_some() || question.max_select.is_some() {
+                    return Err(format!("question `{key}`: min_select/max_select are for multi questions"));
+                }
                 if question.options.len() < 2 {
                     return Err(format!("question `{key}` is a picker, so it needs at least 2 options"));
                 }
@@ -142,7 +169,10 @@ fn validate_set(set: &QuestionSet) -> Result<(), String> {
                     }
                 }
             }
-            QuestionKind::Text | QuestionKind::Date => {
+            QuestionKind::Text | QuestionKind::Date | QuestionKind::YesNo => {
+                if question.min_select.is_some() || question.max_select.is_some() {
+                    return Err(format!("question `{key}`: min_select/max_select are for multi questions"));
+                }
                 if !question.options.is_empty() {
                     return Err(format!("question `{key}` is a {} question and takes no options", kind_name(&question.kind)));
                 }
@@ -164,5 +194,95 @@ fn kind_name(kind: &QuestionKind) -> &'static str {
         QuestionKind::Select => "select",
         QuestionKind::Text => "text",
         QuestionKind::Date => "date",
+        QuestionKind::YesNo => "yes_no",
+        QuestionKind::Multi => "multi",
+    }
+}
+
+/// Parse a question set that is already stored (it was validated on send).
+pub fn parse_stored(raw: &str) -> Option<QuestionSet> {
+    serde_json::from_str(raw).ok()
+}
+
+/// Max characters of a free-text answer (text, or a picker's "other").
+pub const MAX_ANSWER_CHARS: usize = 4000;
+
+/// Check one answer against its question and return the canonical value to
+/// store. `Err` is a sentence naming what is wrong, for a field-level 400.
+pub fn check_answer(question: &Question, value: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+    let key = &question.key;
+    let text = |v: &Value| -> Result<String, String> {
+        let s = v.as_str().ok_or_else(|| format!("`{key}` takes a string"))?.trim().to_string();
+        if s.is_empty() {
+            return Err(format!("`{key}` cannot be empty"));
+        }
+        if s.chars().count() > MAX_ANSWER_CHARS {
+            return Err(format!("`{key}` is over {MAX_ANSWER_CHARS} characters"));
+        }
+        Ok(s)
+    };
+    match question.kind {
+        QuestionKind::YesNo => value
+            .as_bool()
+            .map(Value::Bool)
+            .ok_or_else(|| format!("`{key}` is yes/no: answer true or false")),
+        QuestionKind::Radio | QuestionKind::Select => {
+            let s = text(value)?;
+            if question.options.iter().any(|o| o.value == s) || question.allow_other {
+                Ok(Value::String(s))
+            } else {
+                Err(format!("`{key}`: `{s}` is not one of its options"))
+            }
+        }
+        QuestionKind::Multi => {
+            let items = value.as_array().ok_or_else(|| format!("`{key}` is multi: answer an array of option values"))?;
+            let mut picked: Vec<String> = Vec::new();
+            for item in items {
+                let s = item.as_str().ok_or_else(|| format!("`{key}`: every pick is an option value string"))?;
+                if !question.options.iter().any(|o| o.value == s) {
+                    return Err(format!("`{key}`: `{s}` is not one of its options"));
+                }
+                if !picked.iter().any(|p| p == s) {
+                    picked.push(s.to_string());
+                }
+            }
+            let min = question.min_select.unwrap_or(usize::from(question.required));
+            let max = question.max_select.unwrap_or(question.options.len());
+            if picked.len() < min || picked.len() > max {
+                return Err(format!("`{key}`: pick between {min} and {max} options"));
+            }
+            Ok(Value::Array(picked.into_iter().map(Value::String).collect()))
+        }
+        QuestionKind::Text => text(value).map(Value::String),
+        QuestionKind::Date => {
+            let s = text(value)?;
+            chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                .map_err(|_| format!("`{key}` is a date: answer YYYY-MM-DD"))?;
+            Ok(Value::String(s))
+        }
+    }
+}
+
+/// How an answer reads in the auto-reply: option LABELS, not raw values, and
+/// yes/no as words — the same `- label (key): answer` line the popup form sent.
+pub fn display_answer(question: &Question, value: &serde_json::Value) -> String {
+    let label_of = |v: &str| {
+        question
+            .options
+            .iter()
+            .find(|o| o.value == v)
+            .map(|o| o.label.clone())
+            .unwrap_or_else(|| v.to_string())
+    };
+    match value {
+        serde_json::Value::Bool(true) => "Yes".to_string(),
+        serde_json::Value::Bool(false) => "No".to_string(),
+        serde_json::Value::String(s) => label_of(s),
+        serde_json::Value::Array(items) => {
+            let picked: Vec<String> = items.iter().filter_map(|v| v.as_str()).map(label_of).collect();
+            if picked.is_empty() { "(none)".to_string() } else { picked.join(", ") }
+        }
+        other => other.to_string(),
     }
 }

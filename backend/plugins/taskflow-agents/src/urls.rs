@@ -118,6 +118,22 @@ pub fn router() -> Router {
             "/api/taskflow/messages/{message}/edit",
             post(views::edit_message),
         )
+        // #1099: answer a message's questions in place. Append-only rows in
+        // `taskflow_message_answer`; the question message itself is never
+        // written (an update would re-type it into every agent pane as an
+        // edit). Each submit posts one auto-reply to the asker.
+        .route(
+            "/api/taskflow/messages/{message}/answers",
+            get(crate::answers::get_answers).post(crate::answers::answer),
+        )
+        .route(
+            "/api/taskflow/agents/messages/{message}/answers",
+            get(crate::answers::get_answers_as_agent).post(crate::answers::answer_as_agent),
+        )
+        .route(
+            "/api/taskflow/channels/{channel}/answers",
+            get(crate::answers::channel_answers),
+        )
         // Read receipts / unread cursors. The human path is auth-gated; the agent
         // path is `RequireAgent`-gated. Both upsert the caller's own cursor
         // forward-only; the channel comes from the path.

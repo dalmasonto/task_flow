@@ -663,3 +663,47 @@ pub struct TaskflowRealtimeTicket {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// #1099: one answer to one question of a message's question set (#644).
+///
+/// **Append-only, and never written to the message row.** Changing a message
+/// row makes every agent's MCP re-type it into its pane as an EDIT (#107), so
+/// answers live here instead and the question message stays untouched. The
+/// newest row per `(message, key)` is the current answer; older rows are the
+/// history ("change answer" appends, it never overwrites).
+///
+/// Written ONLY by `POST …/messages/{message}/answers` (`answers.rs`), which
+/// derives the answerer from the caller. Auto-REST serves it read-only and
+/// CHANNEL-scoped (`backend::rest::CHANNEL_SCOPED_TABLES`), exactly like the
+/// message it answers — so `channel` is denormalized here for that scope.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["message", "key", "id"], ["channel", "message", "id"]])]
+pub struct TaskflowMessageAnswer {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    /// The question's `key` in the message's set.
+    #[umbral(string, max_length = 40)]
+    pub key: String,
+    /// The answer as JSON: a bool (yes_no), a string (radio/select/text/date),
+    /// or an array of strings (multi). Validated against the question first.
+    #[umbral(string, max_length = 8000)]
+    pub value_json: String,
+    #[umbral(choices, default = "user")]
+    pub answered_by_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub answered_by_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub answered_by_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub answered_by_label: String,
+    /// The auto-reply this submission posted (one per submit, shared by every
+    /// answer in it). Bare id, like `reply_to`.
+    pub reply_message_id: Option<i64>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}

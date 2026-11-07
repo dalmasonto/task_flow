@@ -4304,7 +4304,7 @@ async fn agent_on_channel_roster(channel_id: i64, agent_id: i64) -> Result<bool,
 /// an explicit agent roster row, OR a shared (non-`Direct`) room in the agent's
 /// own project. A DM the agent isn't on the roster of, or any room in another
 /// project, is invisible.
-async fn agent_can_see_channel(
+pub(crate) async fn agent_can_see_channel(
     channel: &TaskflowAgentChannel,
     agent_id: i64,
     project_id: i64,
@@ -5718,7 +5718,7 @@ async fn apply_agent_instructions(
 ///
 /// Not-found and forbidden answer the same way (404) on purpose: a caller who
 /// cannot see a channel must not learn that it exists.
-async fn ensure_channel_visible(user_id: i64, channel_id: i64) -> Result<TaskflowAgentChannel, StatusCode> {
+pub(crate) async fn ensure_channel_visible(user_id: i64, channel_id: i64) -> Result<TaskflowAgentChannel, StatusCode> {
     let channel = TaskflowAgentChannel::objects()
         .filter(taskflow_agent_channel::ID.eq(channel_id))
         .first()
