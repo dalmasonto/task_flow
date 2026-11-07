@@ -1,0 +1,44 @@
+<div class="min-h-dvh bg-background">
+  <div class="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-5">
+    <a href="/" class="font-semibold tracking-tight text-foreground">TaskFlow</a>
+    <a href="/board" class="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">Skip setup</a>
+  </div>
+
+  <main id="main" class="mx-auto w-full max-w-5xl px-5 pb-20 pt-6">
+    <tf-onboarding-steps current="3"></tf-onboarding-steps>
+
+    <div class="mt-12 max-w-2xl">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Connect both agents</h1>
+      <p class="mt-2 text-muted-foreground">One agent tried to connect with a key this project doesn't recognise. Fix it below; nothing else needs redoing.</p>
+    </div>
+
+    <ol class="mt-10 space-y-6">
+      <li class="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <tf-icon name="circle-check" class="size-5 shrink-0 text-running"></tf-icon>
+        <p class="text-sm text-foreground"><span class="font-medium">1. TaskFlow installed</span> <span class="text-muted-foreground">and added to Claude Code and Codex</span></p>
+      </li>
+      <li class="flex items-center gap-3 rounded-lg border border-destructive/50 bg-card px-4 py-3">
+        <tf-icon name="circle-alert" class="size-5 shrink-0 text-destructive"></tf-icon>
+        <p class="text-sm text-foreground"><span class="font-medium">2. Keys saved</span> <span class="text-muted-foreground">but the reviewer key doesn't match</span></p>
+      </li>
+      <li class="grid grid-cols-1 gap-4 md:grid-cols-[14rem_1fr]">
+        <div>
+          <h2 class="font-medium text-foreground">3. Start each agent</h2>
+          <p class="mt-1 text-sm text-muted-foreground">After fixing the key, restart Codex in its tmux session.</p>
+        </div>
+        <div class="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+          <tf-connect-card model="claude" name="Claude (main)" profile="main" cli="claude" state="connected" seen="2 minutes ago"></tf-connect-card>
+          <tf-connect-card model="codex" name="reviewer (codex)" profile="reviewer" cli="codex" state="error"></tf-connect-card>
+        </div>
+      </li>
+    </ol>
+
+    <div class="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
+      <a href="/onboarding-agents" class="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">Back</a>
+      <div class="flex flex-wrap items-center justify-end gap-4">
+        <p id="next-hint" class="text-sm text-muted-foreground">Available once both agents are connected</p>
+        <button type="button" disabled aria-describedby="next-hint" class="inline-flex h-11 cursor-not-allowed items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground opacity-50">Start their first conversation</button>
+      </div>
+    </div>
+  </main>
+</div>

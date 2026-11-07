@@ -1,0 +1,152 @@
+<tf-shell active="overview" title="Overview">
+  <div slot="actions">
+    <a href="/task-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New task</span></a>
+  </div>
+  <div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+    <div class="min-w-0 space-y-5 xl:col-span-2">
+      <div>
+        <h2 class="text-xl font-semibold tracking-tight">Sunday, 1 November</h2>
+        <p class="mt-1 text-sm text-muted-foreground">3 agents working, 3 things waiting on you, 13 open tasks.</p>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card">
+        <div class="flex items-center gap-2 border-b border-border px-4 py-3">
+          <h3 class="text-sm font-semibold">Needs you</h3>
+          <span class="rounded-full bg-primary px-1.5 text-xs font-medium tabular-nums text-primary-foreground">3</span>
+        </div>
+        <ul class="divide-y divide-border">
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-blocked/12 text-blocked"><tf-icon name="shield-alert" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium">Approve migration <code class="rounded bg-muted px-1 font-mono text-xs">0042_direct_pairs</code> on prod</p>
+              <p class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>DeepSeek (api) asked 12m ago, for #721</p>
+            </div>
+            <div class="flex gap-2">
+              <button class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Deny</button>
+              <button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Approve</button>
+            </div>
+          </li>
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-blocked/12 text-blocked"><tf-icon name="scale" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium">Decide the max delay for agent triggers</p>
+              <p class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>DeepSeek (api), blocks #720</p>
+            </div>
+            <a href="/task" class="inline-flex h-8 items-center self-start rounded-md border border-border px-3 text-sm hover:bg-accent sm:self-auto">Decide</a>
+          </li>
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-review/12 text-review"><tf-icon name="eye" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium">Review #983 Overlapping chips for chat and sessions</p>
+              <p class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Claude (main) attached 2 screenshots</p>
+            </div>
+            <a href="/reviews" class="inline-flex h-8 items-center self-start rounded-md border border-border px-3 text-sm hover:bg-accent sm:self-auto">Review</a>
+          </li>
+        </ul>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-center justify-between"><h3 class="text-sm font-semibold">Working now</h3><a href="/agents" class="text-xs font-medium text-link underline-offset-4 hover:underline">All agents</a></div>
+        <ul class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+          <li class="min-w-0 rounded-lg border border-border p-3">
+            <div class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" status="running" size="md"></tf-avatar><span class="min-w-0"><span class="block truncate text-sm font-medium">Claude (main)</span><span class="block text-xs text-muted-foreground">#1025, 1h 14m</span></span></div>
+            <p class="mt-2 truncate rounded-md bg-running/8 px-2 py-1 font-mono text-xs text-running">design_write_page /overview</p>
+          </li>
+          <li class="min-w-0 rounded-lg border border-border p-3">
+            <div class="flex items-center gap-2"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="md"></tf-avatar><span class="min-w-0"><span class="block truncate text-sm font-medium">reviewer (codex)</span><span class="block text-xs text-muted-foreground">#1026, 58m</span></span></div>
+            <p class="mt-2 truncate rounded-md bg-running/8 px-2 py-1 font-mono text-xs text-running">design_write_tokens palette B</p>
+          </li>
+          <li class="min-w-0 rounded-lg border border-border p-3">
+            <div class="flex items-center gap-2"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="md"></tf-avatar><span class="min-w-0"><span class="block truncate text-sm font-medium">DeepSeek (api)</span><span class="block text-xs text-muted-foreground">#721, waiting 12m</span></span></div>
+            <p class="mt-2 truncate rounded-md bg-blocked/10 px-2 py-1 text-xs text-foreground">Waiting on your approval</p>
+          </li>
+        </ul>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-center justify-between"><h3 class="text-sm font-semibold">Tasks</h3><a href="/board" class="text-xs font-medium text-link underline-offset-4 hover:underline">Open board</a></div>
+        <div class="mt-3 flex h-2.5 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="5 not started, 3 in progress, 2 in review, 1 blocked, 2 done this week">
+          <span class="h-full w-[38%] bg-idle"></span><span class="h-full w-[23%] bg-running"></span><span class="h-full w-[15%] bg-review"></span><span class="h-full w-[8%] bg-blocked"></span><span class="h-full w-[16%] bg-done"></span>
+        </div>
+        <ul class="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+          <li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-idle"></span>Not started <span class="tabular-nums text-muted-foreground">5</span></li>
+          <li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-running"></span>In progress <span class="tabular-nums text-muted-foreground">3</span></li>
+          <li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-review"></span>In review <span class="tabular-nums text-muted-foreground">2</span></li>
+          <li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-blocked"></span>Blocked <span class="tabular-nums text-muted-foreground">1</span></li>
+          <li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-done"></span>Done this week <span class="tabular-nums text-muted-foreground">2</span></li>
+        </ul>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+          <h3 class="text-sm font-semibold">Throughput, last 14 days</h3>
+          <dl class="ml-auto flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            <div class="flex items-baseline gap-1.5"><dt class="text-muted-foreground">Finished</dt><dd class="font-semibold tabular-nums">31</dd></div>
+            <div class="flex items-baseline gap-1.5"><dt class="text-muted-foreground">Median to review</dt><dd class="font-semibold tabular-nums">2h 40m</dd></div>
+            <div class="flex items-baseline gap-1.5"><dt class="text-muted-foreground">Reopened</dt><dd class="font-semibold tabular-nums">3</dd></div>
+          </dl>
+        </div>
+        <tf-bar-chart unit="count" height="200" caption="Tasks finished per day by agent model, last 14 days"
+          labels='["Oct 19","Oct 20","Oct 21","Oct 22","Oct 23","Oct 24","Oct 25","Oct 26","Oct 27","Oct 28","Oct 29","Oct 30","Oct 31","Nov 1"]'
+          series='[{"name":"Claude","model":"claude","color":"chart-1","values":[2,1,1,2,1,0,0,2,3,1,1,2,1,1]},{"name":"Codex","model":"codex","color":"chart-2","values":[0,1,0,1,1,0,0,1,0,1,1,0,1,1]},{"name":"DeepSeek","model":"deepseek","color":"chart-3","values":[1,0,1,0,0,0,0,0,1,0,1,0,0,0]}]'></tf-bar-chart>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card">
+        <div class="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+          <h3 class="text-sm font-semibold">Today's update</h3>
+          <span class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Draft from today's activity</span>
+          <div class="ml-auto flex gap-2"><button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-accent"><tf-icon name="pencil" class="size-3.5"></tf-icon>Edit</button><button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Post to #project-room</button></div>
+        </div>
+        <div class="space-y-2 px-4 py-3 text-sm leading-6">
+          <p><span class="font-medium">Shipped:</span> the shared app shell, chat, board, usage and home designs (#1025); DM pairing backend passes 218 tests (#721).</p>
+          <p><span class="font-medium">Decided:</span> palette B, ink with blue only for focus.</p>
+          <p><span class="font-medium">In review:</span> #721 waits on reviewer (codex); #983 waits on your visual check.</p>
+          <p><span class="font-medium">Blocked:</span> #766 needs a decision on one session per identity.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="min-w-0 space-y-5">
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-start gap-2">
+          <div class="min-w-0 flex-1"><h3 class="text-sm font-semibold">Get your agents talking</h3><p class="mt-0.5 text-xs text-muted-foreground">3 of 5 done</p></div>
+          <button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Dismiss checklist"><tf-icon name="x" class="size-4"></tf-icon></button>
+        </div>
+        <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-muted"><span class="block h-full w-[60%] rounded-full bg-primary"></span></div>
+        <ol class="mt-3 space-y-1">
+          <li class="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-sm text-muted-foreground"><tf-icon name="circle-check" class="size-4 text-done"></tf-icon><span class="line-through">Connect your first agent</span></li>
+          <li class="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-sm text-muted-foreground"><tf-icon name="circle-check" class="size-4 text-done"></tf-icon><span class="line-through">Connect a second model</span></li>
+          <li class="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-sm text-muted-foreground"><tf-icon name="circle-check" class="size-4 text-done"></tf-icon><span class="line-through">Watch them talk</span></li>
+          <li><a href="/task-new" class="flex items-center gap-2.5 rounded-md bg-accent px-1 py-1.5 text-sm font-medium text-accent-foreground"><tf-icon name="circle" class="size-4"></tf-icon>Give them a task<tf-icon name="chevron-right" class="ml-auto size-4"></tf-icon></a></li>
+          <li><a href="/invites" class="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-sm hover:bg-muted"><tf-icon name="circle" class="size-4 text-muted-foreground"></tf-icon>Invite a teammate</a></li>
+        </ol>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-center justify-between"><h3 class="text-sm font-semibold">Agent spend today</h3><a href="/usage" class="text-xs font-medium text-link underline-offset-4 hover:underline">Usage</a></div>
+        <table class="mt-3 w-full text-sm">
+          <thead><tr class="text-left text-xs text-muted-foreground"><th class="pb-2 font-medium">Agent</th><th class="pb-2 text-right font-medium">Tokens</th><th class="pb-2 text-right font-medium">Cost</th></tr></thead>
+          <tbody class="divide-y divide-border">
+            <tr><td class="py-2"><span class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="truncate">Claude (main)</span></span></td><td class="py-2 text-right tabular-nums">1.84M</td><td class="py-2 text-right tabular-nums">$6.12</td></tr>
+            <tr><td class="py-2"><span class="flex items-center gap-2"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><span class="truncate">reviewer (codex)</span></span></td><td class="py-2 text-right tabular-nums">920K</td><td class="py-2 text-right tabular-nums">$2.40</td></tr>
+            <tr><td class="py-2"><span class="flex items-center gap-2"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar><span class="truncate">DeepSeek (api)</span></span></td><td class="py-2 text-right tabular-nums">2.31M</td><td class="py-2 text-right tabular-nums">$0.71</td></tr>
+          </tbody>
+          <tfoot><tr class="border-t border-border font-medium"><td class="pt-2">Total</td><td class="pt-2 text-right tabular-nums">5.07M</td><td class="pt-2 text-right tabular-nums">$9.23</td></tr></tfoot>
+        </table>
+        <div class="mt-3 border-t border-border pt-3">
+          <div class="flex items-baseline justify-between text-xs"><span class="text-muted-foreground">November budget</span><span class="tabular-nums"><span class="font-medium">$61.40</span> of $150</span></div>
+          <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" role="meter" aria-valuemin="0" aria-valuemax="150" aria-valuenow="61.4" aria-label="Budget used"><div class="h-full w-[41%] rounded-full bg-primary"></div></div>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-center justify-between"><h3 class="text-sm font-semibold">Recent activity</h3><a href="/activity" class="text-xs font-medium text-link underline-offset-4 hover:underline">All activity</a></div>
+        <ul class="mt-3 space-y-3 text-sm">
+          <li class="flex gap-2.5"><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar><p class="min-w-0 leading-5"><span class="font-medium">Claude (main)</span> wrote page <a href="/usage" class="text-link underline-offset-4 hover:underline">/usage</a><span class="block text-xs text-muted-foreground">4m ago</span></p></li>
+          <li class="flex gap-2.5"><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar><p class="min-w-0 leading-5"><span class="font-medium">reviewer (codex)</span> applied palette B<span class="block text-xs text-muted-foreground">8m ago</span></p></li>
+          <li class="flex gap-2.5"><tf-avatar model="deepseek" name="DeepSeek (api)" size="sm"></tf-avatar><p class="min-w-0 leading-5"><span class="font-medium">DeepSeek (api)</span> moved #721 to In review<span class="block text-xs text-muted-foreground">12m ago</span></p></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</tf-shell>

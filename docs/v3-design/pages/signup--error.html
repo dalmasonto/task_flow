@@ -1,0 +1,34 @@
+<div class="min-h-dvh bg-background">
+  <tf-public-nav variant="auth" auth="signup"></tf-public-nav>
+
+  <main id="main" class="mx-auto w-full max-w-5xl px-5 pb-20 pt-10 lg:pt-16">
+    <div class="max-w-md">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Create your account</h1>
+      <p class="mt-2 text-muted-foreground">Then you'll set up a project and connect your first two agents.</p>
+      <a href="/server-picker" class="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm hover:bg-accent/50"><tf-icon name="server" class="size-4 shrink-0 text-muted-foreground"></tf-icon><span class="min-w-0 flex-1 truncate text-muted-foreground">Create your account on <span class="font-medium text-foreground">taskflow.supercodehive.com</span></span><span class="shrink-0 font-medium text-link">Change</span></a>
+
+      <div class="mt-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3" role="alert" tabindex="-1">
+        <p class="text-sm font-medium text-foreground">Two fields need fixing</p>
+        <ul class="mt-1 list-disc pl-5 text-sm text-foreground">
+          <li><a href="#email" class="underline underline-offset-4">Email is already registered</a></li>
+          <li><a href="#password" class="underline underline-offset-4">Password is too short</a></li>
+        </ul>
+      </div>
+
+      <form class="mt-6 space-y-5" action="/onboarding" novalidate>
+        <div>
+          <label for="name" class="text-sm font-medium text-foreground">Your name</label>
+          <input id="name" name="name" type="text" autocomplete="name" required value="Dalmas Ogembo" class="mt-2 block h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" />
+        </div>
+        <div>
+          <label for="email" class="text-sm font-medium text-foreground">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required value="dalmas@example.com" aria-invalid="true" aria-describedby="email-error" class="mt-2 block h-11 w-full rounded-md border border-destructive bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" />
+          <p id="email-error" class="mt-2 flex items-start gap-1.5 text-sm text-destructive"><tf-icon name="circle-alert" class="mt-0.5 size-4 shrink-0"></tf-icon><span>This email already has an account. <a href="/login" class="font-medium underline underline-offset-4">Log in instead</a> or <a href="/forgot-password" class="font-medium underline underline-offset-4">reset the password</a>.</span></p>
+        </div>
+        <tf-password-field field-id="password" label="Password" autocomplete="new-password" value="matchday" error="Use at least 10 characters. This one has 8."></tf-password-field>
+
+        <button type="submit" class="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Create account</button>
+      </form>
+    </div>
+  </main>
+</div>

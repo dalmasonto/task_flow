@@ -1,0 +1,81 @@
+<tf-shell active="agents" title="Wake-ups" back="/agents">
+  <div slot="actions">
+    <button class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New rule</span></button>
+  </div>
+  <div class="space-y-5">
+    <div class="max-w-2xl">
+      <h2 class="text-xl font-semibold tracking-tight">Wake me when</h2>
+      <p class="mt-1 text-sm text-muted-foreground">Agents stop polling. Each rule waits for an event or a time, then types a note into the agent's terminal or posts in a room. Agents set these themselves with <code class="rounded bg-muted px-1 font-mono text-xs">create_trigger</code>; you can add, pause or cancel them here.</p>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex gap-1 overflow-x-auto text-sm" role="tablist" aria-label="Filter by agent">
+        <button role="tab" aria-selected="true" class="h-8 shrink-0 rounded-full bg-accent px-3 font-medium text-accent-foreground">All agents <span class="tabular-nums">4</span></button>
+        <button role="tab" aria-selected="false" class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Claude (main)</button>
+        <button role="tab" aria-selected="false" class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>DeepSeek (api)</button>
+        <button role="tab" aria-selected="false" class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar>reviewer (codex)</button>
+      </div>
+      <select class="ml-auto h-8 rounded-md border border-input bg-background px-2 text-sm" aria-label="Status"><option>Any status</option><option>Armed</option><option>Fired</option><option>Missed</option></select>
+    </div>
+
+    <div class="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      <ul class="divide-y divide-border">
+        <li class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem_auto] md:items-center">
+          <tf-avatar model="deepseek" name="DeepSeek (api)" size="md"></tf-avatar>
+          <div class="min-w-0"><p class="text-sm"><span class="font-medium">CI finishes</span> on <span class="font-mono text-xs">deepseek/dm-pairs</span></p><p class="truncate text-xs text-muted-foreground">DeepSeek (api), for #721</p></div>
+          <p class="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto"><tf-icon name="terminal" class="size-3.5"></tf-icon>Type into pane %9</p>
+          <span class="col-start-2 inline-flex w-fit items-center gap-1.5 rounded-md bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running md:col-start-auto"><span class="size-1.5 rounded-full bg-running"></span>Armed</span>
+          <button class="col-start-2 justify-self-start rounded p-1 text-muted-foreground hover:bg-accent md:col-start-auto" aria-label="Rule actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem_auto] md:items-center">
+          <tf-avatar model="claude" name="Claude (main)" size="md"></tf-avatar>
+          <div class="min-w-0"><p class="text-sm"><span class="font-medium">In 5 minutes</span>, check whether the renderer deploy is done</p><p class="truncate text-xs text-muted-foreground">Claude (main), fires 17:06</p></div>
+          <p class="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto"><tf-icon name="terminal" class="size-3.5"></tf-icon>Type into pane %4</p>
+          <span class="col-start-2 inline-flex w-fit items-center gap-1.5 rounded-md bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running md:col-start-auto"><tf-icon name="alarm" class="size-3"></tf-icon>4m 12s</span>
+          <button class="col-start-2 justify-self-start rounded p-1 text-muted-foreground hover:bg-accent md:col-start-auto" aria-label="Rule actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem_auto] md:items-center">
+          <tf-avatar model="claude" name="Claude (main)" size="md"></tf-avatar>
+          <div class="min-w-0"><p class="text-sm"><span class="font-medium">Reply to my question</span> in #design-room</p><p class="truncate text-xs text-muted-foreground">Claude (main), waiting on Dalmas Ogembo</p></div>
+          <p class="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto"><tf-icon name="terminal" class="size-3.5"></tf-icon>Type into pane %4</p>
+          <span class="col-start-2 inline-flex w-fit items-center gap-1.5 rounded-md bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running md:col-start-auto"><span class="size-1.5 rounded-full bg-running"></span>Armed</span>
+          <button class="col-start-2 justify-self-start rounded p-1 text-muted-foreground hover:bg-accent md:col-start-auto" aria-label="Rule actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem_auto] md:items-center">
+          <tf-avatar model="codex" name="reviewer (codex)" size="md"></tf-avatar>
+          <div class="min-w-0"><p class="text-sm"><span class="font-medium">Task unblocked</span>: #720 Agent triggers</p><p class="truncate text-xs text-muted-foreground">reviewer (codex), fired 16:20 when the decision was ruled</p></div>
+          <p class="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto"><tf-icon name="hash" class="size-3.5"></tf-icon>Post in #backend</p>
+          <span class="col-start-2 inline-flex w-fit items-center gap-1.5 rounded-md bg-done/10 px-1.5 py-0.5 text-xs font-medium text-done md:col-start-auto"><tf-icon name="circle-check" class="size-3"></tf-icon>Fired</span>
+          <button class="col-start-2 justify-self-start rounded p-1 text-muted-foreground hover:bg-accent md:col-start-auto" aria-label="Rule actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem_auto] md:items-center">
+          <tf-avatar model="deepseek" name="DeepSeek (api)" size="md"></tf-avatar>
+          <div class="min-w-0"><p class="text-sm"><span class="font-medium">PR merged</span>: #44 DM pairing</p><p class="truncate text-xs text-muted-foreground">DeepSeek (api), then start the MCP send_dm tool</p></div>
+          <p class="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto"><tf-icon name="terminal" class="size-3.5"></tf-icon>Type into pane %9</p>
+          <span class="col-start-2 inline-flex w-fit items-center gap-1.5 rounded-md bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running md:col-start-auto"><span class="size-1.5 rounded-full bg-running"></span>Armed</span>
+          <button class="col-start-2 justify-self-start rounded p-1 text-muted-foreground hover:bg-accent md:col-start-auto" aria-label="Rule actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem_auto] md:items-center">
+          <tf-avatar model="claude" name="Claude (bear)" size="md"></tf-avatar>
+          <div class="min-w-0"><p class="text-sm"><span class="font-medium">Message in</span> #project-room mentioning @Claude (bear)</p><p class="truncate text-xs text-muted-foreground">Claude (bear), missed at 14:02 while no terminal was running</p></div>
+          <p class="col-start-2 flex items-center gap-1.5 text-xs text-muted-foreground md:col-start-auto"><tf-icon name="terminal" class="size-3.5"></tf-icon>Type into pane</p>
+          <span class="col-start-2 inline-flex w-fit items-center gap-1.5 rounded-md bg-blocked/12 px-1.5 py-0.5 text-xs font-medium text-foreground md:col-start-auto"><tf-icon name="alert" class="size-3 text-blocked"></tf-icon>Missed</span>
+          <button class="col-start-2 justify-self-start text-xs font-medium text-link underline-offset-4 hover:underline md:col-start-auto">Deliver now</button>
+        </li>
+      </ul>
+    </div>
+
+    <form class="min-w-0 rounded-xl border border-border bg-card p-4" aria-labelledby="new-rule-h">
+      <h3 id="new-rule-h" class="text-sm font-semibold">New rule</h3>
+      <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4 md:items-end">
+        <div class="min-w-0"><label for="r-who" class="text-xs font-medium text-muted-foreground">Wake</label><select id="r-who" class="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-base sm:text-sm"><option>Claude (main)</option><option>reviewer (codex)</option><option>DeepSeek (api)</option></select></div>
+        <div class="min-w-0"><label for="r-when" class="text-xs font-medium text-muted-foreground">When</label><select id="r-when" class="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-base sm:text-sm"><option selected>CI finishes</option><option>PR merged</option><option>Task unblocked</option><option>Reply to my question</option><option>Message in a room</option><option>After a time</option><option>A command exits 0</option></select></div>
+        <div class="min-w-0"><label for="r-on" class="text-xs font-medium text-muted-foreground">On</label><input id="r-on" value="claude/triggers" class="mt-1 h-9 w-full rounded-md border border-input bg-background px-2.5 font-mono text-base sm:text-sm"></div>
+        <div class="min-w-0"><label for="r-do" class="text-xs font-medium text-muted-foreground">Then</label><select id="r-do" class="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-base sm:text-sm"><option>Type into its pane</option><option>Post in a room</option><option>Both</option></select></div>
+      </div>
+      <div class="mt-3"><label for="r-msg" class="text-xs font-medium text-muted-foreground">Note it will see</label>
+        <div class="relative mt-1"><input id="r-msg" value="CI on claude/triggers finished. Check the result and fix or merge." class="h-9 w-full rounded-md border border-input bg-background px-2.5 pr-12 text-base sm:text-sm"><span class="absolute right-1 top-0.5"><tf-mic for="r-msg"></tf-mic></span></div></div>
+      <div class="mt-4 flex flex-wrap items-center gap-2"><p class="text-xs text-muted-foreground">Up to 20 armed rules per agent; a rule that fires while the agent is offline is delivered on its next session.</p><button type="submit" class="ml-auto h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Arm rule</button></div>
+    </form>
+  </div>
+</tf-shell>

@@ -1,0 +1,35 @@
+<tf-shell active="" title="Organisation">
+  <div slot="actions">
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent"><tf-icon name="download" class="size-4"></tf-icon><span class="hidden sm:inline">Export CSV</span></button>
+  </div>
+  <tf-org-nav active="audit"></tf-org-nav>
+
+  <p class="mt-6 max-w-2xl text-sm text-muted-foreground">Every action that changes access, money or production, by a person or an agent. Entries can't be edited or deleted. Kept for 12 months.</p>
+
+  <div class="mt-4 flex flex-wrap items-center gap-2">
+    <div class="inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Actor">
+      <button type="button" role="tab" aria-selected="true" class="rounded-md bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">Everyone</button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">People</button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Agents</button>
+    </div>
+    <label for="au-type" class="sr-only">Type</label>
+    <select id="au-type" class="h-9 rounded-md border border-input bg-background px-3 text-sm"><option>All types</option><option>Approvals</option><option>Denied actions</option><option>Keys and capabilities</option><option>People and roles</option><option>Deletes</option><option>Licence</option></select>
+    <label for="au-proj" class="sr-only">Project</label>
+    <select id="au-proj" class="h-9 rounded-md border border-input bg-background px-3 text-sm"><option>All projects</option><option>taskflow_v2</option><option>Matchday league site</option><option>Aqua</option></select>
+  </div>
+
+  <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-card">
+    <table class="w-full min-w-[48rem] text-sm">
+      <thead><tr class="border-b border-border text-left text-xs text-muted-foreground"><th class="px-4 py-2.5 font-medium">When</th><th class="px-4 py-2.5 font-medium">Who</th><th class="px-4 py-2.5 font-medium">What</th><th class="px-4 py-2.5 font-medium">Project</th></tr></thead>
+      <tbody class="divide-y divide-border">
+        <tr><td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">Today 19:41</td><td class="px-4 py-3"><span class="inline-flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar>Dalmas Ogembo</span></td><td class="px-4 py-3"><span class="font-medium text-foreground">Approved</span> migration 0042_direct_pairs on prod, asked by DeepSeek (api)</td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td></tr>
+        <tr><td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">Today 18:42</td><td class="px-4 py-3"><span class="inline-flex items-center gap-2"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>DeepSeek (api)</span></td><td class="px-4 py-3"><span class="font-medium text-destructive">Denied</span> design_write_page /usage: design editing is switched off</td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td></tr>
+        <tr><td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">Today 17:20</td><td class="px-4 py-3"><span class="inline-flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar>Dalmas Ogembo</span></td><td class="px-4 py-3"><span class="font-medium text-foreground">Switched off</span> design editing for DeepSeek (api)</td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td></tr>
+        <tr><td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">Today 11:02</td><td class="px-4 py-3"><span class="inline-flex items-center gap-2"><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar>Gemini (docs)</span></td><td class="px-4 py-3"><span class="font-medium text-foreground">Paused</span> at its $10 monthly cap</td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td></tr>
+        <tr><td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">30 Oct 09:15</td><td class="px-4 py-3"><span class="inline-flex items-center gap-2"><tf-avatar model="human" name="Achieng Otieno" size="xs"></tf-avatar>Achieng Otieno</span></td><td class="px-4 py-3"><span class="font-medium text-foreground">Invited</span> wanjiku@example.com as a member</td><td class="px-4 py-3 text-muted-foreground">Aqua</td></tr>
+        <tr><td class="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">29 Oct 22:47</td><td class="px-4 py-3"><span class="inline-flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar>Dalmas Ogembo</span></td><td class="px-4 py-3"><span class="font-medium text-foreground">Made a new key</span> for Claude (main); the old key stopped working</td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="mt-3 flex justify-center"><button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-accent">Load older entries</button></div>
+</tf-shell>

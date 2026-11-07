@@ -1,0 +1,12 @@
+<tf-shell active="api" title="API keys">
+  <div class="mx-auto mt-10 flex max-w-md flex-col items-center text-center" role="alert">
+    <span class="grid size-12 place-items-center rounded-full bg-destructive/10 text-destructive"><tf-icon name="circle-alert" class="size-5"></tf-icon></span>
+    <h2 class="mt-4 text-lg font-medium text-foreground">Couldn't load the agent keys</h2>
+    <p class="mt-1 text-sm text-muted-foreground">The server didn't answer in time. Your agents are unaffected: their keys keep working while this page is down.</p>
+    <div class="mt-5 flex gap-2">
+      <button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="refresh-cw" class="size-4"></tf-icon>Try again</button>
+      <a href="/agents" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-accent">Open agents</a>
+    </div>
+    <p class="mt-6 font-mono text-xs text-muted-foreground">Request 9c41e2, 504 from api.taskflow</p>
+  </div>
+</tf-shell>

@@ -1,0 +1,46 @@
+<tf-shell active="" title="Organisation">
+  <div slot="actions">
+    <a href="/onboarding" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New project</span></a>
+  </div>
+  <tf-org-nav active="overview"></tf-org-nav>
+
+  <dl class="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
+    <div class="bg-card p-4"><dt class="text-xs text-muted-foreground">Projects</dt><dd class="mt-1 text-2xl font-semibold tabular-nums text-card-foreground">3</dd></div>
+    <div class="bg-card p-4"><dt class="text-xs text-muted-foreground">People</dt><dd class="mt-1 text-2xl font-semibold tabular-nums text-card-foreground">4 <span class="text-sm font-normal text-muted-foreground">of 5 seats</span></dd></div>
+    <div class="bg-card p-4"><dt class="text-xs text-muted-foreground">Agents</dt><dd class="mt-1 text-2xl font-semibold tabular-nums text-card-foreground">4 <span class="text-sm font-normal text-muted-foreground">3 live</span></dd></div>
+    <div class="bg-card p-4"><dt class="text-xs text-muted-foreground">Agent spend, November</dt><dd class="mt-1 text-2xl font-semibold tabular-nums text-card-foreground">$71.40 <span class="text-sm font-normal text-muted-foreground">of $250</span></dd></div>
+  </dl>
+
+  <div class="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_22rem]">
+    <section class="min-w-0" aria-labelledby="proj-h">
+      <div class="flex items-center justify-between"><h2 id="proj-h" class="text-sm font-medium text-foreground">Projects</h2><a href="/home" class="text-sm text-link underline underline-offset-4">Open your home</a></div>
+      <div class="mt-3 overflow-x-auto rounded-xl border border-border bg-card">
+        <table class="w-full min-w-[40rem] text-sm">
+          <thead><tr class="border-b border-border text-left text-xs text-muted-foreground"><th class="px-4 py-2.5 font-medium">Project</th><th class="px-4 py-2.5 font-medium">Lead</th><th class="px-4 py-2.5 font-medium">Agents</th><th class="px-4 py-2.5 text-right font-medium">Open tasks</th><th class="px-4 py-2.5 text-right font-medium">Spend, Nov</th></tr></thead>
+          <tbody class="divide-y divide-border">
+            <tr class="hover:bg-accent/40"><td class="px-4 py-3"><a href="/overview" class="font-medium text-card-foreground hover:underline">taskflow_v2</a><p class="text-xs text-muted-foreground">dalmasonto/task_flow and 1 more repo</p></td><td class="px-4 py-3 text-muted-foreground">Dalmas Ogembo</td><td class="px-4 py-3"><span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar></span></td><td class="px-4 py-3 text-right tabular-nums">13</td><td class="px-4 py-3 text-right tabular-nums">$61.40</td></tr>
+            <tr class="hover:bg-accent/40"><td class="px-4 py-3"><a href="/overview" class="font-medium text-card-foreground hover:underline">Matchday league site</a><p class="text-xs text-muted-foreground">dalmasonto/matchday</p></td><td class="px-4 py-3 text-muted-foreground">Dalmas Ogembo</td><td class="px-4 py-3"><span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar></span></td><td class="px-4 py-3 text-right tabular-nums">8</td><td class="px-4 py-3 text-right tabular-nums">$9.00</td></tr>
+            <tr class="hover:bg-accent/40"><td class="px-4 py-3"><a href="/overview" class="font-medium text-card-foreground hover:underline">Aqua</a><p class="text-xs text-muted-foreground">No repo linked</p></td><td class="px-4 py-3 text-muted-foreground">Achieng Otieno</td><td class="px-4 py-3"><span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar></span></td><td class="px-4 py-3 text-right tabular-nums">4</td><td class="px-4 py-3 text-right tabular-nums">$1.00</td></tr>
+          </tbody>
+          <tfoot><tr class="border-t border-border"><td class="px-4 py-2.5 font-medium" colspan="3">Total</td><td class="px-4 py-2.5 text-right font-medium tabular-nums">25</td><td class="px-4 py-2.5 text-right font-medium tabular-nums">$71.40</td></tr></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <div class="min-w-0 space-y-6">
+      <section class="rounded-xl border border-border bg-card p-4" aria-labelledby="lic-h">
+        <h2 id="lic-h" class="text-sm font-medium text-card-foreground">Licence</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Noncommercial. You declared this organisation is used for personal and open-source work.</p>
+        <a href="/org-licence" class="mt-3 inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Review licence</a>
+      </section>
+      <section class="rounded-xl border border-border bg-card" aria-labelledby="audit-h">
+        <div class="flex items-center justify-between px-4 pt-4"><h2 id="audit-h" class="text-sm font-medium text-card-foreground">Recent sensitive actions</h2><a href="/org-audit" class="text-sm text-link underline underline-offset-4">Audit log</a></div>
+        <ul class="mt-2 divide-y divide-border">
+          <li class="flex gap-3 px-4 py-3"><tf-icon name="shield-check" class="mt-0.5 size-4 shrink-0 text-running"></tf-icon><p class="text-sm text-foreground">Dalmas approved migration 0042 on prod<span class="block text-xs text-muted-foreground">taskflow_v2, 14 minutes ago</span></p></li>
+          <li class="flex gap-3 px-4 py-3"><tf-icon name="key-round" class="mt-0.5 size-4 shrink-0 text-muted-foreground"></tf-icon><p class="text-sm text-foreground">Design editing switched off for DeepSeek (api)<span class="block text-xs text-muted-foreground">taskflow_v2, 2 hours ago</span></p></li>
+          <li class="flex gap-3 px-4 py-3"><tf-icon name="user-plus" class="mt-0.5 size-4 shrink-0 text-muted-foreground"></tf-icon><p class="text-sm text-foreground">Achieng invited wanjiku@example.com<span class="block text-xs text-muted-foreground">Aqua, 2 days ago</span></p></li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</tf-shell>

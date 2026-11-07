@@ -1,0 +1,69 @@
+<tf-shell active="agents" title="Claude (main) terminal" back="/agent-claude-main" flush>
+  <div slot="actions">
+    <a href="/agent-claude-main" class="hidden h-8 items-center rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex">Agent details</a>
+    <button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 text-sm font-medium text-destructive hover:bg-destructive/10"><tf-icon name="power" class="size-4"></tf-icon><span class="hidden sm:inline">End session</span></button>
+  </div>
+  <div class="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row lg:p-4">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <div class="min-h-72 flex-1"><tf-terminal model="claude" name="Claude (main)" pane="%4" preset="design" static></tf-terminal></div>
+
+      <div class="shrink-0 rounded-xl border border-border bg-card p-3">
+        <div class="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <span class="inline-flex items-center gap-1.5 rounded-md bg-blocked/12 px-2 py-1 font-medium text-foreground"><tf-icon name="alert" class="size-3.5 text-blocked"></tf-icon>Keys go straight to the agent's terminal</span>
+          <span class="text-muted-foreground">Anything you type runs as if typed in tmux pane %4.</span>
+          <div class="ml-auto inline-flex rounded-md border border-border p-0.5" role="radiogroup" aria-label="Terminal control">
+            <button role="radio" aria-checked="false" class="rounded px-2 py-0.5 text-muted-foreground hover:text-foreground">Read only</button>
+            <button role="radio" aria-checked="true" class="rounded bg-accent px-2 py-0.5 font-medium text-accent-foreground">Can type</button>
+          </div>
+        </div>
+        <form class="flex flex-col gap-2 sm:flex-row sm:items-center" aria-label="Send to pane %4">
+          <label for="term-input" class="sr-only">Send to pane %4</label>
+          <div class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-2.5 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30">
+            <span class="font-mono text-sm text-muted-foreground">%4</span>
+            <input id="term-input" class="h-10 min-w-0 flex-1 bg-transparent font-mono text-base outline-none placeholder:text-muted-foreground sm:text-sm" placeholder="Send to pane %4, e.g. check the CI on dm-pairs" autocomplete="off" spellcheck="false">
+            <tf-mic for="term-input"></tf-mic>
+          </div>
+          <button type="submit" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="send" class="size-4"></tf-icon>Send with Enter</button>
+        </form>
+        <div class="mt-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Special keys">
+          <span class="mr-1 text-xs text-muted-foreground">Keys</span>
+          <button class="h-8 rounded-md border border-border px-2.5 font-mono text-xs hover:bg-accent">Esc</button>
+          <button class="h-8 rounded-md border border-destructive/40 px-2.5 font-mono text-xs text-destructive hover:bg-destructive/10" title="Interrupt the agent">Ctrl C</button>
+          <button class="h-8 rounded-md border border-border px-2.5 font-mono text-xs hover:bg-accent">Tab</button>
+          <button class="h-8 rounded-md border border-border px-2.5 font-mono text-xs hover:bg-accent" aria-label="Up arrow">Up</button>
+          <button class="h-8 rounded-md border border-border px-2.5 font-mono text-xs hover:bg-accent">Enter</button>
+          <span class="ml-auto hidden text-xs text-muted-foreground sm:inline">Writes go through one queue, so two people never cross-type.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="min-w-0 shrink-0 space-y-3 lg:w-72 lg:overflow-y-auto">
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-center gap-3"><tf-avatar model="claude" name="Claude (main)" status="running" size="lg"></tf-avatar><div class="min-w-0"><p class="truncate font-semibold">Claude (main)</p><p class="text-xs text-muted-foreground">Claude Code, profile main</p></div></div>
+        <dl class="mt-4 space-y-2.5 text-sm">
+          <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Session</dt><dd class="truncate font-mono text-xs">taskflow_v2_main</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Pane</dt><dd class="font-mono text-xs">%4</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Started</dt><dd>15:08, 1h 52m ago</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Working on</dt><dd><a href="/task" class="text-link underline-offset-4 hover:underline">#1025</a></dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Cost so far</dt><dd class="tabular-nums">$6.12, 1.84M tokens</dd></div>
+        </dl>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h2 class="text-sm font-semibold">Who has control</h2>
+        <ul class="mt-3 space-y-2.5 text-sm">
+          <li class="flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" status="running" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">Dalmas Ogembo</span><span class="rounded bg-accent px-1.5 py-0.5 text-xs font-medium text-accent-foreground">Typing</span></li>
+          <li class="flex items-center gap-2"><tf-avatar model="human" name="Achieng Otieno" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">Achieng Otieno</span><span class="text-xs text-muted-foreground">Watching</span></li>
+        </ul>
+        <p class="mt-3 text-xs text-muted-foreground">One person types at a time. Others can ask for control.</p>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h2 class="text-sm font-semibold">Sent from here</h2>
+        <ol class="mt-3 space-y-2 font-mono text-xs">
+          <li class="flex gap-2"><span class="shrink-0 text-muted-foreground">16:58</span><span class="min-w-0 break-words">check the CI on dm-pairs</span></li>
+          <li class="flex gap-2"><span class="shrink-0 text-muted-foreground">16:41</span><span class="text-destructive">Ctrl C</span></li>
+          <li class="flex gap-2"><span class="shrink-0 text-muted-foreground">16:40</span><span class="min-w-0 break-words">stop the screenshot loop</span></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</tf-shell>

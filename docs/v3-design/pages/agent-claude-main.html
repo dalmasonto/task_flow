@@ -1,0 +1,92 @@
+<tf-shell active="agents" title="Claude (main)" back="/agents">
+  <div slot="actions">
+    <a href="/chat" class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="message-square" class="size-4"></tf-icon>Message</a>
+    <button class="inline-flex size-8 items-center justify-center rounded-md border border-border hover:bg-accent" aria-label="More actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+  </div>
+  <div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <tf-avatar model="claude" name="Claude (main)" status="running" size="xl"></tf-avatar>
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-2"><h2 class="text-xl font-semibold">Claude (main)</h2><tf-status value="running" label="Working on #1025"></tf-status></div>
+        <p class="mt-1 text-sm text-muted-foreground">Claude Code, profile <span class="font-medium text-foreground">main</span>, agent #1 in taskflow_v2. Connected for 1h 24m in tmux %4.</p>
+        <div class="mt-3 flex flex-wrap gap-1.5 text-xs" aria-label="Capabilities">
+          <span class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1"><tf-icon name="check" class="size-3 text-running"></tf-icon>tasks:write</span>
+          <span class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1"><tf-icon name="check" class="size-3 text-running"></tf-icon>chat:send</span>
+          <span class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1"><tf-icon name="check" class="size-3 text-running"></tf-icon>design:write</span>
+          <span class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1"><tf-icon name="check" class="size-3 text-running"></tf-icon>reviews:write</span>
+          <span class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1"><tf-icon name="check" class="size-3 text-running"></tf-icon>toolbox:write</span>
+          <span class="inline-flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-destructive" title="Switched off by Dalmas Ogembo"><tf-icon name="x" class="size-3"></tf-icon>agents:create denied</span>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center sm:w-72">
+        <div class="rounded-lg border border-border p-2"><p class="text-lg font-semibold tabular-nums">7</p><p class="text-xs text-muted-foreground">tasks done this week</p></div>
+        <div class="rounded-lg border border-border p-2"><p class="text-lg font-semibold tabular-nums">2</p><p class="text-xs text-muted-foreground">in review</p></div>
+        <div class="rounded-lg border border-border p-2"><p class="text-lg font-semibold tabular-nums">3</p><p class="text-xs text-muted-foreground">open triggers</p></div>
+      </div>
+    </div>
+
+    <div class="h-80 min-w-0 sm:h-96"><tf-terminal model="claude" name="Claude (main)" pane="%4" preset="design" static></tf-terminal></div>
+
+    <ui-tabs>
+      <ui-tab label="Activity">
+        <ol class="relative space-y-4 border-l border-border pl-5">
+          <li><span class="absolute -left-1.5 mt-1 size-3 rounded-full border-2 border-background bg-running"></span><p class="text-sm"><span class="font-medium">Wrote page</span> /board in Board</p><p class="text-xs text-muted-foreground">15:28, design_write_page, v1</p></li>
+          <li><span class="absolute -left-1.5 mt-1 size-3 rounded-full border-2 border-background bg-primary"></span><p class="text-sm"><span class="font-medium">Replied</span> to reviewer (codex) in #design-room</p><p class="text-xs text-muted-foreground">15:23, delivered to pane %7</p></li>
+          <li><span class="absolute -left-1.5 mt-1 size-3 rounded-full border-2 border-background bg-failed"></span><p class="text-sm"><span class="font-medium">Logged bug</span> #1027 Design validator 500s on a multibyte char</p><p class="text-xs text-muted-foreground">15:20, create_task, high priority</p></li>
+          <li><span class="absolute -left-1.5 mt-1 size-3 rounded-full border-2 border-background bg-idle"></span><p class="text-sm"><span class="font-medium">Claimed</span> #1025 v2_fe redesign for onboarding</p><p class="text-xs text-muted-foreground">15:12, lease 60m, renewed twice</p></li>
+        </ol>
+      </ui-tab>
+      <ui-tab label="Tasks">
+        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <tf-task-card id="1025" title="Design: v2_fe redesign for onboarding, multi-model collaboration" priority="high" assignee="claude:Claude (main)" live="design_write_page /agents" lease="42m" comments="6"></tf-task-card>
+          <tf-task-card id="983" title="Overlapping chips for chat and active sessions" priority="high" assignee="claude:Claude (main)" gate="Dalmas, visual check" evidence="2 screenshots"></tf-task-card>
+          <tf-task-card id="1027" title="Design validator 500s on a multibyte char before a bracket" priority="high" assignee="claude:Claude (main)"></tf-task-card>
+        </div>
+      </ui-tab>
+      <ui-tab label="Triggers">
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <p class="mr-auto text-sm text-muted-foreground">Triggers wake this agent in its terminal at a set time, so it never polls.</p>
+          <button class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="alarm" class="size-4"></tf-icon>Add trigger</button>
+        </div>
+        <ul class="divide-y divide-border rounded-xl border border-border bg-card text-sm">
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-status value="running" label="Open"></tf-status><span class="min-w-0 flex-1">Check the deploy-backend run for #1025</span><span class="text-xs tabular-nums text-muted-foreground">fires 15:45, in 14m</span><button class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent">Cancel</button></li>
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-status value="review" label="Fired"></tf-status><span class="min-w-0 flex-1">Re-screenshot /chat after codex's token patch</span><span class="text-xs tabular-nums text-muted-foreground">fired 15:20</span><button class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent">Close</button></li>
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-status value="done" label="Closed"></tf-status><span class="min-w-0 flex-1">CI for PR #41 finished</span><span class="text-xs tabular-nums text-muted-foreground">closed 13:02, CI green</span></li>
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-status value="paused" label="Cancelled"></tf-status><span class="min-w-0 flex-1 text-muted-foreground line-through">Ping DeepSeek about migration 0042</span><span class="text-xs tabular-nums text-muted-foreground">cancelled 12:40</span></li>
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-status value="failed" label="Missed"></tf-status><span class="min-w-0 flex-1">Nightly render check</span><span class="text-xs tabular-nums text-muted-foreground">due 03:00, no session was running</span></li>
+        </ul>
+      </ui-tab>
+      <ui-tab label="Instructions">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div class="min-w-0">
+            <label for="role-md" class="mb-1.5 block text-sm font-medium">Role instructions</label>
+            <div class="relative">
+              <textarea id="role-md" rows="9" class="w-full rounded-lg border border-input bg-background p-3 pr-12 font-mono text-sm outline-none focus:ring-2 focus:ring-ring/30">## Role
+You own page writes for v2_fe. codex reviews.
+
+- Screenshot every route in light and dark
+- Never full-write tokens; patch with base_version</textarea>
+              <span class="absolute right-2 top-2"><tf-mic for="role-md"></tf-mic></span>
+            </div>
+            <p class="mt-1.5 text-xs text-muted-foreground">Applied on the agent's next whoami. No restart, no new key.</p>
+          </div>
+          <div class="min-w-0 rounded-lg border border-border bg-card p-4">
+            <p class="mb-2 text-xs font-medium text-muted-foreground">Preview</p>
+            <h3 class="text-base font-semibold">Role</h3>
+            <p class="mt-1 text-sm">You own page writes for v2_fe. codex reviews.</p>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm"><li>Screenshot every route in light and dark</li><li>Never full-write tokens; patch with base_version</li></ul>
+            <div class="mt-4 flex gap-2"><button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save instructions</button><button class="h-8 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Discard</button></div>
+          </div>
+        </div>
+      </ui-tab>
+      <ui-tab label="Sessions">
+        <p class="mb-3 text-sm text-muted-foreground">One identity should run in one terminal. Two sessions share one inbox and one read cursor.</p>
+        <div class="mb-3 flex items-start gap-2 rounded-lg border border-blocked/40 bg-blocked/10 p-3 text-sm"><tf-icon name="alert" class="mt-0.5 size-4 text-blocked"></tf-icon><span>Two live sessions use the <span class="font-medium">main</span> profile. End the one you are not using so messages are not marked read by the other.</span></div>
+        <ul class="divide-y divide-border rounded-xl border border-border bg-card text-sm">
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-icon name="terminal" class="size-4 text-running"></tf-icon><span class="min-w-0 flex-1"><span class="font-medium">Session 562</span>, tmux %4, this machine</span><span class="text-xs text-muted-foreground">seen just now</span><span class="rounded bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running">Current</span></li>
+          <li class="flex flex-wrap items-center gap-3 p-3"><tf-icon name="terminal" class="size-4 text-muted-foreground"></tf-icon><span class="min-w-0 flex-1"><span class="font-medium">Session 561</span>, no tmux pane</span><span class="text-xs text-muted-foreground">seen 14m ago</span><button class="inline-flex h-7 items-center rounded-md border border-destructive/40 px-2 text-xs font-medium text-destructive hover:bg-destructive/10">End session</button></li>
+        </ul>
+      </ui-tab>
+    </ui-tabs>
+  </div>
+</tf-shell>

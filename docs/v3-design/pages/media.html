@@ -1,0 +1,60 @@
+<tf-shell active="media" title="Media">
+  <div class="flex flex-wrap items-center gap-3">
+    <div class="inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="File type">
+      <button type="button" role="tab" aria-selected="true" class="rounded-md bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">All <span class="tabular-nums text-muted-foreground">38</span></button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Images <span class="tabular-nums">21</span></button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Documents <span class="tabular-nums">14</span></button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Other <span class="tabular-nums">3</span></button>
+    </div>
+    <div class="relative ml-auto w-full sm:w-64">
+      <label for="media-q" class="sr-only">Search files</label>
+      <tf-icon name="search" class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"></tf-icon>
+      <input id="media-q" type="search" placeholder="Search files" class="block h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-base text-foreground sm:text-sm" />
+    </div>
+  </div>
+
+  <div class="mt-5 overflow-hidden rounded-xl border border-border bg-card">
+    <table class="w-full text-sm">
+      <thead class="sticky top-0 bg-card">
+        <tr class="border-b border-border text-left text-xs text-muted-foreground">
+          <th class="px-4 py-2.5 font-medium">File</th>
+          <th class="hidden px-4 py-2.5 font-medium md:table-cell">Shared in</th>
+          <th class="hidden px-4 py-2.5 font-medium sm:table-cell">By</th>
+          <th class="px-4 py-2.5 text-right font-medium">Size</th>
+          <th class="hidden px-4 py-2.5 text-right font-medium lg:table-cell">Added</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        <tr class="hover:bg-accent/40">
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-md bg-muted"><tf-icon name="image" class="size-4 text-muted-foreground"></tf-icon></span><span class="min-w-0"><span class="block truncate font-medium text-card-foreground">palette-compare-board.jpg</span><span class="block text-xs text-muted-foreground md:hidden">#design-room</span></span></div></td>
+          <td class="hidden px-4 py-3 md:table-cell"><a href="/chat" class="text-muted-foreground hover:text-foreground">#design-room</a></td>
+          <td class="hidden px-4 py-3 sm:table-cell"><span class="inline-flex items-center gap-2"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><span class="text-muted-foreground">reviewer (codex)</span></span></td>
+          <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">288 KB</td>
+          <td class="hidden px-4 py-3 text-right text-muted-foreground lg:table-cell">Today, 19:17</td>
+        </tr>
+        <tr class="hover:bg-accent/40">
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-md bg-muted"><tf-icon name="file-text" class="size-4 text-muted-foreground"></tf-icon></span><span class="min-w-0"><span class="block truncate font-medium text-card-foreground">design-intelligence-skill.md</span><span class="block text-xs text-muted-foreground md:hidden">#project-room</span></span></div></td>
+          <td class="hidden px-4 py-3 md:table-cell"><a href="/chat" class="text-muted-foreground hover:text-foreground">#project-room</a></td>
+          <td class="hidden px-4 py-3 sm:table-cell"><span class="inline-flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar><span class="text-muted-foreground">dalmasonto</span></span></td>
+          <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">58 KB</td>
+          <td class="hidden px-4 py-3 text-right text-muted-foreground lg:table-cell">Today, 18:10</td>
+        </tr>
+        <tr class="hover:bg-accent/40">
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-md bg-muted"><tf-icon name="image" class="size-4 text-muted-foreground"></tf-icon></span><span class="min-w-0"><span class="block truncate font-medium text-card-foreground">Screenshot from 2026-10-29 00-55-35.png</span><span class="block text-xs text-muted-foreground md:hidden">#983</span></span></div></td>
+          <td class="hidden px-4 py-3 md:table-cell"><a href="/task" class="text-muted-foreground hover:text-foreground">#983 Overlapping chips</a></td>
+          <td class="hidden px-4 py-3 sm:table-cell"><span class="inline-flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar><span class="text-muted-foreground">dalmasonto</span></span></td>
+          <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">6 KB</td>
+          <td class="hidden px-4 py-3 text-right text-muted-foreground lg:table-cell">29 Oct</td>
+        </tr>
+        <tr class="hover:bg-accent/40">
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-md bg-muted"><tf-icon name="file-text" class="size-4 text-muted-foreground"></tf-icon></span><span class="min-w-0"><span class="block truncate font-medium text-card-foreground">matchday-brief.pdf</span><span class="block text-xs text-muted-foreground md:hidden">#612</span></span></div></td>
+          <td class="hidden px-4 py-3 md:table-cell"><a href="/task" class="text-muted-foreground hover:text-foreground">#612 Matchday demo</a></td>
+          <td class="hidden px-4 py-3 sm:table-cell"><span class="inline-flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="text-muted-foreground">Claude (main)</span></span></td>
+          <td class="px-4 py-3 text-right tabular-nums text-muted-foreground">1.4 MB</td>
+          <td class="hidden px-4 py-3 text-right text-muted-foreground lg:table-cell">6 Oct</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="mt-3 text-xs text-muted-foreground">Files shared in rooms and on tasks. Up to 25 MB each.</p>
+</tf-shell>

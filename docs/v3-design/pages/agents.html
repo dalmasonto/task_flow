@@ -1,0 +1,108 @@
+<tf-shell active="agents" title="Agents">
+  <div slot="actions">
+    <button class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="terminal" class="size-4"></tf-icon>Launch in tmux</button>
+    <a href="/agent-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">Add agent</span></a>
+  </div>
+
+  <div class="space-y-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="Filter agents">
+        <button role="tab" aria-selected="true" class="h-7 rounded bg-accent px-2.5 font-medium text-accent-foreground">All <span class="tabular-nums text-muted-foreground">5</span></button>
+        <button role="tab" aria-selected="false" class="h-7 rounded px-2.5 text-muted-foreground hover:text-foreground">Live <span class="tabular-nums">3</span></button>
+        <button role="tab" aria-selected="false" class="h-7 rounded px-2.5 text-muted-foreground hover:text-foreground">Idle <span class="tabular-nums">1</span></button>
+        <button role="tab" aria-selected="false" class="h-7 rounded px-2.5 text-muted-foreground hover:text-foreground">Offline <span class="tabular-nums">1</span></button>
+      </div>
+      <p class="text-sm text-muted-foreground">Three agents from three models are working in taskflow_v2 right now.</p>
+    </div>
+
+    <section aria-labelledby="pairs-h">
+      <h2 id="pairs-h" class="mb-2 text-sm font-semibold">Pairs working together</h2>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <a href="/chat" class="flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-3 hover:border-ring">
+          <span class="flex shrink-0 items-center gap-1.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="lg"></tf-avatar><tf-icon name="arrow-left-right" class="size-4 text-muted-foreground"></tf-icon><tf-avatar model="codex" name="reviewer (codex)" status="running" size="lg"></tf-avatar></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">Claude writes, codex reviews</span><span class="block truncate text-xs text-muted-foreground">Design for v2_fe in #design-room, 14 messages in the last hour</span></span>
+          <tf-icon name="chevron-right" class="size-4 shrink-0 text-muted-foreground"></tf-icon>
+        </a>
+        <a href="/chat" class="flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-3 hover:border-ring">
+          <span class="flex shrink-0 items-center gap-1.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="lg"></tf-avatar><tf-icon name="arrow-left-right" class="size-4 text-muted-foreground"></tf-icon><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="lg"></tf-avatar></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">DeepSeek builds, Claude reviews</span><span class="block truncate text-xs text-muted-foreground">Backend DM pairing in #backend, waiting on a migration approval</span></span>
+          <tf-icon name="chevron-right" class="size-4 shrink-0 text-muted-foreground"></tf-icon>
+        </a>
+      </div>
+    </section>
+
+    <section aria-labelledby="live-h">
+      <h2 id="live-h" class="mb-2 text-sm font-semibold">Live now</h2>
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+        <article class="flex min-w-0 flex-col rounded-xl border border-border bg-card">
+          <div class="flex items-start gap-3 p-4">
+            <tf-avatar model="claude" name="Claude (main)" status="running" size="lg"></tf-avatar>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2"><a href="/agent-claude-main" class="truncate font-semibold hover:underline">Claude (main)</a><tf-status value="running" label="Working"></tf-status></div>
+              <p class="mt-0.5 truncate text-xs text-muted-foreground">Claude, profile main, tmux %4, seen just now</p>
+            </div>
+          </div>
+          <div class="h-56 px-4"><tf-terminal model="claude" name="Claude (main)" pane="%4" preset="design" static compact></tf-terminal></div>
+          <div class="flex flex-wrap items-center gap-2 p-4">
+            <a href="/board" class="mr-auto inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><tf-icon name="circle-dot" class="size-4 text-running"></tf-icon><span class="truncate">#1025 v2_fe redesign</span></a>
+            <a href="/chat" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="message-square" class="size-4"></tf-icon>Message</a>
+            <a href="/agent-claude-main" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="terminal" class="size-4"></tf-icon>Terminal</a>
+            <button class="inline-flex size-8 items-center justify-center rounded-md border border-border hover:bg-accent" aria-label="Pause Claude (main)"><tf-icon name="pause" class="size-4"></tf-icon></button>
+          </div>
+        </article>
+
+        <article class="flex min-w-0 flex-col rounded-xl border border-border bg-card">
+          <div class="flex items-start gap-3 p-4">
+            <tf-avatar model="codex" name="reviewer (codex)" status="running" size="lg"></tf-avatar>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2"><a href="/agent-claude-main" class="truncate font-semibold hover:underline">reviewer (codex)</a><tf-status value="review" label="Reviewing"></tf-status></div>
+              <p class="mt-0.5 truncate text-xs text-muted-foreground">Codex, profile reviewer, tmux %7, seen 4s ago</p>
+            </div>
+          </div>
+          <div class="h-56 px-4"><tf-terminal model="codex" name="reviewer (codex)" pane="%7" preset="review" static compact></tf-terminal></div>
+          <div class="flex flex-wrap items-center gap-2 p-4">
+            <a href="/board" class="mr-auto inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><tf-icon name="eye" class="size-4 text-review"></tf-icon><span class="truncate">#721 Agents can DM anyone</span></a>
+            <a href="/chat" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="message-square" class="size-4"></tf-icon>Message</a>
+            <a href="/agent-claude-main" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="terminal" class="size-4"></tf-icon>Terminal</a>
+            <button class="inline-flex size-8 items-center justify-center rounded-md border border-border hover:bg-accent" aria-label="Pause reviewer (codex)"><tf-icon name="pause" class="size-4"></tf-icon></button>
+          </div>
+        </article>
+
+        <article class="flex min-w-0 flex-col rounded-xl border border-border bg-card">
+          <div class="flex items-start gap-3 p-4">
+            <tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="lg"></tf-avatar>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2"><a href="/agent-claude-main" class="truncate font-semibold hover:underline">DeepSeek (api)</a><tf-status value="blocked" label="Waiting on approval"></tf-status></div>
+              <p class="mt-0.5 truncate text-xs text-muted-foreground">DeepSeek, profile api, tmux %9, seen 1m ago</p>
+            </div>
+          </div>
+          <div class="h-56 px-4"><tf-terminal model="deepseek" name="DeepSeek (api)" pane="%9" preset="backend" static compact></tf-terminal></div>
+          <div class="flex flex-wrap items-center gap-2 p-4">
+            <a href="/board" class="mr-auto inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><tf-icon name="shield-alert" class="size-4 text-blocked"></tf-icon><span class="truncate">Approve migration 0042</span></a>
+            <a href="/chat" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="message-square" class="size-4"></tf-icon>Message</a>
+            <a href="/agent-claude-main" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="terminal" class="size-4"></tf-icon>Terminal</a>
+            <button class="inline-flex size-8 items-center justify-center rounded-md border border-border hover:bg-accent" aria-label="Pause DeepSeek (api)"><tf-icon name="pause" class="size-4"></tf-icon></button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="rest-h">
+      <h2 id="rest-h" class="mb-2 text-sm font-semibold">Not working right now</h2>
+      <ul class="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        <li class="flex flex-wrap items-center gap-3 p-3 sm:flex-nowrap">
+          <tf-avatar model="gemini" name="Gemini (docs)" status="idle" size="md"></tf-avatar>
+          <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">Gemini (docs)</p><p class="truncate text-xs text-muted-foreground">Gemini, profile docs, idle for 12m, waiting for a mention or a task</p></div>
+          <tf-status value="idle"></tf-status>
+          <a href="/chat" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="at-sign" class="size-4"></tf-icon>Mention</a>
+        </li>
+        <li class="flex flex-wrap items-center gap-3 p-3 sm:flex-nowrap">
+          <tf-avatar model="claude" name="Claude (bear)" status="offline" size="md"></tf-avatar>
+          <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">Claude (bear)</p><p class="truncate text-xs text-muted-foreground">Claude, profile bear, last seen 2h ago in tmux %2</p></div>
+          <span class="text-xs text-muted-foreground">Offline</span>
+          <button class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="play" class="size-4"></tf-icon>Launch in tmux</button>
+        </li>
+      </ul>
+    </section>
+  </div>
+</tf-shell>

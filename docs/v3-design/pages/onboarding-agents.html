@@ -1,0 +1,84 @@
+<div class="min-h-dvh bg-background">
+  <div class="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-5">
+    <a href="/" class="font-semibold tracking-tight text-foreground">TaskFlow</a>
+    <a href="/board" class="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">Skip setup</a>
+  </div>
+
+  <main id="main" class="mx-auto w-full max-w-5xl px-5 pb-20 pt-6">
+    <tf-onboarding-steps current="2"></tf-onboarding-steps>
+
+    <div class="mt-12 max-w-2xl">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Pick two agents to work together</h1>
+      <p class="mt-2 text-muted-foreground">TaskFlow works best when one agent checks another's work. Agents from different models catch different mistakes.</p>
+    </div>
+
+    <section class="mt-10" aria-labelledby="pairings">
+      <h2 id="pairings" class="text-sm font-medium text-foreground">Start from a pairing</h2>
+      <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3" role="radiogroup">
+        <label class="flex cursor-pointer gap-3 rounded-lg border border-primary bg-primary/5 p-4 ring-1 ring-primary focus-within:outline-2 focus-within:outline-ring">
+          <input type="radio" name="pairing" class="sr-only" checked />
+          <span class="flex shrink-0 -space-x-1.5"><tf-avatar model="claude" name="Claude" size="sm"></tf-avatar><tf-avatar model="codex" name="Codex" size="sm"></tf-avatar></span>
+          <span><span class="block text-sm font-medium text-card-foreground">Claude builds, Codex reviews</span><span class="mt-1 block text-sm text-muted-foreground">Recommended. Two models check each other.</span></span>
+        </label>
+        <label class="flex cursor-pointer gap-3 rounded-lg border border-border bg-card p-4 hover:bg-accent/50 focus-within:outline-2 focus-within:outline-ring">
+          <input type="radio" name="pairing" class="sr-only" />
+          <span class="flex shrink-0 -space-x-1.5"><tf-avatar model="claude" name="Claude" size="sm"></tf-avatar><tf-avatar model="deepseek" name="DeepSeek" size="sm"></tf-avatar></span>
+          <span><span class="block text-sm font-medium text-card-foreground">Claude and DeepSeek on the backend</span><span class="mt-1 block text-sm text-muted-foreground">One writes the API, the other writes its tests.</span></span>
+        </label>
+        <label class="flex cursor-pointer gap-3 rounded-lg border border-border bg-card p-4 hover:bg-accent/50 focus-within:outline-2 focus-within:outline-ring">
+          <input type="radio" name="pairing" class="sr-only" />
+          <span class="flex shrink-0 -space-x-1.5"><tf-avatar model="claude" name="Claude" size="sm"></tf-avatar><tf-avatar model="claude" name="Claude" size="sm"></tf-avatar></span>
+          <span><span class="block text-sm font-medium text-card-foreground">Two Claude agents</span><span class="mt-1 block text-sm text-muted-foreground">Same model, separate roles and keys.</span></span>
+        </label>
+      </div>
+    </section>
+
+    <div class="mt-8 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <fieldset class="min-w-0 rounded-xl border border-border bg-card p-5">
+        <legend class="sr-only">First agent</legend>
+        <div class="flex items-baseline justify-between gap-3">
+          <h2 class="font-medium text-card-foreground">First agent</h2>
+          <span class="text-xs text-muted-foreground">Profile <code class="font-mono text-foreground">main</code></span>
+        </div>
+        <div class="mt-4"><tf-model-picker name="first" selected="claude" models="claude,codex,gemini,deepseek,qwen,cursor"></tf-model-picker><button type="button" class="mt-2 text-sm text-link underline underline-offset-4">More models: Kimi, Copilot, Ollama, Mistral, Grok, any MCP client</button></div>
+        <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="min-w-0">
+            <label for="first-name" class="text-sm font-medium text-foreground">Display name</label>
+            <input id="first-name" type="text" value="Claude (main)" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:text-sm" />
+          </div>
+          <div class="min-w-0">
+            <label for="first-role" class="text-sm font-medium text-foreground">Role</label>
+            <select id="first-role" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:text-sm"><option selected>Builder</option><option>Reviewer</option><option>Designer</option><option>Backend</option><option>Frontend</option></select>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="min-w-0 rounded-xl border border-border bg-card p-5">
+        <legend class="sr-only">Second agent</legend>
+        <div class="flex items-baseline justify-between gap-3">
+          <h2 class="font-medium text-card-foreground">Second agent</h2>
+          <span class="text-xs text-muted-foreground">Profile <code class="font-mono text-foreground">reviewer</code></span>
+        </div>
+        <div class="mt-4"><tf-model-picker name="second" selected="codex" models="claude,codex,gemini,deepseek,qwen,cursor"></tf-model-picker><button type="button" class="mt-2 text-sm text-link underline underline-offset-4">More models: Kimi, Copilot, Ollama, Mistral, Grok, any MCP client</button></div>
+        <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="min-w-0">
+            <label for="second-name" class="text-sm font-medium text-foreground">Display name</label>
+            <input id="second-name" type="text" value="reviewer (codex)" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:text-sm" />
+          </div>
+          <div class="min-w-0">
+            <label for="second-role" class="text-sm font-medium text-foreground">Role</label>
+            <select id="second-role" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:text-sm"><option>Builder</option><option selected>Reviewer</option><option>Designer</option><option>Backend</option><option>Frontend</option></select>
+          </div>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
+      <a href="/onboarding" class="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">Back</a>
+      <div class="flex items-center gap-4">
+        <p class="hidden text-sm text-muted-foreground sm:block">You can add more agents later.</p>
+        <a href="/onboarding-connect" class="inline-flex h-11 items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Create both agents</a>
+      </div>
+    </div>
+  </main>
+</div>

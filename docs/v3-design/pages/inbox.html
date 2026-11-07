@@ -1,0 +1,82 @@
+<tf-shell active="" title="Inbox">
+  <div slot="actions">
+    <button type="button" class="inline-flex h-8 items-center rounded-md px-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Mark all read</button>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-2">
+    <div class="inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Show">
+      <button type="button" role="tab" aria-selected="true" class="rounded-md bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">Needs you <span class="tabular-nums text-muted-foreground">4</span></button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Mentions <span class="tabular-nums">2</span></button>
+      <button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Everything</button>
+    </div>
+    <label for="ib-proj" class="sr-only">Project</label>
+    <select id="ib-proj" class="ml-auto h-9 rounded-md border border-input bg-background px-3 text-sm"><option>All projects</option><option>taskflow_v2</option><option>Matchday league site</option></select>
+  </div>
+
+  <ul class="mt-5 max-w-4xl space-y-3">
+    <li class="rounded-xl border border-ring/60 bg-card ring-1 ring-ring/30">
+      <div class="flex flex-wrap items-start gap-3 p-4">
+        <tf-avatar model="claude" name="Claude (main)" status="blocked" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm text-card-foreground"><span class="font-medium">Claude (main) needs your permission</span> <span class="text-muted-foreground">in taskflow_v2, 1 minute ago</span></p>
+          <p class="mt-1 text-sm text-muted-foreground">Its terminal is paused until someone answers. Answering here types the choice into pane %4.</p>
+          <pre class="mt-3 overflow-x-auto rounded-lg bg-terminal p-3 font-mono text-xs leading-5 text-terminal-foreground">Bash command
+  cd v2_fe &amp;&amp; npm run build
+  Build the frontend for the design check</pre>
+          <fieldset class="mt-3">
+            <legend class="sr-only">Answer</legend>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Yes</button>
+              <button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Yes, and don't ask again for npm run build</button>
+              <button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">No, tell it what to do instead</button>
+            </div>
+          </fieldset>
+          <a href="/agent-claude-main" class="mt-3 inline-flex items-center gap-1.5 text-sm text-link underline underline-offset-4"><tf-icon name="square-terminal" class="size-4"></tf-icon>Watch its terminal</a>
+        </div>
+      </div>
+    </li>
+
+    <li class="rounded-xl border border-border bg-card p-4">
+      <div class="flex flex-wrap items-start gap-3">
+        <span class="grid size-8 shrink-0 place-items-center rounded-md bg-blocked/10 text-blocked"><tf-icon name="shield-alert" class="size-4"></tf-icon></span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm text-card-foreground"><span class="font-medium">Approve migration 0042 on prod</span> <span class="text-muted-foreground">DeepSeek (api), #721, 14 minutes ago</span></p>
+          <p class="mt-1 text-sm text-muted-foreground">Adds the direct_pairs table. Reversible. Staging run passed.</p>
+        </div>
+        <div class="flex shrink-0 gap-2"><button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Deny</button><a href="/task" class="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Review and approve</a></div>
+      </div>
+    </li>
+
+    <li class="rounded-xl border border-border bg-card p-4">
+      <div class="flex flex-wrap items-start gap-3">
+        <tf-avatar model="codex" name="reviewer (codex)" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm text-card-foreground"><span class="font-medium">reviewer (codex) asked you a question</span> <span class="text-muted-foreground">#design-room, 22 minutes ago</span></p>
+          <p class="mt-1 text-sm text-foreground">Which palette should v2_fe ship with?</p>
+        </div>
+        <a href="/chat" class="inline-flex h-9 shrink-0 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Answer in chat</a>
+      </div>
+    </li>
+
+    <li class="rounded-xl border border-border bg-card p-4">
+      <div class="flex flex-wrap items-start gap-3">
+        <span class="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><tf-icon name="wallet" class="size-4"></tf-icon></span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm text-card-foreground"><span class="font-medium">Gemini (docs) paused at its $10 cap</span> <span class="text-muted-foreground">Supercode Hive, 8 hours ago</span></p>
+          <p class="mt-1 text-sm text-muted-foreground">It stopped mid-way through #612's fixtures copy.</p>
+        </div>
+        <div class="flex shrink-0 gap-2"><button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Raise cap by $5</button><a href="/org-agents" class="inline-flex h-9 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Budgets</a></div>
+      </div>
+    </li>
+
+    <li class="rounded-xl border border-dashed border-border p-4 opacity-70">
+      <div class="flex flex-wrap items-start gap-3">
+        <tf-avatar model="claude" name="Claude (main)" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm text-card-foreground"><span class="font-medium">Permission no longer needed</span> <span class="text-muted-foreground">Claude (main), 9 minutes ago</span></p>
+          <p class="mt-1 text-sm text-muted-foreground">It asked again with a newer command, so this one was withdrawn. Nothing to answer.</p>
+        </div>
+      </div>
+    </li>
+  </ul>
+</tf-shell>

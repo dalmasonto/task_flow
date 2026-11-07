@@ -1,0 +1,116 @@
+<tf-shell active="board" title="Board" flush>
+  <div slot="actions">
+    <button class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="filter" class="size-4"></tf-icon>Filter</button>
+    <a href="/task-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New task</span></a>
+  </div>
+  <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
+    <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="View">
+      <a href="/board" role="tab" aria-selected="false" class="inline-flex h-7 items-center gap-1.5 rounded px-2 text-muted-foreground hover:text-foreground"><tf-icon name="columns" class="size-4"></tf-icon>Board</a>
+      <button role="tab" aria-selected="true" class="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2 font-medium text-accent-foreground"><tf-icon name="list" class="size-4"></tf-icon>List</button>
+    </div>
+    <span class="mx-1 hidden h-5 w-px bg-border sm:block"></span>
+    <div class="flex min-w-0 flex-1 gap-1.5 overflow-x-auto text-sm">
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-ring/50 bg-accent px-2.5 text-accent-foreground">Assigned to agents<tf-icon name="x" class="size-3.5"></tf-icon></button>
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent">Priority: any<tf-icon name="chevron-down" class="size-3.5"></tf-icon></button>
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent">Repo: task_flow<tf-icon name="chevron-down" class="size-3.5"></tf-icon></button>
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-icon name="plus" class="size-3.5"></tf-icon>Add filter</button>
+    </div>
+    <span class="hidden text-xs tabular-nums text-muted-foreground md:inline">13 tasks</span>
+  </div>
+
+  <div class="min-h-0 flex-1 overflow-y-auto">
+    <div class="sticky top-0 z-10 hidden grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] items-center gap-3 border-b border-border bg-background px-6 py-2 text-xs font-medium text-muted-foreground md:grid">
+      <span><span class="sr-only">Priority</span></span><span>ID</span><span>Title</span><span>Working on</span><span>Lease</span><span><span class="sr-only">Assignee</span></span><span class="text-right">Updated</span>
+    </div>
+
+    <details open class="group/g">
+      <summary class="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 lg:px-6"><tf-icon name="chevron-right" class="size-4 text-muted-foreground transition-transform group-open/g:rotate-90"></tf-icon><tf-status value="running"></tf-status><span class="text-xs tabular-nums text-muted-foreground">3</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add task to In progress"><tf-icon name="plus" class="size-4"></tf-icon></button></summary>
+      <ul>
+        <li class="group relative border-b border-border bg-accent/40 hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6">
+          <span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span>
+          <span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#1025</span>
+          <span class="min-w-0 truncate text-sm font-medium"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#1025</span>Design: v2_fe redesign for onboarding, multi-model collaboration</span>
+          <span class="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 truncate font-mono text-xs text-running md:col-span-1 md:col-start-auto"><span class="size-1.5 shrink-0 rounded-full bg-running motion-safe:animate-pulse"></span><span class="truncate">design_write_page /board</span></span>
+          <span class="hidden items-center gap-1 text-xs tabular-nums text-muted-foreground md:inline-flex"><tf-icon name="clock" class="size-3"></tf-icon>42m</span>
+          <span class="row-start-1 col-start-3 md:row-auto md:col-start-auto"><tf-avatar model="claude" name="Claude (main)" status="running" size="xs"></tf-avatar></span>
+          <span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">2m ago</span>
+        </a></li>
+        <li class="group relative border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6">
+          <span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span>
+          <span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#1026</span>
+          <span class="min-w-0 truncate text-sm font-medium"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#1026</span>Design: marketing, onboarding, account and system screens</span>
+          <span class="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 truncate font-mono text-xs text-running md:col-span-1 md:col-start-auto"><span class="size-1.5 shrink-0 rounded-full bg-running motion-safe:animate-pulse"></span><span class="truncate">design_compare palette A vs B</span></span>
+          <span class="hidden items-center gap-1 text-xs tabular-nums text-muted-foreground md:inline-flex"><tf-icon name="clock" class="size-3"></tf-icon>38m</span>
+          <span class="row-start-1 col-start-3 md:row-auto md:col-start-auto"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="xs"></tf-avatar></span>
+          <span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">6m ago</span>
+        </a></li>
+        <li class="group relative border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6">
+          <span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="Normal priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/20"></span></span>
+          <span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#720</span>
+          <span class="min-w-0 truncate text-sm font-medium"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#720</span>Agent triggers: the MCP waits and wakes the agent</span>
+          <span class="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 truncate text-xs md:col-span-1 md:col-start-auto"><span class="inline-flex min-w-0 items-center gap-1 rounded bg-blocked/10 px-1.5 py-0.5"><tf-icon name="scale" class="size-3 shrink-0 text-blocked"></tf-icon><span class="truncate">Decision: max delay per trigger?</span></span></span>
+          <span class="hidden items-center gap-1 text-xs tabular-nums text-muted-foreground md:inline-flex"><tf-icon name="clock" class="size-3"></tf-icon>12m</span>
+          <span class="row-start-1 col-start-3 md:row-auto md:col-start-auto"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="xs"></tf-avatar></span>
+          <span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">14m ago</span>
+        </a></li>
+      </ul>
+    </details>
+
+    <details open class="group/g">
+      <summary class="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 lg:px-6"><tf-icon name="chevron-right" class="size-4 text-muted-foreground transition-transform group-open/g:rotate-90"></tf-icon><tf-status value="review"></tf-status><span class="text-xs tabular-nums text-muted-foreground">2</span></summary>
+      <ul>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6">
+          <span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="Normal priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/20"></span></span>
+          <span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#721</span>
+          <span class="min-w-0 truncate text-sm font-medium"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#721</span>Agents can DM any user or agent in their project</span>
+          <span class="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground md:col-span-1 md:col-start-auto"><tf-icon name="shield-check" class="size-3.5 shrink-0 text-review"></tf-icon><span class="truncate">Gate: reviewer (codex)</span></span>
+          <span class="hidden text-xs text-muted-foreground md:block">None</span>
+          <span class="row-start-1 col-start-3 md:row-auto md:col-start-auto"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="xs"></tf-avatar></span>
+          <span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">31m ago</span>
+        </a></li>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6">
+          <span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span>
+          <span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#983</span>
+          <span class="min-w-0 truncate text-sm font-medium"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#983</span>Overlapping chips for chat and active sessions</span>
+          <span class="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground md:col-span-1 md:col-start-auto"><tf-icon name="shield-check" class="size-3.5 shrink-0 text-review"></tf-icon><span class="truncate">Gate: Dalmas, visual check</span></span>
+          <span class="hidden text-xs text-muted-foreground md:block">None</span>
+          <span class="row-start-1 col-start-3 md:row-auto md:col-start-auto"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar></span>
+          <span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">1h ago</span>
+        </a></li>
+      </ul>
+    </details>
+
+    <details open class="group/g">
+      <summary class="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 lg:px-6"><tf-icon name="chevron-right" class="size-4 text-muted-foreground transition-transform group-open/g:rotate-90"></tf-icon><tf-status value="blocked"></tf-status><span class="text-xs tabular-nums text-muted-foreground">1</span></summary>
+      <ul>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6">
+          <tf-icon name="alert" class="size-3.5 text-destructive" label="Critical priority"></tf-icon>
+          <span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#766</span>
+          <span class="min-w-0 truncate text-sm font-medium"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#766</span>Messages marked read by a phantom second terminal</span>
+          <span class="col-span-2 col-start-2 flex min-w-0 items-center gap-1.5 truncate text-xs md:col-span-1 md:col-start-auto"><span class="inline-flex min-w-0 items-center gap-1 rounded bg-blocked/10 px-1.5 py-0.5"><tf-icon name="scale" class="size-3 shrink-0 text-blocked"></tf-icon><span class="truncate">Decision: one session or a cursor each?</span></span></span>
+          <span class="hidden text-xs text-muted-foreground md:block">None</span>
+          <span class="row-start-1 col-start-3 md:row-auto md:col-start-auto"><tf-avatar model="claude" name="Claude (bear)" status="offline" size="xs"></tf-avatar></span>
+          <span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">2h ago</span>
+        </a></li>
+      </ul>
+    </details>
+
+    <details open class="group/g">
+      <summary class="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 lg:px-6"><tf-icon name="chevron-right" class="size-4 text-muted-foreground transition-transform group-open/g:rotate-90"></tf-icon><tf-status value="todo"></tf-status><span class="text-xs tabular-nums text-muted-foreground">5</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add task to Not started"><tf-icon name="plus" class="size-4"></tf-icon></button></summary>
+      <ul>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6"><span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span><span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#739</span><span class="min-w-0 truncate text-sm"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#739</span>Dictate to create tasks, comments, descriptions and chats</span><span class="hidden md:block"></span><span class="hidden md:block"></span><span class="inline-flex size-5 items-center justify-center rounded-full border border-dashed border-border" title="Unassigned"><tf-icon name="user" class="size-3"></tf-icon></span><span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">Oct 16</span></a></li>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6"><span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span><span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#803</span><span class="min-w-0 truncate text-sm"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#803</span>Pin more than one message per channel or DM</span><span class="hidden md:block"></span><span class="hidden md:block"></span><span class="inline-flex size-5 items-center justify-center rounded-full border border-dashed border-border" title="Unassigned"><tf-icon name="user" class="size-3"></tf-icon></span><span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">Oct 21</span></a></li>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6"><span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span><span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#936</span><span class="min-w-0 truncate text-sm"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#936</span>Seen and read receipts for people and agents</span><span class="hidden md:block"></span><span class="hidden md:block"></span><span class="inline-flex size-5 items-center justify-center rounded-full border border-dashed border-border" title="Unassigned"><tf-icon name="user" class="size-3"></tf-icon></span><span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">Oct 26</span></a></li>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6"><span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span><span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#885</span><span class="min-w-0 truncate text-sm"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#885</span>DB tools: a linked model view built on xyflow</span><span class="hidden md:block"></span><span class="hidden md:block"></span><span class="inline-flex size-5 items-center justify-center rounded-full border border-dashed border-border" title="Unassigned"><tf-icon name="user" class="size-3"></tf-icon></span><span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">Oct 24</span></a></li>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 md:grid-cols-[1.25rem_3.5rem_minmax(0,1fr)_14rem_4.5rem_2rem_5rem] lg:px-6"><span class="inline-flex h-3.5 items-end gap-px" role="img" aria-label="High priority"><span class="h-1.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-2.5 w-0.5 rounded-sm bg-foreground/70"></span><span class="h-3.5 w-0.5 rounded-sm bg-foreground/70"></span></span><span class="hidden text-xs font-medium tabular-nums text-muted-foreground md:block">#1027</span><span class="min-w-0 truncate text-sm"><span class="mr-1.5 text-xs tabular-nums text-muted-foreground md:hidden">#1027</span>Design validator 500s on a multibyte char before a bracket</span><span class="hidden md:block"></span><span class="hidden md:block"></span><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="hidden text-right text-xs tabular-nums text-muted-foreground md:block">Today</span></a></li>
+      </ul>
+    </details>
+
+    <details class="group/g">
+      <summary class="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 lg:px-6"><tf-icon name="chevron-right" class="size-4 text-muted-foreground transition-transform group-open/g:rotate-90"></tf-icon><tf-status value="done"></tf-status><span class="text-xs tabular-nums text-muted-foreground">188</span><span class="ml-auto text-xs text-muted-foreground">Collapsed</span></summary>
+      <ul>
+        <li class="border-b border-border hover:bg-muted/40"><a href="/task" class="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground lg:px-6"><span class="text-xs tabular-nums">#769</span><span class="truncate">An agent seeing its own reply in its terminal</span></a></li>
+      </ul>
+    </details>
+  </div>
+</tf-shell>

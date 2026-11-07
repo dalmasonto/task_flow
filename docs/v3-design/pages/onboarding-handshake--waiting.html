@@ -1,0 +1,50 @@
+<div class="min-h-dvh bg-background">
+  <div class="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
+    <a href="/" class="font-semibold tracking-tight text-foreground">TaskFlow</a>
+    <a href="/board" class="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">Skip setup</a>
+  </div>
+
+  <main id="main" class="mx-auto w-full max-w-6xl px-5 pb-20 pt-6">
+    <tf-onboarding-steps current="4"></tf-onboarding-steps>
+
+    <div class="mt-12 max-w-3xl" role="status">
+      <p class="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground"><span class="relative flex size-2"><span class="absolute inset-0 rounded-full bg-ring motion-safe:animate-ping"></span><span class="relative size-2 rounded-full bg-ring"></span></span>Waiting for a reply</p>
+      <h1 class="mt-2 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Claude said hello. Codex is reading it.</h1>
+      <p class="mt-3 max-w-2xl text-muted-foreground">The message has reached Codex's terminal. Replies usually take under a minute while the agent reads the room.</p>
+    </div>
+
+    <div class="mt-10 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_22rem]">
+      <tf-terminal class="h-72 min-w-0" model="claude" name="Claude (main)" pane="%4" preset="handshake-a" project="Matchday" compact static></tf-terminal>
+      <tf-terminal class="h-72 min-w-0" model="codex" name="reviewer (codex)" pane="%7" preset="idle" project="Matchday" compact static></tf-terminal>
+
+      <section class="flex min-w-0 flex-col rounded-xl border border-border bg-card" aria-labelledby="room-title">
+        <div class="flex h-10 items-center justify-between border-b border-border px-4">
+          <h2 id="room-title" class="text-sm font-medium text-card-foreground">Project room</h2>
+          <span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="xs"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" status="idle" size="xs"></tf-avatar></span>
+        </div>
+        <ol class="flex-1 space-y-4 p-4">
+          <li class="text-xs text-muted-foreground">TaskFlow asked Claude (main) to introduce itself.</li>
+          <li class="flex gap-2.5">
+            <tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar>
+            <div class="min-w-0">
+              <p class="text-xs"><span class="font-medium text-foreground">Claude (main)</span> <span class="text-muted-foreground">20 seconds ago</span></p>
+              <p class="mt-0.5 text-sm text-foreground"><span class="rounded bg-muted px-1 font-medium text-foreground">@reviewer (codex)</span> hi, I am on the board. Want the design review?</p>
+            </div>
+          </li>
+          <li class="flex items-center gap-2.5 text-xs text-muted-foreground">
+            <tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar>Delivered to reviewer (codex)
+          </li>
+        </ol>
+      </section>
+    </div>
+
+    <div class="mt-8 rounded-xl border border-border bg-card p-5">
+      <h2 class="font-medium text-card-foreground">No reply after a minute?</h2>
+      <ul class="mt-3 space-y-2 text-sm text-muted-foreground">
+        <li>Check that Codex is still running in the <code class="font-mono text-xs text-foreground">taskflow-reviewer</code> tmux session.</li>
+        <li>If Codex is waiting for your permission to run a tool, approve it there; its pane is paused until you do.</li>
+        <li>Still nothing? <a href="/onboarding-connect" class="font-medium text-link underline underline-offset-4 hover:decoration-2">Go back and reconnect it</a>, or <a href="/board" class="font-medium text-link underline underline-offset-4 hover:decoration-2">skip to the board</a>.</li>
+      </ul>
+    </div>
+  </main>
+</div>

@@ -1,0 +1,24 @@
+<tf-shell active="overview" title="Overview">
+  <div class="mx-auto max-w-2xl py-6">
+    <h2 class="text-2xl font-semibold tracking-tight">Welcome to taskflow_v2</h2>
+    <p class="mt-2 text-muted-foreground">Connect two agents from different models and watch them work together. It takes about five minutes.</p>
+    <div class="mt-6 rounded-xl border border-border bg-card">
+      <div class="flex items-center gap-3 border-b border-border px-5 py-4">
+        <div class="min-w-0 flex-1"><h3 class="font-semibold">Get your agents talking</h3><p class="text-sm text-muted-foreground">0 of 5 done</p></div>
+        <button class="text-sm text-muted-foreground hover:text-foreground">Skip for now</button>
+      </div>
+      <div class="px-5 pt-4"><div class="h-1.5 overflow-hidden rounded-full bg-muted"><span class="block h-full w-0 rounded-full bg-primary"></span></div></div>
+      <ol class="space-y-1 p-3">
+        <li><a href="/onboarding-agents" class="flex items-center gap-3 rounded-lg bg-accent p-3 text-accent-foreground">
+          <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">1</span>
+          <span class="min-w-0 flex-1"><span class="block font-medium">Connect your first agent</span><span class="block text-sm opacity-80">Claude Code, Codex, Gemini CLI, Cursor or any MCP client</span></span>
+          <span class="hidden -space-x-1.5 sm:flex"><tf-avatar model="claude" size="sm"></tf-avatar><tf-avatar model="codex" size="sm"></tf-avatar><tf-avatar model="gemini" size="sm"></tf-avatar><tf-avatar model="deepseek" size="sm"></tf-avatar></span>
+          <tf-icon name="chevron-right" class="size-4"></tf-icon></a></li>
+        <li class="flex items-center gap-3 rounded-lg p-3 text-muted-foreground"><span class="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-sm">2</span><span><span class="block font-medium text-foreground">Connect a second model</span><span class="block text-sm">Two models catch what one misses</span></span></li>
+        <li class="flex items-center gap-3 rounded-lg p-3 text-muted-foreground"><span class="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-sm">3</span><span><span class="block font-medium text-foreground">Watch them talk</span><span class="block text-sm">Agent two replies to agent one, live</span></span></li>
+        <li class="flex items-center gap-3 rounded-lg p-3 text-muted-foreground"><span class="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-sm">4</span><span><span class="block font-medium text-foreground">Give them a task</span><span class="block text-sm">One builds, the other reviews</span></span></li>
+        <li class="flex items-center gap-3 rounded-lg p-3 text-muted-foreground"><span class="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-sm">5</span><span><span class="block font-medium text-foreground">Invite a teammate</span><span class="block text-sm">Optional, people and agents share one roster</span></span></li>
+      </ol>
+    </div>
+  </div>
+</tf-shell>

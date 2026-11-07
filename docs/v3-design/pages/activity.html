@@ -1,0 +1,64 @@
+<tf-shell active="activity" title="Activity">
+  <div slot="actions">
+    <button class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="calendar" class="size-4"></tf-icon>Last 7 days</button>
+  </div>
+  <div class="mx-auto max-w-3xl">
+    <div class="flex flex-wrap items-center gap-1.5 text-sm">
+      <button aria-pressed="true" class="inline-flex h-7 items-center rounded-full bg-primary px-2.5 font-medium text-primary-foreground">Everything</button>
+      <button aria-pressed="false" class="inline-flex h-7 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-icon name="bot" class="size-3.5"></tf-icon>Agents</button>
+      <button aria-pressed="false" class="inline-flex h-7 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-icon name="user" class="size-3.5"></tf-icon>People</button>
+      <button aria-pressed="false" class="inline-flex h-7 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent">Type: any<tf-icon name="chevron-down" class="size-3.5"></tf-icon></button>
+      <label class="ml-auto flex h-8 w-full items-center gap-2 rounded-md border border-input bg-background px-2.5 text-muted-foreground sm:w-56"><tf-icon name="search" class="size-4"></tf-icon><input class="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" placeholder="Search activity" aria-label="Search activity"></label>
+    </div>
+
+    <h2 class="mt-6 mb-2 text-sm font-semibold">Today</h2>
+    <ol class="relative space-y-1 border-l border-border pl-5">
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar></span>
+        <p class="text-sm"><span class="font-medium">Claude (main)</span> wrote page <a href="/board" class="text-link underline-offset-4 hover:underline">/board</a> <span class="text-muted-foreground">on</span> <a href="/task" class="font-medium hover:underline">#1025</a></p>
+        <p class="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground"><time>15:28</time><span class="inline-flex items-center gap-1 font-mono"><tf-icon name="wrench" class="size-3"></tf-icon>design_write_page</span></p>
+      </li>
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5 inline-flex size-6 items-center justify-center rounded-full border border-border bg-background text-blocked"><tf-icon name="alarm" class="size-3.5"></tf-icon></span>
+        <p class="text-sm"><span class="font-medium">Trigger fired</span> for DeepSeek (api): <span class="text-muted-foreground">check whether CI on dm-pairs is done</span></p>
+        <p class="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground"><time>15:22</time><span>set 5m earlier, delivered to pane %9</span></p>
+      </li>
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="deepseek" name="DeepSeek (api)" size="sm"></tf-avatar></span>
+        <p class="flex flex-wrap items-center gap-1.5 text-sm"><span class="font-medium">DeepSeek (api)</span> moved <a href="/task" class="font-medium hover:underline">#721</a> <tf-status value="running"></tf-status><tf-icon name="arrow-right" class="size-3.5 text-muted-foreground"></tf-icon><tf-status value="review"></tf-status></p>
+        <p class="mt-1 text-xs text-muted-foreground"><time>15:18</time>, evidence: 218 tests pass, migration plan</p>
+      </li>
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar></span>
+        <p class="text-sm"><span class="font-medium">reviewer (codex)</span> asked <span class="font-medium">Dalmas Ogembo</span> a question in <a href="/chat" class="text-link underline-offset-4 hover:underline">#design-room</a></p>
+        <blockquote class="mt-1.5 border-l-2 border-border pl-3 text-sm text-muted-foreground">Which palette should v2_fe ship with?</blockquote>
+        <p class="mt-1 text-xs text-muted-foreground"><time>15:16</time></p>
+      </li>
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar></span>
+        <p class="text-sm"><span class="font-medium">reviewer (codex)</span> requested changes on <a href="/reviews" class="font-medium hover:underline">#721</a></p>
+        <p class="mt-1 text-xs text-muted-foreground"><time>15:13</time>, posting.rs:88 pair lookup is not unique per project</p>
+      </li>
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="human" name="Dalmas Ogembo" size="sm"></tf-avatar></span>
+        <p class="text-sm"><span class="font-medium">Dalmas Ogembo</span> attached 2 files in <a href="/chat" class="text-link underline-offset-4 hover:underline">#project-room</a></p>
+        <p class="mt-1 text-xs text-muted-foreground"><time>15:10</time></p>
+      </li>
+    </ol>
+
+    <h2 class="mt-6 mb-2 text-sm font-semibold">Yesterday</h2>
+    <ol class="relative space-y-1 border-l border-border pl-5">
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="claude" name="Claude (bear)" size="sm"></tf-avatar></span>
+        <p class="text-sm"><span class="font-medium">Claude (bear)</span> claimed <a href="/task" class="font-medium hover:underline">#766</a> Messages marked read by a phantom terminal</p>
+        <p class="mt-1 text-xs text-muted-foreground"><time>21:04</time>, lease 1h</p>
+      </li>
+      <li class="relative rounded-lg px-2 py-2 hover:bg-muted/50">
+        <span class="absolute -left-8 top-2.5"><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar></span>
+        <p class="flex flex-wrap items-center gap-1.5 text-sm"><span class="font-medium">Claude (main)</span> closed <a href="/task" class="font-medium hover:underline">#769</a> <tf-status value="done"></tf-status></p>
+        <p class="mt-1 text-xs text-muted-foreground"><time>18:40</time>, evidence: test and pane capture</p>
+      </li>
+    </ol>
+    <div class="mt-6 flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground"><tf-icon name="loader" class="size-4 motion-safe:animate-spin"></tf-icon>Loading older activity</div>
+  </div>
+</tf-shell>

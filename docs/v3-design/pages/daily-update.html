@@ -1,0 +1,74 @@
+<tf-shell active="" title="Daily update">
+  <div slot="actions">
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent"><tf-icon name="refresh-cw" class="size-4"></tf-icon><span class="hidden sm:inline">Draft again</span></button>
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="send" class="size-4"></tf-icon>Post to #project-room</button>
+  </div>
+
+  <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_20rem]">
+    <div class="min-w-0">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="text-2xl font-semibold tracking-tight text-foreground">Sunday, 1 November</h2>
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Drafted by Claude (main) at 18:00 EAT</span>
+      </div>
+      <p class="mt-1 text-sm text-muted-foreground">Written from today's activity, task changes and GitHub. Edit anything; nothing is posted until you press Post.</p>
+
+      <article class="mt-5 space-y-6 rounded-xl border border-border bg-card p-6" aria-label="Draft update">
+        <section>
+          <h3 class="font-medium text-card-foreground">Shipped</h3>
+          <ul class="mt-2 space-y-2 text-sm text-foreground">
+            <li class="flex gap-2"><tf-icon name="circle-check" class="mt-0.5 size-4 shrink-0 text-done"></tf-icon><span><a href="/task" class="font-medium text-link underline underline-offset-4">#769</a> Agents no longer see their own replies in their terminal. <span class="text-muted-foreground">Evidence: test plus pane capture.</span></span></li>
+            <li class="flex gap-2"><tf-icon name="circle-check" class="mt-0.5 size-4 shrink-0 text-done"></tf-icon><span>Design: palette B (ink) applied across 60 screens. <span class="text-muted-foreground">Agreed in #design-room.</span></span></li>
+          </ul>
+        </section>
+        <section>
+          <h3 class="font-medium text-card-foreground">In progress</h3>
+          <ul class="mt-2 space-y-2 text-sm text-foreground">
+            <li class="flex gap-2"><span class="mt-1.5 size-2 shrink-0 rounded-full bg-running"></span><span><a href="/task" class="font-medium text-link underline underline-offset-4">#1025</a> and <a href="/task" class="font-medium text-link underline underline-offset-4">#1026</a> v2_fe redesign: onboarding, dashboards, organisations. Claude and codex reviewing each other.</span></li>
+            <li class="flex gap-2"><span class="mt-1.5 size-2 shrink-0 rounded-full bg-review"></span><span><a href="/task" class="font-medium text-link underline underline-offset-4">#721</a> Agent DMs: backend done, 218 tests pass, in review.</span></li>
+          </ul>
+        </section>
+        <section>
+          <h3 class="font-medium text-card-foreground">Needs a person</h3>
+          <ul class="mt-2 space-y-2 text-sm text-foreground">
+            <li class="flex gap-2"><span class="mt-1.5 size-2 shrink-0 rounded-full bg-blocked"></span><span>Approve migration 0042 on prod for #721.</span></li>
+            <li class="flex gap-2"><span class="mt-1.5 size-2 shrink-0 rounded-full bg-blocked"></span><span>Decide the maximum delay for agent triggers, which blocks <a href="/task" class="font-medium text-link underline underline-offset-4">#720</a>.</span></li>
+          </ul>
+        </section>
+        <section>
+          <h3 class="font-medium text-card-foreground">Spend</h3>
+          <p class="mt-2 text-sm text-foreground">$9.23 today across 3 agents; $61.40 of the $150 November budget.</p>
+        </section>
+        <div class="flex items-center justify-between gap-3 border-t border-border pt-4">
+          <p class="text-xs text-muted-foreground">Edited by you: 0 changes</p>
+          <div class="flex items-center gap-2"><tf-mic></tf-mic><button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent"><tf-icon name="pencil" class="size-4"></tf-icon>Edit text</button></div>
+        </div>
+      </article>
+    </div>
+
+    <div class="min-w-0 space-y-4">
+      <section class="rounded-xl border border-border bg-card p-4" aria-labelledby="src-h">
+        <h2 id="src-h" class="text-sm font-medium text-card-foreground">Drafted from</h2>
+        <ul class="mt-3 space-y-2 text-sm text-muted-foreground">
+          <li class="flex justify-between"><span>Activity events</span><span class="tabular-nums text-foreground">214</span></li>
+          <li class="flex justify-between"><span>Task changes</span><span class="tabular-nums text-foreground">17</span></li>
+          <li class="flex justify-between"><span>Reviews</span><span class="tabular-nums text-foreground">4</span></li>
+          <li class="flex justify-between"><span>Pull requests</span><span class="tabular-nums text-foreground">2</span></li>
+        </ul>
+        <p class="mt-3 text-xs text-muted-foreground">Only events from 00:00 to 18:00 EAT today.</p>
+      </section>
+      <section class="rounded-xl border border-border bg-card p-4" aria-labelledby="sch-h">
+        <h2 id="sch-h" class="text-sm font-medium text-card-foreground">Schedule</h2>
+        <p class="mt-2 text-sm text-muted-foreground">Drafted every day at 18:00 EAT by Claude (main). You're asked to review it in the inbox.</p>
+        <a href="/project-settings" class="mt-2 inline-block text-sm text-link underline underline-offset-4">Change schedule</a>
+      </section>
+      <section class="rounded-xl border border-border bg-card" aria-labelledby="prev-h">
+        <h2 id="prev-h" class="px-4 pt-4 text-sm font-medium text-card-foreground">Earlier updates</h2>
+        <ul class="mt-2 divide-y divide-border text-sm">
+          <li><a href="/daily-update" class="flex justify-between px-4 py-2.5 hover:bg-accent/50"><span>Friday, 30 October</span><span class="text-muted-foreground">Posted</span></a></li>
+          <li><a href="/daily-update" class="flex justify-between px-4 py-2.5 hover:bg-accent/50"><span>Thursday, 29 October</span><span class="text-muted-foreground">Posted</span></a></li>
+          <li><a href="/daily-update" class="flex justify-between px-4 py-2.5 hover:bg-accent/50"><span>Wednesday, 28 October</span><span class="text-muted-foreground">Skipped</span></a></li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</tf-shell>

@@ -1,0 +1,32 @@
+<tf-shell active="board" title="Board">
+  <div class="sticky top-0 z-10 -mx-4 -mt-5 mb-5 flex flex-wrap items-center gap-3 border-b border-blocked/40 bg-blocked/10 px-4 py-2.5 lg:-mx-8 lg:-mt-6 lg:px-8" role="status">
+    <tf-icon name="wifi-off" class="size-4 shrink-0 text-blocked"></tf-icon>
+    <p class="min-w-0 flex-1 text-sm text-foreground"><span class="font-medium">You're offline.</span> Showing the board as of 19:31. Your agents keep working; their updates arrive when you reconnect.</p>
+    <span class="text-xs text-muted-foreground">Retrying in 8s</span>
+    <button type="button" class="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Retry now</button>
+  </div>
+
+  <div class="grid grid-cols-1 gap-4 opacity-70 md:grid-cols-3" aria-label="Board, last known state">
+    <div class="min-w-0 rounded-xl border border-border bg-muted/40 p-3">
+      <p class="px-1 text-sm font-medium text-foreground">Not started <span class="tabular-nums text-muted-foreground">5</span></p>
+      <div class="mt-3 space-y-2">
+        <div class="rounded-lg border border-border bg-card p-3"><p class="text-xs text-muted-foreground">#739</p><p class="mt-1 text-sm text-card-foreground">Dictate to create tasks, comments, descriptions and chats</p></div>
+        <div class="rounded-lg border border-border bg-card p-3"><p class="text-xs text-muted-foreground">#803</p><p class="mt-1 text-sm text-card-foreground">Pin more than one message per channel or DM</p></div>
+      </div>
+    </div>
+    <div class="min-w-0 rounded-xl border border-border bg-muted/40 p-3">
+      <p class="px-1 text-sm font-medium text-foreground">In progress <span class="tabular-nums text-muted-foreground">3</span></p>
+      <div class="mt-3 space-y-2">
+        <div class="rounded-lg border border-border bg-card p-3"><p class="text-xs text-muted-foreground">#1025</p><p class="mt-1 text-sm text-card-foreground">Design: v2_fe redesign for onboarding, multi-model collaboration</p></div>
+        <div class="rounded-lg border border-border bg-card p-3"><p class="text-xs text-muted-foreground">#1026</p><p class="mt-1 text-sm text-card-foreground">Design: marketing, onboarding, account and system screens</p></div>
+      </div>
+    </div>
+    <div class="min-w-0 rounded-xl border border-border bg-muted/40 p-3">
+      <p class="px-1 text-sm font-medium text-foreground">In review <span class="tabular-nums text-muted-foreground">2</span></p>
+      <div class="mt-3 space-y-2">
+        <div class="rounded-lg border border-border bg-card p-3"><p class="text-xs text-muted-foreground">#721</p><p class="mt-1 text-sm text-card-foreground">Agents can DM any user or agent in their project</p></div>
+      </div>
+    </div>
+  </div>
+  <p class="mt-4 text-sm text-muted-foreground">Editing is paused while offline so nothing you change is lost or overwritten.</p>
+</tf-shell>

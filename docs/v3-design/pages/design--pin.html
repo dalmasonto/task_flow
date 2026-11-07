@@ -1,0 +1,51 @@
+<tf-shell active="design" title="Design" flush>
+  <div slot="actions"><button class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="history" class="size-4"></tf-icon>Versions</button><button class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="external" class="size-4"></tf-icon><span class="hidden sm:inline">Share preview</span></button></div>
+  <tf-design-surface tab="comments"></tf-design-surface>
+
+  <!-- Pin thread: opens when you click a pin on the canvas or a comment in the Comments tab -->
+  <div class="fixed inset-0 z-50 flex items-end justify-center bg-foreground/30 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="pin-h">
+    <div class="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:max-w-3xl sm:rounded-2xl">
+      <!-- Header -->
+      <div class="flex shrink-0 items-start gap-3 border-b border-border p-4">
+        <span class="grid size-7 shrink-0 place-items-center rounded-full rounded-bl-none bg-running text-sm font-semibold text-background">2</span>
+        <div class="min-w-0 flex-1">
+          <h2 id="pin-h" class="text-base font-semibold">Fade the right edge when Done is off screen</h2>
+          <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"><a href="/board" class="text-link hover:underline">/board</a><span class="font-mono">div.column:last-child</span><span>board.html:58</span><span>Laptop</span></p>
+        </div>
+        <span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-running/10 px-2 py-0.5 text-xs font-medium text-running"><tf-icon name="circle-check" class="size-3.5"></tf-icon>Addressed</span>
+        <button class="rounded-md p-1.5 text-muted-foreground hover:bg-accent" aria-label="Close"><tf-icon name="x" class="size-4"></tf-icon></button>
+      </div>
+
+      <div class="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[1fr_17rem] md:overflow-hidden">
+        <!-- Thread -->
+        <div class="min-h-0 space-y-4 p-4 md:overflow-y-auto">
+          <div class="flex gap-3"><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar><div class="min-w-0"><p class="text-sm"><span class="font-medium">reviewer (codex)</span> <span class="text-xs text-muted-foreground">16:49, sent to Claude (main)</span></p><p class="mt-1 text-sm leading-6">At 1440 the Done column is off-screen with nothing to say so. Add a right-edge fade.</p></div></div>
+          <div class="flex gap-3"><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar><div class="min-w-0 flex-1"><p class="text-sm"><span class="font-medium">Claude (main)</span> <span class="text-xs text-muted-foreground">16:58, board.html v4</span></p><p class="mt-1 text-sm leading-6">Added a fade and a "+1 column" hint at the right edge. Before and after:</p>
+            <div class="mt-2 grid grid-cols-2 gap-2">
+              <figure><div class="flex h-24 gap-1 overflow-hidden rounded-lg border border-border bg-muted p-1.5" aria-hidden="true"><span class="flex-1 rounded bg-card"></span><span class="flex-1 rounded bg-card"></span><span class="w-4 rounded-l bg-card"></span></div><figcaption class="mt-1 text-xs text-muted-foreground">Before, v3</figcaption></figure>
+              <figure><div class="relative flex h-24 gap-1 overflow-hidden rounded-lg border border-ring bg-muted p-1.5" aria-hidden="true"><span class="flex-1 rounded bg-card"></span><span class="flex-1 rounded bg-card"></span><span class="w-4 rounded-l bg-card"></span><span class="absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent"></span></div><figcaption class="mt-1 text-xs text-muted-foreground">After, v4</figcaption></figure>
+            </div></div></div>
+          <div class="flex gap-3"><tf-avatar model="human" name="Dalmas Ogembo" size="sm"></tf-avatar><div class="min-w-0"><p class="text-sm"><span class="font-medium">You</span> <span class="text-xs text-muted-foreground">17:02</span></p><p class="mt-1 text-sm leading-6">Good. Check it in dark too.</p></div></div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground"><span class="h-px flex-1 bg-border"></span>Claude (main) is replying<span class="h-px flex-1 bg-border"></span></div>
+        </div>
+
+        <!-- Context -->
+        <div class="space-y-3 border-t border-border bg-muted/40 p-4 text-sm md:overflow-y-auto md:border-l md:border-t-0">
+          <div class="overflow-hidden rounded-lg border border-border bg-card"><div class="relative flex h-28 gap-1 bg-muted p-2" aria-hidden="true"><span class="flex-1 rounded bg-card"></span><span class="flex-1 rounded bg-card"></span><span class="w-6 rounded-l bg-card outline outline-2 outline-offset-1 outline-primary"></span></div><p class="px-2.5 py-1.5 text-xs text-muted-foreground">Where the pin sits</p></div>
+          <dl class="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1.5 text-xs">
+            <dt class="text-muted-foreground">Assigned</dt><dd class="flex items-center gap-1.5"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Claude (main)</dd>
+            <dt class="text-muted-foreground">Scope</dt><dd>Just this page</dd>
+            <dt class="text-muted-foreground">Task</dt><dd><a href="/task" class="text-link hover:underline">#1060</a></dd>
+          </dl>
+          <div class="flex flex-col gap-1.5 text-xs"><button class="rounded-md border border-border py-1.5 hover:bg-accent">Show pin on canvas</button><button class="rounded-md border border-border py-1.5 hover:bg-accent">Reassign</button></div>
+        </div>
+      </div>
+
+      <!-- Reply + decision -->
+      <div class="shrink-0 space-y-2 border-t border-border p-3">
+        <tf-composer placeholder="Reply in this thread" compact></tf-composer>
+        <div class="flex items-center gap-2"><button class="h-9 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Reopen</button><span class="ml-auto hidden text-xs text-muted-foreground sm:inline">The reply also shows in design-room.</span><button class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-4 text-sm font-medium hover:bg-accent"><tf-icon name="check" class="size-4"></tf-icon>Resolve</button></div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

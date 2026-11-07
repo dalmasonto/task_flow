@@ -1,0 +1,63 @@
+<tf-shell active="agents" title="Add agent" back="/agents">
+  <div class="mx-auto max-w-3xl space-y-8">
+    <div>
+      <h2 class="text-xl font-semibold">Add an agent to taskflow_v2</h2>
+      <p class="mt-1 text-sm text-muted-foreground">Pick the model, give it a name, and paste the profile into the repo where it runs. It joins the board and the rooms as soon as it calls whoami.</p>
+    </div>
+
+    <fieldset>
+      <legend class="mb-2 text-sm font-medium">Model</legend>
+      <tf-model-picker name="agent" cols="4" selected="claude"></tf-model-picker>
+    </fieldset>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div class="min-w-0">
+        <label for="ag-name" class="mb-1.5 block text-sm font-medium">Display name</label>
+        <input id="ag-name" value="Claude (frontend)" class="h-10 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus:ring-2 focus:ring-ring/30 sm:text-sm">
+        <p class="mt-1 text-xs text-muted-foreground">How people and other agents mention it.</p>
+      </div>
+      <div class="min-w-0">
+        <label for="ag-prof" class="mb-1.5 block text-sm font-medium">Profile</label>
+        <input id="ag-prof" value="frontend" class="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-base outline-none focus:ring-2 focus:ring-ring/30 sm:text-sm">
+        <p class="mt-1 text-xs text-muted-foreground">One profile per terminal. Letters, digits and dashes.</p>
+      </div>
+    </div>
+
+    <div>
+      <label for="ag-role" class="mb-1.5 block text-sm font-medium">Role instructions <span class="font-normal text-muted-foreground">(optional)</span></label>
+      <div class="relative">
+        <textarea id="ag-role" rows="4" placeholder="For example: You build v2_fe pages from the approved designs. Ask reviewer (codex) for a review before marking done." class="w-full rounded-lg border border-input bg-background p-3 pr-12 text-base outline-none focus:ring-2 focus:ring-ring/30 sm:text-sm"></textarea>
+        <span class="absolute right-2 top-2"><tf-mic for="ag-role"></tf-mic></span>
+      </div>
+    </div>
+
+    <fieldset>
+      <legend class="mb-2 text-sm font-medium">What this agent may do</legend>
+      <div class="divide-y divide-border rounded-xl border border-border bg-card">
+        <label class="flex items-center gap-3 p-3"><span class="min-w-0 flex-1"><span class="block text-sm font-medium">Create and update tasks</span><span class="block text-xs text-muted-foreground">tasks:write</span></span><input type="checkbox" checked class="size-4 accent-primary"></label>
+        <label class="flex items-center gap-3 p-3"><span class="min-w-0 flex-1"><span class="block text-sm font-medium">Post in rooms and start DMs</span><span class="block text-xs text-muted-foreground">chat:send</span></span><input type="checkbox" checked class="size-4 accent-primary"></label>
+        <label class="flex items-center gap-3 p-3"><span class="min-w-0 flex-1"><span class="block text-sm font-medium">Write designs</span><span class="block text-xs text-muted-foreground">design:write</span></span><input type="checkbox" checked class="size-4 accent-primary"></label>
+        <label class="flex items-center gap-3 p-3"><span class="min-w-0 flex-1"><span class="block text-sm font-medium">Submit reviews</span><span class="block text-xs text-muted-foreground">reviews:write</span></span><input type="checkbox" class="size-4 accent-primary"></label>
+        <label class="flex items-center gap-3 p-3"><span class="min-w-0 flex-1"><span class="block text-sm font-medium">Create other agents</span><span class="block text-xs text-muted-foreground">agents:create, lets a lead agent start helpers</span></span><input type="checkbox" class="size-4 accent-primary"></label>
+      </div>
+    </fieldset>
+
+    <section aria-labelledby="snip-h" class="space-y-3">
+      <div class="flex items-center gap-2"><h3 id="snip-h" class="text-sm font-medium">Profile for .taskflow.json</h3><span class="text-xs text-muted-foreground">The key is shown once.</span></div>
+      <div class="min-w-0 overflow-hidden rounded-xl border border-border bg-terminal text-terminal-foreground">
+        <div class="flex items-center gap-2 border-b border-terminal-foreground/10 px-3 py-2 text-xs text-terminal-foreground/70"><tf-icon name="file" class="size-3.5"></tf-icon><span class="font-mono">.taskflow.json</span><button class="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-terminal-foreground/10"><tf-icon name="copy" class="size-3.5"></tf-icon>Copy</button></div>
+        <pre class="overflow-x-auto p-3 font-mono text-xs leading-5 sm:text-sm">"frontend": {
+  "agent_id": 6,
+  "display_name": "Claude (frontend)",
+  "key": "tfk_6_7Qm2...shown once"
+}</pre>
+      </div>
+      <label class="flex items-start gap-3 rounded-xl border border-border bg-card p-3"><input type="checkbox" checked class="mt-1 size-4 accent-primary"><span><span class="block text-sm font-medium">Launch it in tmux now</span><span class="block text-xs text-muted-foreground">Starts session <span class="font-mono">taskflow_v2_frontend</span> with TASKFLOW_PROFILE=frontend, so its terminal streams here and messages reach it live.</span></span></label>
+    </section>
+
+    <div class="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+      <a href="/agents" class="inline-flex h-10 items-center justify-center rounded-md px-4 text-sm text-muted-foreground hover:bg-accent">Cancel</a>
+      <button class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon>Add agent</button>
+    </div>
+  </div>
+</tf-shell>

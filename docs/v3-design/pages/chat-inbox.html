@@ -1,0 +1,101 @@
+<tf-shell active="chat" title="Chat">
+  <div slot="actions">
+    <ui-sheet trigger="New message" name="new-message" side="right">
+      <ui-sheet-title>New message</ui-sheet-title>
+      <ui-sheet-body>
+        <div class="space-y-4">
+          <p class="text-sm text-muted-foreground">Start a direct message or a group. Agents can be added like people, and they can start DMs too.</p>
+          <label class="block text-sm font-medium" for="dm-to">To</label>
+          <div class="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring/30">
+            <span class="inline-flex items-center gap-1 rounded bg-accent px-1.5 py-0.5 text-sm text-accent-foreground"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar>reviewer (codex)<button aria-label="Remove reviewer (codex)" class="rounded hover:bg-background"><tf-icon name="x" class="size-3"></tf-icon></button></span>
+            <span class="inline-flex items-center gap-1 rounded bg-accent px-1.5 py-0.5 text-sm text-accent-foreground"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>DeepSeek (api)<button aria-label="Remove DeepSeek (api)" class="rounded hover:bg-background"><tf-icon name="x" class="size-3"></tf-icon></button></span>
+            <input id="dm-to" class="min-w-24 flex-1 bg-transparent text-base outline-none sm:text-sm" placeholder="Add a person or agent">
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-muted-foreground">Agents in taskflow_v2</div>
+            <ul class="space-y-0.5">
+              <li><button class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"><tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">Claude (main)</span><span class="block truncate text-xs text-muted-foreground">Claude, running</span></span><tf-icon name="plus" class="size-4 text-muted-foreground"></tf-icon></button></li>
+              <li><button class="flex w-full items-center gap-2.5 rounded-md bg-accent px-2 py-1.5 text-left"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">reviewer (codex)</span><span class="block truncate text-xs text-muted-foreground">Codex, running</span></span><tf-icon name="check" class="size-4"></tf-icon></button></li>
+              <li><button class="flex w-full items-center gap-2.5 rounded-md bg-accent px-2 py-1.5 text-left"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">DeepSeek (api)</span><span class="block truncate text-xs text-muted-foreground">DeepSeek, waiting on review</span></span><tf-icon name="check" class="size-4"></tf-icon></button></li>
+              <li><button class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"><tf-avatar model="gemini" name="Gemini (docs)" status="idle" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">Gemini (docs)</span><span class="block truncate text-xs text-muted-foreground">Gemini, idle</span></span><tf-icon name="plus" class="size-4 text-muted-foreground"></tf-icon></button></li>
+            </ul>
+            <div class="mb-1 mt-3 text-xs font-medium text-muted-foreground">People</div>
+            <ul class="space-y-0.5">
+              <li><button class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"><tf-avatar model="human" name="Achieng Otieno" status="offline" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">Achieng Otieno</span><span class="block truncate text-xs text-muted-foreground">@achieng, member</span></span><tf-icon name="plus" class="size-4 text-muted-foreground"></tf-icon></button></li>
+            </ul>
+          </div>
+          <label class="block text-sm font-medium" for="dm-name">Group name <span class="font-normal text-muted-foreground">(optional, for 3 or more)</span></label>
+          <input id="dm-name" class="h-9 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus:ring-2 focus:ring-ring/30 sm:text-sm" placeholder="e.g. dm-pairs review">
+          <button class="h-9 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90">Start group with 2 agents</button>
+        </div>
+      </ui-sheet-body>
+    </ui-sheet>
+  </div>
+  <div class="mx-auto max-w-2xl space-y-4">
+    <label class="flex h-10 items-center gap-2 rounded-lg border border-input bg-background px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-ring/30">
+      <tf-icon name="search" class="size-4"></tf-icon><input class="w-full bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground sm:text-sm" placeholder="Find a room, person or agent" aria-label="Find a room, person or agent">
+    </label>
+    <div class="-mx-4 flex gap-1.5 overflow-x-auto px-4 text-sm sm:mx-0 sm:px-0" role="tablist" aria-label="Filter conversations">
+      <button role="tab" aria-selected="true" class="h-8 shrink-0 rounded-full bg-primary px-3 font-medium text-primary-foreground">All</button>
+      <button role="tab" aria-selected="false" class="h-8 shrink-0 rounded-full border border-border px-3 text-muted-foreground hover:bg-accent">Unread <span class="tabular-nums">4</span></button>
+      <button role="tab" aria-selected="false" class="h-8 shrink-0 rounded-full border border-border px-3 text-muted-foreground hover:bg-accent">Mentions <span class="tabular-nums">1</span></button>
+      <button role="tab" aria-selected="false" class="h-8 shrink-0 rounded-full border border-border px-3 text-muted-foreground hover:bg-accent">Threads</button>
+      <button role="tab" aria-selected="false" class="h-8 shrink-0 rounded-full border border-border px-3 text-muted-foreground hover:bg-accent">Agents</button>
+    </div>
+
+    <div>
+      <h2 class="px-1 pb-1 text-xs font-medium text-muted-foreground">Mentions</h2>
+      <a href="/chat" class="flex items-start gap-3 rounded-lg bg-blocked/8 px-3 py-2.5 shadow-[inset_2px_0_0_var(--blocked)]">
+        <tf-avatar model="codex" name="reviewer (codex)" size="md"></tf-avatar>
+        <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">reviewer (codex) in #design-room</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">15:16</time></span>
+        <span class="block truncate text-sm text-foreground/80">@dalmasonto one decision only you can make</span></span>
+      </a>
+    </div>
+
+    <div>
+      <h2 class="px-1 pb-1 text-xs font-medium text-muted-foreground">Rooms</h2>
+      <ul class="divide-y divide-border rounded-lg border border-border bg-card">
+        <li><a href="/chat" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <span class="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="palette" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">design-room</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">15:21</time></span>
+          <span class="flex items-center gap-2"><span class="truncate text-sm text-muted-foreground">reviewer (codex) is writing</span><span class="ml-auto shrink-0 rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums" aria-label="8 unread">8</span></span></span></a></li>
+        <li><a href="/chat" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <span class="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="hash" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">project-room</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">15:13</time></span>
+          <span class="flex items-center gap-2"><span class="truncate text-sm text-foreground/80">Claude: On it, tracking as #1025</span><span class="ml-auto shrink-0 rounded-full bg-primary px-1.5 text-xs font-medium tabular-nums text-primary-foreground" aria-label="3 unread, you are mentioned">@3</span></span></span></a></li>
+        <li><a href="/chat" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <span class="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><tf-icon name="terminal" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm">backend</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">Yesterday</time></span>
+          <span class="block truncate text-sm text-muted-foreground">DeepSeek: 218 tests pass on dm-pairs</span></span></a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h2 class="px-1 pb-1 text-xs font-medium text-muted-foreground">Threads you follow</h2>
+      <ul class="divide-y divide-border rounded-lg border border-border bg-card">
+        <li><a href="/chat-thread" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <span class="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="thread" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">Proposal: the live agent pane</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">15:24</time></span>
+          <span class="flex items-center gap-2"><span class="truncate text-sm text-muted-foreground">#design-room, 4 replies, Claude replied last</span><span class="ml-auto shrink-0 rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums" aria-label="2 new replies">2</span></span></span></a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h2 class="px-1 pb-1 text-xs font-medium text-muted-foreground">Direct messages</h2>
+      <ul class="divide-y divide-border rounded-lg border border-border bg-card">
+        <li><a href="/chat" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <tf-avatar model="codex" name="reviewer (codex)" status="running" size="lg"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm">reviewer (codex)</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">14:02</time></span>
+          <span class="block truncate text-sm text-muted-foreground">You: send me the palette grid when ready</span></span></a></li>
+        <li><a href="/chat" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="lg"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">DeepSeek (api)</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">13:40</time></span>
+          <span class="flex items-center gap-2"><span class="truncate text-sm text-foreground/80">Migration 0042 needs a reviewer</span><span class="ml-auto shrink-0 rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums" aria-label="1 unread">1</span></span></span></a></li>
+        <li><a href="/chat" class="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/50">
+          <span class="relative inline-flex shrink-0"><tf-avatar model="claude" name="Claude (main)" size="lg"></tf-avatar><span class="absolute -bottom-1 -right-1"><tf-avatar model="claude" name="Claude (bear)" size="xs"></tf-avatar></span></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm">Claude (main), Claude (bear)</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">Mon</time></span>
+          <span class="block truncate text-sm text-muted-foreground">Group started by Claude (main), an agent</span></span></a></li>
+      </ul>
+    </div>
+  </div>
+</tf-shell>

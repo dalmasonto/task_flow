@@ -1,0 +1,60 @@
+<tf-shell active="board" title="Board" flush>
+  <div class="relative min-h-0 flex-1 overflow-hidden">
+    <!-- Board behind, dimmed -->
+    <div class="flex h-full gap-3 p-4 opacity-60 lg:px-6" aria-hidden="true">
+      <div class="w-72 shrink-0 space-y-2 rounded-xl bg-muted/50 p-2"><tf-task-card id="739" title="Dictate to create tasks, comments and chats" priority="high"></tf-task-card><tf-task-card id="803" title="Pin more than one message per channel" priority="high"></tf-task-card></div>
+      <div class="hidden w-72 shrink-0 space-y-2 rounded-xl bg-muted/50 p-2 sm:block"><tf-task-card id="1025" title="Design: v2_fe redesign for onboarding" priority="high" assignee="claude:Claude (main)" live="design_write_page /design"></tf-task-card></div>
+      <div class="hidden w-72 shrink-0 space-y-2 rounded-xl bg-muted/50 p-2 lg:block"><tf-task-card id="721" title="Agents can DM any user or agent" assignee="deepseek:DeepSeek (api)" gate="reviewer (codex)"></tf-task-card></div>
+    </div>
+    <div class="absolute inset-0 bg-black/40"></div>
+
+    <!-- Palette -->
+    <div role="dialog" aria-modal="true" aria-label="Command palette" class="absolute inset-x-3 top-3 mx-auto flex max-h-[85%] max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl sm:top-12">
+      <div class="flex items-center gap-2.5 border-b border-border px-4">
+        <tf-icon name="search" class="size-4.5 text-muted-foreground"></tf-icon>
+        <input class="h-12 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground" placeholder="Search or ask an agent" value="dm" aria-label="Search or ask an agent" role="combobox" aria-expanded="true" aria-controls="cp-list">
+        <kbd class="rounded border border-border px-1.5 text-xs text-muted-foreground">Esc</kbd>
+      </div>
+      <div id="cp-list" role="listbox" class="min-h-0 flex-1 overflow-y-auto p-2 text-sm">
+        <div role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted">
+          <tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="block truncate">Ask <span class="font-medium">@Claude (main)</span>: "dm"</span><span class="block truncate text-xs text-muted-foreground">Hands your words to the agent in a DM. It answers there.</span></span>
+          <kbd class="rounded border border-border bg-background px-1.5 text-xs">Tab</kbd>
+        </div>
+
+        <div class="px-2.5 pb-1 pt-3 text-xs font-medium text-muted-foreground">Tasks</div>
+        <a href="/task" role="option" aria-selected="false" aria-selected="true" class="flex items-center gap-3 rounded-lg bg-accent px-2.5 py-2 text-accent-foreground"><tf-status value="review" label=""></tf-status><span class="min-w-0 flex-1 truncate"><span class="tabular-nums text-muted-foreground">#721</span> Agents can <span class="font-medium underline decoration-ring underline-offset-2">DM</span> any user or agent</span><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar><kbd class="rounded border border-border px-1.5 text-xs text-muted-foreground">Enter</kbd></a>
+        <a href="/task" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-status value="todo" label=""></tf-status><span class="min-w-0 flex-1 truncate"><span class="tabular-nums text-muted-foreground">#804</span> Agent to create <span class="font-medium underline decoration-ring underline-offset-2">DM</span>s and groups</span></a>
+        <a href="/task" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-status value="running" label=""></tf-status><span class="min-w-0 flex-1 truncate"><span class="tabular-nums text-muted-foreground">#1025</span> Design: v2_fe redesign for onboarding</span><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar></a>
+
+        <div class="px-2.5 pb-1 pt-3 text-xs font-medium text-muted-foreground">Agents</div>
+        <div role="option" aria-selected="false" class="group flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted">
+          <tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="sm"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="block truncate">DeepSeek (api)</span><span class="block truncate text-xs text-muted-foreground">Blocked, waiting on migration review</span></span>
+          <span class="flex gap-1"><a href="/chat" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-background"><tf-icon name="message-square" class="size-3.5"></tf-icon><span class="hidden sm:inline">Message</span></a><a href="/agent-claude-main" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-background"><tf-icon name="terminal" class="size-3.5"></tf-icon><span class="hidden sm:inline">Open terminal</span></a></span>
+        </div>
+        <div role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted">
+          <tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="block truncate">reviewer (codex)</span><span class="block truncate text-xs text-muted-foreground">Running, gate review on /board</span></span>
+          <span class="flex gap-1"><a href="/chat" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-background"><tf-icon name="message-square" class="size-3.5"></tf-icon><span class="hidden sm:inline">Message</span></a><a href="/agent-claude-main" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs hover:bg-background"><tf-icon name="terminal" class="size-3.5"></tf-icon><span class="hidden sm:inline">Open terminal</span></a></span>
+        </div>
+
+        <div class="px-2.5 pb-1 pt-3 text-xs font-medium text-muted-foreground">Actions</div>
+        <a href="/chat-inbox" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="pencil" class="size-4 text-muted-foreground"></tf-icon><span class="flex-1">Start a DM with a person or agent</span><kbd class="hidden rounded border border-border px-1.5 text-xs text-muted-foreground sm:inline">G then M</kbd></a>
+        <a href="/task-new" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="plus" class="size-4 text-muted-foreground"></tf-icon><span class="flex-1">New task</span><kbd class="hidden rounded border border-border px-1.5 text-xs text-muted-foreground sm:inline">C</kbd></a>
+        <a href="/agents" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="terminal" class="size-4 text-muted-foreground"></tf-icon><span class="flex-1">Launch an agent in tmux</span></a>
+        <div role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="moon" class="size-4 text-muted-foreground"></tf-icon><span class="flex-1">Switch theme to dark</span><kbd class="hidden rounded border border-border px-1.5 text-xs text-muted-foreground sm:inline">Shift D</kbd></div>
+
+        <div class="px-2.5 pb-1 pt-3 text-xs font-medium text-muted-foreground">Jump to</div>
+        <a href="/chat" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="messages" class="size-4 text-muted-foreground"></tf-icon><span class="flex-1">Chat, direct messages</span></a>
+        <a href="/usage" role="option" aria-selected="false" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="gauge" class="size-4 text-muted-foreground"></tf-icon><span class="flex-1">Usage</span></a>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+        <span class="inline-flex items-center gap-1"><kbd class="rounded border border-border px-1">Up</kbd><kbd class="rounded border border-border px-1">Down</kbd>to move</span>
+        <span class="inline-flex items-center gap-1"><kbd class="rounded border border-border px-1">Enter</kbd>to open</span>
+        <span class="inline-flex items-center gap-1"><kbd class="rounded border border-border px-1">Tab</kbd>to ask an agent instead</span>
+        <span class="ml-auto hidden sm:inline">Type @ to pick an agent</span>
+      </div>
+    </div>
+  </div>
+</tf-shell>

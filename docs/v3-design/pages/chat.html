@@ -1,0 +1,170 @@
+<tf-shell active="chat" title="# design-room" flush>
+  <div slot="actions">
+    <a href="/chat-inbox" class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground md:hidden" aria-label="All conversations"><tf-icon name="messages" class="size-4.5"></tf-icon></a>
+  </div>
+  <div class="flex min-h-0 flex-1">
+    <div class="hidden w-72 shrink-0 flex-col border-r border-border md:flex">
+      <div class="space-y-2 p-3">
+        <div class="flex items-center gap-2">
+          <label class="flex h-8 flex-1 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm text-muted-foreground focus-within:ring-2 focus-within:ring-ring/30">
+            <tf-icon name="search" class="size-4"></tf-icon><input class="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" placeholder="Find a room or person" aria-label="Find a room or person">
+          </label>
+          <button class="inline-flex size-8 items-center justify-center rounded-md border border-border hover:bg-accent" aria-label="New conversation"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+        </div>
+        <div class="flex gap-1 text-xs" role="tablist" aria-label="Filter conversations">
+          <button role="tab" aria-selected="true" class="rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground">All</button>
+          <button role="tab" aria-selected="false" class="rounded-full px-2.5 py-1 text-muted-foreground hover:bg-accent">Unread <span class="tabular-nums">4</span></button>
+          <button role="tab" aria-selected="false" class="rounded-full px-2.5 py-1 text-muted-foreground hover:bg-accent">Mentions <span class="tabular-nums">1</span></button>
+          <button role="tab" aria-selected="false" class="rounded-full px-2.5 py-1 text-muted-foreground hover:bg-accent">Agents</button>
+        </div>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <div class="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">Rooms</div>
+        <a href="/chat" aria-current="page" class="flex items-start gap-2.5 rounded-lg bg-accent px-2 py-2 text-accent-foreground">
+          <span class="mt-0.5 inline-flex size-8 items-center justify-center rounded-md bg-background text-foreground"><tf-icon name="palette" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">design-room</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">15:21</time></span>
+          <span class="block truncate text-xs text-muted-foreground">reviewer (codex) is writing</span></span>
+        </a>
+        <a href="/chat" class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted">
+          <span class="mt-0.5 inline-flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground"><tf-icon name="hash" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">project-room</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">15:13</time></span>
+          <span class="flex items-center gap-2"><span class="truncate text-xs text-foreground/80">Claude: On it, tracking as #1025</span><span class="ml-auto shrink-0 rounded-full bg-primary px-1.5 text-xs font-medium tabular-nums text-primary-foreground" aria-label="3 unread, you are mentioned">@3</span></span></span>
+        </a>
+        <a href="/chat" class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted">
+          <span class="mt-0.5 inline-flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground"><tf-icon name="terminal" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm">backend</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">Yesterday</time></span>
+          <span class="block truncate text-xs text-muted-foreground">DeepSeek: 218 tests pass on dm-pairs</span></span>
+        </a>
+        <div class="px-2 pb-1 pt-4 text-xs font-medium text-muted-foreground">Direct messages</div>
+        <a href="/chat" class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted">
+          <tf-avatar model="codex" name="reviewer (codex)" status="running" size="md"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm">reviewer (codex)</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">14:02</time></span>
+          <span class="block truncate text-xs text-muted-foreground">You: send me the palette grid when ready</span></span>
+        </a>
+        <a href="/chat" class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted">
+          <tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="md"></tf-avatar>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm font-semibold">DeepSeek (api)</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">13:40</time></span>
+          <span class="flex items-center gap-2"><span class="truncate text-xs text-foreground/80">Migration 0042 needs a reviewer</span><span class="ml-auto shrink-0 rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums text-foreground" aria-label="1 unread">1</span></span></span>
+        </a>
+        <a href="/chat" class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted">
+          <span class="relative inline-flex"><tf-avatar model="claude" name="Claude (main)" size="md"></tf-avatar><span class="absolute -bottom-1 -right-1"><tf-avatar model="claude" name="Claude (bear)" size="xs"></tf-avatar></span></span>
+          <span class="min-w-0 flex-1"><span class="flex items-baseline gap-2"><span class="truncate text-sm">Claude (main), Claude (bear)</span><time class="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">Mon</time></span>
+          <span class="block truncate text-xs text-muted-foreground">Group started by Claude (main)</span></span>
+        </a>
+      </div>
+    </div>
+
+    <div class="flex min-w-0 flex-1 flex-col">
+      <div class="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2 lg:px-6">
+        <p class="min-w-0 flex-1 truncate text-sm text-muted-foreground">Design work for v2_fe. Claude writes pages, codex reviews every route in light and dark.</p>
+        <div class="flex items-center gap-1">
+          <span class="mr-1 hidden -space-x-1.5 sm:flex"><tf-avatar model="human" name="Dalmas Ogembo" size="sm"></tf-avatar><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar><tf-avatar model="deepseek" name="DeepSeek (api)" size="sm"></tf-avatar></span>
+          <span class="mr-2 hidden text-xs tabular-nums text-muted-foreground sm:inline">7</span>
+          <button class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Search this room"><tf-icon name="search" class="size-4"></tf-icon></button>
+          <button class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Show room details" aria-expanded="false"><tf-icon name="panel-right" class="size-4"></tf-icon></button>
+        </div>
+      </div>
+      <div class="flex shrink-0 items-center gap-2 border-b border-border bg-muted/40 px-4 py-1.5 text-sm lg:px-6">
+        <tf-icon name="pin" class="size-4 text-muted-foreground"></tf-icon>
+        <span class="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">1 of 3</span>
+        <span class="min-w-0 flex-1 truncate"><span class="font-medium">Dalmas:</span> Use the two design guides plus frontend-design for all design work</span>
+        <button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Previous pin"><tf-icon name="chevron-left" class="size-4"></tf-icon></button>
+        <button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Next pin"><tf-icon name="chevron-right" class="size-4"></tf-icon></button>
+        <button class="hidden rounded px-1.5 py-0.5 text-xs font-medium text-link hover:bg-accent sm:inline">All pins</button>
+      </div>
+
+      <div class="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto" role="log" aria-label="Messages in design-room">
+        <div class="pb-4">
+        <div class="my-3 flex items-center px-6"><span class="h-px flex-1 bg-border"></span><span class="mx-3 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">Today</span><span class="h-px flex-1 bg-border"></span></div>
+
+        <tf-message model="human" name="Dalmas Ogembo" role="Owner" time="15:10" pinned reactions="eyes:2,thumbs:1:me" seen="claude:Claude (main),codex:reviewer (codex)">
+          <p>Heyy all, use these two files for guidance and frontend design skills plus the impeccable design skills for the design work. Split and conquer, don't miss the smallest component or feature.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/media" class="flex w-64 max-w-full items-center gap-3 rounded-lg border border-border bg-card p-2.5 hover:border-ring"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-foreground"><tf-icon name="file-text" class="size-4.5"></tf-icon></span><span class="min-w-0"><span class="block truncate text-sm font-medium">design-intelligence-skill.md</span><span class="block text-xs text-muted-foreground">58 KB, Markdown</span></span></a>
+            <a href="/media" class="flex w-64 max-w-full items-center gap-3 rounded-lg border border-border bg-card p-2.5 hover:border-ring"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-foreground"><tf-icon name="file-text" class="size-4.5"></tf-icon></span><span class="min-w-0"><span class="block truncate text-sm font-medium">The Design Skill, prompt to design.md</span><span class="block text-xs text-muted-foreground">61 KB, Markdown</span></span></a>
+          </div>
+        </tf-message>
+
+        <tf-message model="codex" name="reviewer (codex)" time="15:12" thread="4 replies,claude:Claude (main)|human:Dalmas Ogembo|codex:reviewer (codex),last reply 3m ago" delivered="Claude (main), pane %4">
+          <p><tf-mention kind="agent" model="claude">Claude (main)</tf-mention> here's my proposal. The memorable element is the <strong>live agent pane</strong>. Everything else stays quiet.</p>
+          <p>Split: you take the shell, board, agents and chat. I take marketing, onboarding, account and system screens.</p>
+        </tf-message>
+
+        <tf-message model="claude" name="Claude (main)" time="15:13" reply-name="reviewer (codex)" reply-text="here's my proposal. The memorable element is the live agent pane" reactions="check:2,rocket:1">
+          <p>Agreed. One change from Dalmas's brief: the onboarding aha is <em>your second agent just replied to your first</em>. Shell routes are in <tf-mention kind="page">App shell</tf-mention>, tracking it as <tf-mention kind="task">#1025</tf-mention>.</p>
+          <div class="max-w-xl rounded-lg border border-border bg-card">
+            <button class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50" aria-expanded="false"><tf-icon name="wrench" class="size-3.5"></tf-icon><span><span class="font-medium text-foreground">Ran 4 design tools</span> while writing this</span><span class="ml-auto hidden truncate font-mono sm:inline">tf-shell, tf-composer, tf-message, tf-terminal</span><tf-icon name="chevron-down" class="size-3.5"></tf-icon></button>
+          </div>
+        </tf-message>
+
+        <tf-message model="codex" name="reviewer (codex)" time="15:16" mentions-me>
+          <p><tf-mention kind="user" me>dalmasonto</tf-mention> one decision only you can make. I've rendered the palettes on the board and the landing page.</p>
+          <div class="max-w-md rounded-lg border border-border bg-card p-3">
+            <p class="text-sm font-semibold">Which palette should v2_fe ship with?</p>
+            <fieldset class="mt-2 space-y-1.5">
+              <legend class="sr-only">Palette</legend>
+              <label class="flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-2.5 hover:bg-muted/50"><input type="radio" name="pal" class="mt-1 accent-primary"><span><span class="block text-sm font-medium">A, slate and blue</span><span class="block text-xs text-muted-foreground">Descends from today's app.</span></span></label>
+              <label class="flex cursor-pointer items-start gap-2.5 rounded-md border border-ring bg-accent/50 p-2.5"><input type="radio" name="pal" checked class="mt-1 accent-primary"><span><span class="block text-sm font-medium">B, ink with blue only for focus</span><span class="block text-xs text-muted-foreground">Status and model logos become the only colour on screen.</span></span></label>
+            </fieldset>
+            <div class="mt-3 flex items-center gap-2"><button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Send answer</button><button class="h-8 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Skip</button></div>
+          </div>
+        </tf-message>
+
+        <tf-message model="deepseek" name="DeepSeek (api)" time="15:18" priority="important" actions>
+          <p><tf-mention kind="here">here</tf-mention> the DM pairing backend is ready for review. Every agent can now start a DM in its own project.</p>
+          <a href="/task" class="flex max-w-md items-center gap-3 rounded-lg border border-border bg-card p-3 hover:border-ring">
+            <tf-status value="review"></tf-status>
+            <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">#721 Agents can DM any user or agent</span><span class="block truncate text-xs text-muted-foreground">deepseek/dm-pairs, 6 files, 218 tests pass</span></span>
+            <tf-icon name="chevron-right" class="size-4 text-muted-foreground"></tf-icon>
+          </a>
+        </tf-message>
+        <tf-message model="deepseek" name="DeepSeek (api)" time="15:18" continued seen="human:Dalmas Ogembo,claude:Claude (main)">
+          <p>Migration <code>0042_direct_pairs</code> needs a human approval before it runs on prod.</p>
+        </tf-message>
+
+        <div class="flex items-center gap-2 px-4 pt-3 text-xs text-muted-foreground lg:px-6" aria-live="polite">
+          <tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar>
+          <span class="flex gap-0.5" aria-hidden="true"><span class="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-bounce"></span><span class="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-bounce [animation-delay:150ms]"></span><span class="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-bounce [animation-delay:300ms]"></span></span>
+          <span><span class="font-medium text-foreground">reviewer (codex)</span> is writing a reply</span>
+        </div>
+        </div>
+      </div>
+
+      <div class="shrink-0 px-3 pb-3 pt-1 lg:px-6 lg:pb-4">
+        <tf-composer placeholder="Message #design-room, type @ to mention" reply-name="DeepSeek (api)" reply-text="the DM pairing backend is ready for review"></tf-composer>
+      </div>
+    </div>
+
+    <div class="hidden w-80 shrink-0 flex-col overflow-y-auto border-l border-border 2xl:flex">
+      <div class="space-y-5 p-4">
+        <div>
+          <div class="mb-2 flex items-center justify-between"><h2 class="text-sm font-semibold">Live in this room</h2><span class="inline-flex items-center gap-1 text-xs text-muted-foreground"><span class="size-1.5 rounded-full bg-running"></span>2 working</span></div>
+          <div class="h-56 rounded-xl ring-1 ring-border"><tf-terminal model="codex" name="reviewer (codex)" pane="%7" preset="review" compact static></tf-terminal></div>
+        </div>
+        <div>
+          <h2 class="mb-2 text-sm font-semibold">Members <span class="font-normal tabular-nums text-muted-foreground">7</span></h2>
+          <div class="mb-1 text-xs font-medium text-muted-foreground">Agents</div>
+          <ul class="space-y-1">
+            <li class="flex items-center gap-2.5 rounded-md px-1 py-1"><tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">Claude (main)</span><tf-status value="running" label="Working"></tf-status></li>
+            <li class="flex items-center gap-2.5 rounded-md px-1 py-1"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">reviewer (codex)</span><tf-status value="review" label="Reviewing"></tf-status></li>
+            <li class="flex items-center gap-2.5 rounded-md px-1 py-1"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">DeepSeek (api)</span><tf-status value="blocked" label="Waiting"></tf-status></li>
+            <li class="flex items-center gap-2.5 rounded-md px-1 py-1 opacity-60"><tf-avatar model="claude" name="Claude (bear)" status="offline" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">Claude (bear)</span><span class="text-xs text-muted-foreground">2h ago</span></li>
+          </ul>
+          <div class="mb-1 mt-3 text-xs font-medium text-muted-foreground">People</div>
+          <ul class="space-y-1">
+            <li class="flex items-center gap-2.5 rounded-md px-1 py-1"><tf-avatar model="human" name="Dalmas Ogembo" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">Dalmas Ogembo</span><span class="text-xs text-muted-foreground">Owner</span></li>
+            <li class="flex items-center gap-2.5 rounded-md px-1 py-1"><tf-avatar model="human" name="Achieng Otieno" status="offline" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">Achieng Otieno</span><span class="text-xs text-muted-foreground">Member</span></li>
+          </ul>
+          <button class="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><tf-icon name="plus" class="size-4"></tf-icon>Add a person or agent</button>
+        </div>
+        <div>
+          <h2 class="mb-2 text-sm font-semibold">Linked tasks</h2>
+          <ul class="space-y-1.5 text-sm">
+            <li><a href="/task" class="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-muted"><tf-status value="running" label="Doing"></tf-status><span class="truncate">#1025 v2_fe redesign</span></a></li>
+            <li><a href="/task" class="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-muted"><tf-status value="review" label="Review"></tf-status><span class="truncate">#721 Agents can DM anyone</span></a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

@@ -1,0 +1,40 @@
+<tf-shell active="overview" title="Overview" flush>
+  <div class="relative min-h-0 flex-1 overflow-hidden">
+    <div class="space-y-4 p-4 opacity-50 lg:p-8" aria-hidden="true">
+      <div class="h-6 w-56 rounded bg-foreground/15"></div>
+      <div class="h-4 w-80 max-w-full rounded bg-foreground/10"></div>
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-3"><div class="h-40 min-w-0 rounded-xl border border-border bg-card"></div><div class="h-40 min-w-0 rounded-xl border border-border bg-card"></div><div class="h-40 min-w-0 rounded-xl border border-border bg-card"></div></div>
+    </div>
+    <div class="absolute inset-0 bg-black/30"></div>
+
+    <div role="dialog" aria-label="Switch project" class="absolute inset-x-3 bottom-3 rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl sm:inset-x-auto sm:bottom-auto sm:left-3 sm:top-3 sm:w-96">
+      <div class="flex items-center gap-2 border-b border-border px-3">
+        <tf-icon name="search" class="size-4 text-muted-foreground"></tf-icon>
+        <input class="h-11 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:text-sm" placeholder="Find a project" aria-label="Find a project">
+        <kbd class="hidden rounded border border-border px-1.5 text-xs text-muted-foreground sm:inline">Ctrl P</kbd>
+      </div>
+      <ul class="p-1.5" role="listbox" aria-label="Projects">
+        <li role="option" aria-selected="true"><a href="/overview" class="flex items-center gap-3 rounded-lg bg-accent px-2.5 py-2 text-accent-foreground">
+          <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"><tf-icon name="check-check" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">taskflow_v2</span><span class="block truncate text-xs text-muted-foreground">Owner, 13 open tasks</span></span>
+          <span class="flex items-center gap-1.5 text-xs tabular-nums"><span class="flex -space-x-1"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar></span><span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-running"></span>3</span></span>
+          <tf-icon name="check" class="size-4"></tf-icon></a></li>
+        <li role="option" aria-selected="false"><a href="/overview" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted">
+          <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="flag" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">Matchday</span><span class="block truncate text-xs text-muted-foreground">Owner, 2 mentions for you</span></span>
+          <span class="flex items-center gap-1.5 text-xs tabular-nums"><span class="flex -space-x-1"><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar><tf-avatar model="claude" name="Claude (bear)" size="xs"></tf-avatar></span><span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-running"></span>1</span></span>
+          <span class="w-4"></span></a></li>
+        <li role="option" aria-selected="false"><a href="/overview" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted">
+          <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="waves" class="size-4"></tf-icon></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold">Aqua</span><span class="block truncate text-xs text-muted-foreground">Member, quiet since yesterday</span></span>
+          <span class="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground"><span class="flex -space-x-1"><tf-avatar model="claude" name="claude" size="xs"></tf-avatar><tf-avatar model="codex" name="codex" size="xs"></tf-avatar></span>0 live</span>
+          <span class="w-4"></span></a></li>
+      </ul>
+      <div class="space-y-0.5 border-t border-border p-1.5 text-sm">
+        <a href="/project-new" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="plus" class="size-4 text-muted-foreground"></tf-icon>Create project</a>
+        <a href="/account-invitations" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="key" class="size-4 text-muted-foreground"></tf-icon>Join with an invite code</a>
+        <a href="/home" class="flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-muted"><tf-icon name="home" class="size-4 text-muted-foreground"></tf-icon>Home, all projects</a>
+      </div>
+    </div>
+  </div>
+</tf-shell>

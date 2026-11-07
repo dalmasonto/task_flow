@@ -1,0 +1,88 @@
+<tf-shell active="reviews" title="Reviews" flush>
+  <div class="flex min-h-0 flex-1">
+    <div class="min-w-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-3xl px-4 py-5 lg:px-8">
+        <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="Reviews">
+          <button role="tab" aria-selected="true" class="h-7 rounded bg-accent px-2.5 font-medium text-accent-foreground">Waiting <span class="tabular-nums">2</span></button>
+          <button role="tab" aria-selected="false" class="h-7 rounded px-2.5 text-muted-foreground hover:text-foreground">Requested by me</button>
+          <button role="tab" aria-selected="false" class="h-7 rounded px-2.5 text-muted-foreground hover:text-foreground">Done</button>
+        </div>
+
+        <ul class="mt-4 space-y-3">
+          <li class="rounded-xl border border-primary bg-card p-4 ring-2 ring-primary/15">
+            <div class="flex items-start gap-3">
+              <tf-avatar model="deepseek" name="DeepSeek (api)" size="md"></tf-avatar>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm"><span class="font-medium">DeepSeek (api)</span> asked <span class="font-medium">reviewer (codex)</span> and you</p>
+                <a href="/task" class="mt-0.5 block text-base font-semibold hover:underline">#721 Agents can DM any user or agent in their project</a>
+              </div>
+              <tf-status value="review"></tf-status>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span class="inline-flex items-center gap-1 font-mono"><tf-icon name="git-branch" class="size-3.5"></tf-icon>deepseek/dm-pairs</span>
+              <span class="tabular-nums"><span class="text-running">+412</span> <span class="text-failed">-37</span>, 6 files</span>
+              <span class="inline-flex items-center gap-1"><tf-icon name="clock" class="size-3.5"></tf-icon>12m ago</span>
+            </div>
+            <p class="mt-3 rounded-md bg-muted/60 p-3 text-sm"><span class="font-medium">Focus:</span> pair reuse in <code class="font-mono text-xs">posting.rs</code> and the capability gate. The migration adds a unique index.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <span class="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs"><tf-icon name="circle-check" class="size-3.5 text-done"></tf-icon>218 tests pass</span>
+              <span class="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs"><tf-icon name="file-text" class="size-3.5 text-muted-foreground"></tf-icon>migration-0042-plan.md</span>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <button class="h-8 rounded-md border border-ring bg-accent px-3 text-sm font-medium text-accent-foreground" aria-controls="review-panel">Open review</button>
+              <a href="/task" class="ml-auto inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent">Open task<tf-icon name="chevron-right" class="size-4"></tf-icon></a>
+            </div>
+          </li>
+          <li class="rounded-xl border border-border bg-card p-4">
+            <div class="flex items-start gap-3">
+              <tf-avatar model="claude" name="Claude (main)" size="md"></tf-avatar>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm"><span class="font-medium">Claude (main)</span> asked you</p>
+                <a href="/task" class="mt-0.5 block text-base font-semibold hover:underline">#983 Overlapping chips for chat and active sessions</a>
+              </div>
+              <tf-status value="review"></tf-status>
+            </div>
+            <p class="mt-3 rounded-md bg-muted/60 p-3 text-sm"><span class="font-medium">Focus:</span> live sessions now sit in the sidebar and a top-bar stack, so chips never overlap. Check a phone at 360 px.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <span class="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs"><tf-icon name="image" class="size-3.5 text-muted-foreground"></tf-icon>2 screenshots</span>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Approve</button>
+              <button class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Request changes</button>
+            </div>
+          </li>
+        </ul>
+
+        <h2 class="mt-8 mb-2 text-sm font-semibold">Recently completed</h2>
+        <ul class="divide-y divide-border rounded-xl border border-border bg-card">
+          <li class="flex items-center gap-3 px-4 py-3"><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar><p class="min-w-0 flex-1 truncate text-sm"><span class="font-medium">reviewer (codex)</span> requested changes on #721</p><span class="shrink-0 text-xs text-muted-foreground">14:51</span></li>
+          <li class="flex items-center gap-3 px-4 py-3"><tf-avatar model="human" name="Dalmas Ogembo" size="sm"></tf-avatar><p class="min-w-0 flex-1 truncate text-sm"><span class="font-medium">Dalmas Ogembo</span> approved #932 tmux launcher</p><span class="shrink-0 text-xs text-muted-foreground">Yesterday</span></li>
+          <li class="flex items-center gap-3 px-4 py-3"><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar><p class="min-w-0 flex-1 truncate text-sm"><span class="font-medium">reviewer (codex)</span> approved #769 own-reply echo fix</p><span class="shrink-0 text-xs text-muted-foreground">Yesterday</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="hidden w-96 shrink-0 flex-col overflow-y-auto border-l border-border xl:flex">
+      <div class="space-y-4 p-4">
+        <div class="flex items-center justify-between"><h2 class="text-sm font-semibold">#721 diff</h2><span class="text-xs tabular-nums text-muted-foreground">6 files</span></div>
+        <ul class="space-y-1 font-mono text-xs">
+          <li class="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted"><span class="min-w-0 flex-1 truncate">plugins/taskflow-agents/src/posting.rs</span><span class="tabular-nums text-running">+188</span><span class="tabular-nums text-failed">-21</span></li>
+          <li class="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted"><span class="min-w-0 flex-1 truncate">migrations/0042_direct_pairs.sql</span><span class="tabular-nums text-running">+34</span></li>
+          <li class="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted"><span class="min-w-0 flex-1 truncate">mcp/src/tools/send_dm.ts</span><span class="tabular-nums text-running">+96</span><span class="tabular-nums text-failed">-4</span></li>
+        </ul>
+        <div class="overflow-hidden rounded-lg border border-border bg-terminal font-mono text-xs leading-5 text-terminal-foreground">
+          <div class="border-b border-terminal-foreground/10 px-3 py-1.5 text-terminal-foreground/60">posting.rs, line 88</div>
+          <pre class="overflow-x-auto p-3"><span class="text-terminal-foreground/50"> 86</span>  let pair = DirectPair::find(a, b)
+<span class="text-failed"> 87 -</span>      .first(&amp;db).await?;
+<span class="text-running"> 87 +</span>      .in_project(project_id)
+<span class="text-running"> 88 +</span>      .first(&amp;db).await?;</pre>
+        </div>
+        <div class="rounded-lg border border-border p-3">
+          <p class="text-xs font-medium text-muted-foreground">Review note</p>
+          <textarea class="mt-2 min-h-24 w-full resize-y rounded-md border border-input bg-background p-2 text-sm outline-none focus:ring-2 focus:ring-ring/30" placeholder="What did you verify? What should change?"></textarea>
+          <div class="mt-2 flex items-center gap-2"><tf-mic for="note"></tf-mic><button class="ml-auto h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Request changes</button><button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">Approve</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

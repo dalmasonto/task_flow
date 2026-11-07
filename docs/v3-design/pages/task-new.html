@@ -1,0 +1,77 @@
+<tf-shell active="board" title="New task" back="/board">
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+    <form class="min-w-0 space-y-5 rounded-xl border border-border bg-card p-4 sm:p-6" aria-label="New task">
+      <div class="space-y-1.5">
+        <label for="t-title" class="text-sm font-medium">Title</label>
+        <input id="t-title" class="h-10 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:text-sm" value="Add a send_dm tool to the MCP" autocomplete="off">
+      </div>
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between"><label for="t-desc" class="text-sm font-medium">Description</label><tf-mic for="t-desc"></tf-mic></div>
+        <textarea id="t-desc" rows="6" class="w-full rounded-md border border-input bg-background px-3 py-2 text-base leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:text-sm" placeholder="What should be true when this is done? Markdown works.">Agents can DM a person or agent by id or name. Repeat DMs reuse the pair's channel.
+
+Done when: send_dm works from Claude and Codex, and a cross-project DM is refused.</textarea>
+        <p class="text-xs text-muted-foreground">Tip: say "done when" so the reviewer knows what to check.</p>
+      </div>
+
+      <fieldset class="space-y-2">
+        <legend class="text-sm font-medium">Assignee</legend>
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-ring bg-accent/50 p-2.5 ring-2 ring-ring/20"><input type="radio" name="assignee" checked class="sr-only"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="md"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">DeepSeek (api)</span><span class="block truncate text-xs text-muted-foreground">Owns #721, the backend half</span></span><tf-icon name="check" class="size-4"></tf-icon></label>
+          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-2.5 hover:bg-muted/50"><input type="radio" name="assignee" class="sr-only"><tf-avatar model="claude" name="Claude (main)" status="running" size="md"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">Claude (main)</span><span class="block truncate text-xs text-muted-foreground">Busy on #1025</span></span></label>
+          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-2.5 hover:bg-muted/50"><input type="radio" name="assignee" class="sr-only"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="md"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">reviewer (codex)</span><span class="block truncate text-xs text-muted-foreground">Busy on #1026</span></span></label>
+          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-2.5 hover:bg-muted/50"><input type="radio" name="assignee" class="sr-only"><tf-avatar model="human" name="Dalmas Ogembo" status="running" size="md"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">Dalmas Ogembo</span><span class="block truncate text-xs text-muted-foreground">You</span></span></label>
+        </div>
+        <button type="button" class="text-xs font-medium text-link underline-offset-4 hover:underline">Leave unassigned, any agent can claim it</button>
+      </fieldset>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="space-y-1.5"><label for="t-pri" class="text-sm font-medium">Priority</label>
+          <select id="t-pri" class="h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"><option>Low</option><option selected>Normal</option><option>High</option><option>Critical</option></select></div>
+        <fieldset class="space-y-2 sm:col-span-2"><legend class="text-sm font-medium">Reviewers</legend>
+            <ul class="space-y-1.5">
+              <li class="flex items-center gap-2.5 rounded-lg border border-border px-2.5 py-2"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">reviewer (codex)</span><span class="text-xs text-muted-foreground">Code review</span><button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Remove reviewer (codex)"><tf-icon name="x" class="size-3.5"></tf-icon></button></li>
+              <li class="flex items-center gap-2.5 rounded-lg border border-border px-2.5 py-2"><tf-avatar model="human" name="Dalmas Ogembo" size="sm"></tf-avatar><span class="min-w-0 flex-1 truncate text-sm">Dalmas Ogembo</span><span class="text-xs text-muted-foreground">Visual check</span><button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Remove Dalmas Ogembo"><tf-icon name="x" class="size-3.5"></tf-icon></button></li>
+            </ul>
+            <div class="flex flex-wrap items-center gap-2"><button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><tf-icon name="plus" class="size-4"></tf-icon>Add reviewer</button>
+              <label class="ml-auto flex items-center gap-2 text-sm"><span class="text-muted-foreground">Gate passes when</span><select class="h-8 rounded-md border border-input bg-background px-2 text-sm"><option selected>everyone approves</option><option>any one approves</option></select></label></div>
+            <p class="text-xs text-muted-foreground">Each reviewer gives their own verdict: approved, changes requested or waiting.</p>
+          </fieldset>
+        <div class="space-y-1.5"><label for="t-due" class="text-sm font-medium">Due <span class="font-normal text-muted-foreground">optional</span></label>
+          <input id="t-due" type="date" value="2026-11-05" class="h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"></div>
+        <div class="space-y-1.5"><label for="t-repo" class="text-sm font-medium">Repo</label>
+          <select id="t-repo" class="h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"><option selected>dalmasonto/task_flow</option><option>dalmasonto/matchday</option></select></div>
+      </div>
+
+      <div class="space-y-1.5">
+        <span class="text-sm font-medium">Attachments</span>
+        <div class="flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          <tf-icon name="paperclip" class="size-5"></tf-icon>
+          <span>Drop files here, or <button type="button" class="font-medium text-link underline-offset-4 hover:underline">browse</button></span>
+          <span class="text-xs">Up to 25 MB each. Agents can download them with download_attachment.</span>
+        </div>
+      </div>
+
+      <div class="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+        <a href="/board" class="inline-flex h-9 items-center justify-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Cancel</a>
+        <button type="submit" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium hover:bg-accent">Create task</button>
+        <button type="submit" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="play" class="size-4"></tf-icon>Create and start</button>
+      </div>
+    </form>
+
+    <div class="min-w-0 space-y-4">
+      <div class="rounded-xl border border-border bg-card p-4">
+        <div class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar><h2 class="text-sm font-semibold">Draft with an agent</h2></div>
+        <p class="mt-2 text-sm text-muted-foreground">Describe the outcome in a line. Claude (main) writes the description, the done-when list and a suggested assignee. You edit before it's created.</p>
+        <button type="button" class="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent"><tf-icon name="pencil" class="size-4"></tf-icon>Draft it for me</button>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4 text-sm">
+        <h2 class="font-semibold">What "Create and start" does</h2>
+        <ul class="mt-2 space-y-1.5 text-muted-foreground">
+          <li class="flex gap-2"><tf-icon name="check" class="mt-0.5 size-4 shrink-0"></tf-icon>Assigns DeepSeek (api) and moves the task to In progress</li>
+          <li class="flex gap-2"><tf-icon name="check" class="mt-0.5 size-4 shrink-0"></tf-icon>Types a notice into its terminal, pane %9</li>
+          <li class="flex gap-2"><tf-icon name="check" class="mt-0.5 size-4 shrink-0"></tf-icon>Starts a 60 minute claim lease</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</tf-shell>

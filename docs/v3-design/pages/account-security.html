@@ -1,0 +1,59 @@
+<tf-shell active="account" title="Account">
+  <div class="max-w-3xl">
+    <tf-account-nav active="security" invites="2"></tf-account-nav>
+
+    <section class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="pw-h">
+      <div>
+        <h2 id="pw-h" class="font-medium text-foreground">Password</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Last changed 3 months ago.</p>
+      </div>
+      <form class="min-w-0 space-y-5 rounded-xl border border-border bg-card p-5">
+        <tf-password-field field-id="current-pw" label="Current password" autocomplete="current-password"></tf-password-field>
+        <tf-password-field field-id="new-pw" label="New password" autocomplete="new-password" hint="At least 10 characters."></tf-password-field>
+        <div class="flex justify-end border-t border-border pt-4">
+          <button type="button" class="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Change password</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="token-h">
+      <div>
+        <h2 id="token-h" class="font-medium text-foreground">Personal token</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Lets <code class="font-mono text-xs">taskflow init</code> link agents for you. Agents get their own keys.</p>
+      </div>
+      <div class="min-w-0 rounded-xl border border-border bg-card p-5">
+        <div class="flex flex-wrap items-center gap-3">
+          <code class="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">tfu_************************7c41</code>
+          <button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Make a new token</button>
+        </div>
+        <p class="mt-2 text-xs text-muted-foreground">Created 12 October. Last used today from taskflow init. A new token stops the old one working.</p>
+      </div>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="sessions-h">
+      <div>
+        <h2 id="sessions-h" class="font-medium text-foreground">Where you're logged in</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Browsers with access to your account.</p>
+      </div>
+      <div class="min-w-0">
+        <ul class="divide-y divide-border rounded-xl border border-border bg-card">
+          <li class="flex items-center gap-3 p-4">
+            <tf-icon name="laptop" class="size-5 shrink-0 text-muted-foreground"></tf-icon>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Chrome on Linux <span class="ml-1 rounded-full bg-running/10 px-2 py-0.5 text-xs font-medium text-running">This device</span></p><p class="text-xs text-muted-foreground">Nairobi, active now</p></div>
+          </li>
+          <li class="flex items-center gap-3 p-4">
+            <tf-icon name="smartphone" class="size-5 shrink-0 text-muted-foreground"></tf-icon>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Safari on iPhone</p><p class="text-xs text-muted-foreground">Nairobi, 2 hours ago</p></div>
+            <button type="button" class="inline-flex h-8 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Log out</button>
+          </li>
+          <li class="flex items-center gap-3 p-4">
+            <tf-icon name="laptop" class="size-5 shrink-0 text-muted-foreground"></tf-icon>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Firefox on Windows</p><p class="text-xs text-muted-foreground">Mombasa, 9 days ago</p></div>
+            <button type="button" class="inline-flex h-8 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Log out</button>
+          </li>
+        </ul>
+        <button type="button" class="mt-3 inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-destructive hover:bg-destructive/10">Log out everywhere else</button>
+      </div>
+    </section>
+  </div>
+</tf-shell>

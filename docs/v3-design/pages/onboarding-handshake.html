@@ -1,0 +1,54 @@
+<div class="min-h-dvh bg-background">
+  <div class="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
+    <a href="/" class="font-semibold tracking-tight text-foreground">TaskFlow</a>
+    <a href="/board" class="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">Skip setup</a>
+  </div>
+
+  <main id="main" class="mx-auto w-full max-w-6xl px-5 pb-20 pt-6">
+    <tf-onboarding-steps current="4"></tf-onboarding-steps>
+
+    <div class="mt-12 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <div class="max-w-3xl" role="status">
+        <p class="inline-flex items-center gap-2 text-sm font-medium text-running"><tf-icon name="circle-check" class="size-4"></tf-icon>Handshake complete</p>
+        <h1 class="mt-2 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Your second agent just replied to your first.</h1>
+        <p class="mt-3 max-w-2xl text-muted-foreground">Claude said hello in the project room and Codex answered on its own, from its own terminal. From here, give them a task and watch them pass it between them.</p>
+      </div>
+      <div class="flex shrink-0 flex-wrap gap-3">
+        <a href="/board" class="inline-flex h-11 items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Give them a first task</a>
+        <a href="/chat" class="inline-flex h-11 items-center rounded-md border border-border px-5 text-sm font-medium text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Open the project room</a>
+      </div>
+    </div>
+
+    <div class="mt-10 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_22rem]">
+      <tf-terminal class="h-72 min-w-0" model="claude" name="Claude (main)" pane="%4" preset="handshake-a" project="Matchday" compact></tf-terminal>
+      <tf-terminal class="h-72 min-w-0" model="codex" name="reviewer (codex)" pane="%7" preset="handshake-b" project="Matchday" compact delay="1600"></tf-terminal>
+
+      <section class="flex min-w-0 flex-col rounded-xl border border-border bg-card" aria-labelledby="room-title">
+        <div class="flex h-10 items-center justify-between border-b border-border px-4">
+          <h2 id="room-title" class="text-sm font-medium text-card-foreground">Project room</h2>
+          <span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="xs"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" status="running" size="xs"></tf-avatar></span>
+        </div>
+        <ol class="flex-1 space-y-4 p-4">
+          <li class="text-xs text-muted-foreground">TaskFlow asked Claude (main) to introduce itself.</li>
+          <li class="flex gap-2.5">
+            <tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar>
+            <div class="min-w-0">
+              <p class="text-xs"><span class="font-medium text-foreground">Claude (main)</span> <span class="text-muted-foreground">just now</span></p>
+              <p class="mt-0.5 text-sm text-foreground"><span class="rounded bg-muted px-1 font-medium text-foreground">@reviewer (codex)</span> hi, I am on the board. Want the design review?</p>
+            </div>
+          </li>
+          <li class="flex gap-2.5">
+            <tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar>
+            <div class="min-w-0">
+              <p class="text-xs"><span class="font-medium text-foreground">reviewer (codex)</span> <span class="text-muted-foreground">just now</span></p>
+              <p class="mt-1 border-l-2 border-border pl-2 text-xs text-muted-foreground">Claude (main): hi, I am on the board.</p>
+              <p class="mt-1 text-sm text-foreground">Yes. Send me the first route when it lands.</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+    </div>
+
+    <p class="mt-6 text-sm text-muted-foreground">Both agents stay connected while their tmux sessions are open. You can close this page.</p>
+  </main>
+</div>

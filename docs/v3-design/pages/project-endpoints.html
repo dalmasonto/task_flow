@@ -1,0 +1,42 @@
+<tf-shell active="" title="Project settings">
+  <div class="max-w-4xl">
+    <tf-project-nav active="endpoints"></tf-project-nav>
+
+    <div class="mt-8 flex flex-wrap items-end justify-between gap-3">
+      <div><h2 class="font-medium text-foreground">Environments</h2><p class="mt-1 max-w-xl text-sm text-muted-foreground">The servers this project runs on. Agents read the default one when they test an API, and TaskFlow checks each one's health every 5 minutes.</p></div>
+      <button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon>Add environment</button>
+    </div>
+
+    <ul class="mt-5 divide-y divide-border rounded-xl border border-border bg-card">
+      <li class="flex flex-wrap items-center gap-4 p-4">
+        <span class="inline-flex w-24 shrink-0 items-center gap-1.5 text-sm"><span class="size-2 rounded-full bg-running"></span>Healthy</span>
+        <div class="min-w-0 flex-1"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground">Production <span class="rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-secondary-foreground">Default</span></p><p class="truncate font-mono text-xs text-muted-foreground">https://api.taskflow.supercodehive.com</p></div>
+        <p class="text-xs text-muted-foreground">Checked 2 min ago, 38 ms</p>
+        <button type="button" class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Edit Production"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+      </li>
+      <li class="flex flex-wrap items-center gap-4 bg-blocked/5 p-4">
+        <span class="inline-flex w-24 shrink-0 items-center gap-1.5 text-sm text-blocked"><span class="size-2 rounded-full bg-blocked"></span>Slow</span>
+        <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Staging</p><p class="truncate font-mono text-xs text-muted-foreground">https://staging-api.taskflow.supercodehive.com</p><p class="mt-1 text-xs text-blocked">Answered in 4.2 s on the last 3 checks. Agents are told before they use it.</p></div>
+        <p class="text-xs text-muted-foreground">Checked 2 min ago</p>
+        <button type="button" class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Edit Staging"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+      </li>
+      <li class="flex flex-wrap items-center gap-4 p-4">
+        <span class="inline-flex w-24 shrink-0 items-center gap-1.5 text-sm text-muted-foreground"><span class="size-2 rounded-full border border-idle"></span>Not checked</span>
+        <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Local</p><p class="truncate font-mono text-xs text-muted-foreground">http://localhost:8000</p><p class="mt-1 text-xs text-muted-foreground">Local addresses aren't checked from our server.</p></div>
+        <button type="button" class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Edit Local"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+      </li>
+    </ul>
+
+    <form class="mt-8 rounded-xl border border-dashed border-border p-5" aria-labelledby="add-h">
+      <h3 id="add-h" class="text-sm font-medium text-foreground">Add environment</h3>
+      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[10rem_1fr_10rem]">
+        <div class="min-w-0"><label for="el" class="text-sm text-foreground">Name</label><input id="el" type="text" placeholder="Preview" class="mt-1.5 block h-9 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm" /></div>
+        <div class="min-w-0"><label for="eu" class="text-sm text-foreground">Base URL</label><input id="eu" type="url" inputmode="url" placeholder="https://preview-api.example.com" class="mt-1.5 block h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-base sm:text-sm" /></div>
+        <div class="min-w-0"><label for="ee" class="text-sm text-foreground">Kind</label><select id="ee" class="mt-1.5 block h-9 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"><option>Development</option><option selected>Staging</option><option>Production</option></select></div>
+      </div>
+      <label for="enote" class="mt-4 block text-sm text-foreground">Notes for agents <span class="text-muted-foreground">Optional</span></label>
+      <input id="enote" type="text" placeholder="For example: reset nightly; never write real user data" class="mt-1.5 block h-9 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm" />
+      <div class="mt-4 flex justify-end"><button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Add and check now</button></div>
+    </form>
+  </div>
+</tf-shell>

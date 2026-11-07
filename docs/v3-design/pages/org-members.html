@@ -1,0 +1,61 @@
+<tf-shell active="" title="Organisation">
+  <div slot="actions">
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="user-plus" class="size-4"></tf-icon><span class="hidden sm:inline">Invite people</span></button>
+  </div>
+  <tf-org-nav active="members"></tf-org-nav>
+
+  <div class="mt-6 flex flex-wrap items-center gap-3">
+    <p class="text-sm text-muted-foreground"><span class="font-medium text-foreground">4 of 5 seats</span> used. Agents don't take seats.</p>
+    <div class="relative ml-auto w-full sm:w-64">
+      <label for="om-q" class="sr-only">Search people</label>
+      <tf-icon name="search" class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"></tf-icon>
+      <input id="om-q" type="search" placeholder="Search people" class="block h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-base sm:text-sm" />
+    </div>
+  </div>
+
+  <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-card">
+    <table class="w-full min-w-[46rem] text-sm">
+      <thead><tr class="border-b border-border text-left text-xs text-muted-foreground"><th class="px-4 py-2.5 font-medium">Person</th><th class="px-4 py-2.5 font-medium">Organisation role</th><th class="px-4 py-2.5 font-medium">Projects</th><th class="px-4 py-2.5 font-medium">Last active</th><th class="px-4 py-2.5"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody class="divide-y divide-border">
+        <tr>
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="human" name="Dalmas Ogembo" status="running" size="md"></tf-avatar><div><p class="font-medium text-card-foreground">Dalmas Ogembo <span class="font-normal text-muted-foreground">(you)</span></p><p class="text-xs text-muted-foreground">dalmas@example.com</p></div></div></td>
+          <td class="px-4 py-3 text-foreground">Owner</td>
+          <td class="px-4 py-3 text-muted-foreground">All projects</td>
+          <td class="px-4 py-3 text-muted-foreground">Now</td>
+          <td class="px-4 py-3"></td>
+        </tr>
+        <tr>
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="human" name="Achieng Otieno" status="idle" size="md"></tf-avatar><div><p class="font-medium text-card-foreground">Achieng Otieno</p><p class="text-xs text-muted-foreground">achieng@example.com</p></div></div></td>
+          <td class="px-4 py-3"><label for="r-ach" class="sr-only">Role for Achieng</label><select id="r-ach" class="h-8 rounded-md border border-input bg-background px-2 text-sm"><option>Admin</option><option selected>Member</option><option>Billing</option></select></td>
+          <td class="px-4 py-3"><div class="flex flex-wrap gap-1"><span class="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">taskflow_v2, member</span><span class="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">Aqua, lead</span></div></td>
+          <td class="px-4 py-3 text-muted-foreground">Yesterday</td>
+          <td class="px-4 py-3 text-right"><button type="button" class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="More for Achieng Otieno"><tf-icon name="ellipsis" class="size-4"></tf-icon></button></td>
+        </tr>
+        <tr>
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="human" name="Brian Kiprop" size="md"></tf-avatar><div><p class="font-medium text-card-foreground">Brian Kiprop</p><p class="text-xs text-muted-foreground">brian@example.com</p></div></div></td>
+          <td class="px-4 py-3"><label for="r-bri" class="sr-only">Role for Brian</label><select id="r-bri" class="h-8 rounded-md border border-input bg-background px-2 text-sm"><option>Admin</option><option>Member</option><option selected>Billing</option></select></td>
+          <td class="px-4 py-3 text-muted-foreground">None. Sees licence and spend only</td>
+          <td class="px-4 py-3 text-muted-foreground">12 days ago</td>
+          <td class="px-4 py-3 text-right"><button type="button" class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="More for Brian Kiprop"><tf-icon name="ellipsis" class="size-4"></tf-icon></button></td>
+        </tr>
+        <tr class="bg-muted/30">
+          <td class="px-4 py-3"><div class="flex items-center gap-3"><span class="grid size-8 place-items-center rounded-full border border-dashed border-border text-muted-foreground"><tf-icon name="mail" class="size-4"></tf-icon></span><div><p class="font-medium text-card-foreground">wanjiku@example.com</p><p class="text-xs text-muted-foreground">Invited by Achieng, expires in 5 days</p></div></div></td>
+          <td class="px-4 py-3 text-muted-foreground">Member</td>
+          <td class="px-4 py-3"><span class="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">Aqua, member</span></td>
+          <td class="px-4 py-3 text-muted-foreground">Not joined</td>
+          <td class="px-4 py-3 text-right"><button type="button" class="inline-flex h-8 items-center rounded-md px-2 text-xs font-medium hover:bg-accent">Resend</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <section class="mt-8 max-w-3xl" aria-labelledby="roles-h">
+    <h2 id="roles-h" class="text-sm font-medium text-foreground">What each role can do</h2>
+    <dl class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div class="rounded-lg border border-border p-3"><dt class="text-sm font-medium text-foreground">Owner</dt><dd class="mt-1 text-sm text-muted-foreground">Everything, including the licence and deleting the organisation.</dd></div>
+      <div class="rounded-lg border border-border p-3"><dt class="text-sm font-medium text-foreground">Admin</dt><dd class="mt-1 text-sm text-muted-foreground">Creates projects, manages people and agents, sets budgets.</dd></div>
+      <div class="rounded-lg border border-border p-3"><dt class="text-sm font-medium text-foreground">Member</dt><dd class="mt-1 text-sm text-muted-foreground">Works in the projects they're added to. Can link agents there.</dd></div>
+      <div class="rounded-lg border border-border p-3"><dt class="text-sm font-medium text-foreground">Billing</dt><dd class="mt-1 text-sm text-muted-foreground">Sees the licence, seats and spend. No project access.</dd></div>
+    </dl>
+  </section>
+</tf-shell>

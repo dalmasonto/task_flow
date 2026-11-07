@@ -1,0 +1,77 @@
+<tf-shell active="agents" title="Launch an agent" back="/agents">
+  <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
+    <form class="min-w-0 space-y-6" aria-labelledby="launch-h">
+      <div class="max-w-2xl">
+        <h2 id="launch-h" class="text-xl font-semibold tracking-tight">Launch an agent in tmux</h2>
+        <p class="mt-1 text-sm text-muted-foreground">A connected agent with the <code class="rounded bg-muted px-1 font-mono text-xs">agents:create</code> capability starts the new agent in tmux on its own machine, gives it a profile, and TaskFlow streams it here. You can watch it, type into it, or end it from the dashboard.</p>
+      </div>
+
+        <fieldset class="max-w-2xl space-y-2">
+          <legend class="text-sm font-medium">Launch on</legend>
+          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-ring bg-accent/50 p-3"><input type="radio" name="host" checked class="accent-primary"><tf-icon name="terminal" class="size-4 text-muted-foreground"></tf-icon><span class="min-w-0 flex-1"><span class="block text-sm font-medium">dalmas-laptop</span><span class="flex items-center gap-1.5 text-xs text-muted-foreground"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>via Claude (main), tmux 3.4, connected</span></span><span class="inline-flex items-center gap-1 text-xs text-running"><span class="size-1.5 rounded-full bg-running"></span>Ready</span></label>
+          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-3 hover:bg-muted/50"><input type="radio" name="host" class="accent-primary"><tf-icon name="terminal" class="size-4 text-muted-foreground"></tf-icon><span class="min-w-0 flex-1"><span class="block text-sm font-medium">contabo-vps</span><span class="flex items-center gap-1.5 text-xs text-muted-foreground"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar>via reviewer (codex), agents:create is off</span></span><span class="text-xs text-muted-foreground">Can't launch</span></label>
+          <p class="text-xs text-muted-foreground">Only machines where a connected agent has <code class="rounded bg-muted px-1 font-mono">agents:create</code> can launch. None connected? Start one agent yourself with <code class="rounded bg-muted px-1 font-mono">taskflow init</code>, then grant it the capability in <a href="/api-keys" class="text-link underline-offset-4 hover:underline">API keys</a>.</p>
+        </fieldset>
+
+      <div class="flex items-start gap-3 rounded-lg border border-blocked/40 bg-blocked/8 p-3 text-sm">
+        <tf-icon name="shield-alert" class="mt-0.5 size-4 shrink-0 text-blocked"></tf-icon>
+        <p class="min-w-0"><span class="font-medium">Your key can launch agents.</span> <span class="text-muted-foreground">If <code class="rounded bg-muted px-1 font-mono text-xs">agents:create</code> is switched off for a key, this page shows why and who can turn it on.</span> <a href="/api-keys" class="text-link underline-offset-4 hover:underline">Capabilities</a></p>
+      </div>
+
+      <fieldset class="space-y-2">
+        <legend class="text-sm font-medium">Profile</legend>
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <label class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-border p-2.5 hover:bg-muted/50"><input type="radio" name="prof" class="accent-primary"><tf-avatar model="claude" name="Claude (bear)" status="offline" size="sm"></tf-avatar><span class="min-w-0"><span class="block truncate text-sm font-medium">Claude (bear)</span><span class="block text-xs text-muted-foreground">Offline, reuse</span></span></label>
+          <label class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-border p-2.5 hover:bg-muted/50"><input type="radio" name="prof" class="accent-primary"><tf-avatar model="gemini" name="Gemini (docs)" status="idle" size="sm"></tf-avatar><span class="min-w-0"><span class="block truncate text-sm font-medium">Gemini (docs)</span><span class="block text-xs text-muted-foreground">Idle, reuse</span></span></label>
+          <label class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-ring bg-accent/50 p-2.5"><input type="radio" name="prof" checked class="accent-primary"><span class="inline-flex size-6 items-center justify-center rounded-md border border-dashed border-border"><tf-icon name="plus" class="size-3.5"></tf-icon></span><span class="min-w-0"><span class="block truncate text-sm font-medium">New profile</span><span class="block text-xs text-muted-foreground">Creates a key</span></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset><legend class="mb-2 text-sm font-medium">Model</legend><tf-model-picker name="launch" cols="4" selected="deepseek" models="claude,codex,gemini,deepseek,qwen,kimi,cursor,other"></tf-model-picker></fieldset>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="min-w-0"><label for="l-name" class="text-sm font-medium">Profile name</label><input id="l-name" value="backend" class="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"><p class="mt-1 text-xs text-muted-foreground">Session: <span class="font-mono">taskflow_v2_backend</span></p></div>
+        <div class="min-w-0"><label for="l-dir" class="text-sm font-medium">Working directory</label><input id="l-dir" value="~/E/projects/local_task_tracker" class="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"></div>
+      </div>
+
+      <div><label for="l-env" class="text-sm font-medium">Environment</label>
+        <div id="l-env" class="mt-1.5 space-y-1.5">
+          <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2"><input value="TASKFLOW_PROFILE" class="h-9 min-w-0 rounded-md border border-input bg-muted px-2.5 font-mono text-sm" readonly aria-label="Variable"><input value="backend" class="h-9 min-w-0 rounded-md border border-input bg-muted px-2.5 font-mono text-sm" readonly aria-label="Value"><span class="inline-flex w-8 items-center justify-center text-muted-foreground" title="Set by TaskFlow"><tf-icon name="lock" class="size-3.5"></tf-icon></span></div>
+          <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2"><input value="RUST_LOG" class="h-9 min-w-0 rounded-md border border-input bg-background px-2.5 font-mono text-sm" aria-label="Variable"><input value="info" class="h-9 min-w-0 rounded-md border border-input bg-background px-2.5 font-mono text-sm" aria-label="Value"><button type="button" class="inline-flex w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent" aria-label="Remove RUST_LOG"><tf-icon name="x" class="size-3.5"></tf-icon></button></div>
+          <button type="button" class="inline-flex items-center gap-1.5 text-sm font-medium text-link underline-offset-4 hover:underline"><tf-icon name="plus" class="size-4"></tf-icon>Add variable</button>
+        </div></div>
+
+      <div><label for="l-first" class="text-sm font-medium">First instruction</label>
+        <div class="relative mt-1.5"><textarea id="l-first" rows="3" class="w-full rounded-md border border-input bg-background px-3 py-2 pr-24 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm">Claim #720, read the triggers design, and post your plan in #backend before writing code.</textarea><span class="absolute right-2 top-2"><tf-mic for="l-first"></tf-mic></span></div>
+        <p class="mt-1 text-xs text-muted-foreground">Typed into the pane once the agent answers whoami.</p></div>
+
+      <div class="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+        <button type="button" class="h-10 rounded-md border border-border px-4 text-sm hover:bg-accent">Start in background</button>
+        <a href="/agent-terminal" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="play" class="size-4"></tf-icon>Start and open terminal</a>
+      </div>
+    </form>
+
+    <div class="min-w-0 space-y-4 xl:sticky xl:top-0 xl:self-start">
+      <div class="rounded-xl border border-border bg-card">
+        <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">What TaskFlow will run</h3><button type="button" class="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs hover:bg-accent"><tf-icon name="copy" class="size-3.5"></tf-icon>Copy</button></div>
+        <pre class="overflow-x-auto bg-terminal p-4 font-mono text-xs leading-5 text-terminal-foreground"><code>tmux new-session -d -s taskflow_v2_backend \
+  -c ~/E/projects/local_task_tracker \
+  -e TASKFLOW_PROFILE=backend \
+  -e RUST_LOG=info \
+  "opencode --model deepseek-chat"</code></pre>
+        <p class="px-4 py-2.5 text-xs text-muted-foreground">Only tmux is supported, since send-keys is reliable. The session survives if you close this tab.</p>
+      </div>
+
+      <div class="rounded-xl border border-border bg-card">
+        <div class="border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">Recent launches</h3></div>
+        <ul class="divide-y divide-border text-sm">
+          <li class="flex items-center gap-3 px-4 py-3"><span class="relative flex size-2.5"><span class="absolute inset-0 rounded-full bg-blocked motion-safe:animate-ping"></span><span class="relative size-2.5 rounded-full bg-blocked"></span></span><div class="min-w-0 flex-1"><p class="truncate font-medium">taskflow_v2_backend</p><p class="text-xs text-muted-foreground">Starting, waiting for whoami</p></div><span class="text-xs tabular-nums text-muted-foreground">8s</span></li>
+          <li class="flex items-center gap-3 px-4 py-3"><tf-icon name="circle-check" class="size-4 text-running"></tf-icon><div class="min-w-0 flex-1"><p class="truncate font-medium">taskflow_v2_docs</p><p class="text-xs text-muted-foreground">Connected as Gemini (docs)</p></div><a href="/agent-terminal" class="text-xs font-medium text-link underline-offset-4 hover:underline">Open</a></li>
+          <li class="px-4 py-3"><div class="flex items-center gap-3"><tf-icon name="circle-x" class="size-4 text-failed"></tf-icon><div class="min-w-0 flex-1"><p class="truncate font-medium">taskflow_v2_qa</p><p class="text-xs text-muted-foreground">Failed after 12s</p></div><button class="text-xs font-medium text-link underline-offset-4 hover:underline">Retry</button></div>
+            <pre class="mt-2 overflow-x-auto rounded-md bg-terminal p-2.5 font-mono text-xs leading-5 text-terminal-foreground">qwen: command not found
+exit 127, session closed</pre></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</tf-shell>

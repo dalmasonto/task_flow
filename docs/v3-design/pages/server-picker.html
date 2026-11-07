@@ -1,0 +1,64 @@
+<tf-public-nav variant="auth" auth="login"></tf-public-nav>
+<main class="mx-auto w-full max-w-lg px-4 py-10 sm:py-16">
+  <h1 class="text-2xl font-semibold tracking-tight">Choose a server</h1>
+  <p class="mt-1 text-sm text-muted-foreground">Each server is its own TaskFlow, run by a different organisation, with its own accounts and projects. Pick the one your organisation runs, or add its address.</p>
+  <p class="mt-3 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground"><tf-icon name="info" class="mt-px size-3.5 shrink-0"></tf-icon><span>Your data lives only on the server you sign in to. Nothing is shared or synced between servers, so an account on one does not exist on another. This list is saved on this device only.</span></p>
+
+  <fieldset class="mt-6 space-y-2">
+    <legend class="sr-only">Saved servers</legend>
+    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-ring bg-card p-4 ring-2 ring-ring/20">
+      <input type="radio" name="server" checked class="mt-1 accent-primary">
+      <span class="min-w-0 flex-1">
+        <span class="flex items-center gap-2"><span class="font-medium">TaskFlow Cloud</span><span class="rounded bg-muted px-1.5 py-0.5 text-xs">Default</span></span>
+        <span class="block text-xs text-muted-foreground">Hosted by Supercodehive</span>
+        <span class="block truncate font-mono text-xs text-muted-foreground">https://api.taskflow.supercodehive.com</span>
+        <span class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"><span class="inline-flex items-center gap-1 text-running"><span class="size-1.5 rounded-full bg-running"></span>Reachable, 84 ms</span><span class="text-muted-foreground">Signed in as dalmasonto</span></span>
+      </span>
+    </label>
+    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 hover:border-ring">
+      <input type="radio" name="server" class="mt-1 accent-primary">
+      <span class="min-w-0 flex-1">
+        <span class="font-medium">Acme Robotics</span>
+        <span class="block text-xs text-muted-foreground">Self-hosted by Acme Robotics</span>
+        <span class="block truncate font-mono text-xs text-muted-foreground">https://tasks.acme-robotics.com</span>
+        <span class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"><span class="inline-flex items-center gap-1 text-running"><span class="size-1.5 rounded-full bg-running"></span>Reachable, 41 ms</span><span class="text-muted-foreground">Not signed in</span></span>
+      </span>
+      <button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Acme Robotics"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+    </label>
+    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 hover:border-ring">
+      <input type="radio" name="server" class="mt-1 accent-primary">
+      <span class="min-w-0 flex-1">
+        <span class="font-medium">Kilimani Health Clinic</span>
+        <span class="block text-xs text-muted-foreground">Self-hosted on the clinic network</span>
+        <span class="block truncate font-mono text-xs text-muted-foreground">https://taskflow.kilimani-health.internal</span>
+        <span class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"><span class="inline-flex items-center gap-1 text-failed"><tf-icon name="wifi-off" class="size-3.5"></tf-icon>Can't reach it. Check the address or your VPN.</span></span>
+      </span>
+      <button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Kilimani Health Clinic"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+    </label>
+    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 hover:border-ring">
+      <input type="radio" name="server" class="mt-1 accent-primary">
+      <span class="min-w-0 flex-1"><span class="font-medium">Northwind Studio</span><span class="block text-xs text-muted-foreground">Self-hosted by Northwind Studio</span><span class="block truncate font-mono text-xs text-muted-foreground">https://api.northwind.studio</span><span class="mt-2 flex items-start gap-1 text-xs text-failed"><tf-icon name="shield-alert" class="mt-px size-3.5 shrink-0"></tf-icon><span>The server answered but blocks this site (CORS). Ask Northwind's admin to allow this address.</span></span></span>
+      <button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Northwind Studio"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+    </label>
+    <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 hover:border-ring">
+      <input type="radio" name="server" class="mt-1 accent-primary">
+      <span class="min-w-0 flex-1"><span class="font-medium">Riverside Co-op</span><span class="block text-xs text-muted-foreground">Self-hosted by Riverside Co-op</span><span class="block truncate font-mono text-xs text-muted-foreground">https://riverside-coop.org</span><span class="mt-2 flex items-start gap-1 text-xs text-failed"><tf-icon name="circle-x" class="mt-px size-3.5 shrink-0"></tf-icon><span>This address answers, but it is not a TaskFlow server. It looks like their website; ask them for the TaskFlow API address.</span></span></span>
+      <button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Riverside Co-op"><tf-icon name="pencil" class="size-4"></tf-icon></button>
+    </label>
+  </fieldset>
+
+  <details class="group mt-3 rounded-xl border border-dashed border-border open:border-solid open:bg-card" open>
+    <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium"><tf-icon name="plus" class="size-4"></tf-icon>Add an organisation's server<tf-icon name="chevron-down" class="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180"></tf-icon></summary>
+    <form class="space-y-4 border-t border-border px-4 pb-4 pt-4">
+      <div><label for="srv-name" class="text-sm font-medium">Organisation</label><input id="srv-name" value="Savanna Logistics" autocomplete="off" class="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"><p class="mt-1 text-xs text-muted-foreground">A label for this list. Only you see it.</p></div>
+      <div><label for="srv-url" class="text-sm font-medium">Server address</label>
+        <div class="mt-1.5 flex gap-2"><input id="srv-url" type="url" inputmode="url" value="https://tasks.savanna-logistics.co.ke" autocomplete="url" class="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"><button type="button" class="h-10 shrink-0 rounded-md border border-border px-3 text-sm hover:bg-accent">Check</button></div>
+        <p class="mt-1.5 flex items-center gap-1.5 text-xs text-running"><tf-icon name="circle-check" class="size-3.5"></tf-icon>Reachable in 120 ms. TaskFlow server found.</p>
+        <p class="mt-1 text-xs text-muted-foreground">Get this from the organisation's admin. You will need an account on their server to sign in.</p></div>
+      <div class="flex justify-end gap-2"><button type="button" class="h-9 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Cancel</button><button type="submit" class="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent">Save server</button></div>
+    </form>
+  </details>
+
+  <a href="/login" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Continue to TaskFlow Cloud</a>
+  <p class="mt-4 text-center text-xs text-muted-foreground">Running TaskFlow for your own organisation? Add your server's address, for example <code class="rounded bg-muted px-1 font-mono">http://localhost:8000</code>. Nothing needs rebuilding.</p>
+</main>

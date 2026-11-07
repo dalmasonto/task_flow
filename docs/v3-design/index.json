@@ -1,0 +1,1066 @@
+{
+  "revision": 8,
+  "entries": [
+    {
+      "route": "/",
+      "title": "Index",
+      "file": "pages/index.html",
+      "version": 2
+    },
+    {
+      "route": "/account-connections",
+      "title": "Account Connections",
+      "file": "pages/account-connections.html",
+      "version": 2
+    },
+    {
+      "route": "/account-invitations",
+      "title": "Account Invitations",
+      "file": "pages/account-invitations.html",
+      "version": 1
+    },
+    {
+      "route": "/account-invitations--empty",
+      "title": "Account Invitations Empty",
+      "file": "pages/account-invitations--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/account-profile",
+      "title": "Account Profile",
+      "file": "pages/account-profile.html",
+      "version": 1
+    },
+    {
+      "route": "/account-security",
+      "title": "Account Security",
+      "file": "pages/account-security.html",
+      "version": 1
+    },
+    {
+      "route": "/account-settings",
+      "title": "Account Settings",
+      "file": "pages/account-settings.html",
+      "version": 2
+    },
+    {
+      "route": "/activity",
+      "title": "Activity",
+      "file": "pages/activity.html",
+      "version": 3
+    },
+    {
+      "route": "/activity--empty",
+      "title": "Activity Empty",
+      "file": "pages/activity--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/agent-claude-main",
+      "title": "Agent Claude Main",
+      "file": "pages/agent-claude-main.html",
+      "version": 1
+    },
+    {
+      "route": "/agent-launch",
+      "title": "Agent Launch",
+      "file": "pages/agent-launch.html",
+      "version": 2
+    },
+    {
+      "route": "/agent-new",
+      "title": "Agent New",
+      "file": "pages/agent-new.html",
+      "version": 2
+    },
+    {
+      "route": "/agent-terminal",
+      "title": "Agent Terminal",
+      "file": "pages/agent-terminal.html",
+      "version": 1
+    },
+    {
+      "route": "/agents",
+      "title": "Agents",
+      "file": "pages/agents.html",
+      "version": 1
+    },
+    {
+      "route": "/agents--empty",
+      "title": "Agents Empty",
+      "file": "pages/agents--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/agents--loading",
+      "title": "Agents Loading",
+      "file": "pages/agents--loading.html",
+      "version": 1
+    },
+    {
+      "route": "/api-keys",
+      "title": "Api Keys",
+      "file": "pages/api-keys.html",
+      "version": 6
+    },
+    {
+      "route": "/api-keys--error",
+      "title": "Api Keys Error",
+      "file": "pages/api-keys--error.html",
+      "version": 1
+    },
+    {
+      "route": "/board",
+      "title": "Board",
+      "file": "pages/board.html",
+      "version": 3
+    },
+    {
+      "route": "/board--empty",
+      "title": "Board Empty",
+      "file": "pages/board--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/board--loading",
+      "title": "Board Loading",
+      "file": "pages/board--loading.html",
+      "version": 1
+    },
+    {
+      "route": "/board-filters",
+      "title": "Board Filters",
+      "file": "pages/board-filters.html",
+      "version": 1
+    },
+    {
+      "route": "/board-list",
+      "title": "Board List",
+      "file": "pages/board-list.html",
+      "version": 2
+    },
+    {
+      "route": "/chat",
+      "title": "Chat",
+      "file": "pages/chat.html",
+      "version": 3
+    },
+    {
+      "route": "/chat--empty",
+      "title": "Chat Empty",
+      "file": "pages/chat--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/chat-inbox",
+      "title": "Chat Inbox",
+      "file": "pages/chat-inbox.html",
+      "version": 1
+    },
+    {
+      "route": "/chat-thread",
+      "title": "Chat Thread",
+      "file": "pages/chat-thread.html",
+      "version": 1
+    },
+    {
+      "route": "/command-palette",
+      "title": "Command Palette",
+      "file": "pages/command-palette.html",
+      "version": 2
+    },
+    {
+      "route": "/daily-update",
+      "title": "Daily Update",
+      "file": "pages/daily-update.html",
+      "version": 2
+    },
+    {
+      "route": "/database",
+      "title": "Database",
+      "file": "pages/database.html",
+      "version": 7
+    },
+    {
+      "route": "/database--data",
+      "title": "Database Data",
+      "file": "pages/database--data.html",
+      "version": 5
+    },
+    {
+      "route": "/database--model",
+      "title": "Database Model",
+      "file": "pages/database--model.html",
+      "version": 4
+    },
+    {
+      "route": "/decisions",
+      "title": "Decisions",
+      "file": "pages/decisions.html",
+      "version": 2
+    },
+    {
+      "route": "/design",
+      "title": "Design",
+      "file": "pages/design.html",
+      "version": 7
+    },
+    {
+      "route": "/design--comments",
+      "title": "Design Comments",
+      "file": "pages/design--comments.html",
+      "version": 1
+    },
+    {
+      "route": "/design--components",
+      "title": "Design Components",
+      "file": "pages/design--components.html",
+      "version": 1
+    },
+    {
+      "route": "/design--pages",
+      "title": "Design Pages",
+      "file": "pages/design--pages.html",
+      "version": 1
+    },
+    {
+      "route": "/design--pin",
+      "title": "Design Pin",
+      "file": "pages/design--pin.html",
+      "version": 2
+    },
+    {
+      "route": "/design--tokens",
+      "title": "Design Tokens",
+      "file": "pages/design--tokens.html",
+      "version": 1
+    },
+    {
+      "route": "/docs",
+      "title": "Docs",
+      "file": "pages/docs.html",
+      "version": 1
+    },
+    {
+      "route": "/docs-article",
+      "title": "Docs Article",
+      "file": "pages/docs-article.html",
+      "version": 1
+    },
+    {
+      "route": "/error",
+      "title": "Error",
+      "file": "pages/error.html",
+      "version": 1
+    },
+    {
+      "route": "/forgot-password",
+      "title": "Forgot Password",
+      "file": "pages/forgot-password.html",
+      "version": 2
+    },
+    {
+      "route": "/forgot-password--sent",
+      "title": "Forgot Password Sent",
+      "file": "pages/forgot-password--sent.html",
+      "version": 2
+    },
+    {
+      "route": "/home",
+      "title": "Home",
+      "file": "pages/home.html",
+      "version": 4
+    },
+    {
+      "route": "/inbox",
+      "title": "Inbox",
+      "file": "pages/inbox.html",
+      "version": 1
+    },
+    {
+      "route": "/inbox--empty",
+      "title": "Inbox Empty",
+      "file": "pages/inbox--empty.html",
+      "version": 2
+    },
+    {
+      "route": "/invites",
+      "title": "Invites",
+      "file": "pages/invites.html",
+      "version": 1
+    },
+    {
+      "route": "/login",
+      "title": "Login",
+      "file": "pages/login.html",
+      "version": 3
+    },
+    {
+      "route": "/login--error",
+      "title": "Login Error",
+      "file": "pages/login--error.html",
+      "version": 3
+    },
+    {
+      "route": "/media",
+      "title": "Media",
+      "file": "pages/media.html",
+      "version": 1
+    },
+    {
+      "route": "/media--empty",
+      "title": "Media Empty",
+      "file": "pages/media--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/not-found",
+      "title": "Not Found",
+      "file": "pages/not-found.html",
+      "version": 1
+    },
+    {
+      "route": "/offline",
+      "title": "Offline",
+      "file": "pages/offline.html",
+      "version": 1
+    },
+    {
+      "route": "/onboarding",
+      "title": "Onboarding",
+      "file": "pages/onboarding.html",
+      "version": 2
+    },
+    {
+      "route": "/onboarding-agents",
+      "title": "Onboarding Agents",
+      "file": "pages/onboarding-agents.html",
+      "version": 4
+    },
+    {
+      "route": "/onboarding-connect",
+      "title": "Onboarding Connect",
+      "file": "pages/onboarding-connect.html",
+      "version": 1
+    },
+    {
+      "route": "/onboarding-connect--error",
+      "title": "Onboarding Connect Error",
+      "file": "pages/onboarding-connect--error.html",
+      "version": 1
+    },
+    {
+      "route": "/onboarding-connect--ready",
+      "title": "Onboarding Connect Ready",
+      "file": "pages/onboarding-connect--ready.html",
+      "version": 1
+    },
+    {
+      "route": "/onboarding-handshake",
+      "title": "Onboarding Handshake",
+      "file": "pages/onboarding-handshake.html",
+      "version": 2
+    },
+    {
+      "route": "/onboarding-handshake--waiting",
+      "title": "Onboarding Handshake Waiting",
+      "file": "pages/onboarding-handshake--waiting.html",
+      "version": 2
+    },
+    {
+      "route": "/onboarding-team",
+      "title": "Onboarding Team",
+      "file": "pages/onboarding-team.html",
+      "version": 1
+    },
+    {
+      "route": "/org",
+      "title": "Org",
+      "file": "pages/org.html",
+      "version": 3
+    },
+    {
+      "route": "/org-agents",
+      "title": "Org Agents",
+      "file": "pages/org-agents.html",
+      "version": 6
+    },
+    {
+      "route": "/org-audit",
+      "title": "Org Audit",
+      "file": "pages/org-audit.html",
+      "version": 1
+    },
+    {
+      "route": "/org-licence",
+      "title": "Org Licence",
+      "file": "pages/org-licence.html",
+      "version": 1
+    },
+    {
+      "route": "/org-members",
+      "title": "Org Members",
+      "file": "pages/org-members.html",
+      "version": 1
+    },
+    {
+      "route": "/org-settings",
+      "title": "Org Settings",
+      "file": "pages/org-settings.html",
+      "version": 1
+    },
+    {
+      "route": "/overview",
+      "title": "Overview",
+      "file": "pages/overview.html",
+      "version": 3
+    },
+    {
+      "route": "/overview--empty",
+      "title": "Overview Empty",
+      "file": "pages/overview--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/pricing",
+      "title": "Pricing",
+      "file": "pages/pricing.html",
+      "version": 2
+    },
+    {
+      "route": "/project-endpoints",
+      "title": "Project Endpoints",
+      "file": "pages/project-endpoints.html",
+      "version": 1
+    },
+    {
+      "route": "/project-github",
+      "title": "Project Github",
+      "file": "pages/project-github.html",
+      "version": 1
+    },
+    {
+      "route": "/project-instructions",
+      "title": "Project Instructions",
+      "file": "pages/project-instructions.html",
+      "version": 1
+    },
+    {
+      "route": "/project-new",
+      "title": "Project New",
+      "file": "pages/project-new.html",
+      "version": 1
+    },
+    {
+      "route": "/project-repos",
+      "title": "Project Repos",
+      "file": "pages/project-repos.html",
+      "version": 1
+    },
+    {
+      "route": "/project-settings",
+      "title": "Project Settings",
+      "file": "pages/project-settings.html",
+      "version": 1
+    },
+    {
+      "route": "/project-switcher",
+      "title": "Project Switcher",
+      "file": "pages/project-switcher.html",
+      "version": 1
+    },
+    {
+      "route": "/project-workflow",
+      "title": "Project Workflow",
+      "file": "pages/project-workflow.html",
+      "version": 1
+    },
+    {
+      "route": "/reviews",
+      "title": "Reviews",
+      "file": "pages/reviews.html",
+      "version": 2
+    },
+    {
+      "route": "/reviews--empty",
+      "title": "Reviews Empty",
+      "file": "pages/reviews--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/server-accounts",
+      "title": "Server Accounts",
+      "file": "pages/server-accounts.html",
+      "version": 2
+    },
+    {
+      "route": "/server-picker",
+      "title": "Server Picker",
+      "file": "pages/server-picker.html",
+      "version": 3
+    },
+    {
+      "route": "/sessions",
+      "title": "Sessions",
+      "file": "pages/sessions.html",
+      "version": 6
+    },
+    {
+      "route": "/shell-rail",
+      "title": "Shell Rail",
+      "file": "pages/shell-rail.html",
+      "version": 1
+    },
+    {
+      "route": "/signup",
+      "title": "Signup",
+      "file": "pages/signup.html",
+      "version": 4
+    },
+    {
+      "route": "/signup--error",
+      "title": "Signup Error",
+      "file": "pages/signup--error.html",
+      "version": 2
+    },
+    {
+      "route": "/subscriptions",
+      "title": "Subscriptions",
+      "file": "pages/subscriptions.html",
+      "version": 2
+    },
+    {
+      "route": "/task",
+      "title": "Task",
+      "file": "pages/task.html",
+      "version": 5
+    },
+    {
+      "route": "/task-new",
+      "title": "Task New",
+      "file": "pages/task-new.html",
+      "version": 3
+    },
+    {
+      "route": "/toolbox",
+      "title": "Toolbox",
+      "file": "pages/toolbox.html",
+      "version": 1
+    },
+    {
+      "route": "/toolbox--empty",
+      "title": "Toolbox Empty",
+      "file": "pages/toolbox--empty.html",
+      "version": 1
+    },
+    {
+      "route": "/toolbox--loading",
+      "title": "Toolbox Loading",
+      "file": "pages/toolbox--loading.html",
+      "version": 1
+    },
+    {
+      "route": "/usage",
+      "title": "Usage",
+      "file": "pages/usage.html",
+      "version": 3
+    },
+    {
+      "component": "tf-shell",
+      "attrs": [],
+      "usedOn": [
+        "/account-connections",
+        "/account-invitations",
+        "/account-invitations--empty",
+        "/account-profile",
+        "/account-security",
+        "/account-settings",
+        "/activity",
+        "/activity--empty",
+        "/agent-claude-main",
+        "/agent-launch",
+        "/agent-new",
+        "/agent-terminal",
+        "/agents",
+        "/agents--empty",
+        "/agents--loading",
+        "/api-keys",
+        "/api-keys--error",
+        "/board",
+        "/board--empty",
+        "/board--loading",
+        "/board-filters",
+        "/board-list",
+        "/chat",
+        "/chat--empty",
+        "/chat-inbox",
+        "/chat-thread",
+        "/command-palette",
+        "/daily-update",
+        "/database",
+        "/database--data",
+        "/database--model",
+        "/decisions",
+        "/design",
+        "/design--comments",
+        "/design--components",
+        "/design--pages",
+        "/design--pin",
+        "/design--tokens",
+        "/error",
+        "/home",
+        "/inbox",
+        "/inbox--empty",
+        "/invites",
+        "/media",
+        "/media--empty",
+        "/offline",
+        "/org",
+        "/org-agents",
+        "/org-audit",
+        "/org-licence",
+        "/org-members",
+        "/org-settings",
+        "/overview",
+        "/overview--empty",
+        "/project-endpoints",
+        "/project-github",
+        "/project-instructions",
+        "/project-new",
+        "/project-repos",
+        "/project-settings",
+        "/project-switcher",
+        "/project-workflow",
+        "/reviews",
+        "/reviews--empty",
+        "/server-accounts",
+        "/sessions",
+        "/shell-rail",
+        "/subscriptions",
+        "/task",
+        "/task-new",
+        "/toolbox",
+        "/toolbox--empty",
+        "/toolbox--loading",
+        "/usage"
+      ],
+      "version": 8
+    },
+    {
+      "component": "tf-terminal",
+      "attrs": [],
+      "usedOn": [
+        "/agent-claude-main",
+        "/agent-terminal",
+        "/agents",
+        "/chat",
+        "/onboarding-handshake",
+        "/onboarding-handshake--waiting"
+      ],
+      "version": 4
+    },
+    {
+      "component": "tf-status",
+      "attrs": [
+        "value",
+        "label"
+      ],
+      "usedOn": [
+        "/activity",
+        "/agent-claude-main",
+        "/agents",
+        "/board",
+        "/board-list",
+        "/chat",
+        "/command-palette",
+        "/database--data",
+        "/home",
+        "/reviews",
+        "/sessions",
+        "/task"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-composer",
+      "attrs": [],
+      "usedOn": [
+        "/chat",
+        "/chat--empty",
+        "/chat-thread",
+        "/design--pin",
+        "/task"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-mic",
+      "attrs": [
+        "state"
+      ],
+      "usedOn": [
+        "/agent-claude-main",
+        "/agent-launch",
+        "/agent-new",
+        "/agent-terminal",
+        "/daily-update",
+        "/decisions",
+        "/onboarding",
+        "/org-licence",
+        "/project-instructions",
+        "/project-new",
+        "/project-settings",
+        "/reviews",
+        "/subscriptions",
+        "/task",
+        "/task-new"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-message",
+      "attrs": [],
+      "usedOn": [
+        "/chat",
+        "/chat-thread",
+        "/database",
+        "/database--data",
+        "/database--model"
+      ],
+      "version": 5
+    },
+    {
+      "component": "tf-password-field",
+      "attrs": [],
+      "usedOn": [
+        "/account-security",
+        "/login",
+        "/login--error",
+        "/signup",
+        "/signup--error"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-onboarding-steps",
+      "attrs": [
+        "current"
+      ],
+      "usedOn": [
+        "/onboarding",
+        "/onboarding-agents",
+        "/onboarding-connect",
+        "/onboarding-connect--error",
+        "/onboarding-connect--ready",
+        "/onboarding-handshake",
+        "/onboarding-handshake--waiting"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-avatar",
+      "attrs": [
+        "model",
+        "name",
+        "status",
+        "size"
+      ],
+      "usedOn": [
+        "/",
+        "/account-invitations",
+        "/account-profile",
+        "/activity",
+        "/agent-claude-main",
+        "/agent-launch",
+        "/agent-terminal",
+        "/agents",
+        "/agents--empty",
+        "/api-keys",
+        "/board--empty",
+        "/board-list",
+        "/chat",
+        "/chat--empty",
+        "/chat-inbox",
+        "/command-palette",
+        "/daily-update",
+        "/database--data",
+        "/database--model",
+        "/decisions",
+        "/design--pin",
+        "/docs",
+        "/home",
+        "/inbox",
+        "/invites",
+        "/media",
+        "/onboarding-agents",
+        "/onboarding-handshake",
+        "/onboarding-handshake--waiting",
+        "/org",
+        "/org-agents",
+        "/org-audit",
+        "/org-members",
+        "/overview",
+        "/overview--empty",
+        "/project-new",
+        "/project-repos",
+        "/project-switcher",
+        "/reviews",
+        "/server-accounts",
+        "/sessions",
+        "/shell-rail",
+        "/signup",
+        "/subscriptions",
+        "/task",
+        "/task-new",
+        "/toolbox",
+        "/usage"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-connect-card",
+      "attrs": [
+        "state"
+      ],
+      "usedOn": [
+        "/onboarding-connect",
+        "/onboarding-connect--error",
+        "/onboarding-connect--ready"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-public-nav",
+      "attrs": [
+        "active",
+        "variant",
+        "auth"
+      ],
+      "usedOn": [
+        "/",
+        "/docs",
+        "/docs-article",
+        "/forgot-password",
+        "/forgot-password--sent",
+        "/login",
+        "/login--error",
+        "/not-found",
+        "/pricing",
+        "/server-picker",
+        "/signup",
+        "/signup--error"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-task-card",
+      "attrs": [],
+      "usedOn": [
+        "/agent-claude-main",
+        "/board",
+        "/board-filters",
+        "/command-palette"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-icon",
+      "attrs": [
+        "name"
+      ],
+      "usedOn": [
+        "/account-connections",
+        "/account-invitations--empty",
+        "/account-security",
+        "/account-settings",
+        "/activity",
+        "/activity--empty",
+        "/agent-claude-main",
+        "/agent-launch",
+        "/agent-new",
+        "/agent-terminal",
+        "/agents",
+        "/agents--empty",
+        "/api-keys",
+        "/api-keys--error",
+        "/board",
+        "/board--empty",
+        "/board-filters",
+        "/board-list",
+        "/chat",
+        "/chat--empty",
+        "/chat-inbox",
+        "/chat-thread",
+        "/command-palette",
+        "/daily-update",
+        "/database",
+        "/database--data",
+        "/database--model",
+        "/decisions",
+        "/design",
+        "/design--comments",
+        "/design--components",
+        "/design--pages",
+        "/design--pin",
+        "/design--tokens",
+        "/docs",
+        "/docs-article",
+        "/error",
+        "/forgot-password--sent",
+        "/home",
+        "/inbox",
+        "/inbox--empty",
+        "/invites",
+        "/login",
+        "/login--error",
+        "/media",
+        "/media--empty",
+        "/offline",
+        "/onboarding-connect",
+        "/onboarding-connect--error",
+        "/onboarding-connect--ready",
+        "/onboarding-handshake",
+        "/onboarding-team",
+        "/org",
+        "/org-audit",
+        "/org-members",
+        "/overview",
+        "/overview--empty",
+        "/pricing",
+        "/project-endpoints",
+        "/project-github",
+        "/project-new",
+        "/project-repos",
+        "/project-settings",
+        "/project-switcher",
+        "/project-workflow",
+        "/reviews",
+        "/reviews--empty",
+        "/server-accounts",
+        "/server-picker",
+        "/sessions",
+        "/shell-rail",
+        "/signup",
+        "/signup--error",
+        "/subscriptions",
+        "/task",
+        "/task-new",
+        "/toolbox",
+        "/toolbox--empty",
+        "/usage"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-public-footer",
+      "attrs": [],
+      "usedOn": [
+        "/",
+        "/docs",
+        "/docs-article",
+        "/pricing"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-account-nav",
+      "attrs": [],
+      "usedOn": [
+        "/account-connections",
+        "/account-invitations",
+        "/account-invitations--empty",
+        "/account-profile",
+        "/account-security",
+        "/account-settings"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-bar-chart",
+      "attrs": [],
+      "usedOn": [
+        "/home",
+        "/overview",
+        "/shell-rail",
+        "/usage"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-mention",
+      "attrs": [],
+      "usedOn": [
+        "/chat",
+        "/chat-thread",
+        "/task"
+      ],
+      "version": 3
+    },
+    {
+      "component": "tf-org-nav",
+      "attrs": [],
+      "usedOn": [
+        "/org",
+        "/org-agents",
+        "/org-audit",
+        "/org-licence",
+        "/org-members",
+        "/org-settings"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-project-nav",
+      "attrs": [],
+      "usedOn": [
+        "/project-endpoints",
+        "/project-github",
+        "/project-instructions",
+        "/project-settings"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-db-table",
+      "attrs": [],
+      "usedOn": [
+        "/database",
+        "/database--model"
+      ],
+      "version": 1
+    },
+    {
+      "component": "tf-model-picker",
+      "attrs": [],
+      "usedOn": [
+        "/agent-launch",
+        "/agent-new",
+        "/onboarding-agents"
+      ],
+      "version": 5
+    },
+    {
+      "component": "tf-agent-rail",
+      "attrs": [],
+      "usedOn": [
+        "/database",
+        "/database--data",
+        "/database--model"
+      ],
+      "version": 2
+    },
+    {
+      "component": "tf-design-surface",
+      "attrs": [],
+      "usedOn": [
+        "/design",
+        "/design--comments",
+        "/design--components",
+        "/design--pages",
+        "/design--pin",
+        "/design--tokens"
+      ],
+      "version": 8
+    }
+  ]
+}

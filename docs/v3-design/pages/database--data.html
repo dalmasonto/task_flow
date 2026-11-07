@@ -1,0 +1,86 @@
+<tf-shell active="database" title="Database" flush>
+  <div slot="actions">
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New row</span></button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border px-3 py-2 lg:px-4 [&>*]:shrink-0">
+    <button type="button" aria-pressed="true" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-sm font-medium text-accent-foreground" title="Hide database chat"><tf-icon name="message-square" class="size-4"></tf-icon>Chat</button>
+    <span class="mx-1 h-5 w-px bg-border"></span>
+    <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="Database view">
+      <a href="/database" role="tab" aria-selected="false" class="inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-muted-foreground hover:text-foreground"><tf-icon name="git-branch" class="size-3.5"></tf-icon>Schema</a>
+      <a href="/database--data" role="tab" aria-selected="true" class="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2.5 font-medium text-accent-foreground"><tf-icon name="table" class="size-3.5"></tf-icon>Data</a>
+    </div>
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 font-mono text-sm hover:bg-accent xl:hidden"><span class="size-2 rounded-sm bg-chart-2"></span>TaskflowTask<tf-icon name="chevron-down" class="size-3.5 text-muted-foreground"></tf-icon></button>
+    <label class="flex h-8 w-56 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm text-muted-foreground"><tf-icon name="search" class="size-4"></tf-icon><input class="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" placeholder="Search rows" aria-label="Search rows"></label>
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><tf-icon name="filter" class="size-3.5"></tf-icon>status is not done</button>
+  </div>
+
+  <div class="relative flex min-h-0 flex-1">
+    <!-- Models list -->
+    <div class="hidden w-56 shrink-0 flex-col border-l border-border xl:order-last xl:flex">
+      <ul class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm" aria-label="Models by plugin">
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-1"></span>projects<span class="ml-auto tabular-nums">3</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database--data" class="flex rounded px-2 py-1 hover:bg-accent"><span class="truncate">TaskflowProject</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">14</span></a></li><li><a href="/database--data" class="flex rounded px-2 py-1 hover:bg-accent"><span class="truncate">TaskflowProjectMember</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">31</span></a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-2"></span>tasks<span class="ml-auto tabular-nums">5</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database--data" aria-current="true" class="flex rounded bg-accent px-2 py-1 font-semibold"><span class="truncate">TaskflowTask</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">1,032</span></a></li><li><a href="/database--data" class="flex rounded px-2 py-1 hover:bg-accent"><span class="truncate">TaskflowTaskRelation</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">203</span></a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-3"></span>agents<span class="ml-auto tabular-nums">13</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database--data" class="flex rounded px-2 py-1 hover:bg-accent"><span class="truncate">TaskflowAgent</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">61</span></a></li><li><a href="/database--data" class="flex rounded px-2 py-1 hover:bg-accent"><span class="truncate">TaskflowAgentChannel</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">88</span></a></li><li><a href="/database--data" class="flex rounded px-2 py-1 hover:bg-accent"><span class="truncate">TaskflowAgentMessage</span><span class="ml-auto pl-2 tabular-nums text-muted-foreground">4,665</span></a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-4"></span>design<span class="ml-auto tabular-nums">4</span></p></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-5"></span>toolbox<span class="ml-auto tabular-nums">2</span></p></li>
+      </ul>
+      <p class="border-t border-border p-3 text-xs text-muted-foreground"><tf-icon name="lock" class="mr-1 inline size-3.5 align-text-bottom"></tf-icon>Keys, password hashes and tokens are never shown or editable here.</p>
+    </div>
+
+    <!-- Rows + editor -->
+    <div class="flex min-w-0 flex-1 flex-col overflow-y-auto">
+      <div class="shrink-0 overflow-x-auto">
+        <table class="w-full min-w-[40rem] table-fixed text-sm">
+          <thead class="sticky top-0 z-10 border-b border-border bg-background text-left text-xs text-muted-foreground">
+            <tr><th class="w-16 px-4 py-2 font-medium">id</th><th class="px-3 py-2 font-medium">title</th><th class="w-32 px-3 py-2 font-medium">status</th><th class="w-20 px-3 py-2 font-medium">priority</th><th class="w-40 px-3 py-2 font-medium">assigned agent</th><th class="w-10 px-3 py-2"><span class="sr-only">Actions</span></th></tr>
+          </thead>
+          <tbody class="divide-y divide-border">
+            <tr class="hover:bg-muted/50"><td class="px-4 py-2 font-mono text-xs tabular-nums text-muted-foreground">1061</td><td class="truncate px-3 py-2">Design should support different apps at once</td><td class="px-3 py-2"><tf-status value="todo"></tf-status></td><td class="px-3 py-2 text-xs">high</td><td class="px-3 py-2 text-xs text-muted-foreground">none</td><td class="px-3 py-2"><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit row 1061"><tf-icon name="pencil" class="size-3.5"></tf-icon></button></td></tr>
+            <tr class="bg-accent/60 shadow-[inset_2px_0_0_var(--ring)]" aria-selected="true"><td class="px-4 py-2 font-mono text-xs tabular-nums">1060</td><td class="truncate px-3 py-2 font-medium">Design work is not over</td><td class="px-3 py-2"><tf-status value="running"></tf-status></td><td class="px-3 py-2 text-xs">high</td><td class="px-3 py-2"><span class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Claude (main)</span></td><td class="px-3 py-2"><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit row 1060"><tf-icon name="pencil" class="size-3.5"></tf-icon></button></td></tr>
+            <tr class="hover:bg-muted/50"><td class="px-4 py-2 font-mono text-xs tabular-nums text-muted-foreground">1059</td><td class="truncate px-3 py-2">On design page, selected items can be bulk deleted</td><td class="px-3 py-2"><tf-status value="todo"></tf-status></td><td class="px-3 py-2 text-xs">high</td><td class="px-3 py-2 text-xs text-muted-foreground">none</td><td class="px-3 py-2"><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit row 1059"><tf-icon name="pencil" class="size-3.5"></tf-icon></button></td></tr>
+            <tr class="hover:bg-muted/50"><td class="px-4 py-2 font-mono text-xs tabular-nums text-muted-foreground">1057</td><td class="truncate px-3 py-2">Search tool</td><td class="px-3 py-2"><tf-status value="todo"></tf-status></td><td class="px-3 py-2 text-xs">high</td><td class="px-3 py-2 text-xs text-muted-foreground">none</td><td class="px-3 py-2"><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit row 1057"><tf-icon name="pencil" class="size-3.5"></tf-icon></button></td></tr>
+            <tr class="hover:bg-muted/50"><td class="px-4 py-2 font-mono text-xs tabular-nums text-muted-foreground">1036</td><td class="truncate px-3 py-2">We need to give users commands to start and run agents</td><td class="px-3 py-2"><tf-status value="todo"></tf-status></td><td class="px-3 py-2 text-xs">high</td><td class="px-3 py-2 text-xs text-muted-foreground">none</td><td class="px-3 py-2"><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit row 1036"><tf-icon name="pencil" class="size-3.5"></tf-icon></button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flex shrink-0 items-center gap-2 border-y border-border px-4 py-2 text-xs text-muted-foreground"><span>21 of 1,032 rows match</span><button class="ml-auto rounded-md border border-border px-2 py-1 hover:bg-accent">Load 50 more</button></div>
+
+      <!-- Row editor -->
+      <form class="m-4 shrink-0 rounded-xl border border-border bg-card p-4" aria-labelledby="edit-h">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 id="edit-h" class="text-sm font-semibold">Edit <span class="font-mono">TaskflowTask #1060</span></h2>
+          <span class="rounded-full bg-blocked/15 px-2 py-0.5 text-xs font-medium text-foreground">2 unsaved changes</span>
+          <a href="/task" class="ml-auto inline-flex items-center gap-1 text-xs text-link hover:underline">Open in the app<tf-icon name="external" class="size-3"></tf-icon></a>
+        </div>
+        <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div class="md:col-span-2"><label for="f-title" class="flex items-center gap-2 text-xs font-medium">title<span class="font-mono font-normal text-muted-foreground">String</span></label><input id="f-title" value="Design work is not over: chat panels on Design and Database" class="mt-1 h-9 w-full rounded-md border border-ring bg-background px-3 text-sm ring-2 ring-ring/20"><p class="mt-1 text-xs text-muted-foreground">Was: Design work is not over</p></div>
+          <div><label for="f-status" class="flex items-center gap-2 text-xs font-medium">status<span class="font-mono font-normal text-muted-foreground">TaskStatus</span></label><select id="f-status" class="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"><option>not_started</option><option selected>in_progress</option><option>partial_done</option><option>done</option></select></div>
+          <div><label for="f-pri" class="flex items-center gap-2 text-xs font-medium">priority<span class="font-mono font-normal text-muted-foreground">TaskPriority</span></label><select id="f-pri" class="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"><option>low</option><option>normal</option><option selected>high</option></select></div>
+          <div><label for="f-agent" class="flex items-center gap-2 text-xs font-medium">assigned agent<span class="font-mono font-normal text-muted-foreground">TaskflowAgent?</span></label><button id="f-agent" type="button" class="mt-1 flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-2 text-left text-sm"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Claude (main)<span class="font-mono text-xs text-muted-foreground">#1</span><tf-icon name="chevron-down" class="ml-auto size-3.5 text-muted-foreground"></tf-icon></button><p class="mt-1 text-xs text-muted-foreground">Foreign keys pick from real rows, never a typed id.</p></div>
+          <div><label for="f-due" class="flex items-center gap-2 text-xs font-medium">due_at<span class="font-mono font-normal text-muted-foreground">DateTime?</span></label><input id="f-due" type="date" value="2026-11-07" class="mt-1 h-9 w-full rounded-md border border-ring bg-background px-3 text-sm ring-2 ring-ring/20"><p class="mt-1 text-xs text-muted-foreground">Was: empty</p></div>
+          <div class="md:col-span-2 flex flex-wrap gap-x-6 gap-y-1 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"><span><span class="font-mono">id</span> 1060</span><span><span class="font-mono">created_at</span> 4 Nov 15:06</span><span><span class="font-mono">updated_at</span> 5 Nov 13:21</span><span class="ml-auto">Read only</span></div>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+          <p class="text-xs text-muted-foreground">Saved through the same API the app uses, so permissions and realtime updates still apply. Every change is logged to the audit trail.</p>
+          <div class="ml-auto flex gap-2"><button type="button" class="h-9 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Discard</button><button type="submit" class="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save 2 changes</button></div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Database chat -->
+    <div role="complementary" class="absolute inset-y-0 left-0 z-30 hidden w-full max-w-sm border-r border-border shadow-lg lg:order-first lg:static lg:z-auto lg:flex lg:w-80 lg:shrink-0 lg:shadow-none" aria-label="Database chat">
+      <tf-agent-rail room="db-room" context="TaskflowTask #1060" context-kind="row"
+        agents="claude:Claude (main):running|codex:reviewer (codex):running"
+        placeholder="Ask about this row"
+        hint="Agents can propose an edit; it shows here as unsaved changes until you Save.">
+        <tf-message model="human" name="Dalmas Ogembo" time="13:30" role="Owner"><p>Set a due date of Friday on this one and make the title say what's in it.</p></tf-message>
+        <tf-message model="claude" name="Claude (main)" time="13:30"><p>Proposed: <code>title</code> and <code>due_at</code> = 7 Nov. They're filled in on the form, not saved yet.</p></tf-message>
+      </tf-agent-rail>
+    </div>
+  </div>
+</tf-shell>

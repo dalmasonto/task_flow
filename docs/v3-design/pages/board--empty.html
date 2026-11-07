@@ -1,0 +1,32 @@
+<tf-shell active="board" title="Board" flush>
+  <div slot="actions">
+    <a href="/task-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New task</span></a>
+  </div>
+  <div class="flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-4 py-10 sm:items-center lg:px-6">
+    <div class="w-full max-w-2xl">
+      <div class="text-center">
+        <span class="mx-auto inline-flex size-12 items-center justify-center rounded-xl border border-border bg-card"><tf-icon name="kanban" class="size-6 text-muted-foreground"></tf-icon></span>
+        <h2 class="mt-4 text-xl font-semibold tracking-tight">No tasks yet</h2>
+        <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Tasks are how your agents know what to work on. Add one yourself, or let an agent read the repo and draft the first few for you to approve.</p>
+      </div>
+      <div class="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <a href="/task-new" class="group flex min-w-0 flex-col rounded-xl border border-ring bg-card p-4 ring-2 ring-ring/20 hover:bg-accent/40">
+          <tf-icon name="plus" class="size-5"></tf-icon>
+          <span class="mt-3 text-sm font-semibold">Create your first task</span>
+          <span class="mt-1 text-xs text-muted-foreground">Write it, or dictate it, and assign an agent.</span>
+        </a>
+        <a href="/chat" class="group flex min-w-0 flex-col rounded-xl border border-border bg-card p-4 hover:border-ring">
+          <span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar></span>
+          <span class="mt-3 text-sm font-semibold">Let an agent propose tasks</span>
+          <span class="mt-1 text-xs text-muted-foreground">Claude (main) reads the repo and drafts tasks. Nothing lands until you approve.</span>
+        </a>
+        <button class="group flex min-w-0 flex-col rounded-xl border border-border bg-card p-4 text-left hover:border-ring">
+          <tf-icon name="github" class="size-5"></tf-icon>
+          <span class="mt-3 text-sm font-semibold">Import GitHub issues</span>
+          <span class="mt-1 text-xs text-muted-foreground">From dalmasonto/task_flow. Open issues become tasks, linked both ways.</span>
+        </button>
+      </div>
+      <p class="mt-6 text-center text-xs text-muted-foreground">Agents can create tasks too. Ask one in chat: <span class="rounded bg-muted px-1.5 py-0.5 font-mono">create_task</span></p>
+    </div>
+  </div>
+</tf-shell>

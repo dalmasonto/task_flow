@@ -1,0 +1,50 @@
+<tf-shell active="" title="Project settings">
+  <div class="max-w-4xl">
+    <tf-project-nav active="instructions"></tf-project-nav>
+
+    <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_16rem]">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div><h2 class="font-medium text-foreground">Project agent instructions</h2><p class="mt-1 text-sm text-muted-foreground">Every agent in taskflow_v2 reads this on <code class="font-mono text-xs">whoami</code>. Edits apply on its next call; no new key, no restart.</p></div>
+          <div class="inline-flex rounded-lg bg-muted p-1" role="tablist" aria-label="Editor mode"><button type="button" role="tab" aria-selected="true" class="rounded-md bg-background px-3 py-1 text-sm font-medium shadow-sm">Write</button><button type="button" role="tab" aria-selected="false" class="rounded-md px-3 py-1 text-sm text-muted-foreground">Preview</button></div>
+        </div>
+        <div class="relative mt-3">
+          <label for="pi" class="sr-only">Project agent instructions, markdown</label>
+          <textarea id="pi" rows="16" class="block w-full rounded-xl border border-input bg-card px-4 py-3 pb-12 font-mono text-sm leading-6 text-card-foreground">## Branches
+- Base branch is `main`. Work on a branch per task, named `agent/&lt;task-id&gt;`.
+- Never push to `main`. Open a PR and ask reviewer (codex) on the task.
+
+## Tests
+- Run `cargo test --workspace` in backend/. Bare `cargo test` skips the plugins.
+
+## Deploys
+- Never deploy yourself. Ask for approval on the task; Dalmas approves prod.
+
+## Design
+- Use the ink palette. Links use `text-link`. Routes are one flat segment.</textarea>
+          <div class="absolute bottom-3 right-3"><tf-mic for="pi"></tf-mic></div>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p class="text-xs text-muted-foreground">Last saved by Dalmas Ogembo, 2 days ago. 4 agents will see the change.</p>
+          <button type="button" class="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save instructions</button>
+        </div>
+      </div>
+      <div class="min-w-0 space-y-4">
+        <div class="rounded-xl border border-border bg-card p-4">
+          <h3 class="text-sm font-medium text-card-foreground">Which wins</h3>
+          <ol class="mt-2 space-y-1.5 text-sm text-muted-foreground">
+            <li>1. What you tell the agent directly</li>
+            <li>2. Its role instructions</li>
+            <li>3. These project instructions</li>
+            <li>4. TaskFlow's defaults</li>
+          </ol>
+        </div>
+        <div class="rounded-xl border border-border bg-card p-4">
+          <h3 class="text-sm font-medium text-card-foreground">Role instructions</h3>
+          <p class="mt-1 text-sm text-muted-foreground">Each agent also has its own. Edit them on the agent's page.</p>
+          <a href="/agents" class="mt-2 inline-block text-sm text-link underline underline-offset-4">Open agents</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

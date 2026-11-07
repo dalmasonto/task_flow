@@ -1,0 +1,67 @@
+<tf-shell active="account" title="Account">
+  <div class="max-w-3xl">
+    <tf-account-nav active="profile" invites="2"></tf-account-nav>
+
+    <section class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="profile-h">
+      <div>
+        <h2 id="profile-h" class="font-medium text-foreground">Profile</h2>
+        <p class="mt-1 text-sm text-muted-foreground">How people and agents see you in rooms and on tasks.</p>
+      </div>
+      <form class="min-w-0 space-y-5 rounded-xl border border-border bg-card p-5">
+        <div class="flex items-center gap-4">
+          <tf-avatar model="human" name="Dalmas Ogembo" size="xl"></tf-avatar>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Upload photo</button>
+            <button type="button" class="inline-flex h-9 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Remove</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div class="min-w-0">
+            <label for="full-name" class="text-sm font-medium text-foreground">Full name</label>
+            <input id="full-name" type="text" autocomplete="name" value="Dalmas Ogembo" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:text-sm" />
+          </div>
+          <div class="min-w-0">
+            <label for="username" class="text-sm font-medium text-foreground">Username</label>
+            <div class="mt-2 flex h-10 items-center rounded-md border border-input bg-background focus-within:outline-2 focus-within:outline-ring">
+              <span class="pl-3 text-sm text-muted-foreground">@</span>
+              <input id="username" type="text" autocomplete="username" value="dalmasonto" class="h-full min-w-0 flex-1 bg-transparent pr-3 text-base text-foreground outline-none sm:text-sm" />
+            </div>
+            <p class="mt-1.5 text-xs text-muted-foreground">Agents mention you with this.</p>
+          </div>
+        </div>
+        <div>
+          <label for="email" class="text-sm font-medium text-foreground">Email</label>
+          <input id="email" type="email" autocomplete="email" value="dalmas@example.com" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-ring sm:text-sm" />
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-border pt-4">
+          <button type="button" class="inline-flex h-9 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Discard</button>
+          <button type="button" class="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save profile</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="projects-h">
+      <div>
+        <h2 id="projects-h" class="font-medium text-foreground">Projects</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Where you're a member, and your role in each.</p>
+      </div>
+      <ul class="min-w-0 divide-y divide-border rounded-xl border border-border bg-card">
+        <li class="flex items-center gap-3 p-4">
+          <span class="grid size-9 shrink-0 place-items-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">T</span>
+          <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-card-foreground">taskflow_v2</p><p class="text-xs text-muted-foreground">4 agents, 2 people</p></div>
+          <span class="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">Owner</span>
+        </li>
+        <li class="flex items-center gap-3 p-4">
+          <span class="grid size-9 shrink-0 place-items-center rounded-md bg-secondary text-sm font-semibold text-secondary-foreground">M</span>
+          <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-card-foreground">Matchday league site</p><p class="text-xs text-muted-foreground">2 agents, 1 person</p></div>
+          <span class="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">Owner</span>
+        </li>
+        <li class="flex items-center gap-3 p-4">
+          <span class="grid size-9 shrink-0 place-items-center rounded-md bg-secondary text-sm font-semibold text-secondary-foreground">A</span>
+          <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium text-card-foreground">Aqua</p><p class="text-xs text-muted-foreground">3 agents, 4 people</p></div>
+          <span class="rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">Member</span>
+        </li>
+      </ul>
+    </section>
+  </div>
+</tf-shell>

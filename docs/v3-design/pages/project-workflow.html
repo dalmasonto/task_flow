@@ -1,0 +1,110 @@
+<tf-shell active="board" title="Workflow" back="/board">
+  <div slot="actions">
+    <a href="/board" class="hidden h-8 items-center rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex">View board</a>
+    <button class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">Add status</span></button>
+  </div>
+  <div class="space-y-6">
+    <div class="max-w-2xl">
+      <p class="text-sm text-muted-foreground">taskflow_v2 settings</p>
+      <h2 class="mt-1 text-xl font-semibold tracking-tight">Task statuses</h2>
+      <p class="mt-1 text-sm text-muted-foreground">Name the steps your team and agents use. Each status sits in a category, so reports, the done count and agent rules work whatever you call it. Agents see these names in <code class="rounded bg-muted px-1 font-mono text-xs">list_tasks</code> and <code class="rounded bg-muted px-1 font-mono text-xs">update_task_status</code>.</p>
+    </div>
+
+    <!-- Board preview -->
+    <div class="min-w-0 rounded-xl border border-border bg-card p-4">
+      <div class="mb-3 flex items-center justify-between"><h3 class="text-sm font-semibold">Board columns</h3><span class="text-xs text-muted-foreground">Drag a status below to reorder</span></div>
+      <ol class="flex gap-2 overflow-x-auto pb-1 text-sm">
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-1.5 text-muted-foreground"><span class="size-2 rounded-full border border-idle"></span>Not started</li>
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5"><span class="size-2 rounded-full bg-running"></span>In progress <span class="text-xs tabular-nums text-muted-foreground">3/4</span></li>
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5"><span class="size-2 rounded-full bg-blocked"></span>Blocked</li>
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-ring bg-accent px-2.5 py-1.5 text-accent-foreground"><span class="size-2 rounded-full bg-chart-4"></span>QA <span class="text-xs tabular-nums">2/3</span></li>
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5"><span class="size-2 rounded-full bg-review"></span>In review</li>
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5"><span class="size-2 rounded-full bg-chart-1"></span>Deploying</li>
+        <li class="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5"><span class="size-2 rounded-full bg-done"></span>Done</li>
+      </ol>
+    </div>
+
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <!-- Status list -->
+      <div class="min-w-0 space-y-4">
+        <section class="rounded-xl border border-border bg-card">
+          <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">Backlog</h3><span class="text-xs text-muted-foreground">Not picked up yet</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add a Backlog status"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+          <ul class="divide-y divide-border">
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full border-2 border-dashed border-idle"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">Not started</span><span class="hidden rounded bg-muted px-1.5 py-0.5 text-xs sm:inline">Default for new tasks</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">5 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Not started"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+          </ul>
+        </section>
+
+        <section class="rounded-xl border border-border bg-card">
+          <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">Active</h3><span class="text-xs text-muted-foreground">Someone is working on it</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add an Active status"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+          <ul class="divide-y divide-border">
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-running"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">In progress</span><span class="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs md:inline-flex"><tf-icon name="bot" class="size-3"></tf-icon>Agents can move here</span><span class="hidden rounded bg-muted px-1.5 py-0.5 text-xs tabular-nums sm:inline">Limit 4</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">3 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit In progress"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-blocked"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">Blocked</span><span class="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs md:inline-flex"><tf-icon name="bot" class="size-3"></tf-icon>Agents can move here</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">1 task</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Blocked"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+            <li class="flex items-center gap-3 bg-accent/60 px-3 py-2.5 shadow-[inset_2px_0_0_var(--ring)]" aria-current="true"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-chart-4"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">QA</span><span class="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs md:inline-flex"><tf-icon name="paperclip" class="size-3"></tf-icon>Evidence required</span><span class="hidden rounded bg-muted px-1.5 py-0.5 text-xs tabular-nums sm:inline">Limit 3</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">2 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit QA"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+          </ul>
+        </section>
+
+        <section class="rounded-xl border border-border bg-card">
+          <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">Review</h3><span class="text-xs text-muted-foreground">Waiting on a reviewer or approval</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add a Review status"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+          <ul class="divide-y divide-border">
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-review"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">In review</span><span class="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs md:inline-flex"><tf-icon name="shield-check" class="size-3"></tf-icon>Review gate</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">2 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit In review"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-chart-1"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">Deploying</span><span class="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs md:inline-flex"><tf-icon name="user" class="size-3"></tf-icon>People only</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">0 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Deploying"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+          </ul>
+        </section>
+
+        <section class="rounded-xl border border-border bg-card">
+          <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">Done</h3><span class="text-xs text-muted-foreground">Counts as finished</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add a Done status"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+          <ul class="divide-y divide-border">
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-done"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">Done</span><span class="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs md:inline-flex"><tf-icon name="paperclip" class="size-3"></tf-icon>Evidence required</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">188 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Done"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+          </ul>
+        </section>
+
+        <section class="rounded-xl border border-border bg-card">
+          <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><h3 class="text-sm font-semibold">Cancelled</h3><span class="text-xs text-muted-foreground">Closed without doing it, hidden from the board</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add a Cancelled status"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+          <ul class="divide-y divide-border">
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-failed"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">Won't do</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">12 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Won't do"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+            <li class="flex items-center gap-3 px-3 py-2.5"><tf-icon name="grip-vertical" class="size-4 cursor-grab text-muted-foreground"></tf-icon><span class="size-3 rounded-full bg-idle"></span><span class="min-w-0 flex-1 truncate text-sm font-medium">Duplicate</span><span class="hidden rounded bg-muted px-1.5 py-0.5 text-xs md:inline">Asks which task it duplicates</span><span class="w-16 text-right text-xs tabular-nums text-muted-foreground">4 tasks</span><button class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit Duplicate"><tf-icon name="more" class="size-4"></tf-icon></button></li>
+          </ul>
+        </section>
+      </div>
+
+      <!-- Edit panel -->
+      <div class="min-w-0 xl:sticky xl:top-0 xl:self-start">
+        <form class="rounded-xl border border-border bg-card" aria-labelledby="edit-status-title">
+          <div class="flex items-center gap-2 border-b border-border px-4 py-3"><span class="size-3 rounded-full bg-chart-4"></span><h3 id="edit-status-title" class="text-sm font-semibold">Edit QA</h3><span class="ml-auto text-xs text-muted-foreground">2 tasks here</span></div>
+          <div class="space-y-4 p-4">
+            <div><label for="st-name" class="text-sm font-medium">Name</label><input id="st-name" value="QA" class="mt-1.5 h-9 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"></div>
+            <div><label for="st-cat" class="text-sm font-medium">Category</label>
+              <select id="st-cat" class="mt-1.5 h-9 w-full rounded-md border border-input bg-background px-2.5 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"><option>Backlog</option><option selected>Active</option><option>Review</option><option>Done</option><option>Cancelled</option></select>
+              <p class="mt-1 text-xs text-muted-foreground">Active statuses count as work in progress in reports.</p></div>
+            <fieldset><legend class="text-sm font-medium">Colour</legend>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-running ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring peer-focus-visible:ring-2 peer-focus-visible:ring-ring" title="Green"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-review ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Violet"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-blocked ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Amber"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-done ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Teal"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-chart-1 ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Blue"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-chart-2 ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Orange"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" checked class="peer sr-only"><span class="block size-7 rounded-full bg-chart-4 ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Yellow"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-failed ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Red"></span></label>
+                <label class="cursor-pointer"><input type="radio" name="st-col" class="peer sr-only"><span class="block size-7 rounded-full bg-idle ring-offset-2 ring-offset-card peer-checked:ring-2 peer-checked:ring-ring" title="Grey"></span></label>
+              </div>
+              <p class="mt-1.5 text-xs text-muted-foreground">The board also shows the status name, so colour is never the only cue.</p></fieldset>
+            <div><label for="st-wip" class="text-sm font-medium">Work in progress limit</label>
+              <div class="mt-1.5 flex items-center gap-2"><input id="st-wip" type="number" inputmode="numeric" min="0" value="3" class="h-9 w-20 rounded-md border border-input bg-background px-3 text-base tabular-nums outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 sm:text-sm"><span class="text-xs text-muted-foreground">Agents can't claim into a full column. Leave empty for no limit.</span></div></div>
+            <fieldset class="space-y-3"><legend class="text-sm font-medium">Rules</legend>
+              <label class="flex items-start gap-3 text-sm"><span class="mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-primary p-0.5" role="switch" aria-checked="true"><span class="size-4 translate-x-4 rounded-full bg-primary-foreground"></span></span><span>Agents can move tasks here<span class="block text-xs text-muted-foreground">Off means only people can, for steps like Deploying.</span></span></label>
+              <label class="flex items-start gap-3 text-sm"><span class="mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-primary p-0.5" role="switch" aria-checked="true"><span class="size-4 translate-x-4 rounded-full bg-primary-foreground"></span></span><span>Require evidence<span class="block text-xs text-muted-foreground">Test output, a screenshot or a CI link before a task enters.</span></span></label>
+              <label class="flex items-start gap-3 text-sm"><span class="mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-muted p-0.5" role="switch" aria-checked="false"><span class="size-4 rounded-full bg-background shadow-sm"></span></span><span>Require the review gate to pass<span class="block text-xs text-muted-foreground">The task's reviewer must approve before it leaves.</span></span></label>
+            </fieldset>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+            <ui-dialog trigger="Delete status" name="delete-status"><ui-dialog-title>Delete QA?</ui-dialog-title><ui-dialog-body><p class="text-sm text-muted-foreground">2 tasks are in QA. Choose where they go.</p><label for="st-move" class="mt-3 block text-sm font-medium">Move them to</label><select id="st-move" class="mt-1.5 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm"><option>In progress</option><option selected>In review</option></select><p class="mt-3 text-xs text-muted-foreground">Agents are told about the rename in their next whoami.</p></ui-dialog-body></ui-dialog>
+            <button type="button" class="ml-auto h-9 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Cancel</button>
+            <button type="submit" class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save status</button>
+          </div>
+        </form>
+        <p class="mt-3 px-1 text-xs text-muted-foreground">Renaming a status keeps every task in it. History shows the old name until today.</p>
+      </div>
+    </div>
+  </div>
+</tf-shell>

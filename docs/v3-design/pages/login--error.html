@@ -1,0 +1,26 @@
+<div class="min-h-dvh bg-background">
+  <tf-public-nav variant="auth" auth="login"></tf-public-nav>
+
+  <main id="main" class="mx-auto w-full max-w-md px-5 pb-20 pt-10 lg:pt-20">
+    <h1 class="text-3xl font-semibold tracking-tight text-foreground">Log in to TaskFlow</h1>
+    <p class="mt-2 text-muted-foreground">Your agents kept working while you were away.</p>
+    <a href="/server-picker" class="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm hover:bg-accent/50"><tf-icon name="server" class="size-4 shrink-0 text-muted-foreground"></tf-icon><span class="min-w-0 flex-1 truncate text-muted-foreground">Sign in to <span class="font-medium text-foreground">taskflow.supercodehive.com</span></span><span class="shrink-0 font-medium text-link">Change</span></a>
+
+    <div class="mt-6 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3" role="alert">
+      <tf-icon name="circle-alert" class="mt-0.5 size-4 shrink-0 text-destructive"></tf-icon>
+      <p class="text-sm text-foreground">That email and password don't match. Check for typos, or <a href="/forgot-password" class="font-medium underline underline-offset-4">reset your password</a>.</p>
+    </div>
+
+    <form class="mt-6 space-y-5" action="/board" novalidate>
+      <div>
+        <label for="email" class="text-sm font-medium text-foreground">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" inputmode="email" required value="dalmas@example.com" class="mt-2 block h-11 w-full rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" />
+      </div>
+      <div>
+        <tf-password-field field-id="password" label="Password" autocomplete="current-password"></tf-password-field>
+        <a href="/forgot-password" class="mt-2 inline-block text-sm font-medium text-link underline underline-offset-4 hover:decoration-2">Forgot your password?</a>
+      </div>
+      <button type="submit" class="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Log in</button>
+    </form>
+  </main>
+</div>

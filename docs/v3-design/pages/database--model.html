@@ -1,0 +1,118 @@
+<tf-shell active="database" title="Database" flush>
+  <div slot="actions">
+    <button type="button" class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="history" class="size-4"></tf-icon>Versions</button>
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm font-medium hover:bg-accent"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New model</span></button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border px-3 py-2 lg:px-4 [&>*]:shrink-0">
+    <button type="button" aria-pressed="true" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-sm font-medium text-accent-foreground" title="Hide database chat"><tf-icon name="message-square" class="size-4"></tf-icon>Chat</button>
+    <span class="mx-1 h-5 w-px bg-border"></span>
+    <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="Database view">
+      <a href="/database" role="tab" aria-selected="true" class="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2.5 font-medium text-accent-foreground"><tf-icon name="git-branch" class="size-3.5"></tf-icon>Schema</a>
+      <a href="/database--data" role="tab" aria-selected="false" class="inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-muted-foreground hover:text-foreground"><tf-icon name="table" class="size-3.5"></tf-icon>Data</a>
+    </div>
+    <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Schema v3 by Claude (main), 2h ago</span>
+  </div>
+
+  <div class="relative flex min-h-0 flex-1">
+    <!-- Models list -->
+    <div class="hidden" data-note="While a model is open the editor takes the models-list column; closing it brings the list back.">
+      <ul class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 text-sm" aria-label="Models by plugin">
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-1"></span>projects<span class="ml-auto tabular-nums">3</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database--model" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowProject</a></li><li><a href="/database--model" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowProjectMember</a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-2"></span>tasks<span class="ml-auto tabular-nums">5</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database--model" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowTask</a></li><li><a href="/database--model" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowTaskRelation</a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-3"></span>agents<span class="ml-auto tabular-nums">13</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database--model" aria-current="true" class="flex items-center gap-1.5 rounded bg-accent px-2 py-1 font-semibold"><span class="truncate">TaskflowAgent</span><span class="ml-auto size-1.5 shrink-0 rounded-full bg-blocked" title="Unsaved changes"></span></a></li><li><a href="/database--model" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowAgentChannel</a></li><li><a href="/database--model" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowAgentMessage</a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-4"></span>design<span class="ml-auto tabular-nums">4</span></p></li>
+      </ul>
+    </div>
+
+    <!-- Map (dimmed) + model editor sheet -->
+    <div class="relative flex min-w-0 flex-1 overflow-hidden">
+      <div class="h-full min-w-0 flex-1 overflow-auto bg-muted/40 p-6" aria-label="Schema around TaskflowAgent"><p class="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground"><tf-icon name="git-branch" class="size-3.5"></tf-icon>Showing TaskflowAgent and the tables it links to. Others are faded.</p>
+        <div class="grid w-[34rem] grid-cols-2 gap-x-10 gap-y-8">
+          <tf-db-table name="TaskflowProject" plugin="projects" rows="14" fields="id:i64:pk|name:String|slug:String|owner:AuthUser?:fk"></tf-db-table>
+          <tf-db-table name="TaskflowAgent" plugin="agents" rows="61" selected fields="id:i64:pk|project:TaskflowProject:fk|display_name:String|provider:AgentProvider|status:AgentStatus"></tf-db-table>
+          <tf-db-table class="opacity-35" name="TaskflowTask" plugin="tasks" rows="1,032" fields="id:i64:pk|project:TaskflowProject:fk|title:String|status:TaskStatus"></tf-db-table>
+          <tf-db-table name="TaskflowAgentMessage" plugin="agents" rows="4,665" fields="id:i64:pk|channel:TaskflowAgentChannel:fk|sender_agent:TaskflowAgent?:fk"></tf-db-table>
+        </div>
+      </div>
+
+      <!-- Model editor: a sheet over the map; full width on a phone -->
+      <form class="absolute inset-0 z-20 flex w-full flex-col border-l border-border bg-background md:static md:w-[26rem] md:shrink-0" aria-labelledby="model-h">
+        <div class="shrink-0 border-b border-border p-4">
+          <div class="flex items-center gap-2">
+            <span class="size-2.5 rounded-sm bg-chart-3"></span>
+            <h2 id="model-h" class="font-mono text-base font-semibold">TaskflowAgent</h2>
+            <span class="text-xs text-muted-foreground">agents · 61 rows</span>
+            <button type="button" class="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-accent" aria-label="Close model editor"><tf-icon name="x" class="size-4"></tf-icon></button>
+          </div>
+          <p class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-idle"></span>Written by Claude (main)</span>
+            <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-blocked"></span>Changed by you, not saved</span>
+            <span class="inline-flex items-center gap-1"><tf-icon name="lock" class="size-3"></tf-icon>Locked by you</span>
+          </p>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto p-4">
+          <div class="flex items-center justify-between"><h3 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fields</h3><span class="text-xs text-muted-foreground">Name, type, then flags</span></div>
+          <ul class="mt-2 divide-y divide-border rounded-lg border border-border text-sm">
+            <li class="flex items-center gap-2 px-3 py-2 text-muted-foreground"><tf-icon name="key" class="size-3.5 shrink-0"></tf-icon><span class="w-32 truncate font-mono">id</span><span class="font-mono text-xs">i64</span><span class="ml-auto text-xs">primary key</span></li>
+            <li class="flex items-center gap-2 px-3 py-2"><span class="size-1.5 shrink-0 rounded-full bg-idle"></span><span class="w-32 truncate font-mono">project</span><span class="inline-flex items-center gap-1 font-mono text-xs text-link"><tf-icon name="link" class="size-3"></tf-icon>TaskflowProject</span><span class="ml-auto text-xs text-muted-foreground">cascade</span><button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit project"><tf-icon name="chevron-down" class="size-3.5"></tf-icon></button></li>
+            <li class="flex items-center gap-2 px-3 py-2"><tf-icon name="lock" class="size-3 shrink-0 text-muted-foreground" title="You edited this. Agents need your OK to change it."></tf-icon><span class="w-32 truncate font-mono">display_name</span><span class="font-mono text-xs text-muted-foreground">String</span><span class="ml-auto text-xs text-muted-foreground">unique per project</span><button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit display_name"><tf-icon name="chevron-down" class="size-3.5"></tf-icon></button></li>
+            <!-- Expanded: a field the human is editing -->
+            <li class="bg-blocked/5 px-3 py-3 shadow-[inset_2px_0_0_var(--blocked)]">
+              <div class="flex items-center gap-2">
+                <span class="size-1.5 shrink-0 rounded-full bg-blocked"></span>
+                <label for="fld-name" class="sr-only">Field name</label><input id="fld-name" value="provider" class="h-8 w-32 rounded-md border border-input bg-background px-2 font-mono text-sm">
+                <label for="fld-type" class="sr-only">Type</label><select id="fld-type" class="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-xs"><option>String</option><option selected>enum AgentProvider</option><option>i64</option><option>bool</option><option>DateTime</option><option>Json</option><option>FK to model…</option></select>
+                <button type="button" class="rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Collapse provider"><tf-icon name="chevron-up" class="size-3.5"></tf-icon></button>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 pl-3.5 text-sm">
+                <label class="inline-flex items-center gap-2"><input type="checkbox" class="size-4 accent-primary">Optional</label>
+                <label class="inline-flex items-center gap-2"><input type="checkbox" class="size-4 accent-primary">Unique</label>
+                <label class="inline-flex items-center gap-2"><input type="checkbox" checked class="size-4 accent-primary">Indexed</label>
+              </div>
+              <div class="mt-3 pl-3.5"><label for="fld-vals" class="text-xs font-medium">Values</label>
+                <div id="fld-vals" class="mt-1 flex flex-wrap gap-1.5"><span class="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-xs">claude-code</span><span class="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-xs">codex</span><span class="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-xs">gemini</span><span class="inline-flex items-center gap-1 rounded-md bg-blocked/15 px-2 py-0.5 font-mono text-xs">opencode<span class="sr-only">, added by you</span></span><span class="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-mono text-xs">other</span><button type="button" class="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent">Add value</button></div></div>
+              <div class="mt-3 pl-3.5"><label for="fld-def" class="text-xs font-medium">Default</label><select id="fld-def" class="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs"><option selected>other</option><option>claude-code</option></select></div>
+              <p class="mt-3 pl-3.5 text-xs text-muted-foreground">Added by Claude (main) in v3. You added <span class="font-mono">opencode</span> and turned on the index.</p>
+            </li>
+            <li class="flex items-center gap-2 px-3 py-2"><span class="size-1.5 shrink-0 rounded-full bg-idle"></span><span class="w-32 truncate font-mono">status</span><span class="font-mono text-xs text-muted-foreground">AgentStatus</span><button type="button" class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Edit status"><tf-icon name="chevron-down" class="size-3.5"></tf-icon></button></li>
+            <li class="flex items-center gap-2 px-3 py-2 text-muted-foreground line-through decoration-destructive/60"><span class="size-1.5 shrink-0 rounded-full bg-destructive"></span><span class="w-32 truncate font-mono">last_seen_at</span><span class="font-mono text-xs">DateTime?</span><button type="button" class="ml-auto rounded px-1.5 py-0.5 text-xs text-link no-underline hover:bg-accent">Undo remove</button></li>
+          </ul>
+          <button type="button" class="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><tf-icon name="plus" class="size-4"></tf-icon>Add field</button>
+
+          <h3 class="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">Relations</h3>
+          <ul class="mt-2 space-y-1.5 text-sm">
+            <li class="flex items-center gap-2"><span class="h-0.5 w-4 rounded bg-chart-1"></span><span class="text-muted-foreground">belongs to</span><span class="font-mono text-xs">TaskflowProject</span><span class="ml-auto text-xs text-muted-foreground">project</span></li>
+            <li class="flex items-center gap-2"><span class="h-0.5 w-4 rounded bg-chart-3"></span><span class="text-muted-foreground">has many</span><span class="font-mono text-xs">TaskflowAgentMessage</span><span class="ml-auto text-xs text-muted-foreground">sender_agent</span></li>
+          </ul>
+        </div>
+
+        <div class="shrink-0 space-y-3 border-t border-border p-4">
+          <p class="flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"><tf-icon name="info" class="mt-px size-3.5 shrink-0"></tf-icon><span>Saving makes schema v4 and locks the fields you changed. An agent write that touches a locked field is refused unless it asks you first. If an agent saves in the meantime, you will be shown what changed before yours goes in.</span></p>
+          <div class="flex items-center gap-2">
+            <button type="button" class="text-sm text-link underline-offset-4 hover:underline">Compare with v3</button>
+            <button type="button" class="ml-auto h-9 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent">Discard</button>
+            <button type="submit" class="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save as v4</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Database chat -->
+    <div role="complementary" class="absolute inset-y-0 left-0 z-30 hidden w-full max-w-sm border-r border-border shadow-lg lg:order-first lg:static lg:z-auto lg:flex lg:w-80 lg:shrink-0 lg:shadow-none" aria-label="Database chat">
+      <tf-agent-rail room="db-room" context="TaskflowAgent.provider" context-kind="model"
+        agents="claude:Claude (main):running|codex:reviewer (codex):running"
+        placeholder="Ask about this model"
+        hint="The selected model or field goes with your message, so agents edit the right one.">
+        <tf-message model="human" name="Dalmas Ogembo" time="13:31" role="Owner"><p>Agents need a provider so we can build launch commands. Add it.</p></tf-message>
+        <tf-message model="claude" name="Claude (main)" time="13:32"><p>Added <code>provider</code> as an enum with a default of <code>other</code>. It's display-only, not identity, so one profile can still run under any CLI.</p></tf-message>
+        <tf-message model="codex" name="reviewer (codex)" time="13:34"><p>Index it: the roster filters by provider.</p></tf-message>
+      </tf-agent-rail>
+    </div>
+  </div>
+</tf-shell>

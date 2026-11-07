@@ -1,0 +1,80 @@
+<tf-shell active="overview" title="Repositories">
+  <div slot="actions">
+    <button class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="github" class="size-4"></tf-icon><span class="hidden sm:inline">Link a repo</span></button>
+  </div>
+  <div class="space-y-6">
+    <div class="max-w-2xl">
+      <p class="text-sm text-muted-foreground">taskflow_v2 settings</p>
+      <h2 class="mt-1 text-xl font-semibold tracking-tight">Repositories</h2>
+      <p class="mt-1 text-sm text-muted-foreground">This project tracks 3 repos. Every task belongs to one, so branches, pull requests and CI land on the right task, and agents know where to push.</p>
+    </div>
+
+    <ul class="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <li class="min-w-0 rounded-xl border border-ring bg-card p-4 ring-2 ring-ring/20">
+        <div class="flex items-start gap-3"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"><tf-icon name="github" class="size-4.5"></tf-icon></span>
+          <div class="min-w-0 flex-1"><p class="truncate font-semibold">dalmasonto/task_flow</p><p class="text-xs text-muted-foreground">Backend and web app</p></div>
+          <span class="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">Default</span></div>
+        <dl class="mt-4 grid grid-cols-3 gap-2 text-xs"><div><dt class="text-muted-foreground">Open tasks</dt><dd class="text-sm font-medium tabular-nums">9</dd></div><div><dt class="text-muted-foreground">Open PRs</dt><dd class="text-sm font-medium tabular-nums">3</dd></div><div><dt class="text-muted-foreground">Branch</dt><dd class="truncate font-mono text-sm">main</dd></div></dl>
+        <div class="mt-3 flex items-center gap-2 text-xs"><tf-icon name="circle-check" class="size-3.5 text-running"></tf-icon><span>CI passed on main</span><span class="ml-auto text-muted-foreground">12m ago</span></div>
+        <div class="mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground"><span class="flex -space-x-1"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar></span>3 agents can push<span class="ml-auto">Issues synced</span></div>
+      </li>
+      <li class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <div class="flex items-start gap-3"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"><tf-icon name="github" class="size-4.5"></tf-icon></span>
+          <div class="min-w-0 flex-1"><p class="truncate font-semibold">dalmasonto/taskflow-mcp</p><p class="text-xs text-muted-foreground">MCP package on npm, 2.18.1</p></div></div>
+        <dl class="mt-4 grid grid-cols-3 gap-2 text-xs"><div><dt class="text-muted-foreground">Open tasks</dt><dd class="text-sm font-medium tabular-nums">3</dd></div><div><dt class="text-muted-foreground">Open PRs</dt><dd class="text-sm font-medium tabular-nums">1</dd></div><div><dt class="text-muted-foreground">Branch</dt><dd class="truncate font-mono text-sm">main</dd></div></dl>
+        <div class="mt-3 flex items-center gap-2 text-xs"><tf-icon name="circle-x" class="size-3.5 text-failed"></tf-icon><span>CI failed on <span class="font-mono">claude/triggers</span></span><span class="ml-auto text-muted-foreground">40m ago</span></div>
+        <div class="mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground"><span class="flex -space-x-1"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar></span>1 agent can push<span class="ml-auto">Issues off</span></div>
+      </li>
+      <li class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <div class="flex items-start gap-3"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"><tf-icon name="github" class="size-4.5"></tf-icon></span>
+          <div class="min-w-0 flex-1"><p class="truncate font-semibold">dalmasonto/taskflow-docs</p><p class="text-xs text-muted-foreground">Documentation site</p></div></div>
+        <dl class="mt-4 grid grid-cols-3 gap-2 text-xs"><div><dt class="text-muted-foreground">Open tasks</dt><dd class="text-sm font-medium tabular-nums">1</dd></div><div><dt class="text-muted-foreground">Open PRs</dt><dd class="text-sm font-medium tabular-nums">0</dd></div><div><dt class="text-muted-foreground">Branch</dt><dd class="truncate font-mono text-sm">main</dd></div></dl>
+        <div class="mt-3 flex items-center gap-2 text-xs"><tf-icon name="circle-check" class="size-3.5 text-running"></tf-icon><span>Published on push</span><span class="ml-auto text-muted-foreground">2d ago</span></div>
+        <div class="mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground"><span class="flex -space-x-1"><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar></span>1 agent can push<span class="ml-auto">Issues synced</span></div>
+      </li>
+    </ul>
+
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div class="min-w-0 rounded-xl border border-border bg-card">
+        <div class="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3"><h3 class="text-sm font-semibold">Branches and pull requests</h3><span class="text-xs text-muted-foreground">all repos, kept current from GitHub</span>
+          <select class="ml-auto h-8 rounded-md border border-input bg-background px-2 text-sm" aria-label="Repo"><option>All repos</option><option>task_flow</option><option>taskflow-mcp</option><option>taskflow-docs</option></select></div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[42rem] text-sm">
+            <thead class="text-xs text-muted-foreground"><tr class="border-b border-border"><th class="px-4 py-2 text-left font-medium">Branch</th><th class="px-4 py-2 text-left font-medium">Task</th><th class="px-4 py-2 text-left font-medium">Pull request</th><th class="px-4 py-2 text-left font-medium">CI</th><th class="px-4 py-2 text-right font-medium">Updated</th></tr></thead>
+            <tbody class="divide-y divide-border">
+              <tr class="hover:bg-muted/40"><td class="px-4 py-2.5"><span class="flex items-center gap-2"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar><span class="min-w-0"><span class="block truncate font-mono text-xs">deepseek/dm-pairs</span><span class="block text-xs text-muted-foreground">task_flow</span></span></span></td><td class="px-4 py-2.5"><a href="/task" class="text-link underline-offset-4 hover:underline">#721</a></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1.5"><tf-icon name="git-pr" class="size-3.5 text-review"></tf-icon>#44 Changes requested</span></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1 text-running"><tf-icon name="circle-check" class="size-3.5"></tf-icon>Passed</span></td><td class="px-4 py-2.5 text-right tabular-nums text-muted-foreground">14:52</td></tr>
+              <tr class="hover:bg-muted/40"><td class="px-4 py-2.5"><span class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="min-w-0"><span class="block truncate font-mono text-xs">claude/triggers</span><span class="block text-xs text-muted-foreground">taskflow-mcp</span></span></span></td><td class="px-4 py-2.5"><a href="/task" class="text-link underline-offset-4 hover:underline">#720</a></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1.5 text-muted-foreground"><tf-icon name="git-pr" class="size-3.5"></tf-icon>Draft #12</span></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1 text-failed"><tf-icon name="circle-x" class="size-3.5"></tf-icon>2 tests failed</span></td><td class="px-4 py-2.5 text-right tabular-nums text-muted-foreground">15:31</td></tr>
+              <tr class="hover:bg-muted/40"><td class="px-4 py-2.5"><span class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="min-w-0"><span class="block truncate font-mono text-xs">claude/v2fe-redesign</span><span class="block text-xs text-muted-foreground">task_flow</span></span></span></td><td class="px-4 py-2.5"><a href="/task" class="text-link underline-offset-4 hover:underline">#1025</a></td><td class="px-4 py-2.5"><span class="text-muted-foreground">No PR yet</span></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1 text-muted-foreground"><tf-icon name="circle-dashed" class="size-3.5"></tf-icon>Not run</span></td><td class="px-4 py-2.5 text-right tabular-nums text-muted-foreground">16:40</td></tr>
+              <tr class="hover:bg-muted/40"><td class="px-4 py-2.5"><span class="flex items-center gap-2"><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar><span class="min-w-0"><span class="block truncate font-mono text-xs">gemini/statuses-guide</span><span class="block text-xs text-muted-foreground">taskflow-docs</span></span></span></td><td class="px-4 py-2.5"><a href="/task" class="text-link underline-offset-4 hover:underline">#1030</a></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1.5"><tf-icon name="git-pr" class="size-3.5 text-done"></tf-icon>#9 Merged</span></td><td class="px-4 py-2.5"><span class="inline-flex items-center gap-1 text-running"><tf-icon name="circle-check" class="size-3.5"></tf-icon>Published</span></td><td class="px-4 py-2.5 text-right tabular-nums text-muted-foreground">Yesterday</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">A branch links to a task when its name or a commit mentions the task number, for example <code class="rounded bg-muted px-1 font-mono">deepseek/721-dm-pairs</code> or <code class="rounded bg-muted px-1 font-mono">Closes #721</code>.</p>
+      </div>
+
+      <div class="min-w-0 space-y-4">
+        <div class="rounded-xl border border-border bg-card p-4">
+          <h3 class="text-sm font-semibold">Where new tasks go</h3>
+          <ul class="mt-3 space-y-2.5 text-sm">
+            <li class="flex items-start gap-2"><tf-icon name="folder" class="mt-0.5 size-4 shrink-0 text-muted-foreground"></tf-icon><span>Touches <code class="rounded bg-muted px-1 font-mono text-xs">mcp/</code> goes to <span class="font-medium">taskflow-mcp</span></span></li>
+            <li class="flex items-start gap-2"><tf-icon name="folder" class="mt-0.5 size-4 shrink-0 text-muted-foreground"></tf-icon><span>Touches <code class="rounded bg-muted px-1 font-mono text-xs">documentation/</code> goes to <span class="font-medium">taskflow-docs</span></span></li>
+            <li class="flex items-start gap-2"><tf-icon name="tag" class="mt-0.5 size-4 shrink-0 text-muted-foreground"></tf-icon><span>Label <span class="rounded bg-muted px-1 text-xs">docs</span> goes to <span class="font-medium">taskflow-docs</span></span></li>
+            <li class="flex items-start gap-2"><tf-icon name="check" class="mt-0.5 size-4 shrink-0 text-muted-foreground"></tf-icon><span>Everything else goes to <span class="font-medium">task_flow</span>, the default</span></li>
+          </ul>
+          <button class="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-link underline-offset-4 hover:underline"><tf-icon name="plus" class="size-4"></tf-icon>Add rule</button>
+        </div>
+        <div class="rounded-xl border border-border bg-card p-4">
+          <h3 class="text-sm font-semibold">Agent access</h3>
+          <p class="mt-1 text-xs text-muted-foreground">Which repos each agent may push to. Pushing to main always asks a person first.</p>
+          <ul class="mt-3 space-y-2 text-sm">
+            <li class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">Claude (main)</span><span class="text-xs text-muted-foreground">All 3</span></li>
+            <li class="flex items-center gap-2"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">reviewer (codex)</span><span class="text-xs text-muted-foreground">task_flow, review only</span></li>
+            <li class="flex items-center gap-2"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">DeepSeek (api)</span><span class="text-xs text-muted-foreground">task_flow</span></li>
+            <li class="flex items-center gap-2"><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">Gemini (docs)</span><span class="text-xs text-muted-foreground">taskflow-docs</span></li>
+          </ul>
+          <a href="/api-keys" class="mt-3 inline-flex text-sm font-medium text-link underline-offset-4 hover:underline">Edit capabilities</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

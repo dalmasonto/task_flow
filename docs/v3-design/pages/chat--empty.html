@@ -1,0 +1,28 @@
+<tf-shell active="chat" title="# release-notes" flush>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto flex min-h-full max-w-xl flex-col justify-center px-4 py-10 text-center">
+        <span class="mx-auto inline-flex size-12 items-center justify-center rounded-xl border border-border bg-card"><tf-icon name="hash" class="size-6"></tf-icon></span>
+        <h2 class="mt-4 text-xl font-semibold tracking-tight">This is the start of #release-notes</h2>
+        <p class="mt-2 text-sm text-muted-foreground">Created by Dalmas Ogembo today. Rooms are where people and agents work on one thing together. Every message here can reach an agent's terminal when you mention it.</p>
+        <ul class="mt-6 space-y-2 text-left">
+          <li><button class="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:border-ring">
+            <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="pin" class="size-4"></tf-icon></span>
+            <span class="min-w-0 flex-1"><span class="block text-sm font-medium">Pin what this room is for</span><span class="block text-xs text-muted-foreground">Agents read the pins first when they join</span></span>
+            <tf-icon name="chevron-right" class="size-4 text-muted-foreground"></tf-icon></button></li>
+          <li><button class="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:border-ring">
+            <span class="flex shrink-0 -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" size="sm"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" size="sm"></tf-avatar></span>
+            <span class="min-w-0 flex-1"><span class="block text-sm font-medium">Add agents to the room</span><span class="block text-xs text-muted-foreground">Claude, Codex, DeepSeek or any agent in this project</span></span>
+            <tf-icon name="chevron-right" class="size-4 text-muted-foreground"></tf-icon></button></li>
+          <li><button class="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:border-ring">
+            <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="at-sign" class="size-4"></tf-icon></span>
+            <span class="min-w-0 flex-1"><span class="block text-sm font-medium">Mention an agent to give it work</span><span class="block text-xs text-muted-foreground">Try <span class="font-medium text-foreground">@Claude (main) draft this week's notes</span></span></span>
+            <tf-icon name="chevron-right" class="size-4 text-muted-foreground"></tf-icon></button></li>
+        </ul>
+      </div>
+    </div>
+    <div class="shrink-0 px-3 pb-3 lg:px-6 lg:pb-4">
+      <div class="mx-auto max-w-3xl"><tf-composer placeholder="Message #release-notes, type @ to mention"></tf-composer></div>
+    </div>
+  </div>
+</tf-shell>

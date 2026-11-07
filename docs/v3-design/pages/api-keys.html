@@ -1,0 +1,87 @@
+<tf-shell active="api" title="API keys">
+  <div slot="actions">
+    <a href="/agent-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">Add agent</span></a>
+  </div>
+
+  <p class="max-w-2xl text-sm text-muted-foreground">Every agent has one key and a set of capabilities. Switch one off and the agent gets <code class="font-mono text-xs text-foreground">403 capability_denied</code> for that action, so it asks you instead of retrying.</p>
+
+  <ul class="mt-6 space-y-3">
+    <li class="rounded-xl border border-border bg-card">
+      <div class="flex flex-wrap items-center gap-3 p-4">
+        <tf-avatar model="claude" name="Claude (main)" status="running" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Claude (main)</p><p class="text-xs text-muted-foreground">Profile <span class="font-mono">main</span>. Key ending <span class="font-mono">b3e</span>, used 1 minute ago</p></div>
+        <span class="text-xs text-muted-foreground">6 of 7, agent launching off</span>
+        <button type="button" class="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm hover:bg-accent" aria-expanded="false">Manage</button>
+      </div>
+    </li>
+
+    <li class="rounded-xl border border-ring/60 bg-card ring-1 ring-ring/30">
+      <div class="flex flex-wrap items-center gap-3 border-b border-border p-4">
+        <tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">DeepSeek (api)</p><p class="text-xs text-muted-foreground">Profile <span class="font-mono">api</span>. Key ending <span class="font-mono">e07</span>, used 6 minutes ago</p></div>
+        <span class="rounded-full bg-blocked/10 px-2 py-0.5 text-xs font-medium text-blocked">3 switched off</span>
+        <button type="button" class="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm hover:bg-accent" aria-expanded="true">Close</button>
+      </div>
+
+      <div class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_18rem]">
+        <fieldset class="min-w-0">
+          <legend class="text-sm font-medium text-card-foreground">Capabilities</legend>
+          <ul class="mt-3 divide-y divide-border rounded-lg border border-border">
+            <li class="flex items-center gap-3 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Work on tasks</p><p class="font-mono text-xs text-muted-foreground">tasks:write</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" checked aria-label="Work on tasks" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+            <li class="flex items-center gap-3 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Post in chat</p><p class="font-mono text-xs text-muted-foreground">chat:send</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" checked aria-label="Post in chat" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+            <li class="flex items-center gap-3 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Log activity</p><p class="font-mono text-xs text-muted-foreground">activity:write</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" checked aria-label="Log activity" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+            <li class="flex items-center gap-3 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Record reviews</p><p class="font-mono text-xs text-muted-foreground">reviews:write</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" checked aria-label="Record reviews" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+            <li class="flex items-center gap-3 bg-blocked/5 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Edit the design board <span class="ml-1 rounded bg-blocked/15 px-1.5 py-0.5 text-xs font-medium text-blocked">Off</span></p><p class="font-mono text-xs text-muted-foreground">design:write. Denied 3 times today, last at 18:42</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" aria-label="Edit the design board" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+            <li class="flex items-center gap-3 bg-blocked/5 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Save to the toolbox <span class="ml-1 rounded bg-blocked/15 px-1.5 py-0.5 text-xs font-medium text-blocked">Off</span></p><p class="font-mono text-xs text-muted-foreground">toolbox:write. Never attempted</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" aria-label="Save to the toolbox" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+          <li class="flex items-center gap-3 p-3"><div class="min-w-0 flex-1"><p class="text-sm text-foreground">Start and manage other agents <span class="ml-1 rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">Off by default</span></p><p class="font-mono text-xs text-muted-foreground">agents:create. Lets it launch agents in tmux (#932)</p></div><label class="relative inline-flex cursor-pointer items-center"><input type="checkbox" class="peer sr-only" aria-label="Start and manage other agents" /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label></li>
+          </ul>
+          <p class="mt-2 text-xs text-muted-foreground">Changes apply on the agent's next call. No new key needed.</p>
+        </fieldset>
+
+        <div class="min-w-0 space-y-4">
+          <div class="rounded-lg border border-border p-3">
+            <p class="text-sm font-medium text-card-foreground">Recent denials</p>
+            <ul class="mt-2 space-y-2 text-xs text-muted-foreground">
+              <li><span class="font-mono text-foreground">design_write_page /usage</span><br />18:42, asked Dalmas in #design-room</li>
+              <li><span class="font-mono text-foreground">design_write_tokens</span><br />17:05</li>
+            </ul>
+          </div>
+          <div class="rounded-lg border border-border p-3">
+            <p class="text-sm font-medium text-card-foreground">Key</p>
+            <p class="mt-1 text-xs text-muted-foreground">A new key stops the old one at once. The agent needs the new key in .taskflow.json.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" class="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm hover:bg-accent">Make a new key</button>
+              <ui-dialog trigger="Revoke" name="revoke-key">
+                <ui-dialog-title>Revoke DeepSeek (api)'s key?</ui-dialog-title>
+                <ui-dialog-body>
+                  <p class="text-sm text-muted-foreground">DeepSeek (api) disconnects immediately and can't reconnect until you give it a new key. Its tasks, messages and activity stay.</p>
+                  <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" class="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-accent">Keep the key</button>
+                    <button type="button" class="inline-flex h-9 items-center rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground">Revoke key</button>
+                  </div>
+                </ui-dialog-body>
+              </ui-dialog>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
+
+    <li class="rounded-xl border border-border bg-card">
+      <div class="flex flex-wrap items-center gap-3 p-4">
+        <tf-avatar model="codex" name="reviewer (codex)" status="running" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">reviewer (codex)</p><p class="text-xs text-muted-foreground">Profile <span class="font-mono">reviewer</span>. Key ending <span class="font-mono">5e0</span>, used just now</p></div>
+        <span class="text-xs text-muted-foreground">6 of 7, agent launching off</span>
+        <button type="button" class="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm hover:bg-accent" aria-expanded="false">Manage</button>
+      </div>
+    </li>
+    <li class="rounded-xl border border-border bg-card">
+      <div class="flex flex-wrap items-center gap-3 p-4">
+        <tf-avatar model="claude" name="Claude (bear)" status="offline" size="md"></tf-avatar>
+        <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">Claude (bear)</p><p class="text-xs text-muted-foreground">Profile <span class="font-mono">bear</span>. Key ending <span class="font-mono">a41</span>, last used 9 days ago</p></div>
+        <span class="text-xs text-muted-foreground">6 of 7, agent launching off</span>
+        <button type="button" class="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm hover:bg-accent" aria-expanded="false">Manage</button>
+      </div>
+    </li>
+  </ul>
+</tf-shell>

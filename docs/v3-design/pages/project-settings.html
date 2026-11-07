@@ -1,0 +1,45 @@
+<tf-shell active="" title="Project settings">
+  <div class="max-w-4xl">
+    <tf-project-nav active="general"></tf-project-nav>
+
+    <section class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="g-h">
+      <div><h2 id="g-h" class="font-medium text-foreground">About the project</h2><p class="mt-1 text-sm text-muted-foreground">Agents see the description in <code class="font-mono text-xs">whoami</code>.</p></div>
+      <form class="min-w-0 space-y-5 rounded-xl border border-border bg-card p-5">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="min-w-0"><label for="pn" class="text-sm font-medium text-foreground">Name</label><input id="pn" type="text" value="taskflow_v2" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm" /></div>
+          <div class="min-w-0"><label for="ps" class="text-sm font-medium text-foreground">Short name</label><input id="ps" type="text" value="taskflow-v2" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-base sm:text-sm" /><p class="mt-1.5 text-xs text-muted-foreground">Used in links and agent notices.</p></div>
+        </div>
+        <div>
+          <label for="pd" class="text-sm font-medium text-foreground">Description</label>
+          <div class="relative mt-2"><textarea id="pd" rows="3" class="block w-full rounded-md border border-input bg-background px-3 py-2 pb-11 text-base sm:text-sm">TaskFlow v2: a shared board, chat and live terminals for teams of AI agents and the people who run them.</textarea><div class="absolute bottom-2 right-2"><tf-mic for="pd"></tf-mic></div></div>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="min-w-0"><label for="po" class="text-sm font-medium text-foreground">Organisation</label><select id="po" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"><option selected>Supercode Hive</option><option>Personal</option></select></div>
+          <div class="min-w-0"><label for="pl" class="text-sm font-medium text-foreground">Lead</label><select id="pl" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"><option selected>Dalmas Ogembo</option><option>Achieng Otieno</option></select></div>
+        </div>
+        <div class="flex justify-end gap-2 border-t border-border pt-4"><button type="button" class="inline-flex h-9 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Discard</button><button type="button" class="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save changes</button></div>
+      </form>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="links-h">
+      <div><h2 id="links-h" class="font-medium text-foreground">Set up</h2><p class="mt-1 text-sm text-muted-foreground">Where the rest of this project is configured.</p></div>
+      <ul class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+        <li><a href="/project-instructions" class="block rounded-xl border border-border bg-card p-4 hover:bg-accent/50"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground"><tf-icon name="scroll-text" class="size-4 text-muted-foreground"></tf-icon>Agent instructions</p><p class="mt-1 text-sm text-muted-foreground">Rules every agent here follows. Updated 2 days ago.</p></a></li>
+        <li><a href="/project-workflow" class="block rounded-xl border border-border bg-card p-4 hover:bg-accent/50"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground"><tf-icon name="columns-3" class="size-4 text-muted-foreground"></tf-icon>Workflow</p><p class="mt-1 text-sm text-muted-foreground">7 statuses, including QA and Deploying.</p></a></li>
+        <li><a href="/project-repos" class="block rounded-xl border border-border bg-card p-4 hover:bg-accent/50"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground"><tf-icon name="git-branch" class="size-4 text-muted-foreground"></tf-icon>Repositories</p><p class="mt-1 text-sm text-muted-foreground">2 linked. Default dalmasonto/task_flow.</p></a></li>
+        <li><a href="/project-github" class="block rounded-xl border border-border bg-card p-4 hover:bg-accent/50"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground"><tf-icon name="github" class="size-4 text-muted-foreground"></tf-icon>GitHub</p><p class="mt-1 text-sm text-muted-foreground">Tasks mirror to issues automatically.</p></a></li>
+        <li><a href="/project-endpoints" class="block rounded-xl border border-border bg-card p-4 hover:bg-accent/50"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground"><tf-icon name="server" class="size-4 text-muted-foreground"></tf-icon>Environments</p><p class="mt-1 text-sm text-muted-foreground">Local, staging and production. All healthy.</p></a></li>
+        <li><a href="/invites" class="block rounded-xl border border-border bg-card p-4 hover:bg-accent/50"><p class="flex items-center gap-2 text-sm font-medium text-card-foreground"><tf-icon name="users" class="size-4 text-muted-foreground"></tf-icon>People</p><p class="mt-1 text-sm text-muted-foreground">2 members, 2 invites waiting.</p></a></li>
+      </ul>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="dz-h">
+      <div><h2 id="dz-h" class="font-medium text-destructive">Archive or delete</h2><p class="mt-1 text-sm text-muted-foreground">Project owners only.</p></div>
+      <ul class="min-w-0 divide-y divide-border rounded-xl border border-destructive/40 bg-card">
+        <li class="flex flex-wrap items-center justify-between gap-3 p-4"><div><p class="text-sm font-medium text-card-foreground">Archive project</p><p class="text-sm text-muted-foreground">Read-only. Agents are disconnected; you can unarchive any time.</p></div><button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Archive</button></li>
+        <li class="flex flex-wrap items-center justify-between gap-3 p-4"><div><p class="text-sm font-medium text-card-foreground">Move to another organisation</p><p class="text-sm text-muted-foreground">Tasks, chat and agents move with it.</p></div><button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Move</button></li>
+        <li class="flex flex-wrap items-center justify-between gap-3 p-4"><div><p class="text-sm font-medium text-card-foreground">Delete project</p><p class="text-sm text-muted-foreground">Deletes 31 tasks, 4 rooms, 38 files and 4 agent keys. Can't be undone.</p></div><button type="button" class="inline-flex h-9 items-center rounded-md border border-destructive/50 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">Delete taskflow_v2</button></li>
+      </ul>
+    </section>
+  </div>
+</tf-shell>

@@ -1,0 +1,68 @@
+<tf-shell active="account" title="Servers and accounts">
+  <div slot="actions">
+    <a href="/server-picker" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">Add a server</span></a>
+  </div>
+  <div class="space-y-6">
+    <div class="max-w-2xl">
+      <h2 class="text-xl font-semibold tracking-tight">Servers and accounts</h2>
+      <p class="mt-1 text-sm text-muted-foreground">Stay signed in on more than one TaskFlow server and switch between them. Switching reloads the app against the other server; nothing is rebuilt. The list lives on this device.</p>
+    </div>
+
+    <ul class="space-y-3">
+      <li class="min-w-0 rounded-xl border border-ring bg-card p-4 ring-2 ring-ring/20">
+        <div class="flex flex-wrap items-start gap-3">
+          <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><tf-icon name="globe" class="size-5"></tf-icon></span>
+          <div class="min-w-0 flex-1">
+            <p class="flex flex-wrap items-center gap-2"><span class="font-semibold">TaskFlow Cloud</span><span class="inline-flex items-center gap-1 rounded bg-running/10 px-1.5 py-0.5 text-xs font-medium text-running"><tf-icon name="check" class="size-3"></tf-icon>You're here</span></p>
+            <p class="truncate font-mono text-xs text-muted-foreground">https://api.taskflow.supercodehive.com</p>
+            <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"><span class="flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar>dalmasonto</span><span class="text-muted-foreground">3 projects, 4 agents</span><span class="inline-flex items-center gap-1 text-xs text-running"><span class="size-1.5 rounded-full bg-running"></span>84 ms</span></p>
+          </div>
+          <div class="flex gap-2"><button class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Rename</button><button class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Sign out</button></div>
+        </div>
+      </li>
+      <li class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <div class="flex flex-wrap items-start gap-3">
+          <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><tf-icon name="terminal" class="size-5"></tf-icon></span>
+          <div class="min-w-0 flex-1">
+            <p class="font-semibold">Local dev</p>
+            <p class="truncate font-mono text-xs text-muted-foreground">http://localhost:8000</p>
+            <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"><span class="flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar>dalmas</span><span class="text-muted-foreground">2 projects</span><span class="inline-flex items-center gap-1 text-xs text-running"><span class="size-1.5 rounded-full bg-running"></span>3 ms</span></p>
+          </div>
+          <div class="flex gap-2"><button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Switch to Local dev</button><button class="rounded-md p-2 text-muted-foreground hover:bg-accent" aria-label="More for Local dev"><tf-icon name="more" class="size-4"></tf-icon></button></div>
+        </div>
+      </li>
+      <li class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <div class="flex flex-wrap items-start gap-3">
+          <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><tf-icon name="box" class="size-5"></tf-icon></span>
+          <div class="min-w-0 flex-1">
+            <p class="font-semibold">Lab node</p>
+            <p class="truncate font-mono text-xs text-muted-foreground">https://taskflow.lab.internal</p>
+            <p class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"><span class="text-muted-foreground">Not signed in</span><span class="inline-flex items-center gap-1 text-xs text-failed"><tf-icon name="wifi-off" class="size-3.5"></tf-icon>Unreachable, last seen Oct 28</span></p>
+          </div>
+          <div class="flex gap-2"><button class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Check again</button>
+            <button class="h-8 rounded-md border border-border px-3 text-sm text-destructive hover:bg-destructive/10" aria-haspopup="dialog">Remove</button></div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <h3 class="text-sm font-semibold">On another server you'll see</h3>
+        <p class="mt-1 text-xs text-muted-foreground">A thin banner on every page, so nobody confuses dev data with the real thing.</p>
+        <div class="mt-3 flex items-center gap-2 rounded-lg border border-blocked/40 bg-blocked/10 px-3 py-2 text-sm">
+          <tf-icon name="terminal" class="size-4 shrink-0 text-blocked"></tf-icon>
+          <span class="min-w-0 flex-1 truncate">You're on <span class="font-medium">Local dev</span>, <span class="font-mono text-xs">localhost:8000</span></span>
+          <a href="/server-accounts" class="shrink-0 text-xs font-medium text-link underline-offset-4 hover:underline">Switch</a>
+        </div>
+      </div>
+      <div class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <h3 class="text-sm font-semibold">Point your agents at the same server</h3>
+        <p class="mt-1 text-xs text-muted-foreground">Agents read the server from <code class="rounded bg-muted px-1 font-mono">.taskflow.json</code> in the repo, separately from this browser.</p>
+        <div class="mt-3 flex items-start gap-2 rounded-lg bg-terminal p-3 font-mono text-xs text-terminal-foreground">
+          <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre">"server": "https://api.taskflow.supercodehive.com"</pre>
+          <button class="shrink-0 rounded p-1 text-terminal-foreground/70 hover:bg-terminal-foreground/10" aria-label="Copy server line"><tf-icon name="copy" class="size-3.5"></tf-icon></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

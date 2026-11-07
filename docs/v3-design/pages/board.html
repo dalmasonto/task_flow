@@ -1,0 +1,64 @@
+<tf-shell active="board" title="Board" flush>
+  <div slot="actions">
+    <button class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="filter" class="size-4"></tf-icon>Filter</button>
+    <a href="/task-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New task</span></a>
+  </div>
+  <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
+    <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="View">
+      <button role="tab" aria-selected="true" class="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2 font-medium text-accent-foreground"><tf-icon name="columns" class="size-4"></tf-icon>Board</button>
+      <a href="/board-list" role="tab" aria-selected="false" class="inline-flex h-7 items-center gap-1.5 rounded px-2 text-muted-foreground hover:text-foreground"><tf-icon name="list" class="size-4"></tf-icon>List</a>
+    </div>
+    <span class="mx-1 hidden h-5 w-px bg-border sm:block"></span>
+    <div class="flex min-w-0 flex-1 gap-1.5 overflow-x-auto text-sm">
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-ring/50 bg-accent px-2.5 text-accent-foreground">Assigned to agents<tf-icon name="x" class="size-3.5"></tf-icon></button>
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent">Priority: any<tf-icon name="chevron-down" class="size-3.5"></tf-icon></button>
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-muted-foreground hover:bg-accent">Repo: task_flow<tf-icon name="chevron-down" class="size-3.5"></tf-icon></button>
+      <button class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-muted-foreground hover:bg-accent"><tf-icon name="plus" class="size-3.5"></tf-icon>Add filter</button>
+    </div>
+    <span class="hidden text-xs tabular-nums text-muted-foreground md:inline">13 tasks</span>
+  </div>
+
+  <div class="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+    <div class="flex h-full snap-x snap-mandatory gap-3 p-4 lg:px-6">
+      <div class="pointer-events-none sticky left-full z-10 order-last -ml-20 hidden h-full w-20 shrink-0 bg-gradient-to-l from-background to-transparent lg:block" aria-hidden="true"></div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex items-center gap-2 px-1"><tf-status value="todo"></tf-status><span class="text-xs tabular-nums text-muted-foreground">5</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add task to Not started"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="739" title="Dictate to create tasks, comments, descriptions and chats" priority="high" repo="task_flow" comments="2"></tf-task-card>
+          <tf-task-card id="803" title="Pin more than one message per channel or DM" priority="high" comments="1"></tf-task-card>
+          <tf-task-card id="936" title="Seen and read receipts for people and agents" priority="high"></tf-task-card>
+          <tf-task-card id="885" title="DB tools: a linked model view built on xyflow" priority="high" files="1"></tf-task-card>
+          <tf-task-card id="1027" title="Design validator 500s on a multibyte char before a bracket" priority="high" assignee="claude:Claude (main)"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex items-center gap-2 px-1"><tf-status value="running"></tf-status><span class="text-xs tabular-nums text-muted-foreground">3</span><button class="ml-auto rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Add task to In progress"><tf-icon name="plus" class="size-4"></tf-icon></button></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="1025" title="Design: v2_fe redesign for onboarding, multi-model collaboration" priority="high" assignee="claude:Claude (main)" live="design_write_page /board" lease="42m" comments="6" selected></tf-task-card>
+          <tf-task-card id="1026" title="Design: marketing, onboarding, account and system screens" priority="high" assignee="codex:reviewer (codex)" live="design_compare palette A vs B" lease="38m"></tf-task-card>
+          <tf-task-card id="720" title="Agent triggers: the MCP waits and wakes the agent" priority="normal" assignee="deepseek:DeepSeek (api)" decision="Max delay per trigger?" lease="12m"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex items-center gap-2 px-1"><tf-status value="review"></tf-status><span class="text-xs tabular-nums text-muted-foreground">2</span></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="721" title="Agents can DM any user or agent in their project" priority="normal" assignee="deepseek:DeepSeek (api)" gate="reviewer (codex)" evidence="218 tests, migration plan" repo="task_flow" comments="9" files="2"></tf-task-card>
+          <tf-task-card id="983" title="Overlapping chips for chat and active sessions" priority="high" assignee="claude:Claude (main)" gate="Dalmas, visual check" evidence="2 screenshots"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex items-center gap-2 px-1"><tf-status value="blocked"></tf-status><span class="text-xs tabular-nums text-muted-foreground">1</span></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="766" title="Messages marked read by a phantom second terminal" priority="critical" assignee="claude:Claude (bear)" decision="One session per identity, or a cursor per session?"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex items-center gap-2 px-1"><tf-status value="done"></tf-status><span class="text-xs tabular-nums text-muted-foreground">2</span><button class="ml-auto text-xs text-muted-foreground hover:text-foreground">Show 186 more</button></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2 opacity-80">
+          <tf-task-card id="769" title="An agent seeing its own reply in its terminal" priority="high" assignee="claude:Claude (main)" evidence="test + pane capture"></tf-task-card>
+          <tf-task-card id="932" title="tmux launcher: start agents from the dashboard" priority="high" assignee="codex:reviewer (codex)" evidence="PR #41 merged"></tf-task-card>
+        </div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

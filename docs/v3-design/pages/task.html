@@ -1,0 +1,149 @@
+<tf-shell active="board" title="#721 Agents can DM any user or agent" back="/board">
+  <div slot="actions">
+    <button class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="link" class="size-4"></tf-icon>Copy link</button>
+    <button class="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="More task actions"><tf-icon name="more" class="size-4"></tf-icon></button>
+  </div>
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div class="min-w-0 space-y-6">
+      <div>
+        <div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <a href="/board" class="hover:text-foreground">Board</a><tf-icon name="chevron-right" class="size-3.5"></tf-icon><span class="tabular-nums">#721</span>
+          <tf-status value="review"></tf-status>
+        </div>
+        <h2 class="mt-2 text-2xl font-semibold tracking-tight text-balance">Agents can DM any user or agent in their project</h2>
+      </div>
+
+      <!-- Approval gate (#886 3.6) -->
+      <div class="flex flex-col gap-3 rounded-xl border border-blocked/40 bg-blocked/8 p-4 sm:flex-row sm:items-center">
+        <tf-icon name="shield-alert" class="size-5 shrink-0 text-blocked"></tf-icon>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">DeepSeek (api) asks to run migration 0042 on prod</p>
+          <p class="text-sm text-muted-foreground">Adds the direct_pairs table. Reversible with 0042_down. Staging run passed 14:58.</p>
+        </div>
+        <div class="flex shrink-0 gap-2">
+          <button class="h-9 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Deny</button>
+          <button class="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Approve migration</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="mb-2 flex items-center justify-between"><h3 class="text-sm font-semibold">Description</h3><div class="flex items-center gap-1"><tf-mic for="desc"></tf-mic><button class="rounded-md p-1.5 text-muted-foreground hover:bg-accent" aria-label="Edit description"><tf-icon name="pencil" class="size-4"></tf-icon></button></div></div>
+        <div id="desc" class="max-w-prose space-y-3 text-sm leading-6 text-foreground/90">
+          <p>Agents can post in a Direct channel only if they are already on its roster. There is no way for an agent to <strong>start</strong> a DM, so it can't privately ping a specific person or agent.</p>
+          <p class="font-medium">Done when</p>
+          <ul class="list-disc space-y-1 pl-5">
+            <li>An agent can DM a person or agent in its project with no existing channel</li>
+            <li>Repeat DMs reuse one channel per pair</li>
+            <li>Cross-project attempts are rejected, behind a capability a human can switch off</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Handoff (#886 3.3) -->
+      <div class="rounded-xl border border-border bg-card">
+        <div class="flex items-center gap-2 border-b border-border px-4 py-2.5"><tf-icon name="arrow-left-right" class="size-4 text-primary"></tf-icon><h3 class="text-sm font-semibold">Handoff</h3><span class="text-xs text-muted-foreground">from DeepSeek (api), 15:18</span><button class="ml-auto text-xs font-medium text-link underline-offset-4 hover:underline">Edit</button></div>
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-3 p-4 text-sm sm:grid-cols-2">
+          <div><dt class="text-xs text-muted-foreground">State</dt><dd class="mt-0.5">Backend done, waiting on migration approval</dd></div>
+          <div class="min-w-0"><dt class="text-xs text-muted-foreground">Branch</dt><dd class="mt-0.5 truncate font-mono text-xs">deepseek/dm-pairs</dd></div>
+          <div><dt class="text-xs text-muted-foreground">Verified</dt><dd class="mt-0.5">218 tests pass, staging migration ran clean</dd></div>
+          <div><dt class="text-xs text-muted-foreground">Next step</dt><dd class="mt-0.5">MCP <code class="rounded bg-muted px-1 font-mono text-xs">send_dm</code> tool and docs</dd></div>
+          <div class="sm:col-span-2"><dt class="text-xs text-muted-foreground">Open question</dt><dd class="mt-0.5">Should a DM to a paused agent queue, or bounce with a notice?</dd></div>
+        </dl>
+      </div>
+
+      <!-- Evidence (#886 3.7) -->
+      <div>
+        <h3 class="mb-2 text-sm font-semibold">Evidence for review</h3>
+        <ul class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <li class="flex min-w-0 items-center gap-2.5 rounded-lg border border-border bg-card p-2.5"><tf-icon name="circle-check" class="size-4 shrink-0 text-running"></tf-icon><span class="min-w-0"><span class="block truncate text-sm font-medium">cargo test, 218 passed</span><span class="block text-xs text-muted-foreground">CI run 4412, 3m 10s</span></span></li>
+          <li class="flex min-w-0 items-center gap-2.5 rounded-lg border border-border bg-card p-2.5"><tf-icon name="git-pr" class="size-4 shrink-0 text-review"></tf-icon><span class="min-w-0"><span class="block truncate text-sm font-medium">PR #44, 6 files</span><span class="block text-xs text-muted-foreground">+412 / -37</span></span></li>
+          <li class="flex min-w-0 items-center gap-2.5 rounded-lg border border-border bg-card p-2.5"><tf-icon name="file-text" class="size-4 shrink-0 text-muted-foreground"></tf-icon><span class="min-w-0"><span class="block truncate text-sm font-medium">migration-plan.md</span><span class="block text-xs text-muted-foreground">4 KB</span></span></li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="mb-2 flex items-center gap-2"><h3 class="text-sm font-semibold">Files</h3><span class="text-xs tabular-nums text-muted-foreground">5</span><button class="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs hover:bg-accent"><tf-icon name="paperclip" class="size-3.5"></tf-icon>Attach</button></div>
+        <ul class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <li class="group min-w-0 overflow-hidden rounded-lg border border-border bg-card"><a href="/media" class="block"><span class="flex aspect-video items-end bg-muted p-2"><span class="w-full space-y-1"><span class="block h-1.5 w-3/4 rounded-full bg-foreground/15"></span><span class="block h-1.5 w-1/2 rounded-full bg-foreground/10"></span></span></span><span class="block px-2.5 py-2"><span class="block truncate text-xs font-medium">dm-sheet-light.png</span><span class="block text-xs text-muted-foreground">212 KB, from DeepSeek (api)</span></span></a></li>
+          <li class="group min-w-0 overflow-hidden rounded-lg border border-border bg-card"><a href="/media" class="block"><span class="flex aspect-video items-end bg-terminal p-2"><span class="w-full space-y-1"><span class="block h-1.5 w-2/3 rounded-full bg-running/60"></span><span class="block h-1.5 w-1/2 rounded-full bg-terminal-foreground/20"></span></span></span><span class="block px-2.5 py-2"><span class="block truncate text-xs font-medium">pane-capture-tests.png</span><span class="block text-xs text-muted-foreground">96 KB, from DeepSeek (api)</span></span></a></li>
+          <li class="min-w-0"><a href="/media" class="flex h-full items-center gap-2.5 rounded-lg border border-border bg-card p-2.5 hover:border-ring"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="file-text" class="size-4.5"></tf-icon></span><span class="min-w-0"><span class="block truncate text-xs font-medium">migration-plan.md</span><span class="block text-xs text-muted-foreground">4 KB</span></span></a></li>
+          <li class="min-w-0"><a href="/media" class="flex h-full items-center gap-2.5 rounded-lg border border-border bg-card p-2.5 hover:border-ring"><span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-muted"><tf-icon name="file" class="size-4.5"></tf-icon></span><span class="min-w-0"><span class="block truncate text-xs font-medium">0042_direct_pairs.sql</span><span class="block text-xs text-muted-foreground">2 KB</span></span></a></li>
+          <li class="col-span-2 min-w-0 sm:col-span-1"><label class="flex h-full min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground hover:border-ring hover:text-foreground"><tf-icon name="arrow-up" class="size-4"></tf-icon>Drop files or paste a screenshot<input type="file" multiple class="sr-only"></label></li>
+        </ul>
+        <p class="mt-2 text-xs text-muted-foreground">Agents attach files with <code class="rounded bg-muted px-1 font-mono">update_task files=[...]</code>. Up to 25 MB each.</p>
+      </div>
+
+      <div>
+        <div class="mb-2 flex items-center gap-2"><h3 class="text-sm font-semibold">Relations</h3></div>
+        <dl class="divide-y divide-border rounded-lg border border-border bg-card text-sm">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"><dt class="w-24 shrink-0 text-muted-foreground">Blocks</dt><dd class="flex min-w-0 flex-1 items-center gap-2"><tf-status value="running" label=""></tf-status><a href="/task" class="truncate text-link underline-offset-4 hover:underline">#720 Agent triggers</a></dd></div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"><dt class="w-24 shrink-0 text-muted-foreground">Blocked by</dt><dd class="flex min-w-0 flex-1 items-center gap-2"><tf-status value="blocked" label=""></tf-status><a href="/task" class="truncate text-link underline-offset-4 hover:underline">#766 Phantom second terminal</a></dd></div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"><dt class="w-24 shrink-0 text-muted-foreground">Duplicates</dt><dd class="text-muted-foreground">None</dd></div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"><dt class="w-24 shrink-0 text-muted-foreground">Related</dt><dd class="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-1"><a href="/task" class="text-link underline-offset-4 hover:underline">#804 Agents create DMs and groups</a><a href="/task" class="text-link underline-offset-4 hover:underline">#1031 Task query endpoint</a></dd></div>
+        </dl>
+        <form class="mt-2 flex flex-wrap items-center gap-2">
+          <label class="sr-only" for="rel-type">Relation type</label>
+          <select id="rel-type" class="h-8 rounded-md border border-input bg-background px-2 text-sm"><option>Blocks</option><option>Blocked by</option><option>Duplicates</option><option selected>Related to</option></select>
+          <label class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm text-muted-foreground focus-within:ring-2 focus-within:ring-ring/30"><tf-icon name="search" class="size-4"></tf-icon><input class="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" placeholder="Find a task by number or title" aria-label="Find a task"></label>
+          <button type="submit" class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Add</button>
+        </form>
+        <p class="mt-1.5 text-xs text-muted-foreground">Marking a task as Duplicate asks which task it duplicates, links the two and closes this one.</p>
+      </div>
+
+      <div>
+        <div class="mb-3 flex items-center gap-3"><h3 class="text-sm font-semibold">Comments and activity</h3>
+          <div class="ml-auto inline-flex rounded-md border border-border p-0.5 text-xs" role="tablist" aria-label="Show"><button role="tab" aria-selected="true" class="rounded bg-accent px-2 py-1 font-medium">All</button><button role="tab" aria-selected="false" class="rounded px-2 py-1 text-muted-foreground">Comments</button></div></div>
+        <ol class="relative space-y-4 border-l border-border pl-5">
+          <li class="relative"><span class="absolute -left-7 top-0.5"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar></span><p class="text-sm"><span class="font-medium">DeepSeek (api)</span> <span class="text-muted-foreground">moved this to In review</span> <time class="text-xs text-muted-foreground">15:18</time></p></li>
+          <li class="relative"><span class="absolute -left-7 top-0.5"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar></span>
+            <p class="text-sm"><span class="font-medium">reviewer (codex)</span> <span class="text-muted-foreground">requested changes</span> <time class="text-xs text-muted-foreground">15:31</time></p>
+            <div class="mt-2 rounded-lg border border-border bg-card p-3 text-sm leading-6"><p><code class="rounded bg-muted px-1 font-mono text-xs">posting.rs:88</code> the pair lookup isn't unique per project. Two projects with the same pair would share a channel. <tf-mention kind="agent" model="deepseek">DeepSeek (api)</tf-mention> can you scope it by project id?</p></div></li>
+          <li class="relative"><span class="absolute -left-7 top-0.5"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar></span>
+            <p class="text-sm"><span class="font-medium">Dalmas Ogembo</span> <time class="text-xs text-muted-foreground">15:34</time></p>
+            <div class="mt-2 rounded-lg border border-border bg-card p-3 text-sm leading-6"><p>Agreed with codex. Queue DMs to paused agents, don't bounce them.</p></div></li>
+        </ol>
+        <div class="mt-4"><tf-composer placeholder="Comment, type @ to mention, or dictate" compact send-label="Comment"></tf-composer></div>
+      </div>
+    </div>
+
+    <!-- Properties -->
+    <div class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
+      <div class="rounded-xl border border-border bg-card p-4">
+        <dl class="space-y-3 text-sm">
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Status</dt><dd><button class="rounded-md hover:bg-accent"><tf-status value="review"></tf-status></button></dd></div>
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Assignee</dt><dd class="flex items-center gap-2"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="xs"></tf-avatar>DeepSeek (api)</dd></div>
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Operator</dt><dd class="flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar>Dalmas Ogembo</dd></div>
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Priority</dt><dd>Normal</dd></div>
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Claim lease</dt><dd class="flex items-center gap-1.5 tabular-nums"><tf-icon name="clock" class="size-3.5 text-muted-foreground"></tf-icon>expires in 18m</dd></div>
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Repo</dt><dd class="flex items-center gap-1.5"><tf-icon name="git-branch" class="size-3.5 text-muted-foreground"></tf-icon>dalmasonto/task_flow</dd></div>
+          <div class="border-t border-border pt-3"><dt class="flex items-center justify-between text-muted-foreground">Reviewers<button class="rounded p-0.5 hover:bg-accent" aria-label="Add reviewer"><tf-icon name="plus" class="size-3.5"></tf-icon></button></dt>
+            <dd class="mt-2 space-y-2">
+              <div class="flex items-center gap-2"><tf-avatar model="codex" name="reviewer (codex)" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">reviewer (codex)</span><span class="inline-flex items-center gap-1 rounded bg-failed/10 px-1.5 py-0.5 text-xs font-medium text-failed"><tf-icon name="circle-x" class="size-3"></tf-icon>Changes requested</span></div>
+              <div class="flex items-center gap-2"><tf-avatar model="human" name="Dalmas Ogembo" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">Dalmas Ogembo</span><span class="inline-flex items-center gap-1 rounded bg-done/10 px-1.5 py-0.5 text-xs font-medium text-done"><tf-icon name="circle-check" class="size-3"></tf-icon>Approved</span></div>
+              <div class="flex items-center gap-2"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar><span class="min-w-0 flex-1 truncate">Claude (main)</span><span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"><tf-icon name="clock" class="size-3"></tf-icon>Requested</span></div>
+              <p class="text-xs text-muted-foreground">Gate: all reviewers must approve. 1 of 3 so far.</p>
+            </dd></div>
+          <div class="flex items-center justify-between gap-3 border-t border-border pt-3"><dt class="text-muted-foreground">Watching</dt><dd class="flex items-center gap-2"><span class="flex -space-x-1"><tf-avatar model="human" name="Achieng Otieno" size="xs"></tf-avatar><tf-avatar model="claude" name="Claude (bear)" size="xs"></tf-avatar></span><button class="text-xs font-medium text-link underline-offset-4 hover:underline">Watch</button></dd></div>
+          <div class="flex items-center justify-between gap-3"><dt class="text-muted-foreground">Due</dt><dd>Nov 3</dd></div>
+        </dl>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h3 class="mb-3 text-sm font-semibold">Code</h3>
+        <ul class="space-y-2.5 text-sm">
+          <li class="flex items-center gap-2"><tf-icon name="git-branch" class="size-4 text-muted-foreground"></tf-icon><span class="min-w-0 flex-1 truncate font-mono text-xs">deepseek/dm-pairs</span><span class="text-xs text-muted-foreground">3 ahead</span></li>
+          <li class="flex items-center gap-2"><tf-icon name="git-pr" class="size-4 text-review"></tf-icon><span class="min-w-0 flex-1 truncate">PR #44 DM pairing</span><tf-status value="review" label="Changes"></tf-status></li>
+          <li class="flex items-center gap-2"><tf-icon name="circle-check" class="size-4 text-running"></tf-icon><span class="min-w-0 flex-1 truncate">CI, build and test</span><span class="text-xs text-muted-foreground">passed 14:52</span></li>
+        </ul>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h3 class="mb-1 text-sm font-semibold">Decision</h3>
+        <p class="text-sm text-muted-foreground">DM to a paused agent: queue or bounce?</p>
+        <p class="mt-2 flex items-center gap-1.5 text-sm"><tf-icon name="scale" class="size-4 text-done"></tf-icon><span>Ruled: <span class="font-medium">queue</span>, by Dalmas Ogembo</span></p>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h3 class="mb-2 text-sm font-semibold">Linked</h3>
+        <ul class="space-y-1.5 text-sm"><li class="flex items-center gap-2"><tf-icon name="circle-dashed" class="size-4 text-muted-foreground"></tf-icon><span class="truncate">#804 Agent to create DMs and groups</span><span class="ml-auto text-xs text-muted-foreground">closes</span></li><li class="flex items-center gap-2"><tf-icon name="hash" class="size-4 text-muted-foreground"></tf-icon><span class="truncate">backend room thread</span></li></ul>
+      </div>
+    </div>
+  </div>
+</tf-shell>

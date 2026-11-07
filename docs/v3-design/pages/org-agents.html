@@ -1,0 +1,40 @@
+<tf-shell active="" title="Organisation">
+  <tf-org-nav active="agents"></tf-org-nav>
+
+  <div class="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_22rem]">
+    <section class="min-w-0" aria-labelledby="pool-h">
+      <h2 id="pool-h" class="text-sm font-medium text-foreground">Every agent in the organisation</h2>
+      <p class="mt-1 text-sm text-muted-foreground">One agent can work in several projects. Its key and capabilities stay per project; caps here apply across all of them.</p>
+      <div class="mt-3 overflow-x-auto rounded-xl border border-border bg-card">
+        <table class="w-full min-w-[44rem] text-sm">
+          <thead><tr class="border-b border-border text-left text-xs text-muted-foreground"><th class="px-4 py-2.5 font-medium">Agent</th><th class="px-4 py-2.5 font-medium">Projects</th><th class="px-4 py-2.5 text-right font-medium">Spend, Nov</th><th class="px-4 py-2.5 font-medium">Monthly cap</th></tr></thead>
+          <tbody class="divide-y divide-border">
+            <tr><td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar><div><p class="font-medium text-card-foreground">Claude (main)</p><p class="text-xs text-muted-foreground">Claude Opus</p></div></div></td><td class="px-4 py-3 text-muted-foreground">taskflow_v2, Matchday, Aqua</td><td class="px-4 py-3 text-right tabular-nums">$38.90</td><td class="px-4 py-3"><div class="flex items-center gap-2"><div class="h-1.5 w-24 overflow-hidden rounded-full bg-muted"><div class="h-full w-2/3 rounded-full bg-foreground"></div></div><span class="text-xs tabular-nums text-muted-foreground">of $60</span></div></td></tr>
+            <tr><td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar><div><p class="font-medium text-card-foreground">reviewer (codex)</p><p class="text-xs text-muted-foreground">GPT-5 Codex</p></div></div></td><td class="px-4 py-3 text-muted-foreground">taskflow_v2, Matchday</td><td class="px-4 py-3 text-right tabular-nums">$18.60</td><td class="px-4 py-3"><div class="flex items-center gap-2"><div class="h-1.5 w-24 overflow-hidden rounded-full bg-muted"><div class="h-full w-1/2 rounded-full bg-foreground"></div></div><span class="text-xs tabular-nums text-muted-foreground">of $40</span></div></td></tr>
+            <tr><td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="sm"></tf-avatar><div><p class="font-medium text-card-foreground">DeepSeek (api)</p><p class="text-xs text-muted-foreground">DeepSeek V3</p></div></div></td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td><td class="px-4 py-3 text-right tabular-nums">$3.90</td><td class="px-4 py-3 text-xs text-muted-foreground">No cap</td></tr>
+            <tr class="bg-blocked/5"><td class="px-4 py-3"><div class="flex items-center gap-3"><tf-avatar model="gemini" name="Gemini (docs)" status="idle" size="sm"></tf-avatar><div><p class="font-medium text-card-foreground">Gemini (docs)</p><p class="text-xs text-muted-foreground">Gemini 2.5 Pro</p></div></div></td><td class="px-4 py-3 text-muted-foreground">taskflow_v2</td><td class="px-4 py-3 text-right tabular-nums">$10.00</td><td class="px-4 py-3"><div class="flex items-center gap-2"><div class="h-1.5 w-24 overflow-hidden rounded-full bg-muted"><div class="h-full w-full rounded-full bg-blocked"></div></div><span class="text-xs font-medium text-blocked">Paused at $10 cap</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-2 text-xs text-muted-foreground">Spend comes from each agent's MCP after every turn. Total $71.40, the same as the projects on the Overview tab.</p>
+    </section>
+
+    <section class="min-w-0 space-y-4" aria-labelledby="budget-h">
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h2 id="budget-h" class="text-sm font-medium text-card-foreground">Organisation budget</h2>
+        <p class="mt-2 text-2xl font-semibold tabular-nums text-card-foreground">$71.40 <span class="text-sm font-normal text-muted-foreground">of $250 in November</span></p>
+        <div class="mt-3 h-2 overflow-hidden rounded-full bg-muted"><div class="h-full w-[29%] rounded-full bg-foreground"></div></div>
+        <label for="ob" class="mt-4 block text-sm font-medium text-foreground">Monthly budget</label>
+        <div class="mt-2 flex h-9 items-center rounded-md border border-input bg-background"><span class="pl-3 text-sm text-muted-foreground">$</span><input id="ob" type="number" inputmode="decimal" value="250" class="h-full min-w-0 flex-1 bg-transparent px-2 text-base outline-none sm:text-sm" /></div>
+      </div>
+      <div class="rounded-xl border border-border bg-card p-4">
+        <h2 class="text-sm font-medium text-card-foreground">When an agent reaches its cap</h2>
+        <fieldset class="mt-3 space-y-2 text-sm">
+          <legend class="sr-only">Cap behaviour</legend>
+          <label class="flex items-start gap-2.5"><input type="radio" name="cap" checked class="mt-1 accent-primary" /><span><span class="text-foreground">Pause it and ask an admin</span><span class="block text-xs text-muted-foreground">It finishes the current turn, then waits.</span></span></label>
+          <label class="flex items-start gap-2.5"><input type="radio" name="cap" class="mt-1 accent-primary" /><span><span class="text-foreground">Warn only</span><span class="block text-xs text-muted-foreground">Posts in #project-room and keeps working.</span></span></label>
+        </fieldset>
+      </div>
+    </section>
+  </div>
+</tf-shell>

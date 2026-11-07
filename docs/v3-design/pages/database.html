@@ -1,0 +1,85 @@
+<tf-shell active="database" title="Database" flush>
+  <div slot="actions">
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent"><tf-icon name="refresh-cw" class="size-4"></tf-icon><span class="hidden sm:inline">Read schema again</span></button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border px-3 py-2 lg:px-4 [&>*]:shrink-0">
+    <button type="button" aria-pressed="true" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-sm font-medium text-accent-foreground" title="Hide database chat"><tf-icon name="message-square" class="size-4"></tf-icon>Chat</button>
+    <span class="mx-1 h-5 w-px bg-border"></span>
+    <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="Database view">
+      <a href="/database" role="tab" aria-selected="true" class="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2.5 font-medium text-accent-foreground"><tf-icon name="git-branch" class="size-3.5"></tf-icon>Schema</a>
+      <a href="/database--data" role="tab" aria-selected="false" class="inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-muted-foreground hover:text-foreground"><tf-icon name="table" class="size-3.5"></tf-icon>Data</a>
+    </div>
+    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 font-mono text-sm hover:bg-accent xl:hidden"><span class="size-2 rounded-sm bg-chart-2"></span>TaskflowTask<tf-icon name="chevron-down" class="size-3.5 text-muted-foreground"></tf-icon></button>
+    <span class="hidden items-center gap-1.5 text-xs text-muted-foreground md:inline-flex"><tf-icon name="mouse-pointer" class="size-3.5"></tf-icon>Click a table to edit its fields</span>
+    <div class="ml-auto inline-flex items-center rounded-md border border-border text-sm" role="group" aria-label="Zoom">
+      <button type="button" class="rounded-l-md p-1.5 text-muted-foreground hover:bg-accent" aria-label="Zoom out"><tf-icon name="minus" class="size-3.5"></tf-icon></button>
+      <span class="px-2 text-xs tabular-nums">100%</span>
+      <button type="button" class="rounded-r-md p-1.5 text-muted-foreground hover:bg-accent" aria-label="Zoom in"><tf-icon name="plus" class="size-3.5"></tf-icon></button>
+    </div>
+  </div>
+
+  <div class="relative flex min-h-0 flex-1">
+    <!-- Models list: a column from xl; below xl the model picker in the toolbar replaces it -->
+    <div class="hidden w-56 shrink-0 flex-col border-l border-border xl:order-last xl:flex">
+      <div class="relative p-3">
+        <label for="db-q" class="sr-only">Find a model</label>
+        <tf-icon name="search" class="pointer-events-none absolute left-5.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"></tf-icon>
+        <input id="db-q" type="search" placeholder="Find a model or field" class="block h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm" />
+      </div>
+      <ul class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3 text-sm" aria-label="Models by plugin">
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-1"></span>projects<span class="ml-auto tabular-nums">3</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowProject</a></li><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowProjectMember</a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-2"></span>tasks<span class="ml-auto tabular-nums">5</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database" aria-current="true" class="block truncate rounded bg-accent px-2 py-1 font-semibold">TaskflowTask</a></li><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowTaskRelation</a></li><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowTaskSession</a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-3"></span>agents<span class="ml-auto tabular-nums">13</span></p>
+          <ul class="mt-1 space-y-0.5 font-mono text-xs"><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowAgent</a></li><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowAgentChannel</a></li><li><a href="/database" class="block truncate rounded px-2 py-1 hover:bg-accent">TaskflowAgentMessage</a></li></ul></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-4"></span>design<span class="ml-auto tabular-nums">4</span></p></li>
+        <li><p class="flex items-center gap-2 text-xs font-medium text-muted-foreground"><span class="size-2 rounded-sm bg-chart-5"></span>toolbox<span class="ml-auto tabular-nums">2</span></p></li>
+      </ul>
+      <p class="border-t border-border p-3 text-xs text-muted-foreground">Read from the backend's models on 1 November, 19:58.</p>
+    </div>
+
+    <!-- Schema map -->
+    <div class="min-w-0 flex-1 overflow-auto bg-muted/40 p-4 lg:p-6" aria-label="Schema around TaskflowTask">
+      <div class="relative min-w-[52rem]">
+        <svg class="pointer-events-none absolute inset-0 size-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <g fill="none" stroke-width="2" vector-effect="non-scaling-stroke">
+            <line x1="50" y1="15" x2="17" y2="15" class="text-chart-1" stroke="currentColor" vector-effect="non-scaling-stroke"></line>
+            <line x1="17" y1="55" x2="17" y2="15" class="text-chart-1" stroke="currentColor" vector-effect="non-scaling-stroke"></line>
+            <line x1="50" y1="55" x2="50" y2="15" class="text-chart-2" stroke="currentColor" vector-effect="non-scaling-stroke"></line>
+            <line x1="83" y1="15" x2="50" y2="15" class="text-chart-2" stroke="currentColor" vector-effect="non-scaling-stroke"></line>
+            <line x1="83" y1="55" x2="50" y2="15" class="text-chart-2" stroke="currentColor" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"></line>
+            <line x1="50" y1="88" x2="50" y2="55" class="text-chart-3" stroke="currentColor" vector-effect="non-scaling-stroke"></line>
+            <line x1="50" y1="88" x2="17" y2="55" class="text-chart-3" stroke="currentColor" vector-effect="non-scaling-stroke"></line>
+          </g>
+        </svg>
+        <div class="relative grid grid-cols-3 gap-x-14 gap-y-10">
+          <tf-db-table name="TaskflowProject" plugin="projects" rows="14" fields="id:i64:pk|name:String|slug:String|owner:AuthUser?:fk|github_repo:String?"></tf-db-table>
+          <tf-db-table name="TaskflowTask" plugin="tasks" rows="1,032" selected fields="id:i64:pk|project:TaskflowProject:fk|title:String|status:TaskStatus|priority:TaskPriority|assigned_agent_id:i64?|due_at:DateTime?"></tf-db-table>
+          <tf-db-table name="TaskflowTaskReview" plugin="agents" rows="412" fields="id:i64:pk|task:TaskflowTask:fk|reviewer_agent:TaskflowAgent?:fk|decision:ReviewDecision"></tf-db-table>
+          <tf-db-table name="TaskflowAgent" plugin="agents" rows="61" fields="id:i64:pk|project:TaskflowProject:fk|display_name:String|provider:AgentProvider|status:AgentStatus"></tf-db-table>
+          <tf-db-table name="TaskflowAgentChannel" plugin="agents" rows="88" fields="id:i64:pk|project:TaskflowProject:fk|task:TaskflowTask?:fk|kind:ChannelKind"></tf-db-table>
+          <tf-db-table name="TaskflowTaskRelation" plugin="tasks" rows="203" fields="id:i64:pk|source_task:TaskflowTask:fk|target_task:TaskflowTask:fk|kind:RelationKind"></tf-db-table>
+          <div></div>
+          <tf-db-table name="TaskflowAgentMessage" plugin="agents" rows="4,665" fields="id:i64:pk|channel:TaskflowAgentChannel:fk|sender_agent:TaskflowAgent?:fk|body_markdown:String"></tf-db-table>
+          <div></div>
+        </div>
+      </div>
+      <p class="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"><span class="inline-flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-chart-2"></span>foreign key, in the target's plugin colour</span><span class="inline-flex items-center gap-1.5"><span class="h-0.5 w-4 border-t-2 border-dashed border-chart-2"></span>joins a model to itself</span><span><span class="font-mono">?</span> optional</span></p>
+    </div>
+
+    <!-- Database chat: a column from lg; an overlay below lg -->
+    <div role="complementary" class="absolute inset-y-0 left-0 z-30 hidden w-full max-w-sm border-r border-border shadow-lg lg:order-first lg:static lg:z-auto lg:flex lg:w-80 lg:shrink-0 lg:shadow-none" aria-label="Database chat">
+      <tf-agent-rail room="db-room" context="TaskflowTask" context-kind="model"
+        agents="claude:Claude (main):running|codex:reviewer (codex):running"
+        placeholder="Ask about this model"
+        hint="Agents read the same schema through db_schema. Edits they suggest wait for your Save.">
+        <tf-message model="human" name="Dalmas Ogembo" time="10:02" role="Owner"><p>Why does TaskflowTask have both <code>assigned_agent_id</code> and an operator?</p></tf-message>
+        <tf-message model="claude" name="Claude (main)" time="10:03"><p><code>assigned_agent_id</code> is who does the work; the operator is who is driving that agent. Different people can own each.</p></tf-message>
+        <tf-message model="codex" name="reviewer (codex)" time="10:05"><p>Note that <code>assigned_agent_id</code> is a bare <code>i64</code>, not an FK, so the map draws no line for it. Worth fixing in #1031.</p></tf-message>
+      </tf-agent-rail>
+    </div>
+  </div>
+</tf-shell>

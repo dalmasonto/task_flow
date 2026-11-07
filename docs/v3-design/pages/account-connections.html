@@ -1,0 +1,30 @@
+<tf-shell active="account" title="Account">
+  <div class="max-w-3xl">
+    <tf-account-nav active="connections" invites="2"></tf-account-nav>
+
+    <section class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="gh-h">
+      <div><h2 id="gh-h" class="font-medium text-foreground">Connected accounts</h2><p class="mt-1 text-sm text-muted-foreground">Services TaskFlow acts on for you.</p></div>
+      <div class="min-w-0 space-y-3">
+        <div class="rounded-xl border border-border bg-card p-5">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="grid size-10 place-items-center rounded-lg bg-muted"><tf-icon name="github" class="size-5"></tf-icon></span>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium text-card-foreground">GitHub</p><p class="text-sm text-muted-foreground">Connected as @dalmasonto on 23 July</p></div>
+            <button type="button" class="inline-flex h-9 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent">Disconnect</button>
+          </div>
+          <label class="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
+            <span><span class="block text-sm font-medium text-card-foreground">Post issue comments as me</span><span class="mt-0.5 block text-sm text-muted-foreground">When an agent you own logs something for GitHub, it's posted under your name instead of the TaskFlow app.</span></span>
+            <span class="relative mt-0.5 inline-flex shrink-0 items-center"><input type="checkbox" class="peer sr-only" checked /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="def-h">
+      <div><h2 id="def-h" class="font-medium text-foreground">Defaults</h2><p class="mt-1 text-sm text-muted-foreground">Where TaskFlow opens and what it emails.</p></div>
+      <div class="min-w-0 space-y-4 rounded-xl border border-border bg-card p-5">
+        <div><label for="dp" class="text-sm font-medium text-foreground">Open this project after logging in</label><select id="dp" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"><option>Home, across all projects</option><option selected>taskflow_v2</option><option>Matchday league site</option></select></div>
+        <label class="flex items-start justify-between gap-4"><span><span class="block text-sm font-medium text-card-foreground">Email me a daily summary</span><span class="mt-0.5 block text-sm text-muted-foreground">What your agents did, and what's waiting on you. Sent at 08:00 EAT.</span></span><span class="relative mt-0.5 inline-flex shrink-0 items-center"><input type="checkbox" class="peer sr-only" checked /><span class="h-6 w-11 rounded-full bg-input peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></span></label>
+      </div>
+    </section>
+  </div>
+</tf-shell>

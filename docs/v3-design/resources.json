@@ -1,0 +1,26 @@
+{
+  "sets": [
+    {
+      "enabled": true,
+      "fontFamily": "Geist Variable",
+      "id": "geist",
+      "links": [
+        {
+          "crossorigin": true,
+          "href": "https://cdn.jsdelivr.net",
+          "rel": "preconnect"
+        },
+        {
+          "href": "https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5/index.css",
+          "rel": "stylesheet"
+        },
+        {
+          "href": "https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5/index.css",
+          "rel": "stylesheet"
+        }
+      ],
+      "name": "Geist + Geist Mono"
+    }
+  ],
+  "version": 1
+}

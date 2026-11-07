@@ -1,0 +1,122 @@
+<tf-shell active="board" title="Board" flush>
+  <div slot="actions">
+    <a href="/project-workflow" class="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm hover:bg-accent sm:inline-flex"><tf-icon name="sliders" class="size-4"></tf-icon>Workflow</a>
+    <a href="/task-new" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New task</span></a>
+  </div>
+
+  <!-- Saved views -->
+  <div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4 lg:px-6" role="tablist" aria-label="Saved views">
+    <a href="/board" role="tab" aria-selected="false" class="flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2 text-sm text-muted-foreground hover:text-foreground">All tasks <span class="text-xs tabular-nums">13</span></a>
+    <button role="tab" aria-selected="true" class="flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-foreground px-2 text-sm font-medium">Agents at work <span class="rounded bg-muted px-1 text-xs tabular-nums">6</span></button>
+    <button role="tab" aria-selected="false" class="flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2 text-sm text-muted-foreground hover:text-foreground">Needs review <span class="text-xs tabular-nums">2</span></button>
+    <button role="tab" aria-selected="false" class="flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2 text-sm text-muted-foreground hover:text-foreground">Blocked on me <span class="text-xs tabular-nums">2</span></button>
+    <button role="tab" aria-selected="false" class="flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2 text-sm text-muted-foreground hover:text-foreground"><tf-icon name="users" class="size-3.5"></tf-icon>Shared: DeepSeek backend</button>
+    <button class="ml-1 inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><tf-icon name="plus" class="size-3.5"></tf-icon>New view</button>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="relative flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
+    <div class="inline-flex rounded-md border border-border p-0.5 text-sm" role="tablist" aria-label="Layout">
+      <button role="tab" aria-selected="true" class="inline-flex h-7 items-center gap-1.5 rounded bg-accent px-2 font-medium text-accent-foreground"><tf-icon name="columns" class="size-4"></tf-icon>Board</button>
+      <a href="/board-list" role="tab" aria-selected="false" class="inline-flex h-7 items-center gap-1.5 rounded px-2 text-muted-foreground hover:text-foreground"><tf-icon name="list" class="size-4"></tf-icon>List</a>
+    </div>
+    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-ring bg-accent px-2.5 text-sm font-medium text-accent-foreground" aria-expanded="true" aria-controls="filter-builder"><tf-icon name="filter" class="size-4"></tf-icon>Filter <span class="rounded bg-background px-1 text-xs tabular-nums">3</span></button>
+    <div class="flex min-w-0 flex-1 gap-1.5 overflow-x-auto text-sm">
+      <span class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-card pl-2 pr-1"><span class="text-muted-foreground">Status</span> is <span class="font-medium">In progress, Blocked, QA, In review</span><button class="rounded p-0.5 text-muted-foreground hover:bg-accent" aria-label="Remove status filter"><tf-icon name="x" class="size-3.5"></tf-icon></button></span>
+      <span class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-card pl-2 pr-1"><span class="text-muted-foreground">Assignee</span> is <span class="font-medium">any agent</span><button class="rounded p-0.5 text-muted-foreground hover:bg-accent" aria-label="Remove assignee filter"><tf-icon name="x" class="size-3.5"></tf-icon></button></span>
+      <span class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-card pl-2 pr-1"><span class="text-muted-foreground">Repo</span> is <span class="font-medium">task_flow</span><button class="rounded p-0.5 text-muted-foreground hover:bg-accent" aria-label="Remove repo filter"><tf-icon name="x" class="size-3.5"></tf-icon></button></span>
+      <button class="h-7 shrink-0 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">Clear</button>
+    </div>
+    <span class="hidden text-xs tabular-nums text-muted-foreground md:inline">6 of 13 tasks</span>
+
+    <!-- Filter builder (open) -->
+    <div id="filter-builder" role="dialog" aria-label="Filter tasks" class="absolute left-3 right-3 top-full z-20 mt-1 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl sm:left-auto sm:right-auto sm:w-[34rem] lg:left-48">
+      <div class="mb-2 flex items-center gap-2 text-sm"><span class="text-muted-foreground">Show tasks that match</span>
+        <select class="h-7 rounded-md border border-input bg-background px-2 text-sm" aria-label="Match mode"><option selected>all</option><option>any</option></select>
+        <span class="text-muted-foreground">of these</span></div>
+      <ul class="space-y-2">
+        <li class="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[8.5rem_6.5rem_1fr_auto] sm:items-center">
+          <select class="h-8 rounded-md border border-input bg-background px-2 text-sm" aria-label="Field"><option selected>Status</option></select>
+          <select class="hidden h-8 rounded-md border border-input bg-background px-2 text-sm sm:block" aria-label="Operator"><option selected>is any of</option><option>is not</option></select>
+          <div class="col-span-2 flex min-h-8 flex-wrap items-center gap-1 rounded-md border border-input bg-background px-1.5 py-1 sm:col-span-1">
+            <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 text-xs"><span class="size-2 rounded-full bg-running"></span>In progress</span>
+            <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 text-xs"><span class="size-2 rounded-full bg-blocked"></span>Blocked</span>
+            <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 text-xs"><span class="size-2 rounded-full bg-chart-4"></span>QA</span>
+            <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 text-xs"><span class="size-2 rounded-full bg-review"></span>In review</span>
+          </div>
+          <button class="row-start-1 col-start-2 rounded p-1.5 text-muted-foreground hover:bg-accent sm:row-auto sm:col-auto" aria-label="Remove condition"><tf-icon name="trash" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[8.5rem_6.5rem_1fr_auto] sm:items-center">
+          <select class="h-8 rounded-md border border-input bg-background px-2 text-sm" aria-label="Field"><option selected>Assignee</option></select>
+          <select class="hidden h-8 rounded-md border border-input bg-background px-2 text-sm sm:block" aria-label="Operator"><option selected>is</option></select>
+          <div class="col-span-2 flex min-h-8 flex-wrap items-center gap-1 rounded-md border border-input bg-background px-1.5 py-1 sm:col-span-1">
+            <span class="inline-flex items-center gap-1 rounded bg-muted px-1.5 text-xs"><tf-icon name="bot" class="size-3"></tf-icon>Any agent</span>
+          </div>
+          <button class="row-start-1 col-start-2 rounded p-1.5 text-muted-foreground hover:bg-accent sm:row-auto sm:col-auto" aria-label="Remove condition"><tf-icon name="trash" class="size-4"></tf-icon></button>
+        </li>
+        <li class="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[8.5rem_6.5rem_1fr_auto] sm:items-center">
+          <select class="h-8 rounded-md border border-input bg-background px-2 text-sm" aria-label="Field"><option selected>Repo</option></select>
+          <select class="hidden h-8 rounded-md border border-input bg-background px-2 text-sm sm:block" aria-label="Operator"><option selected>is</option></select>
+          <div class="col-span-2 flex min-h-8 items-center rounded-md border border-input bg-background px-2 text-sm sm:col-span-1"><tf-icon name="git-branch" class="mr-1.5 size-3.5 text-muted-foreground"></tf-icon>task_flow</div>
+          <button class="row-start-1 col-start-2 rounded p-1.5 text-muted-foreground hover:bg-accent sm:row-auto sm:col-auto" aria-label="Remove condition"><tf-icon name="trash" class="size-4"></tf-icon></button>
+        </li>
+      </ul>
+      <details class="mt-2 group">
+        <summary class="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md px-2 text-sm font-medium hover:bg-accent"><tf-icon name="plus" class="size-4"></tf-icon>Add condition</summary>
+        <ul class="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-border p-1 text-sm sm:grid-cols-3">
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="bot" class="size-4 text-muted-foreground"></tf-icon>Agent model</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="flag" class="size-4 text-muted-foreground"></tf-icon>Priority</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="tag" class="size-4 text-muted-foreground"></tf-icon>Label</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="scale" class="size-4 text-muted-foreground"></tf-icon>Open decision</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="clock" class="size-4 text-muted-foreground"></tf-icon>Lease expiring</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="shield-check" class="size-4 text-muted-foreground"></tf-icon>Review gate</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="user" class="size-4 text-muted-foreground"></tf-icon>Created by</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="calendar" class="size-4 text-muted-foreground"></tf-icon>Due or updated</button></li>
+          <li><button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"><tf-icon name="search" class="size-4 text-muted-foreground"></tf-icon>Text contains</button></li>
+        </ul>
+      </details>
+      <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <button class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"><tf-icon name="link" class="size-4"></tf-icon>Copy link to this view</button>
+        <span class="text-xs text-muted-foreground">Agents can use it too: <code class="rounded bg-muted px-1 font-mono">list_tasks view=agents-at-work</code></span>
+        <button class="ml-auto h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Update view</button>
+        <button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Save as new view</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Board with the project's own statuses -->
+  <div class="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+    <div class="flex h-full snap-x snap-mandatory gap-3 p-4 lg:px-6">
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex h-7 items-center gap-2 px-1"><span class="inline-flex h-6 items-center gap-1.5 rounded-md bg-running/10 px-1.5 text-xs font-medium text-running"><span class="size-2 rounded-full bg-running"></span>In progress</span><span class="text-xs tabular-nums text-muted-foreground">3 of 4</span></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="1030" title="Design: custom statuses per project and board filters" priority="high" assignee="claude:Claude (main)" live="design_write_page /board-filters" lease="44m"></tf-task-card>
+          <tf-task-card id="1026" title="Design: marketing, onboarding, account and system screens" priority="high" assignee="codex:reviewer (codex)" live="design_screenshot /api-keys" lease="31m"></tf-task-card>
+          <tf-task-card id="720" title="Agent triggers: the MCP waits and wakes the agent" priority="normal" assignee="deepseek:DeepSeek (api)" decision="Max delay per trigger?" lease="12m"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex h-7 items-center gap-2 px-1"><span class="inline-flex h-6 items-center gap-1.5 rounded-md bg-blocked/12 px-1.5 text-xs font-medium text-blocked"><span class="size-2 rounded-full bg-blocked"></span>Blocked</span><span class="text-xs tabular-nums text-muted-foreground">1</span></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="766" title="Messages marked read by a phantom second terminal" priority="critical" assignee="claude:Claude (bear)" decision="One session per identity, or a cursor per session?"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex h-7 items-center gap-2 px-1"><span class="inline-flex h-6 items-center gap-1.5 rounded-md bg-muted px-1.5 text-xs font-medium"><span class="size-2 rounded-full bg-chart-4"></span>QA</span><span class="text-xs tabular-nums text-muted-foreground">1 of 3</span><span class="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground" title="Evidence required to enter"><tf-icon name="paperclip" class="size-3"></tf-icon>Evidence</span></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="769" title="An agent seeing its own reply in its terminal" priority="high" assignee="claude:Claude (main)" evidence="pane capture before and after" comments="3"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80">
+        <div class="mb-2 flex h-7 items-center gap-2 px-1"><span class="inline-flex h-6 items-center gap-1.5 rounded-md bg-review/10 px-1.5 text-xs font-medium text-review"><span class="size-2 rounded-full bg-review"></span>In review</span><span class="text-xs tabular-nums text-muted-foreground">1</span><span class="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground" title="Review gate must pass"><tf-icon name="shield-check" class="size-3"></tf-icon>Gate</span></div>
+        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2">
+          <tf-task-card id="721" title="Agents can DM any user or agent in their project" priority="normal" assignee="deepseek:DeepSeek (api)" gate="reviewer (codex)" evidence="218 tests, migration plan" repo="task_flow" comments="9"></tf-task-card>
+        </div>
+      </div>
+      <div class="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-72">
+        <div class="mb-2 flex h-7 items-center gap-2 px-1 opacity-70"><span class="inline-flex h-6 items-center gap-1.5 rounded-md bg-muted px-1.5 text-xs font-medium"><span class="size-2 rounded-full bg-chart-1"></span>Deploying</span><span class="text-xs text-muted-foreground">Hidden by filter</span></div>
+        <div class="flex flex-1 items-start justify-center rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">Not in this view's status filter. <a href="/project-workflow" class="ml-1 text-link underline-offset-4 hover:underline">Edit statuses</a></div>
+      </div>
+    </div>
+  </div>
+</tf-shell>

@@ -1,0 +1,88 @@
+<tf-shell active="account" title="Account">
+  <div class="max-w-3xl">
+    <tf-account-nav active="settings" invites="2"></tf-account-nav>
+
+    <section class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="look-h">
+      <div>
+        <h2 id="look-h" class="font-medium text-foreground">Appearance</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Applies on this device.</p>
+      </div>
+      <fieldset class="min-w-0 rounded-xl border border-border bg-card p-5">
+        <legend class="sr-only">Theme</legend>
+        <div class="grid grid-cols-3 gap-3" role="radiogroup">
+          <label class="cursor-pointer rounded-lg border border-border p-3 text-center text-sm hover:bg-accent/50 focus-within:outline-2 focus-within:outline-ring"><input type="radio" name="theme" class="sr-only" /><tf-icon name="sun" class="mx-auto size-5 text-muted-foreground"></tf-icon><span class="mt-2 block text-foreground">Light</span></label>
+          <label class="cursor-pointer rounded-lg border border-border p-3 text-center text-sm hover:bg-accent/50 focus-within:outline-2 focus-within:outline-ring"><input type="radio" name="theme" class="sr-only" /><tf-icon name="moon" class="mx-auto size-5 text-muted-foreground"></tf-icon><span class="mt-2 block text-foreground">Dark</span></label>
+          <label class="cursor-pointer rounded-lg border border-primary bg-primary/5 p-3 text-center text-sm ring-1 ring-primary focus-within:outline-2 focus-within:outline-ring"><input type="radio" name="theme" class="sr-only" checked /><tf-icon name="monitor" class="mx-auto size-5 text-foreground"></tf-icon><span class="mt-2 block font-medium text-foreground">Match system</span></label>
+        </div>
+      </fieldset>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="notify-h">
+      <div>
+        <h2 id="notify-h" class="font-medium text-foreground">Notifications</h2>
+        <p class="mt-1 text-sm text-muted-foreground">What reaches you when you're not looking at TaskFlow.</p>
+      </div>
+      <ul class="min-w-0 divide-y divide-border rounded-xl border border-border bg-card">
+        <li class="flex items-start justify-between gap-4 p-4">
+          <div><p class="text-sm font-medium text-card-foreground">Mentions and direct messages</p><p class="mt-0.5 text-sm text-muted-foreground">Someone writes @dalmasonto or messages you directly.</p></div>
+          <label class="relative inline-flex shrink-0 cursor-pointer items-center"><input type="checkbox" class="peer sr-only" checked aria-label="Mentions and direct messages" /><span class="h-6 w-11 rounded-full bg-input transition-colors peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label>
+        </li>
+        <li class="flex items-start justify-between gap-4 p-4">
+          <div><p class="text-sm font-medium text-card-foreground">An agent needs your approval</p><p class="mt-0.5 text-sm text-muted-foreground">A push, deploy or delete is waiting on you.</p></div>
+          <label class="relative inline-flex shrink-0 cursor-pointer items-center"><input type="checkbox" class="peer sr-only" checked aria-label="Approval requests" /><span class="h-6 w-11 rounded-full bg-input transition-colors peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label>
+        </li>
+        <li class="flex items-start justify-between gap-4 p-4">
+          <div><p class="text-sm font-medium text-card-foreground">A task moves to review</p><p class="mt-0.5 text-sm text-muted-foreground">Only tasks you created or were asked to review.</p></div>
+          <label class="relative inline-flex shrink-0 cursor-pointer items-center"><input type="checkbox" class="peer sr-only" aria-label="Tasks moving to review" /><span class="h-6 w-11 rounded-full bg-input transition-colors peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label>
+        </li>
+        <li class="flex items-start justify-between gap-4 p-4">
+          <div><p class="text-sm font-medium text-card-foreground">Play a sound</p><p class="mt-0.5 text-sm text-muted-foreground">For mentions only, while this tab is open.</p></div>
+          <label class="relative inline-flex shrink-0 cursor-pointer items-center"><input type="checkbox" class="peer sr-only" aria-label="Play a sound for mentions" /><span class="h-6 w-11 rounded-full bg-input transition-colors peer-checked:bg-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"></span><span class="absolute left-0.5 size-5 rounded-full bg-background shadow transition-transform peer-checked:translate-x-5"></span></label>
+        </li>
+      </ul>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="time-h">
+      <div>
+        <h2 id="time-h" class="font-medium text-foreground">Time and dictation</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Agents use your time zone when they write dates.</p>
+      </div>
+      <div class="grid min-w-0 grid-cols-1 gap-5 rounded-xl border border-border bg-card p-5 sm:grid-cols-2">
+        <div class="min-w-0">
+          <label for="tz" class="text-sm font-medium text-foreground">Time zone</label>
+          <select id="tz" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground sm:text-sm"><option selected>Africa/Nairobi (EAT, UTC+3)</option><option>UTC</option><option>Europe/London</option></select>
+          <p class="mt-1.5 text-xs text-muted-foreground">Now: Sunday 1 November, 19:18</p>
+        </div>
+        <div class="min-w-0">
+          <label for="dictation" class="text-sm font-medium text-foreground">Dictation language</label>
+          <select id="dictation" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base text-foreground sm:text-sm"><option selected>English (Kenya)</option><option>English (US)</option><option>Kiswahili</option></select>
+          <p class="mt-1.5 text-xs text-muted-foreground">Used by the microphone on every text box.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-[12rem_1fr]" aria-labelledby="danger-h">
+      <div>
+        <h2 id="danger-h" class="font-medium text-destructive">Delete account</h2>
+        <p class="mt-1 text-sm text-muted-foreground">This can't be undone.</p>
+      </div>
+      <div class="min-w-0 rounded-xl border border-destructive/40 bg-card p-5">
+        <p class="text-sm text-foreground">Deleting your account removes you from 3 projects. Projects you own must be handed to someone else or deleted first.</p>
+        <div class="mt-4">
+          <ui-dialog trigger="Delete my account" name="delete-account">
+            <ui-dialog-title>Delete your account?</ui-dialog-title>
+            <ui-dialog-body>
+              <p class="text-sm text-muted-foreground">You own taskflow_v2 and Matchday league site. Transfer them first, or they'll be deleted with every task, message and agent key in them.</p>
+              <label for="confirm-del" class="mt-4 block text-sm font-medium text-foreground">Type <span class="font-mono">dalmasonto</span> to confirm</label>
+              <input id="confirm-del" type="text" autocomplete="off" class="mt-2 block h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm" />
+              <div class="mt-5 flex justify-end gap-2">
+                <button type="button" class="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-accent">Keep my account</button>
+                <button type="button" disabled class="inline-flex h-9 items-center rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground opacity-50">Delete account</button>
+              </div>
+            </ui-dialog-body>
+          </ui-dialog>
+        </div>
+      </div>
+    </section>
+  </div>
+</tf-shell>

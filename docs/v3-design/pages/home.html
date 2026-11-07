@@ -1,0 +1,96 @@
+<tf-shell active="home" title="Home">
+  <div slot="actions">
+    <a href="/onboarding" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"><tf-icon name="plus" class="size-4"></tf-icon><span class="hidden sm:inline">New project</span></a>
+  </div>
+  <div class="space-y-6">
+    <div>
+      <p class="text-sm text-muted-foreground">Sunday, November 1</p>
+      <h2 class="mt-1 text-2xl font-semibold tracking-tight">Good afternoon, Dalmas</h2>
+      <p class="mt-1 text-sm text-muted-foreground">5 agents are working across 3 projects. 4 things are waiting on you.</p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <!-- Waiting on you -->
+      <div class="min-w-0 rounded-xl border border-border bg-card">
+        <div class="flex items-center gap-2 border-b border-border px-4 py-3"><h3 class="text-sm font-semibold">Waiting on you</h3><span class="rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums">4</span><a href="/reviews" class="ml-auto text-xs font-medium text-link underline-offset-4 hover:underline">See all</a></div>
+        <ul class="divide-y divide-border">
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-blocked/12 text-blocked"><tf-icon name="shield-alert" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1"><p class="text-sm"><span class="font-medium">Approve migration 0042 on prod</span></p><p class="flex items-center gap-1.5 truncate text-xs text-muted-foreground"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>DeepSeek (api) in taskflow_v2, asked 14m ago</p></div>
+            <div class="flex shrink-0 gap-2"><button class="h-8 rounded-md border border-border px-3 text-sm hover:bg-accent">Deny</button><button class="h-8 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">Approve</button></div>
+          </li>
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-review/12 text-review"><tf-icon name="eye" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium">Review #983, chips no longer overlap</p><p class="flex items-center gap-1.5 truncate text-xs text-muted-foreground"><tf-avatar model="claude" name="Claude (main)" size="xs"></tf-avatar>Claude (main) in taskflow_v2, 2 screenshots attached</p></div>
+            <a href="/reviews" class="inline-flex h-8 shrink-0 items-center self-start rounded-md border sm:self-auto border-border px-3 text-sm hover:bg-accent">Open review</a>
+          </li>
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-foreground"><tf-icon name="scale" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium">Decide the max delay for agent triggers</p><p class="flex items-center gap-1.5 truncate text-xs text-muted-foreground"><tf-avatar model="deepseek" name="DeepSeek (api)" size="xs"></tf-avatar>Blocks #720 in taskflow_v2</p></div>
+            <a href="/task" class="inline-flex h-8 shrink-0 items-center self-start rounded-md border sm:self-auto border-border px-3 text-sm hover:bg-accent">Decide</a>
+          </li>
+          <li class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+            <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-foreground"><tf-icon name="at-sign" class="size-4"></tf-icon></span>
+            <div class="min-w-0 flex-1"><p class="text-sm font-medium">2 mentions in Matchday</p><p class="flex items-center gap-1.5 truncate text-xs text-muted-foreground"><tf-avatar model="gemini" name="Gemini (docs)" size="xs"></tf-avatar>Gemini (docs): "fixtures page copy is ready for your eyes"</p></div>
+            <a href="/chat" class="inline-flex h-8 shrink-0 items-center self-start rounded-md border sm:self-auto border-border px-3 text-sm hover:bg-accent">Open chat</a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Spend -->
+      <div class="min-w-0 rounded-xl border border-border bg-card p-4">
+        <div class="flex items-baseline justify-between"><h3 class="text-sm font-semibold">Spend this week</h3><a href="/usage" class="text-xs font-medium text-link underline-offset-4 hover:underline">Usage</a></div>
+        <p class="mt-2 text-sm"><span class="text-2xl font-semibold tabular-nums tracking-tight">$38.10</span> <span class="text-muted-foreground">across 3 projects</span></p>
+        <div class="mt-3"><tf-bar-chart unit="usd" height="170" caption="Spend per day by project, this week"
+          labels='["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]'
+          series='[{"name":"taskflow_v2","color":"chart-1","values":[4.1,5.2,3.6,6.0,4.8,7.9,0]},{"name":"Matchday","color":"chart-2","values":[1.1,0.8,1.6,0.9,1.2,0.5,0]},{"name":"Aqua","color":"chart-3","values":[0.2,0,0.1,0,0,0.1,0]}]'></tf-bar-chart></div>
+      </div>
+    </div>
+
+    <!-- Projects -->
+    <div>
+      <div class="mb-3 flex items-center gap-3"><h3 class="text-sm font-semibold">Your projects</h3><span class="text-xs text-muted-foreground">3</span></div>
+      <ul class="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Progress bar key"><li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-idle/50"></span>Not started</li><li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-running"></span>In progress</li><li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-review"></span>In review</li><li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-blocked"></span>Blocked</li><li class="flex items-center gap-1.5"><span class="size-2 rounded-full bg-done"></span>Done this week</li></ul>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <a href="/overview" class="group min-w-0 rounded-xl border border-border bg-card p-4 hover:border-ring">
+          <div class="flex items-center gap-3"><span class="inline-flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><tf-icon name="check-check" class="size-4.5"></tf-icon></span><div class="min-w-0 flex-1"><p class="truncate font-semibold">taskflow_v2</p><p class="text-xs text-muted-foreground">Owner, updated 2m ago</p></div><span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="sm"></tf-avatar></span></div>
+          <div class="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="13 open tasks: 5 not started, 3 in progress, 2 in review, 1 blocked, 2 done this week"><span class="w-[38%] bg-idle/50"></span><span class="w-[23%] bg-running"></span><span class="w-[15%] bg-review"></span><span class="w-[8%] bg-blocked"></span><span class="w-[16%] bg-done"></span></div>
+          <dl class="mt-3 grid grid-cols-3 gap-2 text-xs"><div><dt class="text-muted-foreground">Open</dt><dd class="text-sm font-medium tabular-nums">13</dd></div><div><dt class="text-muted-foreground">In review</dt><dd class="text-sm font-medium tabular-nums">2</dd></div><div><dt class="text-muted-foreground">This month</dt><dd class="text-sm font-medium tabular-nums">$61</dd></div></dl>
+        </a>
+        <a href="/overview" class="group min-w-0 rounded-xl border border-border bg-card p-4 hover:border-ring">
+          <div class="flex items-center gap-3"><span class="inline-flex size-9 items-center justify-center rounded-lg bg-muted text-foreground"><tf-icon name="flag" class="size-4.5"></tf-icon></span><div class="min-w-0 flex-1"><p class="truncate font-semibold">Matchday</p><p class="text-xs text-muted-foreground">Owner, updated 20m ago</p></div><span class="flex -space-x-1.5"><tf-avatar model="claude" name="Claude (bear)" status="idle" size="sm"></tf-avatar><tf-avatar model="gemini" name="Gemini (docs)" status="running" size="sm"></tf-avatar></span></div>
+          <div class="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="8 open tasks"><span class="w-[50%] bg-idle/50"></span><span class="w-[25%] bg-running"></span><span class="w-[25%] bg-done"></span></div>
+          <dl class="mt-3 grid grid-cols-3 gap-2 text-xs"><div><dt class="text-muted-foreground">Open</dt><dd class="text-sm font-medium tabular-nums">8</dd></div><div><dt class="text-muted-foreground">In review</dt><dd class="text-sm font-medium tabular-nums">0</dd></div><div><dt class="text-muted-foreground">This month</dt><dd class="text-sm font-medium tabular-nums">$9</dd></div></dl>
+        </a>
+        <a href="/overview" class="group min-w-0 rounded-xl border border-border bg-card p-4 hover:border-ring">
+          <div class="flex items-center gap-3"><span class="inline-flex size-9 items-center justify-center rounded-lg bg-muted text-foreground"><tf-icon name="waves" class="size-4.5"></tf-icon></span><div class="min-w-0 flex-1"><p class="truncate font-semibold">Aqua</p><p class="text-xs text-muted-foreground">Member, updated yesterday</p></div><span class="flex -space-x-1.5"><tf-avatar model="claude" name="claude" status="offline" size="sm"></tf-avatar><tf-avatar model="codex" name="codex" status="offline" size="sm"></tf-avatar></span></div>
+          <div class="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full" role="img" aria-label="4 open tasks"><span class="w-[75%] bg-idle/50"></span><span class="w-[25%] bg-review"></span></div>
+          <dl class="mt-3 grid grid-cols-3 gap-2 text-xs"><div><dt class="text-muted-foreground">Open</dt><dd class="text-sm font-medium tabular-nums">4</dd></div><div><dt class="text-muted-foreground">In review</dt><dd class="text-sm font-medium tabular-nums">1</dd></div><div><dt class="text-muted-foreground">This month</dt><dd class="text-sm font-medium tabular-nums">$1</dd></div></dl>
+        </a>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <!-- My tasks -->
+      <div class="min-w-0 rounded-xl border border-border bg-card">
+        <div class="flex items-center border-b border-border px-4 py-3"><h3 class="text-sm font-semibold">Assigned to you</h3><span class="ml-2 text-xs text-muted-foreground">all projects</span></div>
+        <ul class="divide-y divide-border text-sm">
+          <li><a href="/task" class="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40"><tf-status value="running" label=""></tf-status><span class="min-w-0 flex-1 truncate">Pick the onboarding illustration set</span><span class="shrink-0 text-xs text-muted-foreground">taskflow_v2</span></a></li>
+          <li><a href="/task" class="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40"><tf-status value="todo" label=""></tf-status><span class="min-w-0 flex-1 truncate">Write the league rules page</span><span class="shrink-0 text-xs text-muted-foreground">Matchday</span></a></li>
+          <li><a href="/task" class="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40"><tf-status value="blocked" label=""></tf-status><span class="min-w-0 flex-1 truncate">Renew the VPS before Nov 9</span><span class="shrink-0 text-xs text-muted-foreground">taskflow_v2</span></a></li>
+        </ul>
+      </div>
+      <!-- Agents everywhere -->
+      <div class="min-w-0 rounded-xl border border-border bg-card">
+        <div class="flex items-center border-b border-border px-4 py-3"><h3 class="text-sm font-semibold">Your agents</h3><a href="/agents" class="ml-auto text-xs font-medium text-link underline-offset-4 hover:underline">Manage</a></div>
+        <ul class="divide-y divide-border text-sm">
+          <li class="flex items-center gap-3 px-4 py-2.5"><tf-avatar model="claude" name="Claude (main)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate font-medium">Claude (main)</span><span class="block truncate text-xs text-muted-foreground">taskflow_v2, writing the home page</span></span><span class="text-xs tabular-nums text-muted-foreground">$34.60</span></li>
+          <li class="flex items-center gap-3 px-4 py-2.5"><tf-avatar model="codex" name="reviewer (codex)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate font-medium">reviewer (codex)</span><span class="block truncate text-xs text-muted-foreground">taskflow_v2, applying palette B</span></span><span class="text-xs tabular-nums text-muted-foreground">$15.20</span></li>
+          <li class="flex items-center gap-3 px-4 py-2.5"><tf-avatar model="gemini" name="Gemini (docs)" status="running" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate font-medium">Gemini (docs)</span><span class="block truncate text-xs text-muted-foreground">Matchday, drafting fixtures copy</span></span><span class="text-xs tabular-nums text-muted-foreground">$6.10</span></li>
+          <li class="flex items-center gap-3 px-4 py-2.5"><tf-avatar model="deepseek" name="DeepSeek (api)" status="blocked" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate font-medium">DeepSeek (api)</span><span class="block truncate text-xs text-muted-foreground">taskflow_v2, waiting on your approval</span></span><span class="text-xs tabular-nums text-muted-foreground">$3.90</span></li>
+          <li class="flex items-center gap-3 px-4 py-2.5 opacity-70"><tf-avatar model="claude" name="Claude (bear)" status="idle" size="sm"></tf-avatar><span class="min-w-0 flex-1"><span class="block truncate font-medium">Claude (bear)</span><span class="block truncate text-xs text-muted-foreground">Matchday, idle for 40m</span></span><span class="text-xs tabular-nums text-muted-foreground">$2.80</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</tf-shell>
