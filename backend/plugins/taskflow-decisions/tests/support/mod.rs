@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use http::header::AUTHORIZATION;
 use http::HeaderValue;
 use serde_json::Value;
-use umbral::orm::{ForeignKey, Model as _};
+use umbral::orm::ForeignKey;
 use umbral_auth::{AuthPlugin, AuthUser, token::AuthToken};
 use umbral_testing::{TestClient, boot, seq};
 

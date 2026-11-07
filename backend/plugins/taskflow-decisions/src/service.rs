@@ -789,6 +789,11 @@ async fn notify_ruling(d: &TaskflowDecision, label: &str, user: i64, user_label:
 /// `old` is replaced by `new`. Human only. `old` may be open or ruled (a
 /// ruling changes only this way); `new` must be open, so every moved task is
 /// blocked again until `new` is ruled — nothing silently unblocks.
+///
+/// **A named ruler cannot be routed around.** If `old` names a ruler, only that
+/// ruler may supersede it, and `new` must answer to the same ruler (it inherits
+/// one if it names none). Otherwise any member could replace the ruler's
+/// decision with an un-ruled copy and rule that copy themselves.
 pub async fn supersede(
     old: TaskflowDecision,
     new_key: &str,
@@ -797,6 +802,10 @@ pub async fn supersede(
 ) -> Result<Value, ApiError> {
     if old.status == TaskflowDecisionStatus::Superseded {
         return Err((StatusCode::CONFLICT, Json(json!({ "error": "already_superseded" }))));
+    }
+    let old_ruler = old.ruler_user.as_ref().map(|r| r.id());
+    if old_ruler.is_some_and(|r| r != user) {
+        return Err(err(StatusCode::FORBIDDEN, "not_the_ruler"));
     }
     let project = old.project.id();
     let new = find(project, new_key)
@@ -808,25 +817,36 @@ pub async fn supersede(
     if new.status != TaskflowDecisionStatus::Open {
         return Err(bad("by", "the replacement must be open"));
     }
-
-    // 1. Links that would collide with one `new` already has are redundant
-    //    (the task is blocked by `new` either way). Drop them outside the
-    //    transaction so their post_delete reaches realtime.
-    let new_tasks: Vec<i64> = links_of(new.id).await?.iter().map(|l| l.task.id()).collect();
-    let old_links = links_of(old.id).await?;
-    let mut moved_tasks = Vec::new();
-    for link in &old_links {
-        if new_tasks.contains(&link.task.id()) {
-            TaskflowDecisionTask::objects().delete_instance(link).await.map_err(internal)?;
-        } else {
-            moved_tasks.push(link.task.id());
+    let new_ruler = new.ruler_user.as_ref().map(|r| r.id());
+    if let (Some(a), Some(b)) = (old_ruler, new_ruler) {
+        if a != b {
+            return Err(bad("by", "the replacement must have the same named ruler"));
         }
     }
+    // `new` inherits `old`'s ruler when it names none.
+    let inherit_ruler = old_ruler.filter(|_| new_ruler.is_none());
 
-    // 2. One transaction: flip `old` (compare-and-set on its status) and move
-    //    its remaining links onto `new`. Either both land or neither.
-    let (old_id, new_id, prior) = (old.id, new.id, old.status);
-    let prior_str = if prior == TaskflowDecisionStatus::Open { "open" } else { "ruled" };
+    // Partition `old`'s links: a task `new` already blocks is a duplicate
+    // (blocked either way, and moving it would hit the unique (decision, task)
+    // index); every other link moves. Nothing is deleted until the move commits.
+    let new_tasks: Vec<i64> = links_of(new.id).await?.iter().map(|l| l.task.id()).collect();
+    let old_links = links_of(old.id).await?;
+    let (duplicates, moving): (Vec<TaskflowDecisionTask>, Vec<TaskflowDecisionTask>) =
+        old_links.iter().cloned().partition(|l| new_tasks.contains(&l.task.id()));
+    let moving_ids: Vec<i64> = moving.iter().map(|l| l.id).collect();
+    let moved_tasks: Vec<i64> = moving.iter().map(|l| l.task.id()).collect();
+
+    // One transaction, every precondition re-asserted inside it:
+    //   - `old` flips only from the status we read (compare-and-set);
+    //   - `new` is still open — a conditional write on it, which also applies
+    //     the inherited ruler, so a ruling that lands on `new` between the check
+    //     above and here aborts the whole supersede;
+    //   - the non-duplicate links move onto `new`.
+    // Either all of it lands or none of it does.
+    let (old_id, new_id) = (old.id, new.id);
+    let prior_str = if old.status == TaskflowDecisionStatus::Open { "open" } else { "ruled" };
+    let now = Utc::now();
+    let tx_moving_ids = moving_ids.clone();
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = umbral::transaction(move |tx| {
         Box::pin(async move {
             let flipped = TaskflowDecision::objects()
@@ -840,41 +860,69 @@ pub async fn supersede(
                 )
                 .await?;
             if flipped == 0 {
-                return Err("decision changed underneath".into());
+                return Err("old_changed".into());
             }
-            TaskflowDecisionTask::objects()
-                .filter(taskflow_decision_task::DECISION.eq(old_id))
+            let mut new_values = Map::new();
+            new_values.insert("updated_at".into(), json!(now));
+            if let Some(r) = inherit_ruler {
+                new_values.insert("ruler_user".into(), json!(r));
+            }
+            let still_open = TaskflowDecision::objects()
+                .filter(taskflow_decision::ID.eq(new_id) & taskflow_decision::STATUS.eq("open"))
                 .on_tx(tx)
-                .update_values(json!({ "decision": new_id }).as_object().cloned().unwrap_or_default())
+                .update_values(new_values)
                 .await?;
+            if still_open == 0 {
+                return Err("new_not_open".into());
+            }
+            if !tx_moving_ids.is_empty() {
+                TaskflowDecisionTask::objects()
+                    .filter(taskflow_decision_task::ID.in_(&tx_moving_ids))
+                    .on_tx(tx)
+                    .update_values(json!({ "decision": new_id }).as_object().cloned().unwrap_or_default())
+                    .await?;
+            }
             Ok(())
         })
     })
     .await;
-    if result.is_err() {
-        return Err((StatusCode::CONFLICT, Json(json!({ "error": "not_supersedable" }))));
+    if let Err(e) = result {
+        return Err(if e.to_string() == "new_not_open" {
+            bad("by", "the replacement must be open")
+        } else {
+            (StatusCode::CONFLICT, Json(json!({ "error": "not_supersedable" })))
+        });
     }
 
-    // 3. Emit: a transaction fires no signals, so re-save what changed.
-    let old = TaskflowDecision::objects()
-        .filter(taskflow_decision::ID.eq(old_id))
-        .first()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "decision"))?;
-    let old = touch(old).await?;
+    // Committed. Now the duplicates can go (post_delete reaches realtime), and
+    // what the transaction changed is re-saved so post_save carries it — a
+    // transaction fires no signals.
+    for link in &duplicates {
+        TaskflowDecisionTask::objects().delete_instance(link).await.map_err(internal)?;
+    }
+    let reread = |id: i64| async move {
+        TaskflowDecision::objects()
+            .filter(taskflow_decision::ID.eq(id))
+            .first()
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| err(StatusCode::NOT_FOUND, "decision"))
+    };
+    let old = touch(reread(old_id).await?).await?;
+    let new = touch(reread(new_id).await?).await?;
     for link in links_of(new_id).await? {
-        if moved_tasks.contains(&link.task.id()) {
+        if moving_ids.contains(&link.id) {
             TaskflowDecisionTask::objects().save(link).await.map_err(internal)?;
         }
     }
-    let new = touch(new).await?;
 
     let actor = Actor::User { id: user, label: user_label.to_string() };
-    for task in moved_tasks.iter().chain(new_tasks.iter().filter(|t| old_links.iter().any(|l| l.task.id() == **t))) {
+    let mut tasks: Vec<i64> = moved_tasks.clone();
+    tasks.extend(duplicates.iter().map(|l| l.task.id()));
+    for task in tasks {
         activity(
             project,
-            *task,
+            task,
             &actor,
             "decision_superseded",
             format!("Decision `{}` superseded by `{}`. Blocked until `{}` is ruled.", old.key, new.key, new.key),

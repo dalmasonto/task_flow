@@ -346,3 +346,43 @@ async fn discussion_recommendation_and_links_work_for_agents() {
     let open = app.get_as_agent(&key, "/api/taskflow/agents/decisions?status=open").await.json().await;
     assert_eq!(open["count"], 1);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_named_ruler_cannot_be_routed_around_by_superseding() {
+    let app = TestApp::new().await;
+    let (owner, project) = seed_project(&app).await;
+    seed_member(project, owner.id, "owner").await;
+    let member = app.create_user().await;
+    seed_member(project, member, "developer").await;
+    let other_ruler = app.create_user().await;
+    seed_member(project, other_ruler, "developer").await;
+    let t = seed_task(project, "Gated").await;
+
+    app.post_json_as(owner.id, &base(project), json!({ "key": "owners-call", "question": "Q?", "options": options(), "ruler_user": owner.id, "task_ids": [t] })).await;
+    // The member opens an un-ruled copy...
+    app.post_json_as(member, &base(project), json!({ "key": "my-copy", "question": "Q?", "options": options() })).await;
+    // ...and may NOT use it to replace the ruler's decision.
+    let denied = app.post_json_as(member, &format!("{}/d/owners-call/supersede", base(project)), json!({ "by": "my-copy" })).await;
+    assert_eq!(denied.status(), 403, "{}", denied.text());
+    let still = app.get_as(owner.id, &format!("{}/d/owners-call", base(project))).await.json().await;
+    assert_eq!(still["status"], "open");
+    assert_eq!(still["task_ids"], json!([t]), "a refused supersede moves nothing");
+
+    // A replacement answering to a DIFFERENT ruler is refused, naming the field.
+    app.post_json_as(owner.id, &base(project), json!({ "key": "other-ruler", "question": "Q?", "options": options(), "ruler_user": other_ruler })).await;
+    let mismatch = app.post_json_as(owner.id, &format!("{}/d/owners-call/supersede", base(project)), json!({ "by": "other-ruler" })).await;
+    assert_eq!(mismatch.status(), 400);
+    assert_eq!(mismatch.json().await["field"], "by");
+
+    // The ruler may supersede with an unnamed copy, which INHERITS the ruler —
+    // so the member still cannot rule the replacement.
+    let ok = app.post_json_as(owner.id, &format!("{}/d/owners-call/supersede", base(project)), json!({ "by": "my-copy" })).await;
+    assert_eq!(ok.status(), 200, "{}", ok.text());
+    let copy = ok.json().await;
+    assert_eq!(copy["ruler_user"], owner.id);
+    assert_eq!(copy["task_ids"], json!([t]));
+    let member_rules = app
+        .post_json_as(member, &format!("{}/d/my-copy/rule", base(project)), json!({ "option_id": option_id(&copy, "1 hour") }))
+        .await;
+    assert_eq!(member_rules.status(), 403, "{}", member_rules.text());
+}
