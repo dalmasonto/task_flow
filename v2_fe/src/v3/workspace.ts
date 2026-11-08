@@ -8,7 +8,7 @@
 import { createContext, useContext } from "react"
 
 import type { AuthUser } from "@/lib/auth-api"
-import type { TaskflowTaskUpdate } from "@/api/client"
+import type { TaskflowTaskCreate, TaskflowTaskUpdate } from "@/api/client"
 import type { BoardColumnId } from "@/lib/board-columns"
 import type { CreateProjectInput, RealtimeStatus, TaskflowWorkspace } from "@/lib/taskflow-api"
 import type { ColumnId, DropTarget, Project, Task } from "@/lib/workspace-view"
@@ -59,6 +59,9 @@ export type V3Workspace = {
     remove: (taskId: string) => void
     comment: (taskId: string, body: string) => Promise<void>
     upload: (taskId: string, files: File[]) => Promise<void>
+    /// Create in the active project; the new task joins local state from the
+    /// server's response (project and created_by are filled in here).
+    create: (input: Omit<TaskflowTaskCreate, "project" | "created_by">) => Promise<{ id: string }>
   }
   chooseProject: (projectId: string) => void
   /// Create a project and make it active, the same way v2's dialog does.
