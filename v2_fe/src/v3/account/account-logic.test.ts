@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { expiresLine, roleArticle } from "./account-logic"
+import { expiresLine, roleArticle, githubStatusLine, trackingWarning } from "./account-logic"
 
 describe("roleArticle", () => {
   it("picks the article", () => {
@@ -50,5 +50,22 @@ describe("profilePatch", () => {
     expect(profilePatch(was, { full_name: "", username: "dalmas", email: "d@x.com" })).toEqual({})
     expect(profilePatch(was, { full_name: " Dalmas O ", username: "Dalmas", email: "D@X.com" })).toEqual({ full_name: "Dalmas O" })
     expect(profilePatch(was, { full_name: "", username: "newname", email: "new@x.com" })).toEqual({ username: "newname", email: "new@x.com" })
+  })
+})
+
+describe("GitHub connection (#1135)", () => {
+  const now = Date.parse("2026-11-08T12:00:00Z")
+  it("says who and when, like the design", () => {
+    expect(githubStatusLine({ connected: true, login: "dalmasonto", connected_at: "2026-07-23T10:00:00Z" }, now)).toBe("Connected as @dalmasonto on 23 July")
+    expect(githubStatusLine({ connected: true, login: null, connected_at: "2026-07-23T10:00:00Z" }, now)).toBe("Connected on 23 July")
+    expect(githubStatusLine({ connected: true, login: "a", connected_at: "2025-03-02T10:00:00Z" }, now)).toBe("Connected as @a on 2 March 2025")
+    expect(githubStatusLine({ connected: true }, now)).toBe("Connected")
+    expect(githubStatusLine({ connected: false }, now)).toMatch(/^Not connected/)
+  })
+  it("warns about the projects whose issue sync uses the connection", () => {
+    expect(trackingWarning([])).toBeNull()
+    expect(trackingWarning(undefined)).toBeNull()
+    expect(trackingWarning([{ name: "Matchday" }])).toBe("Issue sync for Matchday uses your connection. It stops until someone in that project reconnects GitHub.")
+    expect(trackingWarning([{ name: "A" }, { name: "B" }, { name: "C" }])).toBe("Issue sync for A, B and C uses your connection. It stops until someone in each reconnects GitHub.")
   })
 })

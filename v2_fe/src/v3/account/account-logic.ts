@@ -54,3 +54,25 @@ export function profilePatch(was: { full_name: string | null; username: string; 
   if (now.email.trim().toLowerCase() !== was.email) patch.email = now.email.trim().toLowerCase()
   return patch
 }
+
+/// account-connections.html: "Connected as @dalmasonto on 23 July". The login
+/// can be unknown (GitHub didn't answer), and an older server sends neither.
+export function githubStatusLine(me: { connected: boolean; login?: string | null; connected_at?: string | null }, now: number): string {
+  if (!me.connected) return "Not connected. Connect to publish tasks as issues and comment as yourself."
+  const who = me.login ? ` as @${me.login}` : ""
+  const t = me.connected_at ? Date.parse(me.connected_at) : NaN
+  if (Number.isNaN(t)) return `Connected${who}`
+  const d = new Date(t)
+  const sameYear = d.getFullYear() === new Date(now).getFullYear()
+  const day = d.toLocaleDateString("en-GB", sameYear ? { day: "numeric", month: "long" } : { day: "numeric", month: "long", year: "numeric" })
+  return `Connected${who} on ${day}`
+}
+
+/// "Issue sync for Matchday and taskflow_v2 will stop until someone in each
+/// reconnects GitHub." Null when nothing rides on this connection.
+export function trackingWarning(projects: { name: string }[] | undefined): string | null {
+  if (!projects?.length) return null
+  const names = projects.map((p) => p.name)
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+  return `Issue sync for ${list} uses your connection. It stops until someone ${names.length === 1 ? "in that project" : "in each"} reconnects GitHub.`
+}

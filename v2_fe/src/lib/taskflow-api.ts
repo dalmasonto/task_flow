@@ -2437,12 +2437,43 @@ async function githubMutate(path: string, body?: unknown): Promise<Response> {
   return response
 }
 
-export async function fetchGithubMe(): Promise<{ connected: boolean }> {
+/// #1135: the newer server adds who you're connected as and when, and the
+/// projects whose issue sync rides on your connection. An older one answers
+/// `{connected}` only (no disconnect route either).
+export type GithubMe = {
+  connected: boolean
+  login?: string | null
+  connected_at?: string | null
+  scopes?: string[] | null
+  projects_tracking?: { id: number; name: string }[]
+}
+
+export async function fetchGithubMe(): Promise<GithubMe> {
   const response = await fetch(`${API_BASE_URL}/api/taskflow/github/me`, {
     credentials: "include",
     headers: bearerHeaders(),
   })
   if (!response.ok) throw new Error(await readErrorDetail(response, "Could not check GitHub status."))
+  return readJson(response)
+}
+
+export class GithubPasswordRequired extends Error {}
+
+/// #1135: disconnect GitHub. Your password is required: an account made
+/// through GitHub has a random one, and disconnecting it would lock you out,
+/// so the server refuses (403 `password_required`) until you've set one.
+export async function disconnectGithub(password: string): Promise<{ disconnected: boolean; projects_tracking: { id: number; name: string }[] }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/github/me`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ password }),
+  })
+  if (response.status === 403) {
+    const body = (await response.json().catch(() => null)) as { error?: string; detail?: string } | null
+    if (body?.error === "password_required") throw new GithubPasswordRequired(body.detail || "That password isn't right. If you've never set one, set a password first, then disconnect.")
+  }
+  if (!response.ok) throw new Error(await readErrorDetail(response, "Couldn't disconnect GitHub."))
   return readJson(response)
 }
 
