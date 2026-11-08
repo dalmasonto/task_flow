@@ -1,6 +1,6 @@
 /// #5949: chat.html's pin bar, the "Pinned" marker and reaction chips.
 import { useState, type ReactNode } from "react"
-import { ChevronLeftIcon, ChevronRightIcon, PinIcon, PinOffIcon, SmileIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, PinIcon, PinOffIcon, SmileIcon, WrenchIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -8,7 +8,7 @@ import type { Pin, Reaction } from "@/lib/pins-api"
 import { cn } from "@/lib/utils"
 
 import { stripChips } from "./chat-logic"
-import { glyphOf, reactionLabel, REACTIONS, stepPin } from "./pins-logic"
+import { glyphOf, reactionLabel, REACTIONS, stepPin, toolsSummary } from "./pins-logic"
 
 const who = (label: string) => label.split(" (")[0]
 
@@ -164,6 +164,34 @@ export function TypingLine({ text }: { text: string | null }) {
           </span>
           <span>{text}</span>
         </>
+      ) : null}
+    </div>
+  )
+}
+
+/// chat.html's "Ran 4 design tools while writing this" disclosure.
+export function ToolsLine({ tools }: { tools: { count: number; names: string[] } | undefined }) {
+  const [open, setOpen] = useState(false)
+  const s = toolsSummary(tools)
+  if (!s || !tools) return null
+  return (
+    <div className="mt-1.5 max-w-xl rounded-lg border border-border bg-card">
+      <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <WrenchIcon className="size-3.5 shrink-0" aria-hidden />
+        <span className="shrink-0">
+          <span className="font-medium text-foreground">{s.title}</span> while writing this
+        </span>
+        {!open ? <span className="ml-auto hidden min-w-0 truncate font-mono sm:inline">{s.names}</span> : null}
+        <ChevronDownIcon className={cn("size-3.5 shrink-0 transition-transform", open ? "ml-auto rotate-180" : "sm:ml-0 ml-auto")} aria-hidden />
+      </button>
+      {open ? (
+        <ul className="flex flex-wrap gap-1 border-t border-border px-3 py-2">
+          {tools.names.map((n) => (
+            <li key={n} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+              {n}
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   )

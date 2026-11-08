@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { glyphOf, reactionIds, reactionLabel, REACTIONS, stepPin } from "./pins-logic"
+import { glyphOf, reactionIds, reactionLabel, REACTIONS, stepPin, toolsSummary } from "./pins-logic"
 
 describe("pins and reactions (#5949)", () => {
   it("mirrors the server's eight reactions", () => {
@@ -25,5 +25,14 @@ describe("pins and reactions (#5949)", () => {
     expect(ids).toHaveLength(100)
     expect(ids[0]).toBe(120)
     expect(ids).not.toContain(7)
+  })
+})
+
+describe("tools per message (#5988 item 8)", () => {
+  it("summarises like the design, nothing for none", () => {
+    expect(toolsSummary({ count: 4, names: ["design_screenshot", "design_write_page"] })).toEqual({ title: "Ran 4 tools", names: "design_screenshot, design_write_page" })
+    expect(toolsSummary({ count: 1, names: ["whoami"] })?.title).toBe("Ran 1 tool")
+    expect(toolsSummary({ count: 0, names: [] })).toBeNull()
+    expect(toolsSummary(undefined)).toBeNull()
   })
 })

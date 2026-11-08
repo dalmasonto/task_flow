@@ -37,7 +37,8 @@ import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions, typ
 import { useChatSummary } from "./use-chat-summary"
 import { useRoomExtras } from "./use-room-extras"
 import { reactionIds } from "./pins-logic"
-import { MessageExtraActions, PinBar, PinnedMark, ReactionRow, TypingLine } from "./pins"
+import { MessageExtraActions, PinBar, PinnedMark, ReactionRow, ToolsLine, TypingLine } from "./pins"
+import { useMessageTools } from "./use-message-tools"
 import { useTypers } from "./use-typing"
 import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
 import type { FollowedThread } from "@/lib/chat-summary-api"
@@ -474,8 +475,13 @@ function ChatWorkspace({ project }: { project: Project }) {
           )
         }
       : undefined
-  const renderFooter = extras.supported
-    ? (m: AgentMessage) => (
+  // #5988 item 8: what each agent message's sender ran while writing it.
+  const agentMessageIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && agentNames.has(m.from)).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0).slice(-100)
+  const tools = useMessageTools(channelId, agentMessageIds)
+  const renderFooter = (m: AgentMessage) => (
+    <>
+      <ToolsLine tools={tools[m.id]} />
+      {extras.supported ? (
         <ReactionRow
           reactions={extras.reactions[m.id] ?? []}
           picking={pickerFor === m.id}
@@ -484,8 +490,9 @@ function ChatWorkspace({ project }: { project: Project }) {
           onPick={() => setPickerFor(m.id)}
           onClosePicker={() => setPickerFor(null)}
         />
-      )
-    : undefined
+      ) : null}
+    </>
+  )
   // #5988: "X is writing". Shared rooms only: the server drops private
   // rooms' events (they'd tell the whole project), so don't send them.
   const typers = useTypers(currentUser ? `user:${currentUser.id}` : null)

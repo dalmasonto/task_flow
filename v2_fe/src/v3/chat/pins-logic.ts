@@ -40,3 +40,9 @@ export function reactionIds(messages: { id: string; status?: string }[]): number
     .filter((n) => Number.isInteger(n) && n > 0)
     .slice(-100)
 }
+
+/// "Ran 4 tools while writing this" (chat.html), or null for none.
+export function toolsSummary(t: { count: number; names: string[] } | undefined): { title: string; names: string } | null {
+  if (!t || t.count <= 0) return null
+  return { title: `Ran ${t.count} ${t.count === 1 ? "tool" : "tools"}`, names: t.names.join(", ") }
+}
