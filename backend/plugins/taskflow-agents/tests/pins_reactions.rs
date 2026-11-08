@@ -190,3 +190,33 @@ async fn reacting() {
     assert_eq!(app.post_as(me, &format!("/api/taskflow/channels/{room}/messages/{o}/reactions"), json!({ "emoji": "eyes" })).await.status(), 404);
     assert_eq!(edited_at(m).await, None);
 }
+
+/// #5962: an agent key with `chat:send` denied can't pin, unpin or react
+/// (403 capability_denied), but still reads pins and reactions.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_that_may_not_post_may_not_pin_or_react() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let room = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    let m = seed_message(project, room).await;
+    let owner = app.create_user().await;
+    support::make_project_member_with_role(project, owner, taskflow_projects::models::TaskflowProjectRole::Owner).await;
+    let body = app
+        .post_as(owner, "/api/taskflow/agents/link", json!({ "project": project, "display_name": "Quiet", "profile": "quiet", "denied_scopes": ["chat:send"] }))
+        .await
+        .json()
+        .await;
+    let key = body["key"].as_str().expect("key").to_string();
+    let base = format!("/api/taskflow/agents/channels/{room}");
+
+    for r in [
+        app.post_as_agent(&key, &format!("{base}/pins"), json!({ "message": m })).await,
+        app.delete_as_agent(&key, &format!("{base}/pins/{m}")).await,
+        app.post_as_agent(&key, &format!("{base}/messages/{m}/reactions"), json!({ "emoji": "eyes" })).await,
+    ] {
+        assert_eq!(r.status(), 403, "{}", r.text());
+        assert_eq!(r.json().await["error"], "capability_denied");
+    }
+    assert_eq!(app.get_as_agent(&key, &format!("{base}/pins")).await.status(), 200);
+    assert_eq!(app.get_as_agent(&key, &format!("{base}/reactions?messages={m}")).await.status(), 200);
+}

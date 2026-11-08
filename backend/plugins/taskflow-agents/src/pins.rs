@@ -330,7 +330,7 @@ async fn react(who: Who, channel: i64, message: i64, input: ReactInput) -> Resul
         };
         // A concurrent identical toggle hits the unique index: the reaction
         // exists either way, which is what this click asked for.
-        let _ = TaskflowMessageReaction::objects()
+        let created = TaskflowMessageReaction::objects()
             .create(TaskflowMessageReaction {
                 id: 0,
                 project: c.project.clone(),
@@ -344,6 +344,12 @@ async fn react(who: Who, channel: i64, message: i64, input: ReactInput) -> Resul
                 created_at: None,
             })
             .await;
+        if let Err(e) = created {
+            let s = e.to_string().to_lowercase();
+            if !s.contains("unique") && !s.contains("duplicate") {
+                tracing::warn!(error = %e, "reaction insert failed");
+            }
+        }
     }
     let mut s = summaries(c.id, &[m.id], &key).await?;
     Ok(Json(json!({ "message": m.id, "reactions": s.remove(&m.id.to_string()).unwrap_or_default() })).into_response())
@@ -394,13 +400,22 @@ pub async fn user_reactions(RequireAuth(u): RequireAuth<i64>, Path(c): Path<i64>
 pub async fn agent_list_pins(RequireAgent(a): RequireAgent, Path(c): Path<i64>) -> Result<Response, ApiError> {
     list_pins(agent(&a), c).await
 }
+/// Agent writes need `chat:send` (#5962): a key that may not post may not pin,
+/// unpin or react either. Reads stay open.
+fn may_write(a: &crate::agent_auth::AgentIdentity) -> Result<(), ApiError> {
+    a.require(crate::scopes::CHAT_SEND).map_err(|e| e.into_status_json())
+}
+
 pub async fn agent_pin(RequireAgent(a): RequireAgent, Path(c): Path<i64>, Json(i): Json<PinInput>) -> Result<Response, ApiError> {
+    may_write(&a)?;
     pin(agent(&a), c, i).await
 }
 pub async fn agent_unpin(RequireAgent(a): RequireAgent, Path((c, m)): Path<(i64, i64)>) -> Result<Response, ApiError> {
+    may_write(&a)?;
     unpin(agent(&a), c, m).await
 }
 pub async fn agent_react(RequireAgent(a): RequireAgent, Path((c, m)): Path<(i64, i64)>, Json(i): Json<ReactInput>) -> Result<Response, ApiError> {
+    may_write(&a)?;
     react(agent(&a), c, m, i).await
 }
 pub async fn agent_reactions(RequireAgent(a): RequireAgent, Path(c): Path<i64>, Query(q): Query<ReactionsQuery>) -> Result<Response, ApiError> {
