@@ -1446,3 +1446,57 @@ async fn a_task_description_may_be_empty_or_omitted_and_reads_as_a_string() {
     let (_, read) = get_as(seed.alice, false, &format!("/api/taskflow_task/{id}")).await;
     assert_eq!(read["description_markdown"], "");
 }
+
+/// Group 9 review: secrets no client needs are not served even to members.
+/// `key_hash` (an agent key's sha256) and a pending invite's `invite_token`
+/// are dropped from REST reads; the rows themselves still list.
+#[tokio::test]
+async fn members_list_credentials_and_invites_without_their_secrets() {
+    let (_, seed) = app().await;
+    taskflow_agents::models::TaskflowAgentCredential::objects()
+        .create(taskflow_agents::models::TaskflowAgentCredential {
+            id: 0,
+            project: ForeignKey::new(seed.project_p),
+            agent: None,
+            issued_by: None,
+            name: "secret-test".into(),
+            key_prefix: "tfsecret".into(),
+            key_hash: "deadbeef-hash-must-not-leak".into(),
+            status: taskflow_agents::models::TaskflowCredentialStatus::Active,
+            scopes: None,
+            denied_scopes: None,
+            expires_at: None,
+            revoked_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("credential");
+    taskflow_projects::models::TaskflowProjectInvite::objects()
+        .create(taskflow_projects::models::TaskflowProjectInvite {
+            id: 0,
+            project: ForeignKey::new(seed.project_p),
+            email: "someone@example.test".into(),
+            display_name: None,
+            role: TaskflowProjectRole::Developer,
+            status: taskflow_projects::models::TaskflowInviteStatus::Pending,
+            invite_token: "invite-token-must-not-leak".into(),
+            invited_by: None,
+            expires_at: None,
+            accepted_at: None,
+            created_at: None,
+        })
+        .await
+        .expect("invite");
+
+    let (s, creds) = get_as(seed.alice, false, "/api/taskflow_agent_credential/").await;
+    assert_eq!(s, 200, "{creds}");
+    let raw = creds.to_string();
+    assert!(raw.contains("tfsecret"), "the row still lists: {raw}");
+    assert!(!raw.contains("deadbeef-hash-must-not-leak") && !raw.contains("\"key_hash\""), "{raw}");
+
+    let (s, invites) = get_as(seed.alice, false, "/api/taskflow_project_invite/").await;
+    assert_eq!(s, 200, "{invites}");
+    let raw = invites.to_string();
+    assert!(raw.contains("someone@example.test"), "the row still lists: {raw}");
+    assert!(!raw.contains("invite-token-must-not-leak") && !raw.contains("\"invite_token\""), "{raw}");
+}

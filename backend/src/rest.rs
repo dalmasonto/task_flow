@@ -444,9 +444,21 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
         // read which DM. Filtering here makes the channel list authoritative.
         .filter(|table| !CHANNEL_SCOPED_TABLES.contains(*table))
         .map(|table| {
-            ResourceConfig::new(*table)
+            let config = ResourceConfig::new(*table)
                 .scope_async(project_scope("project"))
-                .views([Action::List, Action::Retrieve])
+                .views([Action::List, Action::Retrieve]);
+            // Secrets no client needs are dropped from the READ too (group 9
+            // review): every project member can list these tables.
+            // - `key_hash`: the sha256 of an agent's key. Not usable as a key,
+            //   but nothing client-side needs it.
+            // - `invite_token`: the stored token of every pending invite. An
+            //   invitee reads their own through `invites/mine` (a handler, not
+            //   REST); other members never need it.
+            match *table {
+                "taskflow_agent_credential" => config.hide("key_hash"),
+                "taskflow_project_invite" => config.hide("invite_token"),
+                _ => config,
+            }
         });
 
     writable.chain(chat).chain(read_only).collect()
