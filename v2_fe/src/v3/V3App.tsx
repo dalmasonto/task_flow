@@ -81,6 +81,9 @@ const HomePage = lazyNamed(() => import("./home/HomePage"), "HomePage")
 const InvitationsPage = lazyNamed(() => import("./account/InvitationsPage"), "InvitationsPage")
 const SecurityPage = lazyNamed(() => import("./account/SecurityPage"), "SecurityPage")
 const ServerAccountsPage = lazyNamed(() => import("./account/ServerAccountsPage"), "ServerAccountsPage")
+const ConnectionsPage = lazyNamed(() => import("./account/ConnectionsPage"), "ConnectionsPage")
+const AccountSettingsPage = lazyNamed(() => import("./account/SettingsPage"), "SettingsPage")
+const ProfilePage = lazyNamed(() => import("./account/ProfilePage"), "ProfilePage")
 
 export function V3App() {
   useV3Document()
@@ -126,6 +129,9 @@ export function V3App() {
         <Route path="/v3/account/invitations" element={<InvitationsPage />} />
         <Route path="/v3/account/security" element={<SecurityPage />} />
         <Route path="/v3/account/servers" element={<ServerAccountsPage />} />
+        <Route path="/v3/account/connections" element={<ConnectionsPage />} />
+        <Route path="/v3/account/settings" element={<AccountSettingsPage />} />
+        <Route path="/v3/account/profile" element={<ProfilePage />} />
         <Route path="/v3/daily-update" element={<DailyUpdatePage />} />
         <Route path="/v3/daily-update/:date" element={<DailyUpdatePage />} />
           <Route path="*" element={<NotPortedYet />} />

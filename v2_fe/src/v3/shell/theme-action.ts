@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from "react"
 
 import { updateUserSettings } from "@/lib/taskflow-api"
-import { setThemePreference, setThemeSyncPending } from "@/lib/theme"
+import { setThemePreference, setThemeSyncPending, type ThemePreference } from "@/lib/theme"
 
 export function isDarkNow(): boolean {
   return typeof document !== "undefined" && document.documentElement.classList.contains("dark")
@@ -18,7 +18,12 @@ let latestSave = 0
 
 export async function toggleTheme(): Promise<void> {
   // An explicit choice, even if the stored preference was "system".
-  const next = isDarkNow() ? "light" : "dark"
+  return chooseTheme(isDarkNow() ? "light" : "dark")
+}
+
+/// Apply a theme preference now, remember it on this device, and save it to
+/// the account (Settings' Light / Dark / Match system).
+export async function chooseTheme(next: ThemePreference): Promise<void> {
   setThemePreference(next)
   setThemeSyncPending(true)
   const mine = ++latestSave
