@@ -5,8 +5,9 @@ import { detailHref, readDetail, withDetail } from "./detail-params"
 describe("detail sheet params", () => {
   it("reads what the URL asks for", () => {
     expect(readDetail(new URLSearchParams("task=12"))).toEqual({ kind: "task", id: "12" })
-    expect(readDetail(new URLSearchParams("task=new&status=blocked"))).toEqual({ kind: "new-task", status: "blocked" })
-    expect(readDetail(new URLSearchParams("task=new&status=bogus"))).toEqual({ kind: "new-task", status: "not_started" })
+    expect(readDetail(new URLSearchParams("task=new&status=blocked"))).toEqual({ kind: "new-task", status: "blocked", column: null })
+    expect(readDetail(new URLSearchParams("task=new&status=review&column=qa"))).toEqual({ kind: "new-task", status: "partial_done", column: "qa" })
+    expect(readDetail(new URLSearchParams("task=new&status=bogus"))).toEqual({ kind: "new-task", status: "not_started", column: null })
     expect(readDetail(new URLSearchParams("activity=9"))).toEqual({ kind: "activity", id: 9 })
     expect(readDetail(new URLSearchParams("task=12abc"))).toBeNull()
     expect(readDetail(new URLSearchParams("q=x"))).toBeNull()

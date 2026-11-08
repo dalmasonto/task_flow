@@ -68,6 +68,7 @@ export function DetailSheetHost() {
           <Frame title="New task" description="Create a task">
             <TaskNewForm
               status={detail.status}
+              column={detail.column ?? null}
               onCreated={(id) => navigate(`${pathname}${withDetail(search, { kind: "task", id })}`, { replace: true })}
               onCancel={close}
             />

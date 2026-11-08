@@ -629,6 +629,8 @@ export interface TaskflowReviewRequest {
 /** Table `taskflow_task`, from the `app` plugin. */
 export interface TaskflowTask {
   id: number;
+  /** #5907 1b: the board column key (null until the server assigns one). Hand-added until the client is regenerated. */
+  status_column?: string | null;
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   project: number;
   title: string;
@@ -3349,6 +3351,8 @@ export interface TaskflowTaskFilters {
 export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "title" | "-title" | "description_markdown" | "-description_markdown" | "notes_markdown" | "-notes_markdown" | "status" | "-status" | "priority" | "-priority" | "sort_order" | "-sort_order" | "created_by" | "-created_by" | "assigned_user" | "-assigned_user" | "assigned_agent_id" | "-assigned_agent_id" | "review_gate" | "-review_gate" | "estimate_minutes" | "-estimate_minutes" | "operator_user" | "-operator_user" | "operator_agent_id" | "-operator_agent_id" | "created_by_agent_id" | "-created_by_agent_id" | "assignee_label" | "-assignee_label" | "due_at" | "-due_at" | "closed_at" | "-closed_at" | "github_issue_number" | "-github_issue_number" | "github_issue_url" | "-github_issue_url" | "github_repo" | "-github_repo" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
 /** Body for creating a `taskflow_task`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
 export interface TaskflowTaskCreate {
+  /** #5907 1b: start in this board column. Hand-added until the client is regenerated. */
+  status_column?: string | null;
   project: number;
   title: string;
   description_markdown?: string | null;
@@ -3374,6 +3378,8 @@ export interface TaskflowTaskCreate {
 }
 /** Body for updating a `taskflow_task` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
 export interface TaskflowTaskUpdate {
+  /** #5907 1b: move to this board column; send `status` with it. Hand-added until the client is regenerated. */
+  status_column?: string | null;
   project?: number;
   title?: string;
   description_markdown?: string | null;

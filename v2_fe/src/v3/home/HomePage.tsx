@@ -14,7 +14,6 @@ import type { TaskflowAgent, TaskflowTask } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
-import { columnStatuses, type BoardColumnId } from "@/lib/board-columns"
 import { isAgentOnline } from "@/lib/live-mappers"
 import { taskflowApi, taskflowTables } from "@/lib/taskflow-api"
 import { cn } from "@/lib/utils"
@@ -22,7 +21,8 @@ import { cn } from "@/lib/utils"
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
 import { StatusChip } from "../components/status-chip"
-import { COLUMN_LABEL } from "../components/status-tones"
+import { STATUS_LABEL, STATUS_TONE } from "../components/status-tones"
+import type { TaskStatus } from "../lib/task-status"
 import { fetchInbox, type InboxItem } from "../inbox/inbox-api"
 import { timeAgo } from "../lib/time"
 import { useLoad } from "../lib/use-load"
@@ -31,24 +31,26 @@ import { fetchUsage, money, type UsageResponse } from "../usage/usage-api"
 import { useWorkspace } from "../workspace"
 import { firstName, greeting, homeLine, weekStart } from "./home-logic"
 
-const COLUMNS: BoardColumnId[] = ["not_started", "in_progress", "review", "blocked", "done"]
-const BAR: Record<BoardColumnId, string> = { not_started: "bg-idle/50", in_progress: "bg-running", review: "bg-review", blocked: "bg-blocked", done: "bg-done" }
+// #5933: flat statuses, one segment each (archived stays out of the bar).
+const COLUMNS = ["not_started", "in_progress", "paused", "blocked", "partial_done", "done"] as const satisfies readonly TaskStatus[]
+type BarStatus = (typeof COLUMNS)[number]
+const BAR: Record<BarStatus, string> = { not_started: "bg-idle/50", in_progress: "bg-running", paused: "bg-muted-foreground/40", blocked: "bg-blocked", partial_done: "bg-review", done: "bg-done" }
 const MAX_PROJECTS = 9
 
-async function columnCounts(project: number): Promise<Record<BoardColumnId, number>> {
+async function columnCounts(project: number): Promise<Record<BarStatus, number>> {
   const counts = await Promise.all(
     COLUMNS.map((c) =>
       taskflowApi
         .from(taskflowTables.tasks)
         .filter({ project })
-        .param("status__in", columnStatuses(c).join(","))
+        .param("status", c)
         .param("page_size", 1)
         .param("fields", "id")
         .list()
         .then((r) => r.count),
     ),
   )
-  return Object.fromEntries(COLUMNS.map((c, i) => [c, counts[i]])) as Record<BoardColumnId, number>
+  return Object.fromEntries(COLUMNS.map((c, i) => [c, counts[i]])) as Record<BarStatus, number>
 }
 
 function waitingRow(i: InboxItem, projectName: (id: number) => string) {
@@ -212,7 +214,7 @@ export function HomePage() {
               {COLUMNS.map((c) => (
                 <li key={c} className="flex items-center gap-1.5">
                   <span className={cn("size-2 rounded-full", BAR[c])} />
-                  {COLUMN_LABEL[c]}
+                  {STATUS_LABEL[c]}
                 </li>
               ))}
             </ul>
@@ -222,7 +224,7 @@ export function HomePage() {
               {shown.map((p) => {
                 const c = counts.data?.[Number(p.id)]
                 const all = c ? COLUMNS.reduce((n, k) => n + c[k], 0) : 0
-                const open = c ? c.not_started + c.in_progress + c.review + c.blocked : null
+                const open = c ? c.not_started + c.in_progress + c.paused + c.blocked + c.partial_done : null
                 const team = (agents.data ?? []).filter((a) => a.project === Number(p.id)).slice(0, 4)
                 return (
                   <button key={p.id} type="button" onClick={() => openProject(p.id)} className="rounded-xl border border-border bg-card p-4 text-left hover:border-ring">
@@ -238,7 +240,7 @@ export function HomePage() {
                         ))}
                       </span>
                     </div>
-                    <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label={c ? COLUMNS.map((k) => `${c[k]} ${COLUMN_LABEL[k]}`).join(", ") : "Loading"}>
+                    <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label={c ? COLUMNS.map((k) => `${c[k]} ${STATUS_LABEL[k]}`).join(", ") : "Loading"}>
                       {c && all ? COLUMNS.map((k) => (c[k] ? <span key={k} className={BAR[k]} style={{ width: `${(c[k] / all) * 100}%` }} /> : null)) : null}
                     </div>
                     <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -248,7 +250,7 @@ export function HomePage() {
                       </div>
                       <div>
                         <dt className="text-muted-foreground">In review</dt>
-                        <dd className="text-sm font-medium tabular-nums">{c ? c.review : "…"}</dd>
+                        <dd className="text-sm font-medium tabular-nums">{c ? c.partial_done : "…"}</dd>
                       </div>
                       <div>
                         <dt className="text-muted-foreground">This month</dt>
@@ -283,7 +285,7 @@ export function HomePage() {
                 {mine.data.map((t) => (
                   <li key={t.id}>
                     <button type="button" onClick={() => openProject(String(t.project), `/v3/tasks/${t.id}`)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted/50">
-                      <StatusChip tone={t.status === "in_progress" ? "running" : t.status === "partial_done" ? "review" : t.status === "blocked" || t.status === "paused" ? "blocked" : "idle"} label="" />
+                      <StatusChip tone={STATUS_TONE[t.status]} label="" />
                       <span className="min-w-0 flex-1 truncate">{t.title}</span>
                       <span className="shrink-0 text-xs text-muted-foreground">{projectName(t.project)}</span>
                     </button>

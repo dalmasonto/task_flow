@@ -17,8 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
-import { isAgentOnline, toLivePriority, toLiveStatus } from "@/lib/live-mappers"
-import { type ColumnId, type Priority } from "@/lib/workspace-view"
+import { isAgentOnline, toLivePriority } from "@/lib/live-mappers"
+import { type Priority } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
@@ -26,6 +26,7 @@ import { guessModel, type ModelId } from "../components/actor-models"
 import { useWorkspace } from "../workspace"
 import { requestReview } from "./task-api"
 import { takeTaskSeed } from "./task-seed"
+import type { TaskStatus } from "../lib/task-status"
 
 type Who = { key: string; kind: "user" | "agent"; id: number; name: string; model: ModelId | null; online: boolean; detail: string }
 
@@ -50,7 +51,7 @@ function WhoCard({ who, selected, onSelect }: { who: Who; selected: boolean; onS
   )
 }
 
-export function TaskNewForm({ status, onCreated, onCancel }: { status: ColumnId; onCreated: (id: string) => void; onCancel: () => void }) {
+export function TaskNewForm({ status, column = null, onCreated, onCancel }: { status: TaskStatus; column?: string | null; onCreated: (id: string) => void; onCancel: () => void }) {
   const { live, currentUser, task: tv, projectTasks } = useWorkspace()
   const now = useLivenessNow()
   const [seed] = useState(takeTaskSeed)
@@ -113,7 +114,8 @@ export function TaskNewForm({ status, onCreated, onCancel }: { status: ColumnId;
       const { id } = await tv.create({
         title,
         description_markdown: description,
-        status: toLiveStatus(status),
+        status,
+        ...(column ? { status_column: column } : {}),
         priority: toLivePriority(priority),
         sort_order: projectTasks.length,
         assigned_user: who?.kind === "user" ? who.id : null,

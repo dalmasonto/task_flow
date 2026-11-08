@@ -3,8 +3,9 @@
 /// is left off the card rather than faked.
 import type { TaskflowAgent, TaskflowTask } from "@/api/client"
 import { matchesBoardSearch } from "@/lib/board-filter"
-import type { ColumnId, Priority, Task } from "@/lib/workspace-view"
+import type { Priority, Task } from "@/lib/workspace-view"
 
+import { statusOf, type TaskStatus } from "../lib/task-status"
 import { guessModel, type ModelId } from "../components/actor-models"
 
 export type CardAssignee = { name: string; model: ModelId | null; isAgent: boolean }
@@ -86,8 +87,8 @@ export function cardInfo(task: Task, raw: TaskflowTask | undefined, agents: Task
 
 export type AssigneeFilter = "all" | "agents" | "people" | "unassigned" | "mine"
 
-/// `statuses` empty = every column.
-export type BoardFilter = { search: string; priority: Priority | "all"; assignee: AssigneeFilter; repo: string | "all"; statuses: ColumnId[] }
+/// `statuses` empty = every status. Flat statuses (#5933): Paused is its own.
+export type BoardFilter = { search: string; priority: Priority | "all"; assignee: AssigneeFilter; repo: string | "all"; statuses: TaskStatus[] }
 
 export const EMPTY_FILTER: BoardFilter = { search: "", priority: "all", assignee: "all", repo: "all", statuses: [] }
 
@@ -114,7 +115,7 @@ export function filterBoard(tasks: Task[], rawById: Map<string, TaskflowTask>, f
   return tasks.filter((t) => {
     const raw = rawById.get(t.id)
     return (
-      (f.statuses.length === 0 || f.statuses.includes(t.status)) &&
+      (f.statuses.length === 0 || f.statuses.includes(statusOf(t))) &&
       (f.priority === "all" || t.priority === f.priority) &&
       (f.repo === "all" || raw?.github_repo === f.repo) &&
       matchesAssignee(raw, f.assignee, me) &&
@@ -137,7 +138,7 @@ export type ViewId = "all" | "agents" | "review" | "blocked_me"
 export const VIEWS: { id: ViewId; label: string; filter: Partial<BoardFilter> }[] = [
   { id: "all", label: "All tasks", filter: {} },
   { id: "agents", label: "Agents at work", filter: { assignee: "agents", statuses: ["in_progress"] } },
-  { id: "review", label: "Needs review", filter: { statuses: ["review"] } },
+  { id: "review", label: "Needs review", filter: { statuses: ["partial_done"] } },
   { id: "blocked_me", label: "Blocked on me", filter: { assignee: "mine", statuses: ["blocked"] } },
 ]
 

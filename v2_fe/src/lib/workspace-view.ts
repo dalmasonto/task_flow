@@ -265,6 +265,10 @@ export type Task = {
   description?: string
   notes?: string
   status: ColumnId
+  /// The server's own status, uncombined (paused stays paused, archived stays
+  /// archived). v3 shows this (#5933); `status` is v2's five-column view of
+  /// it. May lag a local move, so read it through v3's `statusOf`.
+  liveStatus?: import("@/api/client").TaskflowTaskStatus
   priority: Priority
   owner: string
   ownerInitials: string

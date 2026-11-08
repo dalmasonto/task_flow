@@ -25,8 +25,8 @@ import { upsertById } from "@/lib/live-mappers"
 
 import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
-import { StatusChip } from "../components/status-chip"
-import { COLUMN_TONE } from "../components/status-tones"
+import { StatusChip, TaskStatusChip } from "../components/status-chip"
+import type { TaskStatus } from "../lib/task-status"
 import { TaskLink } from "../components/task-link"
 import { timeAgo } from "../lib/time"
 import { useWorkspace } from "../workspace"
@@ -144,7 +144,7 @@ export function RoomPanel({
   members: RoomMembers
   powers: RoomPowers
   meUser: number | null
-  linkedTasks: { id: number; title: string; status: keyof typeof COLUMN_TONE }[]
+  linkedTasks: { id: number; title: string; status: TaskStatus }[]
   terminals: AgentTerminalSessionView[]
   messages: AgentMessage[]
   addCandidates: { user: number; name: string }[]
@@ -299,7 +299,7 @@ export function RoomPanel({
               {linkedTasks.map((t) => (
                 <li key={t.id}>
                   <TaskLink task={t.id} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60">
-                    <StatusChip tone={COLUMN_TONE[t.status]} />
+                    <TaskStatusChip status={t.status} />
                     <span className="min-w-0 truncate">
                       #{t.id} {t.title}
                     </span>

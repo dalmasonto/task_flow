@@ -41,7 +41,7 @@ export type RoomPowers = { edit: boolean; editTitle: boolean; addMembers: boolea
 /// title is fixed and everyone is already in it. In a private group, only
 /// people already in it, or owners and admins, add members (#5925).
 export function roomPowers(
-  channel: Pick<TaskflowAgentChannel, "kind" | "is_public" | "created_by_user" | "archived">,
+  channel: Pick<TaskflowAgentChannel, "kind" | "is_public" | "created_by_user" | "archived"> & { is_design?: boolean },
   me: { user: number | null; role: string | null; inRoom: boolean; superuser?: boolean },
 ): RoomPowers {
   const none = { edit: false, editTitle: false, addMembers: false, removeMembers: false, archive: false }
@@ -55,7 +55,8 @@ export function roomPowers(
     editTitle: manage && !projectRoom && !channel.archived,
     addMembers: !projectRoom && !channel.archived && (admin || me.inRoom),
     removeMembers: manage && !projectRoom,
-    archive: manage && !projectRoom,
+    // The project room and the design room can't be archived (409 fixed_room).
+    archive: manage && !projectRoom && !channel.is_design,
   }
 }
 

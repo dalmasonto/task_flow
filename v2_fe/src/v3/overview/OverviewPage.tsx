@@ -18,7 +18,8 @@ import { fetchProjectStats, taskflowApi, taskflowTables } from "@/lib/taskflow-a
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
-import { COLUMN_LABEL } from "../components/status-tones"
+import { STATUS_LABEL } from "../components/status-tones"
+import { useStatusCounts } from "../board/use-status-counts"
 import { guessModel } from "../components/actor-models"
 import { agentRows } from "../agents/agents-logic"
 import { useAgentSlices } from "../agents/use-agent-slices"
@@ -35,7 +36,9 @@ import { checklist, lastDays, summaryLine } from "./overview-logic"
 import { NewTaskLink, TaskLink } from "../components/task-link"
 
 const DISMISS_KEY = "taskflow.v3.checklistDismissed"
-const BAR: Record<string, string> = { not_started: "bg-idle", in_progress: "bg-running", review: "bg-review", blocked: "bg-blocked", done: "bg-done" }
+// #5933: one segment per flat status (archived is left out of the bar).
+const BAR_STATUSES = ["not_started", "in_progress", "paused", "blocked", "partial_done", "done"] as const
+const BAR: Record<(typeof BAR_STATUSES)[number], string> = { not_started: "bg-idle", in_progress: "bg-running", paused: "bg-muted-foreground/40", blocked: "bg-blocked", partial_done: "bg-review", done: "bg-done" }
 
 function Card({ title, action, children, className }: { title: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
@@ -116,8 +119,8 @@ export function OverviewPage() {
 
   const rows = live ? agentRows(live.agents, live.agentSessions, live.tasks, now) : []
   const working = rows.filter((r) => r.state !== "offline")
-  const totals = board.columnTotals
-  const open = (totals.not_started ?? 0) + (totals.in_progress ?? 0) + (totals.review ?? 0) + (totals.blocked ?? 0)
+  const totals = useStatusCounts()
+  const open = (totals.not_started ?? 0) + (totals.in_progress ?? 0) + (totals.paused ?? 0) + (totals.blocked ?? 0) + (totals.partial_done ?? 0)
   const barTotal = open + (totals.done ?? 0)
   const needs = inbox.data?.items ?? []
   const steps = live ? checklist({ agents: live.agents, messages: talkers.data ?? [], taskCount: board.total, members: live.members }) : []
@@ -265,16 +268,16 @@ export function OverviewPage() {
             </Card>
 
             <Card title="Tasks" action={<CardLink to="/v3/board">Open board</CardLink>}>
-              <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-muted" role="img" aria-label={(["not_started", "in_progress", "review", "blocked", "done"] as const).map((c) => `${totals[c] ?? 0} ${COLUMN_LABEL[c]}`).join(", ")}>
+              <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-muted" role="img" aria-label={BAR_STATUSES.map((c) => `${totals[c] ?? 0} ${STATUS_LABEL[c]}`).join(", ")}>
                 {barTotal
-                  ? (["not_started", "in_progress", "review", "blocked", "done"] as const).map((c) => (totals[c] ? <span key={c} className={cn("h-full", BAR[c])} style={{ width: `${((totals[c] ?? 0) / barTotal) * 100}%` }} /> : null))
+                  ? BAR_STATUSES.map((c) => (totals[c] ? <span key={c} className={cn("h-full", BAR[c])} style={{ width: `${((totals[c] ?? 0) / barTotal) * 100}%` }} /> : null))
                   : null}
               </div>
               <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                {(["not_started", "in_progress", "review", "blocked", "done"] as const).map((c) => (
+                {BAR_STATUSES.map((c) => (
                   <li key={c} className="flex items-center gap-1.5">
                     <span className={cn("size-2 rounded-full", BAR[c])} />
-                    {COLUMN_LABEL[c]} <span className="text-muted-foreground tabular-nums">{totals[c] ?? "…"}</span>
+                    {STATUS_LABEL[c]} <span className="text-muted-foreground tabular-nums">{totals[c] ?? "…"}</span>
                   </li>
                 ))}
               </ul>

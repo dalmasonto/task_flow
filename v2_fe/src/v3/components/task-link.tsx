@@ -4,9 +4,9 @@
 import type { ComponentProps } from "react"
 import { Link, useLocation } from "react-router-dom"
 
-import type { ColumnId } from "@/lib/workspace-view"
 
 import { detailHref } from "../lib/detail-params"
+import type { TaskStatus } from "../lib/task-status"
 
 export function TaskLink({ task, ...props }: { task: string | number } & Omit<ComponentProps<typeof Link>, "to">) {
   const { pathname, search } = useLocation()
@@ -14,7 +14,7 @@ export function TaskLink({ task, ...props }: { task: string | number } & Omit<Co
 }
 
 /// A link to the new-task form in the detail sheet, optionally in a column.
-export function NewTaskLink({ status = "not_started", ...props }: { status?: ColumnId } & Omit<ComponentProps<typeof Link>, "to">) {
+export function NewTaskLink({ status = "not_started", column, ...props }: { status?: TaskStatus; column?: string | null } & Omit<ComponentProps<typeof Link>, "to">) {
   const { pathname, search } = useLocation()
-  return <Link to={detailHref(pathname, search, { kind: "new-task", status })} {...props} />
+  return <Link to={detailHref(pathname, search, { kind: "new-task", status, column })} {...props} />
 }

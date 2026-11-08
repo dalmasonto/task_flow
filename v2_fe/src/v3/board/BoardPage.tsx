@@ -3,7 +3,7 @@
 /// workspace: the optimistic move + write, per-column paging, server totals.
 import { useState, type DragEvent } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ChevronDownIcon, ColumnsIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TimerIcon, TriangleAlertIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ColumnsIcon, EyeIcon, EyeOffIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TimerIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -12,15 +12,18 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { BoardColumnId } from "@/lib/board-columns"
-import { columns, type ColumnId, type DropTarget, type Priority } from "@/lib/workspace-view"
+import type { ColumnId, Priority, Task } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
-import { StatusChip } from "../components/status-chip"
-import { COLUMN_LABEL, COLUMN_TONE } from "../components/status-tones"
+import { TaskStatusChip } from "../components/status-chip"
+import { STATUS_LABEL } from "../components/status-tones"
+import { pageGroupOf, statusOf, STATUS_ORDER } from "../lib/task-status"
+import { useMoveTask } from "../lib/use-move-task"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { activeView, EMPTY_FILTER, filterIsActive, VIEWS, viewFilter, type AssigneeFilter, type BoardFilter } from "./board-logic"
+import { columnKeyOf, columnStats, type BoardColumn } from "./columns"
+import { useBoardColumns } from "./use-board-columns"
 import { useBoardData, useBoardFilter } from "./use-board-data"
 import { TaskCard } from "./TaskCard"
 import { NewTaskLink } from "../components/task-link"
@@ -88,25 +91,23 @@ function FilterChips({ filter, onChange, repos, shown }: { filter: BoardFilter; 
             {filter.statuses.length === 0
               ? "Any status"
               : filter.statuses.length === 1
-                ? COLUMN_LABEL[filter.statuses[0]]
+                ? STATUS_LABEL[filter.statuses[0]]
                 : `${filter.statuses.length} statuses`}
             <ChevronDownIcon className="text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            {columns.map((c) => (
+            {STATUS_ORDER.map((st) => (
               <DropdownMenuCheckboxItem
-                key={c.id}
-                checked={filter.statuses.includes(c.id)}
+                key={st}
+                checked={filter.statuses.includes(st)}
                 onCheckedChange={(on) =>
                   onChange({
                     ...filter,
-                    statuses: on
-                      ? columns.map((x) => x.id).filter((id) => id === c.id || filter.statuses.includes(id))
-                      : filter.statuses.filter((s) => s !== c.id),
+                    statuses: on ? STATUS_ORDER.filter((x) => x === st || filter.statuses.includes(x)) : filter.statuses.filter((x) => x !== st),
                   })
                 }
               >
-                {COLUMN_LABEL[c.id]}
+                {STATUS_LABEL[st]}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
@@ -271,8 +272,8 @@ function BoardEmpty() {
 function BoardSkeleton() {
   return (
     <div className="flex h-full gap-3 overflow-hidden p-4 lg:px-6" aria-busy="true" aria-label="Loading the board">
-      {columns.map((c, i) => (
-        <div key={c.id} className="flex h-full w-[85vw] shrink-0 flex-col sm:w-80">
+      {STATUS_ORDER.slice(0, 6).map((c, i) => (
+        <div key={c} className="flex h-full w-[85vw] shrink-0 flex-col sm:w-72">
           <Skeleton className="mb-2 h-6 w-28" />
           <div className="flex-1 space-y-2 rounded-xl bg-muted/50 p-2">
             {Array.from({ length: 4 - (i % 3) }, (_, k) => (
@@ -289,23 +290,40 @@ export function BoardPage() {
   const navigate = useNavigate()
   const { activeProject, isSyncing, board } = useWorkspace()
   const [filter, setFilter] = useBoardFilter()
-  const { shown, card, count, repos, all } = useBoardData(filter)
+  const { shown, card, count, repos, all, rawById } = useBoardData(filter)
   const [dragged, setDragged] = useState<string | null>(null)
-  const [target, setTarget] = useState<DropTarget | null>(null)
+  const [target, setTarget] = useState<{ column: string; taskId: string | null; position: "before" | "after" } | null>(null)
+  const cols = useBoardColumns()
+  const move = useMoveTask()
+  const [showHidden, setShowHidden] = useState(false)
+  const rawOf = (id: string) => rawById.get(id)
+  const keyOfTask = (t: Task) => columnKeyOf(cols.columns, statusOf(t), rawOf(t.id)?.status_column)
 
-  const drop = (e: DragEvent, column: ColumnId) => {
+  // #5933/#1b: a drop in another column moves the task to that column's
+  // status (and the column itself when the project has named columns). A drop
+  // inside the same column only reorders, through v2's placeTask.
+  const drop = (e: DragEvent, col: BoardColumn) => {
     e.preventDefault()
-    if (dragged) board.placeTask(dragged, target ?? { columnId: column, taskId: null, position: "after" })
+    const task = dragged ? all.find((t) => t.id === dragged) : undefined
+    if (task) {
+      const from = keyOfTask(task)
+      if (from === col.key) {
+        const group = pageGroupOf(col.kind) as ColumnId
+        if (target?.taskId) board.placeTask(task.id, { columnId: group, taskId: target.taskId, position: target.position })
+      } else {
+        move(task.id, col.kind, cols.custom ? col.key : null)
+      }
+    }
     setDragged(null)
     setTarget(null)
   }
 
-  const overCard = (e: DragEvent<HTMLElement>, column: ColumnId, taskId: string) => {
+  const overCard = (e: DragEvent<HTMLElement>, column: string, taskId: string) => {
     if (!dragged) return
     e.preventDefault()
     const rect = e.currentTarget.getBoundingClientRect()
     const position = e.clientY < rect.top + rect.height / 2 ? "before" : "after"
-    if (target?.taskId !== taskId || target.position !== position) setTarget({ columnId: column, taskId, position })
+    if (target?.taskId !== taskId || target.position !== position) setTarget({ column, taskId, position })
   }
 
   let body
@@ -337,47 +355,65 @@ export function BoardPage() {
             className="pointer-events-none sticky left-full z-10 order-last -ml-20 hidden h-full w-20 shrink-0 bg-gradient-to-l from-background to-transparent lg:block"
             aria-hidden
           />
-          {columns
-            .filter((col) => filter.statuses.length === 0 || filter.statuses.includes(col.id))
+          {cols.columns
+            .filter((col) => (showHidden || !col.hidden) && (filter.statuses.length === 0 || filter.statuses.includes(col.kind)))
             .map((col) => {
-              const inColumn = shown.filter((t) => t.status === col.id)
-              const loaded = all.filter((t) => t.status === col.id).length
-              const total = board.columnTotals[col.id as BoardColumnId] ?? loaded
-              const loading = board.loadingColumns.has(col.id as BoardColumnId)
+              const inColumn = shown.filter((t) => keyOfTask(t) === col.key)
+              const loaded = all.filter((t) => keyOfTask(t) === col.key).length
+              // App pages the board by v2's five groups (paused loads with
+              // blocked, archived with done), so "more" is the group's.
+              const group = pageGroupOf(col.kind)
+              const groupLoaded = all.filter((t) => pageGroupOf(statusOf(t)) === group).length
+              const groupTotal = board.columnTotals[group] ?? groupLoaded
+              const { total, more } = columnStats(col, cols.custom, loaded, groupLoaded, groupTotal)
+              const loading = board.loadingColumns.has(group)
+              const canAdd = col.kind !== "archived"
               return (
                 <section
-                  key={col.id}
-                  aria-label={COLUMN_LABEL[col.id]}
-                  className="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-80"
+                  key={col.key}
+                  aria-label={col.label}
+                  className="flex h-full w-[85vw] shrink-0 snap-start flex-col sm:w-72"
                   onDragOver={(e) => {
                     if (!dragged) return
                     e.preventDefault()
-                    if (!inColumn.length && target?.columnId !== col.id) setTarget({ columnId: col.id, taskId: null, position: "after" })
+                    if (!inColumn.length && target?.column !== col.key) setTarget({ column: col.key, taskId: null, position: "after" })
                   }}
-                  onDrop={(e) => drop(e, col.id)}
+                  onDrop={(e) => drop(e, col)}
                 >
                   <div className="mb-2 flex items-center gap-2 px-1">
-                    <StatusChip tone={COLUMN_TONE[col.id]} />
-                    <span className="text-xs tabular-nums text-muted-foreground">{filterIsActive(filter) ? `${inColumn.length} of ${total}` : total}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="ml-auto"
-                      aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`}
-                      render={<NewTaskLink status={col.id} />}
-                      nativeButton={false}
-                    >
-                      <PlusIcon />
-                    </Button>
+                    {cols.custom ? (
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                        <span className="size-2 shrink-0 rounded-full" style={{ background: col.color ?? "var(--muted-foreground)" }} aria-hidden />
+                        <span className="truncate">{col.label}</span>
+                      </span>
+                    ) : (
+                      <TaskStatusChip status={col.kind} />
+                    )}
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {filterIsActive(filter) ? `${inColumn.length} of ${total ?? `${loaded}+`}` : (total ?? (more ? `${loaded}+` : loaded))}
+                    </span>
+                    {col.hidden ? <span className="text-xs text-muted-foreground">(hidden)</span> : null}
+                    {canAdd ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="ml-auto"
+                        aria-label={`Add a task to ${col.label}`}
+                        render={<NewTaskLink status={col.kind} column={cols.custom ? col.key : null} />}
+                        nativeButton={false}
+                      >
+                        <PlusIcon />
+                      </Button>
+                    ) : null}
                   </div>
                   <div
                     className={cn(
                       "min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/50 p-2 transition-colors",
-                      dragged && target?.columnId === col.id && "bg-accent/60",
+                      dragged && target?.column === col.key && "bg-accent/60",
                     )}
                   >
                     {inColumn.map((t) => (
-                      <div key={t.id} onDragOver={(e) => overCard(e, col.id, t.id)} className="relative">
+                      <div key={t.id} onDragOver={(e) => overCard(e, col.key, t.id)} className="relative">
                         {target?.taskId === t.id && target.position === "before" ? <DropLine /> : null}
                         <TaskCard
                           card={card(t)}
@@ -397,18 +433,26 @@ export function BoardPage() {
                     ))}
                     {!inColumn.length ? (
                       <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                        {filterIsActive(filter) ? "Nothing here matches." : "Nothing here yet."}
+                        {filterIsActive(filter) ? "Nothing here matches." : more ? "None loaded yet." : "Nothing here yet."}
                       </p>
                     ) : null}
-                    {loaded < total ? (
-                      <Button variant="ghost" size="sm" className="w-full" disabled={loading} onClick={() => board.loadMore(col.id as BoardColumnId, loaded)}>
-                        {loading ? "Loading…" : `Load ${Math.min(25, total - loaded)} more of ${total - loaded}`}
+                    {more ? (
+                      <Button variant="ghost" size="sm" className="w-full" disabled={loading} onClick={() => board.loadMore(group, groupLoaded)}>
+                        {loading ? "Loading…" : total != null ? `Load more (${total - loaded} left)` : "Load more"}
                       </Button>
                     ) : null}
                   </div>
                 </section>
               )
             })}
+          {cols.columns.some((c) => c.hidden) ? (
+            <div className="flex shrink-0 items-start pt-0.5">
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setShowHidden((v) => !v)}>
+                {showHidden ? <EyeOffIcon /> : <EyeIcon />}
+                {showHidden ? "Hide hidden columns" : `Show hidden (${cols.columns.filter((c) => c.hidden).map((c) => c.label).join(", ")})`}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     )

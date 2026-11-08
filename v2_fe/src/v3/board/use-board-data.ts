@@ -8,6 +8,7 @@ import type { Task } from "@/lib/workspace-view"
 
 import { fetchClaimLease } from "@/lib/taskflow-api"
 
+import { normalizeStatus, type TaskStatus } from "../lib/task-status"
 import { useLoad } from "../lib/use-load"
 import { useWorkspace } from "../workspace"
 import { boardRepos, cardInfo, EMPTY_FILTER, filterBoard, type BoardFilter } from "./board-logic"
@@ -26,7 +27,7 @@ export function useBoardData(filter: BoardFilter) {
   const lease = useLoad("claim-lease", (signal) => fetchClaimLease(signal))
   const card = (t: Task) => cardInfo(t, rawById.get(t.id), live?.agents ?? [], files.get(t.id) ?? 0, now, lease.data?.lease_minutes ?? null)
   const count = (f: BoardFilter) => filterBoard(projectTasks, rawById, f, currentUser?.id ?? null).length
-  return { shown, card, count, repos: boardRepos(rawById.values()), all: projectTasks }
+  return { shown, card, count, repos: boardRepos(rawById.values()), all: projectTasks, rawById }
 }
 
 
@@ -38,7 +39,10 @@ export function useBoardFilter(): [BoardFilter, (f: BoardFilter) => void] {
   const [filter, setFilter] = useState<BoardFilter>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(FILTER_KEY) ?? "null") as Partial<BoardFilter> | null
-      return saved ? { ...EMPTY_FILTER, ...saved } : EMPTY_FILTER
+      if (!saved) return EMPTY_FILTER
+      // Older saved filters used v2's combined "review"; keep what still reads.
+      const statuses = (saved.statuses ?? []).map(normalizeStatus).filter((s): s is TaskStatus => s != null)
+      return { ...EMPTY_FILTER, ...saved, statuses }
     } catch {
       return EMPTY_FILTER
     }

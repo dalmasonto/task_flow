@@ -2,9 +2,10 @@
 import type { ComponentType, SVGProps } from "react"
 import { CircleAlertIcon, CircleCheckIcon, CircleDashedIcon, CircleDotIcon, CircleIcon, CirclePauseIcon, CircleXIcon, EyeIcon } from "lucide-react"
 
+import type { TaskflowTaskStatus } from "@/api/client"
 import { cn } from "@/lib/utils"
 
-import type { StatusTone } from "./status-tones"
+import { STATUS_LABEL, STATUS_TONE, type StatusTone } from "./status-tones"
 
 const TONES: Record<StatusTone, { icon: ComponentType<SVGProps<SVGSVGElement>>; label: string; cls: string }> = {
   running: { icon: CircleDotIcon, label: "In progress", cls: "text-running bg-running/10" },
@@ -26,4 +27,9 @@ export function StatusChip({ tone, label, className }: { tone: StatusTone; label
       <span>{label ?? t.label}</span>
     </span>
   )
+}
+
+/// A task's own status as a chip (#5933: flat, never combined).
+export function TaskStatusChip({ status, className }: { status: TaskflowTaskStatus; className?: string }) {
+  return <StatusChip tone={STATUS_TONE[status]} label={STATUS_LABEL[status]} className={className} />
 }

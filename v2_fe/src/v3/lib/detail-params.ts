@@ -7,17 +7,18 @@
 ///   ?activity=<id>         one activity entry
 ///
 /// Pure, so the rules are tested without rendering.
-import { columns, type ColumnId } from "@/lib/workspace-view"
+import { normalizeStatus, type TaskStatus } from "./task-status"
 
-export type Detail = { kind: "task"; id: string } | { kind: "new-task"; status: ColumnId } | { kind: "activity"; id: number }
+export type Detail = { kind: "task"; id: string } | { kind: "new-task"; status: TaskStatus; column?: string | null } | { kind: "activity"; id: number }
 
-const KEYS = ["task", "activity", "status"] as const
+const KEYS = ["task", "activity", "status", "column"] as const
 
 export function readDetail(params: URLSearchParams): Detail | null {
   const task = params.get("task")
   if (task === "new") {
     const s = params.get("status")
-    return { kind: "new-task", status: columns.some((c) => c.id === s) ? (s as ColumnId) : "not_started" }
+    // "review" from older links reads as In review (#5933: flat statuses).
+    return { kind: "new-task", status: normalizeStatus(s) ?? "not_started", column: params.get("column") || null }
   }
   if (task && /^\d+$/.test(task)) return { kind: "task", id: task }
   const activity = params.get("activity")
@@ -34,6 +35,7 @@ export function withDetail(search: string, detail: Detail | null): string {
   else if (detail?.kind === "new-task") {
     p.set("task", "new")
     if (detail.status !== "not_started") p.set("status", detail.status)
+    if (detail.column) p.set("column", detail.column)
   } else if (detail?.kind === "activity") p.set("activity", String(detail.id))
   const s = p.toString()
   return s ? `?${s}` : ""
@@ -44,7 +46,7 @@ export function withDetail(search: string, detail: Detail | null): string {
 export function detailHref(pathname: string, search: string, detail: Detail): string {
   if (pathname.startsWith("/v3/tasks/")) {
     if (detail.kind === "task") return `/v3/tasks/${detail.id}`
-    if (detail.kind === "new-task") return `/v3/tasks/new${detail.status !== "not_started" ? `?status=${detail.status}` : ""}`
+    if (detail.kind === "new-task") return `/v3/tasks/new${withDetail("", detail).replace(/^\?task=new&?/, "?").replace(/^\?$/, "")}`
   }
   return `${pathname}${withDetail(search, detail)}`
 }

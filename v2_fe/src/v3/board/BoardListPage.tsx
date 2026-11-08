@@ -7,19 +7,20 @@ import { ChevronRightIcon, PlusIcon, UserIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
-import type { BoardColumnId } from "@/lib/board-columns"
-import { columns } from "@/lib/workspace-view"
+import type { Task } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
-import { StatusChip } from "../components/status-chip"
-import { COLUMN_LABEL, COLUMN_TONE } from "../components/status-tones"
+import { TaskStatusChip } from "../components/status-chip"
+import { pageGroupOf, statusOf } from "../lib/task-status"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
 import { filterIsActive } from "./board-logic"
 import { BoardToolbar, NewTaskButton } from "./BoardPage"
 import { PriorityMark } from "./TaskCard"
+import { columnKeyOf, columnStats } from "./columns"
+import { useBoardColumns } from "./use-board-columns"
 import { useBoardData, useBoardFilter } from "./use-board-data"
 import { NewTaskLink, TaskLink } from "../components/task-link"
 
@@ -29,7 +30,10 @@ export function BoardListPage() {
   const { activeProject, board } = useWorkspace()
   const now = useLivenessNow()
   const [filter, setFilter] = useBoardFilter()
-  const { shown, card, count, repos, all } = useBoardData(filter)
+  const { shown, card, count, repos, all, rawById } = useBoardData(filter)
+  // #5933: one section per board column, flat statuses (Paused is its own).
+  const cols = useBoardColumns()
+  const keyOfTask = (t: Task) => columnKeyOf(cols.columns, statusOf(t), rawById.get(t.id)?.status_column)
 
   return (
     <V3Shell title="Board" flush actions={activeProject ? <NewTaskButton /> : null}>
@@ -46,21 +50,27 @@ export function BoardListPage() {
             <span className="hidden md:block">Due</span>
             <span className="hidden text-right md:block">Updated</span>
           </div>
-          {columns.filter((col) => filter.statuses.length === 0 || filter.statuses.includes(col.id)).map((col) => {
-            const rows = shown.filter((t) => t.status === col.id)
-            const loaded = all.filter((t) => t.status === col.id).length
-            const total = board.columnTotals[col.id as BoardColumnId] ?? loaded
+          {cols.columns.filter((col) => !col.hidden && (filter.statuses.length === 0 || filter.statuses.includes(col.kind))).map((col) => {
+            const rows = shown.filter((t) => keyOfTask(t) === col.key)
+            const loaded = all.filter((t) => keyOfTask(t) === col.key).length
+            const group = pageGroupOf(col.kind)
+            const groupLoaded = all.filter((t) => pageGroupOf(statusOf(t)) === group).length
+            const { total, more } = columnStats(col, cols.custom, loaded, groupLoaded, board.columnTotals[group] ?? groupLoaded)
+            const shownTotal = total ?? (more ? `${loaded}+` : loaded)
+            const canAdd = col.kind !== "archived"
             return (
-              <Collapsible key={col.id} defaultOpen={col.id !== "done"} className="group/section border-b border-border">
+              <Collapsible key={col.key} defaultOpen={col.kind !== "done"} className="group/section border-b border-border">
                 <div className="flex items-center gap-2 bg-muted/40 px-4 py-1.5 lg:px-6">
-                  <CollapsibleTrigger className="inline-flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" aria-label={`${COLUMN_LABEL[col.id]}, ${rows.length} shown`}>
+                  <CollapsibleTrigger className="inline-flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-ring" aria-label={`${col.label}, ${rows.length} shown`}>
                     <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-data-[open]/section:rotate-90" aria-hidden />
-                    <StatusChip tone={COLUMN_TONE[col.id]} />
-                    <span className="text-xs tabular-nums text-muted-foreground">{filterIsActive(filter) ? `${rows.length} of ${total}` : total}</span>
+                    {cols.custom ? <span className="text-sm font-medium">{col.label}</span> : <TaskStatusChip status={col.kind} />}
+                    <span className="text-xs tabular-nums text-muted-foreground">{filterIsActive(filter) ? `${rows.length} of ${shownTotal}` : shownTotal}</span>
                   </CollapsibleTrigger>
-                  <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={`Add a task to ${COLUMN_LABEL[col.id]}`} render={<NewTaskLink status={col.id} />} nativeButton={false}>
-                    <PlusIcon />
-                  </Button>
+                  {canAdd ? (
+                    <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={`Add a task to ${col.label}`} render={<NewTaskLink status={col.kind} column={cols.custom ? col.key : null} />} nativeButton={false}>
+                      <PlusIcon />
+                    </Button>
+                  ) : null}
                 </div>
                 <CollapsibleContent>
                   {rows.length ? (
@@ -100,10 +110,10 @@ export function BoardListPage() {
                   ) : (
                     <p className="px-4 py-3 text-xs text-muted-foreground lg:px-6">{filterIsActive(filter) ? "Nothing here matches." : "Nothing here yet."}</p>
                   )}
-                  {loaded < total ? (
+                  {more ? (
                     <div className="px-4 pb-2 lg:px-6">
-                      <Button variant="ghost" size="sm" disabled={board.loadingColumns.has(col.id as BoardColumnId)} onClick={() => board.loadMore(col.id as BoardColumnId, loaded)}>
-                        {board.loadingColumns.has(col.id as BoardColumnId) ? "Loading…" : `Load ${Math.min(25, total - loaded)} more of ${total - loaded}`}
+                      <Button variant="ghost" size="sm" disabled={board.loadingColumns.has(group)} onClick={() => board.loadMore(group, groupLoaded)}>
+                        {board.loadingColumns.has(group) ? "Loading…" : total != null ? `Load more (${total - loaded} left)` : "Load more"}
                       </Button>
                     </div>
                   ) : null}

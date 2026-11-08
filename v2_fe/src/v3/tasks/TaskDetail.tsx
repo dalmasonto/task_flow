@@ -32,10 +32,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { fetchClaimLease } from "@/lib/taskflow-api"
-import { columns, type ColumnId, type Priority } from "@/lib/workspace-view"
+import { type Priority } from "@/lib/workspace-view"
 
-import { StatusChip } from "../components/status-chip"
-import { COLUMN_LABEL, COLUMN_TONE } from "../components/status-tones"
+import { TaskStatusChip } from "../components/status-chip"
+import { STATUS_LABEL } from "../components/status-tones"
+import { statusOf, STATUS_ORDER } from "../lib/task-status"
+import { useMoveTask } from "../lib/use-move-task"
 import { timeAgo } from "../lib/time"
 import { leaseLabel, leaseLeft } from "../board/board-logic"
 import { useLoad } from "../lib/use-load"
@@ -88,6 +90,7 @@ export function TaskDetail({ id, frame, onDeleted }: { id: string; frame: TaskFr
   const leaseAgent = raw?.assigned_agent_id != null ? (live?.agents ?? projectLive?.agents ?? []).find((a) => a.id === raw.assigned_agent_id) : undefined
   const leftOnLease = leaseLeft(raw, leaseAgent, lease.data?.lease_minutes ?? null, now)
 
+  const move = useMoveTask()
   const save = async (patch: TaskflowTaskUpdate, what: string) => {
     try {
       await tv.patch(id, patch)
@@ -125,6 +128,8 @@ export function TaskDetail({ id, frame, onDeleted }: { id: string; frame: TaskFr
     )
   }
 
+  // #5933: the real status, never the combined one.
+  const status = statusOf(task)
   const people = (live?.members ?? []).filter((m) => m.user != null && m.status === "active")
   const agents = (live?.agents ?? []).filter((a) => a.status !== "revoked")
   const assigneeValue = raw?.assigned_agent_id != null ? `agent:${raw.assigned_agent_id}` : raw?.assigned_user != null ? `user:${raw.assigned_user}` : "none"
@@ -173,7 +178,7 @@ export function TaskDetail({ id, frame, onDeleted }: { id: string; frame: TaskFr
           </Link>
           <ChevronRightIcon className="size-3.5" aria-hidden />
           <span className="font-mono text-xs">#{task.id}</span>
-          <StatusChip tone={COLUMN_TONE[task.status]} className="ml-1" />
+          <TaskStatusChip status={status} className="ml-1" />
         </nav>
         {editingTitle ? (
           <Input
@@ -219,14 +224,14 @@ export function TaskDetail({ id, frame, onDeleted }: { id: string; frame: TaskFr
           <section className="rounded-xl border border-border bg-card p-4" aria-label="Properties">
             <dl>
               <Prop label="Status">
-                <Select items={COLUMN_LABEL} value={task.status} onValueChange={(v) => v && v !== task.status && tv.move(task.id, v as ColumnId)}>
+                <Select items={STATUS_LABEL} value={status} onValueChange={(v) => v && v !== status && move(task.id, v as typeof status)}>
                   <SelectTrigger className="h-8 w-full" aria-label="Status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {columns.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {COLUMN_LABEL[c.id]}
+                    {STATUS_ORDER.map((st) => (
+                      <SelectItem key={st} value={st}>
+                        {STATUS_LABEL[st]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -327,8 +332,8 @@ export function TaskDetail({ id, frame, onDeleted }: { id: string; frame: TaskFr
               Created {timeAgo(raw?.created_at, now) ?? "—"} · updated {timeAgo(raw?.updated_at, now) ?? "—"}
             </p>
           </section>
-          {task.status !== "done" ? (
-            <Button variant="outline" className="w-full" onClick={() => tv.move(task.id, "done")}>
+          {status !== "done" && status !== "archived" ? (
+            <Button variant="outline" className="w-full" onClick={() => move(task.id, "done")}>
               <CheckIcon />
               Mark as done
             </Button>

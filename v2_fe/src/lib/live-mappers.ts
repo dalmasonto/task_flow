@@ -753,6 +753,7 @@ export function mapLiveTasks(
       description: task.description_markdown ?? "",
       notes: task.notes_markdown ?? "",
       status: mapLiveStatus(task.status),
+      liveStatus: task.status,
       priority: mapLivePriority(task.priority),
       owner: assignee,
       ownerInitials: toInitials(assignee),

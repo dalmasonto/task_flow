@@ -43,6 +43,7 @@ import { myMembership } from "../invites/invites-logic"
 import { RoomHeader } from "./RoomHeader"
 import { RoomPanel } from "./RoomPanel"
 import { linkedTaskIds, roomMembers, roomPowers } from "./room-logic"
+import { statusOf } from "../lib/task-status"
 
 const PANEL_KEY = "v3.chat.details"
 
@@ -308,7 +309,7 @@ function ChatWorkspace({ project }: { project: Project }) {
     const byId = new Map(projectTasks.map((t) => [Number(t.id), t]))
     return linkedTaskIds(channel?.task ?? null, messages.map((m) => m.body), new Set(byId.keys())).map((id) => {
       const t = byId.get(id)!
-      return { id, title: t.title, status: t.status }
+      return { id, title: t.title, status: statusOf(t) }
     })
   }, [channel?.task, messages, projectTasks])
   const terminals = useMemo(() => {
