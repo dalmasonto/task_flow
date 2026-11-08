@@ -83,3 +83,52 @@ async fn display_names_are_unique_in_a_project() {
     let r = app.patch_as(owner, &format!("/api/taskflow/agents/{}", real["agent_id"]), json!({ "display_name": "Reviewer (Codex)" })).await;
     assert_eq!(r.status(), 200, "{}", r.text());
 }
+
+/// #1078 review: names that render like someone else's are refused: invisible
+/// characters, Latin mixed with Cyrillic or Greek, full-width look-alikes,
+/// and a person's name or username in the project.
+#[tokio::test(flavor = "multi_thread")]
+async fn look_alike_and_peoples_names_are_refused() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let owner = app.create_user().await;
+    make_project_member_with_role(project, owner, TaskflowProjectRole::Owner).await;
+    assert_eq!(link(&app, owner, project, "reviewer (codex)", "reviewer").await.0, 200);
+
+    for (name, code) in [
+        ("reviewer (cod\u{0435}x)", "invalid"),          // Cyrillic е among Latin
+        ("revi\u{200B}ewer (codex)", "invalid"),         // zero-width space
+        ("\u{202E}xedoc reweiver", "invalid"),           // bidi override
+        ("ｒｅｖｉｅｗｅｒ (codex)", "name_taken"),        // full-width folds by NFKC
+        ("reviewer   (codex)", "name_taken"),            // spacing collapsed
+    ] {
+        let (s, b) = link(&app, owner, project, name, &format!("p{}", name.len())).await;
+        assert!(s == 400 || s == 409, "{name:?}: {s} {b}");
+        assert_eq!(b["error"], code, "{name:?}: {b}");
+    }
+    // A person's member name in the project...
+    let person = app.create_user().await;
+    make_project_member_with_role(project, person, TaskflowProjectRole::Developer).await;
+    let username = taskflow_projects::models::TaskflowProjectMember::objects()
+        .filter(taskflow_projects::models::taskflow_project_member::USER.eq(person))
+        .first()
+        .await
+        .unwrap()
+        .unwrap()
+        .display_name;
+    let (s, b) = link(&app, owner, project, &username.to_uppercase(), "person").await;
+    assert_eq!(s, 409, "an agent took a member's name {username:?}: {b}");
+    // ...and their USERNAME (not only their member display name).
+    let login = umbral_auth::AuthUser::objects()
+        .filter(umbral_auth::auth_user::ID.eq(person))
+        .first()
+        .await
+        .unwrap()
+        .unwrap()
+        .username;
+    let (s, b) = link(&app, owner, project, &login, "login").await;
+    assert_eq!(s, 409, "an agent took a member's username {login:?}: {b}");
+    // Plain non-Latin names in one script are fine.
+    assert_eq!(link(&app, owner, project, "Ревьюер", "ru").await.0, 200);
+    assert_eq!(link(&app, owner, project, "Κριτής", "gr").await.0, 200);
+}

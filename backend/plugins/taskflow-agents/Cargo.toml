@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+unicode-normalization = "0.1.25"
 umbral = "0.0.13"
 umbral-auth = "0.0.13"
 taskflow-projects = { path = "../taskflow-projects" }
