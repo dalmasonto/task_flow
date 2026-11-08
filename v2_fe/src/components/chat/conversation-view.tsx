@@ -13,6 +13,7 @@ import { appendDesignRef, type DesignRef } from "@/lib/design-ref"
 import { cn } from "@/lib/utils"
 import { composerEmojiGroups, messagePriorityOptions, type AgentMessage, type MessagePriority, type StagedFile, type TargetMember } from "@/lib/workspace-view"
 import { detectMention } from "@/lib/mention"
+import { clampActive, mentionKey, mentionPickerKey, rankMentionMatches } from "@/lib/mention-picker"
 import { encodeMentions, plainExcerpt, type PickedMention } from "@/lib/mention-tokens"
 import { PageMentionContext } from "@/lib/markdown-contexts"
 import { fileReferenceText, spliceAtCaret } from "@/lib/composer"
@@ -87,6 +88,17 @@ export function AgentsConversationView({
   const [targetMembers, setTargetMembers] = useState<TargetMember[]>([])
   // #29: the in-progress `@mention` (an `@` being typed), for the member picker.
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
+  // #1122: the highlighted picker row (↑/↓, Enter/Tab picks it), and the `@`
+  // the person dismissed with Esc, which stays closed until a NEW `@` is typed.
+  const [mentionActive, setMentionActive] = useState(0)
+  const [mentionDismissedAt, setMentionDismissedAt] = useState<number | null>(null)
+  const [mentionActiveFor, setMentionActiveFor] = useState<string | null>(null)
+  const currentMentionKey = mentionKey(mention)
+  if (mentionActiveFor !== currentMentionKey) {
+    // A new query starts at the best match (render-time adjust, not an effect).
+    setMentionActiveFor(currentMentionKey)
+    setMentionActive(0)
+  }
   // #29: the "To:" multi-select popover open state.
   const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
@@ -183,17 +195,24 @@ export function AgentsConversationView({
   // The room's targets matching the in-progress @mention (by display name),
   // online or offline, so anyone can always be addressed. `@page:` switches the
   // list to design pages (#506) where the surface supplies them.
-  const pageQuery = mention && /^page:/i.test(mention.query) ? mention.query.slice(5).toLowerCase() : null
+  const openMention = mention && mention.start !== mentionDismissedAt ? mention : null
+  const pageQuery = openMention && /^page:/i.test(openMention.query) ? openMention.query.slice(5).toLowerCase() : null
+  // #1122: ranked, best match first (exact, prefix, word start, anywhere).
   const mentionMembers =
-    mention && pageQuery === null
-      ? roomTargets.filter((t) => t.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
-      : []
+    openMention && pageQuery === null ? rankMentionMatches(roomTargets, openMention.query, (t) => t.name, 6) : []
   const mentionPages =
-    pageQuery !== null && pageMentions
-      ? pageMentions
-          .filter((p) => p.label.toLowerCase().includes(pageQuery) || p.route.toLowerCase().includes(pageQuery))
-          .slice(0, 8)
-      : []
+    pageQuery !== null && pageMentions ? rankMentionMatches(pageMentions, pageQuery, (p) => `${p.label} ${p.route}`, 8) : []
+  const mentionRows = mentionPages.length ? mentionPages.length : mentionMembers.length
+  const activeRow = clampActive(mentionActive, mentionRows)
+  const pickMentionRow = (index: number) => {
+    if (mentionPages.length) {
+      const page = mentionPages[index]
+      if (page) insertMention({ kind: "page", id: page.route, label: page.label })
+    } else {
+      const target = mentionMembers[index]
+      if (target) selectMention(target)
+    }
+  }
 
   /// Replace the in-progress `@query` with `@Label ` and remember what it names.
   const insertMention = (picked: PickedMention) => {
@@ -891,19 +910,26 @@ export function AgentsConversationView({
                 online or offline — so anyone can be addressed by picking from a
                 list instead of typing a long, spaced handle by hand. */}
             {mentionPages.length ? (
-              <div className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
+              <div id="mention-picker" role="listbox" aria-label="Mention a page" className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
                 <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
                   Mention a page
                 </div>
-                {mentionPages.map((page) => (
+                {mentionPages.map((page, index) => (
                   <button
                     key={page.route}
+                    id={`mention-option-${index}`}
+                    role="option"
+                    aria-selected={index === activeRow}
                     type="button"
+                    onMouseEnter={() => setMentionActive(index)}
                     onMouseDown={(event) => {
                       event.preventDefault()
                       insertMention({ kind: "page", id: page.route, label: page.label })
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
+                      index === activeRow && "bg-accent",
+                    )}
                   >
                     <span className="truncate">{page.label}</span>
                     <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">{page.route}</span>
@@ -912,21 +938,28 @@ export function AgentsConversationView({
               </div>
             ) : null}
             {mentionMembers.length ? (
-              <div className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
+              <div id="mention-picker" role="listbox" aria-label="Mention" className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl">
                 <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
                   Mention
                 </div>
-                {mentionMembers.map((target) => (
+                {mentionMembers.map((target, index) => (
                   <button
                     key={`${target.kind}:${target.id}`}
+                    id={`mention-option-${index}`}
+                    role="option"
+                    aria-selected={index === activeRow}
                     type="button"
+                    onMouseEnter={() => setMentionActive(index)}
                     // Mousedown (not click) so the textarea keeps focus and its
                     // caret — click would blur first and lose the insert point.
                     onMouseDown={(event) => {
                       event.preventDefault()
                       selectMention(target)
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
+                      index === activeRow && "bg-accent",
+                    )}
                   >
                     <span className="truncate">{target.name}</span>
                     {isTargeted(target) ? (
@@ -951,7 +984,31 @@ export function AgentsConversationView({
                 // #29: opening/updating an @mention as the human types.
                 setMention(detectMention(value, event.target.selectionStart ?? value.length))
               }}
+              aria-autocomplete="list"
+              aria-expanded={mentionRows > 0}
+              aria-controls={mentionRows > 0 ? "mention-picker" : undefined}
+              aria-activedescendant={mentionRows > 0 ? `mention-option-${activeRow}` : undefined}
               onKeyDown={(event) => {
+                // #1122: while the @ picker shows rows, ↑/↓/Tab/Enter/Esc are its.
+                const action = mentionPickerKey(
+                  {
+                    key: event.key,
+                    shiftKey: event.shiftKey,
+                    altKey: event.altKey,
+                    ctrlKey: event.ctrlKey,
+                    metaKey: event.metaKey,
+                    isComposing: event.nativeEvent.isComposing,
+                  },
+                  mentionRows,
+                  activeRow,
+                )
+                if (action.kind !== "none") {
+                  event.preventDefault()
+                  if (action.kind === "move") setMentionActive(action.index)
+                  else if (action.kind === "pick") pickMentionRow(action.index)
+                  else if (openMention) setMentionDismissedAt(openMention.start)
+                  return
+                }
                 if (event.key !== "Enter") return
                 // An IME uses Enter to accept a candidate. Submitting there
                 // would send half-composed text and swallow the keystroke that
