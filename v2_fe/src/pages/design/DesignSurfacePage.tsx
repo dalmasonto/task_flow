@@ -54,6 +54,8 @@ import { flowPositions, type FlowDoc } from "./flow/flow-layout"
 import {
   fetchDesignComments,
   fetchDesignAgents,
+  fetchDesignFiles,
+  type DesignFileSummary,
   dispatchDesignComments,
   type DesignAgent,
   fetchDesignManifest,
@@ -120,6 +122,7 @@ import { CommentPins, DesignInspector } from "./design-inspector"
 import { CommentPopover, CommentsPanel, DispatchCards, PinThread } from "./comments-panel"
 import { useCommentAgent } from "./use-comment-agent"
 import { bucketCounts, parseDesignReview, pinLabels } from "./comment-flow-logic"
+import { beingEdited, commentCountsByRoute } from "./pages-filter-logic"
 import { boardForComment, commentRoute } from "./design-comments"
 import { sanitizeSelection, widenSelection, pinNumber, type SelectionState } from "./design-selection"
 import {
@@ -452,6 +455,24 @@ export function DesignSurfacePage({
   const [batchAgent] = useCommentAgent(designAgents)
   const commentLabels = useMemo(() => pinLabels(comments), [comments])
   const commentCounts = useMemo(() => bucketCounts(comments), [comments])
+  // #5945: the Pages tab's "With comments" and "Being edited" filters. Files
+  // are re-read whenever the manifest's revision moves (every design write).
+  const [pagesFilter, setPagesFilter] = useState<"all" | "comments" | "editing">("all")
+  const [designFiles, setDesignFiles] = useState<DesignFileSummary[]>([])
+  const manifestRevision = manifest?.revision
+  useEffect(() => {
+    if (!projectId) return
+    let live = true
+    fetchDesignFiles(projectId)
+      .then((f) => live && setDesignFiles(f))
+      .catch(() => null)
+    return () => {
+      live = false
+    }
+  }, [projectId, manifestRevision])
+  const pagesWithComments = useMemo(() => commentCountsByRoute(comments), [comments])
+  const agentNameSet = useMemo(() => new Set((liveWorkspace?.agents ?? []).map((a) => a.display_name)), [liveWorkspace?.agents])
+  const pagesBeingEdited = useMemo(() => beingEdited(manifest?.routes ?? [], designFiles, agentNameSet, livenessNow), [manifest?.routes, designFiles, agentNameSet, livenessNow])
   const sendBatch = async () => {
     if (!projectId || !batch.length) return
     if (batchAgent == null) {
@@ -1376,8 +1397,12 @@ export function DesignSurfacePage({
             <div data-design-chat className="flex min-h-0 flex-1 flex-col">
             <DesignChatRail
               renderBody={(m) => {
+                // Only a real dispatch becomes cards: every id must be a comment
+                // this page knows, and an agent can't send one (reviewer, #5971).
+                // Anything else, such as someone typing the prefix, stays text.
                 const items = parseDesignReview(m.body)
-                return items ? <DispatchCards items={items} comments={comments} labels={commentLabels} onOpen={(id) => setThreadFor(id)} /> : null
+                const real = items && items.every((it) => comments.some((c) => c.id === it.id)) && !liveWorkspace?.agents.some((a) => a.display_name === m.from)
+                return items && real ? <DispatchCards items={items} comments={comments} labels={commentLabels} onOpen={(id) => setThreadFor(id)} /> : null
               }}
               project={project}
               liveWorkspace={liveWorkspace}
@@ -1600,6 +1625,59 @@ export function DesignSurfacePage({
             </TabsContent>
 
             <TabsContent value="pages">
+              {/* #5945: quick filters, as designed. */}
+              <div className="flex flex-wrap gap-1.5 px-3 pt-3" role="tablist" aria-label="Filter pages">
+                {(
+                  [
+                    ["all", `All ${manifest?.routes.length ?? 0}`],
+                    ["comments", `With comments ${pagesWithComments.size}`],
+                    ["editing", `Being edited ${pagesBeingEdited.size}`],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={pagesFilter === id}
+                    onClick={() => setPagesFilter(id)}
+                    className={cn("h-7 rounded-full border px-3 text-xs", pagesFilter === id ? "border-foreground bg-foreground font-medium text-background" : "border-border text-muted-foreground hover:text-foreground")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {pagesFilter !== "all" ? (
+                <ul className="grid gap-1 p-3">
+                  {(manifest?.routes ?? [])
+                    .filter((r) => (pagesFilter === "comments" ? pagesWithComments.has(r.path) : pagesBeingEdited.has(r.path)))
+                    .map((r) => (
+                      <li key={r.path}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"
+                          onClick={() => {
+                            openRoute(r.path)
+                            focusBoard(artboardKey(r.path, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
+                          }}
+                        >
+                          <span className="min-w-0 flex-1 truncate">{labelFor(r.path)}</span>
+                          <span className="font-mono text-xs text-muted-foreground">{r.path}</span>
+                          {pagesFilter === "comments" ? (
+                            <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground tabular-nums">{pagesWithComments.get(r.path)}</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-running">
+                              <span className="size-1.5 animate-pulse rounded-full bg-running" aria-hidden />
+                              {pagesBeingEdited.get(r.path)}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  {(pagesFilter === "comments" ? pagesWithComments.size : pagesBeingEdited.size) === 0 ? (
+                    <li className="py-6 text-center text-sm text-muted-foreground">{pagesFilter === "comments" ? "No page has comments waiting." : "No agent is writing a page right now."}</li>
+                  ) : null}
+                </ul>
+              ) : (
               <PagesPanel
                 manifest={manifest}
                 openRoutes={openRoutes}
@@ -1616,6 +1694,7 @@ export function DesignSurfacePage({
                 trash={trash}
                 onRestore={restorePage}
               />
+              )}
             </TabsContent>
           </Tabs>
         </aside>
