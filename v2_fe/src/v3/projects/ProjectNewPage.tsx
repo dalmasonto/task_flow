@@ -51,7 +51,13 @@ export function ProjectNewPage() {
       const { id } = await createProject({ name, description_markdown: purpose || undefined })
       // Both are follow-ups on a project that now exists: a failure here must not
       // read as "the project wasn't created", so they never throw past this point.
-      if (purpose) await setProjectAgentInstructions(Number(id), purpose).catch(() => undefined)
+      if (purpose) {
+        await setProjectAgentInstructions(Number(id), purpose).catch(() => {
+          toast.warning("Project created, but agents won't see its purpose yet", {
+            description: "Saving it as project instructions failed. Add it in Settings → Agent instructions.",
+          })
+        })
+      }
       let repoNote: string | null = null
       if (repo) {
         await addGithubProjectRepo(Number(id), repo).catch((e: unknown) => {

@@ -11,14 +11,20 @@ export function isDarkNow(): boolean {
   return typeof document !== "undefined" && document.documentElement.classList.contains("dark")
 }
 
+/// Only the newest save may clear the pending flag: two quick toggles send two
+/// saves, and if the first finished last it would otherwise clear the flag
+/// while the newer choice was still in flight (group 3 review).
+let latestSave = 0
+
 export async function toggleTheme(): Promise<void> {
   // An explicit choice, even if the stored preference was "system".
   const next = isDarkNow() ? "light" : "dark"
   setThemePreference(next)
   setThemeSyncPending(true)
+  const mine = ++latestSave
   try {
     await updateUserSettings({ theme: next })
-    setThemeSyncPending(false)
+    if (mine === latestSave) setThemeSyncPending(false)
   } catch {
     // Applied on this device; it reaches the account on the next successful save.
   }
