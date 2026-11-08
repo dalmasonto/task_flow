@@ -214,6 +214,39 @@ pub struct DesignComment {
     /// stays visible with its text and offers re-anchoring.
     #[umbral(default = "false")]
     pub orphaned: bool,
+    /// #1123: the agent this comment was dispatched to (set by dispatch), so the
+    /// pin thread can say "sent to X" and a person's reply can reach that agent.
+    #[umbral(on_delete = "set_null")]
+    pub sent_to_agent: Option<ForeignKey<taskflow_agents::models::TaskflowAgent>>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #1123: a reply in a design comment's pin thread. Append-only. Written ONLY
+/// by `threads.rs`; the author comes from the auth gate. Auto-REST serves it
+/// read-only and project-scoped.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["comment", "id"]])]
+pub struct DesignCommentReply {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub comment: ForeignKey<DesignComment>,
+    /// "user" or "agent".
+    #[umbral(string, max_length = 10)]
+    pub author_kind: String,
+    #[umbral(on_delete = "set_null")]
+    pub author_user: Option<ForeignKey<umbral_auth::AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub author_agent: Option<ForeignKey<taskflow_agents::models::TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub author_label: String,
+    #[umbral(string, max_length = 4000, widget = "textarea")]
+    pub body: String,
+    /// "fixed in v4": a real version of the comment's own page. NULL when not
+    /// given, and always NULL on a comment that has no page.
+    pub page_version: Option<i64>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }

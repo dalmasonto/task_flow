@@ -82,6 +82,9 @@ pub fn router() -> Router {
             "/api/design/{project}/comments/{id}",
             patch(views::update_comment),
         )
+        // #1123: pin threads, replies and the thread read (people).
+        .route("/api/design/{project}/comments/{id}/replies", post(crate::threads::add_reply))
+        .route("/api/design/{project}/comments/{id}/thread", get(crate::threads::get_thread))
         .route(
             "/api/design/{project}/layout",
             get(views::get_layout).put(views::put_layout),
@@ -185,6 +188,9 @@ pub fn router() -> Router {
             "/api/taskflow/agents/design/comments/{id}/resolve",
             post(agent_views::resolve_comment),
         )
+        // #1123: pin threads, replies and the thread read (agent side).
+        .route("/api/taskflow/agents/design/comments/{id}/replies", post(crate::threads::agent_add_reply))
+        .route("/api/taskflow/agents/design/comments/{id}/thread", get(crate::threads::agent_get_thread))
         // --- sandbox-facing (token-granted, distinct origin) -----------------
         // The app's SlashRedirect::Append turns /s/{tok} into /s/{tok}/, so
         // both shapes must resolve to the project root route.

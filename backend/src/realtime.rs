@@ -35,7 +35,7 @@ use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
 };
 use taskflow_daily::models::TaskflowDailyUpdate;
-use taskflow_design::models::{DesignComment, DesignLayout};
+use taskflow_design::models::{DesignComment, DesignCommentReply, DesignLayout};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
 };
@@ -144,6 +144,7 @@ const TERMINAL_INPUT_FIELDS: &[&str] = &["id", "project", "agent", "keys", "text
 /// sessions: the frontend replaces its stored copy with the event payload, so an
 /// omitted column would be blanked on the first live update. `metadata_json` is
 /// included because the detail sheet renders it.
+const DESIGN_REPLY_FIELDS: &[&str] = &["id", "project", "comment", "author_kind", "created_at"];
 const DECISION_FIELDS: &[&str] = &[
     "id", "project", "key", "question", "context_markdown", "status",
     "asked_by_user", "asked_by_agent", "asked_by_label", "ruler_user", "channel",
@@ -416,6 +417,11 @@ pub fn plugin() -> RealtimePlugin {
         // do.
         .expose::<DesignComment>(
             Expose::to_group_with(|ev| group_for(DESIGN_COMMENTS, &ev.instance)),
+        )
+        // #1123: pin-thread replies ride the design-comment group, projected to
+        // ids so the thread refetches over GET .../comments/{id}/thread.
+        .expose::<DesignCommentReply>(
+            Expose::to_group_with(|ev| group_for(DESIGN_COMMENTS, &ev.instance)).fields(DESIGN_REPLY_FIELDS),
         )
         .expose::<DesignLayout>(Expose::to_group_with(|ev| group_for(DESIGN_LAYOUT, &ev.instance)))
 }
