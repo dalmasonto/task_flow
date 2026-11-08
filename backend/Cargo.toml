@@ -25,6 +25,7 @@ taskflow-agents = { path = "plugins/taskflow-agents" }
 taskflow-toolbox = { path = "plugins/taskflow-toolbox" }
 taskflow-decisions = { path = "plugins/taskflow-decisions" }
 taskflow-usage = { path = "plugins/taskflow-usage" }
+taskflow-inbox = { path = "plugins/taskflow-inbox" }
 taskflow-tasks = { path = "plugins/taskflow-tasks" }
 taskflow-projects = { path = "plugins/taskflow-projects" }
 taskflow-github = { path = "plugins/taskflow-github" }

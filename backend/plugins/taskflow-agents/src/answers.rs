@@ -422,3 +422,18 @@ pub async fn channel_answers(
         .collect();
     Ok(Json(json!({ "results": results })).into_response())
 }
+
+/// #1116: the keys of `message`'s questions that nobody has answered yet
+/// (empty for a message without questions). Used by the inbox.
+pub async fn open_question_keys(message: &TaskflowAgentMessage) -> Vec<String> {
+    let Some(set) = message.questions.as_deref().and_then(questions::parse_stored) else {
+        return Vec::new();
+    };
+    let answered: Vec<String> = rows_for(&[message.id])
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| r.key)
+        .collect();
+    set.questions.into_iter().map(|q| q.key).filter(|k| !answered.contains(k)).collect()
+}
