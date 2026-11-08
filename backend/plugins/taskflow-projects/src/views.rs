@@ -476,8 +476,18 @@ pub async fn create_project(
 
     let description_markdown =
         non_empty(input.description_markdown).unwrap_or_else(|| "New project.".to_string());
-    let default_api_base_url =
-        Some(non_empty(input.default_api_base_url).unwrap_or_else(|| "/api".to_string()));
+    // #1139: no literal "/api" any more. The column follows the default
+    // environment, and the settings PATCH only takes an http(s) URL, so a
+    // relative value here could never be saved back. A URL given at creation
+    // passes the same check; none is stored as null.
+    // Back-compat: v2's create still sends the old relative "/api" default;
+    // a relative path means "none yet" rather than a 400 that breaks creating
+    // a project.
+    let given = input.default_api_base_url.filter(|u| !u.trim().starts_with('/'));
+    let default_api_base_url = match crate::project_edit::check_url_max("default_api_base_url", given, 400) {
+        Ok(v) => v,
+        Err(e) => return Ok(e.into_response()),
+    };
     let repository_url = non_empty(input.repository_url);
 
     let display_name = caller.username.clone();

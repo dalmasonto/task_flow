@@ -277,7 +277,7 @@ async fn auto_rest_create_is_405() {
 }
 
 /// The default field values land: an empty description gets a placeholder and the
-/// default api base url is `/api`.
+/// default api base url is null (#1139: it follows the default environment).
 #[tokio::test]
 async fn defaults_are_applied_for_empty_optional_fields() {
     app().await;
@@ -297,8 +297,8 @@ async fn defaults_are_applied_for_empty_optional_fields() {
     );
     assert_eq!(
         body["default_api_base_url"],
-        json!("/api"),
-        "default_api_base_url defaults to /api; got {body}",
+        serde_json::Value::Null,
+        "no API address until an environment is the default (#1139); got {body}",
     );
     // Silence unused-field warnings for a caller whose email/username this test
     // does not assert on.
@@ -379,4 +379,38 @@ async fn a_stranger_cannot_delete_a_project() {
     let project = create_project_as(&owner).await;
     let stranger = make_caller().await;
     assert_eq!(delete(&stranger.token, &format!("/api/taskflow/projects/{project}")).await, 403);
+}
+
+/// #1139: a URL given at creation passes the settings PATCH's own check, so a
+/// project never holds a value the PATCH would refuse to save back.
+#[tokio::test]
+async fn a_bad_api_url_at_creation_is_refused_and_the_old_default_means_none() {
+    app().await;
+    let caller = make_caller().await;
+    // The old client default "/api" still creates (stored as null): v2 sends it.
+    let (status, body) = post_json(
+        &caller.token,
+        "/api/taskflow/projects",
+        json!({ "name": format!("Legacy url {}", seq()), "default_api_base_url": "/api" }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["default_api_base_url"], serde_json::Value::Null);
+    for bad in ["javascript:alert(1)", "ftp://x.test", "not a url"] {
+        let (status, body) = post_json(
+            &caller.token,
+            "/api/taskflow/projects",
+            json!({ "name": format!("Bad url {}", seq()), "default_api_base_url": bad }),
+        )
+        .await;
+        assert_eq!(status, 400, "{bad}: {body}");
+    }
+    let (status, body) = post_json(
+        &caller.token,
+        "/api/taskflow/projects",
+        json!({ "name": format!("Good url {}", seq()), "default_api_base_url": " https://api.example.test " }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["default_api_base_url"], "https://api.example.test");
 }
