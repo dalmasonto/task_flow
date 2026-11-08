@@ -64,6 +64,7 @@ const BoardPage = lazyNamed(() => import("./board/BoardPage"), "BoardPage")
 const BoardListPage = lazyNamed(() => import("./board/BoardListPage"), "BoardListPage")
 const TaskPage = lazyNamed(() => import("./tasks/TaskPage"), "TaskPage")
 const TaskNewPage = lazyNamed(() => import("./tasks/TaskNewPage"), "TaskNewPage")
+const SessionsPage = lazyNamed(() => import("./tasks/SessionsPage"), "SessionsPage")
 
 export function V3App() {
   useV3Document()
@@ -90,6 +91,7 @@ export function V3App() {
         {/* Static beats dynamic in the router: "new" is never a task id. */}
         <Route path="/v3/tasks/new" element={<TaskNewPage />} />
         <Route path="/v3/tasks/:id" element={<TaskPage />} />
+        <Route path="/v3/sessions" element={<SessionsPage />} />
           <Route path="*" element={<NotPortedYet />} />
         </Routes>
       </Suspense>

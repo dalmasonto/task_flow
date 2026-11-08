@@ -2335,6 +2335,7 @@ function App() {
         },
         upload: (taskId, files) => handleUploadTaskAttachment(taskId, files),
         create: createLiveTask,
+        sessions: { start: handleStartTaskSession, pause: handlePauseTaskSession, stop: handleStopTaskSession },
       },
       chooseProject,
       createProject: async (input) => {

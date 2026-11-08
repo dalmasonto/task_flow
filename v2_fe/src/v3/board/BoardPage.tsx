@@ -3,7 +3,7 @@
 /// workspace: the optimistic move + write, per-column paging, server totals.
 import { useState, type DragEvent } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ChevronDownIcon, ColumnsIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TriangleAlertIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ColumnsIcon, KanbanIcon, ListIcon, PlusIcon, SearchIcon, TimerIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -188,7 +188,9 @@ function SavedViews({ filter, onFilter, count }: { filter: BoardFilter; onFilter
           )}
         >
           {v.label}
-          <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{v.id === "all" ? board.total : count(viewFilter(v.id))}</span>
+          <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">
+            {v.id === "all" ? board.total : count(viewFilter(v.id))}
+          </span>
         </button>
       ))}
     </div>
@@ -224,10 +226,16 @@ export function BoardToolbar({
 
 export function NewTaskButton() {
   return (
-    <Button size="sm" render={<Link to="/v3/tasks/new" />} nativeButton={false}>
-      <PlusIcon />
-      <span className="hidden sm:inline">New task</span>
-    </Button>
+    <>
+      <Button variant="ghost" size="sm" render={<Link to="/v3/sessions" />} nativeButton={false} className="hidden sm:inline-flex">
+        <TimerIcon />
+        Sessions
+      </Button>
+      <Button size="sm" render={<Link to="/v3/tasks/new" />} nativeButton={false}>
+        <PlusIcon />
+        <span className="hidden sm:inline">New task</span>
+      </Button>
+    </>
   )
 }
 

@@ -29,6 +29,7 @@ export function v3RouteKind(path: string): V3RouteKind {
 const GATE_MAP: [prefix: string, v2: string][] = [
   ["/v3/board", "/dashboard/board"],
   ["/v3/tasks", "/dashboard/board"],
+  ["/v3/sessions", "/dashboard/board"],
   ["/v3/reviews", "/dashboard/reviews"],
   ["/v3/chat", "/dashboard/agents"],
   ["/v3/inbox", "/dashboard/agents"],

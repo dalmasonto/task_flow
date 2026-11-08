@@ -42,5 +42,6 @@ describe("activeNavId", () => {
     expect(activeNavId("/v3/projects/new")).toBeNull()
     expect(activeNavId("/v3/project/members")).toBe("settings")
     expect(activeNavId("/v3/tasks/12")).toBe("board")
+    expect(activeNavId("/v3/sessions")).toBe("board")
   })
 })

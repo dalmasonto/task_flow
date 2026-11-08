@@ -19,3 +19,10 @@ describe("timeAgo", () => {
     expect(timeAgo(new Date(now + 60_000).toISOString(), now)).toBe("just now")
   })
 })
+
+describe("formatDuration", () => {
+  it("shows the two biggest units", async () => {
+    const { formatDuration } = await import("./time")
+    expect([formatDuration(45), formatDuration(12 * 60 + 5), formatDuration(82 * 60), formatDuration(3600), formatDuration(76 * 3600), formatDuration(-5)]).toEqual(["45s", "12m", "1h 22m", "1h", "3d 4h", "0s"])
+  })
+})

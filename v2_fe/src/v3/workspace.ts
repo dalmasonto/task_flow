@@ -8,7 +8,7 @@
 import { createContext, useContext } from "react"
 
 import type { AuthUser } from "@/lib/auth-api"
-import type { TaskflowTaskCreate, TaskflowTaskUpdate } from "@/api/client"
+import type { TaskflowTaskCreate, TaskflowTaskStatus, TaskflowTaskUpdate } from "@/api/client"
 import type { BoardColumnId } from "@/lib/board-columns"
 import type { CreateProjectInput, RealtimeStatus, TaskflowWorkspace } from "@/lib/taskflow-api"
 import type { ColumnId, DropTarget, Project, Task } from "@/lib/workspace-view"
@@ -62,6 +62,14 @@ export type V3Workspace = {
     /// Create in the active project; the new task joins local state from the
     /// server's response (project and created_by are filled in here).
     create: (input: Omit<TaskflowTaskCreate, "project" | "created_by">) => Promise<{ id: string }>
+    /// Work sessions follow status (the backend timer opens one on
+    /// in_progress, closes it on pause/done/review/blocked); these are v2's
+    /// handlers, which move the task and log the activity.
+    sessions: {
+      start: (task: Task) => void
+      pause: (task: Task) => void
+      stop: (task: Task, final: Extract<TaskflowTaskStatus, "done" | "partial_done" | "blocked">) => void
+    }
   }
   chooseProject: (projectId: string) => void
   /// Create a project and make it active, the same way v2's dialog does.

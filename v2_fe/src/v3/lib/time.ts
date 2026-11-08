@@ -15,3 +15,15 @@ export function timeAgo(iso: string | null | undefined, now: number): string | n
   const date = new Date(t)
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: "numeric" } : {}) })
 }
+
+/// "45s", "12m", "1h 22m", "3d 4h": an elapsed span in its two biggest units.
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  const d = Math.floor(h / 24)
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`
+}
