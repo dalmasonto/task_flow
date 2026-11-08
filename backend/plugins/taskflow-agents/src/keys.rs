@@ -38,7 +38,33 @@ pub fn new_key() -> (String, String, String) {
     (key_prefix, raw_key, key_hash)
 }
 
-const ROTATION_BUSY: &str = "taskflow:rotation_busy";
+pub(crate) const ROTATION_BUSY: &str = "taskflow:rotation_busy";
+
+type TxError = Box<dyn std::error::Error + Send + Sync>;
+
+/// The agent's newest credential of ANY status: its policy is what a new key
+/// inherits. Active-only would let the linked human revoke every key, rotate,
+/// and come back with an owner's denials gone (#1136 review).
+pub(crate) async fn newest_credential_on(tx: &mut umbral::db::Transaction, agent: i64) -> Result<Option<TaskflowAgentCredential>, TxError> {
+    Ok(TaskflowAgentCredential::objects()
+        .filter(taskflow_agent_credential::AGENT.eq(agent))
+        .order_by(taskflow_agent_credential::ID.desc())
+        .on_tx(tx)
+        .first()
+        .await?)
+}
+
+/// Revoke every active key of `agent`; returns how many.
+pub(crate) async fn revoke_active_on(tx: &mut umbral::db::Transaction, agent: i64) -> Result<u64, TxError> {
+    let mut v = serde_json::Map::new();
+    v.insert("status".into(), json!("revoked"));
+    v.insert("revoked_at".into(), json!(Utc::now()));
+    Ok(TaskflowAgentCredential::objects()
+        .filter(taskflow_agent_credential::AGENT.eq(agent) & taskflow_agent_credential::STATUS.eq("active"))
+        .on_tx(tx)
+        .update_values(v)
+        .await? as u64)
+}
 
 fn refuse(status: StatusCode, code: &str, detail: &str) -> Response {
     (status, Json(json!({ "error": code, "detail": detail }))).into_response()
@@ -113,21 +139,8 @@ pub async fn rotate_key(RequireAuth(user): RequireAuth<i64>, Path(agent_id): Pat
         Ok(a) => a,
         Err(r) => return r,
     };
-    // Carry the newest active key's capabilities over.
-    let newest = TaskflowAgentCredential::objects()
-        .filter(taskflow_agent_credential::AGENT.eq(agent.id) & taskflow_agent_credential::STATUS.eq("active"))
-        .order_by(taskflow_agent_credential::ID.desc())
-        .first()
-        .await;
-    let Ok(newest) = newest else {
-        return refuse(StatusCode::INTERNAL_SERVER_ERROR, "internal", "internal error");
-    };
-    let (scopes, denied, name) = match &newest {
-        Some(c) => (c.scopes.clone(), c.denied_scopes.clone(), c.name.clone()),
-        None => (None, None, format!("{} key", agent.display_name)),
-    };
     let (key_prefix, raw_key, key_hash) = new_key();
-    let now = Utc::now();
+    let default_name = format!("{} key", agent.display_name);
     let agent_id = agent.id;
     let project = agent.project.clone();
     let result = umbral::transaction(move |tx| {
@@ -145,14 +158,11 @@ pub async fn rotate_key(RequireAuth(user): RequireAuth<i64>, Path(agent_id): Pat
             if locked.is_none() {
                 return Err::<(u64, TaskflowAgentCredential), Box<dyn std::error::Error + Send + Sync>>(ROTATION_BUSY.into());
             }
-            let mut v = serde_json::Map::new();
-            v.insert("status".into(), json!("revoked"));
-            v.insert("revoked_at".into(), json!(now));
-            let revoked = TaskflowAgentCredential::objects()
-                .filter(taskflow_agent_credential::AGENT.eq(agent_id) & taskflow_agent_credential::STATUS.eq("active"))
-                .on_tx(tx)
-                .update_values(v)
-                .await?;
+            let (scopes, denied, name) = match newest_credential_on(tx, agent_id).await? {
+                Some(c) => (c.scopes, c.denied_scopes, c.name),
+                None => (None, None, default_name),
+            };
+            let revoked = revoke_active_on(tx, agent_id).await?;
             let created = TaskflowAgentCredential::objects()
                 .on_tx(tx)
                 .create(TaskflowAgentCredential {

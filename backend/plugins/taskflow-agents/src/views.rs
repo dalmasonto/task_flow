@@ -1570,6 +1570,34 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // #1136 review: re-linking an EXISTING identity is a takeover unless the
+    // caller may manage that agent. Its display name and profile are visible
+    // to every member, so "same name + profile" proves nothing. A human needs
+    // `may_drive_agent` (owner/admin, or its linked human); an agent may never
+    // re-key another identity (`agents:manage` is for NEW agents).
+    if let Some(agent) = &existing_agent {
+        let allowed = match issued_by {
+            Some(user) => may_drive_agent(user, agent).await?,
+            None => false,
+        };
+        if !allowed {
+            let (status, code, detail) = if issued_by.is_some() {
+                (
+                    StatusCode::FORBIDDEN,
+                    "not_allowed_to_relink",
+                    "An agent with this name and profile already exists. Only the project's owners and admins, or the person who linked it, can issue it a new key.",
+                )
+            } else {
+                (
+                    StatusCode::CONFLICT,
+                    "agent_exists",
+                    "An agent with this name and profile already exists; pick another name or profile.",
+                )
+            };
+            return Ok((status, Json(json!({ "error": code, "detail": detail, "agent_id": agent.id }))).into_response());
+        }
+    }
+
     let tx_display_name = display_name.clone();
     let tx_identifier = identifier.clone();
     let instructions = normalize_markdown(instructions_markdown);
@@ -1577,8 +1605,31 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
     let tx_scopes = scopes.clone();
     let tx_denied = denied_scopes.clone();
 
-    let (agent_id, created) = umbral::transaction(move |tx| {
+    let result = umbral::transaction(move |tx| {
         Box::pin(async move {
+            // Re-link = rotation: one at a time per agent, old keys revoked,
+            // and its policy carried unless an owner/admin set one explicitly.
+            let mut tx_scopes = tx_scopes;
+            let mut tx_denied = tx_denied;
+            let mut revoked = 0u64;
+            if let Some(agent) = &existing_agent {
+                let locked = TaskflowAgent::objects()
+                    .filter(taskflow_agent::ID.eq(agent.id))
+                    .for_update_skip_locked()
+                    .on_tx(tx)
+                    .first()
+                    .await?;
+                if locked.is_none() {
+                    return Err::<_, Box<dyn std::error::Error + Send + Sync>>(crate::keys::ROTATION_BUSY.into());
+                }
+                if tx_scopes.is_none() && tx_denied.is_none() {
+                    if let Some(newest) = crate::keys::newest_credential_on(tx, agent.id).await? {
+                        tx_scopes = newest.scopes;
+                        tx_denied = newest.denied_scopes;
+                    }
+                }
+                revoked = crate::keys::revoke_active_on(tx, agent.id).await?;
+            }
             let (agent, created) = match existing_agent {
                 Some(agent) => (agent, false),
                 None => {
@@ -1627,11 +1678,32 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
                 })
                 .await?;
 
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((agent.id, created))
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((agent.id, created, revoked, tx_scopes, tx_denied))
         })
     })
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .await;
+    let (agent_id, created, revoked, scopes, denied_scopes) = match result {
+        Ok(r) => r,
+        Err(e) if e.to_string().contains(crate::keys::ROTATION_BUSY) => {
+            return Ok((
+                StatusCode::CONFLICT,
+                Json(json!({ "error": "rotation_in_progress", "detail": "This agent's key is being changed right now; try again in a moment." })),
+            )
+                .into_response());
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "agent mint failed");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+    if !created {
+        // Realtime for the revoked keys and the new one.
+        if let Ok(rows) = TaskflowAgentCredential::objects().filter(crate::models::taskflow_agent_credential::AGENT.eq(agent_id)).fetch().await {
+            for c in &rows {
+                crate::emit::emit_post_save(c).await;
+            }
+        }
+    }
 
     // Guarantee the agent has somewhere to talk (and somewhere reviews can be
     // reported back to) the moment it is linked. Best-effort: a failure here
@@ -1668,6 +1740,8 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
             "project": project_id,
             "profile": profile,
             "instructions_applied": created && instructions.is_some(),
+            "relinked": !created,
+            "revoked": revoked,
             "scopes": crate::scopes::parse_scopes(scopes.as_deref()),
             "denied_scopes": crate::scopes::parse_denied(denied_scopes.as_deref()),
             "capabilities": crate::scopes::effective_capabilities(

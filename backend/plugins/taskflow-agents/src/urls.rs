@@ -111,6 +111,10 @@ pub fn router() -> Router {
         // #1136: rotate an agent's key, or stop one, without deleting the agent.
         .route("/api/taskflow/agents/{agent}/rotate-key", post(crate::keys::rotate_key))
         .route("/api/taskflow/agents/{agent}/credentials/{credential}/revoke", post(crate::keys::revoke_key))
+        .route(
+            "/api/taskflow/projects/{project}/members/{user}",
+            umbral::web::patch(crate::members::set_role).delete(crate::members::remove),
+        )
         // #1078 / group 9: change an agent's capabilities without a new key (owner/admin).
         .route("/api/taskflow/agents/{agent}/scopes", umbral::web::patch(views::set_agent_scopes))
         // #615: replace an agent's role instructions (human-authed): owner/admin,

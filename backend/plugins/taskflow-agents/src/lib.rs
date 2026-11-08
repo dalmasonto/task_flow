@@ -27,6 +27,9 @@ pub mod claims;
 pub mod emit;
 // #1136: rotate / revoke an agent's keys.
 pub mod keys;
+// #1136: a member's role, or removing them (lives here: removal revokes the
+// keys of agents they linked, and writes activity).
+pub mod members;
 // #1126: claim leases (release a silent agent's claims).
 pub mod leases;
 pub mod wakeups;

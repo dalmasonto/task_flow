@@ -10,6 +10,14 @@
 //! each other at once can't leave the project with none. Removal sets the
 //! membership `left`; the read scope only honours `active`, so access ends at
 //! once. Not a member at all: 404, so a project's existence doesn't leak.
+//!
+//! **Removal stops the keys of agents the member linked** (`linked_by` = them):
+//! the raw keys sit in their `.taskflow.json`, so leaving must not leave them
+//! working. The agents and their history stay; an owner or admin can rotate a
+//! key to bring one back. The response names them:
+//! `{revoked_agent_keys, agents: [{id, display_name}]}`. Role changes and
+//! removals each write one activity row (`member_role_changed`,
+//! `member_removed`).
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -17,7 +25,13 @@ use umbral::prelude::IntoResponse;
 use umbral::web::{Json, Path, Response, StatusCode};
 use umbral_auth::RequireAuth;
 
-use crate::models::{TaskflowProjectMember, TaskflowProjectRole, taskflow_project_member};
+use chrono::Utc;
+use umbral::orm::ForeignKey;
+
+use taskflow_projects::models::{TaskflowProjectMember, TaskflowProjectRole, taskflow_project_member};
+use taskflow_tasks::models::{TaskflowActorKind, TaskflowTaskActivity};
+
+use crate::models::{TaskflowAgent, TaskflowAgentCredential, taskflow_agent, taskflow_agent_credential};
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -75,6 +89,61 @@ async fn emit_member(id: i64) {
     }
 }
 
+fn label(m: &TaskflowProjectMember) -> String {
+    if m.display_name.trim().is_empty() { format!("user {}", m.user.as_ref().map(|u| u.id()).unwrap_or_default()) } else { m.display_name.clone() }
+}
+
+async fn audit(project: i64, actor: &TaskflowProjectMember, action: &str, body: String, meta: Value) {
+    let row = TaskflowTaskActivity {
+        id: 0,
+        project: ForeignKey::new(project),
+        task: None,
+        actor_kind: TaskflowActorKind::User,
+        actor_user: actor.user.clone(),
+        actor_agent_id: None,
+        actor_label: label(actor),
+        action: action.to_string(),
+        body_markdown: Some(body),
+        metadata_json: Some(meta.to_string()),
+        created_at: None,
+    };
+    if let Err(e) = TaskflowTaskActivity::objects().create(row).await {
+        tracing::error!(project, error = %e, action, "member change applied but its activity row failed");
+    }
+}
+
+/// Stop every active key of the agents `user` linked in `project`. Returns the
+/// agents whose keys were stopped.
+async fn revoke_linked_keys(project: i64, user: i64) -> Result<(u64, Vec<Value>), ApiError> {
+    let agents = TaskflowAgent::objects()
+        .filter(taskflow_agent::PROJECT.eq(project) & taskflow_agent::LINKED_BY.eq(user))
+        .fetch()
+        .await
+        .map_err(internal)?;
+    let mut total = 0u64;
+    let mut named = Vec::new();
+    for a in &agents {
+        let mut v = serde_json::Map::new();
+        v.insert("status".into(), json!("revoked"));
+        v.insert("revoked_at".into(), json!(Utc::now()));
+        let n = TaskflowAgentCredential::objects()
+            .filter(taskflow_agent_credential::AGENT.eq(a.id) & taskflow_agent_credential::STATUS.eq("active"))
+            .update_values(v)
+            .await
+            .map_err(internal)? as u64;
+        if n > 0 {
+            total += n;
+            named.push(json!({ "id": a.id, "display_name": a.display_name }));
+            if let Ok(rows) = TaskflowAgentCredential::objects().filter(taskflow_agent_credential::AGENT.eq(a.id)).fetch().await {
+                for c in &rows {
+                    crate::emit::emit_post_save(c).await;
+                }
+            }
+        }
+    }
+    Ok((total, named))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoleInput {
@@ -130,6 +199,14 @@ pub async fn set_role(
         return Err(err(StatusCode::CONFLICT, "last_owner", "A project needs an owner: make someone else owner first."));
     }
     emit_member(them.id).await;
+    audit(
+        project,
+        &me,
+        "member_role_changed",
+        format!("{}: {} → {}", label(&them), role_str(them.role), role_str(input.role)),
+        json!({ "user": target, "from": role_str(them.role), "to": role_str(input.role) }),
+    )
+    .await;
     Ok(Json(json!({ "user": target, "role": role_str(input.role) })).into_response())
 }
 
@@ -171,5 +248,17 @@ pub async fn remove(RequireAuth(caller): RequireAuth<i64>, Path((project, target
         return Err(err(StatusCode::CONFLICT, "last_owner", "A project needs an owner: make someone else owner first."));
     }
     emit_member(them.id).await;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    if n == 0 {
+        // Already gone (a concurrent removal): nothing more to do.
+        return Ok(Json(json!({ "revoked_agent_keys": 0, "agents": [] })).into_response());
+    }
+    let (keys, agents) = revoke_linked_keys(project, target).await?;
+    let body = if leaving {
+        format!("{} left the project", label(&them))
+    } else {
+        format!("{} removed {}", label(&me), label(&them))
+    };
+    let body = if keys > 0 { format!("{body}; {keys} agent key(s) they set up were stopped") } else { body };
+    audit(project, &me, "member_removed", body, json!({ "user": target, "left": leaving, "revoked_agent_keys": keys, "agents": agents })).await;
+    Ok(Json(json!({ "revoked_agent_keys": keys, "agents": agents })).into_response())
 }

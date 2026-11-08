@@ -219,9 +219,15 @@ async fn relinking_by_another_member_does_not_overwrite_the_instructions() {
     let first = link(&app, linker, project, "Shared", "shared", Some("linker's role")).await;
     assert_eq!(first["instructions_applied"], json!(true));
 
-    // Same (project, name, profile) → the same agent; the re-link mints a key but
-    // must not touch instructions it has no right to change.
-    let relinked = link(&app, other, project, "Shared", "shared", Some("hijack")).await;
+    // Same (project, name, profile) → the same agent. Since #1136 a plain
+    // member who didn't link it can't re-link it at all (that was a takeover).
+    let resp = app
+        .post_as(other, "/api/taskflow/agents/link", json!({ "project": project, "display_name": "Shared", "profile": "shared", "instructions_markdown": "hijack" }))
+        .await;
+    assert_eq!(resp.status(), 403, "{:?}", resp.json().await);
+    // The linked human's own re-link (a rotation) mints a key, but still
+    // doesn't rewrite instructions through `link`.
+    let relinked = link(&app, linker, project, "Shared", "shared", Some("hijack")).await;
     assert_eq!(relinked["agent_id"], first["agent_id"]);
     assert_eq!(relinked["instructions_applied"], json!(false));
     let me = whoami(&app, relinked["key"].as_str().unwrap()).await;
