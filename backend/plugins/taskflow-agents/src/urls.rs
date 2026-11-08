@@ -79,6 +79,9 @@ pub fn router() -> Router {
         .route("/api/taskflow/channels/{channel}/pins/{message}", delete(crate::pins::user_unpin))
         .route("/api/taskflow/channels/{channel}/messages/{message}/reactions", post(crate::pins::user_react))
         .route("/api/taskflow/channels/{channel}/reactions", get(crate::pins::user_reactions))
+        // #5983: the chat list's Unread / Mentions counts.
+        .route("/api/taskflow/projects/{project}/channels/summary", get(crate::summary::for_user))
+        .route("/api/taskflow/agents/channels/summary", get(crate::summary::for_agent))
         .route("/api/taskflow/agents/channels/{channel}/pins", get(crate::pins::agent_list_pins).post(crate::pins::agent_pin))
         .route("/api/taskflow/agents/channels/{channel}/pins/{message}", delete(crate::pins::agent_unpin))
         .route("/api/taskflow/agents/channels/{channel}/messages/{message}/reactions", post(crate::pins::agent_react))
@@ -103,6 +106,13 @@ pub fn router() -> Router {
             get(crate::threads::agent_get_thread),
         )
         .route("/api/taskflow/channels/{channel}/threads", get(crate::threads::get_summaries))
+        // #5983: following threads.
+        .route(
+            "/api/taskflow/channels/{channel}/threads/{root}/follow",
+            post(crate::follows::follow).delete(crate::follows::unfollow),
+        )
+        .route("/api/taskflow/channels/{channel}/threads/{root}/read", post(crate::follows::mark_read))
+        .route("/api/taskflow/projects/{project}/threads/following", get(crate::follows::following))
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))

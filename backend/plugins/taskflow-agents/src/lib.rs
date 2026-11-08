@@ -25,6 +25,10 @@ pub mod answers;
 pub mod channel_admin;
 // #5949: pins and reactions.
 pub mod pins;
+// #5983: per-room unread and mention counts.
+pub mod summary;
+// #5983: following threads.
+pub mod follows;
 pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.
@@ -80,6 +84,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessagePin>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageReaction>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowThreadFollow>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageClaim>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowWakeRule>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelState>(),
@@ -125,6 +130,8 @@ impl Plugin for TaskflowAgentsPlugin {
         block_on_ready(review_requests::install_review_request_guard(&ctx.pool))?;
         // #1113: wake-up rules — event hooks and the time sweep.
         wakeups::register();
+        // #5983: auto-follow a thread on replying to it.
+        follows::register();
         // #1126: release claims of agents that went silent.
         leases::start();
 

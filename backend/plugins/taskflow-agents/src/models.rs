@@ -1043,3 +1043,29 @@ pub struct TaskflowMessageReaction {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// #5983 item 5: a person or agent following a thread. Its own table (a
+/// message write re-types it into panes, #107). Written by `follows.rs`: auto
+/// on posting a reply (and for the root's sender at the first reply), or by
+/// the follow toggle. `last_read_reply` is how far they've read the replies.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["root", "follower_key"]], indexes = [["project", "follower_key", "id"]])]
+pub struct TaskflowThreadFollow {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub root: ForeignKey<TaskflowAgentMessage>,
+    /// `user:<id>` / `agent:<id>`.
+    #[umbral(string, max_length = 40)]
+    pub follower_key: String,
+    #[umbral(on_delete = "cascade")]
+    pub user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: Option<ForeignKey<TaskflowAgent>>,
+    pub last_read_reply: Option<i64>,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
