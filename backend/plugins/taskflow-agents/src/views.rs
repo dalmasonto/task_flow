@@ -4530,6 +4530,9 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
             "agent_id": row.id,
             // #1134: IANA zone of the human who linked this agent, or null.
             "human_timezone": human_timezone,
+            // #1127: the user id of this agent's human. The MCP marks a pane
+            // message "from your human" only when its sender_user is this id.
+            "linked_by_user": row.linked_by.as_ref().map(|u| u.id()),
             "display_name": row.display_name,
             "identifier": row.identifier,
             "project": row.project.id(),
@@ -5057,6 +5060,67 @@ pub struct TerminalKeyInput {
 /// `agent` id is projected on the event). Member-gated on the agent's project;
 /// a key outside the allowlist, text with a control character, or a body with
 /// both or neither is a 400, so no control combo can reach a pane.
+/// #1127: may `user` drive this agent's terminal (send keys or text, answer or
+/// dismiss its permission prompts)? An ACTIVE owner or admin of its project,
+/// the human who linked the agent, or a superuser. Plain members can still
+/// chat with it; they can't type into it.
+pub(crate) async fn may_drive_agent(user: i64, agent: &TaskflowAgent) -> Result<bool, StatusCode> {
+    if agent.linked_by.as_ref().map(|u| u.id()) == Some(user) {
+        // Still has to be an active member: a human who left the project
+        // doesn't keep driving the agent they once linked.
+        return Ok(TaskflowProjectMember::objects()
+            .filter(
+                taskflow_project_member::PROJECT.eq(agent.project.id())
+                    & taskflow_project_member::USER.eq(user)
+                    & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+            )
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .is_some());
+    }
+    let is_superuser = AuthUser::objects()
+        .filter(auth_user::ID.eq(user))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_some_and(|u| u.is_superuser);
+    if is_superuser {
+        return Ok(true);
+    }
+    let member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(agent.project.id())
+                & taskflow_project_member::USER.eq(user)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(member.is_some_and(|m| matches!(m.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin)))
+}
+
+async fn may_drive_prompt_agent(user: i64, prompt: &TaskflowAgentPrompt) -> Result<bool, StatusCode> {
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(prompt.agent.id()))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    may_drive_agent(user, &agent).await
+}
+
+fn not_allowed_to_drive() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({
+            "error": "not_allowed_to_drive",
+            "detail": "Only project owners and admins, or the person who linked this agent, can type into its terminal or answer its prompts.",
+        })),
+    )
+        .into_response()
+}
+
 pub async fn send_terminal_key(
     RequireAuth(user_id): RequireAuth<i64>,
     Path(agent_id): Path<i64>,
@@ -5072,19 +5136,12 @@ pub async fn send_terminal_key(
         .get(taskflow_agent::ID.eq(agent_id))
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    let project_id = agent.project.id();
 
-    // Authorize: an active member of the agent's project.
-    TaskflowProjectMember::objects()
-        .filter(
-            taskflow_project_member::PROJECT.eq(project_id)
-                & taskflow_project_member::USER.eq(user_id)
-                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    // #1127: driving an agent's terminal is for the people responsible for
+    // it (owners, admins, and the human who linked it), not every member.
+    if !may_drive_agent(user_id, &agent).await? {
+        return Ok(not_allowed_to_drive());
+    }
 
     let row = TaskflowTerminalInput::objects()
         .create(TaskflowTerminalInput {
@@ -5394,19 +5451,11 @@ pub async fn answer_prompt(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Same gate as every other human write here: an ACTIVE member of the
-    // prompt's project, read from the table, never trusted from the request.
-    let project_id = prompt.project.id();
-    TaskflowProjectMember::objects()
-        .filter(
-            taskflow_project_member::PROJECT.eq(project_id)
-                & taskflow_project_member::USER.eq(user_id)
-                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    // #1127: answering an agent's permission prompt drives its terminal, so
+    // it takes the same rule as sending keys (owners, admins, its human).
+    if !may_drive_prompt_agent(user_id, &prompt).await? {
+        return Ok(not_allowed_to_drive());
+    }
 
     if prompt.status != TaskflowPromptStatus::Pending {
         // Answering twice is a race between two humans, not an error worth a
@@ -5557,17 +5606,10 @@ pub async fn cancel_prompt(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let project_id = prompt.project.id();
-    TaskflowProjectMember::objects()
-        .filter(
-            taskflow_project_member::PROJECT.eq(project_id)
-                & taskflow_project_member::USER.eq(user_id)
-                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
-        )
-        .first()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    // #1127: dismissing a prompt unblocks the agent: the same rule as answering.
+    if !may_drive_prompt_agent(user_id, &prompt).await? {
+        return Ok(not_allowed_to_drive());
+    }
 
     // Already answered / already cancelled → nothing to unblock, and nothing to
     // report as a failure either. The helper returns the row untouched, so the

@@ -1212,6 +1212,9 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
             "display_name": "Instructed",
             "instructions_markdown": "hijacked",
             "instructions_updated_at": "2030-01-01T00:00:00Z",
+            // #1127: linked_by grants terminal access; REST must not set it.
+            "linked_by": seed.alice,
+            "linked_user_label": "alice",
         }),
     )
     .await;
@@ -1224,6 +1227,8 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
         .expect("agent exists");
     assert_eq!(stored.instructions_markdown.as_deref(), Some("original role"));
     assert_eq!(stored.instructions_updated_at, None);
+    assert!(stored.linked_by.is_none(), "#1127: a member can't make themselves an agent's human over REST");
+    assert!(stored.linked_user_label.is_none());
 
     // PATCH the project: same guard on the project block.
     let (pstatus, pbody) = patch_as(
@@ -1255,11 +1260,13 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
             "display_name": "Made by REST",
             "identifier": "agent:rest-guard:made",
             "instructions_markdown": "smuggled",
+            "linked_by": seed.alice,
         }),
     )
     .await;
     assert_eq!(cstatus, 201, "agent POST: {created}");
     assert_eq!(created["instructions_markdown"], Value::Null);
+    assert_eq!(created["linked_by"], Value::Null, "#1127: nor on create");
 
     // Reads still carry the columns: the dashboard renders them from these lists.
     let (rstatus, row) = get_as(seed.alice, false, &format!("/api/taskflow_agent/{}", agent.id)).await;

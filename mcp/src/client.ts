@@ -193,6 +193,9 @@ export interface Whoami {
   instructions?: InstructionsBlock;
   /** #616: the project's instructions for every agent. Absent on an older backend. */
   project_instructions?: InstructionsBlock;
+  /** #1127: the user id of this agent's own human (who linked it); null when
+   *  none. Absent on an older backend, which leaves pane notices unmarked. */
+  linked_by_user?: number | null;
 }
 
 /** #605: the body of `POST /agents/agent/agents`. No `scopes` field exists —
