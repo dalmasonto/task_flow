@@ -39,3 +39,15 @@ describe("keyScopes", () => {
     expect(keyScopes(changed)).toEqual({ scopes: optIn ? [optIn.id] : [], denied_scopes: [on.id] })
   })
 })
+
+describe("describeRule", () => {
+  const base = { target_task: null, target_message: null, watch_channel: null, mentions_only: false, fire_at: null }
+  it("says each trigger as a sentence", async () => {
+    const { describeRule } = await import("./agents-logic")
+    const room = (id: number) => `#room-${id}`
+    expect(describeRule({ ...base, trigger: "task_unblocked", target_task: 721 }, room)).toBe("When #721 is unblocked")
+    expect(describeRule({ ...base, trigger: "reply_to_message", target_message: 5700 }, room)).toBe("When someone replies to #MSG5700")
+    expect(describeRule({ ...base, trigger: "message_in_room", watch_channel: 1, mentions_only: true }, room)).toBe("When it's mentioned in #room-1")
+    expect(describeRule({ ...base, trigger: "message_in_room" }, room)).toBe("On any message")
+  })
+})

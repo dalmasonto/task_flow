@@ -55,3 +55,22 @@ export function keyScopes(checked: Record<string, boolean>): { scopes: string[];
   }
 }
 
+
+/// A wake-up rule as a sentence: "In 5 minutes" / "#721 is unblocked" / …
+export function describeRule(
+  r: { trigger: string; target_task: number | null; target_message: number | null; watch_channel: number | null; mentions_only: boolean; fire_at: string | null },
+  channelName: (id: number) => string,
+): string {
+  switch (r.trigger) {
+    case "after_time":
+      return r.fire_at ? `At ${new Date(r.fire_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "At a set time"
+    case "task_unblocked":
+      return r.target_task != null ? `When #${r.target_task} is unblocked` : "When a task is unblocked"
+    case "reply_to_message":
+      return r.target_message != null ? `When someone replies to #MSG${r.target_message}` : "On a reply"
+    case "message_in_room":
+      return `${r.mentions_only ? "When it's mentioned" : "On any message"}${r.watch_channel != null ? ` in ${channelName(r.watch_channel)}` : ""}`
+    default:
+      return r.trigger.replace(/_/g, " ")
+  }
+}

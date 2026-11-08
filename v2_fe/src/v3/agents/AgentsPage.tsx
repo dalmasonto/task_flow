@@ -5,7 +5,7 @@
 /// so it's left out rather than guessed.
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { BotIcon, CircleDotIcon, MessageSquareIcon, PlusIcon, TerminalIcon } from "lucide-react"
+import { AlarmClockIcon, BotIcon, CircleDotIcon, MessageSquareIcon, PlusIcon, TerminalIcon } from "lucide-react"
 
 import { TerminalTranscript } from "@/components/chat/terminal"
 import { Button } from "@/components/ui/button"
@@ -170,7 +170,18 @@ export function AgentsPage() {
   }
 
   return (
-    <V3Shell title="Agents" actions={<AddAgentButton />}>
+    <V3Shell
+      title="Agents"
+      actions={
+        <>
+          <Button variant="ghost" size="sm" render={<Link to="/v3/agents/wakeups" />} nativeButton={false} className="hidden sm:inline-flex">
+            <AlarmClockIcon />
+            Wake-ups
+          </Button>
+          <AddAgentButton />
+        </>
+      }
+    >
       <div className="mx-auto max-w-5xl space-y-5">
         {rows.length ? (
           <div className="flex flex-wrap items-center gap-3">
