@@ -750,7 +750,7 @@ export function mapLiveTasks(
       id: String(task.id),
       projectId: String(task.project),
       title: task.title,
-      description: task.description_markdown,
+      description: task.description_markdown ?? "",
       notes: task.notes_markdown ?? "",
       status: mapLiveStatus(task.status),
       priority: mapLivePriority(task.priority),

@@ -348,7 +348,7 @@ function App() {
         status: mapLiveStatus(editTaskRow.status),
         priority: mapLivePriority(editTaskRow.priority),
         estimate: editTaskRow.estimate_minutes != null ? String(editTaskRow.estimate_minutes) : "",
-        description: editTaskRow.description_markdown,
+        description: editTaskRow.description_markdown ?? "",
         notes: editTaskRow.notes_markdown ?? "",
         review: editTaskRow.review_gate ?? "",
       }
