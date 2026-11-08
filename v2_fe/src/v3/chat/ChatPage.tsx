@@ -197,6 +197,7 @@ function ChatWorkspace({ project }: { project: Project }) {
     onWorkspaceUpdate: applyLiveUpdate,
     onRefreshWorkspace: reloadLive,
     selectedChatId: slug ? slugToChatId(slug) : null,
+    includeArchived: true,
     onComposeTask: (body) => {
       if (seedTaskFrom(body)) detail.open({ kind: "new-task", status: "not_started" })
     },
@@ -446,6 +447,7 @@ function ChatWorkspace({ project }: { project: Project }) {
                 <AgentsConversationView
                   {...outletContext}
                   bare
+                  readOnly={!!channel?.archived}
                   messageLayout="row"
                   renderAvatar={renderAvatar}
                   senderBadge={senderBadge}

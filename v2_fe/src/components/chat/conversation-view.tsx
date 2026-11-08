@@ -77,6 +77,7 @@ export function AgentsConversationView({
   senderBadge,
   renderBody,
   bare = false,
+  readOnly = false,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -112,6 +113,9 @@ export function AgentsConversationView({
   /// v3 draws its own room header and details panel, so this view drops its
   /// title bar and the Messages/Files switch (Files lives in v3's panel).
   bare?: boolean
+  /// An archived room: no composer (the server refuses posts there). Hidden,
+  /// not unmounted, so a draft survives an Unarchive.
+  readOnly?: boolean
 }) {
   const compact = variant === "compact"
   const isDesign = variant === "design"
@@ -908,7 +912,7 @@ export function AgentsConversationView({
           </div>
         ) : null}
 
-        <form className="shrink-0 border-t bg-background p-3" onSubmit={handleSendMessage}>
+        <form className={cn("shrink-0 border-t bg-background p-3", readOnly && "hidden")} onSubmit={handleSendMessage}>
           {emojiPickerOpen ? (
             <button
               type="button"

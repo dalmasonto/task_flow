@@ -13,7 +13,7 @@ import type { TaskflowAgentChannel } from "@/api/client"
 import { ChatFilesTab } from "@/components/chat/files-tab"
 import { TerminalTranscript } from "@/components/chat/terminal"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -304,18 +304,27 @@ export function RoomPanel({
                   Add a person or agent
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="min-w-56">
-                  {agentCandidates.length ? <DropdownMenuLabel>Agents</DropdownMenuLabel> : null}
-                  {agentCandidates.map((a) => (
-                    <DropdownMenuItem key={`a${a.id}`} onClick={() => void addAgent(a.id, a.name)}>
-                      {a.name}
-                    </DropdownMenuItem>
-                  ))}
-                  {addCandidates.length ? <DropdownMenuLabel>People</DropdownMenuLabel> : null}
-                  {addCandidates.map((c) => (
-                    <DropdownMenuItem key={`u${c.user}`} onClick={() => void onAddMember(c.user).catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Couldn't add them."))}>
-                      {c.name}
-                    </DropdownMenuItem>
-                  ))}
+                  {/* Base UI: a label must sit inside its group. */}
+                  {agentCandidates.length ? (
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Agents</DropdownMenuLabel>
+                      {agentCandidates.map((a) => (
+                        <DropdownMenuItem key={`a${a.id}`} onClick={() => void addAgent(a.id, a.name)}>
+                          {a.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  ) : null}
+                  {addCandidates.length ? (
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>People</DropdownMenuLabel>
+                      {addCandidates.map((c) => (
+                        <DropdownMenuItem key={`u${c.user}`} onClick={() => void onAddMember(c.user).catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Couldn't add them."))}>
+                          {c.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (

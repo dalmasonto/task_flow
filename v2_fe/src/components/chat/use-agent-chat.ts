@@ -24,6 +24,7 @@ export function useAgentChat({
   selectedChatId,
   onComposeTask,
   isDesign = false,
+  includeArchived = false,
 }: {
   onComposeTask: (body: string) => void
   project: Project
@@ -50,6 +51,9 @@ export function useAgentChat({
   /// (realtime feeds the shared `liveWorkspace` at the app level), so this does
   /// not duplicate the stream.
   isDesign?: boolean
+  /// v3's chat lists archived rooms in their own section (read-only, with
+  /// Unarchive); every other surface keeps hiding them.
+  includeArchived?: boolean
 }) {
   const [messageError, setMessageError] = useState<string | null>(null)
   // `livenessNow` is passed in, not read inside: these mappers decide who is
@@ -61,8 +65,8 @@ export function useAgentChat({
     [currentUser, liveWorkspace, livenessNow]
   )
   const channelChats = useMemo<LiveChannelChat[]>(
-    () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser, { includeDesignRoom: isDesign }) : []),
-    [currentUser, liveWorkspace, isDesign]
+    () => (liveWorkspace ? mapLiveChannelChats(liveWorkspace, currentUser, { includeDesignRoom: isDesign, includeArchived }) : []),
+    [currentUser, liveWorkspace, isDesign, includeArchived]
   )
   const allChats = useMemo(() => [...channelChats, ...directChats], [channelChats, directChats])
 

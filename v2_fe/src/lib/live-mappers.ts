@@ -1181,11 +1181,13 @@ export type LiveChannelChat = AgentChatContext & {
 export function mapLiveChannelChats(
   workspace: TaskflowWorkspace,
   currentUser: AuthUser | null,
-  opts?: { includeDesignRoom?: boolean }
+  opts?: { includeDesignRoom?: boolean; includeArchived?: boolean }
 ): LiveChannelChat[] {
   const projectChannels = workspace.agentChannels.filter(
     (channel) =>
-      !channel.archived && channel.kind !== "direct" && ((opts?.includeDesignRoom ?? false) || !channel.is_design)
+      ((opts?.includeArchived ?? false) || !channel.archived) &&
+      channel.kind !== "direct" &&
+      ((opts?.includeDesignRoom ?? false) || !channel.is_design)
   )
   const chats = projectChannels.map((channel) => {
     const members = mapLiveChannelMembers(workspace, channel.id, currentUser, true)
