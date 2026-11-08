@@ -185,7 +185,7 @@ export function CommentsPanel({
           ) : (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
               <CircleIcon className="size-3" aria-hidden />
-              {st.kind === "resolved" ? "Resolved" : "Dismissed"}
+              {st.kind === "resolved" ? `Resolved${c.resolved_by_label ? ` by ${c.resolved_by_label}` : ""}` : "Dismissed"}
             </span>
           )}
         </div>
@@ -361,6 +361,7 @@ export function PinThread({
   projectId,
   comment,
   label,
+  agents,
   agentInfo,
   onClose,
   onShowPin,
@@ -369,6 +370,7 @@ export function PinThread({
   projectId: number
   comment: DesignComment
   label: string
+  agents: DesignAgent[]
   agentInfo: AgentInfo
   onClose: () => void
   onShowPin: () => void
@@ -379,6 +381,23 @@ export function PinThread({
   const [reply, setReply] = useState("")
   const [busy, setBusy] = useState(false)
   const [tick, setTick] = useState(0)
+  const [reassignTo, setReassignTo] = useState<number | null>(null)
+
+  async function reassign() {
+    if (reassignTo == null) return
+    setBusy(true)
+    try {
+      const { sent_comment_ids } = await dispatchDesignComments(projectId, [comment.id], reassignTo, true)
+      if (!sent_comment_ids.length) toast.info("That comment can't be re-sent (it may be resolved).")
+      else toast.success(`Sent to ${agents.find((a) => a.id === reassignTo)?.display_name ?? "the agent"}`)
+      setReassignTo(null)
+      onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't reassign it.")
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     const ctl = new AbortController()
@@ -474,10 +493,37 @@ export function PinThread({
               <dd>{thread?.sent_to?.label ?? "Not sent yet"}</dd>
               <dt className="text-muted-foreground">Scope</dt>
               <dd>{comment.scope === "component" ? `Every page using ${comment.component_name ?? "it"}` : "Just this page"}</dd>
+              {comment.task ?? thread?.root.task ? (
+                <>
+                  <dt className="text-muted-foreground">Task</dt>
+                  <dd>
+                    <a href={`/v3/tasks/${comment.task ?? thread?.root.task}`} className="text-link hover:underline">
+                      #{comment.task ?? thread?.root.task}
+                    </a>
+                  </dd>
+                </>
+              ) : null}
+              {comment.resolved_by_label ? (
+                <>
+                  <dt className="text-muted-foreground">Resolved</dt>
+                  <dd>
+                    {comment.resolved_by_label}
+                    {comment.resolved_at ? `, ${new Date(comment.resolved_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : ""}
+                  </dd>
+                </>
+              ) : null}
             </dl>
             <Button variant="outline" size="sm" className="w-full" onClick={onShowPin}>
               Show pin on canvas
             </Button>
+            {bucket !== "done" && agents.length ? (
+              <div className="grid gap-1.5">
+                <AgentSelect agents={agents.filter((a) => a.id !== comment.sent_to_agent)} value={reassignTo} onChange={setReassignTo} className="w-full" />
+                <Button variant="outline" size="sm" className="w-full" disabled={busy || reassignTo == null} onClick={() => void reassign()}>
+                  {comment.sent_to_agent ? "Reassign" : "Send"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="space-y-2 border-t border-border p-4">

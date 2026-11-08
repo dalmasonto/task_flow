@@ -1708,6 +1708,7 @@ export function DesignSurfacePage({
             projectId={projectId}
             comment={c}
             label={commentLabels.get(c.id) ?? "?"}
+            agents={designAgents}
             agentInfo={agentInfo}
             onClose={() => setThreadFor(null)}
             onShowPin={() => {

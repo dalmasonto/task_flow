@@ -211,6 +211,11 @@ export type DesignComment = {
   orphaned: boolean
   /// #1123: the agent the comment was dispatched to (null until dispatched).
   sent_to_agent: number | null
+  /// #5955 (taskflow_design/0008): who confirmed it Done and when, and the
+  /// comment's task. Optional: an older server doesn't send them.
+  resolved_by_label?: string | null
+  resolved_at?: string | null
+  task?: number | null
   created_at: string | null
 }
 
@@ -665,11 +670,13 @@ export async function fetchDesignAgents(projectId: number): Promise<DesignAgent[
 export async function dispatchDesignComments(
   projectId: number,
   commentIds: number[],
-  agentId: number
+  agentId: number,
+  /// #5955: re-send already-sent comments (to another agent, or again).
+  reassign = false
 ): Promise<{ ok: true; message_id: number; sent_comment_ids: number[] }> {
   const res = await designFetch(
     `/api/design/${projectId}/dispatch`,
-    jsonInit("POST", { comment_ids: commentIds, agent_id: agentId })
+    jsonInit("POST", reassign ? { comment_ids: commentIds, agent_id: agentId, reassign: true } : { comment_ids: commentIds, agent_id: agentId })
   )
   // #1131: dispatch claims each comment open→sent by compare-and-set. A 409
   // means every selected comment was resolved, dismissed or sent by someone
@@ -692,7 +699,7 @@ export type DesignCommentReply = {
   created_at: string | null
 }
 export type DesignCommentThread = {
-  root: { id: number; page_path: string; component_name: string | null; body: string; author: string; status: CommentStatus; resolved: boolean; resolution_note: string | null; created_at: string | null }
+  root: { id: number; page_path: string; component_name: string | null; body: string; author: string; status: CommentStatus; resolved: boolean; resolution_note: string | null; created_at: string | null; task?: number | null; resolved_by_label?: string | null; resolved_at?: string | null }
   sent_to: { id: number; label: string } | null
   replies: DesignCommentReply[]
 }
