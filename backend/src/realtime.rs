@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowTaskReview, TaskflowTerminalInput,
+    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowTerminalInput,
 };
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
@@ -55,6 +55,8 @@ const MESSAGE_ATTACHMENTS: &str = "message_attachments";
 const MESSAGE_ANSWERS: &str = "message_answers";
 /// #1095. Id-only for the same reason as answers: claims follow their channel.
 const MESSAGE_CLAIMS: &str = "message_claims";
+/// #1096. Id-only: a DM's state is the DM's, and the group is per-project.
+const CHANNEL_STATES: &str = "channel_states";
 const CHANNELS: &str = "channels";
 const CHANNEL_MEMBERS: &str = "channel_members";
 const READ_CURSORS: &str = "read_cursors";
@@ -263,6 +265,9 @@ pub fn plugin() -> RealtimePlugin {
         }))
         .expose::<TaskflowMessageClaim>(Expose::to_group_with(|ev| {
             group_for(MESSAGE_CLAIMS, &ev.instance)
+        }))
+        .expose::<TaskflowChannelState>(Expose::to_group_with(|ev| {
+            group_for(CHANNEL_STATES, &ev.instance)
         }))
         // Everything else: id-only, client refetches the one row that changed.
         .expose::<TaskflowProjectMember>(Expose::to_group_with(|ev| {
@@ -493,6 +498,7 @@ const ALL_SUFFIXES: &[&str] = &[
     MESSAGE_ATTACHMENTS,
     MESSAGE_ANSWERS,
     MESSAGE_CLAIMS,
+    CHANNEL_STATES,
     CHANNELS,
     CHANNEL_MEMBERS,
     READ_CURSORS,

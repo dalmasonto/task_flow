@@ -21,6 +21,7 @@
 
 pub mod agent_auth;
 pub mod answers;
+pub mod channel_state;
 pub mod claims;
 pub mod wakeups;
 pub mod models;
@@ -60,6 +61,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageClaim>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowWakeRule>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowChannelState>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelReadCursor>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentTerminalFrame>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),

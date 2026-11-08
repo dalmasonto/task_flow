@@ -153,6 +153,8 @@ const CHANNEL_SCOPED_TABLES: &[&str] = &[
     "taskflow_message_answer",
     // #1095: a claim belongs to its message's conversation, like answers.
     "taskflow_message_claim",
+    // #1096: a channel's pinned current state belongs to that channel.
+    "taskflow_channel_state",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -406,6 +408,8 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // #1095: claims are written ONLY by the claim endpoints, which derive
             // the claimer and enforce one open claim per message.
             "taskflow_message_claim" => config.views([Action::List, Action::Retrieve]),
+            // #1096: written ONLY by the channel-state endpoints.
+            "taskflow_channel_state" => config.views([Action::List, Action::Retrieve]),
             _ => config,
         }
     });

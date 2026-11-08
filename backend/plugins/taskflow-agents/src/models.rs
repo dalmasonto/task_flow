@@ -830,3 +830,30 @@ pub struct TaskflowWakeRule {
     #[umbral(noedit)]
     pub updated_at: Option<DateTime<Utc>>,
 }
+
+/// #1096: a channel's pinned "current state" (#886 §3.3) — what the room is
+/// working on right now, so the next agent reads that first instead of hunting
+/// for the newest HANDOFF post. Append-only: the newest row is current, the
+/// rest is history. Written ONLY by `channel_state.rs`; auto-REST serves it
+/// read-only and CHANNEL-scoped (a DM's state is the DM's).
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["channel", "id"]])]
+pub struct TaskflowChannelState {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(string, max_length = 8000, widget = "textarea")]
+    pub body_markdown: String,
+    #[umbral(choices, default = "user")]
+    pub author_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub author_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub author_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub author_label: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}

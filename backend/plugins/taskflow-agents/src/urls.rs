@@ -148,6 +148,15 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/claims",
             get(crate::claims::channel_claims),
         )
+        // #1096: a channel's pinned current state (append-only history).
+        .route(
+            "/api/taskflow/channels/{channel}/state",
+            get(crate::channel_state::get_as_user).post(crate::channel_state::set_as_user),
+        )
+        .route(
+            "/api/taskflow/agents/channels/{channel}/state",
+            get(crate::channel_state::get_as_agent).post(crate::channel_state::set_as_agent),
+        )
         // #1113: wake-up rules. Humans (members) manage any rule in the project;
         // agents manage the rules they made or that wake them.
         .route(
