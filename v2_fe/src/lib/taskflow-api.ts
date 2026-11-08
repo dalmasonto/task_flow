@@ -17,7 +17,6 @@ import type {
   TaskflowProjectUpdate,
   TaskflowTask,
   TaskflowTaskActivity,
-  TaskflowTaskActivityCreate,
   TaskflowTaskCreate,
   TaskflowTaskAttachment,
   TaskflowTaskRelation,
@@ -1198,8 +1197,35 @@ export function updateTaskflowTask(taskId: number, input: TaskflowTaskUpdate) {
   return taskflowApi.update(taskflowTables.tasks, taskId, input)
 }
 
-export function createTaskflowTaskActivity(input: TaskflowTaskActivityCreate) {
-  return taskflowApi.create(taskflowTables.taskActivity, input)
+/// What a person may record on a task (#1138); every other action is a fact
+/// the server records itself.
+export type PersonActivityAction = "commented" | "timer_started" | "timer_paused" | "timer_stopped"
+
+/// Record a comment or timer event on a task through
+/// `POST /api/taskflow/tasks/{task}/activity` (REST is read-only for activity
+/// since #1138). Only `{action, body_markdown}` is sent: the server sets the
+/// project, the actor (the caller) and its label, so nobody can write a row as
+/// someone else. Returns the saved row; realtime delivers it too.
+export async function createTaskflowTaskActivity(taskId: number, input: { action: PersonActivityAction; body_markdown?: string | null }): Promise<TaskflowTaskActivity> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/tasks/${taskId}/activity`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ action: input.action, body_markdown: input.body_markdown ?? null }),
+  })
+  if (!response.ok) {
+    const data = (await response.clone().json().catch(() => null)) as { error?: string; detail?: string } | null
+    throw new Error(
+      data?.error === "invalid" && data.detail
+        ? data.detail
+        : data?.error === "unknown_action"
+          ? "That can't be recorded on a task."
+          : response.status === 404
+            ? "That task isn't in a project you're in."
+            : await readErrorDetail(response, `Could not record that on the task (${response.status}).`)
+    )
+  }
+  return readJson(response)
 }
 
 /// #39: link two tasks. `task_relation` is a writable project-scoped table, so

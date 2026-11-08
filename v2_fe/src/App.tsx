@@ -40,7 +40,7 @@ import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskCreate, TaskflowTaskStatus, TaskflowTaskUpdate } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
 import { publishThreadEvent } from "@/lib/thread-bus"
-import { archiveTaskflowProject, deleteProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
+import { archiveTaskflowProject, deleteProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice, type PersonActivityAction } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
 import { formatEstimateMinutes, parseEstimateMinutes } from "@/lib/tasks"
@@ -2133,20 +2133,10 @@ function App() {
     }))
   }
 
-  function taskSessionActorLabel() {
-    return currentUser?.username ?? currentUser?.email ?? "You"
-  }
-
-  async function recordTaskSessionActivity(projectId: number, taskId: number, action: string, body: string) {
-    const activity = await createTaskflowTaskActivity({
-      project: projectId,
-      task: taskId,
-      actor_kind: "user",
-      actor_user: currentUser?.id ?? null,
-      actor_label: taskSessionActorLabel(),
-      action,
-      body_markdown: body,
-    })
+  // #1138: the server sets the project, actor and label; only the action and
+  // body go on the wire. `projectId` stays in the signature for the callers.
+  async function recordTaskSessionActivity(_projectId: number, taskId: number, action: PersonActivityAction, body: string) {
+    const activity = await createTaskflowTaskActivity(taskId, { action, body_markdown: body })
     applyLiveTaskActivityRow(activity)
   }
 
