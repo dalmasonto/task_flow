@@ -22,6 +22,9 @@ export function RotateKeyDialog({ agent, open, onOpenChange }: { agent: Pick<Tas
   const [key, setKey] = useState<string | null>(null)
 
   function close(next: boolean) {
+    // Not while the rotation is in flight: by the time it answers, the old key
+    // has stopped and the new one is live, so its only copy must be shown.
+    if (!next && busy) return
     if (!next) setKey(null)
     onOpenChange(next)
   }
@@ -63,7 +66,7 @@ export function RotateKeyDialog({ agent, open, onOpenChange }: { agent: Pick<Tas
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => close(false)}>
+              <Button variant="outline" disabled={busy} onClick={() => close(false)}>
                 Keep the key
               </Button>
               <Button disabled={busy} onClick={rotate}>
