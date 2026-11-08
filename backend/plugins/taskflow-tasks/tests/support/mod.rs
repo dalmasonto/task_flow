@@ -457,4 +457,11 @@ impl TestApp {
             inner: self.client.get(path).await,
         }
     }
+
+    /// POST JSON to `path` authenticated as `user_id` (#1138).
+    pub async fn post_as(&self, user_id: i64, path: &str, body: serde_json::Value) -> TestResponse {
+        let token = self.tokens.lock().expect("tokens poisoned").get(&user_id).cloned().expect("no bearer token seeded");
+        self.client.set_default_header(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"));
+        TestResponse { inner: self.client.post_json(path, &body).await }
+    }
 }

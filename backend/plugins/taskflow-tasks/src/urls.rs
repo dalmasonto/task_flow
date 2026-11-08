@@ -6,7 +6,7 @@
 //! Map each path to a handler in `views.rs` so this file reads as the
 //! single index of everything the plugin serves.
 
-use umbral::web::{Router, get};
+use umbral::web::{Router, get, post};
 
 use crate::views;
 
@@ -15,6 +15,8 @@ use crate::views;
 pub fn router() -> Router {
     Router::new()
         .route("/api/taskflow/tasks/health", get(views::health))
+        // #1138: a person's comment or timer event; the actor is the caller.
+        .route("/api/taskflow/tasks/{task}/activity", post(crate::activity_write::create))
         // #56: distinct action names, so the activity page's tool filter has a
         // stable option list that does not depend on the filter's own result.
         .route(

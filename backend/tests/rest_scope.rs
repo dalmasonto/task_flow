@@ -1527,3 +1527,55 @@ async fn members_cannot_write_project_settings_or_environments_over_rest() {
     let (s, _) = get_as(seed.alice, false, "/api/taskflow_project_api_endpoint/").await;
     assert_eq!(s, 200);
 }
+
+/// #1138: task activity is the audit trail, and terminal frames are an agent's
+/// output. Neither is client-writable through auto-REST: a member could write
+/// a row as an agent or the system, edit a real one, or delete it. People
+/// write activity through `POST /api/taskflow/tasks/{task}/activity`.
+#[tokio::test]
+async fn activity_and_terminal_frames_are_not_rest_writable() {
+    let (_, seed) = app().await;
+    let (status, body) = post_as(
+        seed.alice,
+        "/api/taskflow_task_activity/",
+        serde_json::json!({
+            "project": seed.project_p, "task": seed.project_p_task, "actor_kind": "system",
+            "actor_label": "TaskFlow", "action": "claim_released", "body_markdown": "forged",
+        }),
+    )
+    .await;
+    assert_eq!(status, 405, "activity create must be refused, got {status}: {body}");
+
+    // A real row: neither editable nor deletable by a member.
+    let real = taskflow_tasks::models::TaskflowTaskActivity::objects()
+        .create(taskflow_tasks::models::TaskflowTaskActivity {
+            id: 0,
+            project: umbral::orm::ForeignKey::new(seed.project_p),
+            task: None,
+            actor_kind: taskflow_tasks::models::TaskflowActorKind::System,
+            actor_user: None,
+            actor_agent_id: None,
+            actor_label: "TaskFlow".into(),
+            action: "agent_key_rotated".into(),
+            body_markdown: Some("audit".into()),
+            metadata_json: None,
+            created_at: None,
+        })
+        .await
+        .unwrap()
+        .id;
+    let path = format!("/api/taskflow_task_activity/{real}");
+    let (status, _) = patch_as(seed.alice, &path, serde_json::json!({ "body_markdown": "nothing happened" })).await;
+    assert_eq!(status, 405, "activity update must be refused");
+    assert_eq!(delete_as(seed.alice, &path).await, 405, "activity delete must be refused");
+    let (status, _) = get_as(seed.alice, false, &path).await;
+    assert_eq!(status, 200, "members still read activity");
+
+    let (status, body) = post_as(
+        seed.alice,
+        "/api/taskflow_agent_terminal_frame/",
+        serde_json::json!({ "project": seed.project_p, "session": 1, "content": "rm -rf /", "sequence": 1 }),
+    )
+    .await;
+    assert_eq!(status, 405, "terminal frame create must be refused, got {status}: {body}");
+}

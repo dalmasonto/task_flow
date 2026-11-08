@@ -370,6 +370,15 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // stray agent rows (#1127 review). Read-only: the app only lists.
             if *table == "taskflow_agent" {
                 config.views([Action::List, Action::Retrieve])
+            } else if *table == "taskflow_task_activity" || *table == "taskflow_agent_terminal_frame" {
+                // #1138: activity is the audit trail. Left writable, any member
+                // could write rows as anyone (an agent, the system, another
+                // person) and edit or delete real ones. People write through
+                // `POST /api/taskflow/tasks/{task}/activity` (actor = caller,
+                // action allowlist); everything else is server-recorded.
+                // Terminal frames come only from the agent's own handlers; a
+                // member could otherwise forge or erase an agent's output.
+                config.views([Action::List, Action::Retrieve])
             } else if *table == "taskflow_task" {
                 // A task's description is optional (stored NULL when omitted),
                 // but clients have always read it as a string: serve NULL as "".

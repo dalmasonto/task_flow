@@ -18,6 +18,8 @@
 //! what each `Plugin` method does. This layout is a recommended
 //! convention — the framework only needs a type that impls `Plugin`.
 
+// #1138: the one way a person writes task activity.
+pub mod activity_write;
 pub mod models;
 pub mod session_timer;
 pub mod urls;
