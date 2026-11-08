@@ -26,6 +26,7 @@ async fn app() -> &'static Router {
                     .with_default_routes()
                     .register_throttle(1000, std::time::Duration::from_secs(3600)),
             )
+            .plugin(umbral_sessions::SessionsPlugin::default())
             .plugin(TokenLifetimePlugin)
             .build()
             .expect("App::build");
@@ -56,6 +57,15 @@ async fn age(id: i64, created_days: i64, used_days: Option<i64>) {
     v.insert("created_at".into(), json!(now - Duration::days(created_days)));
     v.insert("last_used_at".into(), json!(used_days.map(|d| now - Duration::days(d))));
     AuthToken::objects().filter(auth_token::ID.eq(id)).update_values(v).await.expect("age token");
+}
+
+async fn sessions_of(u: &AuthUser) -> usize {
+    umbral_sessions::Session::objects()
+        .filter(umbral_sessions::session::USER_ID.eq(u.id.to_string()))
+        .fetch()
+        .await
+        .expect("sessions")
+        .len()
 }
 
 async fn exists(id: i64) -> bool {
@@ -127,6 +137,8 @@ async fn a_password_change_drops_the_users_other_tokens_but_keeps_its_own() {
     let (phone, _) = token(&u).await;
     let (stolen, _) = token(&u).await;
     let (someone_else, _) = token(&other_user).await;
+    umbral_sessions::create_session(Some(u.id.to_string()), None).await.expect("a cookie session");
+    umbral_sessions::create_session(Some(other_user.id.to_string()), None).await.expect("theirs");
 
     // A failed change (wrong current password) revokes nothing.
     assert_eq!(change_password(router.clone(), &laptop_key, "wrong-password-here", "another-long-pass").await, 400);
@@ -138,4 +150,26 @@ async fn a_password_change_drops_the_users_other_tokens_but_keeps_its_own() {
     assert!(!exists(phone).await, "the user's other tokens are revoked");
     assert!(!exists(stolen).await);
     assert!(exists(someone_else).await, "another user's tokens are untouched");
+    assert_eq!(sessions_of(&u).await, 0, "the user's cookie sessions are revoked too");
+    assert_eq!(sessions_of(&other_user).await, 1, "another user's session is untouched");
+}
+
+/// #1101 review: a FAILED change followed by an unrelated write to the user
+/// row (a login stamping `last_login`) must revoke nothing; only a real change
+/// of the stored password hash does.
+#[tokio::test]
+async fn a_failed_change_then_an_unrelated_user_write_revokes_nothing() {
+    let router = app().await.clone();
+    let u = user().await;
+    let (laptop, laptop_key) = token(&u).await;
+    assert_eq!(change_password(router.clone(), &laptop_key, "wrong-password-here", "another-long-pass").await, 400);
+
+    // The phone logs in within the minute: a new token and a user-row write.
+    let (phone, _) = token(&u).await;
+    let mut v = serde_json::Map::new();
+    v.insert("last_login".into(), json!(Utc::now()));
+    AuthUser::objects().filter(umbral_auth::auth_user::ID.eq(u.id)).update_values(v).await.expect("last_login write");
+
+    assert!(exists(phone).await, "the phone's new token survives an unrelated write");
+    assert!(exists(laptop).await);
 }

@@ -14,8 +14,12 @@
 //! - **Password change:** umbral-auth's `change-password` deliberately keeps
 //!   every token ("the user proved the current password"). A stolen token
 //!   would then outlive the change by up to 30 days, so after a successful
-//!   change every OTHER bearer token of that user is deleted; the one that made
-//!   the change stays. (A password RESET already revokes everything upstream.)
+//!   change every OTHER bearer token of that user is deleted (the one that made
+//!   the change stays), and so are the user's cookie sessions: a stolen cookie
+//!   is the same risk. (A password RESET already revokes everything upstream.)
+//!   "Successful" is judged by the stored `password_hash` actually changing,
+//!   never by "some write to the user row happened" (#1101 review: a failed
+//!   change followed by a login's `last_login` write must revoke nothing).
 //!
 //! The sweep runs at boot, then every 10 minutes, so a token can outlive its
 //! limit by at most that. A deleted token is a 401 on its next request, and
@@ -33,8 +37,8 @@ use axum::response::Response;
 use chrono::{DateTime, Duration, Utc};
 use umbral::middleware::Middleware;
 use umbral::plugin::{AppContext, Plugin, PluginError};
-use umbral_auth::AuthToken;
 use umbral_auth::token::auth_token;
+use umbral_auth::{AuthToken, AuthUser, auth_user};
 
 pub const DEFAULT_IDLE_DAYS: i64 = 14;
 pub const DEFAULT_MAX_AGE_DAYS: i64 = 30;
@@ -77,10 +81,29 @@ pub async fn sweep_once(now: DateTime<Utc>, limits: Limits) -> Result<u64, sqlx:
     Ok(n)
 }
 
-/// user id -> (the token making a password change, when it was recorded).
-fn pending() -> &'static Mutex<HashMap<i64, (i64, Instant)>> {
-    static P: OnceLock<Mutex<HashMap<i64, (i64, Instant)>>> = OnceLock::new();
+/// A change-password request in flight: the token making it, the password
+/// hash it started from, and when it was recorded.
+#[derive(Debug, Clone)]
+struct Pending {
+    token: i64,
+    hash_before: String,
+    at: Instant,
+}
+
+/// user id -> the change in flight for that user.
+fn pending() -> &'static Mutex<HashMap<i64, Pending>> {
+    static P: OnceLock<Mutex<HashMap<i64, Pending>>> = OnceLock::new();
     P.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+async fn password_hash(user: i64) -> Option<String> {
+    AuthUser::objects()
+        .filter(auth_user::ID.eq(user))
+        .first()
+        .await
+        .ok()
+        .flatten()
+        .map(|u| u.password_hash)
 }
 
 fn is_change_password(req: &Request) -> bool {
@@ -93,15 +116,26 @@ fn bearer(req: &Request) -> Option<String> {
     scheme.eq_ignore_ascii_case("bearer").then(|| key.trim().to_string()).filter(|k| !k.is_empty())
 }
 
-/// The user's password was just written: if a change-password request from one
-/// of their tokens is in flight, delete their other tokens.
-async fn password_written(user: i64) {
-    let keep = {
+/// The user row was just written. If a change-password request from one of
+/// their tokens is in flight AND the stored hash really changed, delete their
+/// other tokens and their sessions. Any other write (a login's `last_login`)
+/// leaves the entry alone and revokes nothing.
+async fn user_row_written(user: i64) {
+    let entry = {
         let mut map = pending().lock().expect("pending password changes");
-        map.retain(|_, (_, at)| at.elapsed() < PENDING_TTL);
-        map.remove(&user).map(|(token, _)| token)
+        map.retain(|_, p| p.at.elapsed() < PENDING_TTL);
+        map.get(&user).cloned()
     };
-    let Some(keep) = keep else { return };
+    let Some(entry) = entry else { return };
+    let Some(now_hash) = password_hash(user).await else { return };
+    if now_hash == entry.hash_before {
+        return; // not the password write: keep waiting (or let it expire)
+    }
+    pending().lock().expect("pending password changes").remove(&user);
+    let keep = entry.token;
+    if let Err(e) = umbral_sessions::revoke_user_sessions(&user.to_string()).await {
+        tracing::error!(user, error = %e, "password changed: could not revoke the user's sessions");
+    }
     match AuthToken::objects()
         .filter(auth_token::USER_ID.eq(user) & auth_token::ID.ne(keep))
         .delete()
@@ -131,10 +165,13 @@ impl Middleware for ChangePasswordRevokesOthers {
         // has them (the app always sends a bearer; gap filed upstream).
         if let Some(key) = bearer(&req) {
             if let Ok(Some(token)) = AuthToken::lookup(&key).await {
-                pending()
-                    .lock()
-                    .expect("pending password changes")
-                    .insert(token.user_id.id(), (token.id, Instant::now()));
+                let user = token.user_id.id();
+                if let Some(hash_before) = password_hash(user).await {
+                    pending()
+                        .lock()
+                        .expect("pending password changes")
+                        .insert(user, Pending { token: token.id, hash_before, at: Instant::now() });
+                }
             }
         }
         Ok(req)
@@ -170,7 +207,7 @@ impl Plugin for TokenLifetimePlugin {
                     .unwrap_or_default();
                 async move {
                     for id in ids {
-                        password_written(id).await;
+                        user_row_written(id).await;
                     }
                 }
             });
