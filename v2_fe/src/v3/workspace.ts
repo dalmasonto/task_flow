@@ -8,7 +8,7 @@
 import { createContext, useContext } from "react"
 
 import type { AuthUser } from "@/lib/auth-api"
-import type { RealtimeStatus } from "@/lib/taskflow-api"
+import type { CreateProjectInput, RealtimeStatus, TaskflowWorkspace } from "@/lib/taskflow-api"
 import type { Project, Task } from "@/lib/workspace-view"
 
 export type V3Project = Project & { taskCount: number }
@@ -27,7 +27,16 @@ export type V3Workspace = {
     designUnread: number
     onlineAgents: number
   }
+  /// The raw live workspace for the active project (agents, sessions, channels,
+  /// messages, …) as App loads it and realtime keeps it current. Which slices
+  /// are filled depends on the route (routes.ts v3GatePath) and the flag below.
+  live: TaskflowWorkspace | null
   chooseProject: (projectId: string) => void
+  /// Create a project and make it active, the same way v2's dialog does.
+  createProject: (input: CreateProjectInput) => Promise<{ id: string }>
+  /// Tell App a chat/terminal surface is on screen, so it loads the chat and
+  /// terminal slices (v2's agents page uses the same signal).
+  setChatSurfaceMounted: (mounted: boolean) => void
   refresh: () => void
   logout: () => Promise<void>
 }

@@ -37,6 +37,9 @@ const GATE_MAP: [prefix: string, v2: string][] = [
   ["/v3/activity", "/dashboard/activity"],
   ["/v3/api-keys", "/dashboard/api"],
   ["/v3/project", "/dashboard/api"],
+  // Onboarding watches agents connect (presence lives with the API page's
+  // slices); its chat/terminal slices come from setChatSurfaceMounted.
+  ["/v3/onboarding", "/dashboard/api"],
 ]
 
 export function v3GatePath(pathname: string): string {

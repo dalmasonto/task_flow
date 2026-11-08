@@ -1622,7 +1622,12 @@ function App() {
       repository_url: repositoryUrl || null,
       default_api_base_url: apiBase || "/api",
     })
+    adoptCreatedProject(project)
+  }
 
+  /// Make a freshly created project the active one, locally and at once. Shared
+  /// by v2's dialog and v3's onboarding so the two can't drift.
+  function adoptCreatedProject(project: Awaited<ReturnType<typeof createTaskflowProject>>) {
     const mappedProject = mapLiveProjectRow(project, undefined, workspaceProjects.length)
     const projectId = String(project.id)
     setLiveSyncError(null)
@@ -2277,7 +2282,14 @@ function App() {
       realtimeStatus,
       isSyncing: isLiveSyncing,
       counts: { pendingReviews, pendingInvites, designUnread, onlineAgents: activeProject?.agentsOnline ?? 0 },
+      live: activeLiveWorkspace ?? null,
       chooseProject,
+      createProject: async (input) => {
+        const project = await createTaskflowProject({ default_api_base_url: "/api", ...input })
+        adoptCreatedProject(project)
+        return { id: String(project.id) }
+      },
+      setChatSurfaceMounted,
       refresh: () => void loadLiveWorkspace(activeProjectId),
       logout: () => handleLogout(V3_LOGIN),
     }
