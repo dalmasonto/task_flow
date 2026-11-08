@@ -22,7 +22,7 @@ import { chatIdToSlug, findPublicRoomChat, isAgentOnline, liveId, mapLiveTermina
 import { createTaskflowChannel, setChannelArchived } from "@/lib/taskflow-api"
 import { subscribeThreadEvents } from "@/lib/thread-bus"
 import { fetchThreadSummaries } from "@/lib/threads-api"
-import type { Project } from "@/lib/workspace-view"
+import type { AgentMessage, Project } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
 
 import { ActorAvatar } from "../components/actor-avatar"
@@ -35,6 +35,9 @@ import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
 import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions, type ChatFilter, type ChatRow } from "./chat-logic"
 import { useChatSummary } from "./use-chat-summary"
+import { useRoomExtras } from "./use-room-extras"
+import { reactionIds } from "./pins-logic"
+import { MessageExtraActions, PinBar, PinnedMark, ReactionRow } from "./pins"
 import type { FollowedThread } from "@/lib/chat-summary-api"
 import { focusComposerIn } from "./focus"
 import { ThreadPanel } from "./ThreadPanel"
@@ -442,6 +445,39 @@ function ChatWorkspace({ project }: { project: Project }) {
     setTimeout(() => el.classList.remove("bg-accent"), 1600)
     return true
   }
+  // #5949: pins and reactions (hidden on a server without them).
+  const extras = useRoomExtras(channelId, reactionIds(selectedChat?.messages ?? []))
+  const [pickerFor, setPickerFor] = useState<string | null>(null)
+  const roomArchived = !!channel?.archived
+  const renderActions =
+    extras.supported && !roomArchived
+      ? (m: AgentMessage) => {
+          const id = Number(m.id)
+          const pinned = extras.pinned.has(id)
+          return (
+            <MessageExtraActions
+              pinned={pinned}
+              // Only a room's own messages can be pinned, not thread replies.
+              canPin={!m.threadRoot}
+              onReact={() => setPickerFor(m.id)}
+              onPin={() => void extras.togglePin(id, !pinned)}
+            />
+          )
+        }
+      : undefined
+  const renderFooter = extras.supported
+    ? (m: AgentMessage) => (
+        <ReactionRow
+          reactions={extras.reactions[m.id] ?? []}
+          picking={pickerFor === m.id}
+          readOnly={roomArchived}
+          onToggle={(emoji) => void extras.react(Number(m.id), emoji)}
+          onPick={() => setPickerFor(m.id)}
+          onClosePicker={() => setPickerFor(null)}
+        />
+      )
+    : undefined
+  const renderMeta = (m: AgentMessage) => (extras.pinned.has(Number(m.id)) ? <PinnedMark /> : null)
   const panelOpen = !!channel && (isWide ? panelPref && !threadOpen : panelSheet)
   const panel =
     channel && members && powers ? (
@@ -527,6 +563,7 @@ function ChatWorkspace({ project }: { project: Project }) {
                     ) : null}
                   </div>
                 ) : null}
+                {extras.pins?.length ? <PinBar key={channelId ?? 0} pins={extras.pins} onJump={jumpTo} /> : null}
                 <AgentsConversationView
                   {...outletContext}
                   bare
@@ -534,6 +571,9 @@ function ChatWorkspace({ project }: { project: Project }) {
                   messageLayout="row"
                   renderAvatar={renderAvatar}
                   senderBadge={senderBadge}
+                  renderActions={renderActions}
+                  renderFooter={renderFooter}
+                  renderMeta={renderMeta}
                   onOpenThread={channelId ? openThread : undefined}
                   threadSummaries={threadSummaries}
                   mayDrive={(id) => mayDrive(id) !== false}

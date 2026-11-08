@@ -76,6 +76,9 @@ export function AgentsConversationView({
   renderAvatar,
   senderBadge,
   renderBody,
+  renderActions,
+  renderFooter,
+  renderMeta,
   bare = false,
   readOnly = false,
 }: AgentsOutletContext & {
@@ -110,6 +113,9 @@ export function AgentsConversationView({
   renderAvatar?: (from: string) => ReactNode
   senderBadge?: (from: string) => string | null
   renderBody?: (message: AgentMessage) => ReactNode | null
+  renderActions?: (message: AgentMessage) => ReactNode
+  renderFooter?: (message: AgentMessage) => ReactNode
+  renderMeta?: (message: AgentMessage) => ReactNode
   /// v3 draws its own room header and details panel, so this view drops its
   /// title bar and the Messages/Files switch (Files lives in v3's panel).
   bare?: boolean
@@ -837,6 +843,9 @@ export function AgentsConversationView({
                 renderAvatar={renderAvatar}
                 senderBadge={senderBadge}
                 renderBody={renderBody}
+                renderActions={renderActions}
+                renderFooter={renderFooter}
+                renderMeta={renderMeta}
                 // #644: the card inside the bubble reads the question's state
                 // from the thread, and its Answer button targets THIS message.
                 questionState={

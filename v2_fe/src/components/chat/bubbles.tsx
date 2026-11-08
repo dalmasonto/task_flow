@@ -185,6 +185,9 @@ export function AgentChatBubble({
   renderAvatar,
   senderBadge,
   renderBody,
+  renderActions,
+  renderFooter,
+  renderMeta,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
@@ -221,6 +224,12 @@ export function AgentChatBubble({
   /// Draw the body yourself (the design chat turns dispatched comments into
   /// cards). Null means "show it as markdown".
   renderBody?: (message: AgentMessage) => ReactNode | null
+  /// Extra hover-toolbar buttons (v3: pin, react), after the thread button.
+  renderActions?: (message: AgentMessage) => ReactNode
+  /// Under the body and attachments (v3: reaction chips).
+  renderFooter?: (message: AgentMessage) => ReactNode
+  /// After the time in the header (v3: "Pinned").
+  renderMeta?: (message: AgentMessage) => ReactNode
 }) {
   const fromUser = message.from === "user"
   const row = layout === "row"
@@ -287,6 +296,7 @@ export function AgentChatBubble({
                   run={() => onOpenThread(message.threadRoot ?? message.id)}
                 />
               ) : null}
+              {message.status === "posted" ? renderActions?.(message) : null}
               {canEdit && !editing ? (
                 <BubbleAction
                   title="Edit message"
@@ -344,6 +354,7 @@ export function AgentChatBubble({
           <span className={cn("text-muted-foreground", message.status === "failed" && "text-rose-600 dark:text-rose-300")}>
             {message.time}
           </span>
+          {renderMeta?.(message)}
           {message.editedAt ? (
             <span
               className="text-[0.65rem] italic text-muted-foreground/80"
@@ -447,6 +458,7 @@ export function AgentChatBubble({
             <MessageAttachments attachments={message.attachments} />
           </div>
         ) : null}
+        {message.status === "posted" ? renderFooter?.(message) : null}
         {onOpenThread && message.threadRoot ? (
           <button type="button" className="mt-2 block text-xs text-muted-foreground hover:text-foreground hover:underline" onClick={() => onOpenThread(message.threadRoot!)}>
             Replied in a thread
