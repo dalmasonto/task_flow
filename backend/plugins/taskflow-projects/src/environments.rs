@@ -170,7 +170,9 @@ fn notes_ok(n: Option<String>) -> Result<Option<String>, ApiError> {
 }
 
 fn base_url_ok(u: String) -> Result<String, ApiError> {
-    check_url_max("base_url", Some(u), 500)?.ok_or_else(|| err(StatusCode::BAD_REQUEST, "invalid", Some("base_url"), "An http(s) address is required."))
+    // 400, not the column's 500: the default row's URL is copied into
+    // `project.default_api_base_url` (max 400), so one rule everywhere.
+    check_url_max("base_url", Some(u), 400)?.ok_or_else(|| err(StatusCode::BAD_REQUEST, "invalid", Some("base_url"), "An http(s) address is required."))
 }
 
 fn env_str(e: TaskflowEndpointEnvironment) -> String {

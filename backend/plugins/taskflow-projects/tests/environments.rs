@@ -70,6 +70,10 @@ async fn only_owners_and_admins_manage_environments() {
     assert_eq!(app.patch_body_as(admin, &one, json!({ "health": "healthy" })).await.status(), 422);
     assert_eq!(app.patch_body_as(admin, &one, json!({ "is_default": false })).await.status(), 422);
     assert_eq!(app.post_body_as(admin, &base, json!({ "label": "L", "base_url": "javascript:alert(1)" })).await.status(), 400);
+    // Longer than the project column the default is copied into: a 400, not a 500.
+    let long = format!("https://a.test/{}", "x".repeat(430));
+    assert_eq!(app.post_body_as(admin, &base, json!({ "label": "L", "base_url": long, "is_default": true })).await.status(), 400);
+    assert_eq!(app.patch_body_as(admin, &one, json!({ "base_url": long })).await.status(), 400);
 }
 
 #[tokio::test]
