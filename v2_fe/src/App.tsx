@@ -1619,14 +1619,12 @@ function App() {
     const slug = String(formData.get("slug") ?? "").trim() || slugifyProjectName(name)
     const description = String(formData.get("description_markdown") ?? "").trim() || "### Project\nDescribe the project mission, constraints, and operating rhythm."
     const repositoryUrl = String(formData.get("repository_url") ?? "").trim()
-    const apiBase = String(formData.get("default_api_base_url") ?? "").trim()
 
     const project = await createTaskflowProject({
       name,
       slug,
       description_markdown: description,
       repository_url: repositoryUrl || null,
-      default_api_base_url: apiBase || "/api",
     })
     adoptCreatedProject(project)
   }
@@ -2335,7 +2333,7 @@ function App() {
       },
       chooseProject,
       createProject: async (input) => {
-        const project = await createTaskflowProject({ default_api_base_url: "/api", ...input })
+        const project = await createTaskflowProject(input)
         adoptCreatedProject(project)
         return { id: String(project.id) }
       },

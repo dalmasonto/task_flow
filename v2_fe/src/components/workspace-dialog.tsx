@@ -191,14 +191,11 @@ export function WorkspaceDialog({
                 placeholder={"### Mission\nDescribe what this project owns and how humans/agents should operate."}
               />
             </FormField>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="Repository URL" error={fieldErrors.repository_url?.[0]}>
-                <Input name="repository_url" placeholder="https://github.com/org/repo" />
-              </FormField>
-              <FormField label="API base" error={fieldErrors.default_api_base_url?.[0]}>
-                <Input name="default_api_base_url" defaultValue="/api" />
-              </FormField>
-            </div>
+            {/* #1139: no API base at creation. It follows the project's default
+                environment, added later under Environments. */}
+            <FormField label="Repository URL" error={fieldErrors.repository_url?.[0]}>
+              <Input name="repository_url" placeholder="https://github.com/org/repo" />
+            </FormField>
             <DialogFormError message={formError} />
             <DialogActions onClose={onClose} submitLabel="Create Project" submitIcon={<FolderKanbanIcon />} submitting={submitting} />
           </form>
