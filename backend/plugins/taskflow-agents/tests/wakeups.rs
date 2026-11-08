@@ -132,8 +132,15 @@ async fn an_offline_agent_gets_one_batched_notice_when_it_comes_back() {
         make_due(*id).await;
     }
     taskflow_agents::wakeups::sweep_due().await;
+    // The background sweeper may hold a rule mid-sweep when ours skips it;
+    // wait for the outcome rather than racing it.
     for id in &ids {
-        assert_eq!(serde_json::to_value(rule(*id).await.status).unwrap(), "missed");
+        let id = *id;
+        assert!(
+            eventually(|| async move { serde_json::to_value(rule(id).await.status).unwrap() == "missed" }).await,
+            "rule {id} not missed: {:?}",
+            rule(id).await.status
+        );
     }
     assert!(notices_for(project, agent).await.is_empty(), "nothing typed into an absent pane");
 

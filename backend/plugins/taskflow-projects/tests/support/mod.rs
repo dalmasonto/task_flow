@@ -44,6 +44,10 @@ impl TestResponse {
         self.inner.status().as_u16()
     }
 
+    pub fn text(&self) -> String {
+        self.inner.body_text()
+    }
+
     pub fn json(&self) -> Value {
         self.inner.body_json()
     }
@@ -137,6 +141,15 @@ impl TestApp {
         self.set_auth(user_id);
         TestResponse {
             inner: self.client.post_json(path, &body).await,
+        }
+    }
+
+    /// #1134: a JSON PATCH (TestClient has no typed helper for the verb).
+    pub async fn patch_body_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
+        self.set_auth(user_id);
+        self.client.set_default_header(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        TestResponse {
+            inner: self.client.send(http::Method::PATCH, path, axum::body::Body::from(body.to_string())).await,
         }
     }
 

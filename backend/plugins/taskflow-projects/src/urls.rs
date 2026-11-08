@@ -21,6 +21,8 @@ pub fn router() -> Router {
         // This endpoint atomically creates the project AND an active owner
         // membership for the caller.
         .route("/api/taskflow/projects", post(views::create_project))
+        // #1134: the caller's own profile.
+        .route("/api/taskflow/me/profile", get(crate::account::get_profile).patch(crate::account::patch_profile))
         // Delete a project — owner-only (or superuser). Auto-REST delete on
         // `taskflow_project` is stripped because it let any member do this.
         .route("/api/taskflow/projects/{project}", delete(views::delete_project))
