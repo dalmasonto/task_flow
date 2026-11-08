@@ -953,7 +953,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       also_send: z
         .boolean()
         .optional()
-        .describe("With thread_root: also show the reply in the channel feed, so everyone sees it (default false)."),
+        .describe("With thread_root: also show the reply in the channel feed, so everyone sees it (default false). It keeps the thread's targets: every agent receives it, but only the thread's participants are told they may act on it, so use it to inform the room, not to hand work to someone outside the thread (mention them by chip to pull them in)."),
       priority: z
         .enum(["normal", "important", "urgent"])
         .optional()

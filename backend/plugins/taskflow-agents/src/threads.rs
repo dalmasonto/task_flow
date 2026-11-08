@@ -204,6 +204,27 @@ pub fn agent_may_read(m: &TaskflowAgentMessage, agent_id: i64) -> bool {
     m.targets.as_deref().is_some_and(|t| t.contains(&agent_target_needle(agent_id)))
 }
 
+/// A root was deleted (only the admin UI deletes one message; a channel or
+/// project delete cascades every row). Its replies would be orphans: hidden
+/// from the feed with no thread to open. Release them into the channel as
+/// ordinary messages instead of deleting them, so one admin click never
+/// destroys other people's words. Column update only (never a whole-row save).
+pub async fn release_replies_of(roots: &[i64]) {
+    if roots.is_empty() {
+        return;
+    }
+    let mut v = serde_json::Map::new();
+    v.insert("thread_root".into(), Value::Null);
+    v.insert("in_channel".into(), json!(true));
+    if let Err(e) = TaskflowAgentMessage::objects()
+        .filter(taskflow_agent_message::THREAD_ROOT.in_(roots))
+        .update_values(v)
+        .await
+    {
+        tracing::error!(?roots, error = %e, "deleted thread root: could not release its replies");
+    }
+}
+
 /// One thread: the root, its replies in order, and the count.
 pub async fn thread_rows(channel_id: i64, root: i64) -> Result<(TaskflowAgentMessage, Vec<TaskflowAgentMessage>), StatusCode> {
     let root_row = TaskflowAgentMessage::objects()

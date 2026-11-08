@@ -191,3 +191,49 @@ async fn a_thread_stays_inside_its_dm() {
     assert_eq!(app.get_as(member, &format!("/api/taskflow/channels/{dm}/messages/{root_id}/thread")).await.status(), 404);
     assert_eq!(app.get_as(member, &format!("/api/taskflow/channels/{dm}/threads?roots={root_id}")).await.status(), 404);
 }
+
+async fn row(id: i64) -> taskflow_agents::models::TaskflowAgentMessage {
+    use taskflow_agents::models::{TaskflowAgentMessage, taskflow_agent_message};
+    TaskflowAgentMessage::objects().filter(taskflow_agent_message::ID.eq(id)).first().await.unwrap().unwrap()
+}
+
+/// #1132 review: deleting a root (the admin UI can) must not orphan its
+/// replies, hidden from the feed with no thread to open. They are released
+/// into the channel. Both delete paths: per-row and queryset (bulk).
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_root_releases_its_replies_into_the_channel() {
+    use taskflow_agents::models::{TaskflowAgentMessage, taskflow_agent_message};
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let room = seed_channel_of_kind(project, TaskflowChannelKind::Project).await;
+    let person = app.create_user().await;
+    make_active_project_member(project, person).await;
+
+    let mut replies = Vec::new();
+    for bulk in [false, true] {
+        let (_, root) = person_send(&app, person, json!({ "channel": room, "body_markdown": "root" })).await;
+        let root_id = root["id"].as_i64().unwrap();
+        let (_, reply) = person_send(&app, person, json!({ "channel": room, "body_markdown": "r", "thread_root": root_id })).await;
+        let reply_id = reply["id"].as_i64().unwrap();
+        assert!(!row(reply_id).await.in_channel);
+        if bulk {
+            TaskflowAgentMessage::objects().filter(taskflow_agent_message::ID.eq(root_id)).delete().await.unwrap();
+        } else {
+            let r = row(root_id).await;
+            TaskflowAgentMessage::objects().delete_instance(&r).await.unwrap();
+        }
+        replies.push((bulk, reply_id));
+    }
+    for (bulk, id) in replies {
+        let mut released = false;
+        for _ in 0..100 {
+            let r = row(id).await;
+            if r.in_channel && r.thread_root.is_none() {
+                released = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(released, "bulk={bulk}: the reply was left orphaned");
+    }
+}
