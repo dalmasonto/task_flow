@@ -98,6 +98,28 @@ pub async fn dispatch_comments(
     let revision = files.iter().map(|f| f.version).max().unwrap_or(0);
     let m = manifest::build(project_id, &files, revision);
 
+    // #1131: claim each comment open → sent by compare-and-set BEFORE the
+    // message is written, with `sent_to_agent` in the same column update. A
+    // comment resolved or dismissed since it was loaded is not claimed (and
+    // not overwritten); the message lists only what this dispatch won. If
+    // every one was taken in between, it is a 409.
+    let mut claimed: Vec<DesignComment> = Vec::with_capacity(comments.len());
+    for c in &comments {
+        let mut v = serde_json::Map::new();
+        v.insert("status".into(), json!(crate::comment_write::status_str(CommentStatus::Sent)));
+        // #1123: remember who it went to ("sent to X"; reply notices).
+        v.insert("sent_to_agent".into(), json!(agent.id));
+        match crate::comment_write::write(project_id, c.id, Some(&[CommentStatus::Open]), v).await {
+            Ok(row) => claimed.push(row),
+            Err(crate::comment_write::WriteError::Conflict | crate::comment_write::WriteError::NotFound) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    if claimed.is_empty() {
+        return Err(StatusCode::CONFLICT);
+    }
+    let comments = claimed;
+
     let mut body = format!(
         "[design-review] {} comment(s) from {} on the Design Surface.\n\
          For each: read the target, edit that file, then design_resolve_comment with a short note.\n\
@@ -170,21 +192,33 @@ pub async fn dispatch_comments(
             questions: None,
             created_at: None,
         })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await;
+    let message = match message {
+        Ok(m) => m,
+        Err(_) => {
+            // The claims above must not outlive a message that never landed:
+            // put back exactly what this dispatch took (still sent, to this
+            // agent), so the comments can be dispatched again.
+            for c in &comments {
+                let mut v = serde_json::Map::new();
+                v.insert("status".into(), json!(crate::comment_write::status_str(CommentStatus::Open)));
+                v.insert("sent_to_agent".into(), serde_json::Value::Null);
+                let _ = DesignComment::objects()
+                    .filter(
+                        design_comment::ID.eq(c.id)
+                            & design_comment::STATUS.eq("sent")
+                            & design_comment::SENT_TO_AGENT.eq(agent.id),
+                    )
+                    .update_values(v)
+                    .await;
+            }
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
-    // Flip open → sent. SSE carries each update so pins re-color live.
-    let mut sent_ids = Vec::with_capacity(comments.len());
-    for mut c in comments {
-        c.status = CommentStatus::Sent;
-        // #1123: remember who it went to ("sent to X"; reply notices).
-        c.sent_to_agent = Some(ForeignKey::new(agent.id));
-        let saved = DesignComment::objects()
-            .save(c)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        sent_ids.push(saved.id);
-    }
+    // Already flipped open → sent above (each emitted post_save, so pins
+    // re-colour live).
+    let sent_ids: Vec<i64> = comments.iter().map(|c| c.id).collect();
 
     Ok((
         StatusCode::CREATED,

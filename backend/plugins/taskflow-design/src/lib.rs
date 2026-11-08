@@ -27,6 +27,7 @@
 //! ```
 
 pub mod agent_views;
+pub mod comment_write;
 pub mod compare;
 pub mod compare_api;
 pub mod composer;
