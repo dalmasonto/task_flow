@@ -56,8 +56,9 @@ function Glyph({ children }: { children: React.ReactNode }) {
 
 export function InboxPage() {
   const { projects, live } = useWorkspace()
-  // #1127: who may answer is known for the active project's agents; for
-  // others the card stays answerable and the server decides.
+  // #1127: the server says who may answer (`can_answer`). An older backend
+  // doesn't, so fall back to the rule for the active project's agents and let
+  // the server decide for the rest.
   const mayDrive = useMayDrive()
   const activeId = live?.project.id ?? null
   const now = useLivenessNow()
@@ -105,7 +106,7 @@ export function InboxPage() {
             {i.kind === "prompt" ? (
               <div className="mt-2">
                 <AgentPromptCard
-                  readOnly={i.project === activeId && mayDrive(i.agent) === false}
+                  readOnly={i.can_answer != null ? !i.can_answer : i.project === activeId && mayDrive(i.agent) === false}
                   prompt={{ id: i.prompt, project: i.project, agent: i.agent, question: i.question, options_json: i.options_json, kind: i.prompt_kind, status: "pending" } as unknown as TaskflowWorkspace["agentPrompts"][number]}
                   onAnswer={async (id, answers, cancel, texts) => {
                     await answerAgentPrompt(id, answers, cancel, texts)
