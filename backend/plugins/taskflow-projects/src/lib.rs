@@ -27,6 +27,8 @@ pub mod account;
 pub mod emit;
 // #1137: the only writer of project settings.
 pub mod project_edit;
+// #1136: change a member's role, or remove them.
+pub mod members;
 pub mod urls;
 pub mod views;
 

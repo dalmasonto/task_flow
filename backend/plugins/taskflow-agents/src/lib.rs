@@ -25,6 +25,8 @@ pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.
 pub mod emit;
+// #1136: rotate / revoke an agent's keys.
+pub mod keys;
 // #1126: claim leases (release a silent agent's claims).
 pub mod leases;
 pub mod wakeups;

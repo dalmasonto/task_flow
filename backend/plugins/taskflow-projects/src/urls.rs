@@ -30,6 +30,11 @@ pub fn router() -> Router {
             "/api/taskflow/projects/{project}",
             delete(views::delete_project).patch(crate::project_edit::patch_project),
         )
+        // #1136: a member's role, and removing a member (or leaving).
+        .route(
+            "/api/taskflow/projects/{project}/members/{user}",
+            umbral::web::patch(crate::members::set_role).delete(crate::members::remove),
+        )
         // #616: the instructions every agent in the project reads via whoami.
         // Owner/admin (or superuser) only; auto-REST cannot write the column.
         .route(

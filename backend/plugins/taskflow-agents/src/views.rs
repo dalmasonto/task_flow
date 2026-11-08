@@ -20,9 +20,8 @@ use umbral::storage::storage_opt;
 use umbral::web::multipart::{FilePart, is_multipart, parse_multipart};
 use umbral::web::{HeaderMap, IntoResponse, Json, Path, Query, Response, StatusCode, header};
 use umbral_auth::{AuthUser, CurrentIdentity, RequireAuth, auth_user};
-use uuid::Uuid;
 
-use crate::agent_auth::{AgentIdentity, RequireAgent, hash_key};
+use crate::agent_auth::{AgentIdentity, RequireAgent};
 use crate::scopes::CapabilityError;
 use crate::models::{
     MessageTarget,
@@ -1559,11 +1558,7 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
 
     // Key material. The prefix is a non-secret, UNIQUE lookup handle; the secret
     // is a full uuid-v4 (CSPRNG-backed). We store the prefix + sha256(raw) only.
-    let prefix12: String = Uuid::new_v4().simple().to_string().chars().take(12).collect();
-    let secret = Uuid::new_v4().simple().to_string();
-    let key_prefix = format!("tfk_{prefix12}");
-    let raw_key = format!("tfk_{prefix12}_{secret}");
-    let key_hash = hash_key(&raw_key);
+    let (key_prefix, raw_key, key_hash) = crate::keys::new_key();
     let credential_name = format!("{profile} key");
 
     // Reuse an existing agent with this identifier, else create it. The lookup is
