@@ -5272,7 +5272,7 @@ pub struct TerminalKeyInput {
 /// dismiss its permission prompts)? An ACTIVE owner or admin of its project,
 /// the human who linked the agent, or a superuser. Plain members can still
 /// chat with it; they can't type into it.
-pub(crate) async fn may_drive_agent(user: i64, agent: &TaskflowAgent) -> Result<bool, StatusCode> {
+pub async fn may_drive_agent(user: i64, agent: &TaskflowAgent) -> Result<bool, StatusCode> {
     if agent.linked_by.as_ref().map(|u| u.id()) == Some(user) {
         // Still has to be an active member: a human who left the project
         // doesn't keep driving the agent they once linked.

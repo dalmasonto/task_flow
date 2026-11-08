@@ -127,6 +127,19 @@ pub async fn inbox(user: i64, q: &InboxQuery) -> Result<Value, ApiError> {
         .map_err(internal)?;
     let agent_ids: Vec<i64> = prompts.iter().map(|p| p.agent.id()).collect();
     let labels = agent_labels(&agent_ids).await;
+    // #1127: may I answer it? The same rule the answer route enforces
+    // (`may_drive_agent`), once per agent; an error counts as no.
+    let mut may_answer: std::collections::HashMap<i64, bool> = std::collections::HashMap::new();
+    {
+        let mut ids = agent_ids.clone();
+        ids.sort_unstable();
+        ids.dedup();
+        let agents = TaskflowAgent::objects().filter(taskflow_agent::ID.in_(&ids)).fetch().await.map_err(internal)?;
+        for a in &agents {
+            let ok = taskflow_agents::views::may_drive_agent(user, a).await.unwrap_or(false);
+            may_answer.insert(a.id, ok);
+        }
+    }
     let day_ago = Utc::now() - Duration::days(1);
     let mut n = 0;
     for p in &prompts {
@@ -153,6 +166,7 @@ pub async fn inbox(user: i64, q: &InboxQuery) -> Result<Value, ApiError> {
                 "agent_label": labels.get(&p.agent.id()), "question": p.question,
                 "options_json": p.options_json, "prompt_kind": p.kind,
                 "answer_path": format!("/api/taskflow/prompts/{}/answer", p.id),
+                "can_answer": may_answer.get(&p.agent.id()).copied().unwrap_or(false),
             }),
         });
     }

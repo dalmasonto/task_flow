@@ -223,3 +223,22 @@ async fn a_daily_update_draft_asks_owners_and_admins_only() {
     let theirs = app.get_as(dev, "/api/taskflow/inbox").await.json().await["items"].clone();
     assert!(!theirs.as_array().unwrap().iter().any(|i| i["kind"] == "daily_update"), "a developer cannot post it, so is not asked");
 }
+
+/// #1127: each prompt says whether THIS person may answer it, by the same rule
+/// the answer route enforces, so the card doesn't offer buttons that 403.
+#[tokio::test]
+async fn prompt_items_say_whether_you_can_answer() {
+    let app = TestApp::new().await;
+    let (owner, project) = seed_project(&app).await;
+    seed_member(project, owner.id, "owner").await;
+    let dev = app.create_user().await;
+    seed_member(project, dev, "developer").await;
+    let (_, agent) = seed_agent_key(project, &[]).await;
+    let p = prompt(project, agent, None, TaskflowPromptStatus::Pending).await;
+
+    let find = |v: &serde_json::Value| v["items"].as_array().unwrap().iter().find(|i| i["prompt"] == p).cloned().unwrap();
+    let as_owner = app.get_as(owner.id, "/api/taskflow/inbox").await.json().await;
+    assert_eq!(find(&as_owner)["can_answer"], true, "{as_owner}");
+    let as_dev = app.get_as(dev, "/api/taskflow/inbox").await.json().await;
+    assert_eq!(find(&as_dev)["can_answer"], false, "a developer who didn't link it can't: {as_dev}");
+}
