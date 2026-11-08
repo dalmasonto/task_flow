@@ -29,6 +29,8 @@ pub mod models;
 pub mod posting;
 pub mod evidence;
 pub mod questions;
+// Chat threads: placement, targets, reads.
+pub mod threads;
 pub mod review_requests;
 // #605: credential scopes — the allowlist and the canonical stored form.
 pub mod scopes;

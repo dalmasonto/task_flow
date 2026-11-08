@@ -295,6 +295,8 @@ async fn seed_message_attachment(project: i64, channel: i64) -> String {
     let n = seq();
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

@@ -94,6 +94,8 @@ pub async fn post_agent_message(
     let is_design = channel.is_design;
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: channel.project.clone(),
             channel: ForeignKey::new(channel.id),

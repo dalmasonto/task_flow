@@ -261,6 +261,10 @@ export interface SendMessageInput {
   attachments?: { filename: string; bytes: Buffer }[];
   /** #317: the id of the message this one replies to (same channel). */
   reply_to?: number;
+  /** Chat threads: post inside this root's thread (same channel). */
+  thread_root?: number;
+  /** Chat threads: a thread reply that also shows in the channel feed. */
+  also_send?: boolean;
   /** #644: a structured question set the human answers in a rendered dialog.
    *  The answers come back as an ordinary REPLY to this message. */
   questions?: StructuredQuestions;
@@ -625,6 +629,8 @@ export class TaskflowClient {
     if (fields.client_nonce) form.set("client_nonce", fields.client_nonce);
     if (fields.is_design) form.set("is_design", "true");
     if (fields.reply_to !== undefined) form.set("reply_to", String(fields.reply_to));
+    if (fields.thread_root !== undefined) form.set("thread_root", String(fields.thread_root));
+    if (fields.also_send) form.set("also_send", "true");
     if (fields.questions) form.set("questions", JSON.stringify(fields.questions));
     for (const file of attachments) {
       // The server treats a part as a file only when it carries a non-empty

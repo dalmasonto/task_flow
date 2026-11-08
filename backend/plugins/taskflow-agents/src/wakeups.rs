@@ -456,6 +456,8 @@ pub async fn post_system_message(project: i64, channel: i64, agent: Option<i64>,
         .is_some_and(|c| c.is_design);
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),

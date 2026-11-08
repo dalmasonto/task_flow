@@ -187,6 +187,8 @@ async fn a_project_member_off_the_roster_never_receives_a_dm_body() {
     // Alice DMs Carol.
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(dm),

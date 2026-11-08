@@ -943,6 +943,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         .int()
         .optional()
         .describe("The id of the message this answers (same channel). Omit for a new line of conversation."),
+      thread_root: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "Reply INSIDE this message's thread (the `thread=` id in a delivered notice's ⟦ctx⟧, or the root's own `message=` id). Must be a root message (not itself a thread reply) in the same channel. A thread reply reaches only the thread's participants: the root's author, earlier repliers, and anyone you @-mention by chip. Omit for a channel message.",
+        ),
+      also_send: z
+        .boolean()
+        .optional()
+        .describe("With thread_root: also show the reply in the channel feed, so everyone sees it (default false)."),
       priority: z
         .enum(["normal", "important", "urgent"])
         .optional()
@@ -996,7 +1007,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         ),
       ...profileArg,
     },
-    async ({ channel, body, reply_to, priority, files, is_design, questions, profile }) => {
+    async ({ channel, body, reply_to, thread_root, also_send, priority, files, is_design, questions, profile }) => {
       try {
         const picked = await clientFor(profile);
         if (!picked.ok) return picked.refusal;
@@ -1013,6 +1024,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
             attachments,
             questions,
             ...(reply_to === undefined ? {} : { reply_to }),
+            ...(thread_root === undefined ? {} : { thread_root }),
+            ...(also_send ? { also_send: true } : {}),
           }),
         );
       } catch (err) {

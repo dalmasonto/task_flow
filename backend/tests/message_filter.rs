@@ -192,6 +192,8 @@ async fn make_channel_member(project: i64, channel: i64, user: i64) {
 async fn make_message(project: i64, channel: i64, body: &str, is_design: bool) -> i64 {
     TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: ForeignKey::new(project),
             channel: ForeignKey::new(channel),
@@ -261,4 +263,55 @@ async fn message_list_filters_by_is_design() {
     assert_eq!(rows.len(), 1, "only the design row should match: {body}");
     assert_eq!(rows[0]["body_markdown"], Value::from("designy"));
     assert_eq!(rows[0]["is_design"], Value::from(true));
+}
+
+/// Chat threads: the feed asks `?in_channel=true`. A thread-only reply is left
+/// out, an `also_send` reply and every ordinary message are in, and a row
+/// written WITHOUT the column (as every message before the migration was)
+/// takes the column default and still lists. Main's review ask on #1132.
+#[tokio::test]
+async fn the_feed_filter_keeps_old_rows_and_drops_thread_only_replies() {
+    let (_, seed) = app().await;
+    let project = TaskflowAgentChannel::objects()
+        .filter(taskflow_agents::models::taskflow_agent_channel::ID.eq(seed.channel))
+        .first()
+        .await
+        .unwrap()
+        .unwrap()
+        .project
+        .id();
+    let channel = make_channel(project, "Thread room", TaskflowChannelKind::Project).await;
+    make_channel_member(project, channel, seed.alice).await;
+
+    let root = make_message(project, channel, "root", false).await;
+    for (body, in_channel) in [("thread only", false), ("also sent", true)] {
+        let id = make_message(project, channel, body, false).await;
+        let mut v = serde_json::Map::new();
+        v.insert("thread_root".into(), Value::from(root));
+        v.insert("in_channel".into(), Value::from(in_channel));
+        TaskflowAgentMessage::objects()
+            .filter(taskflow_agents::models::taskflow_agent_message::ID.eq(id))
+            .update_values(v)
+            .await
+            .unwrap();
+    }
+    // A pre-migration row: inserted with no `thread_root` / `in_channel`.
+    let sql = format!(
+        "INSERT INTO taskflow_agent_message (project, channel, sender_kind, sender_label, body_markdown, priority, is_design) \
+         VALUES ({project}, {channel}, 'user', 'old', 'from before threads', 'normal', false)"
+    );
+    match &umbral::db::pool_dispatched() {
+        umbral::db::DbPool::Sqlite(p) => sqlx::query(&sql).execute(p).await.map(|_| ()),
+        umbral::db::DbPool::Postgres(p) => sqlx::query(&sql).execute(p).await.map(|_| ()),
+    }
+    .expect("raw insert");
+
+    let (status, body) = get_as(seed.alice, &format!("/api/taskflow_agent_message/?channel={channel}&in_channel=true")).await;
+    assert_eq!(status, 200, "{body}");
+    let mut bodies: Vec<String> =
+        body["results"].as_array().unwrap().iter().map(|r| r["body_markdown"].as_str().unwrap().to_string()).collect();
+    bodies.sort();
+    assert_eq!(bodies, vec!["also sent", "from before threads", "root"], "{body}");
+    let (_, all) = get_as(seed.alice, &format!("/api/taskflow_agent_message/?channel={channel}")).await;
+    assert_eq!(all["results"].as_array().unwrap().len(), 4, "unfiltered, the thread-only reply is still readable");
 }

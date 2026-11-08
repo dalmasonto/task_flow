@@ -195,6 +195,8 @@ pub async fn post(RequireAuth(user): RequireAuth<i64>, Path((project, date)): Pa
     };
     let message = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: room.project.clone(),
             channel: ForeignKey::new(room.id),

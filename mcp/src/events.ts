@@ -89,6 +89,10 @@ export interface AgentMessageEvent {
   targets?: MessageTarget[] | null;
   /** #317: the id of the message this one replies to (same channel), or null. */
   reply_to?: number | null;
+  /** Chat threads: the root this message is a thread reply under, or null. */
+  thread_root?: number | null;
+  /** Chat threads: false for a thread-only reply (not in the channel feed). */
+  in_channel?: boolean;
 }
 
 /** #317: the message a reply answers, as the notice quotes it. */
@@ -404,6 +408,13 @@ export function handleFrame(
  */
 export function shouldDeliver(message: AgentMessageEvent, selfAgentId: number): boolean {
   if (message.sender_kind === "agent" && message.sender_agent === selfAgentId) return false;
+  // Chat threads: a thread-only reply reaches only the thread's agent targets.
+  // The server already withholds it from everyone else's read API (which is
+  // where a live event's body is fetched from); this is the same rule kept
+  // locally, so a row that does arrive is never typed into a stranger's pane.
+  if (message.thread_root != null && message.in_channel === false) {
+    return (message.targets ?? []).some((t) => t.kind === "agent" && t.id === selfAgentId);
+  }
   return true;
 }
 
@@ -479,6 +490,8 @@ function contextSuffix(message: AgentMessageEvent): string {
     `message=${message.id}`,
   ];
   if (message.task != null) parts.push(`task=${message.task}`);
+  // Chat threads: answer inside the thread with send_message thread_root=<id>.
+  if (message.thread_root != null) parts.push(`thread=${message.thread_root}`);
   const sender =
     message.sender_user != null
       ? `user:${message.sender_user}`

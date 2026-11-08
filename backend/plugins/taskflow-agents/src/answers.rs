@@ -264,6 +264,8 @@ async fn submit(
     };
     let reply = TaskflowAgentMessage::objects()
         .create(TaskflowAgentMessage {
+            thread_root: None,
+            in_channel: true,
             id: 0,
             project: message.project.clone(),
             channel: ForeignKey::new(channel.id),
