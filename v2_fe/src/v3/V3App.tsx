@@ -4,7 +4,7 @@
 /// Pages are ported one by one (stage 2). Until a page lands, its route shows an
 /// honest "not ported yet" state with a link to the v2 page that still works.
 import { lazy, Suspense, type ComponentType } from "react"
-import { Link, Route, Routes, useLocation } from "react-router-dom"
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import { ArrowUpRightIcon, HammerIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -78,6 +78,8 @@ const DailyUpdatePage = lazyNamed(() => import("./daily/DailyUpdatePage"), "Dail
 const OverviewPage = lazyNamed(() => import("./overview/OverviewPage"), "OverviewPage")
 const UsagePage = lazyNamed(() => import("./usage/UsagePage"), "UsagePage")
 const HomePage = lazyNamed(() => import("./home/HomePage"), "HomePage")
+const InvitationsPage = lazyNamed(() => import("./account/InvitationsPage"), "InvitationsPage")
+const SecurityPage = lazyNamed(() => import("./account/SecurityPage"), "SecurityPage")
 
 export function V3App() {
   useV3Document()
@@ -119,6 +121,9 @@ export function V3App() {
         <Route path="/v3/decisions" element={<DecisionsPage />} />
         <Route path="/v3/overview" element={<OverviewPage />} />
         <Route path="/v3/usage" element={<UsagePage />} />
+        <Route path="/v3/account" element={<Navigate to="/v3/account/profile" replace />} />
+        <Route path="/v3/account/invitations" element={<InvitationsPage />} />
+        <Route path="/v3/account/security" element={<SecurityPage />} />
         <Route path="/v3/daily-update" element={<DailyUpdatePage />} />
         <Route path="/v3/daily-update/:date" element={<DailyUpdatePage />} />
           <Route path="*" element={<NotPortedYet />} />
