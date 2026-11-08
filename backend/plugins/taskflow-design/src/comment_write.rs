@@ -26,6 +26,7 @@ pub fn status_str(s: CommentStatus) -> &'static str {
         CommentStatus::Sent => "sent",
         CommentStatus::Addressed => "addressed",
         CommentStatus::Dismissed => "dismissed",
+        CommentStatus::Resolved => "resolved",
     }
 }
 
