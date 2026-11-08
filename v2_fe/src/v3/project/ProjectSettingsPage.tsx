@@ -202,7 +202,9 @@ export function ProjectSettingsPage() {
               <li className="flex flex-wrap items-center gap-3 px-4 py-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{archived ? "Bring the project back" : "Archive project"}</p>
-                  <p className="text-xs text-muted-foreground">{archived ? "It's read-only while archived. Bring it back to work in it again." : "Read-only. Agents are disconnected; you can bring it back any time."}</p>
+                  <p className="text-xs text-muted-foreground">{archived
+                      ? "It's marked archived. Nothing is locked: members and agents can still work in it."
+                      : "Marks the project archived. Nothing is locked yet: members and agents can still work in it. You can bring it back any time."}</p>
                 </div>
                 <Button variant="outline" disabled={busy !== null} onClick={toggleArchive}>
                   {busy === "archive" ? <Spinner /> : archived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}

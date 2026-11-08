@@ -13,7 +13,8 @@ export function projectPowers(me: TaskflowProjectMember | undefined, isSuperuser
 /// The handler's slug rule: 2 to 120 lowercase letters, digits and dashes,
 /// not starting or ending with a dash. Null when fine.
 export function slugError(slug: string): string | null {
-  const s = slug.trim()
+  // Checked as it will be sent: aboutPatch and the server both lowercase it.
+  const s = slug.trim().toLowerCase()
   if (s.length < 2 || s.length > 120) return "2 to 120 characters."
   if (!/^[a-z0-9-]+$/.test(s)) return "Lowercase letters, digits and dashes only."
   if (s.startsWith("-") || s.endsWith("-")) return "Can't start or end with a dash."

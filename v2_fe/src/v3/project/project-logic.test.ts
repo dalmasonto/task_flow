@@ -27,6 +27,7 @@ describe("slug and about form", () => {
     expect(slugError("taskflow-v2")).toBeNull()
     expect(slugError("a")).toMatch(/2 to 120/)
     expect(slugError("Task Flow")).toMatch(/Lowercase/)
+    expect(slugError("My-Project")).toBeNull()
     expect(slugError("-x")).toMatch(/dash/)
   })
 
