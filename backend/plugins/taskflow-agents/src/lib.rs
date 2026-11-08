@@ -23,6 +23,8 @@ pub mod agent_auth;
 pub mod answers;
 pub mod channel_state;
 pub mod claims;
+// #1125: post_save for a row written by a guarded column update.
+pub mod emit;
 pub mod wakeups;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.

@@ -895,7 +895,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   server.tool(
     "claim_task",
-    "Self-assign a task in this agent's project. Returns the updated task.",
+    "Self-assign a task in this agent's project. Returns the updated task. A claim is exclusive: if another agent already holds the task you get a 409 `already_claimed` naming the `holder`. The holder may be another agent or a person. Then do NOT work on it: pick another task, or ask the holder or a human to reassign it (a claim is only released by reassignment). Claiming a task you already hold is a harmless no-op.",
     { task: z.number().int().describe("Task id."), ...profileArg },
     async ({ task, profile }) => {
       try {

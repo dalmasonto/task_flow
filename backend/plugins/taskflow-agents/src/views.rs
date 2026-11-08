@@ -3342,33 +3342,91 @@ pub async fn update_task_status_as_agent(
 /// `POST /api/taskflow/agents/tasks/{task}/claim` (agent-authed) — an agent
 /// self-assigns a task in its own project: `assigned_agent_id` + `assignee_label`
 /// from the authenticated agent. Emits a `claimed_task` activity. Takes no body.
+///
+/// #1125: a claim is EXCLUSIVE. It is one conditional write, assigning only
+/// while no agent holds the task, so two agents claiming at once can't both
+/// win and a second agent can't take a task from the first. Losing answers
+/// `409 {error: "already_claimed", holder: {agent_id, display_name}}`.
+/// Re-claiming your own task is a no-op 200 (no second activity row). A
+/// person assigning a task in the UI is a different path and is unchanged.
 pub async fn claim_task_as_agent(
     RequireAgent(agent): RequireAgent,
     Path(task_id): Path<i64>,
 ) -> Result<Response, CapabilityError> {
     agent.require(crate::scopes::TASKS_WRITE)?;
-    let mut task = load_task_in_project(task_id, agent.project_id).await?;
-    task.assigned_agent_id = Some(agent.agent_id);
-    task.assignee_label = Some(agent.display_name.clone());
-    task.updated_at = Some(chrono::Utc::now());
-    let task = TaskflowTask::objects()
-        .save(task)
+    let task = load_task_in_project(task_id, agent.project_id).await?;
+    if task.assigned_agent_id == Some(agent.agent_id) {
+        return Ok((StatusCode::OK, Json(task)).into_response());
+    }
+
+    let mut v = serde_json::Map::new();
+    v.insert("assigned_agent_id".into(), json!(agent.agent_id));
+    v.insert("assignee_label".into(), json!(agent.display_name));
+    v.insert("updated_at".into(), json!(chrono::Utc::now()));
+    let won = TaskflowTask::objects()
+        .filter(
+            taskflow_task::ID.eq(task.id)
+                & taskflow_task::PROJECT.eq(agent.project_id)
+                & taskflow_task::ASSIGNED_AGENT_ID.is_null()
+                // A task a PERSON holds isn't free either (#1125 review): an
+                // agent must not quietly take it over. A human reassigns it.
+                & taskflow_task::ASSIGNED_USER.is_null(),
+        )
+        .update_values(v)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let fresh = load_task_in_project(task_id, agent.project_id).await?;
+    if won == 0 {
+        // Someone holds it. If it is us (we raced ourselves), that's a win.
+        if fresh.assigned_agent_id == Some(agent.agent_id) {
+            return Ok((StatusCode::OK, Json(fresh)).into_response());
+        }
+        let holder = match (fresh.assigned_agent_id, fresh.assigned_user.as_ref().map(|u| u.id())) {
+            (None, Some(user)) => json!({ "user_id": user, "display_name": fresh.assignee_label }),
+            (Some(id), _) => TaskflowAgent::objects()
+                .filter(taskflow_agent::ID.eq(id))
+                .first()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .map(|a| json!({ "agent_id": a.id, "display_name": a.display_name }))
+                .unwrap_or_else(|| json!({ "agent_id": id, "display_name": fresh.assignee_label })),
+            (None, None) => serde_json::Value::Null,
+        };
+        // The MCP shows agents `detail`, so the holder is named in it too.
+        let who = match (holder["display_name"].as_str(), holder["agent_id"].as_i64(), holder["user_id"].as_i64()) {
+            (Some(name), Some(id), _) => format!("{name} (agent:{id})"),
+            (Some(name), None, Some(id)) => format!("{name} (user:{id})"),
+            (None, Some(id), _) => format!("agent:{id}"),
+            (None, None, Some(id)) => format!("user:{id}"),
+            _ => "Someone else".to_string(),
+        };
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "already_claimed",
+                "detail": format!("{who} already holds this task. Don't work on it: pick another task, or ask the holder or a human to reassign it."),
+                "holder": holder,
+            })),
+        )
+            .into_response());
+    }
+    // `update_values` fires only bulk_post_save; realtime listens to post_save.
+    crate::emit::emit_post_save(&fresh).await;
+
     emit_task_activity(
         agent.project_id,
-        task.id,
+        fresh.id,
         TaskflowActorKind::Agent,
         None,
         Some(agent.agent_id),
         agent.display_name.clone(),
         "claimed_task",
-        Some(task_label(&task)),
+        Some(task_label(&fresh)),
     )
     .await?;
 
-    Ok((StatusCode::OK, Json(task)).into_response())
+    Ok((StatusCode::OK, Json(fresh)).into_response())
 }
 
 /// The review body's cap — the model stores it in a 12000-char column. Reject at
