@@ -142,6 +142,8 @@ const CHANNEL_SCOPED_TABLES: &[&str] = &[
     // #1099: an answer belongs to its message's conversation. `channel` is
     // denormalized onto the row for this scope, as for attachments.
     "taskflow_message_answer",
+    // #1095: a claim belongs to its message's conversation, like answers.
+    "taskflow_message_claim",
 ];
 
 /// The boxed-future type a `scope_async` closure returns. Naming it keeps the
@@ -392,6 +394,9 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
             // which derive the answerer, enforce who may answer, and post the
             // auto-reply. A client write could forge someone's answer.
             "taskflow_message_answer" => config.views([Action::List, Action::Retrieve]),
+            // #1095: claims are written ONLY by the claim endpoints, which derive
+            // the claimer and enforce one open claim per message.
+            "taskflow_message_claim" => config.views([Action::List, Action::Retrieve]),
             _ => config,
         }
     });

@@ -134,6 +134,20 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/answers",
             get(crate::answers::channel_answers),
         )
+        // #1095: claim a message ("answering…"). One open claim per message,
+        // enforced by a partial unique index (claims::install_claim_guard).
+        .route(
+            "/api/taskflow/messages/{message}/claim",
+            get(crate::claims::get_as_user).post(crate::claims::claim_as_user).delete(crate::claims::release_as_user),
+        )
+        .route(
+            "/api/taskflow/agents/messages/{message}/claim",
+            get(crate::claims::get_as_agent).post(crate::claims::claim_as_agent).delete(crate::claims::release_as_agent),
+        )
+        .route(
+            "/api/taskflow/channels/{channel}/claims",
+            get(crate::claims::channel_claims),
+        )
         // Read receipts / unread cursors. The human path is auth-gated; the agent
         // path is `RequireAgent`-gated. Both upsert the caller's own cursor
         // forward-only; the channel comes from the path.

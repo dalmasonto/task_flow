@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowTaskReview, TaskflowTerminalInput,
+    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowTaskReview, TaskflowTerminalInput,
 };
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
@@ -53,6 +53,8 @@ const MESSAGE_ATTACHMENTS: &str = "message_attachments";
 /// #1099. Id-only, like every chat table: the group is per-PROJECT but answers
 /// follow their CHANNEL, so a projected value would leak DM answers.
 const MESSAGE_ANSWERS: &str = "message_answers";
+/// #1095. Id-only for the same reason as answers: claims follow their channel.
+const MESSAGE_CLAIMS: &str = "message_claims";
 const CHANNELS: &str = "channels";
 const CHANNEL_MEMBERS: &str = "channel_members";
 const READ_CURSORS: &str = "read_cursors";
@@ -249,6 +251,9 @@ pub fn plugin() -> RealtimePlugin {
         }))
         .expose::<TaskflowMessageAnswer>(Expose::to_group_with(|ev| {
             group_for(MESSAGE_ANSWERS, &ev.instance)
+        }))
+        .expose::<TaskflowMessageClaim>(Expose::to_group_with(|ev| {
+            group_for(MESSAGE_CLAIMS, &ev.instance)
         }))
         // Everything else: id-only, client refetches the one row that changed.
         .expose::<TaskflowProjectMember>(Expose::to_group_with(|ev| {
@@ -475,6 +480,7 @@ const ALL_SUFFIXES: &[&str] = &[
     MESSAGES,
     MESSAGE_ATTACHMENTS,
     MESSAGE_ANSWERS,
+    MESSAGE_CLAIMS,
     CHANNELS,
     CHANNEL_MEMBERS,
     READ_CURSORS,

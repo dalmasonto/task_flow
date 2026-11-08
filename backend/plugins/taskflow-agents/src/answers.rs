@@ -35,18 +35,18 @@ use crate::models::{
 };
 use crate::questions::{self, Question, QuestionSet};
 
-type ApiError = (StatusCode, Json<Value>);
-type Reply = Result<Response, ApiError>;
+pub(crate) type ApiError = (StatusCode, Json<Value>);
+pub(crate) type Reply = Result<Response, ApiError>;
 
-fn err(status: StatusCode, code: &str) -> ApiError {
+pub(crate) fn err(status: StatusCode, code: &str) -> ApiError {
     (status, Json(json!({ "error": code })))
 }
 
-fn bad(field: &str, reason: &str) -> ApiError {
+pub(crate) fn bad(field: &str, reason: &str) -> ApiError {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "field": field, "reason": reason })))
 }
 
-fn internal<E>(_: E) -> ApiError {
+pub(crate) fn internal<E>(_: E) -> ApiError {
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal")
 }
 
@@ -92,7 +92,7 @@ async fn load_channel(id: i64) -> Result<TaskflowAgentChannel, ApiError> {
 
 /// The message, if the AGENT may see its channel. Invisible = 404, like a
 /// message that does not exist.
-async fn message_for_agent(agent: &AgentIdentity, id: i64) -> Result<(TaskflowAgentMessage, TaskflowAgentChannel), ApiError> {
+pub(crate) async fn message_for_agent(agent: &AgentIdentity, id: i64) -> Result<(TaskflowAgentMessage, TaskflowAgentChannel), ApiError> {
     let message = load_message(id).await?;
     let channel = load_channel(message.channel.id()).await?;
     let visible = crate::views::agent_can_see_channel(&channel, agent.agent_id, agent.project_id)
@@ -104,7 +104,7 @@ async fn message_for_agent(agent: &AgentIdentity, id: i64) -> Result<(TaskflowAg
     Ok((message, channel))
 }
 
-async fn message_for_user(user: i64, id: i64) -> Result<(TaskflowAgentMessage, TaskflowAgentChannel), ApiError> {
+pub(crate) async fn message_for_user(user: i64, id: i64) -> Result<(TaskflowAgentMessage, TaskflowAgentChannel), ApiError> {
     let message = load_message(id).await?;
     let channel = crate::views::ensure_channel_visible(user, message.channel.id())
         .await
@@ -316,7 +316,7 @@ async fn submit(
     Ok(state)
 }
 
-async fn user_label(user_id: i64) -> String {
+pub(crate) async fn user_label(user_id: i64) -> String {
     use umbral_auth::auth_user;
     umbral_auth::AuthUser::objects()
         .filter(auth_user::ID.eq(user_id))

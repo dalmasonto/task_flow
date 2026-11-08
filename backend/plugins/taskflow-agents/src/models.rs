@@ -707,3 +707,35 @@ pub struct TaskflowMessageAnswer {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// #1095: "I'm answering this" — a claim on a message aimed at several agents,
+/// so two agents stop answering the same thing seconds apart (#886 §2.3).
+///
+/// Never written to the message row (an update re-types it into every agent
+/// pane as an edit). Whether a claim is ACTIVE is derived on read: not
+/// released, not expired, and the claimer has not yet replied to the message
+/// (`reply_to = message`, created after `claimed_at`). Replying clears it with
+/// no write at all. Written ONLY by the claim endpoints (`claims.rs`); auto-REST
+/// serves it read-only and CHANNEL-scoped, so `channel` is denormalized here.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(indexes = [["message", "id"], ["channel", "message", "id"]])]
+pub struct TaskflowMessageClaim {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(choices, default = "agent")]
+    pub claimer_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub claimer_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub claimer_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub claimer_label: String,
+    pub claimed_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub released_at: Option<DateTime<Utc>>,
+}

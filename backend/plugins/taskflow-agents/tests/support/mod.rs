@@ -195,6 +195,10 @@ impl TestApp {
         taskflow_agents::signals::install_room_marker_guard(umbral::db::pool_dispatched())
             .await
             .expect("install room marker guard");
+        // #1095: one open claim per message — same deferral, same re-install.
+        taskflow_agents::claims::install_claim_guard(umbral::db::pool_dispatched())
+            .await
+            .expect("install message claim guard");
         // The boot backfill sweeps EVERY project, including one a test creates
         // a moment later — which would give that project its rooms while the
         // test is still arranging markers and fixtures, and fail the arrange for

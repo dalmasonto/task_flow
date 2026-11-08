@@ -21,6 +21,7 @@
 
 pub mod agent_auth;
 pub mod answers;
+pub mod claims;
 pub mod models;
 // #525: posting from inside another tool (deliver), one membership rule.
 pub mod posting;
@@ -56,6 +57,7 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentMessage>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAttachment>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessageClaim>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelReadCursor>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentTerminalFrame>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowTaskReview>(),
@@ -90,6 +92,8 @@ impl Plugin for TaskflowAgentsPlugin {
         // second marked room is exactly the ambiguity the markers exist to
         // remove.
         block_on_ready(signals::install_room_marker_guard(&ctx.pool))?;
+        // #1095: at most one open claim per message, enforced by the database.
+        block_on_ready(claims::install_claim_guard(&ctx.pool))?;
 
         signals::subscribe();
 

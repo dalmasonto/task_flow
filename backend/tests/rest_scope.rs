@@ -1346,3 +1346,57 @@ async fn message_answers_are_channel_scoped_and_read_only() {
     .await;
     assert!(!(200..300).contains(&status), "a client created an answer through REST ({status})");
 }
+
+// #1095: message claims follow their CHANNEL and only the claim endpoints write
+// them — same rule as answers.
+#[tokio::test]
+async fn message_claims_are_channel_scoped_and_read_only() {
+    use taskflow_agents::models::{
+        TaskflowAgentMessage, TaskflowChannelMemberKind, TaskflowMessageClaim, taskflow_agent_message,
+    };
+
+    let (_, seed) = app().await;
+    async fn claim_in(channel: i64) -> i64 {
+        let message = TaskflowAgentMessage::objects()
+            .filter(taskflow_agent_message::CHANNEL.eq(channel))
+            .first()
+            .await
+            .unwrap()
+            .expect("a seeded message in the channel");
+        let now = chrono::Utc::now();
+        TaskflowMessageClaim::objects()
+            .create(TaskflowMessageClaim {
+                id: 0,
+                project: message.project.clone(),
+                channel: ForeignKey::new(channel),
+                message: ForeignKey::new(message.id),
+                claimer_kind: TaskflowChannelMemberKind::User,
+                claimer_user: None,
+                claimer_agent: None,
+                claimer_label: "seed".into(),
+                claimed_at: now,
+                expires_at: now + chrono::Duration::minutes(10),
+                released_at: Some(now),
+            })
+            .await
+            .unwrap()
+            .id
+    }
+    let shared = claim_in(seed.shared_channel).await;
+    let carols = claim_in(seed.carol_dm).await;
+
+    let (status, body) = get_as(seed.alice, false, "/api/taskflow_message_claim/").await;
+    assert_eq!(status, 200);
+    let ids = result_ids(&body);
+    assert!(ids.contains(&shared), "a claim in a room alice is on stays visible: {ids:?}");
+    assert!(!ids.contains(&carols), "a claim in carol's DM leaked: {ids:?}");
+
+    let (status, _) = post_as(
+        seed.alice,
+        "/api/taskflow_message_claim/",
+        serde_json::json!({ "project": 1, "channel": seed.shared_channel, "message": 1, "claimer_kind": "user",
+                            "claimer_label": "forged", "claimed_at": "2026-01-01T00:00:00Z", "expires_at": "2099-01-01T00:00:00Z" }),
+    )
+    .await;
+    assert!(!(200..300).contains(&status), "a client created a claim through REST ({status})");
+}
