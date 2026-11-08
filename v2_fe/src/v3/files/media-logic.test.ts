@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { MediaItem } from "@/lib/media-items"
 
-import { countTabs, filterMedia, mediaCategory, sortNewest } from "./media-logic"
+import { countTabs, filterMedia, mediaCategory, mergeCutoff, sortNewest, sourcesToLoad, withinCutoff } from "./media-logic"
 
 function item(id: string, name: string, contentType: string, label: string, createdAt: string | null = null): MediaItem {
   return { id, name, contentType, sizeBytes: 1, url: "", createdAt, source: { kind: "chat", channelId: 1, label, href: "" } }
@@ -34,5 +34,25 @@ describe("countTabs / filterMedia", () => {
 describe("sortNewest", () => {
   it("puts undated last", () => {
     expect(sortNewest(ITEMS).map((i) => i.id)).toEqual(["2", "5", "1", "3", "4"])
+  })
+})
+
+describe("merged paging (#5907 item 5)", () => {
+  const a = item("a", "a.png", "image/png", "r", "2026-11-05T00:00:00Z")
+  const b = item("b", "b.png", "image/png", "r", "2026-11-03T00:00:00Z")
+  const c = item("c", "c.png", "image/png", "r", "2026-11-01T00:00:00Z")
+  const u = item("u", "u.png", "image/png", "r", null)
+  it("holds back rows older than a table that still has pages", () => {
+    const cut = mergeCutoff([{ oldest: "2026-11-03T00:00:00Z", hasMore: true }, { oldest: "2026-11-01T00:00:00Z", hasMore: false }])
+    expect(withinCutoff([a, b, c, u], cut).map((i) => i.id)).toEqual(["a", "b"])
+  })
+  it("shows everything once both tables are done", () => {
+    expect(mergeCutoff([{ oldest: "2026-11-03T00:00:00Z", hasMore: false }, { oldest: null, hasMore: false }])).toBeNull()
+    expect(withinCutoff([a, u], null)).toHaveLength(2)
+  })
+  it("loads the table that is holding the list back", () => {
+    expect(sourcesToLoad({ chat: { oldest: "2026-11-03T00:00:00Z", hasMore: true }, task: { oldest: "2026-11-04T00:00:00Z", hasMore: true } })).toEqual(["task"])
+    expect(sourcesToLoad({ chat: { oldest: "2026-11-03T00:00:00Z", hasMore: true }, task: { oldest: null, hasMore: false } })).toEqual(["chat"])
+    expect(sourcesToLoad({ chat: { oldest: "2026-11-03T00:00:00Z", hasMore: false }, task: { oldest: null, hasMore: false } })).toEqual([])
   })
 })

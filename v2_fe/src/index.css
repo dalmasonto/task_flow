@@ -17,6 +17,8 @@
 @import "./v3/tokens.css";
 
 @custom-variant dark (&:is(.dark *));
+/* v3-only styling on shared shadcn parts (html.v3 is set while a /v3 route is mounted). */
+@custom-variant v3 (&:where(html.v3 *));
 
 @theme inline {
     --font-heading: var(--font-sans);

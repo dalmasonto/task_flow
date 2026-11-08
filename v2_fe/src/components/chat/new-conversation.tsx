@@ -66,7 +66,7 @@ export function NewConversationPanel({
   const selectedMembers = candidates.filter((c) => selected.has(c.key)).map((c) => c.member)
 
   return (
-    <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+    <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl v3:inset-x-3 v3:mt-1 v3:space-y-1 v3:p-3">
       <div className="mb-2 flex items-center gap-1 rounded-lg bg-muted/60 p-0.5 text-xs">
         {(["direct", "group"] as const).map((option) => (
           <button
@@ -74,7 +74,7 @@ export function NewConversationPanel({
             type="button"
             onClick={() => setMode(option)}
             className={cn(
-              "flex-1 rounded-md px-2 py-1 font-medium transition-colors",
+              "flex-1 rounded-md px-2 py-1 font-medium transition-colors v3:py-1.5",
               mode === option ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             )}
           >

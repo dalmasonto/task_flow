@@ -33,7 +33,7 @@ export function AccountShell({ children, actions, inviteCount }: { children: Rea
   return (
     <V3Shell title="Account" actions={actions}>
       <div className="mx-auto max-w-3xl">
-        <nav aria-label="Account" className="-mx-4 overflow-x-auto border-b border-border px-4 lg:mx-0 lg:px-0">
+        <nav aria-label="Account" className="-mx-4 overflow-x-auto overflow-y-hidden border-b border-border px-4 lg:mx-0 lg:px-0">
           <ul className="flex gap-1">
             {TABS.map((t) => {
               const href = `/v3/account/${t.id}`
@@ -48,7 +48,7 @@ export function AccountShell({ children, actions, inviteCount }: { children: Rea
                   >
                     {t.label}
                     {t.id === "invitations" && count ? <span className="rounded-full bg-secondary px-1.5 text-xs text-secondary-foreground tabular-nums">{count}</span> : null}
-                    {on ? <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-foreground" /> : null}
+                    {on ? <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-foreground" /> : null}
                   </Link>
                 </li>
               )

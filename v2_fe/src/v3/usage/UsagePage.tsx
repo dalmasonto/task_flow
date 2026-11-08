@@ -60,7 +60,7 @@ function BudgetDialog({ open, onOpenChange, current, onSave }: { open: boolean; 
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-[min(28rem,calc(100vw-2rem))]">
         <DialogHeader>
           <DialogTitle>Budget and caps</DialogTitle>
           <DialogDescription>For awareness: usage is what agents report, priced from the project&apos;s price list.</DialogDescription>

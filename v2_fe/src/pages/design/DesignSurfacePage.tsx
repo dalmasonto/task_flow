@@ -562,6 +562,26 @@ export function DesignSurfacePage({
     hadSelectionRef.current = hasSelection
   }, [selection])
 
+  // #5907 item 7: turning Pick on shows the Inspect tab straight away, so
+  // what gets picked lands where the person is already looking. On a wide
+  // screen the side panel opens too. On a phone the panel would cover the
+  // canvas they're about to click, so it stays as it is there.
+  const togglePick = () => {
+    if (!picking) {
+      setRightTab("inspect")
+      if (isWideScreen()) {
+        setPanelOpen(true)
+        writePanelPref("panel", true)
+      }
+    }
+    setPicking(!picking)
+  }
+  // The keyboard listener is bound once, so it calls the latest toggle by ref.
+  const togglePickRef = useRef(togglePick)
+  useEffect(() => {
+    togglePickRef.current = togglePick
+  })
+
   // --- hydrate the per-user viewport, then seed if nothing was stored -------
   // Runs at most ONCE per project. Without the guard the effect would re-run
   // whenever `manifest` changes identity and overwrite the user's live edits
@@ -703,7 +723,7 @@ export function DesignSurfacePage({
       const typing =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable
       if (!typing) {
-        if (e.key.toLowerCase() === "c") setPicking((p) => !p)
+        if (e.key.toLowerCase() === "c") togglePickRef.current()
         if (e.key === "Escape") setPicking(false)
         const tool = toolForKey(e.key)
         if (tool) setCanvasTool(tool)
@@ -1193,7 +1213,7 @@ export function DesignSurfacePage({
           <Button
             variant={picking ? "default" : "outline"}
             size="sm"
-            onClick={() => setPicking((p) => !p)}
+            onClick={togglePick}
           >
             <CrosshairIcon className="size-4" />
             {picking ? "Picking…" : "Pick"}

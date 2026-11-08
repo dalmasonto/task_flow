@@ -1023,6 +1023,23 @@ export async function fetchProjectMedia(projectId: number): Promise<{
   }
 }
 
+/// One server page of one attachment table, newest first (v3 Media, #5907
+/// item 5). `name` narrows by file name on the server. `next` is the next page
+/// number, or null when this was the last.
+export type MediaSourceKind = "chat" | "task"
+export async function fetchMediaPage(
+  projectId: number,
+  source: MediaSourceKind,
+  page: number,
+  opts: { pageSize: number; name?: string },
+): Promise<{ rows: (TaskflowMessageAttachment | TaskflowTaskAttachment)[]; next: number | null; count: number }> {
+  const table = source === "chat" ? taskflowTables.messageAttachments : taskflowTables.taskAttachments
+  const filter: Record<string, string | number> = { project: projectId }
+  if (opts.name) filter.name__icontains = opts.name
+  const res = await taskflowApi.from(table).filter(filter).orderBy("-created_at", "-id").param("page_size", opts.pageSize).param("page", page).list()
+  return { rows: res.results as (TaskflowMessageAttachment | TaskflowTaskAttachment)[], next: res.next ?? null, count: res.count }
+}
+
 /// The activity slice — 898 KB of the old 1.31 MB, and the board renders none of
 /// it. Loaded for the activity feed and the task detail sheet only.
 /// #56: ONE page of activity, newest first — sized by the SERVER (see

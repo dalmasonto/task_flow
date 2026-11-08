@@ -128,3 +128,21 @@ html.v3.dark {
   --link: oklch(0.76 0.12 245);
   --destructive-foreground: oklch(0.985 0.004 240);
 }
+
+/* Neutral surfaces (Dalmas, #5907 item 10). The design snapshot tints fields,
+ * popovers and secondary buttons with chroma 0.018-0.025 at hue 230. Next to
+ * the near-grey card and background that reads as the old blue v2 theme
+ * leaking in, so fields, menus and dialogs come out bluish. Bring them into
+ * the same low-chroma family as card/border. Keep this block when the file
+ * is regenerated from the snapshot. */
+html.v3 {
+  --input: oklch(0.88 0.006 240);
+  --secondary: oklch(0.94 0.006 240);
+  --sidebar-border: oklch(0.89 0.006 240);
+}
+html.v3.dark {
+  --input: oklch(0.32 0.008 240);
+  --popover: oklch(0.21 0.007 240);
+  --secondary: oklch(0.26 0.008 240);
+  --sidebar-border: oklch(0.3 0.008 240);
+}

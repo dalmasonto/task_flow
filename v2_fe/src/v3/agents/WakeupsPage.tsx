@@ -99,7 +99,7 @@ function NewRuleDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="w-[min(32rem,calc(100vw-2rem))]">
         <form onSubmit={submit} noValidate>
           <DialogHeader>
             <DialogTitle>New wake-up</DialogTitle>

@@ -81,7 +81,7 @@ export function AskDecisionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90svh] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Ask for a decision</DialogTitle>
           <DialogDescription>Tasks it blocks stay blocked until someone rules. Agents can check the ruling by its key.</DialogDescription>

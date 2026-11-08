@@ -30,7 +30,7 @@ export function ProjectShell({ children, actions }: { children: ReactNode; actio
   return (
     <V3Shell title={`${name} settings`} actions={actions}>
       <div className="mx-auto max-w-3xl">
-        <nav aria-label="Project settings" className="-mx-4 overflow-x-auto border-b border-border px-4 lg:mx-0 lg:px-0">
+        <nav aria-label="Project settings" className="-mx-4 overflow-x-auto overflow-y-hidden border-b border-border px-4 lg:mx-0 lg:px-0">
           <ul className="flex gap-1">
             {PROJECT_TABS.map((t) => {
               const href = `/v3/project/${t.id}`
@@ -44,7 +44,7 @@ export function ProjectShell({ children, actions }: { children: ReactNode; actio
                     className={cn("relative flex h-10 items-center px-3 text-sm whitespace-nowrap", on ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}
                   >
                     {t.label}
-                    {on ? <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-foreground" /> : null}
+                    {on ? <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-foreground" /> : null}
                   </Link>
                 </li>
               )
