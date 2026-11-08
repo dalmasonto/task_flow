@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { DesignComment } from "@/lib/design-api"
 
-import { bucketCounts, bucketOf, cardState, commentsOn, elementLabel, pinTone } from "./comment-flow-logic"
+import { bucketCounts, bucketOf, cardState, commentsOn, elementLabel, parseDesignReview, pinTone } from "./comment-flow-logic"
 
 const c = (id: number, status: string, over: Partial<DesignComment> = {}) => ({ id, status, page_path: "/board", element_path: "main > h3.title", orphaned: false, resolution_note: null, created_at: null, ...over }) as unknown as DesignComment
 
@@ -26,5 +26,24 @@ describe("comment flow", () => {
   it("finds comments on an element and labels it", () => {
     expect(commentsOn([c(1, "open"), c(2, "open", { element_path: "x" })], "/board", "main > h3.title").map((x) => x.id)).toEqual([1])
     expect(elementLabel("main > section.board > h3.column-title")).toBe("h3.column-title")
+  })
+})
+
+describe("parseDesignReview", () => {
+  it("reads dispatch messages back into comments", () => {
+    const body = `[design-review] 2 comment(s) from dalmas on the Design Surface.
+For each: read the target.
+
+--- design comment cm_000c ---
+{"target":{"route":"/board","elementPath":"main > h3","src":"pages/board.html:42","component":null},"instruction":"Bigger title","commentId":"cm_000c"}
+
+--- design comment cm_0010 ---
+{"target":{"route":"/board","elementPath":"div.col","src":null,"component":"tf-col"},"instruction":"Fade the edge","commentId":"cm_0010"}
+`
+    expect(parseDesignReview(body)).toEqual([
+      { id: 12, route: "/board", elementPath: "main > h3", src: "pages/board.html:42", component: null, instruction: "Bigger title" },
+      { id: 16, route: "/board", elementPath: "div.col", src: null, component: "tf-col", instruction: "Fade the edge" },
+    ])
+    expect(parseDesignReview("hello")).toBeNull()
   })
 })

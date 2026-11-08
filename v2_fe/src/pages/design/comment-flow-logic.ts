@@ -86,3 +86,31 @@ export function pinLabels(list: Pick<DesignComment, "id">[]): Map<number, string
   const ids = list.map((c) => c.id).sort((a, b) => a - b)
   return new Map(ids.map((id, i) => [id, String(i + 1)]))
 }
+
+export type DispatchedComment = { id: number; route: string; elementPath: string; src: string | null; component: string | null; instruction: string }
+
+/// A `[design-review]` message (what dispatch posts) read back into its
+/// comments, so the design chat can show each as a card (design.html) rather
+/// than the raw JSON the agent gets. Null for any other message.
+export function parseDesignReview(body: string): DispatchedComment[] | null {
+  if (!body.startsWith("[design-review]")) return null
+  const out: DispatchedComment[] = []
+  const re = /--- design comment cm_([0-9a-f]+) ---\n(\{[\s\S]*?\})\s*(?=\n--- design comment|$)/g
+  for (const m of body.matchAll(re)) {
+    try {
+      const j = JSON.parse(m[2]) as { target?: { route?: string; elementPath?: string; src?: string | null; component?: string | null }; instruction?: string }
+      out.push({
+        id: parseInt(m[1], 16),
+        route: j.target?.route ?? "",
+        elementPath: j.target?.elementPath ?? "",
+        src: j.target?.src ?? null,
+        component: j.target?.component ?? null,
+        instruction: j.instruction ?? "",
+      })
+    } catch {
+      // A block that doesn't parse is shown as text by the caller.
+      return null
+    }
+  }
+  return out.length ? out : null
+}

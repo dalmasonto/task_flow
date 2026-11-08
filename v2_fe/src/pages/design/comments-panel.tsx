@@ -32,7 +32,7 @@ import {
 } from "@/lib/design-api"
 import { cn } from "@/lib/utils"
 
-import { bucketCounts, bucketOf, cardState, elementLabel, newestFirst, PIN_TONE_CLASS, pinTone, type CommentBucket } from "./comment-flow-logic"
+import { bucketCounts, bucketOf, cardState, elementLabel, newestFirst, PIN_TONE_CLASS, pinTone, type CommentBucket, type DispatchedComment } from "./comment-flow-logic"
 import type { SelectionState } from "./design-selection"
 import { useCommentAgent } from "./use-comment-agent"
 
@@ -505,5 +505,48 @@ export function PinThread({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------- chat cards
+
+/// Dispatched comments as the design chat shows them (design.html): one card
+/// each, "Comment on /board · Sent", the instruction and where it points.
+/// A card opens the comment's pin thread.
+export function DispatchCards({
+  items,
+  comments,
+  labels,
+  onOpen,
+}: {
+  items: DispatchedComment[]
+  comments: DesignComment[]
+  labels: Map<number, string>
+  onOpen: (id: number) => void
+}) {
+  return (
+    <div className="grid gap-2">
+      {items.map((it) => {
+        const c = comments.find((x) => x.id === it.id)
+        const status = c ? cardState(c, null).kind : null
+        const word = status === "unsent" ? "Open" : status === "working" || status === "sent" ? "Sent" : status === "addressed" ? "Addressed" : status === "resolved" ? "Resolved" : status === "dismissed" ? "Dismissed" : null
+        return (
+          <button key={it.id} type="button" onClick={() => onOpen(it.id)} className="block w-full rounded-xl border border-border bg-card text-left hover:border-ring">
+            <span className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
+              {c ? <PinBadge comment={c} label={labels.get(c.id) ?? "?"} /> : null}
+              <span className="font-medium">Comment on {it.route || "a component"}</span>
+              {word ? <span className="ml-auto text-link">{word}</span> : null}
+            </span>
+            <span className="block px-3 py-2">
+              <span className="block text-sm">{it.instruction}</span>
+              <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">
+                {it.component ?? elementLabel(it.elementPath)}
+                {it.src ? `, ${it.src}` : ""}
+              </span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }

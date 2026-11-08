@@ -184,6 +184,7 @@ export function AgentChatBubble({
   continued = false,
   renderAvatar,
   senderBadge,
+  renderBody,
 }: {
   message: AgentMessage
   onRetry?: (nonce: string) => void
@@ -217,6 +218,9 @@ export function AgentChatBubble({
   /// Row layout: the sender's avatar, and a short badge after the name ("agent").
   renderAvatar?: (from: string) => ReactNode
   senderBadge?: (from: string) => string | null
+  /// Draw the body yourself (the design chat turns dispatched comments into
+  /// cards). Null means "show it as markdown".
+  renderBody?: (message: AgentMessage) => ReactNode | null
 }) {
   const fromUser = message.from === "user"
   const row = layout === "row"
@@ -419,12 +423,14 @@ export function AgentChatBubble({
                 <span className="truncate">{designRefChipLabel(message.designRef)}</span>
               </div>
             ) : null}
-            <div ref={renderedRef}>
-              <MarkdownRenderer
-                content={message.body}
-                compact
-              />
-            </div>
+            {renderBody?.(message) ?? (
+              <div ref={renderedRef}>
+                <MarkdownRenderer
+                  content={message.body}
+                  compact
+                />
+              </div>
+            )}
           </>
         )}
         {message.questions ? (

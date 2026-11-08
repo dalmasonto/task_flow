@@ -1,7 +1,7 @@
 /// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { sandboxTokenIsFresh, sandboxTokenSource } from "@/lib/sandbox-token"
 import {
@@ -19,6 +19,8 @@ import {
   SmartphoneIcon,
   TabletSmartphoneIcon,
   MonitorSmartphoneIcon,
+  MoreHorizontalIcon,
+  HistoryIcon,
   MousePointer2Icon,
   RowsIcon,
   ScanIcon,
@@ -33,6 +35,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -76,7 +79,7 @@ import { findDesignRoomChat, isAgentOnline } from "@/lib/live-mappers"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { ActorAvatar } from "@/v3/components/actor-avatar"
 import { guessModel } from "@/v3/components/actor-models"
-import { type Project } from "@/lib/workspace-view"
+import { type AgentMessage, type Project } from "@/lib/workspace-view"
 import { type AuthUser } from "@/lib/auth-api"
 import { type DesignRef } from "@/lib/design-ref"
 import {
@@ -114,9 +117,9 @@ import {
 import { fitTransform } from "./canvas-view"
 import { toolForKey, type CanvasTool } from "./canvas-tools"
 import { CommentPins, DesignInspector } from "./design-inspector"
-import { CommentPopover, CommentsPanel, PinThread } from "./comments-panel"
+import { CommentPopover, CommentsPanel, DispatchCards, PinThread } from "./comments-panel"
 import { useCommentAgent } from "./use-comment-agent"
-import { bucketCounts, pinLabels } from "./comment-flow-logic"
+import { bucketCounts, parseDesignReview, pinLabels } from "./comment-flow-logic"
 import { boardForComment, commentRoute } from "./design-comments"
 import { sanitizeSelection, widenSelection, pinNumber, type SelectionState } from "./design-selection"
 import {
@@ -1312,34 +1315,32 @@ export function DesignSurfacePage({
               Board
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            title="Export the screens as a PDF, images or HTML"
-            disabled={!manifest || manifest.routes.length === 0}
-            onClick={() => setExportOpen(true)}
-          >
-            <DownloadIcon className="size-4" />
-            Export
-          </Button>
-          <Button variant="outline" size="sm" onClick={responsiveReview}>
-            Responsive review
-          </Button>
-          {/* #523: render unsaved token variants beside the artboard — the
-              operator's door onto the same grid agents get from
-              `design_compare`. */}
-          <Button
-            variant={compareOpen ? "secondary" : "outline"}
-            size="sm"
-            title="Compare token variants across screens and themes"
-            aria-pressed={compareOpen}
-            disabled={!manifest || manifest.routes.length === 0}
-            onClick={() => setCompareOpen((open) => !open)}
-          >
-            <ColumnsIcon className="size-4" />
-            Compare
-          </Button>
           <ThemeSwitcher themes={themeOptions} value={activeTheme} onChange={setTheme} />
+          {/* #5945: as designed, the less-used actions live under More. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="More: Versions, Export, Compare, Responsive review" title="More" />}>
+              <MoreHorizontalIcon className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-56">
+              <DropdownMenuItem disabled={!(selection?.route ?? openRoutes[0])} onClick={() => setHistoryRoute(selection?.route ?? openRoutes[0] ?? null)}>
+                <HistoryIcon className="size-4" />
+                Versions of {labelFor(selection?.route ?? openRoutes[0] ?? "/")}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!manifest || manifest.routes.length === 0} onClick={() => setExportOpen(true)}>
+                <DownloadIcon className="size-4" />
+                Export as PDF, images or HTML
+              </DropdownMenuItem>
+              {/* #523: unsaved token variants beside the artboard, the same grid agents get from design_compare. */}
+              <DropdownMenuItem disabled={!manifest || manifest.routes.length === 0} onClick={() => setCompareOpen((open) => !open)}>
+                <ColumnsIcon className="size-4" />
+                {compareOpen ? "Close Compare" : "Compare token variants"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={responsiveReview}>
+                <MonitorSmartphoneIcon className="size-4" />
+                Responsive review
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant={panelOpen ? "secondary" : "ghost"}
             size="icon"
@@ -1374,6 +1375,10 @@ export function DesignSurfacePage({
           {project ? (
             <div data-design-chat className="flex min-h-0 flex-1 flex-col">
             <DesignChatRail
+              renderBody={(m) => {
+                const items = parseDesignReview(m.body)
+                return items ? <DispatchCards items={items} comments={comments} labels={commentLabels} onOpen={(id) => setThreadFor(id)} /> : null
+              }}
               project={project}
               liveWorkspace={liveWorkspace}
               currentUser={currentUser}
@@ -1716,6 +1721,7 @@ function DesignChatRail({
   onClearContextChip,
   pageMentions,
   onOpenPage,
+  renderBody,
 }: {
   project: Project
   liveWorkspace: TaskflowWorkspace | null
@@ -1728,6 +1734,8 @@ function DesignChatRail({
   /// #506: the pages `@page:` offers, and how a page chip opens one.
   pageMentions: { route: string; label: string }[]
   onOpenPage: (route: string) => void
+  /// #5945: dispatched comments drawn as cards.
+  renderBody?: (message: AgentMessage) => ReactNode | null
 }) {
   // The design room, SELECTED BY MARKER — never by the title "Design room", and
   // never by position. A project may hold any number of user-created rooms, and
@@ -1779,6 +1787,7 @@ function DesignChatRail({
         return <ActorAvatar name={from} model={agent ? (guessModel(agent.runtime) ?? guessModel(agent.display_name)) : null} size="sm" />
       }}
       senderBadge={(from) => (liveWorkspace?.agents.some((a) => a.display_name === from) ? "agent" : null)}
+      renderBody={renderBody}
       contextChip={contextChip}
       onClearContextChip={onClearContextChip}
       pageMentions={pageMentions}
