@@ -16,21 +16,6 @@
 // serialises it. Field names are snake_case because the wire is snake_case.
 // A `ForeignKey<T>` is the target's primary-key value, not a nested object.
 
-/** `component` = Component, `instance` = Instance */
-export type DesignCommentScope = "component" | "instance";
-
-/** `open` = Open, `sent` = Sent, `addressed` = Addressed, `dismissed` = Dismissed */
-export type DesignCommentStatus = "open" | "sent" | "addressed" | "dismissed";
-
-/** `token` = Token, `component` = Component, `page` = Page, `asset` = Asset */
-export type DesignFileKind = "token" | "component" | "page" | "asset";
-
-/** `token` = Token, `component` = Component, `page` = Page, `asset` = Asset */
-export type DesignFileVersionKind = "token" | "component" | "page" | "asset";
-
-/** `rows` = Rows, `bands` = Bands, `groups` = Groups, `flow` = Flow */
-export type DesignLayoutView = "rows" | "bands" | "groups" | "flow";
-
 /** `project` = Project, `task` = Task, `direct` = Direct, `incident` = Incident, `group` = Group */
 export type TaskflowAgentChannelKind = "project" | "task" | "direct" | "incident" | "group";
 
@@ -61,6 +46,21 @@ export type TaskflowAgentTerminalFrameStream = "stdout" | "stderr" | "stdin" | "
 /** `user` = User, `agent` = Agent */
 export type TaskflowChannelReadCursorMemberKind = "user" | "agent";
 
+/** `user` = User, `agent` = Agent */
+export type TaskflowChannelStateAuthorKind = "user" | "agent";
+
+/** `draft` = Draft, `posted` = Posted, `skipped` = Skipped */
+export type TaskflowDailyUpdateStatus = "draft" | "posted" | "skipped";
+
+/** `open` = Open, `ruled` = Ruled, `superseded` = Superseded */
+export type TaskflowDecisionStatus = "open" | "ruled" | "superseded";
+
+/** `user` = User, `agent` = Agent */
+export type TaskflowMessageAnswerAnsweredByKind = "user" | "agent";
+
+/** `user` = User, `agent` = Agent */
+export type TaskflowMessageClaimClaimerKind = "user" | "agent";
+
 /** `local` = Local, `preview` = Preview, `staging` = Staging, `production` = Production */
 export type TaskflowProjectApiEndpointEnvironment = "local" | "preview" | "staging" | "production";
 
@@ -82,8 +82,23 @@ export type TaskflowProjectMemberStatus = "invited" | "active" | "suspended" | "
 /** `active` = Active, `paused` = Paused, `archived` = Archived */
 export type TaskflowProjectStatus = "active" | "paused" | "archived";
 
+/** `user` = User, `agent` = Agent */
+export type TaskflowReviewRequestRequesterKind = "user" | "agent";
+
+/** `user` = User, `agent` = Agent */
+export type TaskflowReviewRequestReviewerKind = "user" | "agent";
+
+/** `open` = Open, `answered` = Answered, `cancelled` = Cancelled */
+export type TaskflowReviewRequestStatus = "open" | "answered" | "cancelled";
+
 /** `user` = User, `agent` = Agent, `system` = System */
 export type TaskflowTaskActivityActorKind = "user" | "agent" | "system";
+
+/** `user` = User, `agent` = Agent */
+export type TaskflowTaskEvidenceAuthorKind = "user" | "agent";
+
+/** `test_run` = TestRun, `ci_run` = CiRun, `pull_request` = PullRequest, `attachment` = Attachment, `note` = Note */
+export type TaskflowTaskEvidenceKind = "test_run" | "ci_run" | "pull_request" | "attachment" | "note";
 
 /** `low` = Low, `normal` = Normal, `high` = High, `critical` = Critical */
 export type TaskflowTaskPriority = "low" | "normal" | "high" | "critical";
@@ -109,130 +124,14 @@ export type TaskflowTaskStatus = "not_started" | "in_progress" | "paused" | "blo
 /** `light` = Light, `dark` = Dark, `system` = System */
 export type TaskflowUserSettingsTheme = "light" | "dark" | "system";
 
-/** `memory` = Memory, `script` = Script */
-export type ToolboxEntryKind = "memory" | "script";
+/** `pane` = Pane, `room` = Room, `both` = Both */
+export type TaskflowWakeRuleDeliver = "pane" | "room" | "both";
 
-/** `draft` = Draft, `approved` = Approved, `deprecated` = Deprecated */
-export type ToolboxEntryStatus = "draft" | "approved" | "deprecated";
+/** `armed` = Armed, `fired` = Fired, `missed` = Missed, `paused` = Paused, `cancelled` = Cancelled */
+export type TaskflowWakeRuleStatus = "armed" | "fired" | "missed" | "paused" | "cancelled";
 
-/**
- * User preference
- * Table `admin_user_pref`, from the `app` plugin.
- */
-export interface AdminUserPref {
-  id: number;
-  user_id: number;
-  theme: string;
-  density: string;
-  sidebar_collapsed: boolean;
-  dashboard_layout: string;
-  preferences: string | null;
-  updated_at: string;
-}
-
-/** Table `auth_challenge`, from the `app` plugin. */
-export interface AuthChallenge {
-  id: number;
-  /** Foreign key into `auth_user`. */
-  user_id: number;
-  purpose: string;
-  secret_hash: string;
-  expires_at: string;
-  attempts: number;
-  used_at: string | null;
-  created_at: string;
-}
-
-/** Table `auth_token`, from the `app` plugin. */
-export interface AuthToken {
-  id: number;
-  /** Foreign key into `auth_user`. */
-  user_id: number;
-  key_hash: string;
-  name: string;
-  created_at: string;
-  last_used_at: string | null;
-}
-
-/** Table `design_comment`, from the `app` plugin. */
-export interface DesignComment {
-  id: number;
-  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
-  project: number;
-  page_path: string;
-  component_name: string | null;
-  element_path: string;
-  src_ref: string | null;
-  viewport: string;
-  rect: string;
-  snippet: string;
-  body: string;
-  scope: DesignCommentScope;
-  status: DesignCommentStatus;
-  thread_id: string | null;
-  author: string;
-  resolution_note: string | null;
-  orphaned: boolean;
-  created_at: string | null;
-}
-
-/** Table `design_file`, from the `app` plugin. */
-export interface DesignFile {
-  id: number;
-  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
-  project: number;
-  kind: DesignFileKind;
-  path: string;
-  content: string;
-  version: number;
-  updated_by: string;
-  created_at: string | null;
-  updated_at: string | null;
-  deleted_at: string | null;
-}
-
-/** Table `design_file_version`, from the `app` plugin. */
-export interface DesignFileVersion {
-  id: number;
-  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
-  project: number;
-  kind: DesignFileVersionKind;
-  path: string;
-  content: string;
-  version: number;
-  project_revision: number;
-  bytes: number;
-  deleted: boolean;
-  updated_by: string;
-  created_at: string | null;
-}
-
-/** Table `design_layout`, from the `app` plugin. */
-export interface DesignLayout {
-  id: number;
-  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
-  project: number;
-  view: DesignLayoutView;
-  layout_json: string;
-  version: number;
-  updated_by: string;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-/**
- * Media file
- * Table `media_file`, from the `app` plugin.
- */
-export interface MediaFile {
-  id: number;
-  key: string;
-  filename: string;
-  content_type: string;
-  size: number;
-  uploaded_at: string;
-  status: string;
-}
+/** `after_time` = AfterTime, `task_unblocked` = TaskUnblocked, `reply_to_message` = ReplyToMessage, `message_in_room` = MessageInRoom */
+export type TaskflowWakeRuleTriggerKind = "after_time" | "task_unblocked" | "reply_to_message" | "message_in_room";
 
 /** Table `post`, from the `app` plugin. */
 export interface Post {
@@ -243,24 +142,6 @@ export interface Post {
   /** Foreign key into `auth_user`. */
   author: number;
   created_at: string | null;
-}
-
-/**
- * Social accounts
- * Table `oauth_social_account`, from the `oauth` plugin.
- */
-export interface SocialAccount {
-  id: number;
-  /** Foreign key into `auth_user`. */
-  user: number;
-  provider: string;
-  provider_uid: string;
-  provider_email: string | null;
-  email_verified: boolean;
-  scopes: string;
-  expires_at: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 /** Table `taskflow_agent`, from the `app` plugin. */
@@ -451,16 +332,159 @@ export interface TaskflowChannelReadCursor {
   created_at: string | null;
 }
 
-/** Table `taskflow_github_pref`, from the `app` plugin. */
-export interface TaskflowGithubPref {
+/** Table `taskflow_channel_state`, from the `app` plugin. */
+export interface TaskflowChannelState {
   id: number;
-  /** Foreign key into `auth_user`. */
-  user: number;
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   project: number;
-  post_as_me: boolean;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  channel: number;
+  body_markdown: string;
+  author_kind: TaskflowChannelStateAuthorKind;
+  /** Foreign key into `auth_user`. */
+  author_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  author_agent: number | null;
+  author_label: string;
+  created_at: string | null;
+}
+
+/** Table `taskflow_daily_update`, from the `app` plugin. */
+export interface TaskflowDailyUpdate {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  date: string;
+  status: TaskflowDailyUpdateStatus;
+  body_markdown: string;
+  version: number;
+  window_start: string;
+  window_end: string;
+  src_activity: number;
+  src_task_changes: number;
+  src_reviews: number;
+  src_pull_requests: number;
+  drafted_by_label: string;
+  server_drafted: boolean;
+  edit_count: number;
+  posted_message: number | null;
+  /** Foreign key into `auth_user`. */
+  posted_by: number | null;
+  posted_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** Table `taskflow_daily_update_settings`, from the `app` plugin. */
+export interface TaskflowDailyUpdateSettings {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  enabled: boolean;
+  local_time: string;
+  timezone: string;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  drafting_agent: number | null;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  post_channel: number | null;
+  updated_by_label: string;
+  updated_at: string | null;
+}
+
+/** Table `taskflow_decision`, from the `app` plugin. */
+export interface TaskflowDecision {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  key: string;
+  question: string;
+  context_markdown: string | null;
+  status: TaskflowDecisionStatus;
+  /** Foreign key into `auth_user`. */
+  asked_by_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  asked_by_agent: number | null;
+  asked_by_label: string;
+  /** Foreign key into `auth_user`. */
+  ruler_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  channel: number | null;
+  ruled_option_id: number | null;
+  ruling_note: string | null;
+  /** Foreign key into `auth_user`. */
+  ruled_by_user: number | null;
+  ruled_by_label: string | null;
+  ruled_at: string | null;
+  superseded_by_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Table `taskflow_decision_comment`, from the `app` plugin. */
+export interface TaskflowDecisionComment {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowDecision (`taskflow_decision`). */
+  decision: number;
+  /** Foreign key into `auth_user`. */
+  author_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  author_agent: number | null;
+  author_label: string;
+  body_markdown: string;
+  created_at: string | null;
+}
+
+/** Table `taskflow_decision_option`, from the `app` plugin. */
+export interface TaskflowDecisionOption {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowDecision (`taskflow_decision`). */
+  decision: number;
+  label: string;
+  detail: string | null;
+  sort_order: number;
+  /** Foreign key into `auth_user`. */
+  recommended_by_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  recommended_by_agent: number | null;
+  recommended_by_label: string | null;
+  created_at: string | null;
+}
+
+/** Table `taskflow_decision_task`, from the `app` plugin. */
+export interface TaskflowDecisionTask {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowDecision (`taskflow_decision`). */
+  decision: number;
+  /** Foreign key: the `id` of a TaskflowTask (`taskflow_task`). */
+  task: number;
+  created_at: string | null;
+}
+
+/** Table `taskflow_message_answer`, from the `app` plugin. */
+export interface TaskflowMessageAnswer {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  channel: number;
+  /** Foreign key: the `id` of a TaskflowAgentMessage (`taskflow_agent_message`). */
+  message: number;
+  key: string;
+  value_json: string;
+  answered_by_kind: TaskflowMessageAnswerAnsweredByKind;
+  /** Foreign key into `auth_user`. */
+  answered_by_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  answered_by_agent: number | null;
+  answered_by_label: string;
+  reply_message_id: number | null;
+  created_at: string | null;
 }
 
 /** Table `taskflow_message_attachment`, from the `app` plugin. */
@@ -477,6 +501,26 @@ export interface TaskflowMessageAttachment {
   content_type: string;
   size_bytes: number;
   created_at: string | null;
+}
+
+/** Table `taskflow_message_claim`, from the `app` plugin. */
+export interface TaskflowMessageClaim {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  channel: number;
+  /** Foreign key: the `id` of a TaskflowAgentMessage (`taskflow_agent_message`). */
+  message: number;
+  claimer_kind: TaskflowMessageClaimClaimerKind;
+  /** Foreign key into `auth_user`. */
+  claimer_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  claimer_agent: number | null;
+  claimer_label: string;
+  claimed_at: string;
+  expires_at: string;
+  released_at: string | null;
 }
 
 /** Table `taskflow_project`, from the `app` plugin. */
@@ -551,24 +595,32 @@ export interface TaskflowProjectMember {
   joined_at: string | null;
 }
 
-/** Table `taskflow_project_repo`, from the `app` plugin. */
-export interface TaskflowProjectRepo {
+/** Table `taskflow_review_request`, from the `app` plugin. */
+export interface TaskflowReviewRequest {
   id: number;
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   project: number;
-  repo: string;
-  is_default: boolean;
-  created_at: string | null;
-}
-
-/** Table `taskflow_realtime_ticket`, from the `app` plugin. */
-export interface TaskflowRealtimeTicket {
-  id: number;
+  /** Foreign key: the `id` of a TaskflowTask (`taskflow_task`). */
+  task: number;
+  requester_kind: TaskflowReviewRequestRequesterKind;
   /** Foreign key into `auth_user`. */
-  user: number;
-  token_hash: string;
-  expires_at: string;
-  used_at: string | null;
+  requester_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  requester_agent: number | null;
+  requester_label: string;
+  reviewer_kind: TaskflowReviewRequestReviewerKind;
+  /** Foreign key into `auth_user`. */
+  reviewer_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  reviewer_agent: number | null;
+  reviewer_label: string;
+  reviewer_key: string;
+  link: string | null;
+  focus_markdown: string | null;
+  status: TaskflowReviewRequestStatus;
+  /** Foreign key: the `id` of a TaskflowTaskReview (`taskflow_task_review`). */
+  review: number | null;
+  closed_at: string | null;
   created_at: string | null;
 }
 
@@ -578,7 +630,7 @@ export interface TaskflowTask {
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   project: number;
   title: string;
-  description_markdown: string;
+  description_markdown: string | null;
   notes_markdown: string | null;
   status: TaskflowTaskStatus;
   priority: TaskflowTaskPriority;
@@ -633,6 +685,34 @@ export interface TaskflowTaskAttachment {
   name: string;
   content_type: string;
   size_bytes: number;
+  created_at: string | null;
+}
+
+/** Table `taskflow_task_evidence`, from the `app` plugin. */
+export interface TaskflowTaskEvidence {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowTask (`taskflow_task`). */
+  task: number;
+  kind: TaskflowTaskEvidenceKind;
+  label: string;
+  url: string | null;
+  passed: boolean | null;
+  tests_passed: number | null;
+  tests_failed: number | null;
+  duration_ms: number | null;
+  files_changed: number | null;
+  additions: number | null;
+  deletions: number | null;
+  /** Foreign key: the `id` of a TaskflowTaskAttachment (`taskflow_task_attachment`). */
+  attachment: number | null;
+  author_kind: TaskflowTaskEvidenceAuthorKind;
+  /** Foreign key into `auth_user`. */
+  author_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  author_agent: number | null;
+  author_label: string;
   created_at: string | null;
 }
 
@@ -700,6 +780,51 @@ export interface TaskflowTerminalInput {
   created_at: string | null;
 }
 
+/** Table `taskflow_usage_alert`, from the `app` plugin. */
+export interface TaskflowUsageAlert {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  kind: string;
+  subject: string;
+  created_at: string | null;
+}
+
+/** Table `taskflow_usage_report`, from the `app` plugin. */
+export interface TaskflowUsageReport {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  agent: number;
+  task: number | null;
+  model: string;
+  turn_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros: number | null;
+  price_id: number | null;
+  reported_at: string;
+}
+
+/** Table `taskflow_usage_settings`, from the `app` plugin. */
+export interface TaskflowUsageSettings {
+  id: number;
+  /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
+  project: number;
+  budget_micros: number | null;
+  alert_percent: number | null;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  alert_channel: number | null;
+  task_cap_micros: number | null;
+  idle_alert: boolean;
+  budget_alerted_month: string | null;
+  updated_by_label: string;
+  updated_at: string | null;
+}
+
 /** Table `taskflow_user_settings`, from the `app` plugin. */
 export interface TaskflowUserSettings {
   id: number;
@@ -713,662 +838,37 @@ export interface TaskflowUserSettings {
   updated_at: string | null;
 }
 
-/** Table `toolbox_entry`, from the `app` plugin. */
-export interface ToolboxEntry {
+/** Table `taskflow_wake_rule`, from the `app` plugin. */
+export interface TaskflowWakeRule {
   id: number;
   /** Foreign key: the `id` of a TaskflowProject (`taskflow_project`). */
   project: number;
-  kind: ToolboxEntryKind;
-  name: string;
-  title: string;
-  description: string;
-  body_markdown: string;
-  code: string | null;
-  language: string | null;
-  entrypoint: string | null;
-  params_json: string | null;
-  requires_env_json: string | null;
-  tags_json: string | null;
-  author_agent_id: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  agent: number;
   /** Foreign key into `auth_user`. */
-  author_user: number | null;
-  author_label: string;
-  version: number;
-  status: ToolboxEntryStatus;
-  deprecated_reason: string | null;
-  last_run_at: string | null;
-  last_run_ok: boolean;
-  run_ok_count: number;
-  run_fail_count: number;
+  created_by_user: number | null;
+  /** Foreign key: the `id` of a TaskflowAgent (`taskflow_agent`). */
+  created_by_agent: number | null;
+  created_by_label: string;
+  trigger_kind: TaskflowWakeRuleTriggerKind;
+  target_task: number | null;
+  target_message: number | null;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  watch_channel: number | null;
+  mentions_only: boolean;
+  fire_at: string | null;
+  note: string;
+  deliver: TaskflowWakeRuleDeliver;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  deliver_channel: number | null;
+  /** Foreign key: the `id` of a TaskflowAgentChannel (`taskflow_agent_channel`). */
+  pane_channel: number | null;
+  status: TaskflowWakeRuleStatus;
+  fired_at: string | null;
+  delivered_at: string | null;
+  source_ref: string | null;
   created_at: string | null;
   updated_at: string | null;
-}
-
-/** Table `toolbox_entry_version`, from the `app` plugin. */
-export interface ToolboxEntryVersion {
-  id: number;
-  /** Foreign key: the `id` of a ToolboxEntry (`toolbox_entry`). */
-  entry: number;
-  version: number;
-  body_markdown: string;
-  code: string | null;
-  params_json: string | null;
-  requires_env_json: string | null;
-  description: string;
-  author_label: string;
-  note: string | null;
-  vetted_by: string | null;
-  vetted_note: string | null;
-  created_at: string | null;
-}
-
-/** Filterable query parameters for `admin_user_pref`. Every key is optional and AND-combined server-side. */
-export interface AdminUserPrefFilters {
-  "user_id"?: number;
-  "user_id__ne"?: number;
-  "user_id__gte"?: number;
-  "user_id__lte"?: number;
-  "user_id__gt"?: number;
-  "user_id__lt"?: number;
-  "user_id__in"?: number[];
-  "theme"?: string;
-  "theme__ne"?: string;
-  "theme__contains"?: string;
-  "theme__icontains"?: string;
-  "theme__startswith"?: string;
-  "theme__in"?: string[];
-  "density"?: string;
-  "density__ne"?: string;
-  "density__contains"?: string;
-  "density__icontains"?: string;
-  "density__startswith"?: string;
-  "density__in"?: string[];
-  "sidebar_collapsed"?: boolean;
-  "sidebar_collapsed__ne"?: boolean;
-  "sidebar_collapsed__in"?: boolean[];
-  "dashboard_layout"?: string;
-  "dashboard_layout__ne"?: string;
-  "dashboard_layout__contains"?: string;
-  "dashboard_layout__icontains"?: string;
-  "dashboard_layout__startswith"?: string;
-  "dashboard_layout__in"?: string[];
-  "preferences"?: string;
-  "preferences__ne"?: string;
-  "preferences__contains"?: string;
-  "preferences__icontains"?: string;
-  "preferences__startswith"?: string;
-  "preferences__in"?: string[];
-  "preferences__isnull"?: boolean;
-  "updated_at"?: string;
-  "updated_at__ne"?: string;
-  "updated_at__gte"?: string;
-  "updated_at__lte"?: string;
-  "updated_at__gt"?: string;
-  "updated_at__lt"?: string;
-  "updated_at__in"?: string[];
-}
-export type AdminUserPrefOrdering = "id" | "-id" | "user_id" | "-user_id" | "theme" | "-theme" | "density" | "-density" | "sidebar_collapsed" | "-sidebar_collapsed" | "dashboard_layout" | "-dashboard_layout" | "preferences" | "-preferences" | "updated_at" | "-updated_at";
-/** Body for creating a `admin_user_pref`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface AdminUserPrefCreate {
-  user_id: number;
-  theme: string;
-  density: string;
-  sidebar_collapsed: boolean;
-  dashboard_layout: string;
-  preferences?: string | null;
-  updated_at: string;
-}
-/** Body for updating a `admin_user_pref` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface AdminUserPrefUpdate {
-}
-
-/** Filterable query parameters for `auth_challenge`. Every key is optional and AND-combined server-side. */
-export interface AuthChallengeFilters {
-  "user_id"?: number;
-  "user_id__ne"?: number;
-  "user_id__in"?: number[];
-  "purpose"?: string;
-  "purpose__ne"?: string;
-  "purpose__contains"?: string;
-  "purpose__icontains"?: string;
-  "purpose__startswith"?: string;
-  "purpose__in"?: string[];
-  "secret_hash"?: string;
-  "secret_hash__ne"?: string;
-  "secret_hash__contains"?: string;
-  "secret_hash__icontains"?: string;
-  "secret_hash__startswith"?: string;
-  "secret_hash__in"?: string[];
-  "expires_at"?: string;
-  "expires_at__ne"?: string;
-  "expires_at__gte"?: string;
-  "expires_at__lte"?: string;
-  "expires_at__gt"?: string;
-  "expires_at__lt"?: string;
-  "expires_at__in"?: string[];
-  "attempts"?: number;
-  "attempts__ne"?: number;
-  "attempts__gte"?: number;
-  "attempts__lte"?: number;
-  "attempts__gt"?: number;
-  "attempts__lt"?: number;
-  "attempts__in"?: number[];
-  "used_at"?: string;
-  "used_at__ne"?: string;
-  "used_at__gte"?: string;
-  "used_at__lte"?: string;
-  "used_at__gt"?: string;
-  "used_at__lt"?: string;
-  "used_at__in"?: string[];
-  "used_at__isnull"?: boolean;
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-}
-export type AuthChallengeOrdering = "id" | "-id" | "user_id" | "-user_id" | "purpose" | "-purpose" | "secret_hash" | "-secret_hash" | "expires_at" | "-expires_at" | "attempts" | "-attempts" | "used_at" | "-used_at" | "created_at" | "-created_at";
-/** Body for creating a `auth_challenge`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface AuthChallengeCreate {
-  user_id: number;
-  purpose: string;
-  secret_hash: string;
-  expires_at: string;
-  attempts: number;
-  used_at?: string | null;
-  created_at: string;
-}
-/** Body for updating a `auth_challenge` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface AuthChallengeUpdate {
-  user_id?: number;
-  purpose?: string;
-  secret_hash?: string;
-  expires_at?: string;
-  attempts?: number;
-  used_at?: string | null;
-  created_at?: string;
-}
-
-/** Filterable query parameters for `auth_token`. Every key is optional and AND-combined server-side. */
-export interface AuthTokenFilters {
-  "user_id"?: number;
-  "user_id__ne"?: number;
-  "user_id__in"?: number[];
-  "key_hash"?: string;
-  "key_hash__ne"?: string;
-  "key_hash__contains"?: string;
-  "key_hash__icontains"?: string;
-  "key_hash__startswith"?: string;
-  "key_hash__in"?: string[];
-  "name"?: string;
-  "name__ne"?: string;
-  "name__contains"?: string;
-  "name__icontains"?: string;
-  "name__startswith"?: string;
-  "name__in"?: string[];
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "last_used_at"?: string;
-  "last_used_at__ne"?: string;
-  "last_used_at__gte"?: string;
-  "last_used_at__lte"?: string;
-  "last_used_at__gt"?: string;
-  "last_used_at__lt"?: string;
-  "last_used_at__in"?: string[];
-  "last_used_at__isnull"?: boolean;
-}
-export type AuthTokenOrdering = "id" | "-id" | "user_id" | "-user_id" | "key_hash" | "-key_hash" | "name" | "-name" | "created_at" | "-created_at" | "last_used_at" | "-last_used_at";
-/** Body for creating a `auth_token`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface AuthTokenCreate {
-  user_id: number;
-  key_hash: string;
-  name: string;
-  created_at: string;
-  last_used_at?: string | null;
-}
-/** Body for updating a `auth_token` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface AuthTokenUpdate {
-  user_id?: number;
-  key_hash?: string;
-  name?: string;
-  created_at?: string;
-  last_used_at?: string | null;
-}
-
-/** Filterable query parameters for `design_comment`. Every key is optional and AND-combined server-side. */
-export interface DesignCommentFilters {
-  "project"?: number;
-  "project__ne"?: number;
-  "project__in"?: number[];
-  "page_path"?: string;
-  "page_path__ne"?: string;
-  "page_path__contains"?: string;
-  "page_path__icontains"?: string;
-  "page_path__startswith"?: string;
-  "page_path__in"?: string[];
-  "component_name"?: string;
-  "component_name__ne"?: string;
-  "component_name__contains"?: string;
-  "component_name__icontains"?: string;
-  "component_name__startswith"?: string;
-  "component_name__in"?: string[];
-  "component_name__isnull"?: boolean;
-  "element_path"?: string;
-  "element_path__ne"?: string;
-  "element_path__contains"?: string;
-  "element_path__icontains"?: string;
-  "element_path__startswith"?: string;
-  "element_path__in"?: string[];
-  "src_ref"?: string;
-  "src_ref__ne"?: string;
-  "src_ref__contains"?: string;
-  "src_ref__icontains"?: string;
-  "src_ref__startswith"?: string;
-  "src_ref__in"?: string[];
-  "src_ref__isnull"?: boolean;
-  "viewport"?: string;
-  "viewport__ne"?: string;
-  "viewport__contains"?: string;
-  "viewport__icontains"?: string;
-  "viewport__startswith"?: string;
-  "viewport__in"?: string[];
-  "rect"?: string;
-  "rect__ne"?: string;
-  "rect__contains"?: string;
-  "rect__icontains"?: string;
-  "rect__startswith"?: string;
-  "rect__in"?: string[];
-  "snippet"?: string;
-  "snippet__ne"?: string;
-  "snippet__contains"?: string;
-  "snippet__icontains"?: string;
-  "snippet__startswith"?: string;
-  "snippet__in"?: string[];
-  "body"?: string;
-  "body__ne"?: string;
-  "body__contains"?: string;
-  "body__icontains"?: string;
-  "body__startswith"?: string;
-  "body__in"?: string[];
-  "scope"?: DesignCommentScope;
-  "scope__ne"?: DesignCommentScope;
-  "scope__contains"?: string;
-  "scope__icontains"?: string;
-  "scope__startswith"?: string;
-  "scope__in"?: DesignCommentScope[];
-  "status"?: DesignCommentStatus;
-  "status__ne"?: DesignCommentStatus;
-  "status__contains"?: string;
-  "status__icontains"?: string;
-  "status__startswith"?: string;
-  "status__in"?: DesignCommentStatus[];
-  "thread_id"?: string;
-  "thread_id__ne"?: string;
-  "thread_id__contains"?: string;
-  "thread_id__icontains"?: string;
-  "thread_id__startswith"?: string;
-  "thread_id__in"?: string[];
-  "thread_id__isnull"?: boolean;
-  "author"?: string;
-  "author__ne"?: string;
-  "author__contains"?: string;
-  "author__icontains"?: string;
-  "author__startswith"?: string;
-  "author__in"?: string[];
-  "resolution_note"?: string;
-  "resolution_note__ne"?: string;
-  "resolution_note__contains"?: string;
-  "resolution_note__icontains"?: string;
-  "resolution_note__startswith"?: string;
-  "resolution_note__in"?: string[];
-  "resolution_note__isnull"?: boolean;
-  "orphaned"?: boolean;
-  "orphaned__ne"?: boolean;
-  "orphaned__in"?: boolean[];
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "created_at__isnull"?: boolean;
-}
-export type DesignCommentOrdering = "id" | "-id" | "project" | "-project" | "page_path" | "-page_path" | "component_name" | "-component_name" | "element_path" | "-element_path" | "src_ref" | "-src_ref" | "viewport" | "-viewport" | "rect" | "-rect" | "snippet" | "-snippet" | "body" | "-body" | "scope" | "-scope" | "status" | "-status" | "thread_id" | "-thread_id" | "author" | "-author" | "resolution_note" | "-resolution_note" | "orphaned" | "-orphaned" | "created_at" | "-created_at";
-/** Body for creating a `design_comment`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface DesignCommentCreate {
-  project: number;
-  page_path: string;
-  component_name?: string | null;
-  element_path: string;
-  src_ref?: string | null;
-  viewport: string;
-  rect: string;
-  snippet: string;
-  body: string;
-  scope?: DesignCommentScope;
-  status?: DesignCommentStatus;
-  thread_id?: string | null;
-  author: string;
-  resolution_note?: string | null;
-  orphaned?: boolean;
-}
-/** Body for updating a `design_comment` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface DesignCommentUpdate {
-  project?: number;
-  page_path?: string;
-  component_name?: string | null;
-  element_path?: string;
-  src_ref?: string | null;
-  viewport?: string;
-  rect?: string;
-  snippet?: string;
-  body?: string;
-  scope?: DesignCommentScope;
-  status?: DesignCommentStatus;
-  thread_id?: string | null;
-  author?: string;
-  resolution_note?: string | null;
-  orphaned?: boolean;
-}
-
-/** Filterable query parameters for `design_file`. Every key is optional and AND-combined server-side. */
-export interface DesignFileFilters {
-  "project"?: number;
-  "project__ne"?: number;
-  "project__in"?: number[];
-  "kind"?: DesignFileKind;
-  "kind__ne"?: DesignFileKind;
-  "kind__contains"?: string;
-  "kind__icontains"?: string;
-  "kind__startswith"?: string;
-  "kind__in"?: DesignFileKind[];
-  "path"?: string;
-  "path__ne"?: string;
-  "path__contains"?: string;
-  "path__icontains"?: string;
-  "path__startswith"?: string;
-  "path__in"?: string[];
-  "content"?: string;
-  "content__ne"?: string;
-  "content__contains"?: string;
-  "content__icontains"?: string;
-  "content__startswith"?: string;
-  "content__in"?: string[];
-  "version"?: number;
-  "version__ne"?: number;
-  "version__gte"?: number;
-  "version__lte"?: number;
-  "version__gt"?: number;
-  "version__lt"?: number;
-  "version__in"?: number[];
-  "updated_by"?: string;
-  "updated_by__ne"?: string;
-  "updated_by__contains"?: string;
-  "updated_by__icontains"?: string;
-  "updated_by__startswith"?: string;
-  "updated_by__in"?: string[];
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "created_at__isnull"?: boolean;
-  "updated_at"?: string;
-  "updated_at__ne"?: string;
-  "updated_at__gte"?: string;
-  "updated_at__lte"?: string;
-  "updated_at__gt"?: string;
-  "updated_at__lt"?: string;
-  "updated_at__in"?: string[];
-  "updated_at__isnull"?: boolean;
-  "deleted_at"?: string;
-  "deleted_at__ne"?: string;
-  "deleted_at__gte"?: string;
-  "deleted_at__lte"?: string;
-  "deleted_at__gt"?: string;
-  "deleted_at__lt"?: string;
-  "deleted_at__in"?: string[];
-  "deleted_at__isnull"?: boolean;
-}
-export type DesignFileOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "path" | "-path" | "content" | "-content" | "version" | "-version" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at" | "deleted_at" | "-deleted_at";
-/** Body for creating a `design_file`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface DesignFileCreate {
-  project: number;
-  kind?: DesignFileKind;
-  path: string;
-  content: string;
-  version?: number;
-  updated_by: string;
-  updated_at?: string | null;
-  deleted_at?: string | null;
-}
-/** Body for updating a `design_file` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface DesignFileUpdate {
-  project?: number;
-  kind?: DesignFileKind;
-  path?: string;
-  content?: string;
-  version?: number;
-  updated_by?: string;
-}
-
-/** Filterable query parameters for `design_file_version`. Every key is optional and AND-combined server-side. */
-export interface DesignFileVersionFilters {
-  "project"?: number;
-  "project__ne"?: number;
-  "project__in"?: number[];
-  "kind"?: DesignFileVersionKind;
-  "kind__ne"?: DesignFileVersionKind;
-  "kind__contains"?: string;
-  "kind__icontains"?: string;
-  "kind__startswith"?: string;
-  "kind__in"?: DesignFileVersionKind[];
-  "path"?: string;
-  "path__ne"?: string;
-  "path__contains"?: string;
-  "path__icontains"?: string;
-  "path__startswith"?: string;
-  "path__in"?: string[];
-  "content"?: string;
-  "content__ne"?: string;
-  "content__contains"?: string;
-  "content__icontains"?: string;
-  "content__startswith"?: string;
-  "content__in"?: string[];
-  "version"?: number;
-  "version__ne"?: number;
-  "version__gte"?: number;
-  "version__lte"?: number;
-  "version__gt"?: number;
-  "version__lt"?: number;
-  "version__in"?: number[];
-  "project_revision"?: number;
-  "project_revision__ne"?: number;
-  "project_revision__gte"?: number;
-  "project_revision__lte"?: number;
-  "project_revision__gt"?: number;
-  "project_revision__lt"?: number;
-  "project_revision__in"?: number[];
-  "bytes"?: number;
-  "bytes__ne"?: number;
-  "bytes__gte"?: number;
-  "bytes__lte"?: number;
-  "bytes__gt"?: number;
-  "bytes__lt"?: number;
-  "bytes__in"?: number[];
-  "deleted"?: boolean;
-  "deleted__ne"?: boolean;
-  "deleted__in"?: boolean[];
-  "updated_by"?: string;
-  "updated_by__ne"?: string;
-  "updated_by__contains"?: string;
-  "updated_by__icontains"?: string;
-  "updated_by__startswith"?: string;
-  "updated_by__in"?: string[];
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "created_at__isnull"?: boolean;
-}
-export type DesignFileVersionOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "path" | "-path" | "content" | "-content" | "version" | "-version" | "project_revision" | "-project_revision" | "bytes" | "-bytes" | "deleted" | "-deleted" | "updated_by" | "-updated_by" | "created_at" | "-created_at";
-/** Body for creating a `design_file_version`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface DesignFileVersionCreate {
-  project: number;
-  kind?: DesignFileVersionKind;
-  path: string;
-  content: string;
-  version: number;
-  project_revision: number;
-  bytes: number;
-  deleted?: boolean;
-  updated_by: string;
-}
-/** Body for updating a `design_file_version` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface DesignFileVersionUpdate {
-  project?: number;
-  kind?: DesignFileVersionKind;
-  path?: string;
-  content?: string;
-  version?: number;
-  project_revision?: number;
-  bytes?: number;
-  deleted?: boolean;
-  updated_by?: string;
-}
-
-/** Filterable query parameters for `design_layout`. Every key is optional and AND-combined server-side. */
-export interface DesignLayoutFilters {
-  "project"?: number;
-  "project__ne"?: number;
-  "project__in"?: number[];
-  "view"?: DesignLayoutView;
-  "view__ne"?: DesignLayoutView;
-  "view__contains"?: string;
-  "view__icontains"?: string;
-  "view__startswith"?: string;
-  "view__in"?: DesignLayoutView[];
-  "layout_json"?: string;
-  "layout_json__ne"?: string;
-  "layout_json__contains"?: string;
-  "layout_json__icontains"?: string;
-  "layout_json__startswith"?: string;
-  "layout_json__in"?: string[];
-  "version"?: number;
-  "version__ne"?: number;
-  "version__gte"?: number;
-  "version__lte"?: number;
-  "version__gt"?: number;
-  "version__lt"?: number;
-  "version__in"?: number[];
-  "updated_by"?: string;
-  "updated_by__ne"?: string;
-  "updated_by__contains"?: string;
-  "updated_by__icontains"?: string;
-  "updated_by__startswith"?: string;
-  "updated_by__in"?: string[];
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "created_at__isnull"?: boolean;
-  "updated_at"?: string;
-  "updated_at__ne"?: string;
-  "updated_at__gte"?: string;
-  "updated_at__lte"?: string;
-  "updated_at__gt"?: string;
-  "updated_at__lt"?: string;
-  "updated_at__in"?: string[];
-  "updated_at__isnull"?: boolean;
-}
-export type DesignLayoutOrdering = "id" | "-id" | "project" | "-project" | "view" | "-view" | "layout_json" | "-layout_json" | "version" | "-version" | "updated_by" | "-updated_by" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
-/** Body for creating a `design_layout`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface DesignLayoutCreate {
-  project: number;
-  view?: DesignLayoutView;
-  layout_json: string;
-  version?: number;
-  updated_by: string;
-  updated_at?: string | null;
-}
-/** Body for updating a `design_layout` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface DesignLayoutUpdate {
-  project?: number;
-  view?: DesignLayoutView;
-  layout_json?: string;
-  version?: number;
-  updated_by?: string;
-}
-
-/** Filterable query parameters for `media_file`. Every key is optional and AND-combined server-side. */
-export interface MediaFileFilters {
-  "key"?: string;
-  "key__ne"?: string;
-  "key__contains"?: string;
-  "key__icontains"?: string;
-  "key__startswith"?: string;
-  "key__in"?: string[];
-  "filename"?: string;
-  "filename__ne"?: string;
-  "filename__contains"?: string;
-  "filename__icontains"?: string;
-  "filename__startswith"?: string;
-  "filename__in"?: string[];
-  "content_type"?: string;
-  "content_type__ne"?: string;
-  "content_type__contains"?: string;
-  "content_type__icontains"?: string;
-  "content_type__startswith"?: string;
-  "content_type__in"?: string[];
-  "size"?: number;
-  "size__ne"?: number;
-  "size__gte"?: number;
-  "size__lte"?: number;
-  "size__gt"?: number;
-  "size__lt"?: number;
-  "size__in"?: number[];
-  "uploaded_at"?: string;
-  "uploaded_at__ne"?: string;
-  "uploaded_at__gte"?: string;
-  "uploaded_at__lte"?: string;
-  "uploaded_at__gt"?: string;
-  "uploaded_at__lt"?: string;
-  "uploaded_at__in"?: string[];
-  "status"?: string;
-  "status__ne"?: string;
-  "status__contains"?: string;
-  "status__icontains"?: string;
-  "status__startswith"?: string;
-  "status__in"?: string[];
-}
-export type MediaFileOrdering = "id" | "-id" | "key" | "-key" | "filename" | "-filename" | "content_type" | "-content_type" | "size" | "-size" | "uploaded_at" | "-uploaded_at" | "status" | "-status";
-/** Body for creating a `media_file`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface MediaFileCreate {
-  key: string;
-  filename: string;
-  content_type: string;
-  size: number;
-  uploaded_at: string;
-  status?: string;
-}
-/** Body for updating a `media_file` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface MediaFileUpdate {
 }
 
 /** Filterable query parameters for `post`. Every key is optional and AND-combined server-side. */
@@ -1416,84 +916,6 @@ export interface PostUpdate {
   published?: boolean;
   author?: number;
   created_at?: string | null;
-}
-
-/** Filterable query parameters for `oauth_social_account`. Every key is optional and AND-combined server-side. */
-export interface SocialAccountFilters {
-  "user"?: number;
-  "user__ne"?: number;
-  "user__in"?: number[];
-  "provider"?: string;
-  "provider__ne"?: string;
-  "provider__contains"?: string;
-  "provider__icontains"?: string;
-  "provider__startswith"?: string;
-  "provider__in"?: string[];
-  "provider_uid"?: string;
-  "provider_uid__ne"?: string;
-  "provider_uid__contains"?: string;
-  "provider_uid__icontains"?: string;
-  "provider_uid__startswith"?: string;
-  "provider_uid__in"?: string[];
-  "provider_email"?: string;
-  "provider_email__ne"?: string;
-  "provider_email__contains"?: string;
-  "provider_email__icontains"?: string;
-  "provider_email__startswith"?: string;
-  "provider_email__in"?: string[];
-  "provider_email__isnull"?: boolean;
-  "email_verified"?: boolean;
-  "email_verified__ne"?: boolean;
-  "email_verified__in"?: boolean[];
-  "scopes"?: string;
-  "scopes__ne"?: string;
-  "scopes__contains"?: string;
-  "scopes__icontains"?: string;
-  "scopes__startswith"?: string;
-  "scopes__in"?: string[];
-  "expires_at"?: string;
-  "expires_at__ne"?: string;
-  "expires_at__gte"?: string;
-  "expires_at__lte"?: string;
-  "expires_at__gt"?: string;
-  "expires_at__lt"?: string;
-  "expires_at__in"?: string[];
-  "expires_at__isnull"?: boolean;
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "updated_at"?: string;
-  "updated_at__ne"?: string;
-  "updated_at__gte"?: string;
-  "updated_at__lte"?: string;
-  "updated_at__gt"?: string;
-  "updated_at__lt"?: string;
-  "updated_at__in"?: string[];
-}
-export type SocialAccountOrdering = "id" | "-id" | "user" | "-user" | "provider" | "-provider" | "provider_uid" | "-provider_uid" | "provider_email" | "-provider_email" | "email_verified" | "-email_verified" | "scopes" | "-scopes" | "expires_at" | "-expires_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
-/** Body for creating a `oauth_social_account`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface SocialAccountCreate {
-  user: number;
-  provider: string;
-  provider_uid: string;
-  provider_email?: string | null;
-  email_verified?: boolean;
-  scopes: string;
-  expires_at?: string | null;
-}
-/** Body for updating a `oauth_social_account` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface SocialAccountUpdate {
-  user?: number;
-  provider?: string;
-  provider_uid?: string;
-  provider_email?: string | null;
-  email_verified?: boolean;
-  scopes?: string;
-  expires_at?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_agent`. Every key is optional and AND-combined server-side. */
@@ -2381,17 +1803,179 @@ export interface TaskflowChannelReadCursorUpdate {
   last_read_at?: string;
 }
 
-/** Filterable query parameters for `taskflow_github_pref`. Every key is optional and AND-combined server-side. */
-export interface TaskflowGithubPrefFilters {
-  "user"?: number;
-  "user__ne"?: number;
-  "user__in"?: number[];
+/** Filterable query parameters for `taskflow_channel_state`. Every key is optional and AND-combined server-side. */
+export interface TaskflowChannelStateFilters {
   "project"?: number;
   "project__ne"?: number;
   "project__in"?: number[];
-  "post_as_me"?: boolean;
-  "post_as_me__ne"?: boolean;
-  "post_as_me__in"?: boolean[];
+  "channel"?: number;
+  "channel__ne"?: number;
+  "channel__in"?: number[];
+  "body_markdown"?: string;
+  "body_markdown__ne"?: string;
+  "body_markdown__contains"?: string;
+  "body_markdown__icontains"?: string;
+  "body_markdown__startswith"?: string;
+  "body_markdown__in"?: string[];
+  "author_kind"?: TaskflowChannelStateAuthorKind;
+  "author_kind__ne"?: TaskflowChannelStateAuthorKind;
+  "author_kind__contains"?: string;
+  "author_kind__icontains"?: string;
+  "author_kind__startswith"?: string;
+  "author_kind__in"?: TaskflowChannelStateAuthorKind[];
+  "author_user"?: number;
+  "author_user__ne"?: number;
+  "author_user__in"?: number[];
+  "author_user__isnull"?: boolean;
+  "author_agent"?: number;
+  "author_agent__ne"?: number;
+  "author_agent__in"?: number[];
+  "author_agent__isnull"?: boolean;
+  "author_label"?: string;
+  "author_label__ne"?: string;
+  "author_label__contains"?: string;
+  "author_label__icontains"?: string;
+  "author_label__startswith"?: string;
+  "author_label__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowChannelStateOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "body_markdown" | "-body_markdown" | "author_kind" | "-author_kind" | "author_user" | "-author_user" | "author_agent" | "-author_agent" | "author_label" | "-author_label" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_channel_state`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowChannelStateCreate {
+  project: number;
+  channel: number;
+  body_markdown: string;
+  author_kind?: TaskflowChannelStateAuthorKind;
+  author_user?: number | null;
+  author_agent?: number | null;
+  author_label: string;
+}
+/** Body for updating a `taskflow_channel_state` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowChannelStateUpdate {
+  project?: number;
+  channel?: number;
+  body_markdown?: string;
+  author_kind?: TaskflowChannelStateAuthorKind;
+  author_user?: number | null;
+  author_agent?: number | null;
+  author_label?: string;
+}
+
+/** Filterable query parameters for `taskflow_daily_update`. Every key is optional and AND-combined server-side. */
+export interface TaskflowDailyUpdateFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "date"?: string;
+  "date__ne"?: string;
+  "date__contains"?: string;
+  "date__icontains"?: string;
+  "date__startswith"?: string;
+  "date__in"?: string[];
+  "status"?: TaskflowDailyUpdateStatus;
+  "status__ne"?: TaskflowDailyUpdateStatus;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: TaskflowDailyUpdateStatus[];
+  "body_markdown"?: string;
+  "body_markdown__ne"?: string;
+  "body_markdown__contains"?: string;
+  "body_markdown__icontains"?: string;
+  "body_markdown__startswith"?: string;
+  "body_markdown__in"?: string[];
+  "version"?: number;
+  "version__ne"?: number;
+  "version__gte"?: number;
+  "version__lte"?: number;
+  "version__gt"?: number;
+  "version__lt"?: number;
+  "version__in"?: number[];
+  "window_start"?: string;
+  "window_start__ne"?: string;
+  "window_start__gte"?: string;
+  "window_start__lte"?: string;
+  "window_start__gt"?: string;
+  "window_start__lt"?: string;
+  "window_start__in"?: string[];
+  "window_end"?: string;
+  "window_end__ne"?: string;
+  "window_end__gte"?: string;
+  "window_end__lte"?: string;
+  "window_end__gt"?: string;
+  "window_end__lt"?: string;
+  "window_end__in"?: string[];
+  "src_activity"?: number;
+  "src_activity__ne"?: number;
+  "src_activity__gte"?: number;
+  "src_activity__lte"?: number;
+  "src_activity__gt"?: number;
+  "src_activity__lt"?: number;
+  "src_activity__in"?: number[];
+  "src_task_changes"?: number;
+  "src_task_changes__ne"?: number;
+  "src_task_changes__gte"?: number;
+  "src_task_changes__lte"?: number;
+  "src_task_changes__gt"?: number;
+  "src_task_changes__lt"?: number;
+  "src_task_changes__in"?: number[];
+  "src_reviews"?: number;
+  "src_reviews__ne"?: number;
+  "src_reviews__gte"?: number;
+  "src_reviews__lte"?: number;
+  "src_reviews__gt"?: number;
+  "src_reviews__lt"?: number;
+  "src_reviews__in"?: number[];
+  "src_pull_requests"?: number;
+  "src_pull_requests__ne"?: number;
+  "src_pull_requests__gte"?: number;
+  "src_pull_requests__lte"?: number;
+  "src_pull_requests__gt"?: number;
+  "src_pull_requests__lt"?: number;
+  "src_pull_requests__in"?: number[];
+  "drafted_by_label"?: string;
+  "drafted_by_label__ne"?: string;
+  "drafted_by_label__contains"?: string;
+  "drafted_by_label__icontains"?: string;
+  "drafted_by_label__startswith"?: string;
+  "drafted_by_label__in"?: string[];
+  "server_drafted"?: boolean;
+  "server_drafted__ne"?: boolean;
+  "server_drafted__in"?: boolean[];
+  "edit_count"?: number;
+  "edit_count__ne"?: number;
+  "edit_count__gte"?: number;
+  "edit_count__lte"?: number;
+  "edit_count__gt"?: number;
+  "edit_count__lt"?: number;
+  "edit_count__in"?: number[];
+  "posted_message"?: number;
+  "posted_message__ne"?: number;
+  "posted_message__gte"?: number;
+  "posted_message__lte"?: number;
+  "posted_message__gt"?: number;
+  "posted_message__lt"?: number;
+  "posted_message__in"?: number[];
+  "posted_message__isnull"?: boolean;
+  "posted_by"?: number;
+  "posted_by__ne"?: number;
+  "posted_by__in"?: number[];
+  "posted_by__isnull"?: boolean;
+  "posted_at"?: string;
+  "posted_at__ne"?: string;
+  "posted_at__gte"?: string;
+  "posted_at__lte"?: string;
+  "posted_at__gt"?: string;
+  "posted_at__lt"?: string;
+  "posted_at__in"?: string[];
+  "posted_at__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -2409,19 +1993,520 @@ export interface TaskflowGithubPrefFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type TaskflowGithubPrefOrdering = "id" | "-id" | "user" | "-user" | "project" | "-project" | "post_as_me" | "-post_as_me" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
-/** Body for creating a `taskflow_github_pref`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface TaskflowGithubPrefCreate {
-  user: number;
+export type TaskflowDailyUpdateOrdering = "id" | "-id" | "project" | "-project" | "date" | "-date" | "status" | "-status" | "body_markdown" | "-body_markdown" | "version" | "-version" | "window_start" | "-window_start" | "window_end" | "-window_end" | "src_activity" | "-src_activity" | "src_task_changes" | "-src_task_changes" | "src_reviews" | "-src_reviews" | "src_pull_requests" | "-src_pull_requests" | "drafted_by_label" | "-drafted_by_label" | "server_drafted" | "-server_drafted" | "edit_count" | "-edit_count" | "posted_message" | "-posted_message" | "posted_by" | "-posted_by" | "posted_at" | "-posted_at" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_daily_update`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowDailyUpdateCreate {
   project: number;
-  post_as_me?: boolean;
+  date: string;
+  status?: TaskflowDailyUpdateStatus;
+  body_markdown: string;
+  version?: number;
+  window_start: string;
+  window_end: string;
+  src_activity: number;
+  src_task_changes: number;
+  src_reviews: number;
+  src_pull_requests: number;
+  drafted_by_label: string;
+  server_drafted?: boolean;
+  edit_count?: number;
+  posted_message?: number | null;
+  posted_by?: number | null;
+  posted_at?: string | null;
   updated_at?: string | null;
 }
-/** Body for updating a `taskflow_github_pref` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface TaskflowGithubPrefUpdate {
-  user?: number;
+/** Body for updating a `taskflow_daily_update` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowDailyUpdateUpdate {
   project?: number;
-  post_as_me?: boolean;
+  date?: string;
+  status?: TaskflowDailyUpdateStatus;
+  body_markdown?: string;
+  version?: number;
+  window_start?: string;
+  window_end?: string;
+  src_activity?: number;
+  src_task_changes?: number;
+  src_reviews?: number;
+  src_pull_requests?: number;
+  drafted_by_label?: string;
+  server_drafted?: boolean;
+  edit_count?: number;
+  posted_message?: number | null;
+  posted_by?: number | null;
+  posted_at?: string | null;
+}
+
+/** Filterable query parameters for `taskflow_daily_update_settings`. Every key is optional and AND-combined server-side. */
+export interface TaskflowDailyUpdateSettingsFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "enabled"?: boolean;
+  "enabled__ne"?: boolean;
+  "enabled__in"?: boolean[];
+  "local_time"?: string;
+  "local_time__ne"?: string;
+  "local_time__contains"?: string;
+  "local_time__icontains"?: string;
+  "local_time__startswith"?: string;
+  "local_time__in"?: string[];
+  "timezone"?: string;
+  "timezone__ne"?: string;
+  "timezone__contains"?: string;
+  "timezone__icontains"?: string;
+  "timezone__startswith"?: string;
+  "timezone__in"?: string[];
+  "drafting_agent"?: number;
+  "drafting_agent__ne"?: number;
+  "drafting_agent__in"?: number[];
+  "drafting_agent__isnull"?: boolean;
+  "post_channel"?: number;
+  "post_channel__ne"?: number;
+  "post_channel__in"?: number[];
+  "post_channel__isnull"?: boolean;
+  "updated_by_label"?: string;
+  "updated_by_label__ne"?: string;
+  "updated_by_label__contains"?: string;
+  "updated_by_label__icontains"?: string;
+  "updated_by_label__startswith"?: string;
+  "updated_by_label__in"?: string[];
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type TaskflowDailyUpdateSettingsOrdering = "id" | "-id" | "project" | "-project" | "enabled" | "-enabled" | "local_time" | "-local_time" | "timezone" | "-timezone" | "drafting_agent" | "-drafting_agent" | "post_channel" | "-post_channel" | "updated_by_label" | "-updated_by_label" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_daily_update_settings`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowDailyUpdateSettingsCreate {
+  project: number;
+  enabled?: boolean;
+  local_time: string;
+  timezone: string;
+  drafting_agent?: number | null;
+  post_channel?: number | null;
+  updated_by_label: string;
+  updated_at?: string | null;
+}
+/** Body for updating a `taskflow_daily_update_settings` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowDailyUpdateSettingsUpdate {
+  project?: number;
+  enabled?: boolean;
+  local_time?: string;
+  timezone?: string;
+  drafting_agent?: number | null;
+  post_channel?: number | null;
+  updated_by_label?: string;
+}
+
+/** Filterable query parameters for `taskflow_decision`. Every key is optional and AND-combined server-side. */
+export interface TaskflowDecisionFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "key"?: string;
+  "key__ne"?: string;
+  "key__contains"?: string;
+  "key__icontains"?: string;
+  "key__startswith"?: string;
+  "key__in"?: string[];
+  "question"?: string;
+  "question__ne"?: string;
+  "question__contains"?: string;
+  "question__icontains"?: string;
+  "question__startswith"?: string;
+  "question__in"?: string[];
+  "context_markdown"?: string;
+  "context_markdown__ne"?: string;
+  "context_markdown__contains"?: string;
+  "context_markdown__icontains"?: string;
+  "context_markdown__startswith"?: string;
+  "context_markdown__in"?: string[];
+  "context_markdown__isnull"?: boolean;
+  "status"?: TaskflowDecisionStatus;
+  "status__ne"?: TaskflowDecisionStatus;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: TaskflowDecisionStatus[];
+  "asked_by_user"?: number;
+  "asked_by_user__ne"?: number;
+  "asked_by_user__in"?: number[];
+  "asked_by_user__isnull"?: boolean;
+  "asked_by_agent"?: number;
+  "asked_by_agent__ne"?: number;
+  "asked_by_agent__in"?: number[];
+  "asked_by_agent__isnull"?: boolean;
+  "asked_by_label"?: string;
+  "asked_by_label__ne"?: string;
+  "asked_by_label__contains"?: string;
+  "asked_by_label__icontains"?: string;
+  "asked_by_label__startswith"?: string;
+  "asked_by_label__in"?: string[];
+  "ruler_user"?: number;
+  "ruler_user__ne"?: number;
+  "ruler_user__in"?: number[];
+  "ruler_user__isnull"?: boolean;
+  "channel"?: number;
+  "channel__ne"?: number;
+  "channel__in"?: number[];
+  "channel__isnull"?: boolean;
+  "ruled_option_id"?: number;
+  "ruled_option_id__ne"?: number;
+  "ruled_option_id__gte"?: number;
+  "ruled_option_id__lte"?: number;
+  "ruled_option_id__gt"?: number;
+  "ruled_option_id__lt"?: number;
+  "ruled_option_id__in"?: number[];
+  "ruled_option_id__isnull"?: boolean;
+  "ruling_note"?: string;
+  "ruling_note__ne"?: string;
+  "ruling_note__contains"?: string;
+  "ruling_note__icontains"?: string;
+  "ruling_note__startswith"?: string;
+  "ruling_note__in"?: string[];
+  "ruling_note__isnull"?: boolean;
+  "ruled_by_user"?: number;
+  "ruled_by_user__ne"?: number;
+  "ruled_by_user__in"?: number[];
+  "ruled_by_user__isnull"?: boolean;
+  "ruled_by_label"?: string;
+  "ruled_by_label__ne"?: string;
+  "ruled_by_label__contains"?: string;
+  "ruled_by_label__icontains"?: string;
+  "ruled_by_label__startswith"?: string;
+  "ruled_by_label__in"?: string[];
+  "ruled_by_label__isnull"?: boolean;
+  "ruled_at"?: string;
+  "ruled_at__ne"?: string;
+  "ruled_at__gte"?: string;
+  "ruled_at__lte"?: string;
+  "ruled_at__gt"?: string;
+  "ruled_at__lt"?: string;
+  "ruled_at__in"?: string[];
+  "ruled_at__isnull"?: boolean;
+  "superseded_by_id"?: number;
+  "superseded_by_id__ne"?: number;
+  "superseded_by_id__gte"?: number;
+  "superseded_by_id__lte"?: number;
+  "superseded_by_id__gt"?: number;
+  "superseded_by_id__lt"?: number;
+  "superseded_by_id__in"?: number[];
+  "superseded_by_id__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type TaskflowDecisionOrdering = "id" | "-id" | "project" | "-project" | "key" | "-key" | "question" | "-question" | "context_markdown" | "-context_markdown" | "status" | "-status" | "asked_by_user" | "-asked_by_user" | "asked_by_agent" | "-asked_by_agent" | "asked_by_label" | "-asked_by_label" | "ruler_user" | "-ruler_user" | "channel" | "-channel" | "ruled_option_id" | "-ruled_option_id" | "ruling_note" | "-ruling_note" | "ruled_by_user" | "-ruled_by_user" | "ruled_by_label" | "-ruled_by_label" | "ruled_at" | "-ruled_at" | "superseded_by_id" | "-superseded_by_id" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_decision`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowDecisionCreate {
+  project: number;
+  key: string;
+  question: string;
+  context_markdown?: string | null;
+  status?: TaskflowDecisionStatus;
+  asked_by_user?: number | null;
+  asked_by_agent?: number | null;
+  asked_by_label: string;
+  ruler_user?: number | null;
+  channel?: number | null;
+  ruled_option_id?: number | null;
+  ruling_note?: string | null;
+  ruled_by_user?: number | null;
+  ruled_by_label?: string | null;
+  ruled_at?: string | null;
+  superseded_by_id?: number | null;
+  updated_at?: string | null;
+}
+/** Body for updating a `taskflow_decision` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowDecisionUpdate {
+  project?: number;
+  key?: string;
+  question?: string;
+  context_markdown?: string | null;
+  status?: TaskflowDecisionStatus;
+  asked_by_user?: number | null;
+  asked_by_agent?: number | null;
+  asked_by_label?: string;
+  ruler_user?: number | null;
+  channel?: number | null;
+  ruled_option_id?: number | null;
+  ruling_note?: string | null;
+  ruled_by_user?: number | null;
+  ruled_by_label?: string | null;
+  ruled_at?: string | null;
+  superseded_by_id?: number | null;
+}
+
+/** Filterable query parameters for `taskflow_decision_comment`. Every key is optional and AND-combined server-side. */
+export interface TaskflowDecisionCommentFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "decision"?: number;
+  "decision__ne"?: number;
+  "decision__in"?: number[];
+  "author_user"?: number;
+  "author_user__ne"?: number;
+  "author_user__in"?: number[];
+  "author_user__isnull"?: boolean;
+  "author_agent"?: number;
+  "author_agent__ne"?: number;
+  "author_agent__in"?: number[];
+  "author_agent__isnull"?: boolean;
+  "author_label"?: string;
+  "author_label__ne"?: string;
+  "author_label__contains"?: string;
+  "author_label__icontains"?: string;
+  "author_label__startswith"?: string;
+  "author_label__in"?: string[];
+  "body_markdown"?: string;
+  "body_markdown__ne"?: string;
+  "body_markdown__contains"?: string;
+  "body_markdown__icontains"?: string;
+  "body_markdown__startswith"?: string;
+  "body_markdown__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowDecisionCommentOrdering = "id" | "-id" | "project" | "-project" | "decision" | "-decision" | "author_user" | "-author_user" | "author_agent" | "-author_agent" | "author_label" | "-author_label" | "body_markdown" | "-body_markdown" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_decision_comment`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowDecisionCommentCreate {
+  project: number;
+  decision: number;
+  author_user?: number | null;
+  author_agent?: number | null;
+  author_label: string;
+  body_markdown: string;
+}
+/** Body for updating a `taskflow_decision_comment` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowDecisionCommentUpdate {
+  project?: number;
+  decision?: number;
+  author_user?: number | null;
+  author_agent?: number | null;
+  author_label?: string;
+  body_markdown?: string;
+}
+
+/** Filterable query parameters for `taskflow_decision_option`. Every key is optional and AND-combined server-side. */
+export interface TaskflowDecisionOptionFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "decision"?: number;
+  "decision__ne"?: number;
+  "decision__in"?: number[];
+  "label"?: string;
+  "label__ne"?: string;
+  "label__contains"?: string;
+  "label__icontains"?: string;
+  "label__startswith"?: string;
+  "label__in"?: string[];
+  "detail"?: string;
+  "detail__ne"?: string;
+  "detail__contains"?: string;
+  "detail__icontains"?: string;
+  "detail__startswith"?: string;
+  "detail__in"?: string[];
+  "detail__isnull"?: boolean;
+  "sort_order"?: number;
+  "sort_order__ne"?: number;
+  "sort_order__gte"?: number;
+  "sort_order__lte"?: number;
+  "sort_order__gt"?: number;
+  "sort_order__lt"?: number;
+  "sort_order__in"?: number[];
+  "recommended_by_user"?: number;
+  "recommended_by_user__ne"?: number;
+  "recommended_by_user__in"?: number[];
+  "recommended_by_user__isnull"?: boolean;
+  "recommended_by_agent"?: number;
+  "recommended_by_agent__ne"?: number;
+  "recommended_by_agent__in"?: number[];
+  "recommended_by_agent__isnull"?: boolean;
+  "recommended_by_label"?: string;
+  "recommended_by_label__ne"?: string;
+  "recommended_by_label__contains"?: string;
+  "recommended_by_label__icontains"?: string;
+  "recommended_by_label__startswith"?: string;
+  "recommended_by_label__in"?: string[];
+  "recommended_by_label__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowDecisionOptionOrdering = "id" | "-id" | "project" | "-project" | "decision" | "-decision" | "label" | "-label" | "detail" | "-detail" | "sort_order" | "-sort_order" | "recommended_by_user" | "-recommended_by_user" | "recommended_by_agent" | "-recommended_by_agent" | "recommended_by_label" | "-recommended_by_label" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_decision_option`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowDecisionOptionCreate {
+  project: number;
+  decision: number;
+  label: string;
+  detail?: string | null;
+  sort_order?: number;
+  recommended_by_user?: number | null;
+  recommended_by_agent?: number | null;
+  recommended_by_label?: string | null;
+}
+/** Body for updating a `taskflow_decision_option` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowDecisionOptionUpdate {
+  project?: number;
+  decision?: number;
+  label?: string;
+  detail?: string | null;
+  sort_order?: number;
+  recommended_by_user?: number | null;
+  recommended_by_agent?: number | null;
+  recommended_by_label?: string | null;
+}
+
+/** Filterable query parameters for `taskflow_decision_task`. Every key is optional and AND-combined server-side. */
+export interface TaskflowDecisionTaskFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "decision"?: number;
+  "decision__ne"?: number;
+  "decision__in"?: number[];
+  "task"?: number;
+  "task__ne"?: number;
+  "task__in"?: number[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowDecisionTaskOrdering = "id" | "-id" | "project" | "-project" | "decision" | "-decision" | "task" | "-task" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_decision_task`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowDecisionTaskCreate {
+  project: number;
+  decision: number;
+  task: number;
+}
+/** Body for updating a `taskflow_decision_task` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowDecisionTaskUpdate {
+  project?: number;
+  decision?: number;
+  task?: number;
+}
+
+/** Filterable query parameters for `taskflow_message_answer`. Every key is optional and AND-combined server-side. */
+export interface TaskflowMessageAnswerFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "channel"?: number;
+  "channel__ne"?: number;
+  "channel__in"?: number[];
+  "message"?: number;
+  "message__ne"?: number;
+  "message__in"?: number[];
+  "key"?: string;
+  "key__ne"?: string;
+  "key__contains"?: string;
+  "key__icontains"?: string;
+  "key__startswith"?: string;
+  "key__in"?: string[];
+  "value_json"?: string;
+  "value_json__ne"?: string;
+  "value_json__contains"?: string;
+  "value_json__icontains"?: string;
+  "value_json__startswith"?: string;
+  "value_json__in"?: string[];
+  "answered_by_kind"?: TaskflowMessageAnswerAnsweredByKind;
+  "answered_by_kind__ne"?: TaskflowMessageAnswerAnsweredByKind;
+  "answered_by_kind__contains"?: string;
+  "answered_by_kind__icontains"?: string;
+  "answered_by_kind__startswith"?: string;
+  "answered_by_kind__in"?: TaskflowMessageAnswerAnsweredByKind[];
+  "answered_by_user"?: number;
+  "answered_by_user__ne"?: number;
+  "answered_by_user__in"?: number[];
+  "answered_by_user__isnull"?: boolean;
+  "answered_by_agent"?: number;
+  "answered_by_agent__ne"?: number;
+  "answered_by_agent__in"?: number[];
+  "answered_by_agent__isnull"?: boolean;
+  "answered_by_label"?: string;
+  "answered_by_label__ne"?: string;
+  "answered_by_label__contains"?: string;
+  "answered_by_label__icontains"?: string;
+  "answered_by_label__startswith"?: string;
+  "answered_by_label__in"?: string[];
+  "reply_message_id"?: number;
+  "reply_message_id__ne"?: number;
+  "reply_message_id__gte"?: number;
+  "reply_message_id__lte"?: number;
+  "reply_message_id__gt"?: number;
+  "reply_message_id__lt"?: number;
+  "reply_message_id__in"?: number[];
+  "reply_message_id__isnull"?: boolean;
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowMessageAnswerOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "message" | "-message" | "key" | "-key" | "value_json" | "-value_json" | "answered_by_kind" | "-answered_by_kind" | "answered_by_user" | "-answered_by_user" | "answered_by_agent" | "-answered_by_agent" | "answered_by_label" | "-answered_by_label" | "reply_message_id" | "-reply_message_id" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_message_answer`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowMessageAnswerCreate {
+  project: number;
+  channel: number;
+  message: number;
+  key: string;
+  value_json: string;
+  answered_by_kind?: TaskflowMessageAnswerAnsweredByKind;
+  answered_by_user?: number | null;
+  answered_by_agent?: number | null;
+  answered_by_label: string;
+  reply_message_id?: number | null;
+}
+/** Body for updating a `taskflow_message_answer` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowMessageAnswerUpdate {
+  project?: number;
+  channel?: number;
+  message?: number;
+  key?: string;
+  value_json?: string;
+  answered_by_kind?: TaskflowMessageAnswerAnsweredByKind;
+  answered_by_user?: number | null;
+  answered_by_agent?: number | null;
+  answered_by_label?: string;
+  reply_message_id?: number | null;
 }
 
 /** Filterable query parameters for `taskflow_message_attachment`. Every key is optional and AND-combined server-side. */
@@ -2490,6 +2575,88 @@ export interface TaskflowMessageAttachmentUpdate {
   name?: string;
   content_type?: string;
   size_bytes?: number;
+}
+
+/** Filterable query parameters for `taskflow_message_claim`. Every key is optional and AND-combined server-side. */
+export interface TaskflowMessageClaimFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "channel"?: number;
+  "channel__ne"?: number;
+  "channel__in"?: number[];
+  "message"?: number;
+  "message__ne"?: number;
+  "message__in"?: number[];
+  "claimer_kind"?: TaskflowMessageClaimClaimerKind;
+  "claimer_kind__ne"?: TaskflowMessageClaimClaimerKind;
+  "claimer_kind__contains"?: string;
+  "claimer_kind__icontains"?: string;
+  "claimer_kind__startswith"?: string;
+  "claimer_kind__in"?: TaskflowMessageClaimClaimerKind[];
+  "claimer_user"?: number;
+  "claimer_user__ne"?: number;
+  "claimer_user__in"?: number[];
+  "claimer_user__isnull"?: boolean;
+  "claimer_agent"?: number;
+  "claimer_agent__ne"?: number;
+  "claimer_agent__in"?: number[];
+  "claimer_agent__isnull"?: boolean;
+  "claimer_label"?: string;
+  "claimer_label__ne"?: string;
+  "claimer_label__contains"?: string;
+  "claimer_label__icontains"?: string;
+  "claimer_label__startswith"?: string;
+  "claimer_label__in"?: string[];
+  "claimed_at"?: string;
+  "claimed_at__ne"?: string;
+  "claimed_at__gte"?: string;
+  "claimed_at__lte"?: string;
+  "claimed_at__gt"?: string;
+  "claimed_at__lt"?: string;
+  "claimed_at__in"?: string[];
+  "expires_at"?: string;
+  "expires_at__ne"?: string;
+  "expires_at__gte"?: string;
+  "expires_at__lte"?: string;
+  "expires_at__gt"?: string;
+  "expires_at__lt"?: string;
+  "expires_at__in"?: string[];
+  "released_at"?: string;
+  "released_at__ne"?: string;
+  "released_at__gte"?: string;
+  "released_at__lte"?: string;
+  "released_at__gt"?: string;
+  "released_at__lt"?: string;
+  "released_at__in"?: string[];
+  "released_at__isnull"?: boolean;
+}
+export type TaskflowMessageClaimOrdering = "id" | "-id" | "project" | "-project" | "channel" | "-channel" | "message" | "-message" | "claimer_kind" | "-claimer_kind" | "claimer_user" | "-claimer_user" | "claimer_agent" | "-claimer_agent" | "claimer_label" | "-claimer_label" | "claimed_at" | "-claimed_at" | "expires_at" | "-expires_at" | "released_at" | "-released_at";
+/** Body for creating a `taskflow_message_claim`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowMessageClaimCreate {
+  project: number;
+  channel: number;
+  message: number;
+  claimer_kind?: TaskflowMessageClaimClaimerKind;
+  claimer_user?: number | null;
+  claimer_agent?: number | null;
+  claimer_label: string;
+  claimed_at: string;
+  expires_at: string;
+  released_at?: string | null;
+}
+/** Body for updating a `taskflow_message_claim` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowMessageClaimUpdate {
+  project?: number;
+  channel?: number;
+  message?: number;
+  claimer_kind?: TaskflowMessageClaimClaimerKind;
+  claimer_user?: number | null;
+  claimer_agent?: number | null;
+  claimer_label?: string;
+  claimed_at?: string;
+  expires_at?: string;
+  released_at?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_project`. Every key is optional and AND-combined server-side. */
@@ -2877,20 +3044,92 @@ export interface TaskflowProjectMemberUpdate {
   invited_by?: number | null;
 }
 
-/** Filterable query parameters for `taskflow_project_repo`. Every key is optional and AND-combined server-side. */
-export interface TaskflowProjectRepoFilters {
+/** Filterable query parameters for `taskflow_review_request`. Every key is optional and AND-combined server-side. */
+export interface TaskflowReviewRequestFilters {
   "project"?: number;
   "project__ne"?: number;
   "project__in"?: number[];
-  "repo"?: string;
-  "repo__ne"?: string;
-  "repo__contains"?: string;
-  "repo__icontains"?: string;
-  "repo__startswith"?: string;
-  "repo__in"?: string[];
-  "is_default"?: boolean;
-  "is_default__ne"?: boolean;
-  "is_default__in"?: boolean[];
+  "task"?: number;
+  "task__ne"?: number;
+  "task__in"?: number[];
+  "requester_kind"?: TaskflowReviewRequestRequesterKind;
+  "requester_kind__ne"?: TaskflowReviewRequestRequesterKind;
+  "requester_kind__contains"?: string;
+  "requester_kind__icontains"?: string;
+  "requester_kind__startswith"?: string;
+  "requester_kind__in"?: TaskflowReviewRequestRequesterKind[];
+  "requester_user"?: number;
+  "requester_user__ne"?: number;
+  "requester_user__in"?: number[];
+  "requester_user__isnull"?: boolean;
+  "requester_agent"?: number;
+  "requester_agent__ne"?: number;
+  "requester_agent__in"?: number[];
+  "requester_agent__isnull"?: boolean;
+  "requester_label"?: string;
+  "requester_label__ne"?: string;
+  "requester_label__contains"?: string;
+  "requester_label__icontains"?: string;
+  "requester_label__startswith"?: string;
+  "requester_label__in"?: string[];
+  "reviewer_kind"?: TaskflowReviewRequestReviewerKind;
+  "reviewer_kind__ne"?: TaskflowReviewRequestReviewerKind;
+  "reviewer_kind__contains"?: string;
+  "reviewer_kind__icontains"?: string;
+  "reviewer_kind__startswith"?: string;
+  "reviewer_kind__in"?: TaskflowReviewRequestReviewerKind[];
+  "reviewer_user"?: number;
+  "reviewer_user__ne"?: number;
+  "reviewer_user__in"?: number[];
+  "reviewer_user__isnull"?: boolean;
+  "reviewer_agent"?: number;
+  "reviewer_agent__ne"?: number;
+  "reviewer_agent__in"?: number[];
+  "reviewer_agent__isnull"?: boolean;
+  "reviewer_label"?: string;
+  "reviewer_label__ne"?: string;
+  "reviewer_label__contains"?: string;
+  "reviewer_label__icontains"?: string;
+  "reviewer_label__startswith"?: string;
+  "reviewer_label__in"?: string[];
+  "reviewer_key"?: string;
+  "reviewer_key__ne"?: string;
+  "reviewer_key__contains"?: string;
+  "reviewer_key__icontains"?: string;
+  "reviewer_key__startswith"?: string;
+  "reviewer_key__in"?: string[];
+  "link"?: string;
+  "link__ne"?: string;
+  "link__contains"?: string;
+  "link__icontains"?: string;
+  "link__startswith"?: string;
+  "link__in"?: string[];
+  "link__isnull"?: boolean;
+  "focus_markdown"?: string;
+  "focus_markdown__ne"?: string;
+  "focus_markdown__contains"?: string;
+  "focus_markdown__icontains"?: string;
+  "focus_markdown__startswith"?: string;
+  "focus_markdown__in"?: string[];
+  "focus_markdown__isnull"?: boolean;
+  "status"?: TaskflowReviewRequestStatus;
+  "status__ne"?: TaskflowReviewRequestStatus;
+  "status__contains"?: string;
+  "status__icontains"?: string;
+  "status__startswith"?: string;
+  "status__in"?: TaskflowReviewRequestStatus[];
+  "review"?: number;
+  "review__ne"?: number;
+  "review__in"?: number[];
+  "review__isnull"?: boolean;
+  "closed_at"?: string;
+  "closed_at__ne"?: string;
+  "closed_at__gte"?: string;
+  "closed_at__lte"?: string;
+  "closed_at__gt"?: string;
+  "closed_at__lt"?: string;
+  "closed_at__in"?: string[];
+  "closed_at__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -2900,69 +3139,44 @@ export interface TaskflowProjectRepoFilters {
   "created_at__in"?: string[];
   "created_at__isnull"?: boolean;
 }
-export type TaskflowProjectRepoOrdering = "id" | "-id" | "project" | "-project" | "repo" | "-repo" | "is_default" | "-is_default" | "created_at" | "-created_at";
-/** Body for creating a `taskflow_project_repo`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface TaskflowProjectRepoCreate {
+export type TaskflowReviewRequestOrdering = "id" | "-id" | "project" | "-project" | "task" | "-task" | "requester_kind" | "-requester_kind" | "requester_user" | "-requester_user" | "requester_agent" | "-requester_agent" | "requester_label" | "-requester_label" | "reviewer_kind" | "-reviewer_kind" | "reviewer_user" | "-reviewer_user" | "reviewer_agent" | "-reviewer_agent" | "reviewer_label" | "-reviewer_label" | "reviewer_key" | "-reviewer_key" | "link" | "-link" | "focus_markdown" | "-focus_markdown" | "status" | "-status" | "review" | "-review" | "closed_at" | "-closed_at" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_review_request`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowReviewRequestCreate {
   project: number;
-  repo: string;
-  is_default?: boolean;
+  task: number;
+  requester_kind?: TaskflowReviewRequestRequesterKind;
+  requester_user?: number | null;
+  requester_agent?: number | null;
+  requester_label: string;
+  reviewer_kind?: TaskflowReviewRequestReviewerKind;
+  reviewer_user?: number | null;
+  reviewer_agent?: number | null;
+  reviewer_label: string;
+  reviewer_key: string;
+  link?: string | null;
+  focus_markdown?: string | null;
+  status?: TaskflowReviewRequestStatus;
+  review?: number | null;
+  closed_at?: string | null;
 }
-/** Body for updating a `taskflow_project_repo` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface TaskflowProjectRepoUpdate {
+/** Body for updating a `taskflow_review_request` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowReviewRequestUpdate {
   project?: number;
-  repo?: string;
-  is_default?: boolean;
-}
-
-/** Filterable query parameters for `taskflow_realtime_ticket`. Every key is optional and AND-combined server-side. */
-export interface TaskflowRealtimeTicketFilters {
-  "user"?: number;
-  "user__ne"?: number;
-  "user__in"?: number[];
-  "token_hash"?: string;
-  "token_hash__ne"?: string;
-  "token_hash__contains"?: string;
-  "token_hash__icontains"?: string;
-  "token_hash__startswith"?: string;
-  "token_hash__in"?: string[];
-  "expires_at"?: string;
-  "expires_at__ne"?: string;
-  "expires_at__gte"?: string;
-  "expires_at__lte"?: string;
-  "expires_at__gt"?: string;
-  "expires_at__lt"?: string;
-  "expires_at__in"?: string[];
-  "used_at"?: string;
-  "used_at__ne"?: string;
-  "used_at__gte"?: string;
-  "used_at__lte"?: string;
-  "used_at__gt"?: string;
-  "used_at__lt"?: string;
-  "used_at__in"?: string[];
-  "used_at__isnull"?: boolean;
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "created_at__isnull"?: boolean;
-}
-export type TaskflowRealtimeTicketOrdering = "id" | "-id" | "user" | "-user" | "token_hash" | "-token_hash" | "expires_at" | "-expires_at" | "used_at" | "-used_at" | "created_at" | "-created_at";
-/** Body for creating a `taskflow_realtime_ticket`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface TaskflowRealtimeTicketCreate {
-  user: number;
-  token_hash: string;
-  expires_at: string;
-  used_at?: string | null;
-}
-/** Body for updating a `taskflow_realtime_ticket` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface TaskflowRealtimeTicketUpdate {
-  user?: number;
-  token_hash?: string;
-  expires_at?: string;
-  used_at?: string | null;
+  task?: number;
+  requester_kind?: TaskflowReviewRequestRequesterKind;
+  requester_user?: number | null;
+  requester_agent?: number | null;
+  requester_label?: string;
+  reviewer_kind?: TaskflowReviewRequestReviewerKind;
+  reviewer_user?: number | null;
+  reviewer_agent?: number | null;
+  reviewer_label?: string;
+  reviewer_key?: string;
+  link?: string | null;
+  focus_markdown?: string | null;
+  status?: TaskflowReviewRequestStatus;
+  review?: number | null;
+  closed_at?: string | null;
 }
 
 /** Filterable query parameters for `taskflow_task`. Every key is optional and AND-combined server-side. */
@@ -2982,6 +3196,7 @@ export interface TaskflowTaskFilters {
   "description_markdown__icontains"?: string;
   "description_markdown__startswith"?: string;
   "description_markdown__in"?: string[];
+  "description_markdown__isnull"?: boolean;
   "notes_markdown"?: string;
   "notes_markdown__ne"?: string;
   "notes_markdown__contains"?: string;
@@ -3126,7 +3341,7 @@ export type TaskflowTaskOrdering = "id" | "-id" | "project" | "-project" | "titl
 export interface TaskflowTaskCreate {
   project: number;
   title: string;
-  description_markdown: string;
+  description_markdown?: string | null;
   notes_markdown?: string | null;
   status?: TaskflowTaskStatus;
   priority?: TaskflowTaskPriority;
@@ -3151,7 +3366,7 @@ export interface TaskflowTaskCreate {
 export interface TaskflowTaskUpdate {
   project?: number;
   title?: string;
-  description_markdown?: string;
+  description_markdown?: string | null;
   notes_markdown?: string | null;
   status?: TaskflowTaskStatus;
   priority?: TaskflowTaskPriority;
@@ -3320,6 +3535,160 @@ export interface TaskflowTaskAttachmentUpdate {
   name?: string;
   content_type?: string;
   size_bytes?: number;
+}
+
+/** Filterable query parameters for `taskflow_task_evidence`. Every key is optional and AND-combined server-side. */
+export interface TaskflowTaskEvidenceFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "task"?: number;
+  "task__ne"?: number;
+  "task__in"?: number[];
+  "kind"?: TaskflowTaskEvidenceKind;
+  "kind__ne"?: TaskflowTaskEvidenceKind;
+  "kind__contains"?: string;
+  "kind__icontains"?: string;
+  "kind__startswith"?: string;
+  "kind__in"?: TaskflowTaskEvidenceKind[];
+  "label"?: string;
+  "label__ne"?: string;
+  "label__contains"?: string;
+  "label__icontains"?: string;
+  "label__startswith"?: string;
+  "label__in"?: string[];
+  "url"?: string;
+  "url__ne"?: string;
+  "url__contains"?: string;
+  "url__icontains"?: string;
+  "url__startswith"?: string;
+  "url__in"?: string[];
+  "url__isnull"?: boolean;
+  "passed"?: boolean;
+  "passed__ne"?: boolean;
+  "passed__in"?: boolean[];
+  "passed__isnull"?: boolean;
+  "tests_passed"?: number;
+  "tests_passed__ne"?: number;
+  "tests_passed__gte"?: number;
+  "tests_passed__lte"?: number;
+  "tests_passed__gt"?: number;
+  "tests_passed__lt"?: number;
+  "tests_passed__in"?: number[];
+  "tests_passed__isnull"?: boolean;
+  "tests_failed"?: number;
+  "tests_failed__ne"?: number;
+  "tests_failed__gte"?: number;
+  "tests_failed__lte"?: number;
+  "tests_failed__gt"?: number;
+  "tests_failed__lt"?: number;
+  "tests_failed__in"?: number[];
+  "tests_failed__isnull"?: boolean;
+  "duration_ms"?: number;
+  "duration_ms__ne"?: number;
+  "duration_ms__gte"?: number;
+  "duration_ms__lte"?: number;
+  "duration_ms__gt"?: number;
+  "duration_ms__lt"?: number;
+  "duration_ms__in"?: number[];
+  "duration_ms__isnull"?: boolean;
+  "files_changed"?: number;
+  "files_changed__ne"?: number;
+  "files_changed__gte"?: number;
+  "files_changed__lte"?: number;
+  "files_changed__gt"?: number;
+  "files_changed__lt"?: number;
+  "files_changed__in"?: number[];
+  "files_changed__isnull"?: boolean;
+  "additions"?: number;
+  "additions__ne"?: number;
+  "additions__gte"?: number;
+  "additions__lte"?: number;
+  "additions__gt"?: number;
+  "additions__lt"?: number;
+  "additions__in"?: number[];
+  "additions__isnull"?: boolean;
+  "deletions"?: number;
+  "deletions__ne"?: number;
+  "deletions__gte"?: number;
+  "deletions__lte"?: number;
+  "deletions__gt"?: number;
+  "deletions__lt"?: number;
+  "deletions__in"?: number[];
+  "deletions__isnull"?: boolean;
+  "attachment"?: number;
+  "attachment__ne"?: number;
+  "attachment__in"?: number[];
+  "attachment__isnull"?: boolean;
+  "author_kind"?: TaskflowTaskEvidenceAuthorKind;
+  "author_kind__ne"?: TaskflowTaskEvidenceAuthorKind;
+  "author_kind__contains"?: string;
+  "author_kind__icontains"?: string;
+  "author_kind__startswith"?: string;
+  "author_kind__in"?: TaskflowTaskEvidenceAuthorKind[];
+  "author_user"?: number;
+  "author_user__ne"?: number;
+  "author_user__in"?: number[];
+  "author_user__isnull"?: boolean;
+  "author_agent"?: number;
+  "author_agent__ne"?: number;
+  "author_agent__in"?: number[];
+  "author_agent__isnull"?: boolean;
+  "author_label"?: string;
+  "author_label__ne"?: string;
+  "author_label__contains"?: string;
+  "author_label__icontains"?: string;
+  "author_label__startswith"?: string;
+  "author_label__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowTaskEvidenceOrdering = "id" | "-id" | "project" | "-project" | "task" | "-task" | "kind" | "-kind" | "label" | "-label" | "url" | "-url" | "passed" | "-passed" | "tests_passed" | "-tests_passed" | "tests_failed" | "-tests_failed" | "duration_ms" | "-duration_ms" | "files_changed" | "-files_changed" | "additions" | "-additions" | "deletions" | "-deletions" | "attachment" | "-attachment" | "author_kind" | "-author_kind" | "author_user" | "-author_user" | "author_agent" | "-author_agent" | "author_label" | "-author_label" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_task_evidence`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowTaskEvidenceCreate {
+  project: number;
+  task: number;
+  kind?: TaskflowTaskEvidenceKind;
+  label: string;
+  url?: string | null;
+  passed?: boolean | null;
+  tests_passed?: number | null;
+  tests_failed?: number | null;
+  duration_ms?: number | null;
+  files_changed?: number | null;
+  additions?: number | null;
+  deletions?: number | null;
+  attachment?: number | null;
+  author_kind?: TaskflowTaskEvidenceAuthorKind;
+  author_user?: number | null;
+  author_agent?: number | null;
+  author_label: string;
+}
+/** Body for updating a `taskflow_task_evidence` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowTaskEvidenceUpdate {
+  project?: number;
+  task?: number;
+  kind?: TaskflowTaskEvidenceKind;
+  label?: string;
+  url?: string | null;
+  passed?: boolean | null;
+  tests_passed?: number | null;
+  tests_failed?: number | null;
+  duration_ms?: number | null;
+  files_changed?: number | null;
+  additions?: number | null;
+  deletions?: number | null;
+  attachment?: number | null;
+  author_kind?: TaskflowTaskEvidenceAuthorKind;
+  author_user?: number | null;
+  author_agent?: number | null;
+  author_label?: string;
 }
 
 /** Filterable query parameters for `taskflow_task_relation`. Every key is optional and AND-combined server-side. */
@@ -3600,6 +3969,241 @@ export interface TaskflowTerminalInputUpdate {
   text?: string | null;
 }
 
+/** Filterable query parameters for `taskflow_usage_alert`. Every key is optional and AND-combined server-side. */
+export interface TaskflowUsageAlertFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "kind"?: string;
+  "kind__ne"?: string;
+  "kind__contains"?: string;
+  "kind__icontains"?: string;
+  "kind__startswith"?: string;
+  "kind__in"?: string[];
+  "subject"?: string;
+  "subject__ne"?: string;
+  "subject__contains"?: string;
+  "subject__icontains"?: string;
+  "subject__startswith"?: string;
+  "subject__in"?: string[];
+  "created_at"?: string;
+  "created_at__ne"?: string;
+  "created_at__gte"?: string;
+  "created_at__lte"?: string;
+  "created_at__gt"?: string;
+  "created_at__lt"?: string;
+  "created_at__in"?: string[];
+  "created_at__isnull"?: boolean;
+}
+export type TaskflowUsageAlertOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "subject" | "-subject" | "created_at" | "-created_at";
+/** Body for creating a `taskflow_usage_alert`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowUsageAlertCreate {
+  project: number;
+  kind: string;
+  subject: string;
+}
+/** Body for updating a `taskflow_usage_alert` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowUsageAlertUpdate {
+  project?: number;
+  kind?: string;
+  subject?: string;
+}
+
+/** Filterable query parameters for `taskflow_usage_report`. Every key is optional and AND-combined server-side. */
+export interface TaskflowUsageReportFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "agent"?: number;
+  "agent__ne"?: number;
+  "agent__in"?: number[];
+  "task"?: number;
+  "task__ne"?: number;
+  "task__gte"?: number;
+  "task__lte"?: number;
+  "task__gt"?: number;
+  "task__lt"?: number;
+  "task__in"?: number[];
+  "task__isnull"?: boolean;
+  "model"?: string;
+  "model__ne"?: string;
+  "model__contains"?: string;
+  "model__icontains"?: string;
+  "model__startswith"?: string;
+  "model__in"?: string[];
+  "turn_id"?: string;
+  "turn_id__ne"?: string;
+  "turn_id__contains"?: string;
+  "turn_id__icontains"?: string;
+  "turn_id__startswith"?: string;
+  "turn_id__in"?: string[];
+  "input_tokens"?: number;
+  "input_tokens__ne"?: number;
+  "input_tokens__gte"?: number;
+  "input_tokens__lte"?: number;
+  "input_tokens__gt"?: number;
+  "input_tokens__lt"?: number;
+  "input_tokens__in"?: number[];
+  "output_tokens"?: number;
+  "output_tokens__ne"?: number;
+  "output_tokens__gte"?: number;
+  "output_tokens__lte"?: number;
+  "output_tokens__gt"?: number;
+  "output_tokens__lt"?: number;
+  "output_tokens__in"?: number[];
+  "cache_read_tokens"?: number;
+  "cache_read_tokens__ne"?: number;
+  "cache_read_tokens__gte"?: number;
+  "cache_read_tokens__lte"?: number;
+  "cache_read_tokens__gt"?: number;
+  "cache_read_tokens__lt"?: number;
+  "cache_read_tokens__in"?: number[];
+  "cache_write_tokens"?: number;
+  "cache_write_tokens__ne"?: number;
+  "cache_write_tokens__gte"?: number;
+  "cache_write_tokens__lte"?: number;
+  "cache_write_tokens__gt"?: number;
+  "cache_write_tokens__lt"?: number;
+  "cache_write_tokens__in"?: number[];
+  "cost_micros"?: number;
+  "cost_micros__ne"?: number;
+  "cost_micros__gte"?: number;
+  "cost_micros__lte"?: number;
+  "cost_micros__gt"?: number;
+  "cost_micros__lt"?: number;
+  "cost_micros__in"?: number[];
+  "cost_micros__isnull"?: boolean;
+  "price_id"?: number;
+  "price_id__ne"?: number;
+  "price_id__gte"?: number;
+  "price_id__lte"?: number;
+  "price_id__gt"?: number;
+  "price_id__lt"?: number;
+  "price_id__in"?: number[];
+  "price_id__isnull"?: boolean;
+  "reported_at"?: string;
+  "reported_at__ne"?: string;
+  "reported_at__gte"?: string;
+  "reported_at__lte"?: string;
+  "reported_at__gt"?: string;
+  "reported_at__lt"?: string;
+  "reported_at__in"?: string[];
+}
+export type TaskflowUsageReportOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "task" | "-task" | "model" | "-model" | "turn_id" | "-turn_id" | "input_tokens" | "-input_tokens" | "output_tokens" | "-output_tokens" | "cache_read_tokens" | "-cache_read_tokens" | "cache_write_tokens" | "-cache_write_tokens" | "cost_micros" | "-cost_micros" | "price_id" | "-price_id" | "reported_at" | "-reported_at";
+/** Body for creating a `taskflow_usage_report`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowUsageReportCreate {
+  project: number;
+  agent: number;
+  task?: number | null;
+  model: string;
+  turn_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_micros?: number | null;
+  price_id?: number | null;
+  reported_at: string;
+}
+/** Body for updating a `taskflow_usage_report` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowUsageReportUpdate {
+  project?: number;
+  agent?: number;
+  task?: number | null;
+  model?: string;
+  turn_id?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  cost_micros?: number | null;
+  price_id?: number | null;
+  reported_at?: string;
+}
+
+/** Filterable query parameters for `taskflow_usage_settings`. Every key is optional and AND-combined server-side. */
+export interface TaskflowUsageSettingsFilters {
+  "project"?: number;
+  "project__ne"?: number;
+  "project__in"?: number[];
+  "budget_micros"?: number;
+  "budget_micros__ne"?: number;
+  "budget_micros__gte"?: number;
+  "budget_micros__lte"?: number;
+  "budget_micros__gt"?: number;
+  "budget_micros__lt"?: number;
+  "budget_micros__in"?: number[];
+  "budget_micros__isnull"?: boolean;
+  "alert_percent"?: number;
+  "alert_percent__ne"?: number;
+  "alert_percent__gte"?: number;
+  "alert_percent__lte"?: number;
+  "alert_percent__gt"?: number;
+  "alert_percent__lt"?: number;
+  "alert_percent__in"?: number[];
+  "alert_percent__isnull"?: boolean;
+  "alert_channel"?: number;
+  "alert_channel__ne"?: number;
+  "alert_channel__in"?: number[];
+  "alert_channel__isnull"?: boolean;
+  "task_cap_micros"?: number;
+  "task_cap_micros__ne"?: number;
+  "task_cap_micros__gte"?: number;
+  "task_cap_micros__lte"?: number;
+  "task_cap_micros__gt"?: number;
+  "task_cap_micros__lt"?: number;
+  "task_cap_micros__in"?: number[];
+  "task_cap_micros__isnull"?: boolean;
+  "idle_alert"?: boolean;
+  "idle_alert__ne"?: boolean;
+  "idle_alert__in"?: boolean[];
+  "budget_alerted_month"?: string;
+  "budget_alerted_month__ne"?: string;
+  "budget_alerted_month__contains"?: string;
+  "budget_alerted_month__icontains"?: string;
+  "budget_alerted_month__startswith"?: string;
+  "budget_alerted_month__in"?: string[];
+  "budget_alerted_month__isnull"?: boolean;
+  "updated_by_label"?: string;
+  "updated_by_label__ne"?: string;
+  "updated_by_label__contains"?: string;
+  "updated_by_label__icontains"?: string;
+  "updated_by_label__startswith"?: string;
+  "updated_by_label__in"?: string[];
+  "updated_at"?: string;
+  "updated_at__ne"?: string;
+  "updated_at__gte"?: string;
+  "updated_at__lte"?: string;
+  "updated_at__gt"?: string;
+  "updated_at__lt"?: string;
+  "updated_at__in"?: string[];
+  "updated_at__isnull"?: boolean;
+}
+export type TaskflowUsageSettingsOrdering = "id" | "-id" | "project" | "-project" | "budget_micros" | "-budget_micros" | "alert_percent" | "-alert_percent" | "alert_channel" | "-alert_channel" | "task_cap_micros" | "-task_cap_micros" | "idle_alert" | "-idle_alert" | "budget_alerted_month" | "-budget_alerted_month" | "updated_by_label" | "-updated_by_label" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_usage_settings`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowUsageSettingsCreate {
+  project: number;
+  budget_micros?: number | null;
+  alert_percent?: number | null;
+  alert_channel?: number | null;
+  task_cap_micros?: number | null;
+  idle_alert?: boolean;
+  budget_alerted_month?: string | null;
+  updated_by_label: string;
+  updated_at?: string | null;
+}
+/** Body for updating a `taskflow_usage_settings` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowUsageSettingsUpdate {
+  project?: number;
+  budget_micros?: number | null;
+  alert_percent?: number | null;
+  alert_channel?: number | null;
+  task_cap_micros?: number | null;
+  idle_alert?: boolean;
+  budget_alerted_month?: string | null;
+  updated_by_label?: string;
+}
+
 /** Filterable query parameters for `taskflow_user_settings`. Every key is optional and AND-combined server-side. */
 export interface TaskflowUserSettingsFilters {
   "user"?: number;
@@ -3652,146 +4256,114 @@ export interface TaskflowUserSettingsUpdate {
   default_project?: number | null;
 }
 
-/** Filterable query parameters for `toolbox_entry`. Every key is optional and AND-combined server-side. */
-export interface ToolboxEntryFilters {
+/** Filterable query parameters for `taskflow_wake_rule`. Every key is optional and AND-combined server-side. */
+export interface TaskflowWakeRuleFilters {
   "project"?: number;
   "project__ne"?: number;
   "project__in"?: number[];
-  "kind"?: ToolboxEntryKind;
-  "kind__ne"?: ToolboxEntryKind;
-  "kind__contains"?: string;
-  "kind__icontains"?: string;
-  "kind__startswith"?: string;
-  "kind__in"?: ToolboxEntryKind[];
-  "name"?: string;
-  "name__ne"?: string;
-  "name__contains"?: string;
-  "name__icontains"?: string;
-  "name__startswith"?: string;
-  "name__in"?: string[];
-  "title"?: string;
-  "title__ne"?: string;
-  "title__contains"?: string;
-  "title__icontains"?: string;
-  "title__startswith"?: string;
-  "title__in"?: string[];
-  "description"?: string;
-  "description__ne"?: string;
-  "description__contains"?: string;
-  "description__icontains"?: string;
-  "description__startswith"?: string;
-  "description__in"?: string[];
-  "body_markdown"?: string;
-  "body_markdown__ne"?: string;
-  "body_markdown__contains"?: string;
-  "body_markdown__icontains"?: string;
-  "body_markdown__startswith"?: string;
-  "body_markdown__in"?: string[];
-  "code"?: string;
-  "code__ne"?: string;
-  "code__contains"?: string;
-  "code__icontains"?: string;
-  "code__startswith"?: string;
-  "code__in"?: string[];
-  "code__isnull"?: boolean;
-  "language"?: string;
-  "language__ne"?: string;
-  "language__contains"?: string;
-  "language__icontains"?: string;
-  "language__startswith"?: string;
-  "language__in"?: string[];
-  "language__isnull"?: boolean;
-  "entrypoint"?: string;
-  "entrypoint__ne"?: string;
-  "entrypoint__contains"?: string;
-  "entrypoint__icontains"?: string;
-  "entrypoint__startswith"?: string;
-  "entrypoint__in"?: string[];
-  "entrypoint__isnull"?: boolean;
-  "params_json"?: string;
-  "params_json__ne"?: string;
-  "params_json__contains"?: string;
-  "params_json__icontains"?: string;
-  "params_json__startswith"?: string;
-  "params_json__in"?: string[];
-  "params_json__isnull"?: boolean;
-  "requires_env_json"?: string;
-  "requires_env_json__ne"?: string;
-  "requires_env_json__contains"?: string;
-  "requires_env_json__icontains"?: string;
-  "requires_env_json__startswith"?: string;
-  "requires_env_json__in"?: string[];
-  "requires_env_json__isnull"?: boolean;
-  "tags_json"?: string;
-  "tags_json__ne"?: string;
-  "tags_json__contains"?: string;
-  "tags_json__icontains"?: string;
-  "tags_json__startswith"?: string;
-  "tags_json__in"?: string[];
-  "tags_json__isnull"?: boolean;
-  "author_agent_id"?: number;
-  "author_agent_id__ne"?: number;
-  "author_agent_id__gte"?: number;
-  "author_agent_id__lte"?: number;
-  "author_agent_id__gt"?: number;
-  "author_agent_id__lt"?: number;
-  "author_agent_id__in"?: number[];
-  "author_agent_id__isnull"?: boolean;
-  "author_user"?: number;
-  "author_user__ne"?: number;
-  "author_user__in"?: number[];
-  "author_user__isnull"?: boolean;
-  "author_label"?: string;
-  "author_label__ne"?: string;
-  "author_label__contains"?: string;
-  "author_label__icontains"?: string;
-  "author_label__startswith"?: string;
-  "author_label__in"?: string[];
-  "version"?: number;
-  "version__ne"?: number;
-  "version__gte"?: number;
-  "version__lte"?: number;
-  "version__gt"?: number;
-  "version__lt"?: number;
-  "version__in"?: number[];
-  "status"?: ToolboxEntryStatus;
-  "status__ne"?: ToolboxEntryStatus;
+  "agent"?: number;
+  "agent__ne"?: number;
+  "agent__in"?: number[];
+  "created_by_user"?: number;
+  "created_by_user__ne"?: number;
+  "created_by_user__in"?: number[];
+  "created_by_user__isnull"?: boolean;
+  "created_by_agent"?: number;
+  "created_by_agent__ne"?: number;
+  "created_by_agent__in"?: number[];
+  "created_by_agent__isnull"?: boolean;
+  "created_by_label"?: string;
+  "created_by_label__ne"?: string;
+  "created_by_label__contains"?: string;
+  "created_by_label__icontains"?: string;
+  "created_by_label__startswith"?: string;
+  "created_by_label__in"?: string[];
+  "trigger_kind"?: TaskflowWakeRuleTriggerKind;
+  "trigger_kind__ne"?: TaskflowWakeRuleTriggerKind;
+  "trigger_kind__contains"?: string;
+  "trigger_kind__icontains"?: string;
+  "trigger_kind__startswith"?: string;
+  "trigger_kind__in"?: TaskflowWakeRuleTriggerKind[];
+  "target_task"?: number;
+  "target_task__ne"?: number;
+  "target_task__gte"?: number;
+  "target_task__lte"?: number;
+  "target_task__gt"?: number;
+  "target_task__lt"?: number;
+  "target_task__in"?: number[];
+  "target_task__isnull"?: boolean;
+  "target_message"?: number;
+  "target_message__ne"?: number;
+  "target_message__gte"?: number;
+  "target_message__lte"?: number;
+  "target_message__gt"?: number;
+  "target_message__lt"?: number;
+  "target_message__in"?: number[];
+  "target_message__isnull"?: boolean;
+  "watch_channel"?: number;
+  "watch_channel__ne"?: number;
+  "watch_channel__in"?: number[];
+  "watch_channel__isnull"?: boolean;
+  "mentions_only"?: boolean;
+  "mentions_only__ne"?: boolean;
+  "mentions_only__in"?: boolean[];
+  "fire_at"?: string;
+  "fire_at__ne"?: string;
+  "fire_at__gte"?: string;
+  "fire_at__lte"?: string;
+  "fire_at__gt"?: string;
+  "fire_at__lt"?: string;
+  "fire_at__in"?: string[];
+  "fire_at__isnull"?: boolean;
+  "note"?: string;
+  "note__ne"?: string;
+  "note__contains"?: string;
+  "note__icontains"?: string;
+  "note__startswith"?: string;
+  "note__in"?: string[];
+  "deliver"?: TaskflowWakeRuleDeliver;
+  "deliver__ne"?: TaskflowWakeRuleDeliver;
+  "deliver__contains"?: string;
+  "deliver__icontains"?: string;
+  "deliver__startswith"?: string;
+  "deliver__in"?: TaskflowWakeRuleDeliver[];
+  "deliver_channel"?: number;
+  "deliver_channel__ne"?: number;
+  "deliver_channel__in"?: number[];
+  "deliver_channel__isnull"?: boolean;
+  "pane_channel"?: number;
+  "pane_channel__ne"?: number;
+  "pane_channel__in"?: number[];
+  "pane_channel__isnull"?: boolean;
+  "status"?: TaskflowWakeRuleStatus;
+  "status__ne"?: TaskflowWakeRuleStatus;
   "status__contains"?: string;
   "status__icontains"?: string;
   "status__startswith"?: string;
-  "status__in"?: ToolboxEntryStatus[];
-  "deprecated_reason"?: string;
-  "deprecated_reason__ne"?: string;
-  "deprecated_reason__contains"?: string;
-  "deprecated_reason__icontains"?: string;
-  "deprecated_reason__startswith"?: string;
-  "deprecated_reason__in"?: string[];
-  "deprecated_reason__isnull"?: boolean;
-  "last_run_at"?: string;
-  "last_run_at__ne"?: string;
-  "last_run_at__gte"?: string;
-  "last_run_at__lte"?: string;
-  "last_run_at__gt"?: string;
-  "last_run_at__lt"?: string;
-  "last_run_at__in"?: string[];
-  "last_run_at__isnull"?: boolean;
-  "last_run_ok"?: boolean;
-  "last_run_ok__ne"?: boolean;
-  "last_run_ok__in"?: boolean[];
-  "run_ok_count"?: number;
-  "run_ok_count__ne"?: number;
-  "run_ok_count__gte"?: number;
-  "run_ok_count__lte"?: number;
-  "run_ok_count__gt"?: number;
-  "run_ok_count__lt"?: number;
-  "run_ok_count__in"?: number[];
-  "run_fail_count"?: number;
-  "run_fail_count__ne"?: number;
-  "run_fail_count__gte"?: number;
-  "run_fail_count__lte"?: number;
-  "run_fail_count__gt"?: number;
-  "run_fail_count__lt"?: number;
-  "run_fail_count__in"?: number[];
+  "status__in"?: TaskflowWakeRuleStatus[];
+  "fired_at"?: string;
+  "fired_at__ne"?: string;
+  "fired_at__gte"?: string;
+  "fired_at__lte"?: string;
+  "fired_at__gt"?: string;
+  "fired_at__lt"?: string;
+  "fired_at__in"?: string[];
+  "fired_at__isnull"?: boolean;
+  "delivered_at"?: string;
+  "delivered_at__ne"?: string;
+  "delivered_at__gte"?: string;
+  "delivered_at__lte"?: string;
+  "delivered_at__gt"?: string;
+  "delivered_at__lt"?: string;
+  "delivered_at__in"?: string[];
+  "delivered_at__isnull"?: boolean;
+  "source_ref"?: string;
+  "source_ref__ne"?: string;
+  "source_ref__contains"?: string;
+  "source_ref__icontains"?: string;
+  "source_ref__startswith"?: string;
+  "source_ref__in"?: string[];
+  "source_ref__isnull"?: boolean;
   "created_at"?: string;
   "created_at__ne"?: string;
   "created_at__gte"?: string;
@@ -3809,164 +4381,51 @@ export interface ToolboxEntryFilters {
   "updated_at__in"?: string[];
   "updated_at__isnull"?: boolean;
 }
-export type ToolboxEntryOrdering = "id" | "-id" | "project" | "-project" | "kind" | "-kind" | "name" | "-name" | "title" | "-title" | "description" | "-description" | "body_markdown" | "-body_markdown" | "code" | "-code" | "language" | "-language" | "entrypoint" | "-entrypoint" | "params_json" | "-params_json" | "requires_env_json" | "-requires_env_json" | "tags_json" | "-tags_json" | "author_agent_id" | "-author_agent_id" | "author_user" | "-author_user" | "author_label" | "-author_label" | "version" | "-version" | "status" | "-status" | "deprecated_reason" | "-deprecated_reason" | "last_run_at" | "-last_run_at" | "last_run_ok" | "-last_run_ok" | "run_ok_count" | "-run_ok_count" | "run_fail_count" | "-run_fail_count" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
-/** Body for creating a `toolbox_entry`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface ToolboxEntryCreate {
+export type TaskflowWakeRuleOrdering = "id" | "-id" | "project" | "-project" | "agent" | "-agent" | "created_by_user" | "-created_by_user" | "created_by_agent" | "-created_by_agent" | "created_by_label" | "-created_by_label" | "trigger_kind" | "-trigger_kind" | "target_task" | "-target_task" | "target_message" | "-target_message" | "watch_channel" | "-watch_channel" | "mentions_only" | "-mentions_only" | "fire_at" | "-fire_at" | "note" | "-note" | "deliver" | "-deliver" | "deliver_channel" | "-deliver_channel" | "pane_channel" | "-pane_channel" | "status" | "-status" | "fired_at" | "-fired_at" | "delivered_at" | "-delivered_at" | "source_ref" | "-source_ref" | "created_at" | "-created_at" | "updated_at" | "-updated_at";
+/** Body for creating a `taskflow_wake_rule`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
+export interface TaskflowWakeRuleCreate {
   project: number;
-  kind?: ToolboxEntryKind;
-  name: string;
-  title: string;
-  description: string;
-  body_markdown: string;
-  code?: string | null;
-  language?: string | null;
-  entrypoint?: string | null;
-  params_json?: string | null;
-  requires_env_json?: string | null;
-  tags_json?: string | null;
-  author_agent_id?: number | null;
-  author_user?: number | null;
-  author_label: string;
-  version: number;
-  status?: ToolboxEntryStatus;
-  deprecated_reason?: string | null;
-  last_run_at?: string | null;
-  last_run_ok?: boolean;
-  run_ok_count?: number;
-  run_fail_count?: number;
+  agent: number;
+  created_by_user?: number | null;
+  created_by_agent?: number | null;
+  created_by_label: string;
+  trigger_kind?: TaskflowWakeRuleTriggerKind;
+  target_task?: number | null;
+  target_message?: number | null;
+  watch_channel?: number | null;
+  mentions_only?: boolean;
+  fire_at?: string | null;
+  note: string;
+  deliver?: TaskflowWakeRuleDeliver;
+  deliver_channel?: number | null;
+  pane_channel?: number | null;
+  status?: TaskflowWakeRuleStatus;
+  fired_at?: string | null;
+  delivered_at?: string | null;
+  source_ref?: string | null;
   updated_at?: string | null;
 }
-/** Body for updating a `toolbox_entry` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface ToolboxEntryUpdate {
+/** Body for updating a `taskflow_wake_rule` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
+export interface TaskflowWakeRuleUpdate {
   project?: number;
-  kind?: ToolboxEntryKind;
-  name?: string;
-  title?: string;
-  description?: string;
-  body_markdown?: string;
-  code?: string | null;
-  language?: string | null;
-  entrypoint?: string | null;
-  params_json?: string | null;
-  requires_env_json?: string | null;
-  tags_json?: string | null;
-  author_agent_id?: number | null;
-  author_user?: number | null;
-  author_label?: string;
-  version?: number;
-  status?: ToolboxEntryStatus;
-  deprecated_reason?: string | null;
-}
-
-/** Filterable query parameters for `toolbox_entry_version`. Every key is optional and AND-combined server-side. */
-export interface ToolboxEntryVersionFilters {
-  "entry"?: number;
-  "entry__ne"?: number;
-  "entry__in"?: number[];
-  "version"?: number;
-  "version__ne"?: number;
-  "version__gte"?: number;
-  "version__lte"?: number;
-  "version__gt"?: number;
-  "version__lt"?: number;
-  "version__in"?: number[];
-  "body_markdown"?: string;
-  "body_markdown__ne"?: string;
-  "body_markdown__contains"?: string;
-  "body_markdown__icontains"?: string;
-  "body_markdown__startswith"?: string;
-  "body_markdown__in"?: string[];
-  "code"?: string;
-  "code__ne"?: string;
-  "code__contains"?: string;
-  "code__icontains"?: string;
-  "code__startswith"?: string;
-  "code__in"?: string[];
-  "code__isnull"?: boolean;
-  "params_json"?: string;
-  "params_json__ne"?: string;
-  "params_json__contains"?: string;
-  "params_json__icontains"?: string;
-  "params_json__startswith"?: string;
-  "params_json__in"?: string[];
-  "params_json__isnull"?: boolean;
-  "requires_env_json"?: string;
-  "requires_env_json__ne"?: string;
-  "requires_env_json__contains"?: string;
-  "requires_env_json__icontains"?: string;
-  "requires_env_json__startswith"?: string;
-  "requires_env_json__in"?: string[];
-  "requires_env_json__isnull"?: boolean;
-  "description"?: string;
-  "description__ne"?: string;
-  "description__contains"?: string;
-  "description__icontains"?: string;
-  "description__startswith"?: string;
-  "description__in"?: string[];
-  "author_label"?: string;
-  "author_label__ne"?: string;
-  "author_label__contains"?: string;
-  "author_label__icontains"?: string;
-  "author_label__startswith"?: string;
-  "author_label__in"?: string[];
-  "note"?: string;
-  "note__ne"?: string;
-  "note__contains"?: string;
-  "note__icontains"?: string;
-  "note__startswith"?: string;
-  "note__in"?: string[];
-  "note__isnull"?: boolean;
-  "vetted_by"?: string;
-  "vetted_by__ne"?: string;
-  "vetted_by__contains"?: string;
-  "vetted_by__icontains"?: string;
-  "vetted_by__startswith"?: string;
-  "vetted_by__in"?: string[];
-  "vetted_by__isnull"?: boolean;
-  "vetted_note"?: string;
-  "vetted_note__ne"?: string;
-  "vetted_note__contains"?: string;
-  "vetted_note__icontains"?: string;
-  "vetted_note__startswith"?: string;
-  "vetted_note__in"?: string[];
-  "vetted_note__isnull"?: boolean;
-  "created_at"?: string;
-  "created_at__ne"?: string;
-  "created_at__gte"?: string;
-  "created_at__lte"?: string;
-  "created_at__gt"?: string;
-  "created_at__lt"?: string;
-  "created_at__in"?: string[];
-  "created_at__isnull"?: boolean;
-}
-export type ToolboxEntryVersionOrdering = "id" | "-id" | "entry" | "-entry" | "version" | "-version" | "body_markdown" | "-body_markdown" | "code" | "-code" | "params_json" | "-params_json" | "requires_env_json" | "-requires_env_json" | "description" | "-description" | "author_label" | "-author_label" | "note" | "-note" | "vetted_by" | "-vetted_by" | "vetted_note" | "-vetted_note" | "created_at" | "-created_at";
-/** Body for creating a `toolbox_entry_version`. Server-managed columns (id, auto-timestamps, privileged, no-form) are omitted. */
-export interface ToolboxEntryVersionCreate {
-  entry: number;
-  version: number;
-  body_markdown: string;
-  code?: string | null;
-  params_json?: string | null;
-  requires_env_json?: string | null;
-  description: string;
-  author_label: string;
-  note?: string | null;
-  vetted_by?: string | null;
-  vetted_note?: string | null;
-}
-/** Body for updating a `toolbox_entry_version` (PATCH; all fields optional). `noedit` columns are excluded — they can be set on create but not changed. */
-export interface ToolboxEntryVersionUpdate {
-  entry?: number;
-  version?: number;
-  body_markdown?: string;
-  code?: string | null;
-  params_json?: string | null;
-  requires_env_json?: string | null;
-  description?: string;
-  author_label?: string;
-  note?: string | null;
-  vetted_by?: string | null;
-  vetted_note?: string | null;
+  agent?: number;
+  created_by_user?: number | null;
+  created_by_agent?: number | null;
+  created_by_label?: string;
+  trigger_kind?: TaskflowWakeRuleTriggerKind;
+  target_task?: number | null;
+  target_message?: number | null;
+  watch_channel?: number | null;
+  mentions_only?: boolean;
+  fire_at?: string | null;
+  note?: string;
+  deliver?: TaskflowWakeRuleDeliver;
+  deliver_channel?: number | null;
+  pane_channel?: number | null;
+  status?: TaskflowWakeRuleStatus;
+  fired_at?: string | null;
+  delivered_at?: string | null;
+  source_ref?: string | null;
 }
 
 /** A list response. `results` + `count` are always present; the rest depend on the paginator. */
@@ -3982,16 +4441,7 @@ export interface Paginated<T> {
 
 /** Maps each REST-exposed table to its row, filter, and ordering types. `Umbral.from` keys off this. */
 export interface UmbralResources {
-  "admin_user_pref": { row: AdminUserPref; filters: AdminUserPrefFilters; ordering: AdminUserPrefOrdering; create: AdminUserPrefCreate; update: AdminUserPrefUpdate; id: number };
-  "auth_challenge": { row: AuthChallenge; filters: AuthChallengeFilters; ordering: AuthChallengeOrdering; create: AuthChallengeCreate; update: AuthChallengeUpdate; id: number };
-  "auth_token": { row: AuthToken; filters: AuthTokenFilters; ordering: AuthTokenOrdering; create: AuthTokenCreate; update: AuthTokenUpdate; id: number };
-  "design_comment": { row: DesignComment; filters: DesignCommentFilters; ordering: DesignCommentOrdering; create: DesignCommentCreate; update: DesignCommentUpdate; id: number };
-  "design_file": { row: DesignFile; filters: DesignFileFilters; ordering: DesignFileOrdering; create: DesignFileCreate; update: DesignFileUpdate; id: number };
-  "design_file_version": { row: DesignFileVersion; filters: DesignFileVersionFilters; ordering: DesignFileVersionOrdering; create: DesignFileVersionCreate; update: DesignFileVersionUpdate; id: number };
-  "design_layout": { row: DesignLayout; filters: DesignLayoutFilters; ordering: DesignLayoutOrdering; create: DesignLayoutCreate; update: DesignLayoutUpdate; id: number };
-  "media_file": { row: MediaFile; filters: MediaFileFilters; ordering: MediaFileOrdering; create: MediaFileCreate; update: MediaFileUpdate; id: number };
   "post": { row: Post; filters: PostFilters; ordering: PostOrdering; create: PostCreate; update: PostUpdate; id: number };
-  "oauth_social_account": { row: SocialAccount; filters: SocialAccountFilters; ordering: SocialAccountOrdering; create: SocialAccountCreate; update: SocialAccountUpdate; id: number };
   "taskflow_agent": { row: TaskflowAgent; filters: TaskflowAgentFilters; ordering: TaskflowAgentOrdering; create: TaskflowAgentCreate; update: TaskflowAgentUpdate; id: number };
   "taskflow_agent_channel": { row: TaskflowAgentChannel; filters: TaskflowAgentChannelFilters; ordering: TaskflowAgentChannelOrdering; create: TaskflowAgentChannelCreate; update: TaskflowAgentChannelUpdate; id: number };
   "taskflow_agent_channel_member": { row: TaskflowAgentChannelMember; filters: TaskflowAgentChannelMemberFilters; ordering: TaskflowAgentChannelMemberOrdering; create: TaskflowAgentChannelMemberCreate; update: TaskflowAgentChannelMemberUpdate; id: number };
@@ -4001,24 +4451,34 @@ export interface UmbralResources {
   "taskflow_agent_session": { row: TaskflowAgentSession; filters: TaskflowAgentSessionFilters; ordering: TaskflowAgentSessionOrdering; create: TaskflowAgentSessionCreate; update: TaskflowAgentSessionUpdate; id: number };
   "taskflow_agent_terminal_frame": { row: TaskflowAgentTerminalFrame; filters: TaskflowAgentTerminalFrameFilters; ordering: TaskflowAgentTerminalFrameOrdering; create: TaskflowAgentTerminalFrameCreate; update: TaskflowAgentTerminalFrameUpdate; id: number };
   "taskflow_channel_read_cursor": { row: TaskflowChannelReadCursor; filters: TaskflowChannelReadCursorFilters; ordering: TaskflowChannelReadCursorOrdering; create: TaskflowChannelReadCursorCreate; update: TaskflowChannelReadCursorUpdate; id: number };
-  "taskflow_github_pref": { row: TaskflowGithubPref; filters: TaskflowGithubPrefFilters; ordering: TaskflowGithubPrefOrdering; create: TaskflowGithubPrefCreate; update: TaskflowGithubPrefUpdate; id: number };
+  "taskflow_channel_state": { row: TaskflowChannelState; filters: TaskflowChannelStateFilters; ordering: TaskflowChannelStateOrdering; create: TaskflowChannelStateCreate; update: TaskflowChannelStateUpdate; id: number };
+  "taskflow_daily_update": { row: TaskflowDailyUpdate; filters: TaskflowDailyUpdateFilters; ordering: TaskflowDailyUpdateOrdering; create: TaskflowDailyUpdateCreate; update: TaskflowDailyUpdateUpdate; id: number };
+  "taskflow_daily_update_settings": { row: TaskflowDailyUpdateSettings; filters: TaskflowDailyUpdateSettingsFilters; ordering: TaskflowDailyUpdateSettingsOrdering; create: TaskflowDailyUpdateSettingsCreate; update: TaskflowDailyUpdateSettingsUpdate; id: number };
+  "taskflow_decision": { row: TaskflowDecision; filters: TaskflowDecisionFilters; ordering: TaskflowDecisionOrdering; create: TaskflowDecisionCreate; update: TaskflowDecisionUpdate; id: number };
+  "taskflow_decision_comment": { row: TaskflowDecisionComment; filters: TaskflowDecisionCommentFilters; ordering: TaskflowDecisionCommentOrdering; create: TaskflowDecisionCommentCreate; update: TaskflowDecisionCommentUpdate; id: number };
+  "taskflow_decision_option": { row: TaskflowDecisionOption; filters: TaskflowDecisionOptionFilters; ordering: TaskflowDecisionOptionOrdering; create: TaskflowDecisionOptionCreate; update: TaskflowDecisionOptionUpdate; id: number };
+  "taskflow_decision_task": { row: TaskflowDecisionTask; filters: TaskflowDecisionTaskFilters; ordering: TaskflowDecisionTaskOrdering; create: TaskflowDecisionTaskCreate; update: TaskflowDecisionTaskUpdate; id: number };
+  "taskflow_message_answer": { row: TaskflowMessageAnswer; filters: TaskflowMessageAnswerFilters; ordering: TaskflowMessageAnswerOrdering; create: TaskflowMessageAnswerCreate; update: TaskflowMessageAnswerUpdate; id: number };
   "taskflow_message_attachment": { row: TaskflowMessageAttachment; filters: TaskflowMessageAttachmentFilters; ordering: TaskflowMessageAttachmentOrdering; create: TaskflowMessageAttachmentCreate; update: TaskflowMessageAttachmentUpdate; id: number };
+  "taskflow_message_claim": { row: TaskflowMessageClaim; filters: TaskflowMessageClaimFilters; ordering: TaskflowMessageClaimOrdering; create: TaskflowMessageClaimCreate; update: TaskflowMessageClaimUpdate; id: number };
   "taskflow_project": { row: TaskflowProject; filters: TaskflowProjectFilters; ordering: TaskflowProjectOrdering; create: TaskflowProjectCreate; update: TaskflowProjectUpdate; id: number };
   "taskflow_project_api_endpoint": { row: TaskflowProjectApiEndpoint; filters: TaskflowProjectApiEndpointFilters; ordering: TaskflowProjectApiEndpointOrdering; create: TaskflowProjectApiEndpointCreate; update: TaskflowProjectApiEndpointUpdate; id: number };
   "taskflow_project_invite": { row: TaskflowProjectInvite; filters: TaskflowProjectInviteFilters; ordering: TaskflowProjectInviteOrdering; create: TaskflowProjectInviteCreate; update: TaskflowProjectInviteUpdate; id: number };
   "taskflow_project_member": { row: TaskflowProjectMember; filters: TaskflowProjectMemberFilters; ordering: TaskflowProjectMemberOrdering; create: TaskflowProjectMemberCreate; update: TaskflowProjectMemberUpdate; id: number };
-  "taskflow_project_repo": { row: TaskflowProjectRepo; filters: TaskflowProjectRepoFilters; ordering: TaskflowProjectRepoOrdering; create: TaskflowProjectRepoCreate; update: TaskflowProjectRepoUpdate; id: number };
-  "taskflow_realtime_ticket": { row: TaskflowRealtimeTicket; filters: TaskflowRealtimeTicketFilters; ordering: TaskflowRealtimeTicketOrdering; create: TaskflowRealtimeTicketCreate; update: TaskflowRealtimeTicketUpdate; id: number };
+  "taskflow_review_request": { row: TaskflowReviewRequest; filters: TaskflowReviewRequestFilters; ordering: TaskflowReviewRequestOrdering; create: TaskflowReviewRequestCreate; update: TaskflowReviewRequestUpdate; id: number };
   "taskflow_task": { row: TaskflowTask; filters: TaskflowTaskFilters; ordering: TaskflowTaskOrdering; create: TaskflowTaskCreate; update: TaskflowTaskUpdate; id: number };
   "taskflow_task_activity": { row: TaskflowTaskActivity; filters: TaskflowTaskActivityFilters; ordering: TaskflowTaskActivityOrdering; create: TaskflowTaskActivityCreate; update: TaskflowTaskActivityUpdate; id: number };
   "taskflow_task_attachment": { row: TaskflowTaskAttachment; filters: TaskflowTaskAttachmentFilters; ordering: TaskflowTaskAttachmentOrdering; create: TaskflowTaskAttachmentCreate; update: TaskflowTaskAttachmentUpdate; id: number };
+  "taskflow_task_evidence": { row: TaskflowTaskEvidence; filters: TaskflowTaskEvidenceFilters; ordering: TaskflowTaskEvidenceOrdering; create: TaskflowTaskEvidenceCreate; update: TaskflowTaskEvidenceUpdate; id: number };
   "taskflow_task_relation": { row: TaskflowTaskRelation; filters: TaskflowTaskRelationFilters; ordering: TaskflowTaskRelationOrdering; create: TaskflowTaskRelationCreate; update: TaskflowTaskRelationUpdate; id: number };
   "taskflow_task_review": { row: TaskflowTaskReview; filters: TaskflowTaskReviewFilters; ordering: TaskflowTaskReviewOrdering; create: TaskflowTaskReviewCreate; update: TaskflowTaskReviewUpdate; id: number };
   "taskflow_task_session": { row: TaskflowTaskSession; filters: TaskflowTaskSessionFilters; ordering: TaskflowTaskSessionOrdering; create: TaskflowTaskSessionCreate; update: TaskflowTaskSessionUpdate; id: number };
   "taskflow_terminal_input": { row: TaskflowTerminalInput; filters: TaskflowTerminalInputFilters; ordering: TaskflowTerminalInputOrdering; create: TaskflowTerminalInputCreate; update: TaskflowTerminalInputUpdate; id: number };
+  "taskflow_usage_alert": { row: TaskflowUsageAlert; filters: TaskflowUsageAlertFilters; ordering: TaskflowUsageAlertOrdering; create: TaskflowUsageAlertCreate; update: TaskflowUsageAlertUpdate; id: number };
+  "taskflow_usage_report": { row: TaskflowUsageReport; filters: TaskflowUsageReportFilters; ordering: TaskflowUsageReportOrdering; create: TaskflowUsageReportCreate; update: TaskflowUsageReportUpdate; id: number };
+  "taskflow_usage_settings": { row: TaskflowUsageSettings; filters: TaskflowUsageSettingsFilters; ordering: TaskflowUsageSettingsOrdering; create: TaskflowUsageSettingsCreate; update: TaskflowUsageSettingsUpdate; id: number };
   "taskflow_user_settings": { row: TaskflowUserSettings; filters: TaskflowUserSettingsFilters; ordering: TaskflowUserSettingsOrdering; create: TaskflowUserSettingsCreate; update: TaskflowUserSettingsUpdate; id: number };
-  "toolbox_entry": { row: ToolboxEntry; filters: ToolboxEntryFilters; ordering: ToolboxEntryOrdering; create: ToolboxEntryCreate; update: ToolboxEntryUpdate; id: number };
-  "toolbox_entry_version": { row: ToolboxEntryVersion; filters: ToolboxEntryVersionFilters; ordering: ToolboxEntryVersionOrdering; create: ToolboxEntryVersionCreate; update: ToolboxEntryVersionUpdate; id: number };
+  "taskflow_wake_rule": { row: TaskflowWakeRule; filters: TaskflowWakeRuleFilters; ordering: TaskflowWakeRuleOrdering; create: TaskflowWakeRuleCreate; update: TaskflowWakeRuleUpdate; id: number };
 }
 
 export interface UmbralOptions {
