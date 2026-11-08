@@ -315,6 +315,25 @@ impl TestApp {
     }
 
     /// PUT JSON as a human user (bearer token), like [`post_as`].
+    /// A JSON PATCH as a person (TestClient has no typed helper for the verb).
+    pub async fn patch_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
+        let token = self
+            .tokens
+            .lock()
+            .expect("tokens poisoned")
+            .get(&user_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no bearer token seeded for user {user_id}"));
+        self.client.set_default_header(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("bearer header"),
+        );
+        self.client.set_default_header(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        TestResponse {
+            inner: self.client.send(http::Method::PATCH, path, axum::body::Body::from(body.to_string())).await,
+        }
+    }
+
     pub async fn put_as(&self, user_id: i64, path: &str, body: Value) -> TestResponse {
         let token = self
             .tokens

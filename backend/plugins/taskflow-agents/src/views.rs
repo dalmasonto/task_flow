@@ -3429,6 +3429,85 @@ pub async fn claim_task_as_agent(
     Ok((StatusCode::OK, Json(fresh)).into_response())
 }
 
+/// #1078 / v3 group 9: change an existing agent's capabilities without a new
+/// key. The body is the whole new state: `scopes` (grants beyond the defaults)
+/// and `denied_scopes` (defaults switched off), each validated against the
+/// same allowlists as `link` (unknown names are a 400). Owners and admins of
+/// the agent's project only. It rewrites every ACTIVE credential of the agent;
+/// `RequireAgent` reads the credential on every call, so it takes effect on the
+/// agent's next call.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentScopesInput {
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub denied_scopes: Vec<String>,
+}
+
+/// `PATCH /api/taskflow/agents/{agent}/scopes` (human, owner/admin)
+pub async fn set_agent_scopes(
+    RequireAuth(user_id): RequireAuth<i64>,
+    Path(agent_id): Path<i64>,
+    Json(input): Json<AgentScopesInput>,
+) -> Result<Response, StatusCode> {
+    let agent = TaskflowAgent::objects()
+        .filter(taskflow_agent::ID.eq(agent_id))
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let member = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.eq(agent.project.id())
+                & taskflow_project_member::USER.eq(user_id)
+                & taskflow_project_member::STATUS.eq(ACTIVE_MEMBERSHIP),
+        )
+        .first()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let Some(member) = member else {
+        return Err(StatusCode::NOT_FOUND); // not your project: no existence leak
+    };
+    if !matches!(member.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin) {
+        return Ok((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "owner_or_admin_only", "detail": "Only project owners and admins can change an agent's capabilities." })),
+        )
+            .into_response());
+    }
+    let scopes = match crate::scopes::normalize_scopes(&input.scopes) {
+        Ok(s) => s,
+        Err(offending) => {
+            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "error": "unknown_scope", "scope": offending }))).into_response());
+        }
+    };
+    let denied = match crate::scopes::normalize_denied(&input.denied_scopes) {
+        Ok(d) => d,
+        Err(offending) => {
+            return Ok((StatusCode::BAD_REQUEST, Json(json!({ "error": "unknown_capability", "capability": offending }))).into_response());
+        }
+    };
+    let mut v = serde_json::Map::new();
+    v.insert("scopes".into(), json!(scopes));
+    v.insert("denied_scopes".into(), json!(denied));
+    let updated = TaskflowAgentCredential::objects()
+        .filter(crate::models::taskflow_agent_credential::AGENT.eq(agent.id) & crate::models::taskflow_agent_credential::STATUS.eq("active"))
+        .update_values(v)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let granted = crate::scopes::parse_scopes(scopes.as_deref());
+    let denied_list = crate::scopes::parse_denied(denied.as_deref());
+    Ok(Json(json!({
+        "agent_id": agent.id,
+        "scopes": granted,
+        "denied_scopes": denied_list,
+        "capabilities": crate::scopes::effective_capabilities(&granted, &denied_list),
+        "credentials_updated": updated,
+    }))
+    .into_response())
+}
+
 /// The review body's cap — the model stores it in a 12000-char column. Reject at
 /// the edge (400) rather than let the DB truncate or error.
 const MAX_REVIEW_BODY_CHARS: usize = 12_000;
