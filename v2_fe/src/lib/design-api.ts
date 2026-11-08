@@ -183,7 +183,8 @@ export type DesignFileSummary = {
 }
 
 export type CommentScope = "component" | "instance"
-export type CommentStatus = "open" | "sent" | "addressed" | "dismissed"
+/// `resolved`: a person confirmed an addressed comment (#5955, backend pending).
+export type CommentStatus = "open" | "sent" | "addressed" | "dismissed" | "resolved"
 
 export type DesignComment = {
   id: number
@@ -675,6 +676,45 @@ export async function dispatchDesignComments(
   // else first; nothing was sent.
   if (res.status === 409) throw new Error("Someone else already handled these comments. The list has been refreshed.")
   if (!res.ok) throw new Error(`Dispatch failed (${res.status}).`)
+  return readJson(res)
+}
+
+/// #1123: a design comment's pin thread (design--pin.html).
+export type DesignCommentReply = {
+  id: number
+  comment: number
+  author_kind: "user" | "agent"
+  author_user: number | null
+  author_agent: number | null
+  author_label: string
+  body: string
+  page_version: number | null
+  created_at: string | null
+}
+export type DesignCommentThread = {
+  root: { id: number; page_path: string; component_name: string | null; body: string; author: string; status: CommentStatus; resolved: boolean; resolution_note: string | null; created_at: string | null }
+  sent_to: { id: number; label: string } | null
+  replies: DesignCommentReply[]
+}
+
+export async function fetchCommentThread(projectId: number, commentId: number, signal?: AbortSignal): Promise<DesignCommentThread> {
+  const res = await designFetch(`/api/design/${projectId}/comments/${commentId}/thread`, { signal })
+  if (!res.ok) throw new Error(`Could not load the thread (${res.status}).`)
+  return readJson(res)
+}
+
+export async function addCommentReply(projectId: number, commentId: number, body: string): Promise<DesignCommentReply> {
+  const res = await designFetch(`/api/design/${projectId}/comments/${commentId}/replies`, jsonInit("POST", { body }))
+  if (!res.ok) throw new Error(res.status === 400 ? "A reply is 1 to 4000 characters." : `Could not send the reply (${res.status}).`)
+  return readJson(res)
+}
+
+/// A person confirms an addressed comment (Done), or reopens it. #5955: the
+/// endpoints arrive with the backend; until then the server answers 404.
+export async function setCommentResolved(projectId: number, commentId: number, resolved: boolean): Promise<DesignComment> {
+  const res = await designFetch(`/api/design/${projectId}/comments/${commentId}/${resolved ? "resolve" : "reopen"}`, jsonInit("POST", {}))
+  if (res.status === 404) throw new Error("Resolving comments needs the next server update.")
+  if (!res.ok) throw new Error(`Could not ${resolved ? "resolve" : "reopen"} the comment (${res.status}).`)
   return readJson(res)
 }
 

@@ -8,7 +8,7 @@ import {
   ChevronDownIcon,
   ColumnsIcon,
   KanbanSquareIcon,
-  CrosshairIcon,
+  MessageSquarePlusIcon,
   DownloadIcon,
   HandIcon,
   LayoutGridIcon,
@@ -50,6 +50,9 @@ import { setCanvasFrameMode, type CanvasFrameMode } from "@/lib/design-frames"
 import { flowPositions, type FlowDoc } from "./flow/flow-layout"
 import {
   fetchDesignComments,
+  fetchDesignAgents,
+  dispatchDesignComments,
+  type DesignAgent,
   fetchDesignManifest,
   fetchDesignTrash,
   fetchLayout,
@@ -69,7 +72,8 @@ import { taskflowTables, type TaskflowWorkspace } from "@/lib/taskflow-api"
 import { onDesignRealtimeEvent } from "@/lib/design-realtime"
 import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
-import { findDesignRoomChat } from "@/lib/live-mappers"
+import { findDesignRoomChat, isAgentOnline } from "@/lib/live-mappers"
+import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { type Project } from "@/lib/workspace-view"
 import { type AuthUser } from "@/lib/auth-api"
 import { type DesignRef } from "@/lib/design-ref"
@@ -81,6 +85,7 @@ import {
   RESPONSIVE_REVIEW_DEVICES,
   artboardKey,
   boardsForView,
+  boardContentOrigin,
   deviceById,
   type Artboard,
   type DeviceGroup,
@@ -107,6 +112,9 @@ import {
 import { fitTransform } from "./canvas-view"
 import { toolForKey, type CanvasTool } from "./canvas-tools"
 import { CommentPins, DesignInspector } from "./design-inspector"
+import { CommentPopover, CommentsPanel, PinThread } from "./comments-panel"
+import { useCommentAgent } from "./use-comment-agent"
+import { bucketCounts, pinLabels } from "./comment-flow-logic"
 import { boardForComment, commentRoute } from "./design-comments"
 import { sanitizeSelection, widenSelection, pinNumber, type SelectionState } from "./design-selection"
 import {
@@ -217,6 +225,17 @@ export function DesignSurfacePage({
   const [transform, setTransform] = useState<CanvasTransform>({ x: 40, y: 40, scale: 0.6 })
   const [deviceIds, setDeviceIds] = useState<string[]>([DEFAULT_DEVICE_ID])
   const [picking, setPicking] = useState(false)
+  // #5945: the Comment tool (C). On, each pick opens the comment box at the
+  // element; it stays on until Esc or another tool, as designed.
+  const [commentMode, setCommentMode] = useState(false)
+  const commentModeRef = useRef(false)
+  useEffect(() => {
+    commentModeRef.current = commentMode
+  })
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [threadFor, setThreadFor] = useState<number | null>(null)
+  // Comments queued with "Add to batch", sent together from the toolbar.
+  const [batch, setBatch] = useState<number[]>([])
   const [canvasTool, setCanvasTool] = useState<CanvasTool>("select")
   const [theme, setTheme] = useState("light")
   // #619: the project's themes (light first) come from the manifest, so a
@@ -402,6 +421,49 @@ export function DesignSurfacePage({
     refreshComments()
   }, [refreshComments])
 
+  // #5945: who comments can go to, and whether each is online.
+  const [designAgents, setDesignAgents] = useState<DesignAgent[]>([])
+  useEffect(() => {
+    if (!projectId) return
+    let live = true
+    fetchDesignAgents(projectId)
+      .then((rows) => live && setDesignAgents(rows))
+      .catch(() => null)
+    return () => {
+      live = false
+    }
+  }, [projectId])
+  const livenessNow = useLivenessNow()
+  const agentInfo = useCallback(
+    (id: number | null) => {
+      if (id == null) return null
+      const name = designAgents.find((a) => a.id === id)?.display_name ?? liveWorkspace?.agents.find((a) => a.id === id)?.display_name
+      if (!name) return null
+      const online = liveWorkspace ? isAgentOnline(id, liveWorkspace.agents, liveWorkspace.agentSessions, livenessNow) : false
+      return { name, online }
+    },
+    [designAgents, liveWorkspace, livenessNow],
+  )
+  const [batchAgent] = useCommentAgent(designAgents)
+  const commentLabels = useMemo(() => pinLabels(comments), [comments])
+  const commentCounts = useMemo(() => bucketCounts(comments), [comments])
+  const sendBatch = async () => {
+    if (!projectId || !batch.length) return
+    if (batchAgent == null) {
+      setCanvasNotice({ text: "Link an agent to this project to send comments.", tone: "error" })
+      return
+    }
+    try {
+      const { sent_comment_ids } = await dispatchDesignComments(projectId, batch, batchAgent)
+      setCanvasNotice({ text: `Sent ${sent_comment_ids.length} ${sent_comment_ids.length === 1 ? "comment" : "comments"} to ${designAgents.find((a) => a.id === batchAgent)?.display_name ?? "the agent"}.`, tone: "info" })
+      setBatch([])
+    } catch (e) {
+      setCanvasNotice({ text: e instanceof Error ? e.message : "Couldn't send the batch.", tone: "error" })
+      setBatch([])
+    }
+    refreshComments()
+  }
+
   // Design realtime: file writes remount artboards; comment updates refresh
   // pins; a layout change means another viewer re-arranged the canvas. These
   // ride the ONE app-level SSE stream (App.tsx) and are fanned out here via the
@@ -562,19 +624,29 @@ export function DesignSurfacePage({
     hadSelectionRef.current = hasSelection
   }, [selection])
 
-  // #5907 item 7: turning Pick on shows the Inspect tab straight away, so
-  // what gets picked lands where the person is already looking. On a wide
-  // screen the side panel opens too. On a phone the panel would cover the
-  // canvas they're about to click, so it stays as it is there.
+  // #5907 item 7 / #5945: the Comment tool. Turning it on shows the Inspect
+  // tab straight away (on a wide screen the side panel opens too; on a phone
+  // it would cover the canvas), and arms picking: each element clicked opens
+  // the comment box there. Off again with C, Esc or another tool.
   const togglePick = () => {
-    if (!picking) {
+    if (!commentMode) {
       setRightTab("inspect")
       if (isWideScreen()) {
         setPanelOpen(true)
         writePanelPref("panel", true)
       }
+      setCommentMode(true)
+      setPicking(true)
+    } else {
+      setCommentMode(false)
+      setPicking(false)
+      setPopoverOpen(false)
     }
-    setPicking(!picking)
+  }
+  const closePopover = () => {
+    setPopoverOpen(false)
+    // The tool stays on: arm the next pick.
+    if (commentMode) setPicking(true)
   }
   // The keyboard listener is bound once, so it calls the latest toggle by ref.
   const togglePickRef = useRef(togglePick)
@@ -724,7 +796,11 @@ export function DesignSurfacePage({
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable
       if (!typing) {
         if (e.key.toLowerCase() === "c") togglePickRef.current()
-        if (e.key === "Escape") setPicking(false)
+        if (e.key === "Escape") {
+          setPicking(false)
+          setCommentMode(false)
+          setPopoverOpen(false)
+        }
         const tool = toolForKey(e.key)
         if (tool) setCanvasTool(tool)
         if (e.key === "+" || e.key === "=")
@@ -882,6 +958,7 @@ export function DesignSurfacePage({
       // row instead of adding a twin (`addSelection` decides which).
       setSelections((current) => addSelection(current.list, { ...clean, boardKey: board.key }))
       setPicking(false)
+      if (commentModeRef.current) setPopoverOpen(true)
     },
     [],
   )
@@ -973,6 +1050,8 @@ export function DesignSurfacePage({
         boards={artboards}
         selectedPinId={null}
         onSelectPin={(comment) => {
+          // #5945: a pin opens its thread, as designed.
+          setThreadFor(comment.id)
           // Zoom to the pin's artboard and flash the element inside the frame.
           const board = boardForComment(artboards, comment)
           if (board) {
@@ -1051,14 +1130,31 @@ export function DesignSurfacePage({
   // (and re-renders every board under it) for a toolbar toggle, a panel switch,
   // a selection change, anything. Memoising the wrapper makes the canvas
   // re-render exactly when the overlays themselves change.
-  const pinLayer = useMemo(
-    () => (
-      <>
-        {rowHeaders}
-        {pins}
-      </>
-    ),
-    [rowHeaders, pins],
+  // #5945: the comment box sits in world space under the picked element, and
+  // is scaled back so it reads at 100% at any zoom.
+  const popoverBoard = popoverOpen && selection ? artboards.find((b) => b.key === selection.boardKey) : undefined
+  const popover =
+    popoverOpen && selection && popoverBoard && projectId ? (
+      <CommentPopover
+        key={`${selection.boardKey}|${selection.elementPath}`}
+        projectId={projectId}
+        selection={selection}
+        manifest={manifest}
+        agents={designAgents}
+        // Screen space over the canvas (the boards' iframes would sit above
+        // anything drawn in the world layer and swallow its clicks).
+        left={transform.x + (popoverBoard.x + boardContentOrigin(deviceById(popoverBoard.deviceId)).x + selection.rect.x) * transform.scale}
+        top={transform.y + (popoverBoard.y + boardContentOrigin(deviceById(popoverBoard.deviceId)).y + selection.rect.y + selection.rect.h) * transform.scale + 8}
+        onClose={closePopover}
+        onCreated={refreshComments}
+        onQueue={(id) => setBatch((b) => [...b, id])}
+      />
+    ) : null
+  const pinLayer = (
+    <>
+      {rowHeaders}
+      {pins}
+    </>
   )
 
   const paletteItems: PaletteItem[] = useMemo(() => {
@@ -1154,24 +1250,56 @@ export function DesignSurfacePage({
           viewportRef={canvasContainerRef}
         />
 
-        <div className="flex items-center gap-1 rounded-md border p-0.5">
+        {/* #5945: the canvas tools as designed: Select, Pan, Comment. */}
+        <div role="group" aria-label="Canvas tool" className="flex items-center gap-0.5 rounded-md border p-0.5">
           <Button
-            variant={canvasTool === "select" ? "default" : "ghost"}
-            size="icon"
+            variant={canvasTool === "select" && !commentMode ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={canvasTool === "select" && !commentMode}
             title="Select (V)"
-            onClick={() => setCanvasTool("select")}
+            onClick={() => {
+              if (commentMode) togglePick()
+              setCanvasTool("select")
+            }}
           >
             <MousePointer2Icon className="size-4" />
+            <span className="hidden xl:inline">Select</span>
           </Button>
           <Button
-            variant={canvasTool === "pan" ? "default" : "ghost"}
-            size="icon"
+            variant={canvasTool === "pan" && !commentMode ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={canvasTool === "pan" && !commentMode}
             title="Pan (H)"
-            onClick={() => setCanvasTool("pan")}
+            onClick={() => {
+              if (commentMode) togglePick()
+              setCanvasTool("pan")
+            }}
           >
             <HandIcon className="size-4" />
+            <span className="hidden xl:inline">Pan</span>
+          </Button>
+          <Button
+            variant={commentMode ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={commentMode}
+            title="Comment on an element (C)"
+            onClick={() => {
+              setCanvasTool("select")
+              togglePick()
+            }}
+          >
+            <MessageSquarePlusIcon className="size-4" />
+            Comment
           </Button>
         </div>
+        {batch.length ? (
+          <span className="inline-flex h-8 items-center gap-1 rounded-md border border-blocked/50 bg-blocked/10 pr-0.5 pl-2 text-sm">
+            {batch.length} queued
+            <Button size="xs" onClick={() => void sendBatch()} title={`Send to ${designAgents.find((a) => a.id === batchAgent)?.display_name ?? "an agent"}`}>
+              Send
+            </Button>
+          </span>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           {/* #662: the board as a dialog over the canvas — check a task without
@@ -1210,14 +1338,6 @@ export function DesignSurfacePage({
             Compare
           </Button>
           <ThemeSwitcher themes={themeOptions} value={activeTheme} onChange={setTheme} />
-          <Button
-            variant={picking ? "default" : "outline"}
-            size="sm"
-            onClick={togglePick}
-          >
-            <CrosshairIcon className="size-4" />
-            {picking ? "Picking…" : "Pick"}
-          </Button>
           <Button
             variant={panelOpen ? "secondary" : "ghost"}
             size="icon"
@@ -1277,6 +1397,21 @@ export function DesignSurfacePage({
 
         {/* MIDDLE: the canvas (unchanged). */}
         <main ref={canvasContainerRef} className="relative min-w-0 flex-1">
+          {popover}
+          {commentMode ? (
+            <p className="pointer-events-none absolute top-3 left-3 z-20 flex items-center gap-2 rounded-lg border bg-background/95 px-3 py-1.5 text-xs shadow-sm">
+              <MessageSquarePlusIcon className="size-3.5" aria-hidden />
+              <span className="font-medium">Comment tool.</span>
+              <span className="text-muted-foreground">Click any element. Esc to stop.</span>
+            </p>
+          ) : null}
+          {comments.length ? (
+            <p className="pointer-events-none absolute bottom-3 left-3 z-20 flex items-center gap-3 rounded-lg bg-background/80 px-2 py-1 text-xs text-muted-foreground" aria-label="Pin colours">
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-primary" />open</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-link" />sent to an agent</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-running" />done</span>
+            </p>
+          ) : null}
           {canvasNotice ? (
             <div
               role="status"
@@ -1375,12 +1510,32 @@ export function DesignSurfacePage({
           >
             <TabsList>
               <TabsTrigger value="inspect">Inspect</TabsTrigger>
-              <TabsTrigger value="components">
-                Components{manifest ? ` (${manifest.components.length})` : ""}
+              <TabsTrigger value="comments">
+                Comments
+                {commentCounts.open + commentCounts.sent ? (
+                  <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px] tabular-nums">{commentCounts.open + commentCounts.sent}</span>
+                ) : null}
               </TabsTrigger>
-              <TabsTrigger value="tokens">Tokens</TabsTrigger>
               <TabsTrigger value="pages">Pages</TabsTrigger>
+              <TabsTrigger value="tokens">Tokens</TabsTrigger>
+              <TabsTrigger value="components">Components</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="comments" className="min-h-0">
+              {projectId ? (
+                <CommentsPanel
+                  projectId={projectId}
+                  comments={comments}
+                  labels={commentLabels}
+                  agents={designAgents}
+                  agentInfo={agentInfo}
+                  currentRoute={selection?.route ?? openRoutes[0] ?? null}
+                  onFocus={focusComment}
+                  onOpenThread={(c) => setThreadFor(c.id)}
+                  onChanged={refreshComments}
+                />
+              ) : null}
+            </TabsContent>
 
             <TabsContent value="inspect">
               <DesignInspector
@@ -1449,6 +1604,24 @@ export function DesignSurfacePage({
         </aside>
       </div>
 
+      {threadFor != null && projectId ? (() => {
+        const c = comments.find((x) => x.id === threadFor)
+        return c ? (
+          <PinThread
+            key={c.id}
+            projectId={projectId}
+            comment={c}
+            label={commentLabels.get(c.id) ?? "?"}
+            agentInfo={agentInfo}
+            onClose={() => setThreadFor(null)}
+            onShowPin={() => {
+              setThreadFor(null)
+              focusComment(c)
+            }}
+            onChanged={refreshComments}
+          />
+        ) : null
+      })() : null}
       {paletteOpen ? (
         <CommandPalette onClose={() => setPaletteOpen(false)} items={paletteItems} />
       ) : null}

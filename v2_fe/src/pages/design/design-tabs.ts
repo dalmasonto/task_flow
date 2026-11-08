@@ -3,7 +3,7 @@
 /// it can be unit-tested without pulling in the page's React tree.
 
 /// The four right-panel tabs, in display order.
-export type DesignTab = "inspect" | "components" | "tokens" | "pages"
+export type DesignTab = "inspect" | "comments" | "components" | "tokens" | "pages"
 
 /// The auto-focus rule: a newly-appeared selection (an element picked on the
 /// canvas) jumps the panel to Inspect so the human sees what they clicked.

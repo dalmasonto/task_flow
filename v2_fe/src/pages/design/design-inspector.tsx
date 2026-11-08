@@ -26,6 +26,7 @@ import {
 import { type SelectionState, pinNumber } from "./design-selection"
 import { commentsForSelection, selectionName } from "./selection-list"
 import { boardsForComment, commentResolutionNote, commentRoute } from "./design-comments"
+import { PIN_TONE_CLASS, pinLabels, pinTone } from "./comment-flow-logic"
 
 // ---------------------------------------------------------------------------
 // Inspector (right panel)
@@ -661,6 +662,7 @@ export function CommentPins({
   selectedPinId: number | null
   onSelectPin: (comment: DesignComment) => void
 }) {
+  const labels = useMemo(() => pinLabels(comments), [comments])
   const parsed = useMemo(
     () =>
       comments.map((c) => {
@@ -688,14 +690,9 @@ export function CommentPins({
             }}
             title={comment.body}
             className={cn(
-              "absolute z-20 flex size-7 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none text-[11px] font-bold text-white shadow-md transition-all duration-[120ms] ease-out hover:scale-110",
-              comment.status === "addressed"
-                ? "bg-emerald-600"
-                : comment.status === "sent"
-                  ? "bg-blue-600"
-                  : comment.orphaned
-                    ? "bg-zinc-500"
-                    : "bg-accent",
+              // #5945: the design's tones: open, sent to an agent, done.
+              "absolute z-20 flex size-7 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none text-[11px] font-bold shadow-md transition-all duration-[120ms] ease-out hover:scale-110",
+              PIN_TONE_CLASS[pinTone(comment)],
               selectedPinId === comment.id && "ring-2 ring-white ring-offset-2 ring-offset-accent",
             )}
             style={{
@@ -705,7 +702,7 @@ export function CommentPins({
               top: board.y + boardContentOrigin(deviceById(board.deviceId)).y + rect.y,
             }}
           >
-            {pinNumber(comment.id)}
+            {labels.get(comment.id) ?? pinNumber(comment.id)}
           </button>
         )),
       )}

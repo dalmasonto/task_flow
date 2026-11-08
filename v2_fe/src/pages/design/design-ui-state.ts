@@ -36,7 +36,7 @@ export type DesignUIState = {
 export type DesignUIKey = [number, number]
 
 const TOOLS: CanvasTool[] = ["select", "pan"]
-const TABS: DesignTab[] = ["inspect", "components", "tokens", "pages"]
+const TABS: DesignTab[] = ["inspect", "comments", "components", "tokens", "pages"]
 const DEVICE_IDS = new Set(DEVICE_PRESETS.map((d) => d.id))
 
 const asStrings = (v: unknown): string[] =>
