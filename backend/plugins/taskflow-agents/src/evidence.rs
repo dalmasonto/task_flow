@@ -25,7 +25,8 @@ use crate::views::{load_task, load_task_in_project};
 
 pub const MAX_LABEL_CHARS: usize = 200;
 pub const MAX_URL_CHARS: usize = 500;
-/// A task's evidence list is a review aid, not a log: cap it.
+/// A task's evidence list is a review aid, not a log: cap it. A SOFT cap —
+/// count-then-create, so two racing adds can land one over (#1117 review).
 pub const MAX_PER_TASK: usize = 100;
 /// How many labels a status-change activity quotes.
 const SUMMARY_LABELS: usize = 3;
@@ -96,22 +97,36 @@ fn attachment_json(a: &TaskflowTaskAttachment) -> Value {
     json!({ "id": a.id, "filename": a.name, "content_type": a.content_type, "size": a.size_bytes })
 }
 
-async fn evidence_json(e: &TaskflowTaskEvidence) -> Result<Value, ApiError> {
-    let attachment = match &e.attachment {
-        Some(a) => attachment_of(e.task.id(), a.id()).await?.map(|a| attachment_json(&a)),
-        None => None,
-    };
+fn evidence_json(e: &TaskflowTaskEvidence, attachments: &[TaskflowTaskAttachment]) -> Value {
+    let attachment = e
+        .attachment
+        .as_ref()
+        .and_then(|a| attachments.iter().find(|x| x.id == a.id() && x.task.id() == e.task.id()))
+        .map(attachment_json);
     let stats = json!({
         "passed": e.tests_passed, "failed": e.tests_failed, "duration_ms": e.duration_ms,
         "files": e.files_changed, "additions": e.additions, "deletions": e.deletions,
     });
-    Ok(json!({
+    json!({
         "id": e.id, "project": e.project.id(), "task": e.task.id(), "kind": e.kind, "label": e.label,
         "url": e.url, "passed": e.passed, "stats": stats, "attachment": attachment,
         "author_kind": e.author_kind, "author_user": e.author_user.as_ref().map(|u| u.id()),
         "author_agent": e.author_agent.as_ref().map(|a| a.id()), "author_label": e.author_label,
         "self_reported": true, "created_at": e.created_at,
-    }))
+    })
+}
+
+/// The attachments the rows point at, in ONE query, on the same task only.
+async fn attachments_for(task: i64, rows: &[TaskflowTaskEvidence]) -> Result<Vec<TaskflowTaskAttachment>, ApiError> {
+    let ids: Vec<i64> = rows.iter().filter_map(|e| e.attachment.as_ref().map(|a| a.id())).collect();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    TaskflowTaskAttachment::objects()
+        .filter(taskflow_task_attachment::TASK.eq(task) & taskflow_task_attachment::ID.in_(&ids))
+        .fetch()
+        .await
+        .map_err(internal)
 }
 
 fn non_negative(field: &str, v: Option<i64>) -> Result<Option<i64>, ApiError> {
@@ -189,14 +204,15 @@ async fn add(task: TaskflowTask, author: Author, input: EvidenceInput) -> Reply 
         })
         .await
         .map_err(internal)?;
-    Ok((StatusCode::CREATED, Json(evidence_json(&row).await?)).into_response())
+    let rows = [row];
+    let atts = attachments_for(task.id, &rows).await?;
+    Ok((StatusCode::CREATED, Json(evidence_json(&rows[0], &atts))).into_response())
 }
 
 async fn list(task: i64) -> Reply {
-    let mut out = Vec::new();
-    for e in task_evidence(task).await? {
-        out.push(evidence_json(&e).await?);
-    }
+    let rows = task_evidence(task).await?;
+    let atts = attachments_for(task, &rows).await?;
+    let out: Vec<Value> = rows.iter().map(|e| evidence_json(e, &atts)).collect();
     Ok(Json(json!({ "task": task, "evidence": out, "self_reported": true })).into_response())
 }
 
