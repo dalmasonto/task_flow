@@ -68,3 +68,30 @@ export function endpointsSummary(rows: TaskflowProjectApiEndpoint[]): string {
   const def = rows.find((r) => r.is_default)
   return `${rows.length} ${rows.length === 1 ? "environment" : "environments"}${def ? `, default ${def.label}` : ""}.`
 }
+
+/// Fold a saved environment into the loaded list. A default row clears every
+/// other default, as the server does in the same transaction.
+export function upsertEnvironment(rows: TaskflowProjectApiEndpoint[], row: TaskflowProjectApiEndpoint): TaskflowProjectApiEndpoint[] {
+  const rest = rows.filter((r) => r.id !== row.id).map((r) => (row.is_default && r.is_default ? { ...r, is_default: false } : r))
+  return [...rest, row]
+}
+
+/// Apply a delete's answer: the row goes, and `default` (if any) is the only default.
+export function removeEnvironment(rows: TaskflowProjectApiEndpoint[], res: { deleted: number; default: number | null }): TaskflowProjectApiEndpoint[] {
+  return rows.filter((r) => r.id !== res.deleted).map((r) => (res.default == null ? r : { ...r, is_default: r.id === res.default }))
+}
+
+export type EnvironmentForm = { label: string; base_url: string; environment: TaskflowProjectApiEndpoint["environment"]; notes: string }
+
+/// The handler's rules: a name of 1 to 80 characters; an http(s) address of at
+/// most 400 with no spaces; notes of at most 1000. Null when fine.
+export function environmentFormError(f: EnvironmentForm): string | null {
+  const label = f.label.trim()
+  if (!label) return "Give it a name."
+  if ([...label].length > 80) return "The name is at most 80 characters."
+  const url = f.base_url.trim()
+  if (!/^https?:\/\//.test(url)) return "The address starts with http:// or https://."
+  if (url.length > 400 || /\s/.test(url)) return "An address of at most 400 characters, with no spaces."
+  if ([...f.notes.trim()].length > 1000) return "Notes are at most 1000 characters."
+  return null
+}
