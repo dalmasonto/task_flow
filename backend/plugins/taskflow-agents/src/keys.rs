@@ -38,6 +38,8 @@ pub fn new_key() -> (String, String, String) {
     (key_prefix, raw_key, key_hash)
 }
 
+const ROTATION_BUSY: &str = "taskflow:rotation_busy";
+
 fn refuse(status: StatusCode, code: &str, detail: &str) -> Response {
     (status, Json(json!({ "error": code, "detail": detail }))).into_response()
 }
@@ -130,6 +132,19 @@ pub async fn rotate_key(RequireAuth(user): RequireAuth<i64>, Path(agent_id): Pat
     let project = agent.project.clone();
     let result = umbral::transaction(move |tx| {
         Box::pin(async move {
+            // One rotation at a time per agent. Without this, two concurrent
+            // rotations each revoke the keys they can see and each mint one,
+            // leaving TWO active keys. The second finds the row locked and
+            // backs off (Postgres; SQLite's single writer serializes anyway).
+            let locked = TaskflowAgent::objects()
+                .filter(taskflow_agent::ID.eq(agent_id))
+                .for_update_skip_locked()
+                .on_tx(tx)
+                .first()
+                .await?;
+            if locked.is_none() {
+                return Err::<(u64, TaskflowAgentCredential), Box<dyn std::error::Error + Send + Sync>>(ROTATION_BUSY.into());
+            }
             let mut v = serde_json::Map::new();
             v.insert("status".into(), json!("revoked"));
             v.insert("revoked_at".into(), json!(now));
@@ -160,8 +175,15 @@ pub async fn rotate_key(RequireAuth(user): RequireAuth<i64>, Path(agent_id): Pat
         })
     })
     .await;
-    let Ok((revoked, created)) = result else {
-        return refuse(StatusCode::INTERNAL_SERVER_ERROR, "internal", "The key couldn't be rotated; nothing changed.");
+    let (revoked, created) = match result {
+        Ok(r) => r,
+        Err(e) if e.to_string().contains(ROTATION_BUSY) => {
+            return refuse(StatusCode::CONFLICT, "rotation_in_progress", "This agent's key is being rotated right now; try again in a moment.");
+        }
+        Err(e) => {
+            tracing::error!(agent = agent.id, error = %e, "key rotation failed");
+            return refuse(StatusCode::INTERNAL_SERVER_ERROR, "internal", "The key couldn't be rotated; nothing changed.");
+        }
     };
     // Live: every credential of the agent (the revoked ones and the new one).
     if let Ok(rows) = TaskflowAgentCredential::objects().filter(taskflow_agent_credential::AGENT.eq(agent.id)).fetch().await {

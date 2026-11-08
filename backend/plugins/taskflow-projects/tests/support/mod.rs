@@ -153,6 +153,14 @@ impl TestApp {
         }
     }
 
+    /// #1136: a DELETE with no body.
+    pub async fn delete_as(&self, user_id: i64, path: &str) -> TestResponse {
+        self.set_auth(user_id);
+        TestResponse {
+            inner: self.client.send(http::Method::DELETE, path, axum::body::Body::empty()).await,
+        }
+    }
+
     pub async fn get_as(&self, user_id: i64, path: &str) -> TestResponse {
         self.set_auth(user_id);
         TestResponse {

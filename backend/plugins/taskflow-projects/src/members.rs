@@ -96,6 +96,9 @@ pub async fn set_role(
     if owner_involved && me.role != TaskflowProjectRole::Owner {
         return Err(err(StatusCode::FORBIDDEN, "owner_only", "Only an owner can make, or change, an owner."));
     }
+    // With today's roles `owner_only` above already covers this (only an
+    // admin could outrank itself, by giving `owner`); it holds the line for
+    // any role added between the current ones.
     if rank(input.role) > rank(me.role) {
         return Err(err(StatusCode::FORBIDDEN, "above_your_role", "You can't give a role above your own."));
     }
