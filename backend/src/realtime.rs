@@ -96,6 +96,9 @@ const DESIGN_FILES: &str = "design_files";
 const DESIGN_COMMENTS: &str = "design_comments";
 const DESIGN_LAYOUT: &str = "design_layout";
 const PRESENCE: &str = "presence";
+/// #5988: "X is writing", published server-side by `taskflow_agents::typing`
+/// (never a model). Shared rooms only; see that module.
+const TYPING: &str = taskflow_agents::typing::SUFFIX;
 
 // The chat tables carry NO projected fields — see the `expose` calls below for
 // why. Their former `*_FIELDS` whitelists are deliberately gone rather than
@@ -557,6 +560,7 @@ const ALL_SUFFIXES: &[&str] = &[
     DESIGN_COMMENTS,
     DESIGN_LAYOUT,
     PRESENCE,
+    TYPING,
 ];
 
 fn value_to_group_id(value: &Value) -> Option<String> {

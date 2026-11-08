@@ -101,6 +101,16 @@ async fn private_threads_stay_private() {
     assert_eq!(app.post_as(outsider, &follow, json!({})).await.status(), 404);
     assert!(app.get_as(outsider, &format!("/api/taskflow/projects/{project}/threads/following")).await.json().await.as_array().unwrap().is_empty());
 
+    // Marking read never creates a follow (#5993).
+    let reader = app.create_user().await;
+    make_active_project_member(project, reader).await;
+    add_channel_roster_row(project, group, reader).await;
+    let reply = send(&app, insider, json!({ "channel": group, "body_markdown": "step two", "thread_root": root })).await;
+    let r = app.post_as(reader, &format!("/api/taskflow/channels/{group}/threads/{root}/read"), json!({ "last_read_reply": reply })).await;
+    assert_eq!(r.status(), 200, "{}", r.text());
+    assert_eq!(r.json().await["following"], false);
+    assert!(app.get_as(reader, &format!("/api/taskflow/projects/{project}/threads/following")).await.json().await.as_array().unwrap().is_empty());
+
     // Someone who follows and then leaves the room no longer sees it listed.
     let leaver = app.create_user().await;
     make_active_project_member(project, leaver).await;

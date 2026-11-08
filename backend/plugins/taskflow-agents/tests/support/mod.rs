@@ -169,18 +169,31 @@ pub struct TestApp {
 
 impl TestApp {
     pub async fn new() -> Self {
+        Self::boot(false).await
+    }
+
+    /// The same app with `RealtimePlugin` installed, for a test binary that
+    /// watches realtime groups (#5988 typing). `boot` is once per process, so
+    /// a binary uses one or the other, never both.
+    pub async fn new_with_realtime() -> Self {
+        Self::boot(true).await
+    }
+
+    async fn boot(with_realtime: bool) -> Self {
         // `boot` is idempotent (a process-wide OnceCell), so every test can
         // call it. The plugins register their own models, so the schema is
         // derived from the models themselves — no hand-written CREATE TABLE
         // to drift out of sync with `models.rs`.
         boot(|b| {
-            b.plugin(AuthPlugin::<AuthUser>::default())
+            let b = b
+                .plugin(AuthPlugin::<AuthUser>::default())
                 .plugin(TaskflowProjectsPlugin)
                 .plugin(TaskflowTasksPlugin)
                 .plugin(TaskflowAgentsPlugin)
                 // Required now that `TaskflowMessageAttachment` has a `FileField`:
                 // the boot storage check fails without a registered backend.
-                .plugin(MediaTestPlugin)
+                .plugin(MediaTestPlugin);
+            if with_realtime { b.plugin(umbral_realtime::RealtimePlugin::new()) } else { b }
         })
         .await;
         taskflow_tasks::session_timer::install_open_session_guard(umbral::db::pool_dispatched())

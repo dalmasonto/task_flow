@@ -29,6 +29,8 @@ pub mod pins;
 pub mod summary;
 // #5983: following threads.
 pub mod follows;
+// #5988: "X is writing".
+pub mod typing;
 pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.

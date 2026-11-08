@@ -196,12 +196,18 @@ async fn summarise(project: i64, me: Me) -> Result<Vec<Value>, ApiError> {
         let mut unread = theirs.len() as i64;
         if unread_rows.len() as u64 == MENTION_SCAN {
             let oldest = unread_rows.last().map(|m| m.id).unwrap_or(after);
+            // Not my own messages (#5989).
+            let mine = match me {
+                Me::User(u) => taskflow_agent_message::SENDER_KIND.eq("user") & taskflow_agent_message::SENDER_USER.eq(u),
+                Me::Agent(a) => taskflow_agent_message::SENDER_KIND.eq("agent") & taskflow_agent_message::SENDER_AGENT.eq(a),
+            };
             unread += TaskflowAgentMessage::objects()
                 .filter(
                     taskflow_agent_message::CHANNEL.eq(room.id)
                         & taskflow_agent_message::IN_CHANNEL.eq(true)
                         & taskflow_agent_message::ID.gt(after)
-                        & taskflow_agent_message::ID.lt(oldest),
+                        & taskflow_agent_message::ID.lt(oldest)
+                        & umbral::orm::Q::not(mine),
                 )
                 .count()
                 .await

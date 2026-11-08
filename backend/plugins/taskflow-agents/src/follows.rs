@@ -5,7 +5,7 @@
 //! |---|---|---|
 //! | `POST /api/taskflow/channels/{c}/threads/{root}/follow` | | 200 `{following: true}` |
 //! | `DELETE /api/taskflow/channels/{c}/threads/{root}/follow` | | 200 `{following: false}` |
-//! | `POST /api/taskflow/channels/{c}/threads/{root}/read` | `{last_read_reply}` | 200 `{last_read_reply}` |
+//! | `POST /api/taskflow/channels/{c}/threads/{root}/read` | `{last_read_reply}` | 200 `{last_read_reply, following}` (update-only: never creates a follow) |
 //! | `GET /api/taskflow/projects/{p}/threads/following` | | 200 `[thread]` |
 //!
 //! * **Auto-follow:** posting a reply follows the thread (read up to that
@@ -42,9 +42,12 @@ fn internal<E: std::fmt::Display>(e: E) -> ApiError {
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal")
 }
 
-const EXCERPT: usize = 120;
+const EXCERPT: usize = 140;
+pub const MAX_FOLLOWS: u64 = 100;
 
 fn excerpt(body: &str) -> String {
+    // #5989: chips read as `@Name`, as in the room summary.
+    let body = crate::summary::strip_chips(body);
     let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= EXCERPT {
         return flat;
@@ -187,8 +190,18 @@ pub async fn mark_read(RequireAuth(user): RequireAuth<i64>, Path((channel, root)
     if !ok {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "detail": "Not a reply in this thread." }))));
     }
-    upsert(c.project.id(), c.id, m.id, Some(user), None, Some(i.last_read_reply)).await.map_err(internal)?;
-    Ok(Json(json!({ "last_read_reply": i.last_read_reply })).into_response())
+    // #5993: update-only. Marking a thread read never follows it, so a client
+    // that marks threads read on open doesn't end up following everything.
+    let following = TaskflowThreadFollow::objects()
+        .filter(taskflow_thread_follow::ROOT.eq(m.id) & taskflow_thread_follow::FOLLOWER_KEY.eq(format!("user:{user}")))
+        .first()
+        .await
+        .map_err(internal)?
+        .is_some();
+    if following {
+        upsert(c.project.id(), c.id, m.id, Some(user), None, Some(i.last_read_reply)).await.map_err(internal)?;
+    }
+    Ok(Json(json!({ "last_read_reply": i.last_read_reply, "following": following })).into_response())
 }
 
 /// `GET /api/taskflow/projects/{project}/threads/following`
@@ -196,8 +209,11 @@ pub async fn following(RequireAuth(user): RequireAuth<i64>, Path(project): Path<
     if !can_access_project(user, project).await {
         return Err(err(StatusCode::NOT_FOUND, "not_found"));
     }
+    // #5989: the newest MAX_FOLLOWS follows. Each costs a few reads (gaps6 #28).
     let follows = TaskflowThreadFollow::objects()
         .filter(taskflow_thread_follow::PROJECT.eq(project) & taskflow_thread_follow::FOLLOWER_KEY.eq(format!("user:{user}")))
+        .order_by(taskflow_thread_follow::ID.desc())
+        .limit(MAX_FOLLOWS)
         .fetch()
         .await
         .map_err(internal)?;

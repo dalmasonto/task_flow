@@ -113,6 +113,9 @@ pub fn router() -> Router {
         )
         .route("/api/taskflow/channels/{channel}/threads/{root}/read", post(crate::follows::mark_read))
         .route("/api/taskflow/projects/{project}/threads/following", get(crate::follows::following))
+        // #5988: ephemeral typing events.
+        .route("/api/taskflow/channels/{channel}/typing", post(crate::typing::user_typing))
+        .route("/api/taskflow/agents/channels/{channel}/typing", post(crate::typing::agent_typing))
         // Mint an agent identity (human-authed): create/reuse a stable
         // `TaskflowAgent` + a fresh credential; returns the raw key once.
         .route("/api/taskflow/agents/link", post(views::link_agent))

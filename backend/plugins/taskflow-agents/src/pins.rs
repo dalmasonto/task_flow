@@ -78,27 +78,30 @@ impl Who {
     async fn label(&self, project: i64) -> Result<String, ApiError> {
         match self {
             Who::Agent { label, .. } => Ok(label.clone()),
-            Who::User(u) => {
-                let name = TaskflowProjectMember::objects()
-                    .filter(taskflow_project_member::PROJECT.eq(project) & taskflow_project_member::USER.eq(*u))
-                    .first()
-                    .await
-                    .map_err(internal)?
-                    .map(|m| m.display_name)
-                    .filter(|n| !n.trim().is_empty());
-                Ok(match name {
-                    Some(n) => n,
-                    None => AuthUser::objects()
-                        .filter(auth_user::ID.eq(*u))
-                        .first()
-                        .await
-                        .map_err(internal)?
-                        .map(|u| u.username)
-                        .unwrap_or_else(|| format!("user {u}")),
-                })
-            }
+            Who::User(u) => person_label(*u, project).await,
         }
     }
+}
+
+/// A person's label in a project: their member name, else their username.
+pub(crate) async fn person_label(u: i64, project: i64) -> Result<String, ApiError> {
+    let name = TaskflowProjectMember::objects()
+        .filter(taskflow_project_member::PROJECT.eq(project) & taskflow_project_member::USER.eq(u))
+        .first()
+        .await
+        .map_err(internal)?
+        .map(|m| m.display_name)
+        .filter(|n| !n.trim().is_empty());
+    Ok(match name {
+        Some(n) => n,
+        None => AuthUser::objects()
+            .filter(auth_user::ID.eq(u))
+            .first()
+            .await
+            .map_err(internal)?
+            .map(|u| u.username)
+            .unwrap_or_else(|| format!("user {u}")),
+    })
 }
 
 /// The room, if the caller can see it.
