@@ -990,3 +990,56 @@ pub struct TaskflowTaskEvidence {
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
 }
+
+/// #5949: a pinned message. Its own table, never a column on the message (a
+/// message write re-types it into every agent pane, #107). One row per message;
+/// written only by `pins.rs`, which derives the pinner from the caller.
+/// `channel` is denormalized for the per-room list and its realtime group.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["message"]], indexes = [["channel", "id"]])]
+pub struct TaskflowMessagePin {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(choices, default = "user")]
+    pub pinned_by_kind: TaskflowChannelMemberKind,
+    #[umbral(on_delete = "set_null")]
+    pub pinned_by_user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "set_null")]
+    pub pinned_by_agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub pinned_by_label: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// #5949: one reaction (an allowlisted short name) by one person or agent on
+/// one message. Toggled by `pins.rs`; unique per (message, emoji, reactor)
+/// through `reactor_key` (`user:<id>` / `agent:<id>`).
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, umbral::orm::Model)]
+#[umbral(unique_together = [["message", "emoji", "reactor_key"]], indexes = [["channel", "message", "id"]])]
+pub struct TaskflowMessageReaction {
+    pub id: i64,
+    #[umbral(on_delete = "cascade")]
+    pub project: ForeignKey<TaskflowProject>,
+    #[umbral(on_delete = "cascade")]
+    pub channel: ForeignKey<TaskflowAgentChannel>,
+    #[umbral(on_delete = "cascade")]
+    pub message: ForeignKey<TaskflowAgentMessage>,
+    #[umbral(string, max_length = 24)]
+    pub emoji: String,
+    #[umbral(string, max_length = 40)]
+    pub reactor_key: String,
+    #[umbral(on_delete = "cascade")]
+    pub user: Option<ForeignKey<AuthUser>>,
+    #[umbral(on_delete = "cascade")]
+    pub agent: Option<ForeignKey<TaskflowAgent>>,
+    #[umbral(string, max_length = 160)]
+    pub label: String,
+    #[umbral(noedit, auto_now_add)]
+    pub created_at: Option<DateTime<Utc>>,
+}

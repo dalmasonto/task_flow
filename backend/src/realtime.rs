@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowReviewRequest, TaskflowTaskEvidence, TaskflowTerminalInput,
+    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowMessagePin, TaskflowMessageReaction, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowReviewRequest, TaskflowTaskEvidence, TaskflowTerminalInput,
 };
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
@@ -54,6 +54,9 @@ const MESSAGE_ATTACHMENTS: &str = "message_attachments";
 /// #1099. Id-only, like every chat table: the group is per-PROJECT but answers
 /// follow their CHANNEL, so a projected value would leak DM answers.
 const MESSAGE_ANSWERS: &str = "message_answers";
+/// #5949. Id-only like answers: pins and reactions follow their CHANNEL.
+const MESSAGE_PINS: &str = "message_pins";
+const MESSAGE_REACTIONS: &str = "message_reactions";
 /// #1095. Id-only for the same reason as answers: claims follow their channel.
 const MESSAGE_CLAIMS: &str = "message_claims";
 /// #1096. Id-only: a DM's state is the DM's, and the group is per-project.
@@ -265,6 +268,8 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowMessageAttachment>(Expose::to_group_with(|ev| {
             group_for(MESSAGE_ATTACHMENTS, &ev.instance)
         }))
+        .expose::<TaskflowMessagePin>(Expose::to_group_with(|ev| group_for(MESSAGE_PINS, &ev.instance)))
+        .expose::<TaskflowMessageReaction>(Expose::to_group_with(|ev| group_for(MESSAGE_REACTIONS, &ev.instance)))
         .expose::<TaskflowMessageAnswer>(Expose::to_group_with(|ev| {
             group_for(MESSAGE_ANSWERS, &ev.instance)
         }))
@@ -519,6 +524,8 @@ const ALL_SUFFIXES: &[&str] = &[
     MESSAGES,
     MESSAGE_ATTACHMENTS,
     MESSAGE_ANSWERS,
+    MESSAGE_PINS,
+    MESSAGE_REACTIONS,
     MESSAGE_CLAIMS,
     CHANNEL_STATES,
     CHANNELS,

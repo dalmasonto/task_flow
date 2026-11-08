@@ -100,6 +100,8 @@ pub fn install() {
         register_model::<agents::TaskflowAgentPrompt>();
         register_model::<agents::TaskflowTaskReview>();
         register_model::<agents::TaskflowTerminalInput>();
+        register_model::<agents::TaskflowMessagePin>();
+        register_model::<agents::TaskflowMessageReaction>();
         register_model::<agents::TaskflowRealtimeTicket>();
 
         register_model::<design::DesignFile>();

@@ -23,6 +23,8 @@ pub mod agent_auth;
 pub mod answers;
 // #5918: room edit, remove/leave, archive.
 pub mod channel_admin;
+// #5949: pins and reactions.
+pub mod pins;
 pub mod channel_state;
 pub mod claims;
 // #1125: post_save for a row written by a guarded column update.
@@ -76,6 +78,8 @@ impl Plugin for TaskflowAgentsPlugin {
             umbral::migrate::ModelMeta::for_::<models::TaskflowAgentMessage>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAttachment>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageAnswer>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessagePin>(),
+            umbral::migrate::ModelMeta::for_::<models::TaskflowMessageReaction>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowMessageClaim>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowWakeRule>(),
             umbral::migrate::ModelMeta::for_::<models::TaskflowChannelState>(),

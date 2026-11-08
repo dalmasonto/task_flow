@@ -43,7 +43,7 @@ fn internal<E: std::fmt::Display>(e: E) -> ApiError {
 
 /// The comparison form: NFKC (so full-width and other compatibility forms
 /// fold to their plain letters), lowercased, inner whitespace collapsed.
-fn norm(name: &str) -> String {
+pub(crate) fn norm(name: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     let folded: String = name.nfkc().collect::<String>().to_lowercase();
     folded.split_whitespace().collect::<Vec<_>>().join(" ")

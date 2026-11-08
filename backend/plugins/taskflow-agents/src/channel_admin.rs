@@ -20,7 +20,7 @@
 //! unarchiving (and leaving).
 //!
 //! Title: 1-80 characters, whitespace collapsed, unique among the project's
-//! non-DM rooms ignoring case (409 `title_taken`). Topic: at most 280. The
+//! non-DM rooms after NFKC and case folding (409 `title_taken`). Topic: at most 280. The
 //! last person can't leave a Group (409 `last_human`); removals take a
 //! `FOR UPDATE SKIP LOCKED` lock on the room row (409 `busy`), so two leaves
 //! at once can't empty it.
@@ -175,14 +175,16 @@ pub async fn patch(RequireAuth(user): RequireAuth<i64>, Path(channel): Path<i64>
             if t.is_empty() || t.chars().count() > MAX_TITLE || t.chars().any(char::is_control) {
                 return Err(err(StatusCode::BAD_REQUEST, "invalid", "A room name is 1-80 characters."));
             }
-            let want = t.to_lowercase();
+            // NFKC + lowercase + collapsed whitespace (#1078's normaliser), so
+            // `Ｄesign` and `design` are the same name (#5952).
+            let want = crate::profile::norm(&t);
             let taken = TaskflowAgentChannel::objects()
                 .filter(taskflow_agent_channel::PROJECT.eq(c.channel.project.id()))
                 .fetch()
                 .await
                 .map_err(internal)?
                 .into_iter()
-                .any(|o| o.id != c.channel.id && o.kind != TaskflowChannelKind::Direct && collapse(&o.title).to_lowercase() == want);
+                .any(|o| o.id != c.channel.id && o.kind != TaskflowChannelKind::Direct && crate::profile::norm(&o.title) == want);
             if taken {
                 return Err(err(StatusCode::CONFLICT, "title_taken", "Another room in this project already has that name."));
             }

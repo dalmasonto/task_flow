@@ -94,6 +94,8 @@ async fn editing_a_room() {
     let r = app.patch_as(w.creator, &url, json!({ "title": "OPS" })).await;
     assert_eq!(r.status(), 409);
     assert_eq!(r.json().await["error"], "title_taken");
+    // Full-width letters fold to the same name (NFKC).
+    assert_eq!(app.patch_as(w.creator, &url, json!({ "title": "\u{FF2F}ps" })).await.status(), 409);
     assert_eq!(app.patch_as(w.creator, &url, json!({ "title": "x".repeat(81) })).await.status(), 400);
     assert_eq!(app.patch_as(w.creator, &url, json!({ "title": "  " })).await.status(), 400);
     assert_eq!(app.patch_as(w.creator, &url, json!({ "topic": "x".repeat(281) })).await.status(), 400);

@@ -74,6 +74,15 @@ pub fn router() -> Router {
             delete(crate::channel_admin::remove_member),
         )
         .route("/api/taskflow/channels/{channel}/archive", post(crate::channel_admin::archive))
+        // #5949: pins and reactions, people and agents (pins.rs).
+        .route("/api/taskflow/channels/{channel}/pins", get(crate::pins::user_list_pins).post(crate::pins::user_pin))
+        .route("/api/taskflow/channels/{channel}/pins/{message}", delete(crate::pins::user_unpin))
+        .route("/api/taskflow/channels/{channel}/messages/{message}/reactions", post(crate::pins::user_react))
+        .route("/api/taskflow/channels/{channel}/reactions", get(crate::pins::user_reactions))
+        .route("/api/taskflow/agents/channels/{channel}/pins", get(crate::pins::agent_list_pins).post(crate::pins::agent_pin))
+        .route("/api/taskflow/agents/channels/{channel}/pins/{message}", delete(crate::pins::agent_unpin))
+        .route("/api/taskflow/agents/channels/{channel}/messages/{message}/reactions", post(crate::pins::agent_react))
+        .route("/api/taskflow/agents/channels/{channel}/reactions", get(crate::pins::agent_reactions))
         .route("/api/taskflow/channels/{channel}/unarchive", post(crate::channel_admin::unarchive))
         // #660: a conversation's files, newest first — the Files tab's source.
         // A dedicated route (not auto-REST) because each item carries the
