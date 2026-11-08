@@ -252,7 +252,7 @@ function ChatWorkspace({ project }: { project: Project }) {
   const rootIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && !m.threadRoot).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0)
   const summaries = useLoad(channelId && rootIds.length ? `threads|${channelId}|${rootIds.join(",")}` : null, (signal) => fetchThreadSummaries(channelId!, rootIds.slice(-200), signal))
   const reloadSummaries = summaries.reload
-  useEffect(() => subscribeThreadEvents((e) => (e.kind === "delete" || e.message.channel === channelId ? reloadSummaries() : undefined)), [channelId, reloadSummaries])
+  useEffect(() => subscribeThreadEvents((e) => (e.kind === "delete" || (e.message.thread_root != null && e.message.channel === channelId) ? reloadSummaries() : undefined)), [channelId, reloadSummaries])
   const threadSummaries = useMemo(
     () => Object.fromEntries(Object.entries(summaries.data ?? {}).map(([k, v]) => [k, { replyCount: v.reply_count, lastReplyAt: v.last_reply_at }])),
     [summaries.data],

@@ -3,8 +3,8 @@
 /// App owns the only EventSource (a second one wedges realtime app-wide), so
 /// a surface that needs rows App doesn't keep — thread-only replies are kept
 /// OUT of the channel feed — subscribes here instead. App publishes every
-/// message row that belongs to a thread (`thread_root` set), whether or not
-/// it also shows in the channel, and every deletion of one.
+/// message row it receives (replies, and roots, whose edits a panel shows)
+/// and every message deletion; listeners ignore what isn't theirs.
 import type { TaskflowAgentMessage } from "@/api/client"
 
 export type ThreadEvent = { kind: "upsert"; message: TaskflowAgentMessage } | { kind: "delete"; id: number }

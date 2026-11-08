@@ -888,8 +888,9 @@ function App() {
         case taskflowTables.agentMessages: {
           const message = row as TaskflowAgentMessage
           if (message.project !== projectId) return
-          // #1132: thread rows go to the thread panel; thread-only ones stay out of the feed.
-          if (message.thread_root != null) publishThreadEvent({ kind: "upsert", message })
+          // #1132: every message goes to the thread bus (a root's edit must reach
+          // an open panel too); thread-only ones stay out of the feed.
+          publishThreadEvent({ kind: "upsert", message })
           if (message.in_channel === false) return
           applyWorkspaceUpdate(projectId, (workspace) => ({
             ...workspace,

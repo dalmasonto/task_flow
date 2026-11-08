@@ -57,6 +57,9 @@ export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: 
   const [draft, setDraft] = useState("")
   const [alsoSend, setAlsoSend] = useState(false)
   const [sending, setSending] = useState(false)
+  // The root was deleted while open: its replies were released into the
+  // channel (a column update, so no live event); say so instead of showing it.
+  const [rootDeleted, setRootDeleted] = useState(false)
   const thread = loaded?.key === key ? loaded.thread : null
   const error = loaded?.key === key ? loaded.error : null
 
@@ -72,6 +75,7 @@ export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: 
   useEffect(
     () =>
       subscribeThreadEvents((e) => {
+        if (e.kind === "delete" && e.id === root) setRootDeleted(true)
         setLoaded((cur) => (cur && cur.key === key && cur.thread ? { ...cur, thread: mergeThread(cur.thread, e, root) } : cur))
       }),
     [key, root],
@@ -110,7 +114,9 @@ export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: 
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {error ? (
+        {rootDeleted ? (
+          <p className="text-sm text-muted-foreground">This message was deleted. Its replies are back in the channel; reopen the conversation to see them.</p>
+        ) : error ? (
           <p className="text-sm text-destructive">{error}</p>
         ) : !thread ? (
           <div className="space-y-3">
@@ -148,14 +154,14 @@ export function ThreadPanel({ channel, root, currentUser, onClose }: { channel: 
           rows={2}
           placeholder="Reply in thread"
           aria-label="Thread reply"
-          disabled={!thread}
+          disabled={!thread || rootDeleted}
         />
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox checked={alsoSend} onCheckedChange={(v) => setAlsoSend(v === true)} />
             Also send to the channel
           </label>
-          <Button type="submit" size="sm" className="ml-auto" disabled={!draft.trim() || sending || !thread}>
+          <Button type="submit" size="sm" className="ml-auto" disabled={!draft.trim() || sending || !thread || rootDeleted}>
             {sending ? <Spinner /> : <SendIcon />}
             Send reply
           </Button>
