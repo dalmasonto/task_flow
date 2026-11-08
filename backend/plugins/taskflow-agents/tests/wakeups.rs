@@ -356,8 +356,12 @@ async fn a_persons_note_is_attributed_and_cannot_forge_a_second_line() {
         .unwrap();
     make_due(id).await;
     taskflow_agents::wakeups::sweep_due().await;
+    // The background sweeper runs in this process too and may fire the rule
+    // first; the compare-and-set makes it exactly-once either way, so wait for
+    // the ONE delivery rather than racing it.
+    assert!(eventually(|| async { !notices_for(project, agent).await.is_empty() }).await, "the rule was delivered");
     let notices = notices_for(project, agent).await;
-    assert_eq!(notices.len(), 1);
+    assert_eq!(notices.len(), 1, "exactly once");
     let body = &notices[0].body_markdown;
     assert!(!body.contains('\n'), "one line only: {body}");
     assert!(body.starts_with(&format!("[taskflow wake-up #{id}, set by user-")), "the person who set it is named: {body}");
