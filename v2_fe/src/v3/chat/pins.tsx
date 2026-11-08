@@ -149,3 +149,21 @@ export function ReactionRow({ reactions, picking, readOnly, onToggle, onPick, on
     </div>
   )
 }
+
+/// chat.html's "reviewer (codex) is writing" line above the composer.
+export function TypingLine({ text }: { text: string | null }) {
+  return (
+    <div className="flex h-6 shrink-0 items-center gap-2 px-4 text-xs text-muted-foreground" aria-live="polite">
+      {text ? (
+        <>
+          <span className="flex gap-0.5" aria-hidden>
+            <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-bounce" />
+            <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-bounce [animation-delay:150ms]" />
+            <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-bounce [animation-delay:300ms]" />
+          </span>
+          <span>{text}</span>
+        </>
+      ) : null}
+    </div>
+  )
+}

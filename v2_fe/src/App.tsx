@@ -40,6 +40,7 @@ import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskCreate, TaskflowTaskStatus, TaskflowTaskUpdate } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
 import { publishThreadEvent } from "@/lib/thread-bus"
+import { publishTyping, TYPING_LIVE, typingGroup } from "@/lib/typing"
 import { archiveTaskflowProject, deleteProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice, type PersonActivityAction } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
@@ -1119,7 +1120,11 @@ function App() {
 
     const projectId = activeProjectId ? liveId(activeProjectId) : null
     return openTaskflowRealtimeStream({
-      groups: taskflowRealtimeGroups(projectId),
+      // #5988: typing joins only once the backend serving it is deployed.
+      groups: [...taskflowRealtimeGroups(projectId), ...(TYPING_LIVE && projectId != null ? [typingGroup(projectId)] : [])],
+      onCustom: (action, data) => {
+        if (action === "typing") publishTyping(data)
+      },
       onEvent: (event) => {
         // Design events ride this one stream (the design page opens no stream of
         // its own — a second EventSource wedges realtime app-wide). They carry

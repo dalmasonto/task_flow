@@ -37,7 +37,9 @@ import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions, typ
 import { useChatSummary } from "./use-chat-summary"
 import { useRoomExtras } from "./use-room-extras"
 import { reactionIds } from "./pins-logic"
-import { MessageExtraActions, PinBar, PinnedMark, ReactionRow } from "./pins"
+import { MessageExtraActions, PinBar, PinnedMark, ReactionRow, TypingLine } from "./pins"
+import { useTypers } from "./use-typing"
+import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
 import type { FollowedThread } from "@/lib/chat-summary-api"
 import { focusComposerIn } from "./focus"
 import { ThreadPanel } from "./ThreadPanel"
@@ -101,8 +103,10 @@ function RowIcon({ row, agentRuntime }: { row: ChatRow; agentRuntime?: string | 
   )
 }
 
-function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidates, onCreate, hasMentions, following, roomTitle, onOpenThread }: {
+function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidates, onCreate, hasMentions, following, roomTitle, onOpenThread, typingIn }: {
   rows: ChatRow[]
+  /// "X is writing" for a room, replacing its preview (chat.html, #5988).
+  typingIn: (channel: number) => string | null
   /// The server's mention counts are in (#5983): show the Mentions tab.
   hasMentions: boolean
   /// Threads I follow; null on a server without them (no Threads tab).
@@ -140,6 +144,7 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
 
   const item = (r: ChatRow) => {
     const badge = rowBadge(r)
+    const writing = r.channelId != null ? typingIn(r.channelId) : null
     return (
     <li key={r.id}>
       <button
@@ -158,7 +163,11 @@ function ChatList({ rows, archived, activeId, onOpen, runtimeOf, onNew, candidat
             {r.at ? <time className="shrink-0 text-xs text-muted-foreground">{timeAgo(r.at, now)}</time> : null}
           </span>
           <span className="flex items-center gap-2">
-            <span className={cn("min-w-0 flex-1 truncate text-xs", r.unread ? "text-foreground" : "text-muted-foreground")}>{r.preview}</span>
+            {writing ? (
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground italic">{writing}</span>
+            ) : (
+              <span className={cn("min-w-0 flex-1 truncate text-xs", r.unread ? "text-foreground" : "text-muted-foreground")}>{r.preview}</span>
+            )}
             {badge ? (
               <span className={cn("shrink-0 rounded-full px-1.5 text-xs font-semibold tabular-nums", badge.mention ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")} aria-label={badge.label}>
                 {badge.text}
@@ -477,6 +486,10 @@ function ChatWorkspace({ project }: { project: Project }) {
         />
       )
     : undefined
+  // #5988: "X is writing". Shared rooms only: the server drops private
+  // rooms' events (they'd tell the whole project), so don't send them.
+  const typers = useTypers(currentUser ? `user:${currentUser.id}` : null)
+  const signalTyping = TYPING_LIVE && channel != null && !channel.archived && channel.kind !== "direct" && channel.kind !== "group"
   const renderMeta = (m: AgentMessage) => (extras.pinned.has(Number(m.id)) ? <PinnedMark /> : null)
   const panelOpen = !!channel && (isWide ? panelPref && !threadOpen : panelSheet)
   const panel =
@@ -528,6 +541,7 @@ function ChatWorkspace({ project }: { project: Project }) {
               following={chatSummary.following}
               roomTitle={roomTitle}
               onOpenThread={openFollowedThread}
+              typingIn={(ch) => typingText(typers.get(ch) ?? [])}
             />
           </aside>
         ) : null}
@@ -568,6 +582,8 @@ function ChatWorkspace({ project }: { project: Project }) {
                   {...outletContext}
                   bare
                   readOnly={!!channel?.archived}
+                  onComposerInput={signalTyping ? () => void sendTyping(channel.id) : undefined}
+                  aboveComposer={TYPING_LIVE && channelId != null ? <TypingLine text={typingText(typers.get(channelId) ?? [])} /> : null}
                   messageLayout="row"
                   renderAvatar={renderAvatar}
                   senderBadge={senderBadge}

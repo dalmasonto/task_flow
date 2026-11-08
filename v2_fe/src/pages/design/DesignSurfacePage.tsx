@@ -1,6 +1,9 @@
 /// The Design Surface (§9.1): toolbar, left panel, infinite canvas, right
 /// panel. The canvas is the hero — everything else stays quiet and collapsible.
 
+import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
+import { useTypers } from "@/v3/chat/use-typing"
+import { TypingLine } from "@/v3/chat/pins"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { sandboxTokenIsFresh, sandboxTokenSource } from "@/lib/sandbox-token"
@@ -1848,6 +1851,9 @@ function DesignChatRail({
   // a message sitting in it renders whether or not its own flag agrees — and a
   // message in ordinary chat can no longer reach this rail at all.
   const designChat = outletContext.selectedChat
+  // #5988: "X is writing" in the design room's captions (a shared room).
+  const typers = useTypers(currentUser ? `user:${currentUser.id}` : null)
+  const roomId = designChat?.liveChannelId ?? null
 
   if (!designChat) {
     return <EmptyCanvas message={noDesignRoomMessage(liveWorkspace)} />
@@ -1868,6 +1874,8 @@ function DesignChatRail({
       }}
       senderBadge={(from) => (liveWorkspace?.agents.some((a) => a.display_name === from) ? "agent" : null)}
       renderBody={renderBody}
+      onComposerInput={TYPING_LIVE && roomId != null ? () => void sendTyping(roomId) : undefined}
+      aboveComposer={TYPING_LIVE && roomId != null ? <TypingLine text={typingText(typers.get(roomId) ?? [])} /> : null}
       contextChip={contextChip}
       onClearContextChip={onClearContextChip}
       pageMentions={pageMentions}

@@ -81,6 +81,8 @@ export function AgentsConversationView({
   renderMeta,
   bare = false,
   readOnly = false,
+  onComposerInput,
+  aboveComposer,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -122,6 +124,10 @@ export function AgentsConversationView({
   /// An archived room: no composer (the server refuses posts there). Hidden,
   /// not unmounted, so a draft survives an Unarchive.
   readOnly?: boolean
+  /// The person typed in the composer (v3: "X is writing" signals).
+  onComposerInput?: () => void
+  /// Just above the composer (v3: who else is writing).
+  aboveComposer?: ReactNode
 }) {
   const compact = variant === "compact"
   const isDesign = variant === "design"
@@ -921,6 +927,7 @@ export function AgentsConversationView({
           </div>
         ) : null}
 
+        {readOnly ? null : aboveComposer}
         <form className={cn("shrink-0 border-t bg-background p-3", readOnly && "hidden")} onSubmit={handleSendMessage}>
           {emojiPickerOpen ? (
             <button
@@ -1037,6 +1044,7 @@ export function AgentsConversationView({
               onChange={(event) => {
                 const value = event.target.value
                 setDraftMessage(value)
+                if (value.trim()) onComposerInput?.()
                 // #29: opening/updating an @mention as the human types.
                 setMention(detectMention(value, event.target.selectionStart ?? value.length))
               }}

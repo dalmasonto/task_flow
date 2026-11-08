@@ -329,6 +329,8 @@ export type RealtimeStreamOptions = {
   /// Called on every health transition so the UI can show a "reconnecting…"
   /// hint instead of silently freezing.
   onStatusChange?: (status: RealtimeStatus) => void
+  /// Server-sent events that aren't row changes (#5988 `typing`), by name.
+  onCustom?: (action: string, data: unknown, channel: string) => void
 }
 
 /// Open one SSE connection for every group and keep it alive. Returns a closer.
@@ -429,7 +431,10 @@ export function openTaskflowRealtimeStream(options: RealtimeStreamOptions): () =
       }
       const { c: channel, e: action, d: row } = envelope
       if (!channel || !action) return
-      if (action !== "created" && action !== "updated" && action !== "deleted") return
+      if (action !== "created" && action !== "updated" && action !== "deleted") {
+        options.onCustom?.(action, row, channel)
+        return
+      }
       const table = realtimeTableForChannel(channel)
       if (!table) return
       options.onEvent({ table, action, row: row as Record<string, unknown> })
