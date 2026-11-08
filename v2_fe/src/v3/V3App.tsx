@@ -4,14 +4,13 @@
 /// Pages are ported one by one (stage 2). Until a page lands, its route shows an
 /// honest "not ported yet" state with a link to the v2 page that still works.
 import { lazy, Suspense, type ComponentType } from "react"
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom"
+import { Link, Route, Routes, useLocation } from "react-router-dom"
 import { ArrowUpRightIcon, HammerIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Toaster } from "@/components/ui/sonner"
 
-import { V3_HOME } from "./routes"
 import { activeNavId, V2_FALLBACK, V3_NAV } from "./shell/nav"
 import { useIsDark } from "./shell/theme-action"
 import { V3Shell } from "./shell/V3Shell"
@@ -72,6 +71,13 @@ const AgentNewPage = lazyNamed(() => import("./agents/AgentNewPage"), "AgentNewP
 const InboxPage = lazyNamed(() => import("./inbox/InboxPage"), "InboxPage")
 const WakeupsPage = lazyNamed(() => import("./agents/WakeupsPage"), "WakeupsPage")
 const AgentLaunchPage = lazyNamed(() => import("./agents/AgentLaunchPage"), "AgentLaunchPage")
+const ActivityPage = lazyNamed(() => import("./activity/ActivityPage"), "ActivityPage")
+const ReviewsPage = lazyNamed(() => import("./reviews/ReviewsPage"), "ReviewsPage")
+const DecisionsPage = lazyNamed(() => import("./decisions/DecisionsPage"), "DecisionsPage")
+const DailyUpdatePage = lazyNamed(() => import("./daily/DailyUpdatePage"), "DailyUpdatePage")
+const OverviewPage = lazyNamed(() => import("./overview/OverviewPage"), "OverviewPage")
+const UsagePage = lazyNamed(() => import("./usage/UsagePage"), "UsagePage")
+const HomePage = lazyNamed(() => import("./home/HomePage"), "HomePage")
 
 export function V3App() {
   useV3Document()
@@ -82,7 +88,7 @@ export function V3App() {
       <Toaster theme={dark ? "dark" : "light"} position="bottom-right" />
       <Suspense fallback={<PageLoading />}>
         <Routes>
-          <Route path="/v3/home" element={<Navigate to={V3_HOME} replace />} />
+          <Route path="/v3/home" element={<HomePage />} />
           {/* Onboarding (group 2): full-screen, no app shell, as in the design. */}
           <Route path="/v3/onboarding" element={<OnboardingTeamPage />} />
           <Route path="/v3/onboarding/project" element={<OnboardingProjectPage />} />
@@ -108,6 +114,13 @@ export function V3App() {
         <Route path="/v3/agents/wakeups" element={<WakeupsPage />} />
         <Route path="/v3/agents/launch" element={<AgentLaunchPage />} />
         <Route path="/v3/agents/:id" element={<AgentPage />} />
+        <Route path="/v3/activity" element={<ActivityPage />} />
+        <Route path="/v3/reviews" element={<ReviewsPage />} />
+        <Route path="/v3/decisions" element={<DecisionsPage />} />
+        <Route path="/v3/overview" element={<OverviewPage />} />
+        <Route path="/v3/usage" element={<UsagePage />} />
+        <Route path="/v3/daily-update" element={<DailyUpdatePage />} />
+        <Route path="/v3/daily-update/:date" element={<DailyUpdatePage />} />
           <Route path="*" element={<NotPortedYet />} />
         </Routes>
       </Suspense>

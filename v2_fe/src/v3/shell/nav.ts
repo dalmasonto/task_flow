@@ -1,11 +1,14 @@
 /// The v3 sidebar's navigation, from the design's `tf-shell` (docs/v3-design/
 /// components/tf-shell.js). Only surfaces that exist are listed: stage-3 items
-/// (usage, decisions, daily update, database) join once their pages are built,
+/// (database) join once their pages are built,
 /// so the shell never links to something that isn't there.
 import {
   ActivityIcon,
   BotIcon,
+  CalendarClockIcon,
   CheckCheckIcon,
+  GaugeIcon,
+  HouseIcon,
   ImageIcon,
   InboxIcon,
   KanbanIcon,
@@ -13,6 +16,7 @@ import {
   LayoutDashboardIcon,
   MessagesSquareIcon,
   PaletteIcon,
+  ScaleIcon,
   SettingsIcon,
   UserPlusIcon,
   WrenchIcon,
@@ -42,6 +46,7 @@ export const V3_NAV: NavGroup[] = [
   {
     title: "Work",
     items: [
+      { id: "home", label: "Home", icon: HouseIcon, href: "/v3/home" },
       { id: "inbox", label: "Inbox", icon: InboxIcon, href: "/v3/inbox" },
       {
         id: "overview",
@@ -76,6 +81,24 @@ export const V3_NAV: NavGroup[] = [
         label: "Activity",
         icon: ActivityIcon,
         href: "/v3/activity",
+      },
+      {
+        id: "usage",
+        label: "Usage",
+        icon: GaugeIcon,
+        href: "/v3/usage",
+      },
+      {
+        id: "decisions",
+        label: "Decisions",
+        icon: ScaleIcon,
+        href: "/v3/decisions",
+      },
+      {
+        id: "daily-update",
+        label: "Daily update",
+        icon: CalendarClockIcon,
+        href: "/v3/daily-update",
       },
     ],
   },
