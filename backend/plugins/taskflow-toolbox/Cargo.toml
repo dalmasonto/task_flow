@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-umbral = "0.0.10"
-umbral-auth = "0.0.10"
+umbral = "0.0.13"
+umbral-auth = "0.0.13"
 taskflow-projects = { path = "../taskflow-projects" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,7 +19,7 @@ sha2 = "0.10"
 taskflow-agents = { path = "../taskflow-agents" }
 
 [dev-dependencies]
-umbral-testing = "0.0.10"
+umbral-testing = "0.0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 http = "1"
 # #700: the test harness boots the agents plugin (agent credentials resolve

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc::Receiver;
 use umbral::orm::ForeignKey;
 use umbral_auth::{AuthPlugin, AuthUser, token::AuthToken};
-use umbral_realtime::{Event, Realtime};
+use umbral_realtime::Realtime;
 use umbral_testing::{TestClient, boot};
 
 use taskflow_agents::TaskflowAgentsPlugin;
@@ -98,19 +98,19 @@ fn hdr(v: String) -> HeaderValue {
 }
 
 /// Wait for the next event on `rx`; panics with `why` if none arrives.
-async fn next(rx: &mut Receiver<Event>, why: &str) -> (String, String, Value) {
+async fn next(rx: &mut Receiver<std::sync::Arc<umbral_realtime::Delivery>>, why: &str) -> (String, String, Value) {
     let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
         .await
         .unwrap_or_else(|_| panic!("no realtime event: {why}"))
         .expect("connection closed");
-    (ev.channel, ev.event, ev.data)
+    (ev.channel.clone(), ev.event.clone(), ev.data.clone())
 }
 
 /// Everything already buffered.
-fn drain(rx: &mut Receiver<Event>) -> Vec<(String, String, Value)> {
+fn drain(rx: &mut Receiver<std::sync::Arc<umbral_realtime::Delivery>>) -> Vec<(String, String, Value)> {
     let mut out = Vec::new();
     while let Ok(ev) = rx.try_recv() {
-        out.push((ev.channel, ev.event, ev.data));
+        out.push((ev.channel.clone(), ev.event.clone(), ev.data.clone()));
     }
     out
 }

@@ -22,9 +22,8 @@ use taskflow_projects::models::TaskflowProject;
 
 /// What kind of artifact a `design_file` row holds. Drives which validation
 /// rules apply on write (see `validation.rs`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum DesignFileKind {
     Token,
     Component,
@@ -142,18 +141,16 @@ pub struct DesignFileVersion {
 /// How far a comment's change should reach. `component` edits the shared
 /// component file; `instance` expresses the change as attributes on the one
 /// usage (the reversible default).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum CommentScope {
     Component,
     Instance,
 }
 
 /// Lifecycle: open → sent (dispatched to an agent) → addressed | dismissed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum CommentStatus {
     Open,
     Sent,
@@ -223,9 +220,8 @@ pub struct DesignComment {
 
 /// Which arrangement the canvas uses. Stored as a column, so the choice is
 /// shared per project rather than per viewer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum DesignView {
     #[default]
     Rows,

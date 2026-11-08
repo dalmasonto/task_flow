@@ -319,7 +319,7 @@ pub async fn seed_task(project: i64, title: &str) -> i64 {
             id: 0,
             project: ForeignKey::new(project),
             title: title.to_string(),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status: TaskflowTaskStatus::NotStarted,
             priority: TaskflowTaskPriority::Normal,

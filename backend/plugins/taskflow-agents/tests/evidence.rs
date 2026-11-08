@@ -27,7 +27,7 @@ async fn mint_agent(app: &TestApp, project: i64, label: &str) -> (String, i64) {
 async fn seed_task(project: i64) -> i64 {
     TaskflowTask::objects()
         .create(TaskflowTask {
-            id: 0, project: ForeignKey::new(project), title: "ship it".into(), description_markdown: String::new(), notes_markdown: None,
+            id: 0, project: ForeignKey::new(project), title: "ship it".into(), description_markdown: None, notes_markdown: None,
             status: TaskflowTaskStatus::InProgress, priority: TaskflowTaskPriority::Normal, sort_order: 0, created_by: None, assigned_user: None,
             assigned_agent_id: None, review_gate: None, estimate_minutes: None, operator_user: None, operator_agent_id: None,
             created_by_agent_id: None, assignee_label: None, due_at: None, closed_at: None, github_issue_number: None,

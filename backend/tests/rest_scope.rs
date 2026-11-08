@@ -14,7 +14,7 @@ use axum::Router;
 use axum::body::Body;
 use http::Method;
 use http::header::{HeaderName, HeaderValue};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::OnceCell;
 use umbral::orm::ForeignKey;
 use umbral_auth::{AuthPlugin, AuthUser};
@@ -194,7 +194,7 @@ async fn make_task(project: i64, title: &str) -> i64 {
             id: 0,
             project: ForeignKey::new(project),
             title: title.to_string(),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status: TaskflowTaskStatus::NotStarted,
             priority: TaskflowTaskPriority::Normal,
@@ -1399,4 +1399,33 @@ async fn message_claims_are_channel_scoped_and_read_only() {
     )
     .await;
     assert!(!(200..300).contains(&status), "a client created a claim through REST ({status})");
+}
+
+/// #1124 follow-up: a task's description is optional. REST create and update
+/// both accept `""` (v3 sends it for an empty description and when one is
+/// cleared), and an omitted description reads back as `""`, never `null`.
+#[tokio::test]
+async fn a_task_description_may_be_empty_or_omitted_and_reads_as_a_string() {
+    let (_, seed) = app().await;
+    let (status, body) = post_as(
+        seed.alice,
+        "/api/taskflow_task/",
+        json!({ "project": seed.project_p, "title": "no description", "description_markdown": "" }),
+    )
+    .await;
+    assert_eq!(status, 201, "an empty description is accepted on create: {body}");
+    assert_eq!(body["description_markdown"], "");
+
+    let (status, body) = post_as(seed.alice, "/api/taskflow_task/", json!({ "project": seed.project_p, "title": "omitted" })).await;
+    assert_eq!(status, 201, "an omitted description is accepted: {body}");
+    let id = body["id"].as_i64().unwrap();
+    let (_, read) = get_as(seed.alice, false, &format!("/api/taskflow_task/{id}")).await;
+    assert_eq!(read["description_markdown"], "", "NULL is served as an empty string: {read}");
+
+    let (status, body) = patch_as(seed.alice, &format!("/api/taskflow_task/{id}"), json!({ "description_markdown": "now some" })).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = patch_as(seed.alice, &format!("/api/taskflow_task/{id}"), json!({ "description_markdown": "" })).await;
+    assert_eq!(status, 200, "clearing a description is accepted: {body}");
+    let (_, read) = get_as(seed.alice, false, &format!("/api/taskflow_task/{id}")).await;
+    assert_eq!(read["description_markdown"], "");
 }

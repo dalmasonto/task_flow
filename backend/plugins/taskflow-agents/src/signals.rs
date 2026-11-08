@@ -22,18 +22,15 @@
 //!   umbral-rest's dashboard PATCH runs (payload is `{ids, created}`, no
 //!   instance, hence the different extraction).
 //!
-//! What is NOT covered, verified rather than assumed: `create_project` — this
-//! app's own `POST /api/taskflow/projects` — writes through
-//! `QuerySetTx::create` (`..on_tx(tx).create(..)`, so the project and its owner
-//! membership land in one transaction) and the ORM emits **no signal at all** on
-//! that terminal (`vendor/umbral-core/src/orm/queryset/tx.rs`). So the
-//! same-transaction creation the plan's user asked for cannot be delivered by a
-//! subscriber: for that path the rooms come from the next layer, which is the
-//! backfill at boot, the `link_agent` call, or the first `create_channel`.
-//! Subscribing here is still worth it — it makes every OTHER project write
-//! self-heal a missing room, including an admin/dashboard edit — and the
-//! invariant does not rest on it: **idempotence plus the backfill are what make
-//! the outcome the same** whether or not the signal fires.
+//! Transaction writes: on umbral 0.0.10 a `QuerySetTx` write (this app's own
+//! `POST /api/taskflow/projects`, which creates the project and its owner
+//! membership in one transaction) emitted **no signal**, so its rooms came from
+//! the next layer. Since umbral 0.0.13 (gaps6 #15) the transaction buffers its
+//! signals and fires them after commit, so that path now gets its rooms here
+//! too (`a_project_created_in_a_transaction_gets_both_rooms`). The backfill at
+//! boot, `link_agent` and the first `create_channel` stay as the safety net:
+//! **idempotence plus the backfill are what make the outcome the same**
+//! whether or not a signal fires.
 //!
 //! Because a signal subscriber runs inline on the ORM write path (with a hard
 //! timeout in `umbral_core::signals`), the work here is deliberately small: two

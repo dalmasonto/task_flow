@@ -8,9 +8,8 @@ use umbral_auth::AuthUser;
 
 /// What an entry is for. A memory is prose an agent reads; a script is code an
 /// agent (or a person) runs locally.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
 pub enum ToolboxKind {
     Memory,
     Script,
@@ -18,9 +17,8 @@ pub enum ToolboxKind {
 
 /// The human gate. A script written by one agent is a `draft` until a person
 /// approves it, and the MCP tells the agent to say so before running it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
 pub enum ToolboxStatus {
     Draft,
     Approved,

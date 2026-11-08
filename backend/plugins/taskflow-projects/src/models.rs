@@ -8,18 +8,16 @@ use serde::{Deserialize, Serialize};
 use umbral::orm::{Choices, ForeignKey};
 use umbral_auth::AuthUser;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowProjectStatus {
     Active,
     Paused,
     Archived,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowProjectRole {
     Owner,
     Admin,
@@ -28,9 +26,8 @@ pub enum TaskflowProjectRole {
     Viewer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowMembershipStatus {
     Invited,
     Active,
@@ -38,9 +35,8 @@ pub enum TaskflowMembershipStatus {
     Left,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowInviteStatus {
     Pending,
     Accepted,
@@ -52,18 +48,16 @@ pub enum TaskflowInviteStatus {
 /// UI theme preference for a user. Stored as TEXT (snake_case) like every other
 /// `#[umbral(choices)]` field — no CHECK constraint, so the set is validated at
 /// the form/serde layer, not by the database.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowTheme {
     Light,
     Dark,
     System,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowEndpointEnvironment {
     Local,
     Preview,
@@ -71,9 +65,8 @@ pub enum TaskflowEndpointEnvironment {
     Production,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowEndpointHealth {
     Unknown,
     Healthy,

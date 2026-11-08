@@ -424,7 +424,7 @@ async fn a_review_on_a_roomless_project_still_reports_back() {
             id: 0,
             project: ForeignKey::new(project),
             title: "Ship the thing".to_string(),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status: TaskflowTaskStatus::PartialDone,
             priority: TaskflowTaskPriority::Normal,
@@ -1273,4 +1273,48 @@ fn the_guard_migration_carries_both_indexes_and_disturbs_no_snapshot() {
         file["snapshot_after"], previous["snapshot_after"],
         "a RunSql-only migration must not disturb the model-snapshot chain"
     );
+}
+
+/// umbral 0.0.13 (gaps6 #15): a project written inside a transaction now fires
+/// its signals after commit, so the room bridge gives it both rooms at once.
+/// Before, this path emitted nothing and the rooms waited for a later layer.
+#[tokio::test]
+async fn a_project_created_in_a_transaction_gets_both_rooms() {
+    let _app = TestApp::new().await;
+    let n = umbral_testing::seq();
+    let project = umbral::transaction(move |tx| {
+        Box::pin(async move {
+            let p = taskflow_projects::models::TaskflowProject::objects()
+                .on_tx(tx)
+                .create(taskflow_projects::models::TaskflowProject {
+                    id: 0,
+                    name: format!("Tx {n}"),
+                    slug: format!("tx-{n}"),
+                    description_markdown: String::new(),
+                    repository_url: None,
+                    default_api_base_url: None,
+                    status: taskflow_projects::models::TaskflowProjectStatus::Active,
+                    owner: None,
+                    github_repo: None,
+                    github_linked_by: None,
+                    github_default_branch: None,
+                    github_auto_mirror: false,
+                    agent_instructions_markdown: None,
+                    agent_instructions_updated_at: None,
+                    created_at: None,
+                    updated_at: None,
+                })
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(p.id)
+        })
+    })
+    .await
+    .expect("create project in a transaction");
+    let rooms = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::PROJECT.eq(project))
+        .fetch()
+        .await
+        .unwrap();
+    assert_eq!(rooms.iter().filter(|r| r.is_public).count(), 1, "one public room");
+    assert_eq!(rooms.iter().filter(|r| r.is_design).count(), 1, "one design room");
 }

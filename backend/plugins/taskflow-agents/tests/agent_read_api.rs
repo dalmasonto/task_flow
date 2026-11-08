@@ -55,7 +55,7 @@ async fn seed_task(
             id: 0,
             project: ForeignKey::new(project),
             title: title.to_string(),
-            description_markdown: String::new(),
+            description_markdown: None,
             notes_markdown: None,
             status,
             priority: TaskflowTaskPriority::Normal,

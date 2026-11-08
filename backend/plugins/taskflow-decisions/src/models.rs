@@ -22,9 +22,8 @@ use taskflow_tasks::models::TaskflowTask;
 use umbral::orm::{Choices, ForeignKey};
 use umbral_auth::AuthUser;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Choices)]
 #[choices(rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
 pub enum TaskflowDecisionStatus {
     /// Waiting on a ruling. Linked tasks are blocked.
     Open,

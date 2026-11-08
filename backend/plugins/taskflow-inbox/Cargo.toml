@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-umbral = "0.0.10"
-umbral-auth = "0.0.10"
+umbral = "0.0.13"
+umbral-auth = "0.0.13"
 taskflow-projects = { path = "../taskflow-projects" }
 taskflow-tasks = { path = "../taskflow-tasks" }
 taskflow-agents = { path = "../taskflow-agents" }
@@ -19,6 +19,6 @@ async-trait = "0.1"
 
 [dev-dependencies]
 taskflow-usage = { path = "../taskflow-usage" }
-umbral-testing = "0.0.10"
+umbral-testing = "0.0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 http = "1"

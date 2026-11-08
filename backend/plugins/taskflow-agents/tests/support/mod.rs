@@ -710,7 +710,7 @@ async fn marked_room_of(project: i64, marker: fn(&TaskflowAgentChannel) -> bool,
 /// boot backfill, the adoption retry and the sweep tests exist for.
 pub async fn seed_project_via_transaction() -> i64 {
     let n = seq();
-    umbral::transaction(move |tx| {
+    let id = umbral::transaction(move |tx| {
         Box::pin(async move {
             let project = TaskflowProject::objects()
                 .on_tx(tx)
@@ -737,7 +737,35 @@ pub async fn seed_project_via_transaction() -> i64 {
         })
     })
     .await
-    .expect("create project in a transaction")
+    .expect("create project in a transaction");
+    // umbral 0.0.13 (gaps6 #15) fires the transaction's signals after commit,
+    // so the room bridge now gives this project its rooms at once, which is
+    // what production wants (pinned by `a_project_created_in_a_transaction_gets_both_rooms`).
+    // The tests that call this need the OTHER state, a project nothing has
+    // given rooms yet (one that predates the rooms feature, the case the
+    // backfill, adoption and sweep exist for), so take the fresh rooms away
+    // again. Queryset deletes fire no per-row signal, so nothing re-adds them.
+    let rooms: Vec<i64> = TaskflowAgentChannel::objects()
+        .filter(taskflow_agent_channel::PROJECT.eq(id))
+        .fetch()
+        .await
+        .expect("list fresh rooms")
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    if !rooms.is_empty() {
+        TaskflowAgentChannelMember::objects()
+            .filter(taskflow_agent_channel_member::CHANNEL.in_(&rooms))
+            .delete()
+            .await
+            .expect("clear fresh room rosters");
+        TaskflowAgentChannel::objects()
+            .filter(taskflow_agent_channel::ID.in_(&rooms))
+            .delete()
+            .await
+            .expect("clear fresh rooms");
+    }
+    id
 }
 
 /// Seed a bare message directly in `channel` (bypassing the send endpoint), so a

@@ -351,7 +351,7 @@ async fn seed_task_inner(project: i64, title: &str, issue_number: Option<i64>) -
             id: 0,
             project: ForeignKey::new(project),
             title: title.to_string(),
-            description_markdown: "desc".to_string(),
+            description_markdown: Some("desc".to_string()),
             notes_markdown: None,
             status: TaskflowTaskStatus::NotStarted,
             priority: TaskflowTaskPriority::Normal,

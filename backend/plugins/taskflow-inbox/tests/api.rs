@@ -172,7 +172,7 @@ async fn an_open_review_request_naming_me_is_in_needs_you_and_leaves_when_closed
     let (_, agent) = seed_agent_key(project, &[]).await;
     let task = TaskflowTask::objects()
         .create(TaskflowTask {
-            id: 0, project: ForeignKey::new(project), title: "t".into(), description_markdown: String::new(), notes_markdown: None,
+            id: 0, project: ForeignKey::new(project), title: "t".into(), description_markdown: None, notes_markdown: None,
             status: TaskflowTaskStatus::PartialDone, priority: TaskflowTaskPriority::Normal, sort_order: 0, created_by: None, assigned_user: None,
             assigned_agent_id: None, review_gate: None, estimate_minutes: None, operator_user: None, operator_agent_id: None,
             created_by_agent_id: None, assignee_label: None, due_at: None, closed_at: None, github_issue_number: None,

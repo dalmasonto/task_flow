@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-umbral = "0.0.10"
-umbral-auth = "0.0.10"
+umbral = "0.0.13"
+umbral-auth = "0.0.13"
 # Project scoping: every design surface hangs off a TaskflowProject, and
 # membership checks reuse `taskflow_projects::scope::can_access_project`.
 taskflow-projects = { path = "../taskflow-projects" }
@@ -29,7 +29,7 @@ sha2 = "0.10"
 # The design SSE endpoint registers directly with the realtime hub (same shape
 # as the agent event stream) so it can serve `GET /api/design/{project}/events`
 # without widening the user-facing group policy.
-umbral-realtime = "0.0.10"
+umbral-realtime = "0.0.13"
 axum = "0.8"
 tokio-stream = "0.1"
 # HeaderValue / typed header names for the sandbox response headers (same usage
@@ -44,7 +44,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 url = "2"
 
 [dev-dependencies]
-umbral-testing = "0.0.10"
+umbral-testing = "0.0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 http = "1"
 base64 = "0.22"

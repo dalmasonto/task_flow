@@ -535,36 +535,11 @@ pub async fn create_project(
 
     match created {
         Ok(project) => {
-            // Announce the row on the ORM's `post_save:taskflow_project` signal.
-            // This path creates the project through `QuerySetTx::create`, and that
-            // terminal emits NOTHING — so without this line every subscriber on
-            // `post_save:taskflow_project` (the agents plugin's "the project has
-            // its public and design rooms" invariant, and any future one) is blind
-            // to the only way this app creates a project.
-            //
-            // The payload is the shape the ORM's own emitter builds
-            // (`umbral_core::signals::emit_post_save_by_table`: `{instance,
-            // created}`, plus the `actor` key `emit` adds) because
-            // `emit_post_save` itself is not reachable from here: `umbral`
-            // re-exports only `{clear_for_tests, current_actor, emit, subscribe,
-            // subscribe_async, with_actor}` from `umbral_core::signals`, and
-            // `umbral-core` is not a direct dependency of this plugin. Same name,
-            // same shape — `umbral::signals::emit_post_save` is the one to switch
-            // to if the facade ever re-exports it.
-            //
-            // AFTER the closure, never inside it: the transaction has committed by
-            // here. A subscriber runs INLINE on this path, and one that writes (the
-            // agents plugin's does) would otherwise run on a pooled connection that
-            // cannot see the uncommitted row — creating rows for a project that
-            // could still roll back. `tests/project_room_signal.rs` pins exactly
-            // that: its probe reads the row back by id.
-
-
-            umbral::signals::emit(
-                "post_save:taskflow_project",
-                json!({ "instance": project, "created": true }),
-            )
-            .await;
+            // No hand-written announcement any more: since umbral 0.0.13
+            // (gaps6 #15) the transaction buffers `post_save:taskflow_project`
+            // and fires it AFTER commit, so subscribers (the agents plugin's
+            // "both rooms" invariant) see a committed row exactly once.
+            // `tests/create_project_signal.rs` pins the once-and-after-commit.
             Ok((StatusCode::CREATED, Json(project)).into_response())
         }
         Err(_) => {

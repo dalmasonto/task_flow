@@ -42,7 +42,7 @@ const TOKENS_JSON_EDITED: &str =
 
 /// Watch one group the way the SSE handler does — minus the handshake, which is
 /// policy's business, not this bridge's.
-async fn watch(group: &str) -> tokio::sync::mpsc::Receiver<Event> {
+async fn watch(group: &str) -> tokio::sync::mpsc::Receiver<std::sync::Arc<umbral_realtime::Delivery>> {
     let (_id, rx) = Realtime::registry()
         .register(None, HashSet::from([group.to_string()]), 16)
         .await
@@ -51,10 +51,10 @@ async fn watch(group: &str) -> tokio::sync::mpsc::Receiver<Event> {
 }
 
 /// Everything buffered on the receiver, as `(channel, event, data)`.
-fn drain(rx: &mut tokio::sync::mpsc::Receiver<Event>) -> Vec<(String, String, Value)> {
+fn drain(rx: &mut tokio::sync::mpsc::Receiver<std::sync::Arc<umbral_realtime::Delivery>>) -> Vec<(String, String, Value)> {
     let mut out = Vec::new();
     while let Ok(ev) = rx.try_recv() {
-        out.push((ev.channel, ev.event, ev.data));
+        out.push((ev.channel.clone(), ev.event.clone(), ev.data.clone()));
     }
     out
 }

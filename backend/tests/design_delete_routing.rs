@@ -32,7 +32,7 @@ use std::time::Duration;
 
 use umbral::orm::ForeignKey;
 use umbral_auth::{AuthPlugin, AuthUser};
-use umbral_realtime::{Event, Realtime};
+use umbral_realtime::Realtime;
 use umbral_testing::boot;
 
 use taskflow_design::models::{DesignFile, DesignFileKind};
@@ -128,10 +128,12 @@ async fn seed_component(project: i64, name: &str) -> DesignFile {
         .expect("seed design file")
 }
 
-fn drain(rx: &mut tokio::sync::mpsc::Receiver<Event>) -> Vec<(String, String, serde_json::Value)> {
+/// umbral-realtime 0.0.13 hands subscribers `Arc<Delivery>` (an `Event` plus
+/// per-transport render caches; it derefs to the `Event`).
+fn drain(rx: &mut tokio::sync::mpsc::Receiver<std::sync::Arc<umbral_realtime::Delivery>>) -> Vec<(String, String, serde_json::Value)> {
     let mut out = Vec::new();
     while let Ok(ev) = rx.try_recv() {
-        out.push((ev.channel, ev.event, ev.data));
+        out.push((ev.channel.clone(), ev.event.clone(), ev.data.clone()));
     }
     out
 }
