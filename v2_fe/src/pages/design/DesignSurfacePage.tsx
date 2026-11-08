@@ -74,6 +74,8 @@ import { useAgentChat } from "@/components/chat/use-agent-chat"
 import { AgentsConversationView } from "@/components/chat/conversation-view"
 import { findDesignRoomChat, isAgentOnline } from "@/lib/live-mappers"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
+import { ActorAvatar } from "@/v3/components/actor-avatar"
+import { guessModel } from "@/v3/components/actor-models"
 import { type Project } from "@/lib/workspace-view"
 import { type AuthUser } from "@/lib/auth-api"
 import { type DesignRef } from "@/lib/design-ref"
@@ -1370,6 +1372,7 @@ export function DesignSurfacePage({
             </Button>
           </div>
           {project ? (
+            <div data-design-chat className="flex min-h-0 flex-1 flex-col">
             <DesignChatRail
               project={project}
               liveWorkspace={liveWorkspace}
@@ -1390,6 +1393,7 @@ export function DesignSurfacePage({
                 focusBoard(artboardKey(route, deviceIds[0] ?? DEFAULT_DEVICE_ID), transform)
               }}
             />
+            </div>
           ) : (
             <EmptyCanvas message={"Loading design conversation…"} />
           )}
@@ -1556,6 +1560,14 @@ export function DesignSurfacePage({
                 onCommentsChanged={refreshComments}
                 onWiden={handleWiden}
                 onFocusComment={focusComment}
+                labels={commentLabels}
+                onComment={() => setPopoverOpen(true)}
+                onAsk={() => {
+                  // The element rides along as the chat's context chip.
+                  if (!chatOpen) togglePanel("chat")
+                  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("[data-design-chat] textarea")?.focus())
+                }}
+                onOpenThread={(c) => setThreadFor(c.id)}
               />
             </TabsContent>
 
@@ -1759,6 +1771,14 @@ function DesignChatRail({
       selectedChat={designChat}
       variant="design"
       showDesignBadge={false}
+      // #5945: flat rows with avatars, as the design chat is drawn.
+      messageLayout="row"
+      renderAvatar={(from) => {
+        if (from === "user") return <ActorAvatar name={currentUser?.username || "You"} size="sm" />
+        const agent = liveWorkspace?.agents.find((a) => a.display_name === from)
+        return <ActorAvatar name={from} model={agent ? (guessModel(agent.runtime) ?? guessModel(agent.display_name)) : null} size="sm" />
+      }}
+      senderBadge={(from) => (liveWorkspace?.agents.some((a) => a.display_name === from) ? "agent" : null)}
       contextChip={contextChip}
       onClearContextChip={onClearContextChip}
       pageMentions={pageMentions}

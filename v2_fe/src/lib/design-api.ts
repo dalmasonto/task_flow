@@ -713,7 +713,13 @@ export async function addCommentReply(projectId: number, commentId: number, body
 /// endpoints arrive with the backend; until then the server answers 404.
 export async function setCommentResolved(projectId: number, commentId: number, resolved: boolean): Promise<DesignComment> {
   const res = await designFetch(`/api/design/${projectId}/comments/${commentId}/${resolved ? "resolve" : "reopen"}`, jsonInit("POST", {}))
-  if (res.status === 404) throw new Error("Resolving comments needs the next server update.")
+  if (res.status === 404) {
+    // The handler's own 404 carries `error: "not_found"`; a server without the
+    // route answers umbral's no-route 404 (which carries `code`) instead.
+    const body = await res.json().catch(() => null) as { error?: string } | null
+    throw new Error(body?.error === "not_found" ? "That comment no longer exists." : "Resolving comments needs the next server update.")
+  }
+  if (res.status === 409) throw new Error("Someone changed this comment just now. The list has been refreshed.")
   if (!res.ok) throw new Error(`Could not ${resolved ? "resolve" : "reopen"} the comment (${res.status}).`)
   return readJson(res)
 }

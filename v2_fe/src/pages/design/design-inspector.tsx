@@ -7,26 +7,25 @@
 /// chrome.
 
 import { useEffect, useMemo, useState } from "react"
+import { MessageSquarePlusIcon, XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Textarea } from "@/components/ui/textarea"
 import { boardContentOrigin, deviceById, type Artboard } from "@/lib/design-devices"
 import {
   type DesignComment,
   type DesignManifest,
   type DesignAgent,
-  createDesignComment,
   updateDesignComment,
   fetchDesignComments,
   fetchDesignAgents,
   dispatchDesignComments,
-  type CommentScope,
 } from "@/lib/design-api"
 import { type SelectionState, pinNumber } from "./design-selection"
 import { commentsForSelection, selectionName } from "./selection-list"
 import { boardsForComment, commentResolutionNote, commentRoute } from "./design-comments"
-import { PIN_TONE_CLASS, pinLabels, pinTone } from "./comment-flow-logic"
+import { commentsOn, elementLabel, PIN_TONE_CLASS, pinLabels, pinTone } from "./comment-flow-logic"
+import { colourUses, rootClasses, typeAndSpacing } from "./inspect-logic"
 
 // ---------------------------------------------------------------------------
 // Inspector (right panel)
@@ -36,15 +35,16 @@ export function DesignInspector({
   selections,
   activeIndex,
   manifest,
-  projectId,
   labelFor,
   comments,
   onActivate,
   onRemove,
   onClear,
-  onCommentsChanged,
   onWiden,
-  onFocusComment,
+  labels,
+  onComment,
+  onAsk,
+  onOpenThread,
 }: {
   /** Every selection made on the canvas, in the order they were picked. */
   selections: SelectionState[]
@@ -86,80 +86,76 @@ export function DesignInspector({
    *  above; the section below still draws a plain label if a caller ever hands
    *  it none, but this panel always has one. */
   onFocusComment: (comment: DesignComment) => void
+  /** #5945: pin numbers, the Comment button (opens the box on the canvas),
+   *  "Ask about this element" (the design chat, with the element attached),
+   *  and a comment's pin thread. */
+  labels: Map<number, string>
+  onComment: () => void
+  onAsk: () => void
+  onOpenThread: (comment: DesignComment) => void
 }) {
   // `-1` is the empty list's active index, so this read is the one place that
   // convention is resolved: no index, no active row, no form.
   const active = selections[activeIndex] ?? null
   if (!active) {
     return (
-      <div className="flex h-full flex-col overflow-y-auto">
-        <PanelTitle>Inspector</PanelTitle>
-        <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-          Hit <code>C</code> and click any element to select it — pick as many as
-          you like, on as many pages. Each one gets its own comment.
+      <div className="flex h-full flex-col overflow-y-auto px-4 py-10 text-center">
+        <p className="text-sm font-medium">Nothing selected</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Select, then click any element on the canvas to inspect it, or use the Comment tool (<kbd className="rounded border px-1 font-mono text-xs">C</kbd>) to leave a note on it.
         </p>
-        <CommentsListSection
-          projectId={projectId}
-          comments={comments}
-          onChanged={onCommentsChanged}
-          onFocus={onFocusComment}
-        />
       </div>
     )
   }
 
-  // Keyed by the selection: a new selection remounts the form with fresh
-  // scope/body state — no setState-in-effect reset dance. Which selection that
-  // is follows the ACTIVE row, so switching rows in the list above re-targets
-  // the form the same way picking a new element does.
-  const formKey = `${active.route}|${active.elementPath}|${active.component ?? ""}`
   const crumbs = active.ancestors.length ? active.ancestors : [active.tag]
+  const usage = active.component ? (manifest?.components.find((c) => c.name === active.component) ?? null) : null
+  const shownOn = usage ? usage.usedOn.map((r) => labelFor(r)) : [labelFor(active.route)]
+  const classes = rootClasses(active.snippet)
+  const colours = colourUses(classes)
+  const typeClasses = typeAndSpacing(classes)
+  const here = commentsOn(comments, active.route, active.elementPath)
+  const name = active.component ?? elementLabel(active.elementPath)
+  const parentCrumb = crumbs.length - 2
+
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <PanelTitle onClose={onClear}>Inspector</PanelTitle>
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4" data-active-route={active.route} data-active-element={active.elementPath}>
+      {/* Every pick, one row each (also for one: it's where the panel says
+          which page the selection is on, and how people learn they can pick
+          more). */}
+      <SelectionRows selections={selections} activeIndex={activeIndex} labelFor={labelFor} comments={comments} onActivate={onActivate} onRemove={onRemove} />
 
-      {/* The selections, one row each. Rendered for a single selection too: the
-          row is the only place the PANEL says which page the selection is on
-          (the breadcrumb below is element ancestry, which is a different
-          question), and the list is how the human learns they can pick more. */}
-      <SelectionRows
-        selections={selections}
-        activeIndex={activeIndex}
-        labelFor={labelFor}
-        comments={comments}
-        onActivate={onActivate}
-        onRemove={onRemove}
-      />
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-mono text-sm font-semibold">{name}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {active.text ? <>&ldquo;{active.text.slice(0, 60)}&rdquo; on </> : null}
+            {labelFor(active.route)}, {active.viewport}
+          </p>
+        </div>
+        <Button size="sm" variant="secondary" onClick={onComment}>
+          <MessageSquarePlusIcon />
+          Comment
+        </Button>
+        <button type="button" onClick={onClear} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="Clear the selection" aria-label="Clear the selection">
+          <XIcon className="size-3.5" />
+        </button>
+      </div>
 
-      {/* Breadcrumb — every crumb widens the ACTIVE selection upward. The LAST
-          crumb is the selection itself, so it is current state, not a control;
-          the ones before it widen to that ancestor. A crumb is only offered as
-          a button when the frame sent its path (`ancestorPaths`) AND a label to
-          put on it: the label is `dataset.component || tagName` off the wire, so
-          a blank one is reachable, and a button there would wear the tooltip
-          `Widen selection to ` — a control that names nothing to widen to. */}
-      <nav className="flex flex-wrap items-center gap-x-1 px-3 py-2 text-[11px]">
+      {/* Breadcrumb: every crumb widens the selection to that ancestor; the
+          last one is the selection itself. */}
+      <nav aria-label="Element path" className="flex flex-wrap items-center gap-x-1 font-mono text-xs">
         {crumbs.map((crumb, i) => {
           const current = i === crumbs.length - 1
           const canWiden = !current && !!crumb && !!active.ancestorPaths[i]
-          const crumbClass = cn(
-            "rounded px-1",
-            current ? "bg-accent/10 font-semibold text-accent" : "text-muted-foreground",
-            canWiden && "hover:bg-muted",
-          )
           return (
             <span key={`${crumb}-${i}`} className="flex items-center gap-1">
               {canWiden ? (
-                <button
-                  type="button"
-                  className={crumbClass}
-                  title={`Widen selection to ${crumb}`}
-                  onClick={() => onWiden(i)}
-                >
+                <button type="button" className="rounded px-1 text-muted-foreground hover:bg-muted hover:text-foreground" title={`Widen selection to ${crumb}`} onClick={() => onWiden(i)}>
                   {crumb}
                 </button>
               ) : (
-                <span className={crumbClass} title={current ? "Selected element" : undefined}>
+                <span className={cn("rounded px-1", current ? "bg-muted font-semibold text-foreground" : "text-muted-foreground")} title={current ? "Selected element" : undefined}>
                   {crumb}
                 </span>
               )}
@@ -169,34 +165,77 @@ export function DesignInspector({
         })}
       </nav>
 
-      <CommentForm
-        key={formKey}
-        selection={active}
-        manifest={manifest}
-        projectId={projectId}
-        // The comment itself is the caller's to insert if it wants it; today it
-        // refetches, which is also what the list below needs on a dismiss or a
-        // dispatch — one refresh, one list.
-        onCreated={() => onCommentsChanged()}
-      />
+      <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-xl border border-border bg-card p-3 text-sm">
+        <dt className="text-muted-foreground">Source</dt>
+        <dd className="truncate font-mono text-xs leading-5 text-link">{active.srcRef ?? "generated by a component"}</dd>
+        <dt className="text-muted-foreground">Component</dt>
+        <dd className="truncate">{active.component ?? "none, page markup"}</dd>
+        <dt className="text-muted-foreground">Shows on</dt>
+        <dd className="line-clamp-2">{shownOn.join(", ")}</dd>
+      </dl>
 
-      {active.snippet ? (
-        <details className="mx-3 mt-3 rounded-lg border">
-          <summary className="cursor-pointer px-2 py-1.5 text-xs text-muted-foreground">
-            Captured HTML
-          </summary>
-          <pre className="overflow-x-auto px-2 pb-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-            {active.snippet}
-          </pre>
-        </details>
+      {colours.length ? (
+        <section>
+          <h3 className="mb-1.5 text-xs font-semibold text-muted-foreground">Colours</h3>
+          <ul className="grid gap-1">
+            {colours.map((c) => (
+              <li key={`${c.role}-${c.token}`} className="flex items-center gap-2 text-sm">
+                <span className="size-3.5 shrink-0 rounded border border-border" style={{ background: `var(--${c.token})` }} aria-hidden />
+                <span>{c.role}</span>
+                <span className="ml-auto font-mono text-xs text-muted-foreground">{c.token}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
-      <CommentsListSection
-        projectId={projectId}
-        comments={comments}
-        onChanged={onCommentsChanged}
-        onFocus={onFocusComment}
-      />
+      {typeClasses.length ? (
+        <section>
+          <h3 className="mb-1.5 text-xs font-semibold text-muted-foreground">Type and spacing</h3>
+          <div className="flex flex-wrap gap-1">
+            {typeClasses.map((c) => (
+              <span key={c} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs">
+                {c}
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section>
+        <h3 className="mb-1.5 text-xs font-semibold text-muted-foreground">Comments here</h3>
+        {here.length ? (
+          <ul className="grid gap-1.5">
+            {here.map((c) => (
+              <li key={c.id} data-comment-here={c.id}>
+                <button type="button" onClick={() => onOpenThread(c)} className="flex w-full items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-left text-sm hover:bg-muted/50">
+                  <span className={cn("inline-flex size-5 shrink-0 items-center justify-center rounded-full rounded-bl-none text-[11px] font-semibold", PIN_TONE_CLASS[pinTone(c)])}>{labels.get(c.id) ?? "?"}</span>
+                  <span className="min-w-0 flex-1 truncate">{c.body}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground capitalize">{c.status}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">None yet.</p>
+        )}
+      </section>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="outline" size="sm" disabled={parentCrumb < 0 || !active.ancestorPaths[parentCrumb]} onClick={() => onWiden(parentCrumb)}>
+          Select parent
+        </Button>
+        <Button variant="outline" size="sm" onClick={onAsk}>
+          Ask about this element
+        </Button>
+      </div>
+
+      {active.snippet ? (
+        <details className="rounded-lg border">
+          <summary className="cursor-pointer px-2 py-1.5 text-xs text-muted-foreground">Captured HTML</summary>
+          <pre className="overflow-x-auto px-2 pb-2 font-mono text-[10px] leading-relaxed text-muted-foreground">{active.snippet}</pre>
+        </details>
+      ) : null}
     </div>
   )
 }
@@ -305,140 +344,6 @@ function SelectionRows({
         )
       })}
     </div>
-  )
-}
-
-/// The scope question (§9.5.4) + comment composer. The default is `instance`
-/// — the reversible choice; blast radius is visible before the action.
-function CommentForm({
-  selection,
-  manifest,
-  projectId,
-  onCreated,
-}: {
-  selection: SelectionState
-  manifest: DesignManifest | null
-  projectId: number
-  onCreated: (comment: DesignComment) => void
-}) {
-  const [scope, setScope] = useState<CommentScope>("instance")
-  const [body, setBody] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const groupName = `scope-${selection.route}-${selection.elementPath}`
-
-  // The blast radius, visible BEFORE the action.
-  const usage = useMemo(
-    () =>
-      selection.component
-        ? manifest?.components.find((c) => c.name === selection.component) ?? null
-        : null,
-    [manifest, selection],
-  )
-  const usedOnCount = scope === "component" ? (usage?.usedOn.length ?? 0) : 1
-
-  const submit = async () => {
-    const trimmed = body.trim()
-    if (!trimmed || submitting) return
-    setSubmitting(true)
-    setError(null)
-    try {
-      const comment = await createDesignComment(projectId, {
-        page_path: selection.route,
-        component_name: selection.component,
-        element_path: selection.elementPath,
-        src_ref: selection.srcRef,
-        viewport: selection.viewport,
-        rect: selection.rect,
-        snippet: selection.snippet,
-        body: trimmed,
-        scope,
-      })
-      onCreated(comment)
-      setBody("")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the comment.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="mx-3 rounded-lg border bg-card p-3">
-        <p className="text-xs text-muted-foreground">
-          <span className="text-[11px] text-foreground">{selection.tag}</span>
-          {selection.component ? (
-            <>
-              {" · inside "}
-              <span className="text-[11px] text-foreground">{selection.component}</span>
-            </>
-          ) : null}
-        </p>
-        {usage && usage.usedOn.length > 1 ? (
-          <p className="mt-1 text-[11px] text-muted-foreground">Used on {usage.usedOn.length} pages</p>
-        ) : null}
-        <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs">
-          <input
-            type="radio"
-            name={groupName}
-            checked={scope === "component"}
-            onChange={() => setScope("component")}
-            disabled={!usage}
-          />
-          <span>
-            Change everywhere
-            <span className="ml-1 text-muted-foreground">
-              ({usage ? `${usage.usedOn.length} pages · edits ${usage.name}` : "no component"})
-            </span>
-          </span>
-        </label>
-        <label className="mt-1.5 flex cursor-pointer items-start gap-2 text-xs">
-          <input
-            type="radio"
-            name={groupName}
-            checked={scope === "instance"}
-            onChange={() => setScope("instance")}
-          />
-          <span>
-            Change on this page only
-            <span className="ml-1 text-muted-foreground">(expressed as attributes)</span>
-          </span>
-        </label>
-      </div>
-
-      <div className="mx-3 mt-3 flex flex-col gap-2">
-        <Textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault()
-              void submit()
-            }
-          }}
-          placeholder={
-            scope === "component"
-              ? `What should change about ${selection.component} everywhere?`
-              : "What should change here?"
-          }
-          rows={4}
-          className="field-sizing-fixed resize-none"
-        />
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">
-            Affects {usedOnCount} page{usedOnCount === 1 ? "" : "s"}
-          </span>
-          <Button size="sm" disabled={!body.trim() || submitting} onClick={() => void submit()}>
-            Comment
-            <span className="ml-1 hidden rounded border px-1 font-mono text-[10px] opacity-70 sm:inline">
-              ⌘⏎
-            </span>
-          </Button>
-        </div>
-      </div>
-    </>
   )
 }
 

@@ -88,6 +88,10 @@ const render = (props: {
       onCommentsChanged: () => {},
       onWiden: () => {},
       onFocusComment: () => {},
+      labels: new Map(),
+      onComment: () => {},
+      onAsk: () => {},
+      onOpenThread: () => {},
     }),
   )
 
@@ -107,7 +111,10 @@ const pagePairs = (html: string) =>
 /// Which selection the form is editing, read off the scope radios' group name
 /// (`scope-<route>-<elementPath>`) — the form's own identifier for one
 /// selection, which no row draws. `null` when no form rendered.
-const formTarget = (html: string) => html.match(/name="scope-([^"]*)"/)?.[1] ?? null
+const formTarget = (html: string) => {
+  const route = html.match(/data-active-route="([^"]*)"/)?.[1]
+  return route == null ? null : `${route}-${html.match(/data-active-element="([^"]*)"/)?.[1] ?? ""}`
+}
 
 /// Every badge's count, in document order, read off the badge's own title —
 /// its user-facing text rather than a class string, so a restyle does not fail
@@ -139,7 +146,7 @@ describe("DesignInspector — the selection list", () => {
     // is not the active row, and the human comments on a component they did not
     // pick. (The two radios are one form's scope pair; a second form would make
     // this four.)
-    expect(html.match(/name="scope-/g) ?? []).toHaveLength(2)
+    expect(html.match(/data-active-route=/g) ?? []).toHaveLength(1)
     expect(formTarget(html)).toContain("/settings")
     expect(formTarget(html)).not.toContain("/pricing")
   })
@@ -206,7 +213,9 @@ describe("DesignInspector — the selection list", () => {
     // nothing at all — its `Comments (…)` title is drawn by the section and
     // nowhere else), or drawing it from a different list (the count is this
     // list's).
-    expect(html).toContain("Comments (2)")
+    // #5945: the list now lives in the Comments tab; Inspect's "Comments here"
+    // draws the active element's comments from this same prop.
+    expect(html.match(/data-comment-here=/g) ?? []).toHaveLength(1)
   })
 
   it("draws the empty state, and no rows, when nothing is selected", () => {
