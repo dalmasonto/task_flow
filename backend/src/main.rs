@@ -139,6 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // `?access_token=` (EventSource cannot send an Authorization header), so
         // a stale session cookie after a restart no longer 403s the live feed.
         .middleware(realtime_auth::RealtimeQueryTokenAuth)
+        // #1114: validate signup shape and name duplicates in front of
+        // umbral-auth's register (which accepts both); see signup_validation.rs.
+        .middleware(backend::signup_validation::SignupValidation)
         // --- Models ----------------------------------------------------------
         // AuthUser and Session are contributed by their plugins below.
         // List your own models here.

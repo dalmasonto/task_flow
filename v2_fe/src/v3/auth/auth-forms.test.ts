@@ -27,6 +27,10 @@ describe("friendlyAuthError", () => {
   it("turns the server's opaque duplicate error into an account error", () => {
     expect(friendlyAuthError("signup", "could not create account")).toEqual({ field: "account", text: "That username or email already has an account." })
   })
+  it("keeps the server's named duplicate (#1114)", () => {
+    expect(friendlyAuthError("signup", "That username is taken.")).toEqual({ field: "account", text: "That username is taken." })
+    expect(friendlyAuthError("signup", "That email already has an account.")).toEqual({ field: "account", text: "That email already has an account." })
+  })
   it("puts weak-password messages on the password field", () => {
     expect(friendlyAuthError("signup", "This password is too common.").field).toBe("password")
   })

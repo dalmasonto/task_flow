@@ -28,6 +28,8 @@ export function friendlyAuthError(kind: "login" | "signup" | "reset", message: s
   const m = message.toLowerCase()
   if (kind === "login" && /incorrect|invalid|credentials/.test(m)) return { text: "That email or username and password don't match." }
   if (kind === "login" && /inactive|disabled/.test(m)) return { text: "This account is switched off. Ask a project owner to turn it back on." }
+  // #1114: the server now names which one is taken; say exactly that.
+  if (kind === "signup" && /^that (username is taken|email already has an account)/.test(m)) return { field: "account", text: message }
   if (kind === "signup" && /could not create account|create_failed|already|exists|taken/.test(m)) return { field: "account", text: "That username or email already has an account." }
   if (/too common|numeric|too short|similar|weak/.test(m)) return { field: "password", text: message }
   if (/failed to fetch|network|load failed/.test(m)) return { text: "Couldn't reach the server. Check your connection, or change the server above." }
