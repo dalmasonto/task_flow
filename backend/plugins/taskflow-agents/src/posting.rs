@@ -57,7 +57,7 @@ pub async fn postable_channel(
         .is_some();
 
     if !is_roster_member {
-        if channel.kind == TaskflowChannelKind::Direct {
+        if channel.kind.is_private() {
             return Err(PostError::NotAllowed);
         }
         if channel.project.id() != agent.project_id {
