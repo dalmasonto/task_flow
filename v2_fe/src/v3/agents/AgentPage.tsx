@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { CircleDotIcon, KeyRoundIcon, MessageSquareIcon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
-import { TerminalKeypad, TerminalTranscript } from "@/components/chat/terminal"
+import { TerminalKeypad, TerminalTranscript, TerminalWatchOnly } from "@/components/chat/terminal"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import {
   AlertDialog,
@@ -148,7 +148,7 @@ export function AgentPage() {
                 <div className="max-h-[28rem] overflow-hidden rounded-lg border border-border bg-muted/30">
                   <TerminalTranscript session={term} />
                 </div>
-                <TerminalKeypad agentId={agentId} disabled={!term.connected} />
+                {mayManageKeys(agent, myMembership(live?.members ?? [], currentUser?.id), !!currentUser?.is_superuser) ? <TerminalKeypad agentId={agentId} disabled={!term.connected} /> : <TerminalWatchOnly />}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No terminal mirror yet. It appears when the agent runs inside tmux with TaskFlow connected.</p>

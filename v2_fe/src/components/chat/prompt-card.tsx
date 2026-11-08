@@ -112,8 +112,13 @@ export function AgentPromptCard({
   prompt,
   onAnswer,
   onDismiss,
+  readOnly = false,
 }: {
   prompt: TaskflowWorkspace["agentPrompts"][number]
+  /// #1127: answering or dismissing drives the agent's terminal, which only
+  /// its project's owners and admins and the human who linked it may do. For
+  /// anyone else the card shows the question and says who can answer.
+  readOnly?: boolean
   onAnswer: (promptId: number, answers: number[][], cancel?: boolean, texts?: (string | null)[]) => Promise<void>
   /// Clear the card WITHOUT answering — for a question the agent's own terminal
   /// already resolved. See `dismiss` below.
@@ -255,6 +260,19 @@ export function AgentPromptCard({
   // deliberately without options so nothing can type a digit into a screen we
   // did not understand. Render it read-only: the agent IS blocked, and silently
   // showing nothing is what left these invisible in the first place.
+  if (readOnly) {
+    return (
+      <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+        <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+          <AlertCircleIcon className="size-4 shrink-0" />
+          <p className="text-sm font-medium">Agent is blocked, waiting on an answer</p>
+        </div>
+        <p className="mt-2 whitespace-pre-wrap break-words text-sm text-foreground">{prompt.question}</p>
+        <p className="mt-2 text-xs text-muted-foreground">Only the project&apos;s owners and admins, or the person who added this agent, can answer it.</p>
+      </div>
+    )
+  }
+
   if (!questions.length) {
     return (
       <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">

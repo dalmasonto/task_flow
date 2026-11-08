@@ -12,11 +12,15 @@ export function AgentTerminalPanel({
   onFocusComposer,
   onClose,
   className,
+  canDrive = true,
 }: {
   selectedSession?: AgentTerminalSessionView
   onFocusComposer: () => void
   onClose: () => void
   className?: string
+  /// #1127: typing into an agent's terminal is for its project's owners and
+  /// admins and the human who linked it; anyone else watches.
+  canDrive?: boolean
 }) {
   const closeButton = (
     <Button variant="ghost" size="icon" onClick={onClose} title="Close terminal" aria-label="Close terminal">
@@ -72,10 +76,14 @@ export function AgentTerminalPanel({
       {/* Enable when the pane is actually mirroring (streaming frames) OR the
           session is live. `connected` alone (heartbeat recency) went stale while
           the mirror was plainly still streaming, greying out working keys. */}
-      <TerminalKeypad
-        agentId={selectedSession.agentId}
-        disabled={!selectedSession.hasStream && !selectedSession.connected}
-      />
+      {canDrive ? (
+        <TerminalKeypad
+          agentId={selectedSession.agentId}
+          disabled={!selectedSession.hasStream && !selectedSession.connected}
+        />
+      ) : (
+        <TerminalWatchOnly />
+      )}
     </div>
   )
 }
@@ -101,6 +109,16 @@ const TERMINAL_KEYS: { label: string; key: string; wide?: boolean }[] = [
 
 /// #180: the longest line the server accepts (`MAX_TERMINAL_TEXT_CHARS`).
 const MAX_TERMINAL_TEXT = 1000
+
+/// What replaces the keypad for someone who may watch an agent's terminal but
+/// not type into it (#1127).
+export function TerminalWatchOnly() {
+  return (
+    <p className="border-t px-4 py-3 text-xs text-muted-foreground">
+      You&apos;re watching. Only the project&apos;s owners and admins, or the person who added this agent, can type into its terminal.
+    </p>
+  )
+}
 
 export function TerminalKeypad({ agentId, disabled }: { agentId: number; disabled?: boolean }) {
   const [error, setError] = useState<string | null>(null)
