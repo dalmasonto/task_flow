@@ -150,6 +150,12 @@ const UsagePage = lazyNamed(() => import("./usage/UsagePage"), "UsagePage");
 const MediaPage = lazyNamed(() => import("./files/MediaPage"), "MediaPage");
 const ToolboxPage = lazyNamed(() => import("./toolbox/ToolboxPage"), "ToolboxPage");
 const ApiKeysPage = lazyNamed(() => import("./api-keys/ApiKeysPage"), "ApiKeysPage");
+const ProjectSettingsPage = lazyNamed(() => import("./project/ProjectSettingsPage"), "ProjectSettingsPage");
+const ProjectInstructionsPage = lazyNamed(() => import("./project/ProjectInstructionsPage"), "ProjectInstructionsPage");
+const ProjectWorkflowPage = lazyNamed(() => import("./project/ProjectWorkflowPage"), "ProjectWorkflowPage");
+const ProjectReposPage = lazyNamed(() => import("./project/ProjectReposPage"), "ProjectReposPage");
+const ProjectGithubPage = lazyNamed(() => import("./project/ProjectGithubPage"), "ProjectGithubPage");
+const ProjectEndpointsPage = lazyNamed(() => import("./project/ProjectEndpointsPage"), "ProjectEndpointsPage");
 const InvitesPage = lazyNamed(() => import("./invites/InvitesPage"), "InvitesPage");
 const HomePage = lazyNamed(() => import("./home/HomePage"), "HomePage");
 const InvitationsPage = lazyNamed(
@@ -236,6 +242,13 @@ export function V3App() {
             <Route path="/v3/media" element={<MediaPage />} />
             <Route path="/v3/toolbox" element={<ToolboxPage />} />
             <Route path="/v3/api-keys" element={<ApiKeysPage />} />
+            <Route path="/v3/project/settings" element={<ProjectSettingsPage />} />
+            <Route path="/v3/project/instructions" element={<ProjectInstructionsPage />} />
+            <Route path="/v3/project/workflow" element={<ProjectWorkflowPage />} />
+            <Route path="/v3/project/repos" element={<ProjectReposPage />} />
+            <Route path="/v3/project/github" element={<ProjectGithubPage />} />
+            <Route path="/v3/project/endpoints" element={<ProjectEndpointsPage />} />
+            <Route path="/v3/project" element={<Navigate to="/v3/project/settings" replace />} />
             <Route
               path="/v3/account"
               element={<Navigate to="/v3/account/profile" replace />}

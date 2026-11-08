@@ -47,6 +47,8 @@ describe("v3GatePaths", () => {
     expect(v3GatePaths("/v3/agents/1")).toEqual(["/dashboard/api", "/dashboard/board"])
     expect(v3GatePaths("/v3/board")).toEqual(["/dashboard/board"])
     expect(v3GatePaths("/v3/media")).toEqual(["/dashboard/design"])
+    expect(v3GatePaths("/v3/project/workflow")).toEqual(["/dashboard/api", "/dashboard/board"])
+    expect(v3GatePaths("/v3/project/settings")).toEqual(["/dashboard/api"])
     expect(v3GatePaths("/dashboard/x")).toEqual(["/dashboard/x"])
   })
 })
