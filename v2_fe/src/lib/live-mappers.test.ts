@@ -72,6 +72,8 @@ const designRow: TaskflowAgentMessage = {
   edited_at: null,
   reply_to: null,
     questions: null,
+  thread_root: null,
+  in_channel: true,
   created_at: "2026-09-20T10:00:00Z",
 }
 

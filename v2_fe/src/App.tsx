@@ -39,6 +39,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
 import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskCreate, TaskflowTaskStatus, TaskflowTaskUpdate } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
+import { publishThreadEvent } from "@/lib/thread-bus"
 import { archiveTaskflowProject, deleteProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
 import { cn } from "@/lib/utils"
@@ -761,6 +762,7 @@ function App() {
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentChannelMembers: removeById(workspace.agentChannelMembers, rowId) }))
           break
         case taskflowTables.agentMessages:
+          publishThreadEvent({ kind: "delete", id: rowId })
           applyWorkspaceUpdate(projectId, (workspace) => ({ ...workspace, agentMessages: removeMessage(workspace.agentMessages, rowId) }))
           break
         case taskflowTables.messageAttachments:
@@ -886,6 +888,9 @@ function App() {
         case taskflowTables.agentMessages: {
           const message = row as TaskflowAgentMessage
           if (message.project !== projectId) return
+          // #1132: thread rows go to the thread panel; thread-only ones stay out of the feed.
+          if (message.thread_root != null) publishThreadEvent({ kind: "upsert", message })
+          if (message.in_channel === false) return
           applyWorkspaceUpdate(projectId, (workspace) => ({
             ...workspace,
             agentMessages: reconcile(workspace.agentMessages, message),

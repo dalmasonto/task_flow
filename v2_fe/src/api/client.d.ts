@@ -248,6 +248,8 @@ export interface TaskflowAgentMessage {
   edited_at: string | null;
   reply_to: number | null;
   questions: string | null;
+  thread_root: number | null;
+  in_channel: boolean;
   created_at: string | null;
 }
 
@@ -1379,6 +1381,13 @@ export interface TaskflowAgentMessageFilters {
   "reply_to__lt"?: number;
   "reply_to__in"?: number[];
   "reply_to__isnull"?: boolean;
+  "thread_root"?: number;
+  "thread_root__ne"?: number;
+  "thread_root__in"?: number[];
+  "thread_root__isnull"?: boolean;
+  "in_channel"?: boolean;
+  "in_channel__ne"?: boolean;
+  "in_channel__in"?: boolean[];
   "questions"?: string;
   "questions__ne"?: string;
   "questions__contains"?: string;

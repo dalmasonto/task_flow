@@ -621,7 +621,8 @@ export async function fetchBoardColumn(
 export async function fetchChannelMessages(channelId: number, page = 1): Promise<ServerPage<TaskflowAgentMessage>> {
   const res = await taskflowApi
     .from(taskflowTables.agentMessages)
-    .filter({ channel: channelId })
+    // #1132: the feed pages on in_channel, so thread-only replies never eat a page.
+    .filter({ channel: channelId, in_channel: true })
     .orderBy("-created_at", "-id")
     .param("page", page)
     .list()
@@ -854,7 +855,8 @@ export async function fetchWorkspaceChat(projectId: number): Promise<WorkspaceCh
     // thread. The open conversation loads its own first page per channel (see
     // useAgentChat's page-1 loader) and older pages on scroll-up, so bulk-
     // loading 100 here was paying for messages nobody was reading.
-    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
+    // #1132: thread-only replies live in their thread, not the feed.
+    taskflowApi.from(taskflowTables.agentMessages).filter({ project: projectId, in_channel: true }).orderBy("-created_at", "-id").list(),
     // Newest-first so the attachments that ride along belong to the messages
     // fetched above, not to the oldest rows in the project.
     taskflowApi.from(taskflowTables.messageAttachments).filter({ project: projectId }).orderBy("-created_at", "-id").list(),
@@ -1235,6 +1237,10 @@ export type SendMessageInput = {
   is_design?: boolean
   /// #317: the id of the message this one replies to (same channel).
   reply_to?: number | null
+  /// #1132: post as a reply inside this root message's thread (same channel).
+  thread_root?: number | null
+  /// #1132: a thread reply that also shows in the channel feed.
+  also_send?: boolean
 }
 
 /// The send-message response: the saved message row plus the attachments the
@@ -1269,6 +1275,8 @@ export async function sendTaskflowAgentMessage(
     if (input.targets && input.targets.length) form.append("targets", JSON.stringify(input.targets))
     if (input.is_design != null) form.append("is_design", input.is_design ? "true" : "false")
     if (input.reply_to != null) form.append("reply_to", String(input.reply_to))
+    if (input.thread_root != null) form.append("thread_root", String(input.thread_root))
+    if (input.also_send) form.append("also_send", "true")
     for (const file of files!) form.append("files", file, file.name)
     body = form
     // No content-type header: the browser sets multipart/form-data + boundary.
