@@ -3367,7 +3367,10 @@ pub async fn claim_task_as_agent(
         .filter(
             taskflow_task::ID.eq(task.id)
                 & taskflow_task::PROJECT.eq(agent.project_id)
-                & taskflow_task::ASSIGNED_AGENT_ID.is_null(),
+                & taskflow_task::ASSIGNED_AGENT_ID.is_null()
+                // A task a PERSON holds isn't free either (#1125 review): an
+                // agent must not quietly take it over. A human reassigns it.
+                & taskflow_task::ASSIGNED_USER.is_null(),
         )
         .update_values(v)
         .await
@@ -3379,27 +3382,30 @@ pub async fn claim_task_as_agent(
         if fresh.assigned_agent_id == Some(agent.agent_id) {
             return Ok((StatusCode::OK, Json(fresh)).into_response());
         }
-        let holder = match fresh.assigned_agent_id {
-            Some(id) => TaskflowAgent::objects()
+        let holder = match (fresh.assigned_agent_id, fresh.assigned_user.as_ref().map(|u| u.id())) {
+            (None, Some(user)) => json!({ "user_id": user, "display_name": fresh.assignee_label }),
+            (Some(id), _) => TaskflowAgent::objects()
                 .filter(taskflow_agent::ID.eq(id))
                 .first()
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
                 .map(|a| json!({ "agent_id": a.id, "display_name": a.display_name }))
                 .unwrap_or_else(|| json!({ "agent_id": id, "display_name": fresh.assignee_label })),
-            None => serde_json::Value::Null,
+            (None, None) => serde_json::Value::Null,
         };
         // The MCP shows agents `detail`, so the holder is named in it too.
-        let who = match (holder["display_name"].as_str(), holder["agent_id"].as_i64()) {
-            (Some(name), Some(id)) => format!("{name} (agent:{id})"),
-            (None, Some(id)) => format!("agent:{id}"),
-            _ => "Another agent".to_string(),
+        let who = match (holder["display_name"].as_str(), holder["agent_id"].as_i64(), holder["user_id"].as_i64()) {
+            (Some(name), Some(id), _) => format!("{name} (agent:{id})"),
+            (Some(name), None, Some(id)) => format!("{name} (user:{id})"),
+            (None, Some(id), _) => format!("agent:{id}"),
+            (None, None, Some(id)) => format!("user:{id}"),
+            _ => "Someone else".to_string(),
         };
         return Ok((
             StatusCode::CONFLICT,
             Json(json!({
                 "error": "already_claimed",
-                "detail": format!("{who} already holds this task. Don't work on it: pick another task, or message the holder or a human."),
+                "detail": format!("{who} already holds this task. Don't work on it: pick another task, or ask the holder or a human to reassign it."),
                 "holder": holder,
             })),
         )

@@ -8,7 +8,8 @@
 //!
 //! A copy of umbral's own emit (same name and `{instance, created}` payload,
 //! `SIGNAL_SKIP_FIELDS` stripped), which the `umbral` facade does not
-//! re-export: umbra gaps6 #27. Delete this when that lands.
+//! re-export: umbra gaps6 #27. The ONE copy (design uses it too); delete it
+//! when that lands.
 
 use serde_json::{Value, json};
 

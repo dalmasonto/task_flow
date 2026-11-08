@@ -142,3 +142,24 @@ async fn two_agents_claiming_at_once_make_exactly_one_winner() {
         assert_eq!(claim_activities(task).await, 1);
     }
 }
+
+/// #1125 review: a task a PERSON holds isn't free for an agent to take.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_a_person_holds_is_not_claimable_by_an_agent() {
+    let app = TestApp::new().await;
+    let project = seed_project().await;
+    let (key, _) = mint_agent(&app, project, "Eager").await;
+    let person = app.create_user().await;
+    let task = seed_task(project).await;
+    let mut v = serde_json::Map::new();
+    v.insert("assigned_user".into(), json!(person));
+    v.insert("assignee_label".into(), json!("Achieng"));
+    TaskflowTask::objects().filter(taskflow_task::ID.eq(task)).update_values(v).await.unwrap();
+
+    let (s, body) = claim(&app, &key, task).await;
+    assert_eq!(s, 409, "{body}");
+    assert_eq!(body["holder"]["user_id"], person);
+    assert!(body["detail"].as_str().unwrap().contains("Achieng"), "{body}");
+    assert_eq!(holder(task).await, None, "still the person's");
+    assert_eq!(claim_activities(task).await, 0);
+}

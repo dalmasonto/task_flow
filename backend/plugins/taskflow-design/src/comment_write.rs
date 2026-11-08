@@ -85,23 +85,8 @@ pub async fn write(
         }
     }
     let row = fresh(project, id).await?.ok_or(WriteError::NotFound)?;
-    emit_post_save(&row).await;
+    taskflow_agents::emit::emit_post_save(&row).await;
     Ok(row)
-}
-
-/// The `post_save` a whole-row save would have fired, without the write: the
-/// same name and `{instance, created}` payload as umbral's own emit (which
-/// the `umbral` facade does not re-export; umbra gaps6 #27), so realtime's
-/// `expose` picks it up. Kept honest by `tests/comment_cas.rs`.
-async fn emit_post_save(row: &DesignComment) {
-    use umbral::orm::Model as _;
-    let Ok(mut instance) = serde_json::to_value(row) else { return };
-    if let Value::Object(map) = &mut instance {
-        for field in DesignComment::SIGNAL_SKIP_FIELDS {
-            map.remove(*field);
-        }
-    }
-    umbral::signals::emit(&format!("post_save:{}", DesignComment::TABLE), json!({ "instance": instance, "created": false })).await;
 }
 
 /// Give back a dispatch's claim: sent → open, only while the comment is still
@@ -123,7 +108,7 @@ pub async fn release_claim(project: i64, id: i64, agent: i64) -> Result<(), Writ
         .map_err(|_| WriteError::Internal)?;
     if n > 0 {
         if let Some(row) = fresh(project, id).await? {
-            emit_post_save(&row).await;
+            taskflow_agents::emit::emit_post_save(&row).await;
         }
     }
     Ok(())
