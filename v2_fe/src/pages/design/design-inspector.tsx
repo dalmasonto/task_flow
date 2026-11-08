@@ -529,12 +529,18 @@ export function CommentsListSection({
     setDispatching(true)
     setNotice(null)
     try {
-      await dispatchDesignComments(projectId, selectedIds, agentId)
+      const { sent_comment_ids } = await dispatchDesignComments(projectId, selectedIds, agentId)
+      // #1131: only the comments still open when dispatch claimed them are
+      // sent; the rest were handled by someone else in the meantime.
+      const skipped = selectedIds.length - sent_comment_ids.length
       setSelectedIds([])
-      setNotice(`Sent ${selectedIds.length} comment(s) to the agent.`)
+      setNotice(`Sent ${sent_comment_ids.length} comment(s) to the agent.${skipped > 0 ? ` ${skipped} had already been handled by someone else.` : ""}`)
       onChanged?.()
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Dispatch failed.")
+      // A 409 means the list is stale; refetch so it shows what happened.
+      setSelectedIds([])
+      onChanged?.()
     } finally {
       setDispatching(false)
     }

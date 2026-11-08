@@ -670,6 +670,10 @@ export async function dispatchDesignComments(
     `/api/design/${projectId}/dispatch`,
     jsonInit("POST", { comment_ids: commentIds, agent_id: agentId })
   )
+  // #1131: dispatch claims each comment open→sent by compare-and-set. A 409
+  // means every selected comment was resolved, dismissed or sent by someone
+  // else first; nothing was sent.
+  if (res.status === 409) throw new Error("Someone else already handled these comments. The list has been refreshed.")
   if (!res.ok) throw new Error(`Dispatch failed (${res.status}).`)
   return readJson(res)
 }
