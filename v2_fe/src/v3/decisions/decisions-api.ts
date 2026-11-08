@@ -67,6 +67,7 @@ async function fail(res: Response, fallback: string): Promise<never> {
   const body = (await res.json().catch(() => null)) as { error?: string; field?: string; reason?: string } | null
   if (body?.error === "not_the_ruler") throw new Error("Someone else was named to rule on this.")
   if (body?.error === "not_open") throw new Error("This decision was already ruled or superseded.")
+  if (body?.error === "key_taken") throw new Error("That key is already used by another decision. Pick a different one.")
   if (body?.field && body.reason) throw new Error(`${body.field.replace(/_/g, " ")}: ${body.reason}`)
   throw new Error(`${fallback} (${res.status}).`)
 }
