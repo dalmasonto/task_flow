@@ -7,7 +7,7 @@
 //! single index of everything the plugin serves.
 
 use axum::extract::DefaultBodyLimit;
-use umbral::web::{Router, delete, get, post, put};
+use umbral::web::{Router, delete, get, patch, post, put};
 
 use crate::views;
 
@@ -67,6 +67,14 @@ pub fn router() -> Router {
             "/api/taskflow/channels/{channel}/members",
             post(views::add_channel_member),
         )
+        // #5918: room administration (see channel_admin.rs for who may).
+        .route("/api/taskflow/channels/{channel}", patch(crate::channel_admin::patch))
+        .route(
+            "/api/taskflow/channels/{channel}/members/{member}",
+            delete(crate::channel_admin::remove_member),
+        )
+        .route("/api/taskflow/channels/{channel}/archive", post(crate::channel_admin::archive))
+        .route("/api/taskflow/channels/{channel}/unarchive", post(crate::channel_admin::unarchive))
         // #660: a conversation's files, newest first — the Files tab's source.
         // A dedicated route (not auto-REST) because each item carries the
         // SENDER of the message it arrived on, and because the tab wants a
