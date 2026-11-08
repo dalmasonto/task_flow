@@ -129,17 +129,26 @@ pub fn is_stale(entry: &ToolboxEntry, now: chrono::DateTime<chrono::Utc>) -> boo
 /// #1097: confirm an entry is still true. Moves `checked_at` only — no new
 /// version, no re-approval, and the content is untouched.
 async fn recheck_core(project_id: i64, name: &str) -> Result<ToolboxEntry, ApiError> {
-    let mut entry = ToolboxEntry::objects()
-        .filter(toolbox_entry::PROJECT.eq(project_id) & toolbox_entry::NAME.eq(name))
+    // Write ONLY `checked_at` (#1097 review): a read-modify-save of the whole
+    // row would write a stale body/code/version back over a save that landed in
+    // between. Toolbox entries are not on realtime, so no re-save is needed.
+    let mut values = serde_json::Map::new();
+    values.insert("checked_at".into(), json!(chrono::Utc::now()));
+    let filter = toolbox_entry::PROJECT.eq(project_id) & toolbox_entry::NAME.eq(name);
+    let touched = ToolboxEntry::objects()
+        .filter(filter.clone())
+        .update_values(values)
+        .await
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?;
+    if touched == 0 {
+        return Err(err(StatusCode::NOT_FOUND, "entry"));
+    }
+    ToolboxEntry::objects()
+        .filter(filter)
         .first()
         .await
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, "entry"))?;
-    entry.checked_at = Some(chrono::Utc::now());
-    ToolboxEntry::objects()
-        .save(entry)
-        .await
-        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "db"))
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "entry"))
 }
 
 /// `POST /api/taskflow/toolbox/{project}/entry/{name}/recheck`

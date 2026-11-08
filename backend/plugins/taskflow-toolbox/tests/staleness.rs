@@ -77,3 +77,53 @@ async fn fact_kind_is_for_memories_and_agents_need_toolbox_write_to_recheck() {
     let allowed = seed_agent_key(project, &[]).await;
     assert_eq!(app.post_json_as_agent(&allowed, "/api/taskflow/agents/toolbox/ok-memory/recheck", json!({})).await.status(), 200);
 }
+
+/// #1097 review: a re-check interleaved with saves must never write an older
+/// body or version back. Saves run in order while re-checks hammer the same
+/// entry; every save must land, and the entry must end on the last one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recheck_racing_saves_never_reverts_the_content() {
+    let app = TestApp::new().await;
+    let (user, project) = seed_project(&app).await;
+    let _ = seed_member(project, user.id, "owner").await;
+    let base = format!("/api/taskflow/toolbox/{project}");
+    let save = |n: usize, base_version: Option<i64>| {
+        let app = &app;
+        let path = format!("{base}/entry/live-fact");
+        async move {
+            app.post_json_as(user.id, &path, json!({ "kind": "memory", "title": "f", "description": "d", "body_markdown": format!("body {n}"), "fact_kind": "status", "base_version": base_version }))
+                .await
+        }
+    };
+    assert_eq!(save(0, None).await.status(), 200);
+    let first = app.get_as(user.id, &format!("{base}/entry/live-fact")).await.json().await;
+    let v0 = first.get("entry").unwrap_or(&first)["version"].as_i64().expect("version");
+
+    const SAVES: usize = 15;
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let saver = async {
+        // Each save names the version it read. A re-check that wrote an older
+        // version back would make the next save's base stale (409).
+        let mut version = v0;
+        for n in 1..=SAVES {
+            let res = save(n, Some(version)).await;
+            assert_eq!(res.status(), 200, "save {n}: {}", res.text());
+            let v = res.json().await;
+            version = v.get("entry").unwrap_or(&v)["version"].as_i64().expect("version");
+        }
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+    };
+    let checker = async {
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
+            let r = app.post_json_as(user.id, &format!("{base}/entry/live-fact/recheck"), json!({})).await;
+            assert_eq!(r.status(), 200);
+        }
+    };
+    tokio::join!(saver, checker);
+
+    let last = app.get_as(user.id, &format!("{base}/entry/live-fact")).await.json().await;
+    let e = last.get("entry").unwrap_or(&last);
+    assert_eq!(e["version"].as_i64(), Some(v0 + SAVES as i64), "{e}");
+    let body = e["body_markdown"].as_str().or_else(|| last["body_markdown"].as_str()).unwrap_or_default();
+    assert!(body.contains(&format!("body {SAVES}")), "the last save must stand: {last}");
+}
