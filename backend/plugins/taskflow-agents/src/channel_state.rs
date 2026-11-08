@@ -43,6 +43,8 @@ async fn read(channel: i64, q: &ReadQuery) -> Reply {
     let rows = TaskflowChannelState::objects()
         .filter(taskflow_channel_state::CHANNEL.eq(channel))
         .order_by(taskflow_channel_state::ID.desc())
+        // Current + MAX_HISTORY is all a read ever shows (#1096 review nit).
+        .limit(if q.history { MAX_HISTORY as u64 + 1 } else { 1 })
         .fetch()
         .await
         .map_err(internal)?;

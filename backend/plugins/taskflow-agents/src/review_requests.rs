@@ -390,6 +390,11 @@ async fn cancel(id: i64, me: Actor, project: Option<i64>) -> Reply {
         .map_err(internal)?
         .filter(|r| project.is_none_or(|p| r.project.id() == p))
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "not_found"))?;
+    // A person must still be an active member of the request's project, like
+    // every other user path (#1098 review nit).
+    if me.kind == TaskflowChannelMemberKind::User && active_member(req.project.id(), me.id).await?.is_none() {
+        return Err(err(StatusCode::FORBIDDEN, "forbidden"));
+    }
     let requester = match me.kind {
         TaskflowChannelMemberKind::User => req.requester_user.as_ref().map(|u| u.id()),
         TaskflowChannelMemberKind::Agent => req.requester_agent.as_ref().map(|a| a.id()),
@@ -439,21 +444,23 @@ pub async fn agent_list(RequireAgent(agent): RequireAgent, Query(q): Query<ListQ
     if !["open", "answered", "cancelled", "all"].contains(&status) {
         return Err(bad("status", "open, answered, cancelled or all"));
     }
-    let mut filter = taskflow_review_request::PROJECT.eq(agent.project_id);
-    if status != "all" {
-        filter = filter & taskflow_review_request::STATUS.eq(status);
-    }
-    let rows = TaskflowReviewRequest::objects()
-        .filter(filter)
-        .order_by(taskflow_review_request::ID.desc())
-        .fetch()
-        .await
-        .map_err(internal)?;
-    let is = |fk: &Option<ForeignKey<TaskflowAgent>>| fk.as_ref().is_some_and(|a| a.id() == agent.agent_id);
-    let pick = |f: &dyn Fn(&TaskflowReviewRequest) -> bool| -> Vec<Value> {
-        rows.iter().filter(|r| f(r)).take(MAX_LISTED).map(request_json).collect()
+    let fetch = |mine_side: bool| {
+        let mut filter = taskflow_review_request::PROJECT.eq(agent.project_id);
+        filter = if mine_side {
+            filter & taskflow_review_request::REQUESTER_AGENT.eq(agent.agent_id)
+        } else {
+            filter & taskflow_review_request::REVIEWER_KEY.eq(reviewer_key(TaskflowChannelMemberKind::Agent, agent.agent_id))
+        };
+        if status != "all" {
+            filter = filter & taskflow_review_request::STATUS.eq(status);
+        }
+        TaskflowReviewRequest::objects()
+            .filter(filter)
+            .order_by(taskflow_review_request::ID.desc())
+            .limit(MAX_LISTED as u64)
+            .fetch()
     };
-    let for_me = pick(&|r| is(&r.reviewer_agent));
-    let mine = pick(&|r| is(&r.requester_agent));
+    let for_me: Vec<Value> = fetch(false).await.map_err(internal)?.iter().map(request_json).collect();
+    let mine: Vec<Value> = fetch(true).await.map_err(internal)?.iter().map(request_json).collect();
     Ok(Json(json!({ "for_me": for_me, "mine": mine })).into_response())
 }

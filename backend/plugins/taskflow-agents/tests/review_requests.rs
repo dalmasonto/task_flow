@@ -146,6 +146,20 @@ async fn only_the_requester_cancels_and_the_reviewer_must_be_in_the_project() {
     assert!(notices(project, reviewer_agent).await.iter().any(|b| b.contains("cancelled the review request")));
     assert_eq!(app.post_as(asker, &format!("/api/taskflow/review-requests/{id}/cancel"), json!({})).await.status(), 409);
 
+    // Someone who has left the project can no longer cancel their old request.
+    let left = app.post_as(asker, &path, json!({ "reviewer": { "kind": "user", "id": reviewer_user }, "focus_markdown": "x" })).await;
+    assert_eq!(left.status(), 409, "the user request is still open");
+    let open_id = left.json().await["request"]["id"].as_i64().unwrap();
+    {
+        use taskflow_projects::models::{TaskflowMembershipStatus, TaskflowProjectMember, taskflow_project_member};
+        let mut m = TaskflowProjectMember::objects()
+            .filter(taskflow_project_member::PROJECT.eq(project) & taskflow_project_member::USER.eq(asker))
+            .first().await.unwrap().unwrap();
+        m.status = TaskflowMembershipStatus::Left;
+        TaskflowProjectMember::objects().save(m).await.unwrap();
+    }
+    assert_eq!(app.post_as(asker, &format!("/api/taskflow/review-requests/{open_id}/cancel"), json!({})).await.status(), 403);
+
     // A cancelled request is not answered by a later review.
     let rev = app.post_as_agent(&reviewer_agent_key, &format!("/api/taskflow/tasks/{task}/agent/review"), json!({ "decision": "approved" })).await;
     assert_eq!(rev.status(), 200);
