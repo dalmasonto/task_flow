@@ -2357,7 +2357,7 @@ async fn live_session_ids(
 
 /// Count an agent's currently-live sessions. Used instead of a bare
 /// `status = connected` count so abandoned sessions can't pin an agent online.
-pub(crate) async fn live_session_count(
+pub async fn live_session_count(
     agent_id: i64,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<usize, StatusCode> {
@@ -3243,7 +3243,14 @@ pub async fn update_task_status_as_agent(
         Some(agent.agent_id),
         agent.display_name.clone(),
         "status_changed",
-        Some(format!("{} · {old} → {new}", task_label(&task))),
+        // #1117: handing work over (review or done) quotes its evidence.
+        Some(match input.status {
+            TaskflowTaskStatus::PartialDone | TaskflowTaskStatus::Done => match crate::evidence::summary(task.id).await {
+                Some(ev) => format!("{} · {old} → {new}, {ev}", task_label(&task)),
+                None => format!("{} · {old} → {new}", task_label(&task)),
+            },
+            _ => format!("{} · {old} → {new}", task_label(&task)),
+        }),
     )
     .await?;
 

@@ -29,7 +29,7 @@ use serde_json::Value;
 use taskflow_agents::models::{
     TaskflowAgent, TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentCredential,
     TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowAgentSession, TaskflowAgentTerminalFrame,
-    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowReviewRequest, TaskflowTerminalInput,
+    TaskflowChannelReadCursor, TaskflowMessageAnswer, TaskflowMessageAttachment, TaskflowMessageClaim, TaskflowWakeRule, TaskflowChannelState, TaskflowTaskReview, TaskflowReviewRequest, TaskflowTaskEvidence, TaskflowTerminalInput,
 };
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
@@ -66,6 +66,7 @@ const TASK_ACTIVITY: &str = "task_activity";
 const TASK_SESSIONS: &str = "task_sessions";
 const TASK_REVIEWS: &str = "task_reviews";
 const REVIEW_REQUESTS: &str = "review_requests";
+const TASK_EVIDENCE: &str = "task_evidence";
 // #1094: decisions. Projected in full — decisions are project-wide shared state
 // (REST serves every row to every member), so there is no member who may see an
 // id but not the row. The v3 board updates its "Blocked on decision" line from
@@ -304,6 +305,10 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowReviewRequest>(Expose::to_group_with(|ev| {
             group_for(REVIEW_REQUESTS, &ev.instance)
         }))
+        // #1117: task evidence — id-only, refetch over the evidence endpoint.
+        .expose::<TaskflowTaskEvidence>(Expose::to_group_with(|ev| {
+            group_for(TASK_EVIDENCE, &ev.instance)
+        }))
         // #1094: decisions — projected (see DECISION_FIELDS).
         .expose::<TaskflowDecision>(
             Expose::to_group_with(|ev| group_for(DECISIONS, &ev.instance)).fields(DECISION_FIELDS),
@@ -513,6 +518,7 @@ const ALL_SUFFIXES: &[&str] = &[
     TASK_SESSIONS,
     TASK_REVIEWS,
     REVIEW_REQUESTS,
+    TASK_EVIDENCE,
     DECISIONS,
     DECISION_OPTIONS,
     DECISION_TASKS,
