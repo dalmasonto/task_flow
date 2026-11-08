@@ -103,7 +103,7 @@ fn fmt_money(micros: i64) -> String {
 }
 
 /// Everything a draft may say, for one project and window. Facts only.
-pub async fn sources(project: i64, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Value, ApiError> {
+pub async fn sources(project: i64, tz: Tz, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Value, ApiError> {
     let activity = TaskflowTaskActivity::objects()
         .filter(
             taskflow_task_activity::PROJECT.eq(project)
@@ -190,9 +190,12 @@ pub async fn sources(project: i64, start: DateTime<Utc>, end: DateTime<Utc>) -> 
         .await
         .map_err(internal)?;
 
-    let month_start = Utc
-        .with_ymd_and_hms(end.year(), end.month(), 1, 0, 0, 0)
-        .single()
+    // Month to date in the PROJECT's timezone (#1118 review): the 1st at local
+    // midnight, not the 1st in UTC.
+    let local_end = end.with_timezone(&tz).date_naive();
+    let month_start = local_end
+        .with_day(1)
+        .map(|first| local_to_utc(tz, first, NaiveTime::MIN))
         .unwrap_or(start);
     let reports = TaskflowUsageReport::objects()
         .filter(
@@ -323,6 +326,16 @@ pub async fn find(project: i64, date: &str) -> Result<Option<TaskflowDailyUpdate
         .map_err(internal)
 }
 
+/// How far back and forward a draft may be CREATED (#1118 review): the last
+/// week through tomorrow, in the project's timezone. Reads are not bounded.
+pub const DRAFT_DAYS_BACK: i64 = 7;
+pub const DRAFT_DAYS_AHEAD: i64 = 1;
+
+pub fn draftable(tz: Tz, date: NaiveDate, now: DateTime<Utc>) -> bool {
+    let today = now.with_timezone(&tz).date_naive();
+    date >= today - chrono::Duration::days(DRAFT_DAYS_BACK) && date <= today + chrono::Duration::days(DRAFT_DAYS_AHEAD)
+}
+
 /// The settings' clock, defaulted when no settings row exists yet.
 pub fn clock(s: Option<&TaskflowDailyUpdateSettings>) -> (Tz, NaiveTime) {
     let tz = s.and_then(|s| parse_tz(&s.timezone)).unwrap_or(chrono_tz::UTC);
@@ -340,8 +353,11 @@ pub async fn ensure_draft(project: i64, date: NaiveDate) -> Result<(TaskflowDail
     }
     let settings = settings_for(project).await?;
     let (tz, _) = clock(settings.as_ref());
+    if !draftable(tz, date, Utc::now()) {
+        return Err(bad("date", "within the last 7 days or tomorrow"));
+    }
     let (start, end) = window(tz, date, Utc::now());
-    let src = sources(project, start, end).await?;
+    let src = sources(project, tz, start, end).await?;
     let counts = &src["counts"];
     let created = TaskflowDailyUpdate::objects()
         .create(TaskflowDailyUpdate {

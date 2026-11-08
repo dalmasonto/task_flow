@@ -44,6 +44,10 @@ async fn an_owner_edits_and_posts_once_and_others_only_read() {
     let d = d.json().await;
     assert!(d["body_markdown"].as_str().unwrap().contains("## Shipped"), "{d}");
     assert_eq!(d["server_drafted"], true);
+    // Drafts can only be created for the last week through tomorrow (#1118 review).
+    for far in ["1970-01-01", "9999-12-31"] {
+        assert_eq!(app.post_json_as(owner.id, &format!("{base}/daily-updates/{far}/draft"), json!({})).await.status(), 400, "{far}");
+    }
     let again = app.post_json_as(owner.id, &format!("{base}/daily-updates/{day}/draft"), json!({})).await;
     assert_eq!(again.status(), 200);
     assert_eq!(again.json().await["id"], d["id"]);

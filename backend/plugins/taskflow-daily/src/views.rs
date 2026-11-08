@@ -254,7 +254,7 @@ pub async fn redraft(RequireAuth(user): RequireAuth<i64>, Path((project, date)):
     let settings = service::settings_for(project).await?;
     let (tz, _) = service::clock(settings.as_ref());
     let (start, end) = service::window(tz, date_of(&date)?, Utc::now());
-    let src = service::sources(project, start, end).await?;
+    let src = service::sources(project, tz, start, end).await?;
     let mut v = Map::new();
     v.insert("body_markdown".into(), json!(service::server_draft(&src)));
     v.insert("version".into(), json!(u.version + 1));
@@ -373,7 +373,7 @@ pub async fn agent_sources(RequireAgent(agent): RequireAgent, Query(q): Query<So
     let s = service::settings_for(agent.project_id).await?;
     let (tz, _) = service::clock(s.as_ref());
     let (start, end) = service::window(tz, date, Utc::now());
-    let mut src = service::sources(agent.project_id, start, end).await?;
+    let mut src = service::sources(agent.project_id, tz, start, end).await?;
     src["date"] = json!(date.format("%Y-%m-%d").to_string());
     Ok(Json(src).into_response())
 }
