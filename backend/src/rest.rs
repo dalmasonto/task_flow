@@ -352,12 +352,13 @@ pub fn project_scoped_resources() -> Vec<ResourceConfig> {
         .filter(|table| !CHANNEL_SCOPED_TABLES.contains(*table))
         .map(|table| {
             let config = ResourceConfig::new(*table).scope_async(project_scope("project"));
-            // Agents are removed ONLY through the gated
-            // `DELETE /api/taskflow/agents/{agent}` (owner/admin or the human who
-            // linked it). The project scope admits every active member, so an
-            // auto-REST delete let any viewer revoke anyone's agent.
+            // Agents are written ONLY through their gated handlers: link (mint),
+            // `DELETE /api/taskflow/agents/{agent}`, instructions and scopes.
+            // The project scope admits every active member, so auto-REST writes
+            // let any member revoke, rename or re-status anyone's agent, or POST
+            // stray agent rows (#1127 review). Read-only: the app only lists.
             if *table == "taskflow_agent" {
-                config.views([Action::List, Action::Retrieve, Action::Create, Action::Update])
+                config.views([Action::List, Action::Retrieve])
             } else if *table == "taskflow_task" {
                 // A task's description is optional (stored NULL when omitted),
                 // but clients have always read it as a string: serve NULL as "".

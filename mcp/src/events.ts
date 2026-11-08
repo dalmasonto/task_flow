@@ -573,13 +573,15 @@ export function formatIncoming(
   // the prose flexes into the room left after them (and the closing marker).
   const room = MAX_NOTICE_CHARS - head.length - close.length - manifest.length - ctx.length;
 
-  if (body.length <= room) return `${head}${body}${close}${manifest}${ctx}`;
+  // The manifest names files the SENDER chose, so it sits inside the
+  // marker; only the server's ⟦ctx⟧ ids come after the close (#1127 review).
+  if (body.length <= room) return `${head}${body}${manifest}${close}${ctx}`;
 
   // Say so. A truncated notice that looks complete is how a request gets
   // half-answered; the agent needs to know to go and read the rest.
   const hint = " …[truncated — call check_messages for the full message]";
   const kept = body.slice(0, Math.max(0, room - hint.length));
-  return `${head}${kept}${hint}${close}${manifest}${ctx}`;
+  return `${head}${kept}${hint}${manifest}${close}${ctx}`;
 }
 
 export type { TaskflowClient };

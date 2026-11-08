@@ -1204,7 +1204,8 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
         .await
         .expect("create agent");
 
-    // PATCH the agent: the instruction columns are dropped, the rest applies.
+    // #1127 review: agents are read-only on auto-REST. A PATCH is refused
+    // outright (405), so neither the instructions nor linked_by move.
     let (status, body) = patch_as(
         seed.alice,
         &format!("/api/taskflow_agent/{}", agent.id),
@@ -1218,7 +1219,7 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
         }),
     )
     .await;
-    assert_eq!(status, 200, "agent PATCH: {body}");
+    assert_eq!(status, 405, "agent PATCH must be refused: {body}");
     let stored = TaskflowAgent::objects()
         .filter(taskflow_agent::ID.eq(agent.id))
         .first()
@@ -1251,7 +1252,7 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
     assert_eq!(project.agent_instructions_markdown, None);
     assert_eq!(project.agent_instructions_updated_at, None);
 
-    // A REST create cannot smuggle them in either.
+    // A REST create is refused too: no stray agent rows.
     let (cstatus, created) = post_as(
         seed.alice,
         "/api/taskflow_agent/",
@@ -1264,9 +1265,16 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
         }),
     )
     .await;
-    assert_eq!(cstatus, 201, "agent POST: {created}");
-    assert_eq!(created["instructions_markdown"], Value::Null);
-    assert_eq!(created["linked_by"], Value::Null, "#1127: nor on create");
+    assert_eq!(cstatus, 405, "agent POST must be refused: {created}");
+    assert!(
+        TaskflowAgent::objects()
+            .filter(taskflow_agent::IDENTIFIER.eq("agent:rest-guard:made"))
+            .first()
+            .await
+            .expect("lookup")
+            .is_none(),
+        "no agent row was created"
+    );
 
     // Reads still carry the columns: the dashboard renders them from these lists.
     let (rstatus, row) = get_as(seed.alice, false, &format!("/api/taskflow_agent/{}", agent.id)).await;
