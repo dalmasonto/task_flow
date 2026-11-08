@@ -100,6 +100,16 @@ async fn tools_between_an_agents_messages() {
     assert!(b.get(mine.to_string()).is_none(), "a person's message has no entry: {b}");
     assert!(!b.to_string().contains("SECRET"), "payloads never leave");
 
+    // A page spread over more than a day reads per message window (#6014),
+    // and counts the same: m1 alone, and m0 with m2 (a 15 h span).
+    let one = app.get_as(me, &format!("/api/taskflow/channels/{room}/tools?messages={m1}")).await.json().await;
+    assert_eq!(one[m1.to_string()]["count"], 3);
+    let old = agent_says(&app, &key, room, t + Duration::hours(30)).await;
+    activity(project, agent, "tool:Read", t + Duration::hours(29)).await;
+    let wide = app.get_as(me, &format!("/api/taskflow/channels/{room}/tools?messages={m0},{m1},{old}")).await.json().await;
+    assert_eq!(wide[m1.to_string()], json!({ "count": 3, "names": ["Edit", "design_screenshot"] }), "{wide}");
+    assert_eq!(wide[old.to_string()]["count"], 1, "{wide}");
+
     let many: Vec<String> = (1..=101).map(|i| i.to_string()).collect();
     assert_eq!(app.get_as(me, &format!("/api/taskflow/channels/{room}/tools?messages={}", many.join(","))).await.status(), 400);
 }

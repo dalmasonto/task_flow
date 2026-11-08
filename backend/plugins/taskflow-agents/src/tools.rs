@@ -9,7 +9,11 @@
 //! that project) and this one, looking back at most [`LOOKBACK`]. Only tool
 //! names are read, never payloads; `mcp__server__tool` reads as `tool`, and
 //! the `send_message` call that posted the message itself is not counted.
-//! Two queries per sending agent on the page, not per message.
+//! Two queries per sending agent on the page, not per message, while the
+//! page spans at most [`MAX_SPAN`]; a wider page reads each message's window.
+//! Attribution is by insert time: Claude Code's PostToolUse hook posts each
+//! tool row as the tool finishes, so the rows land before the `send_message`
+//! that posts the reply (#6014).
 //!
 //! The caller must see the room (a private room's roster); else 404.
 
@@ -28,6 +32,9 @@ use crate::models::{TaskflowAgentMessage, TaskflowChannelMemberKind, taskflow_ag
 
 pub const MAX_IDS: usize = 100;
 pub const LOOKBACK: Duration = Duration::hours(2);
+/// #6014: one batched read covers at most this span of an agent's activity;
+/// a page spread wider (a quiet room) reads each message's window instead.
+pub const MAX_SPAN: Duration = Duration::hours(24);
 const MAX_NAMES: usize = 5;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -115,29 +122,43 @@ pub async fn for_messages(RequireAuth(user): RequireAuth<i64>, Path(channel): Pa
             .filter_map(|m| m.created_at.map(|t| (m.id, t)))
             .collect();
         sent.sort();
-        let tools: Vec<(DateTime<Utc>, String)> = TaskflowTaskActivity::objects()
-            .filter(
-                taskflow_task_activity::PROJECT.eq(project)
-                    & taskflow_task_activity::ACTOR_AGENT_ID.eq(agent)
-                    & taskflow_task_activity::CREATED_AT.gte(since)
-                    & taskflow_task_activity::CREATED_AT.lte(last)
-                    & taskflow_task_activity::ACTION.startswith("tool:"),
+        let rows = |from: DateTime<Utc>, to: DateTime<Utc>| async move {
+            Ok::<_, ApiError>(
+                TaskflowTaskActivity::objects()
+                    .filter(
+                        taskflow_task_activity::PROJECT.eq(project)
+                            & taskflow_task_activity::ACTOR_AGENT_ID.eq(agent)
+                            & taskflow_task_activity::CREATED_AT.gte(from)
+                            & taskflow_task_activity::CREATED_AT.lte(to)
+                            & taskflow_task_activity::ACTION.startswith("tool:"),
+                    )
+                    .fetch()
+                    .await
+                    .map_err(internal)?
+                    .into_iter()
+                    .filter_map(|a| Some((a.created_at?, tool_name(&a.action)?)))
+                    .filter(|(_, n)| n != "send_message")
+                    .collect::<Vec<(DateTime<Utc>, String)>>(),
             )
-            .fetch()
-            .await
-            .map_err(internal)?
-            .into_iter()
-            .filter_map(|a| Some((a.created_at?, tool_name(&a.action)?)))
-            .filter(|(_, n)| n != "send_message")
-            .collect();
+        };
+        // One read for a page within MAX_SPAN, else one per message window.
+        let batched = if last - since <= MAX_SPAN { Some(rows(since, last).await?) } else { None };
 
         for m in mine {
             let Some(at) = m.created_at else { continue };
             let prev = sent.iter().filter(|(id, _)| *id < m.id).map(|(_, t)| *t).max();
             let from = prev.map_or(at - LOOKBACK, |p| p.max(at - LOOKBACK));
+            let own;
+            let tools: &Vec<(DateTime<Utc>, String)> = match &batched {
+                Some(all) => all,
+                None => {
+                    own = rows(from, at).await?;
+                    &own
+                }
+            };
             let mut counts: Vec<(String, usize)> = Vec::new();
             let mut total = 0usize;
-            for (t, name) in &tools {
+            for (t, name) in tools {
                 if *t > from && *t <= at {
                     total += 1;
                     match counts.iter_mut().find(|(n, _)| n == name) {
