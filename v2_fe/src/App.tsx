@@ -2283,6 +2283,14 @@ function App() {
       isSyncing: isLiveSyncing,
       counts: { pendingReviews, pendingInvites, designUnread, onlineAgents: activeProject?.agentsOnline ?? 0 },
       live: activeLiveWorkspace ?? null,
+      board: {
+        total: projectTaskTotal,
+        columnTotals: activeLiveWorkspace?.taskCounts ?? {},
+        loadingColumns,
+        syncError: liveSyncError,
+        placeTask,
+        loadMore: (columnId, loaded) => void loadMoreBoardColumn(columnId, loaded),
+      },
       chooseProject,
       createProject: async (input) => {
         const project = await createTaskflowProject({ default_api_base_url: "/api", ...input })

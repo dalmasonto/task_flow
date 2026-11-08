@@ -60,6 +60,7 @@ const OnboardingConnectPage = lazyNamed(() => import("./onboarding/OnboardingPag
 const OnboardingHelloPage = lazyNamed(() => import("./onboarding/OnboardingPages"), "OnboardingHelloPage")
 const ProjectNewPage = lazyNamed(() => import("./projects/ProjectNewPage"), "ProjectNewPage")
 const DesignPage = lazyNamed(() => import("./design/DesignPage"), "DesignPage")
+const BoardPage = lazyNamed(() => import("./board/BoardPage"), "BoardPage")
 
 export function V3App() {
   useV3Document()
@@ -80,6 +81,8 @@ export function V3App() {
           {/* App shell (group 3). */}
           <Route path="/v3/projects/new" element={<ProjectNewPage />} />
         <Route path="/v3/design" element={<DesignPage />} />
+        {/* Board (group 4). */}
+        <Route path="/v3/board" element={<BoardPage />} />
           <Route path="*" element={<NotPortedYet />} />
         </Routes>
       </Suspense>

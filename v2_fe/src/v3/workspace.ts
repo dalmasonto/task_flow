@@ -8,8 +8,9 @@
 import { createContext, useContext } from "react"
 
 import type { AuthUser } from "@/lib/auth-api"
+import type { BoardColumnId } from "@/lib/board-columns"
 import type { CreateProjectInput, RealtimeStatus, TaskflowWorkspace } from "@/lib/taskflow-api"
-import type { Project, Task } from "@/lib/workspace-view"
+import type { DropTarget, Project, Task } from "@/lib/workspace-view"
 
 export type V3Project = Project & { taskCount: number }
 
@@ -31,6 +32,17 @@ export type V3Workspace = {
   /// messages, …) as App loads it and realtime keeps it current. Which slices
   /// are filled depends on the route (routes.ts v3GatePath) and the flag below.
   live: TaskflowWorkspace | null
+  /// The board's store operations, v2's tested ones: the optimistic move +
+  /// write, per-column paging, and the server's totals (a paged column must
+  /// not claim only what is loaded).
+  board: {
+    total: number
+    columnTotals: Partial<Record<BoardColumnId, number>>
+    loadingColumns: ReadonlySet<BoardColumnId>
+    syncError: string | null
+    placeTask: (taskId: string, target: DropTarget) => void
+    loadMore: (columnId: BoardColumnId, loaded: number) => void
+  }
   chooseProject: (projectId: string) => void
   /// Create a project and make it active, the same way v2's dialog does.
   createProject: (input: CreateProjectInput) => Promise<{ id: string }>
