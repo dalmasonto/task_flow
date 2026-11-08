@@ -3488,6 +3488,19 @@ pub async fn set_agent_scopes(
             return Ok((StatusCode::BAD_REQUEST, Json(json!({ "error": "unknown_capability", "capability": offending }))).into_response());
         }
     };
+    // The state before, for the audit row (#1078 review).
+    let active = || {
+        TaskflowAgentCredential::objects()
+            .filter(crate::models::taskflow_agent_credential::AGENT.eq(agent.id) & crate::models::taskflow_agent_credential::STATUS.eq("active"))
+    };
+    let before = active().first().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let before_caps = before.as_ref().map(|c| {
+        crate::scopes::effective_capabilities(
+            &crate::scopes::parse_scopes(c.scopes.as_deref()),
+            &crate::scopes::parse_denied(c.denied_scopes.as_deref()),
+        )
+    });
+
     let mut v = serde_json::Map::new();
     v.insert("scopes".into(), json!(scopes));
     v.insert("denied_scopes".into(), json!(denied));
@@ -3498,6 +3511,46 @@ pub async fn set_agent_scopes(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let granted = crate::scopes::parse_scopes(scopes.as_deref());
     let denied_list = crate::scopes::parse_denied(denied.as_deref());
+    let after_caps = crate::scopes::effective_capabilities(&granted, &denied_list);
+
+    // Live: the column update fires no post_save, so emit it per credential
+    // (other open tabs refresh their scopes).
+    for c in active().fetch().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        crate::emit::emit_post_save(&c).await;
+    }
+    // Audit: who changed what, capability names only (#1078 review). Skipped
+    // when nothing changed.
+    if before_caps.as_ref() != Some(&after_caps) {
+        let label = if member.display_name.trim().is_empty() { format!("user {user_id}") } else { member.display_name.clone() };
+        let before_list = before_caps.unwrap_or_default();
+        let removed: Vec<&String> = before_list.iter().filter(|c| !after_caps.contains(c)).collect();
+        let added: Vec<&String> = after_caps.iter().filter(|c| !before_list.contains(c)).collect();
+        let show = |l: &[&String]| if l.is_empty() { "none".to_string() } else { l.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ") };
+        TaskflowTaskActivity::objects()
+            .create(TaskflowTaskActivity {
+                id: 0,
+                project: agent.project.clone(),
+                task: None,
+                actor_kind: TaskflowActorKind::User,
+                actor_user: Some(ForeignKey::new(user_id)),
+                actor_agent_id: None,
+                actor_label: label,
+                action: "agent_capabilities_changed".to_string(),
+                body_markdown: Some(format!(
+                    "{}'s capabilities: removed {}; added {}",
+                    agent.display_name,
+                    show(&removed),
+                    show(&added)
+                )),
+                metadata_json: Some(
+                    json!({ "agent_id": agent.id, "before": before_list, "after": after_caps }).to_string(),
+                ),
+                created_at: None,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
     Ok(Json(json!({
         "agent_id": agent.id,
         "scopes": granted,

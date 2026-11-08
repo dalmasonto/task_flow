@@ -10,6 +10,18 @@ use support::{TestApp, make_project_member_with_role, seed_project};
 use taskflow_projects::models::TaskflowProjectRole;
 use taskflow_tasks::models::{TaskflowTask, TaskflowTaskPriority, TaskflowTaskStatus};
 use umbral::orm::ForeignKey;
+use taskflow_tasks::models::{TaskflowTaskActivity, taskflow_task_activity};
+
+async fn audit(project: i64) -> Vec<String> {
+    TaskflowTaskActivity::objects()
+        .filter(taskflow_task_activity::PROJECT.eq(project) & taskflow_task_activity::ACTION.eq("agent_capabilities_changed"))
+        .fetch()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|a| a.body_markdown.unwrap_or_default())
+        .collect()
+}
 
 async fn seed_task(project: i64) -> i64 {
     TaskflowTask::objects()
@@ -65,7 +77,16 @@ async fn an_owner_changes_capabilities_and_the_next_call_obeys() {
     let me = app.get_as_agent(&key, "/api/taskflow/agents/whoami").await.json().await;
     assert_eq!(me["denied_scopes"], json!(["tasks:write"]));
 
+    // #1078 review: one audit row naming who, and before -> after.
+    let rows = audit(project).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].contains("removed tasks:write") && rows[0].contains("added none"), "{}", rows[0]);
+    // Saving the same state again changes nothing, so no second row.
+    assert_eq!(app.patch_as(owner, &path, json!({ "denied_scopes": ["tasks:write"] })).await.status(), 200);
+    assert_eq!(audit(project).await.len(), 1);
+
     // And back on.
     assert_eq!(app.patch_as(owner, &path, json!({ "denied_scopes": [] })).await.status(), 200);
+    assert_eq!(audit(project).await.len(), 2);
     assert_eq!(app.post_as_agent(&key, &format!("/api/taskflow/agents/tasks/{other}/claim"), json!({})).await.status(), 200);
 }
