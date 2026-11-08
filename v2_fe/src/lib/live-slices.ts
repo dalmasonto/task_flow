@@ -163,3 +163,21 @@ export function sliceGatesFor(input: SliceGateInput): LiveSliceGates {
     taskDetailId: numericOpenTaskId,
   }
 }
+
+/// The union of the gates for several paths (a v3 page that draws on more than
+/// one v2 slice): a slice loads if any path wants it.
+export function sliceGatesForPaths(paths: string[], rest: Omit<SliceGateInput, "pathname">): LiveSliceGates {
+  const all = paths.map((pathname) => sliceGatesFor({ ...rest, pathname }))
+  const any = (k: Exclude<keyof LiveSliceGates, "taskDetailId">) => all.some((g) => g[k])
+  return {
+    board: any("board"),
+    presence: any("presence"),
+    chat: any("chat"),
+    chatChannels: any("chatChannels"),
+    terminal: any("terminal"),
+    settings: any("settings"),
+    reviews: any("reviews"),
+    activity: any("activity"),
+    taskDetailId: all.find((g) => g.taskDetailId != null)?.taskDetailId ?? null,
+  }
+}

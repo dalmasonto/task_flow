@@ -28,7 +28,7 @@ import { ActivityIcon, BellIcon, FileTextIcon, GitBranchIcon, KanbanSquareIcon, 
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { TaskChipContext, GithubRepoContext, ChatDockContext } from "@/lib/markdown-contexts"
-import { invalidateSlices, sliceGatesFor, type LoadedSlices } from "@/lib/live-slices"
+import { invalidateSlices, sliceGatesForPaths, type LoadedSlices } from "@/lib/live-slices"
 import { loadDockChatId, saveDockState } from "@/lib/chat-dock-state"
 import { resolveActiveProject } from "@/lib/active-project"
 import { createLoadSequence } from "@/lib/load-sequence"
@@ -73,7 +73,7 @@ import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { V3App } from "@/v3/V3App"
 import { V3Public } from "@/v3/V3Public"
 import { V3WorkspaceContext, type V3Workspace } from "@/v3/workspace"
-import { V3_DEFAULT, V3_LOGIN, v3GatePath, v3RouteKind } from "@/v3/routes"
+import { V3_DEFAULT, V3_LOGIN, v3GatePaths, v3RouteKind } from "@/v3/routes"
 
 // #56 review: which open-task-detail field a deleted row belongs to, by realtime
 // table. Used to prune `openTaskDetail` on delete so the sheet overlay can't
@@ -1398,7 +1398,7 @@ function App() {
     reviews: reviewsNeeded,
     activity: activityNeeded,
     taskDetailId: openTaskNumericId,
-  } = sliceGatesFor({ pathname: v3GatePath(location.pathname), chatSurfaceMounted, dockOpen, openTaskId, boardDialogOpen })
+  } = sliceGatesForPaths(v3GatePaths(location.pathname), { chatSurfaceMounted, dockOpen, openTaskId, boardDialogOpen })
 
   /// #663: whether the floating Chat launcher owns the bottom-right corner.
   /// Hoisted from its JSX so the sessions dock (rendered above this line) can

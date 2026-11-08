@@ -26,14 +26,16 @@ export function v3RouteKind(path: string): V3RouteKind {
 
 /// The v2 route whose data a v3 route needs. App's slice gates (live-slices.ts)
 /// key on v2 paths, so v3 maps onto them instead of growing its own loaders.
-const GATE_MAP: [prefix: string, v2: string][] = [
+const GATE_MAP: [prefix: string, v2: string | string[]][] = [
   ["/v3/board", "/dashboard/board"],
   ["/v3/tasks", "/dashboard/board"],
   ["/v3/sessions", "/dashboard/board"],
   ["/v3/reviews", "/dashboard/reviews"],
   ["/v3/chat", "/dashboard/agents"],
   ["/v3/inbox", "/dashboard/agents"],
-  ["/v3/agents", "/dashboard/agents"],
+  // Agents pages need presence (sessions), settings (keys) and the board
+  // (what each agent is working on); chat/terminal come from the mount flag.
+  ["/v3/agents", ["/dashboard/api", "/dashboard/board"]],
   ["/v3/design", "/dashboard/design"],
   ["/v3/activity", "/dashboard/activity"],
   ["/v3/api-keys", "/dashboard/api"],
@@ -43,11 +45,17 @@ const GATE_MAP: [prefix: string, v2: string][] = [
   ["/v3/onboarding", "/dashboard/api"],
 ]
 
-export function v3GatePath(pathname: string): string {
+/// Every v2 gate path a v3 route needs (most need one; some, like the agents
+/// pages, draw on several slices). Non-v3 paths pass through unchanged.
+export function v3GatePaths(pathname: string): string[] {
   for (const [prefix, v2] of GATE_MAP) {
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return v2
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return Array.isArray(v2) ? v2 : [v2]
   }
-  return pathname
+  return [pathname]
+}
+
+export function v3GatePath(pathname: string): string {
+  return v3GatePaths(pathname)[0]
 }
 
 /// Where to go after login. Only same-app paths are honoured, so `?next=` can't

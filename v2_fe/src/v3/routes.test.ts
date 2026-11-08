@@ -40,3 +40,12 @@ describe("safeNextPath", () => {
     for (const n of ["//evil.com", "https://evil.com", "evil.com", "/other", null, ""]) expect(safeNextPath(n, "/x")).toBe("/x")
   })
 })
+
+describe("v3GatePaths", () => {
+  it("lets a page draw on several slices", async () => {
+    const { v3GatePaths } = await import("./routes")
+    expect(v3GatePaths("/v3/agents/1")).toEqual(["/dashboard/api", "/dashboard/board"])
+    expect(v3GatePaths("/v3/board")).toEqual(["/dashboard/board"])
+    expect(v3GatePaths("/dashboard/x")).toEqual(["/dashboard/x"])
+  })
+})

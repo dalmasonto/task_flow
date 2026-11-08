@@ -244,3 +244,11 @@ describe("invalidateSlices", () => {
     expect(slices.project).toBe(3)
   })
 })
+
+describe("sliceGatesForPaths", () => {
+  it("loads a slice if any of the paths wants it", async () => {
+    const { sliceGatesForPaths } = await import("./live-slices")
+    const g = sliceGatesForPaths(["/dashboard/api", "/dashboard/board"], { chatSurfaceMounted: false, dockOpen: false, openTaskId: null, boardDialogOpen: false })
+    expect([g.presence, g.settings, g.board, g.chat, g.activity]).toEqual([true, true, true, false, false])
+  })
+})
