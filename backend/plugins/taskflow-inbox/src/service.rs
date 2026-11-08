@@ -19,7 +19,9 @@ use taskflow_agents::models::{
     TaskflowPromptStatus, TaskflowReviewRequest, taskflow_agent, taskflow_agent_message, taskflow_agent_prompt,
     taskflow_review_request,
 };
+use taskflow_daily::models::{TaskflowDailyUpdate, taskflow_daily_update};
 use taskflow_decisions::models::{TaskflowDecision, taskflow_decision};
+use taskflow_projects::models::{TaskflowProjectMember, TaskflowProjectRole, taskflow_project_member};
 
 use crate::models::{TaskflowInboxCursor, taskflow_inbox_cursor};
 
@@ -196,6 +198,43 @@ pub async fn inbox(user: i64, q: &InboxQuery) -> Result<Value, ApiError> {
                 "review_path": format!("/api/taskflow/tasks/{}/review", r.task.id()),
             }),
         });
+    }
+
+    // 2c. Daily update drafts (#1118) for the projects I own or admin: only
+    //     they can post one, so only they are asked.
+    let managed: Vec<i64> = TaskflowProjectMember::objects()
+        .filter(
+            taskflow_project_member::PROJECT.in_(&projects)
+                & taskflow_project_member::USER.eq(user)
+                & taskflow_project_member::STATUS.eq("active"),
+        )
+        .fetch()
+        .await
+        .map_err(internal)?
+        .into_iter()
+        .filter(|m| matches!(m.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin))
+        .map(|m| m.project.id())
+        .collect();
+    if !managed.is_empty() {
+        let drafts = TaskflowDailyUpdate::objects()
+            .filter(taskflow_daily_update::PROJECT.in_(&managed) & taskflow_daily_update::STATUS.eq("draft"))
+            .order_by(taskflow_daily_update::ID.desc())
+            .limit(PER_SOURCE as u64)
+            .fetch()
+            .await
+            .map_err(internal)?;
+        for d in drafts {
+            items.push(Item {
+                kind: "daily_update",
+                tab: "needs_you",
+                at: d.created_at.unwrap_or_else(Utc::now),
+                body: json!({
+                    "daily_update": d.id, "project": d.project.id(), "date": d.date,
+                    "excerpt": taskflow_daily::service::excerpt(&d.body_markdown),
+                    "drafted_by_label": d.drafted_by_label,
+                }),
+            });
+        }
     }
 
     // 3 + 4. Messages: open questions for me, and mentions of me. Filtered

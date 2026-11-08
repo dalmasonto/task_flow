@@ -332,6 +332,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taskflow-agents",
+ "taskflow-daily",
  "taskflow-decisions",
  "taskflow-design",
  "taskflow-github",
@@ -3595,6 +3596,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "taskflow-daily"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "chrono-tz",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "taskflow-agents",
+ "taskflow-decisions",
+ "taskflow-projects",
+ "taskflow-tasks",
+ "taskflow-usage",
+ "tokio",
+ "tracing",
+ "umbral",
+ "umbral-auth",
+ "umbral-testing",
+]
+
+[[package]]
 name = "taskflow-decisions"
 version = "0.1.0"
 dependencies = [
@@ -3672,9 +3697,11 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taskflow-agents",
+ "taskflow-daily",
  "taskflow-decisions",
  "taskflow-projects",
  "taskflow-tasks",
+ "taskflow-usage",
  "tokio",
  "umbral",
  "umbral-auth",

@@ -20,7 +20,7 @@ impl Plugin for TaskflowInboxPlugin {
     }
 
     fn dependencies(&self) -> &'static [&'static str] {
-        &["auth", "taskflow_projects", "taskflow_agents", "taskflow_decisions"]
+        &["auth", "taskflow_projects", "taskflow_agents", "taskflow_decisions", "taskflow_daily"]
     }
 
     fn models(&self) -> Vec<umbral::migrate::ModelMeta> {

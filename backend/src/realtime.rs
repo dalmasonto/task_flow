@@ -34,6 +34,7 @@ use taskflow_agents::models::{
 use taskflow_decisions::models::{
     TaskflowDecision, TaskflowDecisionComment, TaskflowDecisionOption, TaskflowDecisionTask,
 };
+use taskflow_daily::models::TaskflowDailyUpdate;
 use taskflow_design::models::{DesignComment, DesignLayout};
 use taskflow_projects::models::{
     TaskflowProject, TaskflowProjectApiEndpoint, TaskflowProjectInvite, TaskflowProjectMember,
@@ -67,6 +68,7 @@ const TASK_SESSIONS: &str = "task_sessions";
 const TASK_REVIEWS: &str = "task_reviews";
 const REVIEW_REQUESTS: &str = "review_requests";
 const TASK_EVIDENCE: &str = "task_evidence";
+const DAILY_UPDATES: &str = "daily_updates";
 // #1094: decisions. Projected in full — decisions are project-wide shared state
 // (REST serves every row to every member), so there is no member who may see an
 // id but not the row. The v3 board updates its "Blocked on decision" line from
@@ -309,6 +311,10 @@ pub fn plugin() -> RealtimePlugin {
         .expose::<TaskflowTaskEvidence>(Expose::to_group_with(|ev| {
             group_for(TASK_EVIDENCE, &ev.instance)
         }))
+        // #1118: daily updates — id-only; refetch over the daily endpoints.
+        .expose::<TaskflowDailyUpdate>(Expose::to_group_with(|ev| {
+            group_for(DAILY_UPDATES, &ev.instance)
+        }))
         // #1094: decisions — projected (see DECISION_FIELDS).
         .expose::<TaskflowDecision>(
             Expose::to_group_with(|ev| group_for(DECISIONS, &ev.instance)).fields(DECISION_FIELDS),
@@ -519,6 +525,7 @@ const ALL_SUFFIXES: &[&str] = &[
     TASK_REVIEWS,
     REVIEW_REQUESTS,
     TASK_EVIDENCE,
+    DAILY_UPDATES,
     DECISIONS,
     DECISION_OPTIONS,
     DECISION_TASKS,

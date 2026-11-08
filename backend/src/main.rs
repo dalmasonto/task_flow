@@ -43,6 +43,7 @@ use taskflow_toolbox::TaskflowToolboxPlugin;
 use taskflow_decisions::TaskflowDecisionsPlugin;
 use taskflow_usage::TaskflowUsagePlugin;
 use taskflow_inbox::TaskflowInboxPlugin;
+use taskflow_daily::TaskflowDailyPlugin;
 use taskflow_projects::TaskflowProjectsPlugin;
 use taskflow_tasks::TaskflowTasksPlugin;
 use umbral::prelude::*;
@@ -221,6 +222,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // #1116: the inbox — prompts, decisions, questions and mentions that
         // need a person. Gathers existing rows; its read cursor is not on REST.
         .plugin(TaskflowInboxPlugin::default())
+        // #1118: the daily update — drafted on a schedule (facts only, never
+        // posted), improved by the drafting agent, posted by an owner/admin.
+        .plugin(TaskflowDailyPlugin::default())
         // Admin: auto CRUD UI at /admin/ for every registered model.
         // The dashboard mounts one builtin widget from `widgets/` so a
         // fresh admin isn't empty — add your own with `.dashboard_section`.
