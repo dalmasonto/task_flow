@@ -23,6 +23,7 @@ import { ActorAvatar } from "../components/actor-avatar"
 import { guessModel } from "../components/actor-models"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
+import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
 import { fetchInbox, markInboxRead, type InboxItem, type InboxPage as Feed, type InboxTab } from "./inbox-api"
 
@@ -54,7 +55,11 @@ function Glyph({ children }: { children: React.ReactNode }) {
 }
 
 export function InboxPage() {
-  const { projects } = useWorkspace()
+  const { projects, live } = useWorkspace()
+  // #1127: who may answer is known for the active project's agents; for
+  // others the card stays answerable and the server decides.
+  const mayDrive = useMayDrive()
+  const activeId = live?.project.id ?? null
   const now = useLivenessNow()
   const [tab, setTab] = useState<InboxTab>("needs_you")
   const [project, setProject] = useState<number | null>(null)
@@ -100,6 +105,7 @@ export function InboxPage() {
             {i.kind === "prompt" ? (
               <div className="mt-2">
                 <AgentPromptCard
+                  readOnly={i.project === activeId && mayDrive(i.agent) === false}
                   prompt={{ id: i.prompt, project: i.project, agent: i.agent, question: i.question, options_json: i.options_json, kind: i.prompt_kind, status: "pending" } as unknown as TaskflowWorkspace["agentPrompts"][number]}
                   onAnswer={async (id, answers, cancel, texts) => {
                     await answerAgentPrompt(id, answers, cancel, texts)

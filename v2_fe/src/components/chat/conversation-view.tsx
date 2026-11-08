@@ -32,6 +32,8 @@ import { useNavigate } from "react-router-dom"
 /// `variant` only tunes density: "compact" is the same component with the same
 /// features in a ~380px panel. Splitting it into a second, simpler chat is what
 /// would let the two drift.
+const alwaysDrive = () => true
+
 export function AgentsConversationView({
   selectedChat,
   messagesLoaded = true,
@@ -58,6 +60,7 @@ export function AgentsConversationView({
   onOpenPage,
   onOpenThread,
   threadSummaries,
+  mayDrive = alwaysDrive,
 }: AgentsOutletContext & {
   variant?: "full" | "compact" | "design"
   /// #506: the design pages `@page:` can mention. Absent (every surface but the
@@ -82,6 +85,9 @@ export function AgentsConversationView({
   onOpenThread?: (rootId: string) => void
   /// #1132: reply counts by root id, for the links under root bubbles.
   threadSummaries?: Record<string, { replyCount: number; lastReplyAt: string | null }>
+  /// #1127: may the viewer answer this agent's prompts and type into its
+  /// terminal? v3 passes the server's rule; omitted, every control shows.
+  mayDrive?: (agentId: number) => boolean
 }) {
   const compact = variant === "compact"
   const isDesign = variant === "design"
@@ -855,7 +861,7 @@ export function AgentsConversationView({
 
         {chatTab === "messages" && pendingPrompt ? (
           <div className="shrink-0 border-t bg-background px-3 pt-3">
-            <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} onDismiss={onDismissPrompt} />
+            <AgentPromptCard prompt={pendingPrompt} onAnswer={onAnswerPrompt} onDismiss={onDismissPrompt} readOnly={!mayDrive(pendingPrompt.agent)} />
           </div>
         ) : null}
 
@@ -1237,6 +1243,7 @@ export function AgentsConversationView({
         // close (X) control, on every screen size.
         <AgentTerminalPanel
           selectedSession={selectedSession}
+          canDrive={selectedSession ? mayDrive(selectedSession.agentId) : true}
           onFocusComposer={focusComposer}
           onClose={() => setTerminalOpen(false)}
           className="absolute inset-0 z-30 bg-card shadow-xl animate-in slide-in-from-right duration-200"

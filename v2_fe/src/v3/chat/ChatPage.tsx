@@ -28,6 +28,7 @@ import { timeAgo } from "../lib/time"
 import { useLoad } from "../lib/use-load"
 import { V3Shell } from "../shell/V3Shell"
 import { seedTaskFrom } from "../tasks/task-seed"
+import { useMayDrive } from "../lib/use-may-drive"
 import { useWorkspace } from "../workspace"
 import { byRecent, chatRow, filterChats, type ChatFilter, type ChatRow } from "./chat-logic"
 import { focusComposerIn } from "./focus"
@@ -153,6 +154,7 @@ function ChatWorkspace({ project }: { project: Project }) {
   const [params, setParams] = useSearchParams()
   const isBelowLg = useIsBelowLg()
   const { live, currentUser, applyLiveUpdate, reloadLive, setChatSurfaceMounted } = useWorkspace()
+  const mayDrive = useMayDrive()
   const pane = useRef<HTMLDivElement>(null)
 
   // Tell App the chat slices are needed while this page is up.
@@ -291,7 +293,7 @@ function ChatWorkspace({ project }: { project: Project }) {
             ) : null}
             {selectedChat ? (
               <div className="flex min-h-0 flex-1 flex-col">
-                <AgentsConversationView {...outletContext} onOpenThread={channelId ? openThread : undefined} threadSummaries={threadSummaries} />
+                <AgentsConversationView {...outletContext} onOpenThread={channelId ? openThread : undefined} threadSummaries={threadSummaries} mayDrive={(id) => mayDrive(id) !== false} />
               </div>
             ) : (
               <Empty className="m-auto max-w-sm">
