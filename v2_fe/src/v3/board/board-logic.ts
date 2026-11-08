@@ -18,6 +18,7 @@ export type CardInfo = {
   repo: string | null
   files: number
   due: { label: string; overdue: boolean } | null
+  updatedAt: string | null
 }
 
 const DAY = 86_400_000
@@ -55,6 +56,7 @@ export function cardInfo(task: Task, raw: TaskflowTask | undefined, agents: Task
     repo: raw?.github_repo ? (raw.github_repo.split("/").pop() ?? raw.github_repo) : null,
     files,
     due: raw?.due_at && task.status !== "done" ? dueLabel(raw.due_at, now) : null,
+    updatedAt: raw?.updated_at ?? raw?.created_at ?? null,
   }
 }
 
