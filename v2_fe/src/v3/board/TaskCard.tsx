@@ -3,7 +3,7 @@
 /// exist, rather than shown empty.
 import type { DragEvent } from "react"
 import { Link } from "react-router-dom"
-import { CalendarIcon, GitBranchIcon, PaperclipIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from "lucide-react"
+import { CalendarIcon, ClockIcon, GitBranchIcon, PaperclipIcon, ShieldCheckIcon, TriangleAlertIcon, UserIcon } from "lucide-react"
 
 import type { Priority } from "@/lib/workspace-view"
 import { cn } from "@/lib/utils"
@@ -74,7 +74,13 @@ export function TaskCard({
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <PriorityMark priority={card.priority} />
         <span className="font-medium tabular-nums">#{card.id}</span>
-        <span className="ml-auto">
+        {card.lease ? (
+          <span className="ml-auto inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 tabular-nums" title="Claim lease: the agent keeps the task while it's active; it's released if the agent goes quiet this long">
+            <ClockIcon className="size-3" aria-hidden />
+            {card.lease}
+          </span>
+        ) : null}
+        <span className={card.lease ? undefined : "ml-auto"}>
           {card.assignee ? (
             <ActorAvatar model={card.assignee.isAgent ? card.assignee.model : null} name={card.assignee.name} size="xs" />
           ) : (

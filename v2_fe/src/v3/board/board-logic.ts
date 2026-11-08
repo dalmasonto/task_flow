@@ -19,6 +19,29 @@ export type CardInfo = {
   files: number
   due: { label: string; overdue: boolean } | null
   updatedAt: string | null
+  /// Time left on the claim lease ("42m"), for a claimed task that's active.
+  lease: string | null
+}
+
+/// #1126: minutes left on an agent's claim, or null when no lease applies.
+/// Only active work is released (`not_started`, `in_progress`), and the lease
+/// runs from `max(agent.last_seen_at, task.updated_at)`; any heartbeat or edit
+/// renews it. Negative means the sweep will release it soon.
+export function leaseLeft(raw: Pick<TaskflowTask, "assigned_agent_id" | "status" | "updated_at"> | undefined, agent: Pick<TaskflowAgent, "last_seen_at"> | undefined, leaseMinutes: number | null, now: number): number | null {
+  if (!raw || raw.assigned_agent_id == null || leaseMinutes == null) return null
+  if (raw.status !== "not_started" && raw.status !== "in_progress") return null
+  const anchor = Math.max(Date.parse(agent?.last_seen_at ?? "") || 0, Date.parse(raw.updated_at ?? "") || 0)
+  if (!anchor) return null
+  // Rounded up, so a claim with 40 s left reads "1m", not "Releasing".
+  return Math.ceil((anchor + leaseMinutes * 60_000 - now) / 60_000)
+}
+
+/// "42m" / "1h 5m" / "Releasing" for the card chip.
+export function leaseLabel(left: number | null): string | null {
+  if (left == null) return null
+  if (left <= 0) return "Releasing"
+  if (left < 60) return `${left}m`
+  return `${Math.floor(left / 60)}h ${left % 60}m`
 }
 
 const DAY = 86_400_000
@@ -37,10 +60,10 @@ function realGate(gate: string | null | undefined): string | null {
   return !g || /^no review gate/i.test(g) ? null : g
 }
 
-export function cardInfo(task: Task, raw: TaskflowTask | undefined, agents: TaskflowAgent[], files: number, now: number): CardInfo {
+export function cardInfo(task: Task, raw: TaskflowTask | undefined, agents: TaskflowAgent[], files: number, now: number, leaseMinutes: number | null = null): CardInfo {
   let assignee: CardAssignee | null = null
+  const agent = raw?.assigned_agent_id != null ? agents.find((a) => a.id === raw.assigned_agent_id) : undefined
   if (raw?.assigned_agent_id != null) {
-    const agent = agents.find((a) => a.id === raw.assigned_agent_id)
     const name = agent?.display_name ?? raw.assignee_label ?? "Agent"
     assignee = { name, model: guessModel(agent?.runtime) ?? guessModel(name), isAgent: true }
   } else if (raw?.assigned_user != null) {
@@ -57,6 +80,7 @@ export function cardInfo(task: Task, raw: TaskflowTask | undefined, agents: Task
     files,
     due: raw?.due_at && task.status !== "done" ? dueLabel(raw.due_at, now) : null,
     updatedAt: raw?.updated_at ?? raw?.created_at ?? null,
+    lease: leaseLabel(leaseLeft(raw, agent, leaseMinutes, now)),
   }
 }
 

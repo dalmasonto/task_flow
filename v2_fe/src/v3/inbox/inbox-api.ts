@@ -5,7 +5,7 @@ export type InboxTab = "needs_you" | "mentions" | "everything"
 
 type Base = { at: string; unread: boolean; project: number }
 export type InboxItem =
-  | (Base & { kind: "prompt" | "prompt_withdrawn"; prompt: number; agent: number; agent_label: string | null; question: string; options_json: string | null; prompt_kind: string })
+  | (Base & { kind: "prompt" | "prompt_withdrawn"; prompt: number; agent: number; agent_label: string | null; question: string; options_json: string | null; prompt_kind: string; /** #1127: may I answer it (the server's may_drive_agent)? Absent on an older backend. */ can_answer?: boolean })
   | (Base & { kind: "decision"; decision: number; key: string; question: string; asked_by_label: string })
   | (Base & { kind: "review_request"; review_request: number; task: number; requester_label: string; link: string | null; focus_markdown: string | null })
   | (Base & { kind: "daily_update"; daily_update: number; date: string; excerpt: string; drafted_by_label: string })

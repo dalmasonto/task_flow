@@ -1197,6 +1197,13 @@ export function updateTaskflowTask(taskId: number, input: TaskflowTaskUpdate) {
   return taskflowApi.update(taskflowTables.tasks, taskId, input)
 }
 
+/// #1126: how long an agent's claim lasts without a heartbeat or an edit.
+export async function fetchClaimLease(signal?: AbortSignal): Promise<{ lease_minutes: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/claim-lease`, { credentials: "include", headers: bearerHeaders(), signal })
+  if (!response.ok) throw new Error(await readErrorDetail(response, `Could not read the claim lease (${response.status}).`))
+  return readJson(response)
+}
+
 /// What a person may record on a task (#1138); every other action is a fact
 /// the server records itself.
 export type PersonActivityAction = "commented" | "timer_started" | "timer_paused" | "timer_stopped"
