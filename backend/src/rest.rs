@@ -88,6 +88,10 @@ const READ_ONLY_PROJECT_SCOPED_TABLES: &[&str] = &[
     // REST create could forge a reviewer or a decision. Read-only so the frontend
     // can still `.list()` them, scoped by project.
     "taskflow_task_review",
+    // #1098: review requests are written ONLY by the request/cancel endpoints
+    // and answered by the review endpoints, which derive both parties
+    // server-side. A client write could forge a requester or an answer.
+    "taskflow_review_request",
     // Prompts are written ONLY by the trusted agent endpoints (the hook reports
     // one, the agent clears it) and answered through
     // `POST /api/taskflow/prompts/{prompt}/answer`, which records who answered.

@@ -2904,7 +2904,7 @@ const MAX_TASK_TEXT_CHARS: usize = 12_000;
 
 /// Load a task by id, or 404 if it does not exist. The caller then decides
 /// whether the reviewer/agent may act on it (project scope).
-async fn load_task(task_id: i64) -> Result<TaskflowTask, StatusCode> {
+pub(crate) async fn load_task(task_id: i64) -> Result<TaskflowTask, StatusCode> {
     TaskflowTask::objects()
         .filter(taskflow_task::ID.eq(task_id))
         .first()
@@ -2940,7 +2940,7 @@ fn task_label(task: &TaskflowTask) -> String {
     format!("#{} \"{}\"", task.id, title)
 }
 
-async fn emit_task_activity(
+pub(crate) async fn emit_task_activity(
     project_id: i64,
     task_id: i64,
     actor_kind: TaskflowActorKind,
@@ -3101,7 +3101,7 @@ pub async fn create_task_as_agent(
 /// exist; 403 if it belongs to a DIFFERENT project — an agent may only touch
 /// tasks in its own project. The project check is the authorization boundary for
 /// the agent status/claim endpoints.
-async fn load_task_in_project(task_id: i64, project_id: i64) -> Result<TaskflowTask, StatusCode> {
+pub(crate) async fn load_task_in_project(task_id: i64, project_id: i64) -> Result<TaskflowTask, StatusCode> {
     let task = load_task(task_id).await?;
     if task.project.id() != project_id {
         return Err(StatusCode::FORBIDDEN);
@@ -3868,6 +3868,23 @@ async fn apply_review(
         TaskflowReviewDecision::Approved => "approved",
         TaskflowReviewDecision::ChangesRequested => "changes requested",
     };
+
+    // #1098: this review answers every open request on the task that named THIS
+    // reviewer. The review is already durable, so a failure here is logged, not
+    // turned into a 500 whose retry would record a second review.
+    let reviewer_id = reviewer_user.or(reviewer_agent).unwrap_or_default();
+    if let Err((status, _)) = crate::review_requests::answer_open_requests(
+        &task,
+        reviewer_kind,
+        reviewer_id,
+        review.id,
+        decision_label,
+        task.assigned_agent_id.or(task.operator_agent_id),
+    )
+    .await
+    {
+        tracing::warn!(task = task.id, %status, "open review requests not answered");
+    }
 
     // 4. Report back to the responsible agent: a message in the project room
     // referencing the task, directed at that agent so it surfaces in its pane

@@ -286,6 +286,28 @@ pub fn router() -> Router {
             "/api/taskflow/tasks/{task}/agent/review",
             post(views::review_task_as_agent),
         )
+        // #1098: review requests — ask a named reviewer, cancel, and the
+        // agent's own list. Answered by that reviewer's review above.
+        .route(
+            "/api/taskflow/tasks/{task}/review-requests",
+            post(crate::review_requests::request_review),
+        )
+        .route(
+            "/api/taskflow/tasks/{task}/agent/review-requests",
+            post(crate::review_requests::agent_request_review),
+        )
+        .route(
+            "/api/taskflow/review-requests/{id}/cancel",
+            post(crate::review_requests::cancel_request),
+        )
+        .route(
+            "/api/taskflow/agents/review-requests/{id}/cancel",
+            post(crate::review_requests::agent_cancel_request),
+        )
+        .route(
+            "/api/taskflow/agents/review-requests",
+            get(crate::review_requests::agent_list),
+        )
         // Agent activity ingest (agent-authed via `RequireAgent`). An agent posts
         // its real actions — single or batch — as `TaskflowTaskActivity` stamped
         // with the agent; a task link is kept only if the task is in the agent's

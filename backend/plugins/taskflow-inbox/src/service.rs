@@ -1,6 +1,7 @@
 //! #1116: the inbox — what needs a person, gathered from existing rows.
 //!
-//! Sources: pending permission prompts, decisions waiting on them, open message
+//! Sources: pending permission prompts, decisions waiting on them, open review
+//! requests naming them (#1098), open message
 //! questions, mentions, and recently withdrawn prompts. Nothing here writes to
 //! a source row. Every MESSAGE item passes the same channel-visibility check as
 //! chat (`ensure_channel_visible`), so a DM you are not on never appears.
@@ -15,7 +16,8 @@ use umbral::web::{Json, StatusCode};
 
 use taskflow_agents::models::{
     MessageTarget, TaskflowAgent, TaskflowAgentMessage, TaskflowAgentPrompt, TaskflowChannelMemberKind,
-    TaskflowPromptStatus, taskflow_agent, taskflow_agent_message, taskflow_agent_prompt,
+    TaskflowPromptStatus, TaskflowReviewRequest, taskflow_agent, taskflow_agent_message, taskflow_agent_prompt,
+    taskflow_review_request,
 };
 use taskflow_decisions::models::{TaskflowDecision, taskflow_decision};
 
@@ -168,6 +170,30 @@ pub async fn inbox(user: i64, q: &InboxQuery) -> Result<Value, ApiError> {
             body: json!({
                 "decision": d.id, "key": d.key, "project": d.project.id(), "question": d.question,
                 "asked_by_label": d.asked_by_label,
+            }),
+        });
+    }
+
+    // 2b. Review requests naming me (#1098), open.
+    let requests = TaskflowReviewRequest::objects()
+        .filter(
+            taskflow_review_request::PROJECT.in_(&projects)
+                & taskflow_review_request::REVIEWER_USER.eq(user)
+                & taskflow_review_request::STATUS.eq("open"),
+        )
+        .order_by(taskflow_review_request::ID.desc())
+        .fetch()
+        .await
+        .map_err(internal)?;
+    for r in requests.iter().take(PER_SOURCE) {
+        items.push(Item {
+            kind: "review_request",
+            tab: "needs_you",
+            at: r.created_at.unwrap_or_else(Utc::now),
+            body: json!({
+                "review_request": r.id, "project": r.project.id(), "task": r.task.id(),
+                "requester_label": r.requester_label, "link": r.link, "focus_markdown": r.focus_markdown,
+                "review_path": format!("/api/taskflow/tasks/{}/review", r.task.id()),
             }),
         });
     }

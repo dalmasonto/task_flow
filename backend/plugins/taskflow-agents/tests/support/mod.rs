@@ -199,6 +199,10 @@ impl TestApp {
         taskflow_agents::claims::install_claim_guard(umbral::db::pool_dispatched())
             .await
             .expect("install message claim guard");
+        // #1098: one open review request per (task, reviewer) — same re-install.
+        taskflow_agents::review_requests::install_review_request_guard(umbral::db::pool_dispatched())
+            .await
+            .expect("install review request guard");
         // The boot backfill sweeps EVERY project, including one a test creates
         // a moment later — which would give that project its rooms while the
         // test is still arranging markers and fixtures, and fail the arrange for

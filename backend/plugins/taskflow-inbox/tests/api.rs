@@ -159,3 +159,47 @@ async fn another_projects_items_never_appear() {
     assert_eq!(inbox["items"], json!([]));
     assert_eq!(app.get_as(me.id, "/api/taskflow/inbox?tab=nope").await.status(), 400);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_review_request_naming_me_is_in_needs_you_and_leaves_when_closed() {
+    use taskflow_agents::models::{TaskflowReviewRequest, TaskflowReviewRequestStatus};
+    use taskflow_tasks::models::{TaskflowTask, TaskflowTaskPriority, TaskflowTaskStatus};
+    let app = TestApp::new().await;
+    let (me, project) = seed_project(&app).await;
+    seed_member(project, me.id, "owner").await;
+    let other = app.create_user().await;
+    seed_member(project, other, "member").await;
+    let (_, agent) = seed_agent_key(project, &[]).await;
+    let task = TaskflowTask::objects()
+        .create(TaskflowTask {
+            id: 0, project: ForeignKey::new(project), title: "t".into(), description_markdown: String::new(), notes_markdown: None,
+            status: TaskflowTaskStatus::PartialDone, priority: TaskflowTaskPriority::Normal, sort_order: 0, created_by: None, assigned_user: None,
+            assigned_agent_id: None, review_gate: None, estimate_minutes: None, operator_user: None, operator_agent_id: None,
+            created_by_agent_id: None, assignee_label: None, due_at: None, closed_at: None, github_issue_number: None,
+            github_issue_url: None, github_repo: None, created_at: None, updated_at: None,
+        })
+        .await
+        .unwrap();
+    let ask = |reviewer: i64, status: TaskflowReviewRequestStatus| TaskflowReviewRequest {
+        id: 0, project: ForeignKey::new(project), task: ForeignKey::new(task.id),
+        requester_kind: TaskflowChannelMemberKind::Agent, requester_user: None, requester_agent: Some(ForeignKey::new(agent)),
+        requester_label: "bot".into(), reviewer_kind: TaskflowChannelMemberKind::User, reviewer_user: Some(ForeignKey::new(reviewer)),
+        reviewer_agent: None, reviewer_label: "r".into(), reviewer_key: format!("user:{reviewer}:{}", status as u8),
+        link: Some("https://example.com/pr/1".into()), focus_markdown: None, status, review: None, closed_at: None, created_at: None,
+    };
+    let open = TaskflowReviewRequest::objects().create(ask(me.id, TaskflowReviewRequestStatus::Open)).await.unwrap();
+    TaskflowReviewRequest::objects().create(ask(me.id, TaskflowReviewRequestStatus::Cancelled)).await.unwrap();
+    TaskflowReviewRequest::objects().create(ask(other, TaskflowReviewRequestStatus::Open)).await.unwrap();
+
+    let items = app.get_as(me.id, "/api/taskflow/inbox").await.json().await["items"].clone();
+    let reqs: Vec<&Value> = items.as_array().unwrap().iter().filter(|i| i["kind"] == "review_request").collect();
+    assert_eq!(reqs.len(), 1, "only the open one naming me: {items}");
+    assert_eq!(reqs[0]["review_request"], open.id);
+    assert_eq!(reqs[0]["link"], "https://example.com/pr/1");
+
+    let mut open = open;
+    open.status = TaskflowReviewRequestStatus::Answered;
+    TaskflowReviewRequest::objects().save(open).await.unwrap();
+    let items = app.get_as(me.id, "/api/taskflow/inbox").await.json().await["items"].clone();
+    assert!(!items.as_array().unwrap().iter().any(|i| i["kind"] == "review_request"));
+}
