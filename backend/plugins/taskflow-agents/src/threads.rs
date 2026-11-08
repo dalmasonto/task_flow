@@ -117,7 +117,7 @@ async fn can_see(channel: &TaskflowAgentChannel, t: &MessageTarget) -> Result<bo
             if roster {
                 return Ok(true);
             }
-            if channel.kind == TaskflowChannelKind::Direct {
+            if channel.kind.is_private() {
                 return Ok(false);
             }
             Ok(TaskflowAgent::objects()

@@ -637,7 +637,7 @@ pub async fn send_message(
         Some(channel_member) => channel_member.display_name,
         None => {
             // No roster row. DMs are private to their explicit roster.
-            if channel.kind == TaskflowChannelKind::Direct {
+            if channel.kind.is_private() {
                 return Err(StatusCode::FORBIDDEN);
             }
             // Shared project room: an active project member may post.
@@ -1265,7 +1265,7 @@ pub async fn add_channel_member(
 
     // Caller gate: an active project member of THIS project. Read from the table,
     // never trusted from the request. Absent → 403.
-    TaskflowProjectMember::objects()
+    let caller_member = TaskflowProjectMember::objects()
         .filter(
             taskflow_project_member::PROJECT.eq(project_id)
                 & taskflow_project_member::USER.eq(caller_id)
@@ -1276,12 +1276,13 @@ pub async fn add_channel_member(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::FORBIDDEN)?;
 
-    // DM carve-out: a Direct channel stays private to its explicit roster, so the
-    // caller must already be ON that roster to add anyone. Active project
-    // membership is not enough for a DM (mirrors the `send_message` Direct
-    // exemption).
-    if channel.kind == TaskflowChannelKind::Direct {
-        TaskflowAgentChannelMember::objects()
+    // Private carve-out: a DM or a #42 Group stays private to its explicit
+    // roster, so the caller must already be ON that roster to add anyone.
+    // Active project membership is not enough (else anyone could add
+    // themselves and read the room). A Group's owner/admin may also manage
+    // its roster; a DM's never.
+    if channel.kind.is_private() {
+        let on_roster = TaskflowAgentChannelMember::objects()
             .filter(
                 taskflow_agent_channel_member::CHANNEL.eq(channel.id)
                     & taskflow_agent_channel_member::USER.eq(caller_id),
@@ -1289,7 +1290,12 @@ pub async fn add_channel_member(
             .first()
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::FORBIDDEN)?;
+            .is_some();
+        let manager = channel.kind == TaskflowChannelKind::Group
+            && matches!(caller_member.role, TaskflowProjectRole::Owner | TaskflowProjectRole::Admin);
+        if !on_roster && !manager {
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
 
     // Target gate: the person being added must be an active project member too —
@@ -2332,7 +2338,7 @@ pub async fn mark_channel_read(
 
     if !is_roster_member {
         // No roster row. DMs stay private to their explicit roster.
-        if channel.kind == TaskflowChannelKind::Direct {
+        if channel.kind.is_private() {
             return Err(StatusCode::FORBIDDEN);
         }
         // Shared project room: an active project member may read it.
@@ -2405,7 +2411,7 @@ pub async fn mark_channel_read_as_agent(
 
     if !is_roster_member {
         // No roster row. DMs stay private to their explicit roster.
-        if channel.kind == TaskflowChannelKind::Direct {
+        if channel.kind.is_private() {
             return Err(StatusCode::FORBIDDEN);
         }
         // Shared project room: the agent may read only its own project's rooms.
@@ -4686,7 +4692,7 @@ pub(crate) async fn agent_can_see_channel(
     if agent_on_channel_roster(channel.id, agent_id).await? {
         return Ok(true);
     }
-    Ok(channel.kind != TaskflowChannelKind::Direct && channel.project.id() == project_id)
+    Ok(!channel.kind.is_private() && channel.project.id() == project_id)
 }
 
 /// `GET /api/taskflow/agents/whoami` (agent-authed) — the identity behind the
@@ -4891,7 +4897,7 @@ pub async fn list_channels_as_agent(
         .into_iter()
         // A shared room is visible to any in-project agent; a DM only if rostered.
         .filter(|c| {
-            c.kind != TaskflowChannelKind::Direct || roster_channel_ids.contains(&c.id)
+            !c.kind.is_private() || roster_channel_ids.contains(&c.id)
         })
         .map(|c| {
             json!({
