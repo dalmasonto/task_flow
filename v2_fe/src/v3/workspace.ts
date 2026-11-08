@@ -8,9 +8,10 @@
 import { createContext, useContext } from "react"
 
 import type { AuthUser } from "@/lib/auth-api"
+import type { TaskflowTaskUpdate } from "@/api/client"
 import type { BoardColumnId } from "@/lib/board-columns"
 import type { CreateProjectInput, RealtimeStatus, TaskflowWorkspace } from "@/lib/taskflow-api"
-import type { DropTarget, Project, Task } from "@/lib/workspace-view"
+import type { ColumnId, DropTarget, Project, Task } from "@/lib/workspace-view"
 
 export type V3Project = Project & { taskCount: number }
 
@@ -42,6 +43,22 @@ export type V3Workspace = {
     syncError: string | null
     placeTask: (taskId: string, target: DropTarget) => void
     loadMore: (columnId: BoardColumnId, loaded: number) => void
+  }
+  /// The open task (the /v3/tasks/:id page), through v2's own open-task path:
+  /// it fetches the task's own detail, so a task the board hasn't paged in
+  /// still opens, and `offBoard` says when only the server row is known.
+  task: {
+    open: (taskId: string | null) => void
+    current: Task | null
+    offBoard: boolean
+    /// The workspace with this task's detail overlaid (activity, files, …).
+    live: TaskflowWorkspace | null
+    /// Save fields; local state and the raw row reconcile from the response.
+    patch: (taskId: string, patch: TaskflowTaskUpdate) => Promise<void>
+    move: (taskId: string, status: ColumnId) => void
+    remove: (taskId: string) => void
+    comment: (taskId: string, body: string) => Promise<void>
+    upload: (taskId: string, files: File[]) => Promise<void>
   }
   chooseProject: (projectId: string) => void
   /// Create a project and make it active, the same way v2's dialog does.

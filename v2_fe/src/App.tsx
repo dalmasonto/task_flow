@@ -37,7 +37,7 @@ import { type BoardColumnId } from "@/lib/board-columns"
 import { Input } from "@/components/ui/input"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { fetchCurrentUser, hasStoredAuthSession, getStoredUser, logoutUser, type AuthUser } from "@/lib/auth-api"
-import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus } from "@/api/client"
+import type { TaskflowAgentMessage, TaskflowMessageAttachment, TaskflowProjectUpdate, TaskflowTaskStatus, TaskflowTaskUpdate } from "@/api/client"
 import { emitDesignRealtimeEvent } from "@/lib/design-realtime"
 import { archiveTaskflowProject, deleteProject, createTaskflowChannel, createTaskflowProjectInvite, createTaskflowTaskActivity, createTaskflowTask, createTaskflowProject, fetchMyInvites, fetchTaskflowProjectSummary, fetchTaskflowWorkspace, fetchBoardColumn, fetchWorkspaceBoard, fetchWorkspacePresence, fetchWorkspaceChat, fetchWorkspaceChannels, fetchTaskTitles, fetchWorkspaceTerminalFrames, fetchWorkspaceSettings, fetchWorkspaceReviews, fetchWorkspaceTaskDetail, fetchWorkspaceActivity, fetchActivityActions, openTaskflowRealtimeStream, taskflowRealtimeGroups, isScopeDenial, realtimeEventHasInlineRow, reviewTask as submitTaskReview, revokeTaskflowProjectInvite, taskflowApi, taskflowTables, updateTaskflowProject, updateTaskflowTask, uploadTaskAttachment, umbralErrorMessage, type RealtimeStatus, type TaskflowRealtimeEvent, type TaskflowTaskTitle, type TaskflowWorkspace, type WorkspaceTaskDetailSlice } from "@/lib/taskflow-api"
 import { reconcile, removeMessage } from "@/lib/message-store"
@@ -1867,6 +1867,19 @@ function App() {
     }
   }
 
+  /// v3's field edits: save, then reconcile the mapped task and the raw row
+  /// from the response (the realtime echo is id-only and lags), as v2's edit
+  /// dialog does. Throws so the caller can show what failed.
+  async function patchLiveTask(taskId: string, patch: TaskflowTaskUpdate) {
+    const updated = await updateTaskflowTask(Number(taskId), patch)
+    const [mapped] = mapLiveTasks([updated], liveWorkspaceRef.current?.members ?? [], liveWorkspaceRef.current?.agents ?? [])
+    setTasks((current) => current.map((task) => (task.id === mapped.id ? mapped : task)))
+    if (activeProject) {
+      const pid = liveId(activeProject.id)
+      if (pid != null) applyWorkspaceUpdate(pid, (workspace) => ({ ...workspace, tasks: upsertById(workspace.tasks, updated) }))
+    }
+  }
+
   function handleDeleteTask(taskId: string) {
     // Optimistic: drop it and close the sheet immediately. A live delete that
     // fails restores the row so a rejected delete never silently loses it.
@@ -2290,6 +2303,25 @@ function App() {
         syncError: liveSyncError,
         placeTask,
         loadMore: (columnId, loaded) => void loadMoreBoardColumn(columnId, loaded),
+      },
+      task: {
+        open: (taskId) => {
+          if (taskId) openTaskDetails(taskId)
+          else setOpenTaskId(null)
+        },
+        current: openTaskResolved ?? null,
+        offBoard: openTaskOffBoard,
+        live: sheetWorkspace ?? null,
+        patch: patchLiveTask,
+        move: moveTask,
+        remove: handleDeleteTask,
+        comment: async (taskId, body) => {
+          const projectId = activeProject ? liveId(activeProject.id) : null
+          const id = liveId(taskId)
+          if (projectId === null || id === null) throw new Error("Save this project before commenting on its tasks.")
+          await recordTaskSessionActivity(projectId, id, "commented", body)
+        },
+        upload: (taskId, files) => handleUploadTaskAttachment(taskId, files),
       },
       chooseProject,
       createProject: async (input) => {
