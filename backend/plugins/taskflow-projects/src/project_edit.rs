@@ -168,7 +168,12 @@ pub async fn patch_project(
         }
         v.insert("status".into(), json!(status_str(status)));
     }
-    if !v.is_empty() {
+    // Nothing to change (`{}`, or only values equal to what's stored for slug):
+    // no write, no read-back, no `post_save` (#1137 review nit).
+    if v.is_empty() {
+        return Ok(Json(current).into_response());
+    }
+    {
         v.insert("updated_at".into(), json!(Utc::now()));
         TaskflowProject::objects()
             .filter(taskflow_project::ID.eq(project))
