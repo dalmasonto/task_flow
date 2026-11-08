@@ -14,7 +14,8 @@ export type AccountSession = {
   current: boolean
 }
 
-export type Profile = { id: number; username: string; email: string; full_name: string | null; email_verified: boolean }
+/// `avatar_url` arrives with the #1135 avatar route; an older server omits it.
+export type Profile = { id: number; username: string; email: string; full_name: string | null; email_verified: boolean; avatar_url?: string | null }
 
 export type ProfilePatch = { full_name?: string; username?: string; email?: string; current_password?: string }
 
@@ -63,5 +64,23 @@ export async function getProfile(signal?: AbortSignal): Promise<Profile> {
 export async function patchProfile(patch: ProfilePatch): Promise<Profile> {
   const res = await fetch(`${base}/profile`, withBearer({ method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) }))
   if (!res.ok) return failure(res, "Couldn't save your profile")
+  return (await res.json()) as Profile
+}
+
+/// #1135: upload a profile photo (one file, at most 1 MB). The server checks
+/// the bytes and re-encodes it (location data stripped, at most 512 px), so
+/// what comes back is the photo as stored.
+export async function uploadAvatar(file: File): Promise<Profile> {
+  const body = new FormData()
+  body.append("file", file)
+  const res = await fetch(`${base}/avatar`, withBearer({ method: "POST", body }))
+  if (res.status === 413) throw new ProfileError("That photo is over 1 MB. Pick a smaller one.", "avatar", "too_large")
+  if (!res.ok) return failure(res, "Couldn't upload the photo")
+  return (await res.json()) as Profile
+}
+
+export async function removeAvatar(): Promise<Profile> {
+  const res = await fetch(`${base}/avatar`, withBearer({ method: "DELETE" }))
+  if (!res.ok) return failure(res, "Couldn't remove the photo")
   return (await res.json()) as Profile
 }

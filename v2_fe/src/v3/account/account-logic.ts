@@ -76,3 +76,15 @@ export function trackingWarning(projects: { name: string }[] | undefined): strin
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
   return `Issue sync for ${list} uses your connection. It stops until someone ${names.length === 1 ? "in that project" : "in each"} reconnects GitHub.`
 }
+
+export const AVATAR_MAX_BYTES = 1024 * 1024
+const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"]
+
+/// A quick check before uploading, so an obvious mistake doesn't make a round
+/// trip. The server is the authority: it reads the bytes, not this type.
+export function avatarFileError(file: { size: number; type: string }): string | null {
+  if (!AVATAR_TYPES.includes(file.type)) return "Use a PNG, JPEG, WebP or GIF photo."
+  if (file.size > AVATAR_MAX_BYTES) return "That photo is over 1 MB. Pick a smaller one."
+  if (file.size === 0) return "That file is empty."
+  return null
+}

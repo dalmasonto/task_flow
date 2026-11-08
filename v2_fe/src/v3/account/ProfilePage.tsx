@@ -2,10 +2,10 @@
 /// projects you're in with your role in each.
 ///
 /// Editing (#TSK1134): name, username, and email, which asks for your current
-/// password because invitations follow it. Photos aren't supported yet. A
-/// server without the profile route shows the read-only view.
+/// password because invitations follow it; a photo (#1135) where the server
+/// supports it. A server without the profile route shows the read-only view.
 /// Memberships come from the project-scoped REST list of your own member rows.
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { API_BASE_URL } from "@/lib/auth-api";
 import { taskflowApi, taskflowTables } from "@/lib/taskflow-api";
 
 import { ActorAvatar } from "../components/actor-avatar";
@@ -31,9 +32,11 @@ import {
   ProfileError,
   getProfile,
   patchProfile,
+  removeAvatar,
+  uploadAvatar,
   type Profile,
 } from "./account-api";
-import { profilePatch } from "./account-logic";
+import { avatarFileError, profilePatch } from "./account-logic";
 
 async function countOf(
   table: typeof taskflowTables.members | typeof taskflowTables.agents,
@@ -50,6 +53,83 @@ async function countOf(
     .param("fields", "id")
     .list();
   return r.count;
+}
+
+/// #1135: the photo, with Upload / Remove. A server without the avatar route
+/// sends no `avatar_url` key, and the row keeps the initials-only note.
+function AvatarRow({ profile, onSaved }: { profile: Profile; onSaved: () => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<"upload" | "remove" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const supported = "avatar_url" in profile;
+  const src = profile.avatar_url ? (profile.avatar_url.startsWith("/") ? `${API_BASE_URL}${profile.avatar_url}` : profile.avatar_url) : null;
+  const name = profile.full_name || profile.username;
+
+  const pick = async (file: File | undefined) => {
+    if (input.current) input.current.value = "";
+    if (!file) return;
+    const bad = avatarFileError(file);
+    if (bad) return setError(bad);
+    setError(null);
+    setBusy("upload");
+    try {
+      await uploadAvatar(file);
+      toast.success("Photo updated");
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't upload the photo.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    setError(null);
+    setBusy("remove");
+    try {
+      await removeAvatar();
+      toast.success("Photo removed");
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't remove the photo.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!supported) {
+    return (
+      <div className="flex items-center gap-4">
+        <ActorAvatar name={name} size="xl" />
+        <p className="text-xs text-muted-foreground">Your initials show wherever you appear. Photos are on their way.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-4">
+      <ActorAvatar name={name} src={src} size="xl" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={busy !== null} onClick={() => input.current?.click()}>
+            {busy === "upload" ? <Spinner /> : null}
+            {src ? "Change photo" : "Upload photo"}
+          </Button>
+          {src ? (
+            <Button type="button" variant="ghost" size="sm" disabled={busy !== null} onClick={() => void remove()}>
+              {busy === "remove" ? <Spinner /> : null}
+              Remove
+            </Button>
+          ) : null}
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="sr-only" tabIndex={-1} aria-label="Choose a photo" onChange={(e) => void pick(e.target.files?.[0])} />
+        </div>
+        {error ? (
+          <p className="text-xs text-destructive" role="alert">{error}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">PNG, JPEG, WebP or GIF, up to 1 MB. Location data is removed, and it&apos;s resized to 512 px.</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ProfileForm({
@@ -124,12 +204,7 @@ function ProfileForm({
       aria-label="Profile"
       className="mt-5 rounded-xl border border-border bg-card p-5"
     >
-      <div className="flex items-center gap-4">
-        <ActorAvatar name={profile.full_name || profile.username} size="xl" />
-        <p className="text-xs text-muted-foreground">
-          Your initials show wherever you appear. Photos are on their way.
-        </p>
-      </div>
+      <AvatarRow profile={profile} onSaved={onSaved} />
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field
           className="sm:col-span-2"

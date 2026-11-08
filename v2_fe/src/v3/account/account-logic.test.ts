@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { expiresLine, roleArticle, githubStatusLine, trackingWarning } from "./account-logic"
+import { expiresLine, roleArticle, githubStatusLine, trackingWarning, avatarFileError, AVATAR_MAX_BYTES } from "./account-logic"
 
 describe("roleArticle", () => {
   it("picks the article", () => {
@@ -67,5 +67,15 @@ describe("GitHub connection (#1135)", () => {
     expect(trackingWarning(undefined)).toBeNull()
     expect(trackingWarning([{ name: "Matchday" }])).toBe("Issue sync for Matchday uses your connection. It stops until someone in that project reconnects GitHub.")
     expect(trackingWarning([{ name: "A" }, { name: "B" }, { name: "C" }])).toBe("Issue sync for A, B and C uses your connection. It stops until someone in each reconnects GitHub.")
+  })
+})
+
+describe("avatarFileError (#1135)", () => {
+  it("accepts the four image types up to 1 MB, refuses the rest", () => {
+    expect(avatarFileError({ size: 2000, type: "image/webp" })).toBeNull()
+    expect(avatarFileError({ size: AVATAR_MAX_BYTES, type: "image/jpeg" })).toBeNull()
+    expect(avatarFileError({ size: AVATAR_MAX_BYTES + 1, type: "image/png" })).toMatch(/over 1 MB/)
+    expect(avatarFileError({ size: 2000, type: "image/svg+xml" })).toMatch(/PNG, JPEG, WebP or GIF/)
+    expect(avatarFileError({ size: 0, type: "image/png" })).toBe("That file is empty.")
   })
 })
