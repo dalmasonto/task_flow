@@ -5718,7 +5718,7 @@ async fn apply_agent_instructions(
 ///
 /// Not-found and forbidden answer the same way (404) on purpose: a caller who
 /// cannot see a channel must not learn that it exists.
-pub(crate) async fn ensure_channel_visible(user_id: i64, channel_id: i64) -> Result<TaskflowAgentChannel, StatusCode> {
+pub async fn ensure_channel_visible(user_id: i64, channel_id: i64) -> Result<TaskflowAgentChannel, StatusCode> {
     let channel = TaskflowAgentChannel::objects()
         .filter(taskflow_agent_channel::ID.eq(channel_id))
         .first()
