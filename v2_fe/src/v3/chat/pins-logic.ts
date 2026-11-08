@@ -46,3 +46,13 @@ export function toolsSummary(t: { count: number; names: string[] } | undefined):
   if (!t || t.count <= 0) return null
   return { title: `Ran ${t.count} ${t.count === 1 ? "tool" : "tools"}`, names: t.names.join(", ") }
 }
+
+/// chat.html's "Delivered to Claude (main), pane %4"; several agents read
+/// "Delivered to A (pane %4), B and 2 more". Null for no receipts.
+export function deliveryText(list: { label: string; pane: string | null }[] | undefined): string | null {
+  if (!list?.length) return null
+  if (list.length === 1) return `Delivered to ${list[0].label}${list[0].pane ? `, pane ${list[0].pane}` : ""}`
+  const named = list.slice(0, 2).map((d) => (d.pane ? `${d.label} (pane ${d.pane})` : d.label))
+  const more = list.length - named.length
+  return `Delivered to ${named.join(more ? ", " : " and ")}${more ? ` and ${more} more` : ""}`
+}

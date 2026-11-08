@@ -37,7 +37,8 @@ import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions, typ
 import { useChatSummary } from "./use-chat-summary"
 import { useRoomExtras } from "./use-room-extras"
 import { reactionIds } from "./pins-logic"
-import { MessageExtraActions, PinBar, PinnedMark, ReactionRow, ToolsLine, TypingLine } from "./pins"
+import { DeliveredLine, MessageExtraActions, PinBar, PinnedMark, ReactionRow, ToolsLine, TypingLine } from "./pins"
+import { useDeliveries } from "./use-deliveries"
 import { useMessageTools } from "./use-message-tools"
 import { useTypers } from "./use-typing"
 import { sendTyping, TYPING_LIVE, typingText } from "@/lib/typing"
@@ -478,6 +479,13 @@ function ChatWorkspace({ project }: { project: Project }) {
   // #5988 item 8: what each agent message's sender ran while writing it.
   const agentMessageIds = (selectedChat?.messages ?? []).filter((m) => m.status === "posted" && agentNames.has(m.from)).map((m) => Number(m.id)).filter((n) => Number.isInteger(n) && n > 0).slice(-100)
   const tools = useMessageTools(channelId, agentMessageIds)
+  // #5988 item 7: whose terminals each message was typed into.
+  const posted = (selectedChat?.messages ?? [])
+    .filter((m) => m.status === "posted")
+    .map((m) => ({ id: Number(m.id), createdAt: m.createdAt ?? null }))
+    .filter((m) => Number.isInteger(m.id) && m.id > 0)
+    .slice(-100)
+  const deliveries = useDeliveries(channelId, posted)
   const renderFooter = (m: AgentMessage) => (
     <>
       <ToolsLine tools={tools[m.id]} />
@@ -491,6 +499,7 @@ function ChatWorkspace({ project }: { project: Project }) {
           onClosePicker={() => setPickerFor(null)}
         />
       ) : null}
+      <DeliveredLine deliveries={deliveries[m.id]} />
     </>
   )
   // #5988: "X is writing". Shared rooms only: the server drops private

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { glyphOf, reactionIds, reactionLabel, REACTIONS, stepPin, toolsSummary } from "./pins-logic"
+import { deliveryText, glyphOf, reactionIds, reactionLabel, REACTIONS, stepPin, toolsSummary } from "./pins-logic"
 
 describe("pins and reactions (#5949)", () => {
   it("mirrors the server's eight reactions", () => {
@@ -34,5 +34,16 @@ describe("tools per message (#5988 item 8)", () => {
     expect(toolsSummary({ count: 1, names: ["whoami"] })?.title).toBe("Ran 1 tool")
     expect(toolsSummary({ count: 0, names: [] })).toBeNull()
     expect(toolsSummary(undefined)).toBeNull()
+  })
+})
+
+describe("delivery receipts (#5988 item 7)", () => {
+  it("reads like the design, naming at most two", () => {
+    expect(deliveryText([{ label: "Claude (main)", pane: "%4" }])).toBe("Delivered to Claude (main), pane %4")
+    expect(deliveryText([{ label: "Claude (main)", pane: null }])).toBe("Delivered to Claude (main)")
+    expect(deliveryText([{ label: "A", pane: "%4" }, { label: "B", pane: null }])).toBe("Delivered to A (pane %4) and B")
+    expect(deliveryText([{ label: "A", pane: "%4" }, { label: "B", pane: null }, { label: "C", pane: "%9" }])).toBe("Delivered to A (pane %4), B and 1 more")
+    expect(deliveryText([])).toBeNull()
+    expect(deliveryText(undefined)).toBeNull()
   })
 })

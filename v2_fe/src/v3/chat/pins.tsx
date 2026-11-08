@@ -1,6 +1,6 @@
 /// #5949: chat.html's pin bar, the "Pinned" marker and reaction chips.
 import { useState, type ReactNode } from "react"
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, PinIcon, PinOffIcon, SmileIcon, WrenchIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, PinIcon, PinOffIcon, SmileIcon, TerminalIcon, WrenchIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -8,7 +8,7 @@ import type { Pin, Reaction } from "@/lib/pins-api"
 import { cn } from "@/lib/utils"
 
 import { stripChips } from "./chat-logic"
-import { glyphOf, reactionLabel, REACTIONS, stepPin, toolsSummary } from "./pins-logic"
+import { deliveryText, glyphOf, reactionLabel, REACTIONS, stepPin, toolsSummary } from "./pins-logic"
 
 const who = (label: string) => label.split(" (")[0]
 
@@ -194,5 +194,18 @@ export function ToolsLine({ tools }: { tools: { count: number; names: string[] }
         </ul>
       ) : null}
     </div>
+  )
+}
+
+/// chat.html's receipt line: "Delivered to Claude (main), pane %4".
+export function DeliveredLine({ deliveries }: { deliveries: { label: string; pane: string | null; delivered_at: string | null }[] | undefined }) {
+  const text = deliveryText(deliveries)
+  if (!text || !deliveries) return null
+  const all = deliveries.map((d) => `${d.label}${d.pane ? ` (pane ${d.pane})` : ""}`).join(", ")
+  return (
+    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground" title={all}>
+      <TerminalIcon className="size-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{text}</span>
+    </p>
   )
 }
