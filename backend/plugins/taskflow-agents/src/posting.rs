@@ -11,7 +11,7 @@ use umbral::orm::ForeignKey;
 use umbral::storage::storage_opt;
 
 use crate::agent_auth::AgentIdentity;
-use crate::models::{TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowChannelKind, TaskflowMessageAttachment, taskflow_agent_channel, taskflow_agent_channel_member};
+use crate::models::{TaskflowAgentChannel, TaskflowAgentChannelMember, TaskflowAgentMessage, TaskflowMessageAttachment, taskflow_agent_channel, taskflow_agent_channel_member};
 
 /// Why a programmatic post could not happen. Each arm maps to a status the
 /// caller answers with, and every one of them is the SAME rule the message
@@ -23,6 +23,8 @@ pub enum PostError {
     /// The channel exists but the agent may not post there: a DM it is not on
     /// the roster of, or another project's room.
     NotAllowed,
+    /// #5918: the room is archived (read-only).
+    Archived,
     /// A file is over the attachment cap.
     TooLarge { name: String, max_mb: u64 },
     /// No storage backend is registered (misconfigured deploy).
@@ -63,6 +65,9 @@ pub async fn postable_channel(
         if channel.project.id() != agent.project_id {
             return Err(PostError::NotAllowed);
         }
+    }
+    if channel.archived {
+        return Err(PostError::Archived);
     }
     Ok(channel)
 }

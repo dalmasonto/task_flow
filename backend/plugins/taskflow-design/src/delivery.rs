@@ -103,6 +103,9 @@ pub async fn deliver(
                             "you cannot post to channel {channel}: it is another project's room, or a DM you are not on"
                         ),
                     ),
+                    taskflow_agents::posting::PostError::Archived => {
+                        (StatusCode::CONFLICT, format!("channel {channel} is archived"))
+                    }
                     _ => (StatusCode::INTERNAL_SERVER_ERROR, "could not resolve the channel".into()),
                 })?;
             // A render is the message's whole content, but a body is always
