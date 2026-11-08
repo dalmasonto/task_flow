@@ -32,7 +32,8 @@ export function leaseLeft(raw: Pick<TaskflowTask, "assigned_agent_id" | "status"
   if (raw.status !== "not_started" && raw.status !== "in_progress") return null
   const anchor = Math.max(Date.parse(agent?.last_seen_at ?? "") || 0, Date.parse(raw.updated_at ?? "") || 0)
   if (!anchor) return null
-  return Math.floor((anchor + leaseMinutes * 60_000 - now) / 60_000)
+  // Rounded up, so a claim with 40 s left reads "1m", not "Releasing".
+  return Math.ceil((anchor + leaseMinutes * 60_000 - now) / 60_000)
 }
 
 /// "42m" / "1h 5m" / "Releasing" for the card chip.

@@ -84,6 +84,7 @@ describe("leaseLeft / leaseLabel (#1126)", () => {
     expect(leaseLeft(raw("in_progress", "2026-11-08T11:40:00Z"), { last_seen_at: "2026-11-08T11:50:00Z" }, 30, now)).toBe(20)
     expect(leaseLeft(raw("in_progress", "2026-11-08T11:55:00Z"), { last_seen_at: "2026-11-08T11:00:00Z" }, 30, now)).toBe(25)
     expect(leaseLeft(raw("not_started", "2026-11-08T11:00:00Z"), undefined, 30, now)).toBe(-30)
+    expect(leaseLeft(raw("in_progress", "2026-11-08T11:30:40Z"), undefined, 30, now)).toBe(1)
   })
   it("applies only to claimed active work", () => {
     expect(leaseLeft(raw("partial_done", "2026-11-08T11:55:00Z"), undefined, 30, now)).toBeNull()
