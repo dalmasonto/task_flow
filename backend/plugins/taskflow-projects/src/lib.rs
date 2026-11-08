@@ -21,6 +21,8 @@
 pub mod models;
 pub mod instructions;
 pub mod scope;
+// #1134: the caller's own profile (me/profile).
+pub mod account;
 pub mod urls;
 pub mod views;
 

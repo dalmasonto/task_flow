@@ -213,6 +213,14 @@ pub struct TaskflowUserSettings {
     pub email_notifications: bool,
     #[umbral(on_delete = "set_null")]
     pub default_project: Option<ForeignKey<TaskflowProject>>,
+    /// #1134: the name shown on the profile ("Dalmas Ogembo"). `AuthUser` has
+    /// only a username. Written by `PATCH /api/taskflow/me/profile`.
+    #[umbral(string, max_length = 120)]
+    pub full_name: Option<String>,
+    /// #1134: IANA zone ("Africa/Nairobi"), checked against chrono-tz. Agents
+    /// read it through `whoami` to write dates in the person's time.
+    #[umbral(string, max_length = 64)]
+    pub timezone: Option<String>,
     #[umbral(noedit, auto_now_add)]
     pub created_at: Option<DateTime<Utc>>,
     #[umbral(noedit)]

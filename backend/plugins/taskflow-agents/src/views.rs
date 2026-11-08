@@ -4513,11 +4513,23 @@ pub async fn whoami_as_agent(RequireAgent(agent): RequireAgent) -> Result<Respon
     let (project_markdown, project_updated_at) = project
         .map(|p| (p.agent_instructions_markdown, p.agent_instructions_updated_at))
         .unwrap_or((None, None));
+    // #1134: the agent's human's time zone, so it writes dates in their time.
+    let human_timezone = match row.linked_by.as_ref().map(|u| u.id()) {
+        Some(user) => taskflow_projects::models::TaskflowUserSettings::objects()
+            .filter(taskflow_projects::models::taskflow_user_settings::USER.eq(user))
+            .first()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .and_then(|s| s.timezone),
+        None => None,
+    };
 
     Ok((
         StatusCode::OK,
         Json(json!({
             "agent_id": row.id,
+            // #1134: IANA zone of the human who linked this agent, or null.
+            "human_timezone": human_timezone,
             "display_name": row.display_name,
             "identifier": row.identifier,
             "project": row.project.id(),

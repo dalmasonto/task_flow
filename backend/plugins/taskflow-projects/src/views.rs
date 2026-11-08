@@ -700,6 +700,11 @@ pub async fn my_invites(
 /// Keyed purely on the authenticated user id — no caller can name another user's
 /// row. The `unique` constraint on `user` makes the first-read create race-safe:
 /// a losing concurrent create hits the constraint and we recover by re-reading.
+/// #1134: the caller's settings row, created with defaults if missing.
+pub(crate) async fn ensure_user_settings(user_id: i64) -> Result<TaskflowUserSettings, StatusCode> {
+    load_or_create_settings(user_id).await
+}
+
 async fn load_or_create_settings(user_id: i64) -> Result<TaskflowUserSettings, StatusCode> {
     if let Some(existing) = TaskflowUserSettings::objects()
         .filter(taskflow_user_settings::USER.eq(user_id))
@@ -717,6 +722,8 @@ async fn load_or_create_settings(user_id: i64) -> Result<TaskflowUserSettings, S
             theme: TaskflowTheme::System,
             email_notifications: true,
             default_project: None,
+            full_name: None,
+            timezone: None,
             created_at: None,
             updated_at: None,
         })
@@ -766,6 +773,22 @@ pub struct UpdateSettingsInput {
     pub email_notifications: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub default_project: Option<Option<i64>>,
+    /// #1134: IANA zone; `null` clears it.
+    #[serde(default, deserialize_with = "double_option")]
+    pub timezone: Option<Option<String>>,
+}
+
+/// #1134: an IANA zone chrono-tz knows ("Africa/Nairobi", "UTC").
+pub fn valid_timezone(tz: &str) -> bool {
+    tz.len() <= 64 && tz.parse::<chrono_tz::Tz>().is_ok()
+}
+
+fn settings_internal<E>(_: E) -> (StatusCode, Json<serde_json::Value>) {
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal" })))
+}
+
+fn settings_bad(field: &str, reason: &str) -> (StatusCode, Json<serde_json::Value>) {
+    (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "field": field, "reason": reason })))
 }
 
 /// `POST /api/taskflow/user/settings`
@@ -777,25 +800,36 @@ pub struct UpdateSettingsInput {
 pub async fn update_user_settings(
     RequireAuth(user_id): RequireAuth<i64>,
     Json(input): Json<UpdateSettingsInput>,
-) -> Result<Json<TaskflowUserSettings>, StatusCode> {
-    let mut settings = load_or_create_settings(user_id).await?;
+) -> Result<Json<TaskflowUserSettings>, (StatusCode, Json<serde_json::Value>)> {
+    let settings = load_or_create_settings(user_id).await.map_err(|s| (s, Json(json!({ "error": "internal" }))))?;
 
+    // #1134: write only the named columns, never the row loaded above whole:
+    // two tabs saving different settings at once must not revert each other.
+    let mut v = serde_json::Map::new();
     if let Some(theme) = input.theme {
-        settings.theme = theme;
+        v.insert("theme".into(), serde_json::to_value(theme).map_err(settings_internal)?);
     }
     if let Some(email_notifications) = input.email_notifications {
-        settings.email_notifications = email_notifications;
+        v.insert("email_notifications".into(), json!(email_notifications));
     }
     if let Some(default_project) = input.default_project {
-        settings.default_project = default_project.map(ForeignKey::new);
+        v.insert("default_project".into(), json!(default_project));
     }
-    settings.updated_at = Some(Utc::now());
-
-    let saved = TaskflowUserSettings::objects()
-        .save(settings)
+    if let Some(tz) = input.timezone {
+        let tz = tz.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+        if tz.as_deref().is_some_and(|t| !valid_timezone(t)) {
+            return Err(settings_bad("timezone", "not an IANA time zone, e.g. Africa/Nairobi"));
+        }
+        v.insert("timezone".into(), json!(tz));
+    }
+    v.insert("updated_at".into(), json!(Utc::now()));
+    TaskflowUserSettings::objects()
+        .filter(taskflow_user_settings::ID.eq(settings.id))
+        .update_values(v)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(saved))
+        .map_err(settings_internal)?;
+    let fresh = load_or_create_settings(user_id).await.map_err(|s| (s, Json(json!({ "error": "internal" }))))?;
+    Ok(Json(fresh))
 }
 
 /// `DELETE /api/taskflow/projects/{project}`

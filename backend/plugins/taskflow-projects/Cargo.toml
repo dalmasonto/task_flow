@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 umbral = "0.0.13"
 umbral-auth = "0.0.13"
+# #1134: user timezones are validated against the IANA database.
+chrono-tz = "0.10"
+tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "chrono"] }
@@ -16,3 +19,4 @@ uuid = { version = "1", features = ["v4"] }
 umbral-testing = "0.0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 http = "1"
+axum = "0.8"

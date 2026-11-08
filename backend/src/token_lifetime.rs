@@ -33,7 +33,7 @@ use std::time::{Duration as StdDuration, Instant};
 
 use axum::extract::Request;
 use axum::http::Method;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Duration, Utc};
 use umbral::middleware::Middleware;
 use umbral::plugin::{AppContext, Plugin, PluginError};
@@ -166,6 +166,17 @@ impl Middleware for ChangePasswordRevokesOthers {
         if let Some(key) = bearer(&req) {
             if let Ok(Some(token)) = AuthToken::lookup(&key).await {
                 let user = token.user_id.id();
+                // #1134 review: umbral-auth's change-password has no throttle,
+                // so a stolen session could guess the current password. This
+                // can't see whether an attempt failed, so it counts every
+                // attempt: 5 per 15 minutes per user, far above real use.
+                if !taskflow_projects::account::password_budget::spend("change_password", user) {
+                    return Err((
+                        axum::http::StatusCode::TOO_MANY_REQUESTS,
+                        axum::Json(serde_json::json!({ "error": "too_many_attempts", "detail": "Too many password change attempts. Try again in 15 minutes." })),
+                    )
+                        .into_response());
+                }
                 if let Some(hash_before) = password_hash(user).await {
                     pending()
                         .lock()

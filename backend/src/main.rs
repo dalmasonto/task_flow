@@ -153,6 +153,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // #1101: people's bearer tokens expire (idle 14 d, absolute 30 d) and a
         // password change drops the user's other tokens; see token_lifetime.rs.
         .plugin(backend::token_lifetime::TokenLifetimePlugin)
+        // #1134: "where you're logged in" (me/sessions) + per-token user agents.
+        .plugin(backend::account_sessions::AccountSessionsPlugin)
         // Sessions: session table + cookie middleware.
         .plugin(SessionsPlugin::default())
         // TaskFlow domain plugins: project workspaces, project-based tasks, and

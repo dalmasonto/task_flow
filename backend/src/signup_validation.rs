@@ -38,43 +38,8 @@ use umbral::middleware::Middleware;
 /// A register body is three short strings; anything bigger is not one.
 const MAX_BODY_BYTES: usize = 16 * 1024;
 
-pub const USERNAME_MIN: usize = 2;
-pub const USERNAME_MAX: usize = 40;
-const EMAIL_MAX: usize = 254;
-const EMAIL_LOCAL_MAX: usize = 64;
-
-pub fn validate_username(username: &str) -> Result<(), &'static str> {
-    let n = username.chars().count();
-    if !(USERNAME_MIN..=USERNAME_MAX).contains(&n) {
-        return Err("2 to 40 characters");
-    }
-    if !username.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) {
-        return Err("letters, digits, _ . and - only, no spaces");
-    }
-    Ok(())
-}
-
-/// Deliberately plain, not RFC 5322: one `@`, a non-empty local part, and a
-/// dotted domain of non-empty labels, with no whitespace or control characters.
-/// Mail delivery is the real test; this only refuses what can't be an address.
-pub fn validate_email(email: &str) -> Result<(), &'static str> {
-    const BAD: &str = "a valid email address";
-    if email.len() > EMAIL_MAX || email.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(BAD);
-    }
-    let Some((local, domain)) = email.split_once('@') else { return Err(BAD) };
-    if local.is_empty() || local.len() > EMAIL_LOCAL_MAX || domain.contains('@') {
-        return Err(BAD);
-    }
-    let labels: Vec<&str> = domain.split('.').collect();
-    if labels.len() < 2 || labels.iter().any(|l| l.is_empty() || l.starts_with('-') || l.ends_with('-')) {
-        return Err(BAD);
-    }
-    if !domain.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '-')) {
-        return Err(BAD);
-    }
-    Ok(())
-}
+// #1134: one copy of the rules, shared with `PATCH me/profile`.
+pub use taskflow_projects::account::{USERNAME_MAX, USERNAME_MIN, validate_email, validate_username};
 
 fn reject(status: StatusCode, error: &'static str, field: &'static str, detail: &str) -> Response {
     (status, axum::Json(json!({ "error": error, "field": field, "detail": detail }))).into_response()

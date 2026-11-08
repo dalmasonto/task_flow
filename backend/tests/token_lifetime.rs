@@ -173,3 +173,19 @@ async fn a_failed_change_then_an_unrelated_user_write_revokes_nothing() {
     assert!(exists(phone).await, "the phone's new token survives an unrelated write");
     assert!(exists(laptop).await);
 }
+
+/// #1134 review: change-password is throttled per user (5 attempts per 15
+/// minutes), so a stolen session can't guess the current password.
+#[tokio::test]
+async fn change_password_attempts_are_throttled() {
+    let router = app().await.clone();
+    let u = user().await;
+    let other = user().await;
+    let (_, key) = token(&u).await;
+    let (_, other_key) = token(&other).await;
+    for _ in 0..taskflow_projects::account::password_budget::MAX {
+        assert_eq!(change_password(router.clone(), &key, "wrong-password-here", "another-long-pass").await, 400);
+    }
+    assert_eq!(change_password(router.clone(), &key, PASSWORD, "a-brand-new-long-pass").await, 429, "even the right one waits");
+    assert_eq!(change_password(router.clone(), &other_key, "wrong-password-here", "another-long-pass").await, 400, "another user is unaffected");
+}

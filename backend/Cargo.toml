@@ -81,6 +81,8 @@ serde_json = "1"
 # #1124: read form-encoded register bodies the way umbral-auth 0.0.13 does.
 serde_urlencoded = "0.7"
 chrono = { version = "0.4", features = ["serde"] }
+# #1134: opaque public ids for cookie sessions (never the session key).
+sha2 = "0.10"
 sqlx = { version = "0.8", features = ["macros", "sqlite", "postgres", "chrono", "runtime-tokio"] }
 # The framework Middleware trait names axum's Request/Response types, so a
 # custom middleware (see src/realtime_auth.rs, #41) needs axum directly.
