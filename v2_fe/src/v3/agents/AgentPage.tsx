@@ -34,6 +34,9 @@ import { StatusChip } from "../components/status-chip"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { Section } from "../tasks/TaskSections"
+import { mayManageKeys } from "../api-keys/api-keys-logic"
+import { RotateKeyDialog } from "../api-keys/RotateKeyDialog"
+import { myMembership } from "../invites/invites-logic"
 import { useWorkspace } from "../workspace"
 import { agentRows } from "./agents-logic"
 import { useAgentSlices } from "./use-agent-slices"
@@ -42,7 +45,8 @@ export function AgentPage() {
   useAgentSlices()
   const { id = "" } = useParams()
   const navigate = useNavigate()
-  const { live, applyLiveUpdate, isSyncing } = useWorkspace()
+  const { live, applyLiveUpdate, isSyncing, currentUser } = useWorkspace()
+  const [rotateOpen, setRotateOpen] = useState(false)
   const now = useLivenessNow()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -223,7 +227,18 @@ export function AgentPage() {
             ) : (
               <p className="text-sm text-muted-foreground">No keys.</p>
             )}
-            <p className="mt-3 text-xs text-muted-foreground">A key is shown once, when it's made. Lost one? Add the agent again with the same profile to get a new key.</p>
+            <p className="mt-3 text-xs text-muted-foreground">A key is shown once, when it&apos;s made. Lost it? Make a new key; the old one stops at once.</p>
+            {mayManageKeys(agent, myMembership(live?.members ?? [], currentUser?.id), !!currentUser?.is_superuser) ? (
+              <>
+                <Button size="sm" variant="outline" className="mt-2" onClick={() => setRotateOpen(true)}>
+                  <KeyRoundIcon />
+                  Make a new key
+                </Button>
+                <RotateKeyDialog agent={agent} open={rotateOpen} onOpenChange={setRotateOpen} />
+              </>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">Owners and admins, or the person who added it, can make it a new key.</p>
+            )}
           </Section>
         </aside>
       </div>

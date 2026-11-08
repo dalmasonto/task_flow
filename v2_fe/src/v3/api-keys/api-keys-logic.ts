@@ -57,3 +57,42 @@ export function applyScopes(credentials: TaskflowAgentCredential[], res: AgentSc
 export function sortAgents(agents: TaskflowAgent[], credentials: TaskflowAgentCredential[]): TaskflowAgent[] {
   return [...agents].sort((a, b) => Number(!activeKey(a.id, credentials)) - Number(!activeKey(b.id, credentials)) || a.display_name.localeCompare(b.display_name))
 }
+
+/// May this person rotate or revoke the agent's keys? The server's rule
+/// (#1136, `may_drive_agent`): an active owner/admin, the human who linked
+/// the agent (still an active member), or a superuser.
+export function mayManageKeys(agent: Pick<TaskflowAgent, "linked_by">, me: { role: string; status: string; user: number | null } | undefined, isSuperuser: boolean): boolean {
+  if (isSuperuser) return true
+  if (!me || me.status !== "active") return false
+  return me.role === "owner" || me.role === "admin" || (agent.linked_by != null && agent.linked_by === me.user)
+}
+
+/// Apply a rotation to the loaded keys: every active key of the agent is
+/// revoked, and the new one joins carrying the policy of the newest key it
+/// replaced (the server copies it; realtime sends the full row shortly).
+export function applyRotation(credentials: TaskflowAgentCredential[], agentId: number, created: Pick<TaskflowAgentCredential, "id" | "name" | "key_prefix" | "created_at">, now: string): TaskflowAgentCredential[] {
+  const mine = credentials.filter((c) => c.agent === agentId).sort((a, b) => b.id - a.id)
+  const policy = mine[0]
+  const revoked = credentials.map((c) => (c.agent === agentId && c.status === "active" ? { ...c, status: "revoked" as const, revoked_at: now } : c))
+  const fresh: TaskflowAgentCredential = {
+    id: created.id,
+    project: policy?.project ?? 0,
+    agent: agentId,
+    issued_by: null,
+    name: created.name,
+    key_prefix: created.key_prefix,
+    key_hash: "",
+    status: "active",
+    scopes: policy?.scopes ?? null,
+    denied_scopes: policy?.denied_scopes ?? null,
+    expires_at: null,
+    revoked_at: null,
+    created_at: created.created_at ?? now,
+  }
+  return [...revoked.filter((c) => c.id !== created.id), fresh]
+}
+
+/// Apply a single revoke to the loaded keys.
+export function applyRevoke(credentials: TaskflowAgentCredential[], credentialId: number, revokedAt: string | null): TaskflowAgentCredential[] {
+  return credentials.map((c) => (c.id === credentialId ? { ...c, status: "revoked" as const, revoked_at: revokedAt } : c))
+}

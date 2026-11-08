@@ -95,3 +95,25 @@ export function endedLine(invite: TaskflowProjectInvite, now: number): string {
   if (isExpired(invite, now)) return "Expired"
   return roleLabel(invite.status)
 }
+
+/// The roles `me` may give `target` (#1136): owners and admins only; anything
+/// touching an owner (theirs now, or the new one) needs an owner; never above
+/// your own rank; the last active owner keeps their role. Empty = no picker.
+export function assignableRoles(me: TaskflowProjectMember | undefined, target: TaskflowProjectMember, ownerCount: number): TaskflowProjectInviteRole[] {
+  if (!me || me.status !== "active" || (me.role !== "owner" && me.role !== "admin")) return []
+  if (target.status !== "active" || target.user == null) return []
+  if (target.role === "owner" && me.role !== "owner") return []
+  if (target.role === "owner" && ownerCount <= 1) return []
+  return ROLE_ORDER.filter((r) => RANK[r] <= RANK[me.role] && (r !== "owner" || me.role === "owner"))
+}
+
+/// May `me` remove `target`? Owners and admins remove others (an admin can't
+/// remove an owner); anyone may leave; the last owner can do neither.
+export function removal(me: TaskflowProjectMember | undefined, target: TaskflowProjectMember, ownerCount: number): "remove" | "leave" | null {
+  if (!me || me.status !== "active" || target.status !== "active" || target.user == null) return null
+  const lastOwner = target.role === "owner" && ownerCount <= 1
+  if (me.id === target.id) return lastOwner ? null : "leave"
+  if (me.role !== "owner" && me.role !== "admin") return null
+  if (target.role === "owner" && (me.role !== "owner" || lastOwner)) return null
+  return "remove"
+}

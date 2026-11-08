@@ -7,19 +7,30 @@
 /// keeps them current: the PATCH emits a save per credential, so other tabs
 /// follow. A save also applies the server's answer here at once.
 ///
-/// Left out on purpose, until the backend has them:
-/// * "Make a new key": a re-link mints a second key and leaves the old one
-///   working, so offering it as rotation would be false. Needs an atomic
-///   rotate route (asked of the backend owner).
-/// * "Recent denials" and denial counts: denials aren't recorded anywhere.
-/// Removing an agent (which stops its key at once) is the agent page's
-/// delete, linked from each row.
+/// Keys (#1136): "Make a new key" rotates (old keys stop, the new one keeps
+/// the capabilities, the raw key is shown once in RotateKeyDialog) and
+/// "Revoke key" stops the key without deleting the agent. Both are for an
+/// owner/admin or the human who linked the agent (`mayManageKeys`), which can
+/// be wider than who may change capabilities (owner/admin only).
+///
+/// Left out until the backend has it: "Recent denials" and denial counts;
+/// denials aren't recorded anywhere.
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { KeyRoundIcon, PlusIcon } from "lucide-react"
+import { BanIcon, KeyRoundIcon, PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import type { TaskflowAgent, TaskflowAgentCredential } from "@/api/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
@@ -28,7 +39,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
 import { AGENT_CAPABILITIES } from "@/lib/agent-scopes"
-import { setAgentScopes } from "@/lib/taskflow-api"
+import { revokeAgentKey, setAgentScopes } from "@/lib/taskflow-api"
 import { cn } from "@/lib/utils"
 
 import { keyScopes } from "../agents/agents-logic"
@@ -38,9 +49,12 @@ import { myMembership } from "../invites/invites-logic"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
-import { activeKey, applyScopes, CAPABILITY_TEXT, capabilitySummary, checkedFrom, sameChecks, sortAgents } from "./api-keys-logic"
+import { activeKey, applyRevoke, applyScopes, CAPABILITY_TEXT, capabilitySummary, checkedFrom, mayManageKeys, sameChecks, sortAgents } from "./api-keys-logic"
+import { RotateKeyDialog } from "./RotateKeyDialog"
 
-function AgentKeyRow({ agent, keyRow, canManage, open, onToggle }: { agent: TaskflowAgent; keyRow: TaskflowAgentCredential | undefined; canManage: boolean; open: boolean; onToggle: () => void }) {
+function AgentKeyRow({ agent, keyRow, canManage, canKeys, open, onToggle }: { agent: TaskflowAgent; keyRow: TaskflowAgentCredential | undefined; canManage: boolean; canKeys: boolean; open: boolean; onToggle: () => void }) {
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [revokeOpen, setRevokeOpen] = useState(false)
   const { applyLiveUpdate } = useWorkspace()
   const now = useLivenessNow()
   const saved = useMemo(() => checkedFrom(keyRow), [keyRow])
@@ -91,7 +105,12 @@ function AgentKeyRow({ agent, keyRow, canManage, open, onToggle }: { agent: Task
         </div>
         {keyRow ? (
           <Button size="sm" variant="outline" onClick={onToggle} aria-expanded={open}>
-            {open ? "Close" : canManage ? "Manage" : "View"}
+            {open ? "Close" : canManage || canKeys ? "Manage" : "View"}
+          </Button>
+        ) : canKeys ? (
+          <Button size="sm" variant="outline" onClick={() => setRotateOpen(true)}>
+            <KeyRoundIcon />
+            Make a key
           </Button>
         ) : null}
       </div>
@@ -140,14 +159,56 @@ function AgentKeyRow({ agent, keyRow, canManage, open, onToggle }: { agent: Task
               </>
             ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Lost the key, or need it stopped? A key is shown once, when it&apos;s made. Removing the agent on{" "}
-            <Link to={`/v3/agents/${agent.id}`} className="underline underline-offset-4">
-              its page
-            </Link>{" "}
-            stops the key at once; its tasks, messages and activity stay.
-          </p>
+          <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+            <p className="flex-1 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Key.</span> A new key stops the old one at once. The agent needs the new key in .taskflow.json.
+              {!canKeys ? " Only owners and admins, or the person who added this agent, can change its key." : ""}
+            </p>
+            {canKeys ? (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setRotateOpen(true)}>
+                  <KeyRoundIcon />
+                  Make a new key
+                </Button>
+                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setRevokeOpen(true)}>
+                  <BanIcon />
+                  Revoke key
+                </Button>
+              </>
+            ) : null}
+          </div>
         </div>
+      ) : null}
+
+      <RotateKeyDialog agent={agent} open={rotateOpen} onOpenChange={setRotateOpen} />
+      {keyRow ? (
+        <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revoke {agent.display_name}&apos;s key?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {agent.display_name} disconnects immediately and can&apos;t reconnect until you make it a new key. Its tasks, messages and activity stay.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep the key</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={async () => {
+                  try {
+                    const res = await revokeAgentKey(agent.id, keyRow.id)
+                    applyLiveUpdate((w) => ({ ...w, agentCredentials: applyRevoke(w.agentCredentials, keyRow.id, res.credential.revoked_at) }))
+                    toast.success(`${agent.display_name}'s key revoked`)
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Couldn't revoke the key.")
+                  }
+                }}
+              >
+                Revoke key
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
     </li>
   )
@@ -206,7 +267,15 @@ export function ApiKeysPage() {
         ) : (
           <ul className="divide-y rounded-xl border bg-card">
             {sorted.map((a) => (
-              <AgentKeyRow key={a.id} agent={a} keyRow={activeKey(a.id, credentials)} canManage={canManage} open={openId === a.id} onToggle={() => setOpenId((o) => (o === a.id ? null : a.id))} />
+              <AgentKeyRow
+                key={a.id}
+                agent={a}
+                keyRow={activeKey(a.id, credentials)}
+                canManage={canManage}
+                canKeys={mayManageKeys(a, me, !!currentUser?.is_superuser)}
+                open={openId === a.id}
+                onToggle={() => setOpenId((o) => (o === a.id ? null : a.id))}
+              />
             ))}
           </ul>
         )}

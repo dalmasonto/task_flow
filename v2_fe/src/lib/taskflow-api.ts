@@ -1386,12 +1386,93 @@ export async function linkAgent(input: LinkAgentInput): Promise<LinkAgentResult>
     body: JSON.stringify(input),
   })
   if (!response.ok) {
+    const data = (await response.clone().json().catch(() => null)) as { error?: string } | null
     throw new Error(
-      response.status === 403
-        ? "Linking an agent needs an active membership; attaching a scope needs a project owner or admin."
-        : await readErrorDetail(response, `Could not link the agent (${response.status}).`)
+      data?.error === "not_allowed_to_relink"
+        ? "An agent with this name and profile already exists. Only the project's owners and admins, or the person who added it, can give it a new key. Pick another name or profile."
+        : data?.error === "rotation_in_progress"
+          ? "This agent's key is being changed right now. Try again in a moment."
+          : response.status === 403
+            ? "Linking an agent needs an active membership; attaching a scope needs a project owner or admin."
+            : await readErrorDetail(response, `Could not link the agent (${response.status}).`)
     )
   }
+  return readJson(response)
+}
+
+/// The credential fields the key routes return (never the hash).
+export type KeySummary = Pick<TaskflowAgentCredential, "id" | "agent" | "name" | "key_prefix" | "status" | "created_at" | "revoked_at">
+
+async function keyRouteError(response: Response, fallback: string): Promise<Error> {
+  const data = (await response.clone().json().catch(() => null)) as { error?: string } | null
+  if (data?.error === "rotation_in_progress") return new Error("This agent's key is being changed right now. Try again in a moment.")
+  if (response.status === 403) return new Error("Only the project's owners and admins, or the person who added this agent, can change its keys.")
+  return new Error(await readErrorDetail(response, fallback))
+}
+
+/// #1136: stop every active key of the agent and mint one new key, in one
+/// step. The raw key comes back ONCE; the new key keeps the agent's
+/// capabilities. Owner/admin, or the human who linked the agent.
+export async function rotateAgentKey(agentId: number): Promise<{ key: string; credential: KeySummary; revoked: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}/rotate-key`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) throw await keyRouteError(response, `Could not make a new key (${response.status}).`)
+  return readJson(response)
+}
+
+/// #1136: stop one key without deleting the agent (idempotent).
+export async function revokeAgentKey(agentId: number, credentialId: number): Promise<{ credential: KeySummary }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/agents/${agentId}/credentials/${credentialId}/revoke`, {
+    method: "POST",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) throw await keyRouteError(response, `Could not stop the key (${response.status}).`)
+  return readJson(response)
+}
+
+async function memberRouteError(response: Response, fallback: string): Promise<Error> {
+  const data = (await response.clone().json().catch(() => null)) as { error?: string } | null
+  switch (data?.error) {
+    case "last_owner":
+      return new Error("A project needs an owner. Make someone else owner first.")
+    case "owner_only":
+      return new Error("Only an owner can make, change or remove an owner.")
+    case "above_your_role":
+      return new Error("You can't give a role above your own.")
+    case "changed":
+      return new Error("Their role changed meanwhile. Reload and try again.")
+    case "owner_or_admin_only":
+      return new Error("Only the project's owners and admins can do that.")
+  }
+  return new Error(await readErrorDetail(response, fallback))
+}
+
+/// #1136: change a member's role (owner/admin; owners only for anything
+/// touching an owner; never the last owner).
+export async function setMemberRole(projectId: number, userId: number, role: TaskflowProjectMember["role"]): Promise<{ user: number; role: TaskflowProjectMember["role"] }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}/members/${userId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: bearerHeaders(),
+    body: JSON.stringify({ role }),
+  })
+  if (!response.ok) throw await memberRouteError(response, `Could not change the role (${response.status}).`)
+  return readJson(response)
+}
+
+/// #1136: remove a member (owner/admin), or leave (yourself). The keys of
+/// agents they linked stop; the answer names those agents.
+export async function removeMember(projectId: number, userId: number): Promise<{ revoked_agent_keys: number; agents: { id: number; display_name: string }[] }> {
+  const response = await fetch(`${API_BASE_URL}/api/taskflow/projects/${projectId}/members/${userId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: bearerHeaders(),
+  })
+  if (!response.ok) throw await memberRouteError(response, `Could not remove them (${response.status}).`)
   return readJson(response)
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { TaskflowAgentCredential } from "@/api/client"
 
-import { activeKey, applyScopes, capabilitySummary, checkedFrom, sameChecks } from "./api-keys-logic"
+import { activeKey, applyRevoke, applyRotation, applyScopes, capabilitySummary, checkedFrom, mayManageKeys, sameChecks } from "./api-keys-logic"
 
 function cred(id: number, agent: number, status: TaskflowAgentCredential["status"], created: string, scopes: string | null = null, denied: string | null = null): TaskflowAgentCredential {
   return { id, project: 1, agent, issued_by: 1, name: "main", key_prefix: "tfk_ab", key_hash: "", status, scopes, denied_scopes: denied, expires_at: null, revoked_at: null, created_at: created }
@@ -39,5 +39,26 @@ describe("applyScopes", () => {
     const creds = [cred(1, 7, "active", ""), cred(2, 7, "revoked", ""), cred(3, 8, "active", "")]
     const out = applyScopes(creds, { agent_id: 7, scopes: [], denied_scopes: ["design:write"], capabilities: [], credentials_updated: 1 })
     expect(out.map((c) => c.denied_scopes)).toEqual(['["design:write"]', null, null])
+  })
+})
+
+describe("mayManageKeys / applyRotation / applyRevoke", () => {
+  it("follows may_drive_agent", () => {
+    const agent = { linked_by: 5 }
+    expect(mayManageKeys(agent, { role: "developer", status: "active", user: 5 }, false)).toBe(true)
+    expect(mayManageKeys(agent, { role: "developer", status: "active", user: 6 }, false)).toBe(false)
+    expect(mayManageKeys(agent, { role: "admin", status: "active", user: 6 }, false)).toBe(true)
+    expect(mayManageKeys(agent, { role: "owner", status: "left", user: 6 }, false)).toBe(false)
+    expect(mayManageKeys(agent, undefined, true)).toBe(true)
+  })
+
+  it("revokes the old keys and keeps the policy on the new one", () => {
+    const creds = [cred(1, 7, "active", "", null, '["design:write"]'), cred(2, 8, "active", "")]
+    const out = applyRotation(creds, 7, { id: 9, name: "main key", key_prefix: "tfk_new", created_at: null }, "2026-11-08T00:00:00Z")
+    expect(out.find((c) => c.id === 1)?.status).toBe("revoked")
+    expect(out.find((c) => c.id === 2)?.status).toBe("active")
+    expect(out.find((c) => c.id === 9)).toMatchObject({ status: "active", agent: 7, denied_scopes: '["design:write"]' })
+    expect(activeKey(7, out)?.id).toBe(9)
+    expect(applyRevoke(out, 9, "x").find((c) => c.id === 9)?.status).toBe("revoked")
   })
 })
