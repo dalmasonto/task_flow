@@ -19,10 +19,16 @@ export type ChatRow = {
 
 /// One list row. The preview is the last message as "Who: text", flattened
 /// to a line; "You" for your own (v2's mapper marks those `from: "user"`).
+/// `[@Name](user:3)` / `(agent:5)` / `(page:/x)` → `@Name`, as the server's
+/// summary does, so one-line previews never show raw chip markup.
+export function stripChips(text: string): string {
+  return text.replace(/\[@([^\]\n]+)\]\((?:user|agent|page):[^)\s]+\)/g, "@$1")
+}
+
 export function chatRow(chat: AgentChatContext): ChatRow {
   const last = [...chat.messages].reverse().find((m) => m.body.trim())
   const who = last ? (last.from === "user" || last.from === "You" ? "You" : last.from.split(" (")[0]) : null
-  const text = last ? last.body.replace(/[#*_`>[\]()]/g, "").replace(/\s+/g, " ").trim() : ""
+  const text = last ? stripChips(last.body).replace(/[#*_`>[\]()]/g, "").replace(/\s+/g, " ").trim() : ""
   const kind: ChatRow["kind"] = chat.mode === "channel" ? "room" : chat.liveAgentId ? "agent" : chat.liveMemberUserId ? "person" : "group"
   return {
     id: chat.id,

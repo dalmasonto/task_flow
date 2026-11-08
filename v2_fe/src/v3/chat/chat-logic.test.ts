@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { AgentChatContext } from "@/lib/workspace-view"
 
-import { byRecent, chatRow, filterChats, followLine, rowBadge, withMentions } from "./chat-logic"
+import { byRecent, chatRow, filterChats, followLine, rowBadge, stripChips, withMentions } from "./chat-logic"
 
 const chat = (id: string, extra: Partial<AgentChatContext> = {}) =>
   ({ id, mode: "channel", title: id, detail: "A room.", status: "", members: [], primaryAgent: "", unread: 0, messages: [], ...extra }) as AgentChatContext
@@ -59,5 +59,16 @@ describe("mentions and badges (#5983)", () => {
   it("describes a followed thread like the design", () => {
     expect(followLine({ replies: 4, last_repliers: ["Claude (main)", "Dalmas"] }, "design-room")).toBe("#design-room, 4 replies, Claude replied last")
     expect(followLine({ replies: 1, last_repliers: [] }, null)).toBe("1 reply")
+  })
+})
+
+describe("stripChips", () => {
+  it("reduces mention chips to @Name, leaving other links and loose brackets alone", () => {
+    expect(stripChips("hi [@leakprobe](user:4) and [@zz-qa bot](agent:7), see [@Board](page:/board)")).toBe("hi @leakprobe and @zz-qa bot, see @Board")
+    expect(stripChips("a [@x](http://a.b) and [@y")).toBe("a [@x](http://a.b) and [@y")
+  })
+  it("previews a mention as a name, not markup", () => {
+    const c = chat("r", { messages: [{ id: "1", from: "zz-qa bot", body: "[@leakprobe](user:4) QA ping", time: "", status: "" }] as AgentChatContext["messages"] })
+    expect(chatRow(c).preview).toBe("zz-qa bot: @leakprobe QA ping")
   })
 })

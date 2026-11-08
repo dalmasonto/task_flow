@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import type { Pin, Reaction } from "@/lib/pins-api"
 import { cn } from "@/lib/utils"
 
+import { stripChips } from "./chat-logic"
 import { glyphOf, reactionLabel, REACTIONS, stepPin } from "./pins-logic"
 
 const who = (label: string) => label.split(" (")[0]
@@ -23,7 +24,7 @@ export function PinBar({ pins, onJump }: { pins: Pin[]; onJump: (message: number
         {at + 1} of {pins.length}
       </span>
       <button type="button" className="min-w-0 flex-1 truncate text-left hover:underline" onClick={() => onJump(pin.message)} title={`Pinned by ${pin.pinned_by_label}`}>
-        <span className="font-medium">{who(pin.sender_label)}:</span> {pin.excerpt}
+        <span className="font-medium">{who(pin.sender_label)}:</span> {stripChips(pin.excerpt)}
       </button>
       {pins.length > 1 ? (
         <>
@@ -47,7 +48,7 @@ export function PinBar({ pins, onJump }: { pins: Pin[]; onJump: (message: number
                     }}
                   >
                     <span className="min-w-0 truncate">
-                      <span className="font-medium">{who(p.sender_label)}:</span> {p.excerpt}
+                      <span className="font-medium">{who(p.sender_label)}:</span> {stripChips(p.excerpt)}
                     </span>
                   </DropdownMenuItem>
                 ))}
