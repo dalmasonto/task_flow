@@ -341,6 +341,7 @@ dependencies = [
  "taskflow-toolbox",
  "taskflow-usage",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "umbral",
  "umbral-admin",
