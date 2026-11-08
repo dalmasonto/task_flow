@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { TaskflowProjectInvite, TaskflowProjectMember } from "@/api/client"
 
-import { endedLine, invitableRoles, isExpired, parseEmails, sortMembers, splitInvites } from "./invites-logic"
+import { assignableRoles, endedLine, invitableRoles, isExpired, parseEmails, removal, sortMembers, splitInvites } from "./invites-logic"
 
 const NOW = Date.parse("2026-11-08T12:00:00Z")
 
@@ -59,5 +59,27 @@ describe("sortMembers", () => {
   it("orders by role then name, drops people who left", () => {
     const out = sortMembers([mem(1, "Zed", "viewer"), mem(2, "Amy", "owner"), mem(3, "Bob", "viewer"), mem(4, "Gone", "admin", "left")])
     expect(out.map((m) => m.display_name)).toEqual(["Amy", "Bob", "Zed"])
+  })
+})
+
+describe("assignableRoles / removal (#1136)", () => {
+  const owner = mem(1, "O", "owner")
+  const admin = mem(2, "A", "admin")
+  const dev = mem(3, "D", "developer")
+  it("follows the server's role rules", () => {
+    expect(assignableRoles(owner, dev, 1)).toEqual(["owner", "admin", "developer", "reviewer", "viewer"])
+    expect(assignableRoles(admin, dev, 1)).toEqual(["admin", "developer", "reviewer", "viewer"])
+    expect(assignableRoles(admin, owner, 2)).toEqual([])
+    expect(assignableRoles(owner, owner, 1)).toEqual([])
+    expect(assignableRoles(owner, mem(4, "O2", "owner"), 2)).toHaveLength(5)
+    expect(assignableRoles(dev, admin, 1)).toEqual([])
+  })
+  it("knows who can remove or leave", () => {
+    expect(removal(owner, dev, 1)).toBe("remove")
+    expect(removal(admin, owner, 2)).toBeNull()
+    expect(removal(dev, dev, 1)).toBe("leave")
+    expect(removal(owner, owner, 1)).toBeNull()
+    expect(removal(owner, owner, 2)).toBe("leave")
+    expect(removal(dev, admin, 1)).toBeNull()
   })
 })

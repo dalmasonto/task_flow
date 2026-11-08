@@ -4,15 +4,26 @@
 /// Members and invites are core workspace state (the sidebar's invite badge
 /// needs them on every page), so this page reads them from App and realtime
 /// keeps them current; a create or revoke also applies the server's row at
-/// once. The server has two invite writes, create and revoke, so that's what
-/// this page offers. Changing a member's role and removing a member have no
-/// backend yet, so roles show read-only.
+/// once. Invites: create and revoke. Members (#1136): owners and admins change
+/// roles and remove people (anything touching an owner needs an owner; the
+/// last owner stays), and anyone may leave. Removing someone also stops the
+/// keys of agents they set up; the toast names them.
 import { useMemo, useState } from "react"
-import { Link } from "react-router-dom"
-import { MailIcon, RotateCcwIcon, SendIcon, XIcon } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import { LogOutIcon, MailIcon, RotateCcwIcon, SendIcon, UserMinusIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import type { TaskflowProjectInvite, TaskflowProjectInviteRole } from "@/api/client"
+import type { TaskflowProjectInvite, TaskflowProjectInviteRole, TaskflowProjectMember } from "@/api/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -20,14 +31,116 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { useLivenessNow } from "@/hooks/use-liveness-now"
-import { createTaskflowProjectInvite, revokeTaskflowProjectInvite, type TaskflowWorkspace } from "@/lib/taskflow-api"
+import { createTaskflowProjectInvite, removeMember, revokeTaskflowProjectInvite, setMemberRole, type TaskflowWorkspace } from "@/lib/taskflow-api"
 
 import { expiresLine } from "../account/account-logic"
 import { ActorAvatar } from "../components/actor-avatar"
 import { timeAgo } from "../lib/time"
 import { V3Shell } from "../shell/V3Shell"
 import { useWorkspace } from "../workspace"
-import { endedLine, invitableRoles, myMembership, parseEmails, roleLabel, sortMembers, splitInvites } from "./invites-logic"
+import { assignableRoles, endedLine, invitableRoles, myMembership, parseEmails, removal, roleLabel, sortMembers, splitInvites } from "./invites-logic"
+
+/// One member: their role (a picker when you may change it, #1136) and
+/// Remove, or Leave on your own row. The server re-checks every rule.
+function MemberRow({ m, me, projectId, ownerCount, isMe, username, now }: { m: TaskflowProjectMember; me: TaskflowProjectMember | undefined; projectId: number; ownerCount: number; isMe: boolean; username: string | null; now: number }) {
+  const { applyLiveUpdate, refresh } = useWorkspace()
+  const navigate = useNavigate()
+  const roles = isMe ? [] : assignableRoles(me, m, ownerCount)
+  const canRemove = removal(me, m, ownerCount)
+  const [busy, setBusy] = useState(false)
+  const [confirm, setConfirm] = useState(false)
+  const patchMember = (patch: Partial<TaskflowProjectMember>) => applyLiveUpdate((w) => ({ ...w, members: w.members.map((x) => (x.id === m.id ? { ...x, ...patch } : x)) }))
+
+  async function changeRole(role: TaskflowProjectInviteRole) {
+    if (role === m.role || m.user == null) return
+    setBusy(true)
+    try {
+      const res = await setMemberRole(projectId, m.user, role)
+      patchMember({ role: res.role })
+      toast.success(`${m.display_name} is now ${roleLabel(res.role).toLowerCase()}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't change the role.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    if (m.user == null) return
+    setBusy(true)
+    try {
+      const res = await removeMember(projectId, m.user)
+      const stopped = res.agents.length ? ` Agent keys they set up were stopped: ${res.agents.map((a) => a.display_name).join(", ")}.` : ""
+      if (canRemove === "leave") {
+        toast.success(`You left the project.${stopped}`)
+        refresh()
+        navigate("/v3/home", { replace: true })
+        return
+      }
+      patchMember({ status: "left" })
+      toast.success(`${m.display_name} was removed.${stopped}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "That didn't work.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <ActorAvatar name={m.display_name} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {m.display_name}
+          {isMe ? <span className="font-normal text-muted-foreground"> (you)</span> : null}
+        </p>
+        <p className="truncate text-xs text-muted-foreground">
+          {m.email ?? (isMe && username ? `@${username}` : null)}
+          {m.status === "suspended" ? " · Suspended" : m.joined_at ? ` · Joined ${timeAgo(m.joined_at, now)}` : ""}
+        </p>
+      </div>
+      {roles.length ? (
+        <Select items={Object.fromEntries(roles.map((r) => [r, roleLabel(r)]))} value={m.role} onValueChange={(v) => v && changeRole(v as TaskflowProjectInviteRole)} disabled={busy}>
+          <SelectTrigger className="h-8 w-32" aria-label={`Role for ${m.display_name}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {roles.map((r) => (
+              <SelectItem key={r} value={r}>
+                {roleLabel(r)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <Badge variant={m.role === "owner" ? "default" : "secondary"}>{roleLabel(m.role)}</Badge>
+      )}
+      {canRemove ? (
+        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirm(true)} aria-label={canRemove === "leave" ? "Leave project" : `Remove ${m.display_name}`}>
+          {busy ? <Spinner /> : canRemove === "leave" ? <LogOutIcon /> : <UserMinusIcon />}
+          {canRemove === "leave" ? "Leave" : null}
+        </Button>
+      ) : null}
+      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{canRemove === "leave" ? "Leave this project?" : `Remove ${m.display_name}?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {canRemove === "leave" ? "You lose access at once. " : `${m.display_name} loses access at once. `}
+              Keys of agents {canRemove === "leave" ? "you" : "they"} set up here stop working; the agents and their history stay, and an owner or admin can make them new keys. Their tasks, messages and activity stay.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={remove}>
+              {canRemove === "leave" ? "Leave project" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </li>
+  )
+}
 
 function upsertInvite(row: TaskflowProjectInvite) {
   return (w: TaskflowWorkspace): TaskflowWorkspace => {
@@ -135,6 +248,7 @@ export function InvitesPage() {
   const members = useMemo(() => live?.members ?? [], [live?.members])
   const invites = useMemo(() => live?.invites ?? [], [live?.invites])
   const me = myMembership(members, currentUser?.id)
+  const ownerCount = members.filter((m) => m.status === "active" && m.role === "owner").length
   const roles = invitableRoles(me, !!currentUser?.is_superuser)
   const canManage = roles.length > 0
   const people = useMemo(() => sortMembers(members), [members])
@@ -188,20 +302,16 @@ export function InvitesPage() {
               </h2>
               <ul className="divide-y rounded-xl border bg-card">
                 {people.map((m) => (
-                  <li key={m.id} className="flex items-center gap-3 px-4 py-3">
-                    <ActorAvatar name={m.display_name} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {m.display_name}
-                        {m.user != null && m.user === currentUser?.id ? <span className="font-normal text-muted-foreground"> (you)</span> : null}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {m.email ?? (m.user === currentUser?.id && currentUser?.username ? `@${currentUser.username}` : null)}
-                        {m.status === "suspended" ? " · Suspended" : m.joined_at ? ` · Joined ${timeAgo(m.joined_at, now)}` : ""}
-                      </p>
-                    </div>
-                    <Badge variant={m.role === "owner" ? "default" : "secondary"}>{roleLabel(m.role)}</Badge>
-                  </li>
+                  <MemberRow
+                    key={m.id}
+                    m={m}
+                    me={me}
+                    projectId={projectId!}
+                    ownerCount={ownerCount}
+                    isMe={m.user != null && m.user === currentUser?.id}
+                    username={currentUser?.username ?? null}
+                    now={now}
+                  />
                 ))}
               </ul>
             </section>
