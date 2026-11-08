@@ -27,6 +27,8 @@ pub mod claims;
 pub mod emit;
 // #1136: rotate / revoke an agent's keys.
 pub mod keys;
+// #1078: an agent's display name, provider and model.
+pub mod profile;
 // #1136: a member's role, or removing them (lives here: removal revokes the
 // keys of agents they linked, and writes activity).
 pub mod members;

@@ -414,6 +414,8 @@ async fn a_review_on_a_roomless_project_still_reports_back() {
             linked_user_label: None,
             instructions_markdown: None,
             instructions_updated_at: None,
+            provider: None,
+            model: None,
             last_seen_at: None,
             created_at: None,
         })

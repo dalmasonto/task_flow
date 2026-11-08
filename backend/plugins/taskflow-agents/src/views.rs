@@ -1598,6 +1598,12 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
         }
     }
 
+    // #1078 review: a NEW agent can't take a name another agent in the project
+    // already has (a second "reviewer (codex)" would read as the real one).
+    if existing_agent.is_none() && crate::profile::name_taken(project_id, &display_name, None).await? {
+        return Ok(crate::profile::name_taken_response());
+    }
+
     let tx_display_name = display_name.clone();
     let tx_identifier = identifier.clone();
     let instructions = normalize_markdown(instructions_markdown);
@@ -1658,6 +1664,8 @@ async fn mint_agent_core(spec: AgentMintSpec) -> Result<Response, StatusCode> {
                             linked_user_label: created_by_label.clone(),
                             instructions_markdown: tx_instructions.clone(),
                             instructions_updated_at: stamped,
+                            provider: None,
+                            model: None,
                             last_seen_at: None,
                             created_at: None,
                         })

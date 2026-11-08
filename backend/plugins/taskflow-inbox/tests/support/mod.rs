@@ -273,6 +273,8 @@ pub async fn seed_agent_key(project: i64, denied: &[&str]) -> (String, i64) {
             linked_user_label: None,
             instructions_markdown: None,
             instructions_updated_at: None,
+            provider: None,
+            model: None,
             last_seen_at: None,
             created_at: None,
         })

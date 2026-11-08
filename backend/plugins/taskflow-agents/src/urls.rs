@@ -107,7 +107,8 @@ pub fn router() -> Router {
             delete(views::delete_agent_as_agent),
         )
         // Remove an agent (human-authed): owner/admin, or whoever linked it.
-        .route("/api/taskflow/agents/{agent}", delete(views::delete_agent))
+        // #1078: PATCH renames / sets provider and model.
+        .route("/api/taskflow/agents/{agent}", delete(views::delete_agent).patch(crate::profile::patch))
         // #1136: rotate an agent's key, or stop one, without deleting the agent.
         .route("/api/taskflow/agents/{agent}/rotate-key", post(crate::keys::rotate_key))
         .route("/api/taskflow/agents/{agent}/credentials/{credential}/revoke", post(crate::keys::revoke_key))

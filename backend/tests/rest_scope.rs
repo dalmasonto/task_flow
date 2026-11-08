@@ -1196,6 +1196,8 @@ async fn a_member_cannot_write_instructions_through_auto_rest() {
             status: TaskflowAgentStatus::Offline,
             linked_by: None,
             linked_user_label: None,
+            provider: None,
+            model: None,
             last_seen_at: None,
             instructions_markdown: Some("original role".to_string()),
             instructions_updated_at: None,
