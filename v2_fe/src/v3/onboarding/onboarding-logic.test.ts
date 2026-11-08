@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { TaskflowAgentMessage, TaskflowAgentSession } from "@/api/client"
 
-import { agentConnectState, handshakeStage, initCommand, kickoffBody, projectRoom, taskflowJson, validateAgents } from "./onboarding-logic"
+import { agentConnectState, handshakeStage, initCommand, kickoffBody, linkDrafts, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
 
 const msg = (id: number, agent: number | null): TaskflowAgentMessage =>
   ({ id, sender_kind: agent == null ? "user" : "agent", sender_agent: agent }) as unknown as TaskflowAgentMessage
@@ -84,5 +84,30 @@ describe("projectRoom", () => {
   it("skips archived and non-project rooms, and is null when none is left", () => {
     expect(projectRoom([ch(1, { archived: true }), ch(2, { kind: "task" }), ch(3)])?.id).toBe(3)
     expect(projectRoom([ch(1, { is_design: true })])).toBeNull()
+  })
+})
+
+describe("linkDrafts", () => {
+  const drafts: AgentDraft[] = [
+    { model: "claude", displayName: "Claude (main)", profile: "main" },
+    { model: "codex", displayName: "reviewer (codex)", profile: "reviewer" },
+  ]
+  it("keeps agent 1's key when agent 2 fails, and a retry links only agent 2", async () => {
+    let stored: LinkedAgent[] = []
+    const calls: string[] = []
+    let failSecond = true
+    const link = async (d: AgentDraft) => {
+      calls.push(d.profile)
+      if (d.profile === "reviewer" && failSecond) throw new Error("429")
+      return { agent_id: calls.length, display_name: d.displayName, key: `tfk_${d.profile}` }
+    }
+    await expect(linkDrafts(drafts, stored, link, (s) => (stored = s))).rejects.toThrow("429")
+    expect(stored.map((a) => [a.profile, a.key])).toEqual([["main", "tfk_main"]])
+
+    failSecond = false
+    const out = await linkDrafts(drafts, stored, link, (s) => (stored = s))
+    expect(calls).toEqual(["main", "reviewer", "reviewer"]) // exactly one agent 1
+    expect(out.map((a) => [a.profile, a.key])).toEqual([["main", "tfk_main"], ["reviewer", "tfk_reviewer"]])
+    expect(stored).toEqual(out)
   })
 })

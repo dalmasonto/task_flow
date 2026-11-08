@@ -32,6 +32,7 @@ function write(v: Stored) {
 export const onboardingStore = {
   projectId: () => read().projectId,
   setProject(projectId: string) {
+    keys.clear()
     write({ ...read(), projectId, agents: [], kickoffId: null })
   },
   agents(): LinkedAgent[] {

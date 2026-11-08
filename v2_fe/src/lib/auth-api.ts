@@ -305,6 +305,9 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
   } catch (error) {
     if (error instanceof AuthHttpError && (error.status === 401 || error.status === 403)) {
       clearStoredSession()
+      // The kept copy for this server is the same dead token; drop it too, or a
+      // later switch back would adopt it and bounce to sign-in once.
+      await siteDb.sessions.delete(API_BASE_URL).catch(() => undefined)
       return null
     }
     return getStoredUser()

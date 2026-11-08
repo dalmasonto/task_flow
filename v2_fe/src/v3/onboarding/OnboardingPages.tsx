@@ -26,7 +26,7 @@ import { ActorAvatar } from "../components/actor-avatar"
 import { MODELS, type ModelId } from "../components/actor-models"
 import { BrandMark } from "../marketing/public-chrome"
 import { useWorkspace } from "../workspace"
-import { agentConnectState, handshakeStage, initCommand, kickoffBody, PAIRINGS, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
+import { agentConnectState, handshakeStage, initCommand, kickoffBody, linkDrafts, PAIRINGS, projectRoom, taskflowJson, validateAgents, type AgentDraft, type LinkedAgent } from "./onboarding-logic"
 import { onboardingStore } from "./onboarding-store"
 
 const STEPS = ["Project", "Agents", "Connect", "Say hello"] as const
@@ -284,12 +284,13 @@ export function OnboardingAgentsPage() {
     setPending(true)
     setError(null)
     try {
-      const linked: LinkedAgent[] = []
-      for (const a of agents) {
-        const r = await linkAgent({ project: Number(projectId), display_name: a.displayName.trim(), profile: a.profile, runtime: a.model })
-        linked.push({ ...a, displayName: r.display_name, agentId: r.agent_id, key: r.key })
-      }
-      onboardingStore.setAgents(linked)
+      await linkDrafts(
+        agents,
+        onboardingStore.agents(),
+        (a) => linkAgent({ project: Number(projectId), display_name: a.displayName.trim(), profile: a.profile, runtime: a.model }),
+        // Stored after every link, so a failure on agent 2 keeps agent 1's key.
+        (soFar) => onboardingStore.setAgents(soFar),
+      )
       navigate("/v3/onboarding/connect")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create the agents.")

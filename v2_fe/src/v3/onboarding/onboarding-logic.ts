@@ -69,6 +69,31 @@ export function taskflowJson(server: string, project: number, agents: LinkedAgen
   return JSON.stringify({ server, project, default_profile: agents[0]?.profile ?? "main", profiles }, null, 2)
 }
 
+/// Link the drafts in order, reusing any already linked under the same profile
+/// (a retry after a partial failure must not mint a second agent 1 whose first
+/// key nobody saw). `onLinked` gets the list so far after EVERY link, so a later
+/// failure can't lose an earlier agent's one-time key.
+export async function linkDrafts(
+  drafts: AgentDraft[],
+  already: LinkedAgent[],
+  link: (draft: AgentDraft) => Promise<{ agent_id: number; display_name: string; key: string }>,
+  onLinked: (soFar: LinkedAgent[]) => void,
+): Promise<LinkedAgent[]> {
+  const out: LinkedAgent[] = []
+  for (const d of drafts) {
+    const prior = already.find((a) => a.profile === d.profile)
+    if (prior) {
+      out.push(prior)
+      continue
+    }
+    const r = await link(d)
+    out.push({ ...d, displayName: r.display_name, agentId: r.agent_id, key: r.key })
+    onLinked([...out])
+  }
+  onLinked(out)
+  return out
+}
+
 export type ConnectState = "waiting" | "connected"
 
 export function agentConnectState(agentId: number, sessions: TaskflowAgentSession[], now: number): { state: ConnectState; lastSeen: string | null } {
